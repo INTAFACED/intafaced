@@ -17,6 +17,8 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
+import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
+import { tradeFillFeeCorrection } from './fill-correction.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -25,11 +27,16 @@ import {
 } from './escrow-dispute-law.js';
 import {
   burnAccount,
+  futuresLossSink,
   houseFees,
   merchantClearing,
+  merchantProceeds,
+  merchantProceedsPayoutHold as merchantProceedsPayoutHoldAccount,
   mintBoundary,
   orderHoldAccount,
   positionCollateralAccount,
+  subAccountAvailable,
+  subAccountPositionCollateral,
   insuranceFund,
   railBoundary,
   marketMaker,
@@ -43,6 +50,7 @@ import {
 
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
+export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -63,6 +71,41 @@ function requirePositive(name: string, value: Amount): void {
   if (value <= 0n) throw new InvalidEntryError(`${name} must be positive`);
 }
 
+function namedSubAccount(subAccountId: string | undefined): string {
+  return subAccountId?.trim() ?? '';
+}
+
+/** Tagged deposits credit the named sub-account. Untagged deposits credit the user pot. */
+function depositCreditedAccount(input: { userId: string; assetId: string; subAccountId?: string }): AccountRef {
+  const subAccountId = namedSubAccount(input.subAccountId);
+  if (subAccountId) return subAccountAvailable(subAccountId, input.assetId);
+  return userAvailable(input.userId, input.assetId);
+}
+
+function assertDepositConfirmed(input: { confirmed?: boolean }): void {
+  if (input.confirmed === false) throw new InvalidEntryError('An unconfirmed deposit credits no pot');
+}
+
+function marginPots(input: { userId: string; assetId: string; positionId: string; subAccountId?: string }): {
+  subAccountId: string;
+  available: AccountRef;
+  collateral: AccountRef;
+} {
+  const subAccountId = namedSubAccount(input.subAccountId);
+  if (subAccountId) {
+    return {
+      subAccountId,
+      available: subAccountAvailable(subAccountId, input.assetId),
+      collateral: subAccountPositionCollateral(subAccountId, input.assetId, input.positionId),
+    };
+  }
+  return {
+    subAccountId: '',
+    available: userAvailable(input.userId, input.assetId),
+    collateral: positionCollateralAccount(input.userId, input.assetId, input.positionId),
+  };
+}
+
 // ── Deposits & withdrawals ───────────────────────────────────────────────────
 
 export interface DepositInput {
@@ -73,20 +116,56 @@ export interface DepositInput {
   rail: string;
   /** Rail's own reference (tx hash, PSP id) — this is what makes it idempotent. */
   railRef: string;
+  /**
+   * When set, the credit lands on this sub-account's available pot.
+   * The parent user pot is not credited.
+   */
+  subAccountId?: string;
+  /**
+   * A tagged deposit credits only after confirmation.
+   * `false` posts nothing: neither the sub-account nor the parent user pot.
+   * Omitted means confirmed, so existing callers are unchanged.
+   */
+  confirmed?: boolean;
 }
 
 /** Value enters the book from the outside world. */
 export function deposit(input: DepositInput): PostRequest {
   requirePositive('deposit amount', input.amount);
+  assertDepositConfirmed(input);
+  const subAccountId = namedSubAccount(input.subAccountId);
   return {
     idempotencyKey: `deposit:${input.rail}:${input.railRef}`,
     module: 'ledger',
     reason: 'deposit.credited',
-    meta: { rail: input.rail, railRef: input.railRef },
-    entries: [
-      credit(railBoundary(input.rail, input.assetId), input.amount),
-      debit(userAvailable(input.userId, input.assetId), input.amount),
-    ],
+    meta: { rail: input.rail, railRef: input.railRef, ...(subAccountId ? { subAccountId } : {}) },
+    entries: [credit(railBoundary(input.rail, input.assetId), input.amount), debit(depositCreditedAccount(input), input.amount)],
+  };
+}
+
+export interface DepositReverseInput extends DepositInput {
+  /** One reversal per deposit. A second post for this id returns the first. */
+  depositId: string;
+}
+
+/**
+ * The chain rewrote the block a deposit was credited from.
+ *
+ * Inverse of `deposit`: the amount leaves the user's available balance and
+ * the rail boundary. A new journal row, not an edit of the credit.
+ */
+export function depositReverse(input: DepositReverseInput): PostRequest {
+  requirePositive('deposit reversal amount', input.amount);
+  assertDepositConfirmed(input);
+  const depositId = input.depositId.trim();
+  if (!depositId) throw new InvalidEntryError('deposit reversal requires a deposit id');
+  const subAccountId = namedSubAccount(input.subAccountId);
+  return {
+    idempotencyKey: `deposit.reverse:${depositId}`,
+    module: 'ledger',
+    reason: 'deposit.reversed',
+    meta: { rail: input.rail, railRef: input.railRef, depositId, ...(subAccountId ? { subAccountId } : {}) },
+    entries: [debit(railBoundary(input.rail, input.assetId), input.amount), credit(depositCreditedAccount(input), input.amount)],
   };
 }
 
@@ -441,20 +520,22 @@ export interface FuturesMarginInput {
   /** Margin asset (typically quote, e.g. USDT). */
   assetId: string;
   amount: Amount;
+  /**
+   * When set, the margin pot is this sub-account. The parent user pot is not used.
+   */
+  subAccountId?: string;
 }
 
 /** Lock margin into purpose-keyed collateral for one position. */
 export function futuresMarginLock(input: FuturesMarginInput): PostRequest {
   requirePositive('futures margin lock amount', input.amount);
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.lock:${input.positionId}`,
     module: 'trade',
     reason: 'futures.margin.lock',
-    meta: { positionId: input.positionId },
-    entries: [
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-      debit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-    ],
+    meta: { positionId: input.positionId, ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}) },
+    entries: [credit(pots.available, input.amount), debit(pots.collateral, input.amount)],
   };
 }
 
@@ -465,30 +546,30 @@ export function futuresMarginLock(input: FuturesMarginInput): PostRequest {
 export function futuresMarginAdd(input: FuturesMarginInput & { sequence: number }): PostRequest {
   requirePositive('futures margin add amount', input.amount);
   if (input.sequence < 1) throw new InvalidEntryError('futures margin add sequence must be >= 1');
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.add:${input.positionId}:${input.sequence}`,
     module: 'trade',
     reason: 'futures.margin.add',
-    meta: { positionId: input.positionId, sequence: input.sequence },
-    entries: [
-      credit(userAvailable(input.userId, input.assetId), input.amount),
-      debit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-    ],
+    meta: {
+      positionId: input.positionId,
+      sequence: input.sequence,
+      ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}),
+    },
+    entries: [credit(pots.available, input.amount), debit(pots.collateral, input.amount)],
   };
 }
 
 /** Release remaining margin on close / cancel before open risk. */
 export function futuresMarginRelease(input: FuturesMarginInput & { sequence?: number }): PostRequest {
   requirePositive('futures margin release amount', input.amount);
+  const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.release:${input.positionId}:${input.sequence ?? 0}`,
     module: 'trade',
     reason: 'futures.margin.release',
-    meta: { positionId: input.positionId },
-    entries: [
-      credit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.amount),
-      debit(userAvailable(input.userId, input.assetId), input.amount),
-    ],
+    meta: { positionId: input.positionId, ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}) },
+    entries: [credit(pots.collateral, input.amount), debit(pots.available, input.amount)],
   };
 }
 
@@ -500,32 +581,49 @@ export interface FuturesLossInput {
   fromMargin: Amount;
   /** Residual loss taken from insurance fund (may be 0n — then omit by not calling). */
   fromInsurance: Amount;
-  /** Realized PnL sink: house trade fees pot until a dedicated PnL account exists. */
+  /** Idempotency id. A retry of this id posts once. */
   lossId: string;
+  /**
+   * When set, margin leaves this sub-account's position pot, never the parent user pot.
+   */
+  subAccountId?: string;
+  /**
+   * Pot the caller asks to draw. It must be `subAccountId`.
+   * Any other id is a sibling partition and is refused before an entry is built.
+   */
+  drawSubAccountId?: string;
 }
 
 /**
  * Realize a loss against position margin (+ optional insurance).
  *
- * Entries balance per asset: margin (+ insurance) leave user/house pots into
- * house fees:trade as the temporary realized-loss sink (engine names the amounts).
- * Full insurance accounting may refine the sink later without changing the lock shape.
+ * The debit is `futuresLossSink`, not `houseFees('trade')`. A fee total stays fees.
+ * Engine names the amounts. A sub-account loss stays on that sub-account's pot.
  */
 export function futuresRealizeLoss(input: FuturesLossInput): PostRequest {
+  const named = namedSubAccount(input.subAccountId);
+  const draw = namedSubAccount(input.drawSubAccountId);
+  if (draw && draw !== named) {
+    throw new InvalidEntryError('A futures loss cannot draw a sibling sub-account pot');
+  }
   if (input.fromMargin < 0n || input.fromInsurance < 0n) {
     throw new InvalidEntryError('futures loss legs must be non-negative');
   }
   const total = input.fromMargin + input.fromInsurance;
   requirePositive('futures realized loss total', total);
 
+  const collateral = named
+    ? subAccountPositionCollateral(named, input.assetId, input.positionId)
+    : positionCollateralAccount(input.userId, input.assetId, input.positionId);
+
   const entries: EntryInput[] = [];
   if (input.fromMargin > 0n) {
-    entries.push(credit(positionCollateralAccount(input.userId, input.assetId, input.positionId), input.fromMargin));
+    entries.push(credit(collateral, input.fromMargin));
   }
   if (input.fromInsurance > 0n) {
     entries.push(credit(insuranceFund(input.assetId), input.fromInsurance));
   }
-  entries.push(debit(houseFees('trade', input.assetId), total));
+  entries.push(debit(futuresLossSink(input.assetId), total));
 
   return {
     idempotencyKey: `futures.loss:${input.lossId}`,
@@ -535,6 +633,7 @@ export function futuresRealizeLoss(input: FuturesLossInput): PostRequest {
       positionId: input.positionId,
       fromMargin: input.fromMargin.toString(),
       fromInsurance: input.fromInsurance.toString(),
+      ...(named ? { subAccountId: named } : {}),
     },
     entries,
   };
@@ -552,10 +651,10 @@ export interface FuturesProfitInput {
 /**
  * Realize a profit on voluntary close (trade.futures residual).
  *
- * Symmetric counterpart of futuresRealizeLoss: house trade fees pot (temporary
- * PnL counterpart until a dedicated futures PnL account exists) pays the user's
- * available balance. Engine names the amount from an **external** exit mark —
- * this recipe never invents a price.
+ * House trade fees still pay the user's available balance. The loss recipe
+ * debits the futures-loss sink instead, so a winning close is not the mirror
+ * of a loss. Engine names the amount from an **external** exit mark — this
+ * recipe never invents a price.
  */
 export function futuresRealizeProfit(input: FuturesProfitInput): PostRequest {
   requirePositive('futures realized profit', input.amount);
@@ -727,8 +826,8 @@ export function escrowRefund(input: EscrowInput & { resolution?: string; ruling?
 // staged rather than collapsed into one:
 //
 //   capture     rail → merchant clearing        (value enters the book)
-//   settlement  clearing → merchant + house fee (the merchant can now spend it)
-//   refund      clearing or merchant → rail     (value leaves the book)
+//   settlement  clearing → merchant proceeds + house fee
+//   refund      clearing or proceeds → rail     (value leaves the book)
 //
 // The clearing stop in the middle is what makes "captured but not settled"
 // a balance you can read rather than an incident you have to reconstruct.
@@ -767,7 +866,11 @@ export function paymentCapture(input: PaymentCaptureInput): PostRequest {
 
 export interface MerchantSettlementInput {
   merchantId: string;
-  /** The merchant's own user account — the balance they trade and spend from. */
+  /**
+   * Kept so existing callers still type-check. The recipe does not credit this
+   * user. Settled net lands on `merchantProceeds(merchantId)`, not on the
+   * owner's trading balance.
+   */
   merchantUserId: string;
   /** Settlement window label, e.g. '2026-07-27'. Part of the business key. */
   window: string;
@@ -779,13 +882,17 @@ export interface MerchantSettlementInput {
 }
 
 /**
- * Settlement (§6.1): "merchant net posts to their ledger account — the same
- * balance graph they trade and spend from".
+ * Settlement: gross leaves clearing, the fee lands in house fees, and the net
+ * is the merchant's proceeds. The owner's `userAvailable` is not a leg.
  *
  * The asset is part of the idempotency key as well as the merchant and window.
  * A merchant settling USDT and BTC for the same day is two settlements; without
  * the asset in the key the second would find the first's transaction, return it,
  * and silently strand a whole currency's takings in clearing.
+ *
+ * The key is unchanged from the cutover that used to credit `userAvailable`.
+ * A window already posted under that key replays the historical transaction
+ * (or refuses a different body). It does not also credit proceeds.
  */
 export function merchantSettlement(input: MerchantSettlementInput): PostRequest {
   requirePositive('settlement gross', input.gross);
@@ -804,7 +911,7 @@ export function merchantSettlement(input: MerchantSettlementInput): PostRequest 
     meta: { merchantId: input.merchantId, window: input.window, assetId: input.assetId },
     entries: [
       credit(merchantClearing(input.merchantId, input.assetId), input.gross),
-      debit(userAvailable(input.merchantUserId, input.assetId), net),
+      debit(merchantProceeds(input.merchantId, input.assetId), net),
       ...(input.fee > 0n ? [debit(houseFees('pay', input.assetId), input.fee)] : []),
     ],
   };
@@ -815,6 +922,12 @@ export interface PaymentRefundInput {
   refundId: string;
   paymentId: string;
   merchantId: string;
+  /**
+   * The owner's trading balance. A settled refund uses it only when
+   * `settledPot` is `user`: that payment's settlement post debited
+   * `userAvailable`. The default settled pot is proceeds, and a settled refund
+   * does not take a shortfall from this balance.
+   */
   merchantUserId: string;
   assetId: string;
   amount: Amount;
@@ -822,13 +935,22 @@ export interface PaymentRefundInput {
   /**
    * Where the money comes back from.
    *
-   * Before settlement the merchant has not been paid yet, so the value is still
-   * in clearing. After settlement it is in their available balance and the
-   * refund draws on it — which is exactly why a post-settlement refund can fail
-   * with insufficient funds, and must be allowed to fail rather than be forced
-   * through by taking the value from somewhere that is not the merchant's.
+   * Before settlement the value is still in clearing. After settlement it is
+   * in the pot that settlement post debited. A settled refund that exceeds
+   * that pot fails with insufficient funds.
    */
   source: 'clearing' | 'settled';
+  /**
+   * Which account a settled refund draws. Omitted means proceeds.
+   * `user` is the pre-cutover pot: the settlement key debited `userAvailable`.
+   */
+  settledPot?: 'proceeds' | 'user';
+}
+
+function refundPot(input: PaymentRefundInput): AccountRef {
+  if (input.source === 'clearing') return merchantClearing(input.merchantId, input.assetId);
+  if (input.settledPot === 'user') return userAvailable(input.merchantUserId, input.assetId);
+  return merchantProceeds(input.merchantId, input.assetId);
 }
 
 /**
@@ -841,8 +963,7 @@ export interface PaymentRefundInput {
 export function paymentRefund(input: PaymentRefundInput): PostRequest {
   requirePositive('refund amount', input.amount);
 
-  const from =
-    input.source === 'clearing' ? merchantClearing(input.merchantId, input.assetId) : userAvailable(input.merchantUserId, input.assetId);
+  const from = refundPot(input);
 
   return {
     idempotencyKey: `payment.refund:${input.paymentId}:${input.refundId}`,
@@ -868,8 +989,7 @@ export function paymentRefund(input: PaymentRefundInput): PostRequest {
 export function paymentRefundReverse(input: PaymentRefundInput): PostRequest {
   requirePositive('refund reversal amount', input.amount);
 
-  const to =
-    input.source === 'clearing' ? merchantClearing(input.merchantId, input.assetId) : userAvailable(input.merchantUserId, input.assetId);
+  const to = refundPot(input);
 
   return {
     idempotencyKey: `payment.refund.reverse:${input.paymentId}:${input.refundId}`,
@@ -877,6 +997,66 @@ export function paymentRefundReverse(input: PaymentRefundInput): PostRequest {
     reason: 'payment.refund.reversed',
     meta: { paymentId: input.paymentId, refundId: input.refundId, source: input.source, rail: input.rail },
     entries: [credit(railBoundary(input.rail, input.assetId), input.amount), debit(to, input.amount)],
+  };
+}
+
+export interface MerchantProceedsPayoutInput {
+  merchantId: string;
+  assetId: string;
+  amount: Amount;
+  rail: string;
+  /** `${settlementId}:${payoutAttempt}` so a retry is a new hold. */
+  withdrawalId: string;
+}
+
+/**
+ * Merchant payout, step 1. Proceeds decrease; the purpose hold on the same
+ * owner increases. Not `withdrawHold`: that recipe debits `userAvailable`.
+ */
+function merchantProceedsPayoutHold(input: MerchantProceedsPayoutInput): PostRequest {
+  requirePositive('payout amount', input.amount);
+  return {
+    idempotencyKey: `pay.proceeds.payout.hold:${input.withdrawalId}`,
+    module: 'pay',
+    reason: 'pay.proceeds.payout.held',
+    meta: { merchantId: input.merchantId, rail: input.rail, withdrawalId: input.withdrawalId },
+    entries: [
+      credit(merchantProceeds(input.merchantId, input.assetId), input.amount),
+      debit(merchantProceedsPayoutHoldAccount(input.merchantId, input.assetId, input.withdrawalId), input.amount),
+    ],
+  };
+}
+
+/** Merchant payout, step 2a. The hold leaves the book through the rail. */
+export function merchantProceedsPayoutSettle(input: MerchantProceedsPayoutInput): PostRequest {
+  requirePositive('payout amount', input.amount);
+  return {
+    idempotencyKey: `pay.proceeds.payout.settle:${input.withdrawalId}`,
+    module: 'pay',
+    reason: 'pay.proceeds.payout.settled',
+    meta: { merchantId: input.merchantId, rail: input.rail, withdrawalId: input.withdrawalId },
+    entries: [
+      credit(merchantProceedsPayoutHoldAccount(input.merchantId, input.assetId, input.withdrawalId), input.amount),
+      debit(railBoundary(input.rail, input.assetId), input.amount),
+    ],
+  };
+}
+
+/**
+ * Merchant payout, step 2b. The rail refused. Value returns to proceeds.
+ * A reverse onto `userAvailable` would put merchant money on the personal book.
+ */
+export function merchantProceedsPayoutReverse(input: MerchantProceedsPayoutInput): PostRequest {
+  requirePositive('payout reversal amount', input.amount);
+  return {
+    idempotencyKey: `pay.proceeds.payout.reverse:${input.withdrawalId}`,
+    module: 'pay',
+    reason: 'pay.proceeds.payout.reversed',
+    meta: { merchantId: input.merchantId, rail: input.rail, withdrawalId: input.withdrawalId },
+    entries: [
+      credit(merchantProceedsPayoutHoldAccount(input.merchantId, input.assetId, input.withdrawalId), input.amount),
+      debit(merchantProceeds(input.merchantId, input.assetId), input.amount),
+    ],
   };
 }
 
@@ -1087,14 +1267,26 @@ export {
   type MarketListingFeeInput,
   type MarketPremiumPlacementInput,
 } from './market.js';
+export {
+  fxConversion,
+  fxConversionHold,
+  fxConversionLateFill,
+  fxConversionRelease,
+  fxConversionReverse,
+  type FxConversionHoldInput,
+  type FxConversionInput,
+  type FxConversionLateFillInput,
+} from './conversion.js';
 
 export const recipes = {
   deposit,
+  depositReverse,
   marketMakerSeedFund,
   withdrawHold,
   withdrawSettle,
   withdrawReverse,
   tradeFill,
+  tradeFillFeeCorrection,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,
@@ -1115,6 +1307,9 @@ export const recipes = {
   merchantSettlement,
   paymentRefund,
   paymentRefundReverse,
+  merchantProceedsPayoutHold,
+  merchantProceedsPayoutSettle,
+  merchantProceedsPayoutReverse,
   // §6.1 chargebacks — see ./chargeback.ts. ⚠ NEW RECIPES, OWNER SIGN-OFF
   // REQUIRED BEFORE MERGE (DIRECTION §3 Class M). Nothing calls them yet: they
   // exist so a card rail can be honest about a dispute before one is written,
@@ -1158,6 +1353,15 @@ export const recipes = {
   marketPurchase,
   marketListingFee,
   marketPremiumPlacement,
+  // W6 sandbox conversion. USD and USDT on separate accounts; fee and spread to house revenue.
+  // Hold and release reserve clearing around the venue call. Reverse keeps the venue legs.
+  fxConversion,
+  fxConversionHold,
+  fxConversionRelease,
+  fxConversionReverse,
+  // Late fill after the hold was released. Clearing pays the merchant when it can cover.
+  // Inventory takes the venue position only: no second credit to the merchant.
+  fxConversionLateFill,
 } as const;
 
 export type RecipeName = keyof typeof recipes;

@@ -2,13 +2,17 @@ import { useId, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { Button, Dialog, Field } from '../../shared/ui';
+import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import { useSession } from '../session/session';
-import { PayAmount, PayTime } from './components';
+import { PayAmount } from './components';
+import { DateTime } from './portal/ui/DateTime';
 import type { BusinessPayApi } from './pay-api';
 import type { RefundLookup, RefundReceipt, RefundSnapshot } from './merchant-refund-api';
-import { refundCopy } from './merchant-refund-copy';
+import { HISTORY_WINDOW, refundCopy, refundFailureKey } from './merchant-refund-copy';
 import * as s from './schemas';
+import { moneyReason } from './portal/access/money-step';
+import { payStepUp } from './portal/access/step-up-store';
 import './merchant-refund.css';
 
 type Context = {
@@ -195,25 +199,40 @@ export function MerchantRefund({
       document.removeEventListener('visibilitychange', returned);
     };
   }, [context]);
-  function prepare() {
+  /** A refusal this screen writes itself when the confirmation step cannot be completed. Nothing was sent. */
+  const stepFailure = (code: 'pay.refund_step_up_required' | 'pay.refund_step_up_expired'): Failure => ({
+    ok: false,
+    reason: 'error',
+    code,
+    message: t(code === 'pay.refund_step_up_required' ? 'stepRequired' : 'stepExpired'),
+  });
+  async function prepare() {
     if (!live() || !shown?.draft || draft.current !== shown.draft || !shown.payment || shown.busy) return;
     const saved = pay.refund.inspect(paymentId, live);
     if (saved.status !== 'empty' || saved.known || saved.problem) {
       invalidate();
       return;
     }
-    const amount = shown.draft.amount.trim();
+    const started = shown.draft;
+    const payment = shown.payment;
+    const amount = started.amount.trim();
     if (
       !s.positiveAmount.safeParse(amount).success ||
-      parseAmount(amount) > parseAmount(shown.payment.capturedAmount) - parseAmount(shown.payment.refundedAmount)
+      parseAmount(amount) > parseAmount(payment.capturedAmount) - parseAmount(payment.refundedAmount)
     ) {
       update({ failure: { ok: false, reason: 'error', code: 'pay.refund_amount_invalid', message: t('invalidAmount') } });
       return;
     }
+    // Money out: confirm it's them first. The review opens once that is done; nothing is reserved or sent before.
+    if (!(await payStepUp.ensure('refund'))) {
+      if (live() && !payStepUp.canAsk) update({ failure: stepFailure('pay.refund_step_up_required') });
+      return;
+    }
+    if (!live() || draft.current !== started || admitted.current || pay.refund.inspect(paymentId, live).status !== 'empty') return;
     const review = {
       context,
       input: Object.freeze({ paymentId, amount, refundId: `refund:${paymentId}:${crypto.randomUUID()}` }),
-      assetId: shown.payment.assetId,
+      assetId: payment.assetId,
     };
     operation.current = null;
     admitted.current = review;
@@ -255,7 +274,23 @@ export function MerchantRefund({
     update({ busy: true });
     const reviewCurrent = () => live() && admitted.current === review && operation.current === action;
     const originalCurrent = () => live() && operation.current === action;
-    const result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+    // Nothing has been sent when the confirmation is missing or turned away, so the review closes with the amount kept.
+    const stopped = (code: 'pay.refund_step_up_required' | 'pay.refund_step_up_expired') => {
+      if (!live() || admitted.current !== review || operation.current !== action) return;
+      operation.current = null;
+      dismiss(review, true);
+      update({ failure: stepFailure(code) });
+    };
+    // The confirmation may have run out while the review was open: confirm again, then send.
+    if (!(await payStepUp.ensure('refund'))) return stopped('pay.refund_step_up_required');
+    let result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+    if (!result.ok && result.code === 'pay.refund_step_up_expired') {
+      // It ran out between the check and the send. The same review, with the same refund reference, goes out again.
+      payStepUp.drop('refund');
+      if (!(await payStepUp.ensure('refund', true))) return stopped('pay.refund_step_up_expired');
+      result = await pay.refund.submit(review.input, reviewCurrent, originalCurrent, live);
+      if (!result.ok && result.code === 'pay.refund_step_up_expired') return stopped('pay.refund_step_up_expired');
+    }
     publish(result, action);
   }
   async function check() {
@@ -313,32 +348,32 @@ export function MerchantRefund({
       onBack();
     }
   }
+  // The technical references sit behind a disclosure: support asks for them, a merchant seldom does.
   const references = (reference: string | null) => (
-    <dl>
-      <div>
-        <dt>
-          <Copy k="payment" />
-        </dt>
-        <dd lang="zxx">{paymentId}</dd>
-      </div>
-      <div>
-        <dt>
-          <Copy k="reference" />
-        </dt>
-        <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
-      </div>
-    </dl>
+    <details className="merchant-refund-details">
+      <summary>{t('details')}</summary>
+      <dl>
+        <div>
+          <dt>
+            <Copy k="payment" />
+          </dt>
+          <dd lang="zxx">{paymentId}</dd>
+        </div>
+        <div>
+          <dt>
+            <Copy k="reference" />
+          </dt>
+          <dd lang={reference ? 'zxx' : requestedLocale}>{reference ?? t('unavailable')}</dd>
+        </div>
+      </dl>
+    </details>
   );
   const failure = shown?.failure;
-  const authoredFailure = failure?.code?.startsWith('pay.refund_');
-  const failureText =
-    snapshot.problem === 'busy'
-      ? t('busy')
-      : failure?.code === 'pay.refund_amount_invalid' || failure?.code === 'pay.refund_input_invalid'
-        ? t('invalidAmount')
-        : failure?.code === 'pay.refund_context_changed'
-          ? t('contextChanged')
-          : t('unavailableBody');
+  const failureKey = refundFailureKey({
+    code: failure?.code,
+    busy: snapshot.problem === 'busy',
+    referenceHeld: snapshot.status !== 'empty',
+  });
   if (!live() || pay.access('pay:read')) return null;
   return (
     <section className="merchant-refund" aria-labelledby={titleId} ref={form} lang={requestedLocale}>
@@ -365,7 +400,7 @@ export function MerchantRefund({
             <Copy k="matched" />
           </p>
           <strong>{t(receipt.kind === 'refunded' ? 'recorded' : 'reversed')}</strong>
-          <PayTime value={receipt.ts} />
+          <DateTime value={receipt.ts} />
         </div>
       )}
       {receipt && cleanupPending && (
@@ -429,7 +464,7 @@ export function MerchantRefund({
                 <Copy k="noMatch" />
               </h4>
               <p className="muted">
-                <Copy k="historyWindow" params={{ count: shown.count, limit: 200 }} />
+                <Copy k={shown.count >= HISTORY_WINDOW ? 'historyWindow' : 'historyAll'} params={{ count: shown.count }} />
               </p>
               <p>
                 <Copy k="noProof" />
@@ -471,8 +506,13 @@ export function MerchantRefund({
                   update({ draft: next, failure: null });
                 }}
               />
+              {pay.access('pay:refund') && (
+                <p role="note" className="muted">
+                  {moneyReason('refund', pay.authority?.scopes)}
+                </p>
+              )}
               <Button
-                onClick={prepare}
+                onClick={() => void prepare()}
                 disabled={!shown.draft?.amount || shown.busy || Boolean(pay.access('pay:refund')) || Boolean(snapshot.problem)}
               >
                 <Copy k="reviewAction" />
@@ -489,8 +529,8 @@ export function MerchantRefund({
           </Button>
         ))}
       {failure && (
-        <p role="alert" lang={authoredFailure ? requestedLocale : 'und'}>
-          {authoredFailure ? failureText : failure.message}
+        <p role="alert" lang={requestedLocale}>
+          {t(failureKey)}
         </p>
       )}
       {shown?.busy && (
@@ -502,7 +542,7 @@ export function MerchantRefund({
         <Copy k="back" />
       </Button>
       {currentReview && (
-        <Dialog title={t('review')} onClose={() => dismiss(currentReview, false)}>
+        <Dialog closeLabel={t('back')} title={t('review')} onClose={() => dismiss(currentReview, false)}>
           <div className="merchant-refund merchant-refund-review">
             <p className="muted">
               <Copy k="reviewBody" />

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { AuthError } from '@intafaced/auth';
+import { AuthError, type Principal } from '@intafaced/auth';
 import {
   checkNetworkAccess,
   type ComplianceQueueDispositionRequest,
@@ -7,8 +7,9 @@ import {
   type ComplianceQueueKind,
 } from '@intafaced/config';
 import { statusForAuthError, type AdminApi } from './admin-api.js';
+import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
-import { ActionApprovalConsumeError } from './action-approval-consume.js';
+import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
 import { evaluateGeoBlock, geoBlockErrorMessage, geoBlockHttpStatus, geoBlockOpsHttpStatus, geoBlockPublicBody } from './geo-block.js';
 import { resolveRequestRegion, regionResolutionStatusLine } from './geo-region.js';
 import { resolvedPathname, type KillSwitchState } from './kill-switch.js';
@@ -126,15 +127,15 @@ export function registerKillSwitchGuard(app: FastifyInstance, killSwitches: Kill
     if (!pathname.startsWith('/api/')) return;
 
     /**
-     * S2S `/internal/*` is not a public route. Pay jobs, token stake, identity
+     * Service-to-service `/internal/*` is not a public route. Pay jobs, token stake, identity
      * rank, bank cron — all sit at that path behind a service secret the edge
      * does not hold and will not forward. Refuse here, before the kill-switch
-     * and before the proxy, so a live module cannot 200 an S2S job from the
+     * and before the proxy, so a live module cannot 200 a service job from the
      * internet. 404 + `edge.s2s_not_proxied`, never a green pass-through.
      */
     const routed = resolve(pathname);
     if (routed && isS2sPath(routed.path)) {
-      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — S2S path is not a public door');
+      req.log.warn({ path: pathname, module: routed.upstream.module }, 'edge: refused — service path is not a public door');
       return reply.code(404).send({ error: userCopy('edge.s2s_not_proxied'), code: 'edge.s2s_not_proxied' });
     }
 
@@ -281,7 +282,7 @@ export function registerNetworkAccessGuard(app: FastifyInstance): void {
  * than fall through to an upstream. The catch-all proxy is never what decides
  * whether an admin path is real.
  */
-export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void {
+export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, matching: MatchingOperatorCall | null = null): void {
   // Public §29 honesty door — not proxied to svc-quant (that service must not exist yet).
   registerQuantHonestyRoutes(app);
   registerQuantSurfaceRenderRoutes(app);
@@ -342,8 +343,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
       // while the market-data socket stayed live (SOCKET §13 socket.ws-behind-the-edge).
       outsideTheDoor: honesty.outsideTheDoor,
       enforceableModules: honesty.enforceableModules,
-      // Process-local durability only. multiReplicaShared is always false until
-      // a shared store exists; never invent one on the status surface.
+      // File and memory stay process-local. multiReplicaShared is true only when
+      // a shared kill store is attached; status must not call a local file fleet-wide.
       killState: honesty.killState,
       // Live kill is the operator surface — not the drop-I `edge.gateway` flag
       // (still NOT_ENFORCED until a deliberate enforcement PR). Status must say
@@ -452,7 +453,11 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
    */
   app.get('/admin/compliance/queue', async (req, reply) => {
     if (!(await operator(req.headers.authorization, reply, 'module'))) return reply;
-    return admin.complianceQueueSnapshot();
+    try {
+      return admin.complianceQueueSnapshot();
+    } catch (err) {
+      return reply.code(503).send({ error: (err as Error).message, code: 'edge.compliance_queue_unreadable' });
+    }
   });
 
   /**
@@ -512,6 +517,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
       status?: string;
       reason?: string;
       partnerRef?: string;
+      approvalId?: string;
+      operationId?: string;
     };
     const itemId = typeof body.itemId === 'string' ? body.itemId.trim() : '';
     if (itemId === '') {
@@ -528,7 +535,42 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
       return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_compliance_disposition' });
     }
 
-    const result = admin.disposeComplianceCase(itemId, request);
+    let approverId: string | null = null;
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (request.status === 'cleared' || request.status === 'rejected') {
+      if (reason.length < 12) {
+        return reply.code(400).send({
+          error: 'A disposition reason of at least 12 characters is required and is stored with the decision.',
+          code: 'edge.compliance_reason_required',
+        });
+      }
+      try {
+        const ids = readApprovalIds(body);
+        const consumed = await admin.consumeApproval(
+          {
+            approvalId: ids.approvalId,
+            operationId: ids.operationId,
+            payloadHash: edgeActionPayloadHash('edge.compliance_disposition', { itemId, status: request.status, reason }),
+            targetService: 'svc-edge',
+            targetId: `disposition:${itemId}`,
+            expectedVersion: '1',
+          },
+          auth.principal,
+        );
+        if (!consumed.approverId || consumed.approverId === auth.principal.userId) {
+          return reply.code(400).send({
+            error: 'The approver must be a different person from the operator who runs the disposition.',
+            code: 'action_approval.same_person',
+          });
+        }
+        approverId = consumed.approverId;
+      } catch (err) {
+        if (err instanceof ActionApprovalConsumeError) return reply.code(400).send({ error: err.message, code: err.code });
+        return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_compliance_disposition' });
+      }
+    }
+
+    const result = admin.disposeComplianceCase(itemId, request, { approverId, reason: reason || null });
     if (!result.ok) {
       // 409: the case may exist, but this disposition is refused (partner absent).
       return reply.code(409).send({ error: result.reason, code: result.code, ok: false });
@@ -537,7 +579,32 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
       { operator: auth.principal.userId, itemId, status: result.status, actor: result.actor },
       'edge: compliance queue disposition',
     );
-    return { ...result, queue: admin.complianceQueueSnapshot() };
+    return { ...result, approverId, queue: admin.complianceQueueSnapshot() };
+  });
+
+  /**
+   * Screening subject intake. There is no subject feed on this edge: the
+   * geo-block verdict is for the caller's own request. This door refuses
+   * rather than opening a case from that verdict.
+   */
+  app.post('/admin/compliance/queue/intake', async (req, reply) => {
+    if (!(await operator(req.headers.authorization, reply, 'module'))) return reply;
+    return reply.code(409).send({
+      error:
+        'No screening subject feed is configured. The geo-block verdict is for this request only, so no compliance case is opened from it.',
+      code: 'edge.screening_subject_feed_unconfigured',
+    });
+  });
+
+  /** Population geo-block. The mounted verdict is this request. No counts. */
+  app.get('/admin/compliance/geo-population', async (req, reply) => {
+    if (!(await operator(req.headers.authorization, reply, 'module'))) return reply;
+    return reply.code(409).send({
+      error:
+        'Geo-block on this edge is the verdict for this request only. No population screening source is configured, so no region counts are returned.',
+      code: 'edge.geo_population_unconfigured',
+      scope: 'request',
+    });
   });
 
   /**
@@ -627,4 +694,94 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi): void
     req.log.warn({ operator: auth.principal.userId, action, status: res.status }, 'edge: LEDGER FREEZE state change requested');
     return reply.code(res.status).send(res.body);
   });
+
+  /**
+   * Last successful reconciliation this edge proxied. Never a zero book.
+   * A deployment with no ledger URL refuses with edge.ledger_unreachable.
+   */
+  app.get('/admin/ledger/reconcile', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    const res = await admin.readReconcile();
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.post('/admin/ledger/reconcile', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    let res;
+    try {
+      res = await admin.runReconcile(req.body, auth.bearer);
+    } catch (err) {
+      if (err instanceof ActionApprovalConsumeError) return reply.code(400).send({ error: err.message, code: err.code });
+      return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconcile_request' });
+    }
+    req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILE requested');
+    return reply.code(res.status).send(res.body);
+  });
+
+  const matchingUnwired = {
+    error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
+    code: 'edge.matching_unwired' as const,
+  };
+
+  // Same resolver the /api proxy uses before signPrincipalHeader. Never a
+  // caller-supplied region: trustProxy and the geo header name come from env.
+  const matchingRegion = (headers: Record<string, string | string[] | undefined>): string =>
+    resolveRequestRegion({
+      defaultRegion: process.env.DEFAULT_REGION ?? 'XX',
+      trustProxy: process.env.EDGE_TRUST_PROXY !== undefined,
+      geoHeaderName: process.env.EDGE_GEO_COUNTRY_HEADER,
+      headers,
+    }).region;
+
+  const forwardMatching = async (
+    path: MatchingOperatorPath,
+    method: 'GET' | 'POST',
+    principal: Principal,
+    body: unknown,
+    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+    region: string,
+  ) => {
+    if (!matching) return reply.code(503).send(matchingUnwired);
+    const res = await matching(path, method, principal, body, region);
+    return reply.code(res.status).send(res.body);
+  };
+
+  app.get('/admin/matching/in-flight', async (req, reply) => {
+    let principal: Principal;
+    try {
+      principal = await admin.authenticateRead(req.headers.authorization);
+    } catch (err) {
+      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    return forwardMatching(
+      '/operator/in-flight',
+      'GET',
+      principal,
+      undefined,
+      reply,
+      matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+    );
+  });
+
+  const matchingPost = (adminPath: string, upstream: MatchingOperatorPath) => {
+    app.post(adminPath, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'module');
+      if (!auth) return reply;
+      return forwardMatching(
+        upstream,
+        'POST',
+        auth.principal,
+        req.body,
+        reply,
+        matchingRegion(req.headers as Record<string, string | string[] | undefined>),
+      );
+    });
+  };
+  matchingPost('/admin/matching/halt', '/operator/halt');
+  matchingPost('/admin/matching/halt-all', '/operator/halt-all');
+  matchingPost('/admin/matching/resume', '/operator/resume');
+  matchingPost('/admin/matching/resume-all', '/operator/resume-all');
 }

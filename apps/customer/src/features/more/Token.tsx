@@ -7,6 +7,7 @@ import { decimalSchema, displayAmount, parseAmount } from '../../shared/money';
 import type { ApiResult } from '../../shared/api';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 import { Button, DataTable, EmptyState, Field, Panel, Tabs } from '../../shared/ui';
+import { EmissionEpoch, TokenHoldings } from './TokenHoldings';
 import { Details, Limit, Read, Select, TextArea, presentActionFailure, useAction } from './common';
 import { governanceCopy as G } from './token-governance-copy';
 import './token-governance.css';
@@ -73,6 +74,8 @@ const ballotSchema = z
   );
 type Ballot = z.infer<typeof ballotSchema>;
 type SavedBallot = { status: 'empty' } | { status: 'unreadable' } | { status: 'ready'; data: Ballot };
+/** A tier arrives as a short code ("m3"); people read "3 months". An unknown tier is shown as sent. */
+const tierLabel = (tier: string): string => (tier === 'flex' || tier === 'm3' || tier === 'm12' ? copyText(`token.tier.${tier}`) : tier);
 const ballotKey = (actor: string) => `intafaced:token:ballot:${actor}`;
 const selectionKey = (actor: string) => `intafaced:token:proposal:${actor}`;
 function selectedFor(actor: string | null) {
@@ -285,7 +288,7 @@ export function Token() {
                           ? copyText('token.hidden.asset.identity.unavailable')
                           : copyText('token.asset.identity.unavailable.2', { amount: displayAmount(a.staked) }),
                       ],
-                      [copyText('token.access.tier'), a.tier],
+                      [copyText('token.access.tier'), tierLabel(a.tier)],
                       [copyText('token.fee.discount'), copyText('token.basis.points', { bps: a.feeDiscountBps })],
                     ]}
                   />
@@ -297,7 +300,12 @@ export function Token() {
                 label={copyText('token.stake.status')}
                 value={status}
                 onChange={setStatus}
-                options={['all', 'active', 'pending', 'closed']}
+                options={[
+                  { value: 'all', label: copyText('token.filter.all') },
+                  { value: 'active', label: copyText('token.status.active') },
+                  { value: 'pending', label: copyText('token.status.pending') },
+                  { value: 'closed', label: copyText('token.status.closed') },
+                ]}
               />
               <Read resource={stakes.resource} retry={stakes.reload} empty={copyText('token.you.have.no.stakes')}>
                 {(rows) => (
@@ -317,10 +325,9 @@ export function Token() {
                           <td>
                             {hideBalances ? '••••' : displayAmount(row.amount)}
                             <Text k="token.asset.identity.unavailable" />
-                            <small className="more-receipt">{row.id}</small>
                           </td>
-                          <td>{row.tier}</td>
-                          <td>{row.status}</td>
+                          <td>{copyText(`token.tier.${row.tier}`)}</td>
+                          <td>{copyText(`token.status.${row.status}`)}</td>
                           <td>{row.unlocksAt ?? copyText('token.flexible')}</td>
                           <td>
                             <span className="muted">
@@ -335,6 +342,7 @@ export function Token() {
                 )}
               </Read>
             </Panel>
+            <TokenHoldings />
           </div>
           <Panel title={copyText('token.staking.asset.identity')}>
             <p role="status">
@@ -524,6 +532,7 @@ export function Token() {
               )}
             </Read>
           </Panel>
+          <EmissionEpoch />
           <Panel title={copyText('token.economy.boundaries')}>
             <p>
               <Text k="token.emission.buyback.and.revenue.distribution.windows.are" />

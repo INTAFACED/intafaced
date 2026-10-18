@@ -2,7 +2,8 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { createTestDb, postgresAvailable, rewriteSchemaSql } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql } from '@intafaced/db';
+import { createTestDb } from '../fixture-truncate.testkit.js';
 import { MemoryActionApprovalStore, SqlActionApprovalStore, type StoredApproval } from './action-approval-store.js';
 
 const NOW = new Date('2026-09-09T12:00:00.000Z');
@@ -104,6 +105,8 @@ if (!available) {
         now: NOW,
       });
       expect(consumed?.status).toBe('CONSUMED');
+      expect(consumed?.consumedByService).toBeNull();
+      expect(consumed?.consumedRequestId).toBeNull();
       expect(
         await store.casConsume({
           approvalId: 'appr-pg',
@@ -115,6 +118,46 @@ if (!available) {
           now: NOW,
         }),
       ).toBeNull();
+    });
+
+    it('records who consumed a row and which request id', async () => {
+      await store.insert(row({ approvalId: 'appr-prov', operationId: 'op-prov' }));
+      await store.casApprove('appr-prov', 'user-b', NOW);
+      const consumed = await store.casConsume({
+        approvalId: 'appr-prov',
+        operationId: 'op-prov',
+        payloadHash: 'sha256:abc',
+        targetService: 'svc-ledger',
+        targetId: 'posting_freeze',
+        expectedVersion: '1',
+        now: NOW,
+        requestId: 'req-prov',
+        consumedByService: 'svc-ledger',
+        consumedByPrincipal: 'user-c',
+      });
+      expect(consumed).toMatchObject({
+        status: 'CONSUMED',
+        consumedByService: 'svc-ledger',
+        consumedByPrincipal: 'user-c',
+        consumedRequestId: 'req-prov',
+      });
+      expect((await store.get('appr-prov'))?.consumedRequestId).toBe('req-prov');
+    });
+
+    it('lists a requester’s rows and other people’s pending rows, newest first', async () => {
+      await store.insert(row({ approvalId: 'older', requesterId: 'user-a', operationId: 'op-old', createdAt: NOW }));
+      await store.insert(
+        row({
+          approvalId: 'newer',
+          requesterId: 'user-a',
+          operationId: 'op-new',
+          createdAt: LATER,
+          expiresAt: new Date('2026-09-09T12:04:00.000Z'),
+        }),
+      );
+      await store.insert(row({ approvalId: 'other', requesterId: 'user-b', operationId: 'op-b', createdAt: LATER }));
+      expect((await store.listByRequester('user-a', 10)).map((r) => r.approvalId)).toEqual(['newer', 'older']);
+      expect((await store.listPendingExcept('user-a', 10)).map((r) => r.approvalId)).toEqual(['other']);
     });
   });
 }

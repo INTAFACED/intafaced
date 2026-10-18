@@ -1,111 +1,116 @@
-.p2p-counterparty,
-.p2p-counterparty-record,
-.p2p-counterparty-history,
-.p2p-counterparty-programme {
-  min-width: 0;
-}
-.p2p-counterparty {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.p2p-counterparty-return {
-  align-self: flex-start;
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-}
-.p2p-counterparty-id {
-  font-size: 13px;
-  line-height: 20px;
-  overflow-wrap: anywhere;
-  margin: 0 0 16px;
-}
-.p2p-counterparty-record {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 48px;
-  margin-bottom: 24px;
-}
-.p2p-counterparty-history,
-.p2p-counterparty-programme {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.p2p-counterparty h3 {
-  font-size: 14px;
-  line-height: 20px;
-  font-weight: 500;
-  margin: 0;
-}
-.p2p-counterparty-record p {
-  font-size: 14px;
-  line-height: 20px;
-  margin: 0;
-}
-.p2p-counterparty-metrics {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 24px;
-  grid-template-rows: auto auto 1fr;
-}
-.p2p-counterparty-metrics > div {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: subgrid;
-  grid-row: span 3;
-  justify-items: start;
-  gap: 8px;
-}
-.p2p-counterparty-basis {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-}
-.p2p-counterparty-metrics strong {
-  font-size: 24px;
-  line-height: 32px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.p2p-counterparty-metrics [data-counterparty-metric='average'] {
-  overflow-wrap: normal;
-}
-.p2p-counterparty-empty {
-  color: var(--color-text);
-}
-.p2p-counterparty-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-.p2p-counterparty-badges li {
-  min-width: 0;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 20px;
-}
-.p2p-counterparty .pay-details {
-  margin: 0;
-}
-.p2p-counterparty .pay-details dd {
-  overflow-wrap: anywhere;
-}
-@media (max-width: 900px) {
-  .p2p-counterparty-record {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-  }
-}
-@media (max-width: 620px) {
-  .p2p-counterparty-record {
-    gap: 16px;
-    margin-bottom: 16px;
+@layer theme, base, components, utilities;
+@layer components {
+  .if-business {
+    .p2p-counterparty,
+    .p2p-counterparty-record,
+    .p2p-counterparty-history,
+    .p2p-counterparty-programme {
+      min-width: 0;
+    }
+    .p2p-counterparty {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .p2p-counterparty-return {
+      align-self: flex-start;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .p2p-counterparty-id {
+      font-size: 13px;
+      line-height: 20px;
+      overflow-wrap: anywhere;
+      margin: 0 0 16px;
+    }
+    .p2p-counterparty-record {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: 48px;
+      margin-bottom: 24px;
+    }
+    .p2p-counterparty-history,
+    .p2p-counterparty-programme {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .p2p-counterparty h3 {
+      font-size: 14px;
+      line-height: 20px;
+      font-weight: 500;
+      margin: 0;
+    }
+    .p2p-counterparty-record p {
+      font-size: 14px;
+      line-height: 20px;
+      margin: 0;
+    }
+    .p2p-counterparty-metrics {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 24px;
+      grid-template-rows: auto auto 1fr;
+    }
+    .p2p-counterparty-metrics > div {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: subgrid;
+      grid-row: span 3;
+      justify-items: start;
+      gap: 8px;
+    }
+    .p2p-counterparty-basis {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .p2p-counterparty-metrics strong {
+      font-size: 24px;
+      line-height: 32px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .p2p-counterparty-metrics [data-counterparty-metric='average'] {
+      overflow-wrap: normal;
+    }
+    .p2p-counterparty-empty {
+      color: var(--if-fg);
+    }
+    .p2p-counterparty-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 16px;
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .p2p-counterparty-badges li {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+      line-height: 20px;
+    }
+    .p2p-counterparty .pay-details {
+      margin: 0;
+    }
+    .p2p-counterparty .pay-details dd {
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 900px) {
+      .p2p-counterparty-record {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 24px;
+      }
+    }
+    @media (max-width: 620px) {
+      .p2p-counterparty-record {
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+    }
   }
 }

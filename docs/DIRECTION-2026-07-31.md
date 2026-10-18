@@ -1,5 +1,7 @@
 # Direction — 2026-07-31
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Written for Nitro's agents. **Decisions, not process.** Where I say "decided", implement it and do not re-litigate. Where I say "open", bring me the shape before you build.
 
 Tip when written: `db92837`.

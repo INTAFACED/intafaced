@@ -26,7 +26,8 @@ export {
   HIDDEN_MASK,
 } from '@intafaced/ui';
 
-export { fmtAmount, refusalCopy } from '../../data';
+export { createActivityFeed, fmtAmount, refusalCopy, withDeviceHandles } from '../../data';
+export type { ActivityFeed, ActivityItem, Loadable } from '../../data';
 export { dec, str } from '../../data/decimal';
 export { fractionDigits } from '../../data/decimal';
 export { fetchMe, resolveHandle, cleanHandle, type MeOutcome, type ResolveOutcome } from '../../data/identity';
@@ -38,3 +39,26 @@ export { pendingKey as bankPendingKey, pendingOutcomes } from '../../features/mo
 export type { ApiClient, ApiResult } from '../../shared/api';
 export { navigate } from '../../app/location';
 export { isHiddenPath } from '../../app/feature-registry';
+
+export {
+  addRequest,
+  applyPrefill,
+  cleanAmount,
+  cleanNote,
+  contactLabel,
+  contactsFrom,
+  NOTE_MAX,
+  parseRequestLink,
+  parseRequestSearch,
+  readRequests,
+  readSent,
+  receiptText,
+  recordSent,
+  removeRequest,
+  requestPath,
+  type Contact,
+  type PaymentRequest,
+  type RequestEntry,
+  type SentEntry,
+} from '../../features/pay/personal/personal-model';
+export { encodeQr, qrPath } from '../../features/pay/personal/qr';

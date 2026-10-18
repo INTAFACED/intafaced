@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { decodeFunctionData, encodeFunctionData, toFunctionSelector } from 'viem';
+import type { Address, Hex } from 'viem';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { ChainUnavailableError } from './chain/availability.js';
+import { poolAbi } from './amm/abi.js';
+import { getAmountOut } from './amm/math.js';
 import { createProtocolRouter } from './router.js';
 import type { ProtocolRouterDeps } from './router.js';
 
@@ -85,6 +89,7 @@ function stubDeps(overrides: Partial<Record<string, unknown>> = {}): ProtocolRou
     },
     relayEnabled: () => true,
     ammFactoryAddress: () => ZERO as `0x${string}`,
+    swapSlippageBps: () => null,
     ...overrides,
   } as unknown as ProtocolRouterDeps;
 }
@@ -264,7 +269,12 @@ describe('svc-protocol mount — the public surface', () => {
 const RPC = 'http://localhost:8545';
 
 function unreachable(what: string): ChainUnavailableError {
-  return new ChainUnavailableError('protocol.chain_unreachable', `${what}: no answer from the EVM RPC at ${RPC}`);
+  return new ChainUnavailableError(
+    'protocol.chain_unreachable',
+    'The chain connection is not available right now.',
+    undefined,
+    `${what}: no answer from the EVM RPC at http://127.0.0.1`,
+  );
 }
 
 /** A chain that behaves as the configured one does today: it cannot be read. */
@@ -310,7 +320,9 @@ function deadChain(overrides: Record<string, unknown> = {}) {
       tokenFactoryConfigured: false,
       tokenFactoryDeployed: false,
       refusalCode: 'protocol.chain_unreachable',
-      reason: `status: no answer from the EVM RPC at ${RPC}`,
+      reason: 'The chain connection is not available right now.',
+      expectedChainId: null,
+      actualChainId: null,
     }),
     ...overrides,
   };
@@ -505,5 +517,210 @@ describe('the AMM will not quote a side the pool does not trade', () => {
       // @ts-expect-error omitted feeBps must refuse — do not invent 30
       router.amm.buildCreatePool({ tokenA: OWNER, tokenB: FACTORY }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+});
+
+describe('swap builder refuses an unbounded minAmountOut before it builds calldata', () => {
+  const RESERVE_IN = 1_000_000n;
+  const RESERVE_OUT = 2_000_000n;
+  const FEE_BPS = 30;
+  const AMOUNT_IN = 10_000n;
+  const SLIPPAGE_BPS = 100;
+  const quote = getAmountOut(AMOUNT_IN, RESERVE_IN, RESERVE_OUT, FEE_BPS);
+  const floor = (quote * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+
+  function chain(reads: { n: number }) {
+    return deadChain({
+      poolReserves: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        reads.n += 1;
+        return { reserve0: RESERVE_IN, reserve1: RESERVE_OUT, blockTimestampLast: 1 };
+      },
+      poolToken0: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return TOKEN_A;
+      },
+      poolToken1: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return TOKEN_B;
+      },
+      poolFeeBps: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return FEE_BPS;
+      },
+    });
+  }
+
+  function caller(slippageBps: number | null, reads: { n: number } = { n: 0 }) {
+    return {
+      reads,
+      api: createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps })).createCaller(anonymous()),
+    };
+  }
+
+  const swap = (minAmountOut: bigint) => ({
+    pool: POOL,
+    tokenIn: TOKEN_A,
+    amountIn: AMOUNT_IN.toString(),
+    minAmountOut: minAmountOut.toString(),
+    to: OWNER,
+  });
+
+  it('blank slippage config refuses and does not read the pool', async () => {
+    const { api, reads } = caller(null);
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('protocol.swap_slippage_unset'),
+    });
+    expect(reads.n).toBe(0);
+  });
+
+  it('a tolerance above the max is the same refusal, not a default', async () => {
+    const { api, reads } = caller(5_001);
+    await expect(api.amm.buildSwapExactIn(swap(floor))).rejects.toMatchObject({
+      message: expect.stringContaining('protocol.swap_slippage_unset'),
+    });
+    expect(reads.n).toBe(0);
+  });
+
+  it('refuses minAmountOut below the fresh-quote floor, including 0', async () => {
+    expect(floor).toBeGreaterThan(1n);
+    const below = caller(SLIPPAGE_BPS);
+    await expect(below.api.amm.buildSwapExactIn(swap(floor - 1n))).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringContaining('protocol.swap_min_out_below_bound'),
+    });
+    const zero = caller(SLIPPAGE_BPS);
+    await expect(zero.api.amm.buildSwapExactIn(swap(0n))).rejects.toMatchObject({
+      message: expect.stringContaining('protocol.swap_min_out_below_bound'),
+    });
+  });
+
+  it('accepts minAmountOut exactly at the floor and encodes that value', async () => {
+    const { api } = caller(SLIPPAGE_BPS);
+    const built = await api.amm.buildSwapExactIn(swap(floor));
+    const decoded = decodeFunctionData({ abi: poolAbi, data: built.data as Hex });
+    expect(decoded.functionName).toBe('swapExactIn');
+    expect(decoded.args[2]).toBe(floor);
+    expect(built.to).toBe(POOL);
+  });
+});
+
+describe('session check refuses an unbounded swap from a fresh quote', () => {
+  const RESERVE_IN = 1_000_000n;
+  const RESERVE_OUT = 2_000_000n;
+  const FEE_BPS = 30;
+  const AMOUNT_IN = 10_000n;
+  const SLIPPAGE_BPS = 100;
+  const quote = getAmountOut(AMOUNT_IN, RESERVE_IN, RESERVE_OUT, FEE_BPS);
+  const floor = (quote * BigInt(10_000 - SLIPPAGE_BPS)) / 10_000n;
+  const ROUTER = '0x9999999999999999999999999999999999999999' as Address;
+  const poolSelector = toFunctionSelector('swapExactIn(address,uint256,uint256,address)');
+
+  function chain(reads: { n: number }) {
+    return deadChain({
+      poolReserves: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        reads.n += 1;
+        return { reserve0: RESERVE_IN, reserve1: RESERVE_OUT, blockTimestampLast: 1 };
+      },
+      poolToken0: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return TOKEN_A;
+      },
+      poolToken1: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return TOKEN_B;
+      },
+      poolFeeBps: async (pool: Address) => {
+        if (pool !== POOL) throw new Error(`quoted ${pool}, not the pool`);
+        return FEE_BPS;
+      },
+    });
+  }
+
+  function sessionCall(minAmountOut: bigint, reads: { n: number }, slippageBps: number | null) {
+    const data = encodeFunctionData({
+      abi: poolAbi,
+      functionName: 'swapExactIn',
+      args: [TOKEN_A, AMOUNT_IN, minAmountOut, OWNER],
+    });
+    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => slippageBps })).createCaller(anonymous());
+    return api.checkSessionCall({
+      account: OWNER,
+      spec: {
+        key: SESSION_KEY,
+        validAfter: 0,
+        validUntil: Math.floor(Date.now() / 1000) + 3_600,
+        spendLimitWei: '0',
+        targets: [POOL],
+        selectors: [poolSelector],
+      },
+      target: POOL,
+      value: '0',
+      data,
+      spentWei: '0',
+    });
+  }
+
+  it('blank slippage config refuses before the quote', async () => {
+    const reads = { n: 0 };
+    await expect(sessionCall(floor, reads, null)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('protocol.swap_slippage_unset'),
+    });
+    expect(reads.n).toBe(0);
+  });
+
+  it('refuses a minimum under the floor and accepts the floor', async () => {
+    const under = await sessionCall(floor - 1n, { n: 0 }, SLIPPAGE_BPS);
+    expect(under.allowed).toBe(false);
+    expect(under.code).toBe('session.swap_min_out_below_bound');
+    const at = await sessionCall(floor, { n: 0 }, SLIPPAGE_BPS);
+    expect(at.allowed).toBe(true);
+    expect(at.code).toBe('allowed');
+    const zero = await sessionCall(0n, { n: 0 }, SLIPPAGE_BPS);
+    expect(zero.code).toBe('session.swap_min_out_below_bound');
+  });
+
+  it('quotes the pool named in router calldata, not the router target', async () => {
+    const reads = { n: 0 };
+    const data = encodeFunctionData({
+      abi: [
+        {
+          type: 'function',
+          name: 'swapExactIn',
+          stateMutability: 'nonpayable',
+          inputs: [
+            { name: 'pool', type: 'address' },
+            { name: 'tokenIn', type: 'address' },
+            { name: 'amountIn', type: 'uint256' },
+            { name: 'minAmountOut', type: 'uint256' },
+            { name: 'to', type: 'address' },
+          ],
+          outputs: [{ name: 'amountOut', type: 'uint256' }],
+        },
+      ] as const,
+      functionName: 'swapExactIn',
+      args: [POOL, TOKEN_A, AMOUNT_IN, floor, OWNER],
+    });
+    const api = createProtocolRouter(stubDeps({ chain: chain(reads), swapSlippageBps: () => SLIPPAGE_BPS })).createCaller(anonymous());
+    const decision = await api.checkSessionCall({
+      account: OWNER,
+      spec: {
+        key: SESSION_KEY,
+        validAfter: 0,
+        validUntil: Math.floor(Date.now() / 1000) + 3_600,
+        spendLimitWei: '0',
+        targets: [ROUTER, POOL],
+        selectors: [toFunctionSelector('swapExactIn(address,address,uint256,uint256,address)')],
+      },
+      target: ROUTER,
+      value: '0',
+      data,
+      spentWei: '0',
+    });
+    expect(reads.n).toBe(1);
+    expect(decision).toMatchObject({ allowed: true, code: 'allowed' });
   });
 });

@@ -11,77 +11,36 @@
  * new risk uses the same doors. Cancel/close/reduce stay.
  *
  * Live boot: `src/index.ts` already imports `ledger-client.ts`, which loads
- * this mill. router.ts / trade-service.ts / position-service.ts / index.ts
- * are not recut.
+ * this mill and marks the production posture (`markPreTradeCreditInstalled`).
+ *
+ * This mill only proves the three limits are published (the early refusal).
+ * The comparison itself, #4725, lives in `pretrade-limits.ts` and is called
+ * from the admission seam of each order door: `TradeService.placeOrderInner`
+ * (every placed order, copy mirror and algo child included),
+ * `TradeService.convertExecute`, `PositionService.open`, and the native qty-up
+ * amend. Closes, liquidation, ADL, reconcile and seeded MM never call it.
  */
 import type { Principal } from '@intafaced/auth';
-import { parseOwnerIntegerEnv } from '../owner-int-env.js';
+import {
+  checkPreTradeCreditDimensions,
+  markPreTradeCreditInstalled,
+  readOwnerPreTradeCredit,
+  type PreTradeCreditCheck,
+} from './pretrade-limits.js';
 import { TradeError, type TradeErrorCode } from '../spot/types.js';
 import { TradeService, type PlaceOrderInput } from '../spot/trade-service.js';
 import { FuturesError, PositionService, type OpenPositionInput } from './position-service.js';
 
-export const MAX_ORDER_UNSET = 'trade.max_order_unset' as const;
-export const MAX_POSITION_UNSET = 'trade.max_position_unset' as const;
-export const MAX_LOSS_UNSET = 'trade.max_loss_unset' as const;
-
-export type PreTradeCreditRefuseCode = typeof MAX_ORDER_UNSET | typeof MAX_POSITION_UNSET | typeof MAX_LOSS_UNSET;
-
-export interface PreTradeCreditDimensions {
-  readonly maxOrder?: string | number | null;
-  readonly maxPosition?: string | number | null;
-  readonly maxLoss?: string | number | null;
-}
-
-export type PreTradeCreditCheck =
-  | { readonly ok: true; readonly maxOrder: number; readonly maxPosition: number; readonly maxLoss: number }
-  | { readonly ok: false; readonly code: PreTradeCreditRefuseCode; readonly reason: string };
-
-/** Owner integer. Blank / unset / non-integer → null. 0 is published, not a default. */
-function publishedOwnerInteger(raw: unknown): number | null {
-  if (raw == null) return null;
-  if (typeof raw !== 'number' && typeof raw !== 'string') return null;
-  return parseOwnerIntegerEnv(raw);
-}
-
-export function readOwnerPreTradeCredit(env: NodeJS.ProcessEnv = process.env): PreTradeCreditDimensions {
-  return {
-    maxOrder: env.TRADE_MAX_ORDER,
-    maxPosition: env.TRADE_MAX_POSITION,
-    maxLoss: env.TRADE_MAX_LOSS,
-  };
-}
-
-/**
- * Unset any dimension refuses. Published owner integers admit (including 0).
- * This function does not compare an order against a cap and does not collapse dimensions.
- */
-export function checkPreTradeCreditDimensions(dims: PreTradeCreditDimensions): PreTradeCreditCheck {
-  const maxOrder = publishedOwnerInteger(dims.maxOrder);
-  if (maxOrder == null) {
-    return {
-      ok: false,
-      code: MAX_ORDER_UNSET,
-      reason: 'TRADE_MAX_ORDER is unset — refuse new risk rather than invent a max-order',
-    };
-  }
-  const maxPosition = publishedOwnerInteger(dims.maxPosition);
-  if (maxPosition == null) {
-    return {
-      ok: false,
-      code: MAX_POSITION_UNSET,
-      reason: 'TRADE_MAX_POSITION is unset — refuse new risk rather than invent a max-position',
-    };
-  }
-  const maxLoss = publishedOwnerInteger(dims.maxLoss);
-  if (maxLoss == null) {
-    return {
-      ok: false,
-      code: MAX_LOSS_UNSET,
-      reason: 'TRADE_MAX_LOSS is unset — refuse new risk rather than invent a max-loss',
-    };
-  }
-  return { ok: true, maxOrder, maxPosition, maxLoss };
-}
+export {
+  MAX_LOSS_UNSET,
+  MAX_ORDER_UNSET,
+  MAX_POSITION_UNSET,
+  checkPreTradeCreditDimensions,
+  readOwnerPreTradeCredit,
+  type PreTradeCreditCheck,
+  type PreTradeCreditDimensions,
+  type PreTradeCreditRefuseCode,
+} from './pretrade-limits.js';
 
 function refusePlace(check: Extract<PreTradeCreditCheck, { ok: false }>): never {
   throw new TradeError(check.reason, check.code as TradeErrorCode);
@@ -103,8 +62,12 @@ export function installPreTradeCreditPlace(ctor: typeof TradeService): void {
   proto[PLACE_FLAG] = true;
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
-    if (!check.ok) refusePlace(check);
+    const tagged = input as PlaceOrderInput & { reduceOnly?: boolean; closePosition?: boolean };
+    // Reducing a position is never refused only because a cap is unset.
+    if (tagged.reduceOnly !== true && tagged.closePosition !== true) {
+      const check = checkPreTradeCreditDimensions(readOwnerPreTradeCredit());
+      if (!check.ok) refusePlace(check);
+    }
     return origPlace.call(this, principal, input);
   };
 }
@@ -125,6 +88,7 @@ export function installPreTradeCreditOpen(ctor: typeof PositionService): void {
 }
 
 export function installPreTradeCredit(): void {
+  markPreTradeCreditInstalled();
   installPreTradeCreditPlace(TradeService);
   installPreTradeCreditOpen(PositionService);
 }

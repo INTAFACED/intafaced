@@ -30,7 +30,7 @@ export function LegacyRoom({ area, path }: { area: LegacyArea; path: string }) {
       <AccountRoutes path={path} />
     );
   return (
-    <div className="legacy-room">
+    <div className={area === 'pay' ? 'if-business' : 'legacy-room'}>
       <Suspense
         fallback={
           <div className="page">

@@ -1,12 +1,21 @@
 import { createHmac, randomInt } from 'node:crypto';
 import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore } from './store.js';
-import type { ChannelTarget, DeliveryRecord, DeliveryStore, TargetStore } from './channel-store.js';
+import { OwnedRecentCursorError, type ChannelTarget, type DeliveryRecord, type DeliveryStore, type TargetStore } from './channel-store.js';
 import type { DispatchReport, NotificationDispatcher } from './dispatch.js';
 import type { ChannelRegistry, ChannelStatus } from './channels/registry.js';
 import { ChannelRefusal, type OutOfAppChannel, type RefusalCode } from './channels/channel.js';
 import { normaliseLocale, renderVerification } from './channels/render.js';
 import { withNotifySpan } from './tracing.js';
 import type { ChannelMutePrefs, MuteStore, MuteableChannel } from './preferences/mute.js';
+import type { AccountPrefs, HoldStore } from './preferences/account.js';
+import {
+  RecentDeliveriesError,
+  clampRecentDeliveriesLimit,
+  decodeRecentCursor,
+  encodeRecentCursor,
+  recentDeliveryWire,
+} from './preferences/recent.js';
+import type { NoticeBoard } from './notices/board.js';
 import { TargetRateLimiter, type TargetRateLimiterPort } from './target-rate-limit.js';
 
 /** Insert plus delivery scope. `outOfApp: false` is inbox-only (agentActionCompleted). */
@@ -176,6 +185,9 @@ export interface NotifyServiceDeps {
   readonly dispatcher: NotificationDispatcher;
   /** Mute prefs store — Postgres in prod, memory in unit harnesses. */
   readonly muteStore?: MuteStore;
+  readonly account?: AccountPrefs;
+  readonly holds?: HoldStore;
+  readonly notices?: NoticeBoard;
 }
 
 /** Stored as HMAC-SHA256 keyed by the owner pepper. A bare digest of the six-digit code is reversible. */
@@ -423,12 +435,29 @@ export class NotifyService {
    * delivered status: `accepted` is gateway acceptance, not end-device proof.
    * Page size is owner-published — omit is not 50.
    */
-  async operatorDeliveryOutcomes(limit?: number): Promise<DeliveryRecord[]> {
+  async operatorDeliveryOutcomes(limit?: number, status?: DeliveryRecord['status']): Promise<DeliveryRecord[]> {
     const cap = assertOperatorDeliveriesLimit(limit);
     return withNotifySpan('notify.operatorDeliveries', { op: 'operatorDeliveries' }, async () => {
       if (!this.deps) return [];
-      return this.deps.deliveries.listRecent(cap);
+      return this.deps.deliveries.listRecent(cap, status);
     });
+  }
+
+  /**
+   * Counts of every delivery row. Refuses when the store is unwired rather than
+   * returning a zero that could be read as "nothing was sent".
+   */
+  async operatorDeliveryAggregates(): Promise<{
+    asOf: string;
+    total: number;
+    byStatus: Record<DeliveryRecord['status'], number>;
+    byChannel: Record<string, number>;
+  }> {
+    if (!this.deps) {
+      throw new Error('notify.delivery_store_unconfigured: delivery rows are not wired, so no aggregate is returned');
+    }
+    const counts = await this.deps.deliveries.aggregate();
+    return { asOf: new Date().toISOString(), ...counts };
   }
 
   // ── Preferences (mute) ─────────────────────────────────────────────────────
@@ -453,5 +482,56 @@ export class NotifyService {
       channel,
       muted: prefs.muted.has(channel),
     }));
+  }
+
+  get account(): AccountPrefs | null {
+    return this.deps?.account ?? null;
+  }
+
+  get holds(): HoldStore | null {
+    return this.deps?.holds ?? null;
+  }
+
+  get notices(): NoticeBoard | null {
+    return this.deps?.notices ?? null;
+  }
+
+  /**
+   * The caller's finished deliveries, newest first.
+   * Limit above {@link RECENT_DELIVERIES_LIMIT_MAX} is clamped. Pending rows
+   * are not on the page. Counts are for this page only.
+   */
+  async recentDeliveries(userId: string, limit: number, cursor: string | null) {
+    const cap = clampRecentDeliveriesLimit(limit);
+    const empty = { rows: [], counts: { sent: 0, refused: 0, failed: 0 }, nextCursor: null as string | null };
+    if (!this.deps) return empty;
+    const beforeId = cursor ? decodeRecentCursor(cursor) : null;
+    let fetched;
+    try {
+      fetched = await this.deps.deliveries.listOwnedRecent({
+        userId,
+        limit: cap + 1,
+        beforeId,
+        belongsTo: async (notificationId) => (await this.store.findById(userId, notificationId)) !== null,
+      });
+    } catch (err) {
+      if (err instanceof OwnedRecentCursorError) throw new RecentDeliveriesError('notify.recent_deliveries_cursor_invalid');
+      throw err;
+    }
+    const page = fetched.slice(0, cap);
+    const rows = page.flatMap((row) => {
+      const wire = recentDeliveryWire(row);
+      return wire ? [wire] : [];
+    });
+    const last = page[page.length - 1];
+    return {
+      rows,
+      counts: {
+        sent: rows.filter((row) => row.outcome === 'sent').length,
+        refused: rows.filter((row) => row.outcome === 'refused').length,
+        failed: rows.filter((row) => row.outcome === 'failed').length,
+      },
+      nextCursor: fetched.length > cap && last ? encodeRecentCursor(last) : null,
+    };
   }
 }

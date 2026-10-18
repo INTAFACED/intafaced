@@ -330,11 +330,11 @@ describe('D26-P2-01g public doors PG-hard', () => {
     await sql`
       INSERT INTO token.buyback_runs (
         id, revenue_window_from, revenue_window_to, revenue_total,
-        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at
+        tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at, created_at, last_post_at
       ) VALUES (
         ${input.runId}, ${input.window.from}, ${input.window.to}, ${sql.json({ IFC: '1000' } as never)},
         1000::numeric, 600::numeric, 400::numeric,
-        ${input.status ?? 'settled'}, now()
+        ${input.status ?? 'settled'}, now(), now() - interval '1 hour', now() - interval '1 hour'
       )
     `;
   }

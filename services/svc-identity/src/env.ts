@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
+import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
+import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -23,6 +26,25 @@ const registrationOpen = z.preprocess((v) => {
   return v;
 }, z.boolean().optional());
 
+/**
+ * A founder-invite value that is either unset/blank (→ undefined, enrolment closed)
+ * or valid. A malformed value fails boot with the parser's message; it is never
+ * silently dropped, because a typo here would otherwise look like a closed door.
+ */
+function founderInviteVar<T>(parse: (raw: string) => T | undefined) {
+  return z
+    .string()
+    .optional()
+    .transform((raw, ctx): string | undefined => {
+      try {
+        return parse(raw ?? '') === undefined ? undefined : (raw ?? '').trim();
+      } catch (err) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'invalid' });
+        return z.NEVER;
+      }
+    });
+}
+
 const schema = serviceEnvSchema
   .merge(authEnvSchema)
   .merge(edgeEnvSchema)
@@ -31,9 +53,48 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-identity'),
       HTTP_PORT: z.coerce.number().int().default(4002),
+      /**
+       * Seconds a just-rotated refresh token may be presented again (two tabs).
+       * Default 10. 0 disables the grace window. Ceiling 120.
+       */
+      REFRESH_REUSE_GRACE_SECONDS: z.coerce.number().int().min(0).max(120).default(10),
+      /**
+       * Owner-published seconds after rotation during which a lost refresh reply
+       * may be presented again, past the grace window. Blank, 0, or unset is off
+       * (today's reuse burn). Never a default — blank is not 120. Ceiling 600.
+       * Do not set this in compose or in a local env file; the lead publishes it.
+       */
+      REFRESH_RECOVERY_SECONDS: z
+        .unknown()
+        .optional()
+        .transform((raw, ctx): number | undefined => {
+          try {
+            return parseRefreshRecoverySeconds(raw);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'REFRESH_RECOVERY_SECONDS must be an integer',
+            });
+            return z.NEVER;
+          }
+        }),
       /** Existing verified platform UUIDs. Missing/malformed/duplicate pair disables controls. */
       IDENTITY_FOUNDER_NITRO_USER_ID: z.string().optional(),
       IDENTITY_FOUNDER_PHANTOM_USER_ID: z.string().optional(),
+      /**
+       * Founder enrolment (`auth.registerFounder`): two lowercase sha256 hex values,
+       * comma-separated, of the single-use invite codes made by
+       * `pnpm --filter @intafaced/svc-identity founder:invites`. Hashes only; the
+       * codes are never configured. Blank / unset → enrolment closed. Never defaulted.
+       * Malformed → fail boot.
+       */
+      IDENTITY_FOUNDER_INVITE_HASHES: founderInviteVar(parseInviteHashes),
+      /**
+       * ISO 8601 instant (with a zone) after which the invites above are refused,
+       * about 72 h after they were generated. Blank / unset → enrolment closed.
+       * Never defaulted. Malformed → fail boot.
+       */
+      IDENTITY_FOUNDER_INVITE_EXPIRES_AT: founderInviteVar(parseInviteExpiry),
       /** Independent owner keys; generic service/read credentials cannot admit operations. */
       IDENTITY_TRADE_ADMISSION_SECRET: z.string().min(32).optional(),
       IDENTITY_PAY_ADMISSION_SECRET: z.string().min(32).optional(),
@@ -84,6 +145,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
       /**
+       * 32-byte AES-256 key (base64 or 64-char hex) for api_keys.request_signing_secret.
+       * Blank = signing opt-in refuses (no plaintext write). Prod and staging boot refuse if missing.
+       */
+      API_KEY_SIGNING_ENC_KEY: z.string().optional().default(''),
+      /**
        * svc-ledger base URL for the ONE money path this service has: the
        * affiliate / IB commission fan-out (§0.6 — identity stores no balances).
        *
@@ -95,6 +161,13 @@ const schema = serviceEnvSchema
        * `affiliate.payout.ledger_unwired`. Unset is a legible state, not a gap.
        */
       LEDGER_URL: z.string().url().optional(),
+      /**
+       * svc-pay base URL for the owner pay-scope grant lookup at session issue.
+       * Unset → sessions stay on ordinary scopes (the grant is not consulted).
+       * Set → identity asks pay and attaches pay:read, pay:write, and pay:onboard
+       * when the published law allows them.
+       */
+      PAY_URL: z.string().url().optional(),
       /**
        * Owner-published max *live* (non-revoked) sub-accounts per identity
        * (SPEC-SUBACCOUNTS §4 / §8). Blank / unset → unpublished; create refuses
@@ -117,11 +190,116 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner-published lifetime for a signed-out password-reset proof, in seconds.
+       * Blank / unset → unpublished; the reset request refuses (`auth.reset_unwired`).
+       * Never git-default 900 or 15 minutes. One day is the ceiling.
+       */
+      IDENTITY_PASSWORD_RESET_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published lifetime for an email or phone change proof, in seconds.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_CONTACT_CHANGE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a contact-change proof.
+       * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).
+       * The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Mail transport. Blank / unset → unwired; confirmation and reset requests
+       * refuse. `local-outbox` is the only implemented transport and is refused
+       * at boot unless APP_ENV is exactly dev or test. Any other name refuses
+       * at boot. No provider is configured here.
+       */
+      IDENTITY_MAIL_TRANSPORT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /** Absolute file path for the local-outbox transport. Required when that transport is selected. */
+      IDENTITY_LOCAL_MAIL_OUTBOX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      /**
+       * Owner-published lifetime for an email-confirmation proof, in seconds.
+       * Blank / unset → unpublished; the request refuses (`auth.email_confirm_unwired`).
+       * Never git-default a lifetime. One day is the ceiling.
+       */
+      IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published confirmation requests per window. Blank / unset, or a
+       * window without a max, stays unpublished and the request refuses.
+       * The ceiling is technical. It is not a default budget.
+       */
+      IDENTITY_EMAIL_CONFIRM_RATE_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1_000).optional()),
+      IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.
        * A blank string is not a pin.
        */
+      /**
+       * When true, a trading restriction on accountControls.change needs a consumed
+       * `trading.restrict` approval. Unset, blank, false, off, or 0 stays off: identity
+       * does not start requiring two people, and does not apply trading restrictions.
+       * Any other string refuses boot. This ships off. Turning it on is a lead decision.
+       */
+      /**
+       * Operator scopes added to a live founder's interactive MFA session.
+       * Comma-separated allowlist. Blank or unset grants nothing — which
+       * founder holds which scope is the lead's decision, not a default here.
+       * A name outside the allowlist, or any unknown scope, refuses boot
+       * (`identity.founder_scope_invalid`). Do not set this in compose.
+       */
+      IDENTITY_FOUNDER_SESSION_SCOPES: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return founderSessionScopesFromEnv(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'identity.founder_scope_invalid' });
+            return z.NEVER;
+          }
+        }),
+      IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v !== 'string') return v;
+        const text = v.trim().toLowerCase();
+        if (text === '') return undefined;
+        if (text === '0' || text === 'false' || text === 'off') return false;
+        if (text === '1' || text === 'true' || text === 'on') return true;
+        return v;
+      }, z.boolean().optional()),
       INTAFACED_FLAG_WAITLIST_ENABLED: z.string().optional(),
       INTAFACED_FLAG_REFERRAL_QUEUE: z.string().optional(),
     }),

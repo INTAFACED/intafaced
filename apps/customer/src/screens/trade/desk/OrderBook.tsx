@@ -224,7 +224,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
             </div>
           ) : null}
         </div>
-        {empty ? <p className="dk-bk-note">{t('No orders yet')}</p> : null}
+        {empty ? <p className="dk-bk-note">{t('No orders')}</p> : null}
         {old && !empty ? <p className="dk-bk-note">{t('Book may be old')}</p> : null}
         {share ? (
           <div
@@ -304,7 +304,7 @@ function Tape({
     return <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
   }
   const rows: Trade[] = [...tape.data].sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
-  if (rows.length === 0) return <StateBlock kind="empty" title={t('No trades yet')} />;
+  if (rows.length === 0) return <StateBlock kind="empty" title={t('No trades')} />;
   return (
     <div className="dk-bk-tape" role="grid" aria-label={t('Last trades')}>
       <div className="dk-bk-head" role="row">

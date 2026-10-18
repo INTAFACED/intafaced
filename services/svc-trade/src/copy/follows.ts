@@ -8,6 +8,8 @@
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
+import { customerStatus, type CopyLeaderCustomerStatus, type CopyLeaderListingState } from './leader-listing.js';
+import { logRefusalSpec } from '../refusal-spec-log.js';
 import { COPY_JURISDICTION_RESIDUAL, CopyError } from './errors.js';
 import type { CopyJurisdictionLaw } from './fee-share-law.js';
 
@@ -45,7 +47,10 @@ export interface CopyFollow {
 export interface PresentCopyFollow {
   readonly followId: string;
   readonly followerId: string;
-  readonly leaderId: string;
+  /** Leader user id when no listing row exists. Null when any listing row exists. */
+  readonly leaderId: string | null;
+  /** Listing ref when a listing row exists. Null when the leader has no row. */
+  readonly leaderRef: string | null;
   readonly permittedMarkets: readonly string[];
   readonly maxNotionalPerOrder: string;
   readonly maxAggregateExposure: string;
@@ -66,6 +71,8 @@ export interface PresentCopyFollow {
   readonly sessionKey?: string;
   readonly relationshipState: CopyRelationshipState;
   readonly newIntentFenced: boolean;
+  /** listed, suspended, delisted, or unknown when no listing exists. Never assumed listed. */
+  readonly leaderStatus: CopyLeaderCustomerStatus;
 }
 
 export function parseCopyEnvelope(input: {
@@ -129,11 +136,8 @@ export function parseCopyEnvelope(input: {
  */
 export function copyRegionClosed(law: CopyJurisdictionLaw, region: string): CopyError | null {
   if (!law || law.published !== true) {
-    return new CopyError(
-      'Copy follow is refuse-closed until owner publishes DIRECTION §8 / D26-P0-15 served-jurisdiction list',
-      'trade.copy_jurisdiction_blank',
-      COPY_JURISDICTION_RESIDUAL,
-    );
+    logRefusalSpec('trade.copy_jurisdiction_blank');
+    return new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
   }
   const code = region.trim().toUpperCase();
   if (!code) {
@@ -152,12 +156,17 @@ export function assertCopyRegionAllowed(law: CopyJurisdictionLaw, region: string
   return region.trim().toUpperCase();
 }
 
-export function presentCopyFollow(follow: CopyFollow, currentExposure: Amount = 0n): PresentCopyFollow {
+export function presentCopyFollow(
+  follow: CopyFollow,
+  currentExposure: Amount = 0n,
+  listing: { readonly leaderRef: string; readonly state: CopyLeaderListingState } | null = null,
+): PresentCopyFollow {
   const remaining = follow.envelope.maxAggregateExposure > currentExposure ? follow.envelope.maxAggregateExposure - currentExposure : 0n;
   return {
     followId: follow.followId,
     followerId: follow.followerId,
-    leaderId: follow.leaderId,
+    leaderId: listing ? null : follow.leaderId,
+    leaderRef: listing ? listing.leaderRef : null,
     permittedMarkets: follow.envelope.permittedMarkets,
     maxNotionalPerOrder: formatAmount(follow.envelope.maxNotionalPerOrder),
     maxAggregateExposure: formatAmount(follow.envelope.maxAggregateExposure),
@@ -172,6 +181,7 @@ export function presentCopyFollow(follow: CopyFollow, currentExposure: Amount = 
     sessionKeyRevoked: follow.sessionKeyRevoked === true,
     relationshipState: followRelationshipState(follow),
     newIntentFenced: copyNewIntentFenced(followRelationshipState(follow)),
+    leaderStatus: customerStatus(listing?.state),
     ...(follow.sessionKeyPrefix ? { sessionKeyPrefix: follow.sessionKeyPrefix, sessionKeyId: follow.sessionKeyPrefix } : {}),
   };
 }

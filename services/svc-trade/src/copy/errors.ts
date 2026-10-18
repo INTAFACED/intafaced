@@ -5,6 +5,8 @@
  * jurisdiction lists to avoid a refuse.
  */
 
+import { logCopyResidual } from './residual-log.js';
+
 export type CopyErrorCode =
   | 'trade.copy_fee_share_blank'
   | 'trade.copy_jurisdiction_blank'
@@ -35,25 +37,69 @@ export type CopyErrorCode =
   | 'trade.copy_state_invalid'
   | 'trade.copy_flatten_refused'
   | 'trade.copy_flatten_drift'
-  | 'trade.copy_flatten_unavailable';
+  | 'trade.copy_flatten_unavailable'
+  | 'trade.copy_flatten_partial'
+  | 'trade.copy_unavailable'
+  | 'trade.copy_disclosure_unpublished'
+  | 'trade.copy_disclosure_required'
+  | 'trade.copy_disclosure_version_stale'
+  | 'trade.copy_leaders_limit_unset'
+  | 'trade.copy_follow_events_limit_unset'
+  | 'trade.copy_leaders_cursor_invalid'
+  | 'trade.copy_leader_suspended'
+  | 'trade.copy_leader_delisted'
+  | 'trade.copy_leader_capacity_full'
+  | 'trade.copy_leader_not_found'
+  | 'trade.copy_leader_identity_unset'
+  | 'trade.copy_leader_evidence_unset'
+  | 'trade.copy_leader_request_unset'
+  | 'trade.copy_leader_request_mismatch'
+  | 'trade.copy_leader_record_blank'
+  | 'trade.copy_leader_state_invalid'
+  | 'trade.copy_leader_state_reason_unset';
+
+/**
+ * Closed set for the customer desk and blank-law refusals.
+ * TRD-0722 names no code for an unmounted copy service, so that case is `trade.copy_unavailable`.
+ */
+export const COPY_DESK_BLOCKER_CODES = [
+  'trade.copy_fee_share_blank',
+  'trade.copy_jurisdiction_blank',
+  'trade.copy_place_disabled',
+  'trade.copy_unavailable',
+] as const;
+export type CopyDeskBlockerCode = (typeof COPY_DESK_BLOCKER_CODES)[number];
+export type CopyDeskBlocker = { readonly code: CopyDeskBlockerCode };
+
+const DESK_BLOCKER_CODES = new Set<string>(COPY_DESK_BLOCKER_CODES);
+
+function defaultDeskBlockers(code: CopyErrorCode): readonly CopyDeskBlocker[] | undefined {
+  if (!DESK_BLOCKER_CODES.has(code)) return undefined;
+  return [{ code: code as CopyDeskBlockerCode }];
+}
 
 export class CopyError extends Error {
+  readonly blockers: readonly CopyDeskBlocker[] | undefined;
+
   constructor(
     message: string,
     readonly code: CopyErrorCode,
     readonly residual?: string,
+    /** Placed close order ids when a later market refuses (`trade.copy_flatten_partial`). */
+    readonly orderIds?: readonly string[],
+    blockers?: readonly CopyDeskBlocker[],
   ) {
     super(message);
     this.name = 'CopyError';
+    this.blockers = blockers ?? defaultDeskBlockers(code);
+    if (residual) logCopyResidual(code, residual);
   }
 }
 
-/** Stable residual — DIRECTION §8 / D26-P0-02 leader_share_bps (never invent rates). */
-export const COPY_FEE_SHARE_RESIDUAL =
-  'DIRECTION §8 / D26-P0-02 leader_share_bps is owner-only — refuse-closed (never invent fee-share rates)';
+/** Customer text when the leader fee share is unpublished. Spec id stays in the server log. */
+export const COPY_FEE_SHARE_RESIDUAL = 'Copy trading is not available yet: the leader fee share is not set.';
 
-/** Stable residual — DIRECTION §8 / D26-P0-15 served-jurisdiction list (never invent geo). */
-export const COPY_JURISDICTION_RESIDUAL =
-  'DIRECTION §8 / D26-P0-15 served-jurisdiction list is owner-only — refuse-closed (never invent geo allowlist)';
+/** Customer text when the served-region list is unpublished. */
+export const COPY_JURISDICTION_RESIDUAL = 'Copy trading is not available yet: the list of served regions is not set.';
 
-export const COPY_LAW_RESIDUAL = 'DIRECTION §8 / D26-P0-02 leader_share_bps and D26-P0-15 jurisdiction list are owner-only — refuse-closed';
+export const COPY_LAW_RESIDUAL = 'Copy trading is not available yet: the leader fee share and the list of served regions are not set.';

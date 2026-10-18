@@ -1,0 +1,4497 @@
+{
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "description": "Required on mutating POSTs (ADR §2.2). Business key — never random per attempt.",
+        "in": "header",
+        "name": "Idempotency-Key",
+        "required": true,
+        "schema": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {},
+    "securitySchemes": {
+      "apiKey": {
+        "description": "An `ifc_…` API key.",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Merchant payments API.\n\nHuman quickstart (no monorepo required): docs/pay/MERCHANT-PUBLIC-API-QUICKSTART.md\n\n**Amounts are decimal strings** with an explicit `assetId` — never minor units and never a JSON number.\nA payment of one dollar ten is `\"1.1\"`, not `110` and not `1.1` as a number.\n\nAmounts are **canonical**: no trailing zeros. An amount created as `1.10` is returned as `\"1.1\"`.\nCompare amounts numerically or with a decimal library — never by string equality.\n\n**Authentication** is an `ifc_…` (live) or `ifc_test_…` (sandbox) API key as a bearer token.\nKeys are exchanged for a short-lived principal at the edge; this service never sees the key itself.\n\n**Sandbox keys** (mode=sandbox / `key_env=sandbox`): createPayment always uses the sandbox rail\n(`card-sandbox`). A **live** key that names a sandbox rail is refused (`pay.sandbox_rail_refused`).\nEvery payment response includes `mode: \"sandbox\" | \"live\"` from the rail posture — never silent.\n`GET /payments` returns `{ items, nextCursor }` (ADR 2026-08-07 §2.7, pre-launch amendment 2026-10-16).\n`nextCursor` is null on the last page. A sandbox key is scoped to sandbox rails before the cursor is chosen.\nThere is no parallel sandbox deployment — same API, rail posture only.\n\n**Idempotency-Key** is required on every mutating POST. A repeated key with the same body returns\nthe original result; a repeated key with a different body is `409 pay.idempotency_conflict`.\n\n**Errors** carry a stable `pay.*` code. Branch on the code, never on the message.\n\n**Webhooks** (ADR §2.4): HMAC-SHA256 over `timestamp + \".\" + raw body` in\n`X-Intafaced-Signature`, with `X-Intafaced-Timestamp`. At-least-once — dedupe on event `id`.\nBodies carry payment **state**, not instructions. Permanently failing endpoints are disabled\nand listed under webhook-deliveries.\n\nThis surface does **not** imply a live card acquirer (Class X / `socket.psp-partners`).",
+    "title": "Payments API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/balances": {
+      "get": {
+        "description": "A PROJECTION of the ledger, not a second book (Doctrine §0.6). `clearing` is held against pending settlement; `available` is withdrawable.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assetId",
+            "required": true,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "available": {
+                      "description": "Decimal string. Withdrawable.",
+                      "type": "string"
+                    },
+                    "clearing": {
+                      "description": "Decimal string. Held against pending settlement.",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["merchantId", "assetId", "clearing", "available"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Merchant balance for one asset",
+        "tags": ["balances"]
+      }
+    },
+    "/payment-links": {
+      "get": {
+        "description": "Same room as tRPC `merchant.listLinks`. Each item includes the checkout credential when it was stored. A link minted before that has a null token and a null checkoutUrl.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assetId",
+            "required": false,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "amount": {
+                            "description": "Decimal string, or null for an open-amount link.",
+                            "type": ["string", "null"]
+                          },
+                          "checkoutUrl": {
+                            "description": "Checkout path, or null if the credential was not stored.",
+                            "type": ["string", "null"]
+                          },
+                          "createdAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": ["string", "null"]
+                          },
+                          "expiresAt": {
+                            "format": "date-time",
+                            "type": ["string", "null"]
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "maxUses": {
+                            "type": ["integer", "null"]
+                          },
+                          "prefix": {
+                            "type": "string"
+                          },
+                          "token": {
+                            "description": "Checkout credential, or null if it was not stored.",
+                            "type": ["string", "null"]
+                          },
+                          "uses": {
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "prefix",
+                          "label",
+                          "amount",
+                          "currency",
+                          "active",
+                          "expiresAt",
+                          "maxUses",
+                          "uses",
+                          "createdAt",
+                          "token",
+                          "checkoutUrl"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["items", "nextCursor"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "List a merchant’s payment links, newest first",
+        "tags": ["payment-links"]
+      },
+      "post": {
+        "description": "Requires `Idempotency-Key`. Calls the same `PayService.createPaymentLink` the tRPC `merchant.createLink` room uses. The header is that create key: the same key and body return the original link, including its checkout token. Omit `expiresAt` for the service default; `null` is refused (`pay.link_expiry_invalid`). Does not move value and does not name a rail.",
+        "parameters": [
+          {
+            "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "description": "Optional decimal string. Never a JSON number (ADR §2.3). Omit for an open-amount link."
+                  },
+                  "currency": {
+                    "description": "Asset id for the optional amount. Same field as tRPC `createLink`.",
+                    "maxLength": 16,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "description": "ISO-8601 datetime. Omit for the service default. `null` is refused (`pay.link_expiry_invalid`) — a capability URL cannot live forever."
+                  },
+                  "label": {
+                    "maxLength": 120,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxUses": {
+                    "maximum": 1000000,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "merchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "profileId": {
+                    "format": "uuid",
+                    "type": ["string", "null"]
+                  }
+                },
+                "required": ["merchantId", "label"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "checkoutUrl": {
+                      "description": "Checkout path carrying the token. No host is invented.",
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "description": "Always a date. The service defaults and caps it; it is never null.",
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "maxUses": {
+                      "type": ["integer", "null"]
+                    },
+                    "prefix": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "description": "Checkout credential. Returned on create and on a later read by a caller who can see the link.",
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "token", "prefix", "label", "expiresAt", "maxUses", "checkoutUrl"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Create a payment link",
+        "tags": ["payment-links"]
+      }
+    },
+    "/payment-links/{id}": {
+      "delete": {
+        "description": "Same room as tRPC `merchant.deactivateLink`. One-way — there is no reactivate. Does not cancel sessions already open. Already-inactive or unknown ids return `{ deactivated: false }`, not 404.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deactivated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["deactivated"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Deactivate a payment link",
+        "tags": ["payment-links"]
+      },
+      "get": {
+        "description": "Same room as tRPC `merchant.getLink`. A link that belongs to another merchant is not found. Does not move value.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "amount": {
+                      "description": "Decimal string, or null for an open-amount link.",
+                      "type": ["string", "null"]
+                    },
+                    "checkoutUrl": {
+                      "description": "Checkout path, or null if the credential was not stored.",
+                      "type": ["string", "null"]
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": ["string", "null"]
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": ["string", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "maxUses": {
+                      "type": ["integer", "null"]
+                    },
+                    "prefix": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "description": "Checkout credential, or null if it was not stored.",
+                      "type": ["string", "null"]
+                    },
+                    "uses": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "prefix",
+                    "label",
+                    "amount",
+                    "currency",
+                    "active",
+                    "expiresAt",
+                    "maxUses",
+                    "uses",
+                    "createdAt",
+                    "token",
+                    "checkoutUrl"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Read one payment link, including its checkout path when stored",
+        "tags": ["payment-links"]
+      }
+    },
+    "/payments": {
+      "get": {
+        "description": "Returns `{ items, nextCursor }`. `nextCursor` is null on the last page. Pre-launch this replaced a bare array (ADR 2026-08-07 §2.7 amendment 2026-10-16): there are no external callers yet, and keyset paging needs the cursor. A sandbox key lists sandbox rails before the cursor is chosen, so `nextCursor` never names a live payment.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assetId",
+            "required": false,
+            "schema": {
+              "maxLength": 16,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "amount": {
+                            "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                            "type": "string"
+                          },
+                          "assetId": {
+                            "type": "string"
+                          },
+                          "capturedAmount": {
+                            "description": "Decimal string.",
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "failure": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "code": {
+                                "type": "string"
+                              },
+                              "message": {
+                                "type": "string"
+                              }
+                            },
+                            "type": ["object", "null"]
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "merchantId": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "method": {
+                            "type": ["string", "null"]
+                          },
+                          "mode": {
+                            "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                            "enum": ["live", "sandbox"],
+                            "type": "string"
+                          },
+                          "pricingSnapshot": {
+                            "additionalProperties": true,
+                            "type": ["object", "null"]
+                          },
+                          "profileId": {
+                            "type": ["string", "null"]
+                          },
+                          "railAdapter": {
+                            "type": ["string", "null"]
+                          },
+                          "railRef": {
+                            "type": ["string", "null"]
+                          },
+                          "refundedAmount": {
+                            "description": "Decimal string.",
+                            "type": "string"
+                          },
+                          "status": {
+                            "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "merchantId",
+                          "amount",
+                          "assetId",
+                          "status",
+                          "mode",
+                          "capturedAmount",
+                          "refundedAmount",
+                          "createdAt"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "nextCursor": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["items", "nextCursor"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "List a merchant’s payments, newest first",
+        "tags": ["payments"]
+      },
+      "post": {
+        "description": "Requires `Idempotency-Key`. Calls the same `PayService.createPayment` the tRPC router uses.",
+        "parameters": [
+          {
+            "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "description": "Decimal string. Never a JSON number (ADR §2.3)."
+                  },
+                  "assetId": {
+                    "maxLength": 16,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "customerRef": {
+                    "type": "string"
+                  },
+                  "instrument": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "address": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind"],
+                    "type": "object"
+                  },
+                  "merchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "metadata": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "method": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "profileId": {
+                    "format": "uuid",
+                    "type": ["string", "null"]
+                  },
+                  "railAdapter": {
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": ["merchantId", "amount", "assetId", "method", "railAdapter"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amount": {
+                      "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "capturedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": ["string", "null"]
+                    },
+                    "mode": {
+                      "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                      "enum": ["live", "sandbox"],
+                      "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
+                    },
+                    "profileId": {
+                      "type": ["string", "null"]
+                    },
+                    "railAdapter": {
+                      "type": ["string", "null"]
+                    },
+                    "railRef": {
+                      "type": ["string", "null"]
+                    },
+                    "refundedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "amount", "assetId", "status", "mode", "capturedAmount", "refundedAmount", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Create a payment",
+        "tags": ["payments"]
+      }
+    },
+    "/payments/{id}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amount": {
+                      "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "capturedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": ["string", "null"]
+                    },
+                    "mode": {
+                      "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                      "enum": ["live", "sandbox"],
+                      "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
+                    },
+                    "profileId": {
+                      "type": ["string", "null"]
+                    },
+                    "railAdapter": {
+                      "type": ["string", "null"]
+                    },
+                    "railRef": {
+                      "type": ["string", "null"]
+                    },
+                    "refundedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "amount", "assetId", "status", "mode", "capturedAmount", "refundedAmount", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Fetch one payment",
+        "tags": ["payments"]
+      }
+    },
+    "/payments/{id}/authorize": {
+      "post": {
+        "description": "Requires `Idempotency-Key`. No value moves on authorize — ledger untouched.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {},
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amount": {
+                      "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "capturedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": ["string", "null"]
+                    },
+                    "mode": {
+                      "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                      "enum": ["live", "sandbox"],
+                      "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
+                    },
+                    "profileId": {
+                      "type": ["string", "null"]
+                    },
+                    "railAdapter": {
+                      "type": ["string", "null"]
+                    },
+                    "railRef": {
+                      "type": ["string", "null"]
+                    },
+                    "refundedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "amount", "assetId", "status", "mode", "capturedAmount", "refundedAmount", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Authorize a payment",
+        "tags": ["payments"]
+      }
+    },
+    "/payments/{id}/capture": {
+      "post": {
+        "description": "Requires `Idempotency-Key`. Value moves only through ledger-client recipes inside `PayService.capture`.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "description": "Optional amount as a decimal string. If present, must equal the full authorized amount — partial capture is not supported (`pay.partial_capture_unsupported`). Omit to capture the full authorization. Never a JSON number."
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amount": {
+                      "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "capturedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": ["string", "null"]
+                    },
+                    "mode": {
+                      "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                      "enum": ["live", "sandbox"],
+                      "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
+                    },
+                    "profileId": {
+                      "type": ["string", "null"]
+                    },
+                    "railAdapter": {
+                      "type": ["string", "null"]
+                    },
+                    "railRef": {
+                      "type": ["string", "null"]
+                    },
+                    "refundedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "amount", "assetId", "status", "mode", "capturedAmount", "refundedAmount", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Capture an authorized payment",
+        "tags": ["payments"]
+      }
+    },
+    "/payments/{id}/refund": {
+      "post": {
+        "description": "Requires `Idempotency-Key` and `pay:refund` (not the same authority as taking payment). Ledger-only.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required on every mutating POST (ADR §2.2). A business key — never a random UUID per attempt.",
+            "in": "header",
+            "name": "idempotency-key",
+            "required": false,
+            "schema": {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "amount": {
+                    "description": "Decimal string. Never a JSON number (ADR §2.3)."
+                  },
+                  "refundId": {
+                    "description": "Optional business refund id (business key, never a random UUID). Omit it and your `Idempotency-Key` becomes this refund’s business identity for this payment, so the same key can never refund twice — even if the retry arrives after the idempotency record has expired. Send a NEW key (or an explicit `refundId`) for a genuinely second partial refund.",
+                    "type": "string"
+                  }
+                },
+                "required": ["amount"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "amount": {
+                      "description": "Decimal string. Never minor units, never a number (ADR §2.3).",
+                      "type": "string"
+                    },
+                    "assetId": {
+                      "type": "string"
+                    },
+                    "capturedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "failure": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "type": ["object", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "method": {
+                      "type": ["string", "null"]
+                    },
+                    "mode": {
+                      "description": "Rail posture of this payment (ADR §2.5). `sandbox` when the rail is a sandbox simulation; never silent live.",
+                      "enum": ["live", "sandbox"],
+                      "type": "string"
+                    },
+                    "pricingSnapshot": {
+                      "additionalProperties": true,
+                      "type": ["object", "null"]
+                    },
+                    "profileId": {
+                      "type": ["string", "null"]
+                    },
+                    "railAdapter": {
+                      "type": ["string", "null"]
+                    },
+                    "railRef": {
+                      "type": ["string", "null"]
+                    },
+                    "refundedAmount": {
+                      "description": "Decimal string.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["created", "authorized", "captured", "settled", "refunded", "disputed", "failed"],
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "amount", "assetId", "status", "mode", "capturedAmount", "refundedAmount", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Refund a captured payment",
+        "tags": ["payments"]
+      }
+    },
+    "/submerchant-permissions": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subjectMerchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "actorId": {
+                        "type": "string"
+                      },
+                      "actorMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "area": {
+                        "type": "string"
+                      },
+                      "grantedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "granteeMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "subjectMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": ["granteeMerchantId", "subjectMerchantId", "area", "reason", "actorId", "actorMerchantId", "grantedAt"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Live grants over a subject merchant (implicit root/self authority omitted)",
+        "tags": ["payfac-permissions"]
+      }
+    },
+    "/submerchant-permissions/areas": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Permission area vocabulary (eleven surfaces; not fourteen)",
+        "tags": ["payfac-permissions"]
+      }
+    },
+    "/submerchant-permissions/grant": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "area": {
+                    "enum": [
+                      "merchant.profile",
+                      "checkout.profile",
+                      "payment.link",
+                      "payment",
+                      "payment.refund",
+                      "settlement",
+                      "settlement.payout",
+                      "webhook",
+                      "kyb",
+                      "submerchant",
+                      "permission"
+                    ],
+                    "type": "string"
+                  },
+                  "granteeMerchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 500,
+                    "minLength": 3,
+                    "type": "string"
+                  },
+                  "subjectMerchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": ["granteeMerchantId", "subjectMerchantId", "area", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "action": {
+                      "enum": ["grant", "revoke"],
+                      "type": "string"
+                    },
+                    "actorId": {
+                      "type": "string"
+                    },
+                    "actorMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "actorScope": {
+                      "type": "string"
+                    },
+                    "area": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "granteeMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "seq": {
+                      "type": "string"
+                    },
+                    "subjectMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "seq",
+                    "granteeMerchantId",
+                    "subjectMerchantId",
+                    "area",
+                    "action",
+                    "reason",
+                    "actorId",
+                    "actorMerchantId",
+                    "actorScope",
+                    "createdAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Grant an area the caller already holds (reason required; append-only journal)",
+        "tags": ["payfac-permissions"]
+      }
+    },
+    "/submerchant-permissions/history": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subjectMerchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "action": {
+                        "enum": ["grant", "revoke"],
+                        "type": "string"
+                      },
+                      "actorId": {
+                        "type": "string"
+                      },
+                      "actorMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "actorScope": {
+                        "type": "string"
+                      },
+                      "area": {
+                        "type": "string"
+                      },
+                      "createdAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "granteeMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string"
+                      },
+                      "seq": {
+                        "type": "string"
+                      },
+                      "subjectMerchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "seq",
+                      "granteeMerchantId",
+                      "subjectMerchantId",
+                      "area",
+                      "action",
+                      "reason",
+                      "actorId",
+                      "actorMerchantId",
+                      "actorScope",
+                      "createdAt"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Grant and revoke journal for a subject, newest first",
+        "tags": ["payfac-permissions"]
+      }
+    },
+    "/submerchant-permissions/revoke": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "area": {
+                    "enum": [
+                      "merchant.profile",
+                      "checkout.profile",
+                      "payment.link",
+                      "payment",
+                      "payment.refund",
+                      "settlement",
+                      "settlement.payout",
+                      "webhook",
+                      "kyb",
+                      "submerchant",
+                      "permission"
+                    ],
+                    "type": "string"
+                  },
+                  "granteeMerchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "maxLength": 500,
+                    "minLength": 3,
+                    "type": "string"
+                  },
+                  "subjectMerchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "required": ["granteeMerchantId", "subjectMerchantId", "area", "reason"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "action": {
+                      "enum": ["grant", "revoke"],
+                      "type": "string"
+                    },
+                    "actorId": {
+                      "type": "string"
+                    },
+                    "actorMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "actorScope": {
+                      "type": "string"
+                    },
+                    "area": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "granteeMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "seq": {
+                      "type": "string"
+                    },
+                    "subjectMerchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "seq",
+                    "granteeMerchantId",
+                    "subjectMerchantId",
+                    "area",
+                    "action",
+                    "reason",
+                    "actorId",
+                    "actorMerchantId",
+                    "actorScope",
+                    "createdAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Revoke a live grant — new journal row, never an edit",
+        "tags": ["payfac-permissions"]
+      }
+    },
+    "/webhook-deliveries": {
+      "get": {
+        "description": "Permanently failing endpoints are disabled rather than silently dropped (ADR §2.4). Filter with `status=failed` or `status=dead`.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": ["pending", "delivered", "failed", "dead"],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "attempts": {
+                        "type": "integer"
+                      },
+                      "createdAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "deliveredAt": {
+                        "format": "date-time",
+                        "type": ["string", "null"]
+                      },
+                      "endpointId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "eventId": {
+                        "description": "Merchant dedupe key (ADR §2.4).",
+                        "type": "string"
+                      },
+                      "eventType": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "lastError": {
+                        "type": ["string", "null"]
+                      },
+                      "lastStatusCode": {
+                        "type": ["integer", "null"]
+                      },
+                      "merchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "nextAttemptAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": ["pending", "delivered", "failed", "dead"],
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "endpointId", "merchantId", "eventId", "eventType", "status", "attempts", "createdAt"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Webhook delivery dashboard (failures / dead / all)",
+        "tags": ["webhooks"]
+      }
+    },
+    "/webhook-endpoints": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "properties": {
+                      "consecutiveFailures": {
+                        "type": "integer"
+                      },
+                      "createdAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "disabledReason": {
+                        "type": ["string", "null"]
+                      },
+                      "id": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "merchantId": {
+                        "format": "uuid",
+                        "type": "string"
+                      },
+                      "secret": {
+                        "description": "Signing secret — returned ONLY on create. Store it; we will not show it again.",
+                        "type": "string"
+                      },
+                      "status": {
+                        "enum": ["active", "disabled"],
+                        "type": "string"
+                      },
+                      "updatedAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["id", "merchantId", "url", "status", "consecutiveFailures", "createdAt"],
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "List webhook endpoints for a merchant",
+        "tags": ["webhooks"]
+      },
+      "post": {
+        "description": "HTTPS required (localhost http allowed). Signing secret returned once. ADR §2.4 — no value moves.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "merchantId": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "url": {
+                    "maxLength": 2048,
+                    "minLength": 8,
+                    "type": "string"
+                  }
+                },
+                "required": ["merchantId", "url"],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "consecutiveFailures": {
+                      "type": "integer"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "disabledReason": {
+                      "type": ["string", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "secret": {
+                      "description": "Signing secret — returned ONLY on create. Store it; we will not show it again.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["active", "disabled"],
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "url", "status", "consecutiveFailures", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Register an outbound webhook endpoint",
+        "tags": ["webhooks"]
+      }
+    },
+    "/webhook-endpoints/{id}": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "disabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Disable a webhook endpoint",
+        "tags": ["webhooks"]
+      }
+    },
+    "/webhook-endpoints/{id}/enable": {
+      "post": {
+        "description": "After consecutive failures disable an endpoint (ADR §2.4), fix the receiver and call this. Resets the failure counter.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "merchantId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "consecutiveFailures": {
+                      "type": "integer"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "disabledReason": {
+                      "type": ["string", "null"]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "merchantId": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "secret": {
+                      "description": "Signing secret — returned ONLY on create. Store it; we will not show it again.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": ["active", "disabled"],
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["id", "merchantId", "url", "status", "consecutiveFailures", "createdAt"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "properties": {
+                        "code": {
+                          "description": "Stable `pay.*` code. Branch on this, never on the message.",
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "requestId": {
+                          "description": "Same value as the x-request-id response header. Show this when asking for help.",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code", "message", "requestId"],
+                      "type": "object"
+                    }
+                  },
+                  "required": ["error"],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Default Response"
+          }
+        },
+        "summary": "Re-enable a disabled webhook endpoint",
+        "tags": ["webhooks"]
+      }
+    }
+  },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "/api/pay/v1"
+    }
+  ],
+  "tags": [
+    {
+      "name": "payments"
+    },
+    {
+      "name": "payment-links"
+    },
+    {
+      "name": "balances"
+    },
+    {
+      "name": "webhooks"
+    }
+  ]
+}

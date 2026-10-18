@@ -38,6 +38,7 @@ type RepeatRule = {
 };
 
 type CatalogRow = {
+  name: RecipeName;
   minLegs: number;
   signatures: ReadonlySet<string>;
   repeats: readonly RepeatRule[];
@@ -208,6 +209,17 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
 
   return [
     { name: 'deposit', post: recipes.deposit({ userId: U, assetId: 'USDT', amount: AMT, rail: 'crypto-native', railRef: 'tx1' }) },
+    {
+      name: 'depositReverse',
+      post: recipes.depositReverse({
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        railRef: 'tx1',
+        depositId: 'dep1',
+      }),
+    },
     { name: 'marketMakerSeedFund', post: recipes.marketMakerSeedFund({ assetId: 'USDT', amount: AMT, seedId: 'seed1' }) },
     { name: 'withdrawHold', post: recipes.withdrawHold(withdraw) },
     { name: 'withdrawSettle', post: recipes.withdrawSettle(withdraw) },
@@ -294,9 +306,316 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     { name: 'paymentRefund', post: recipes.paymentRefund(refund) },
     { name: 'paymentRefund', post: recipes.paymentRefund({ ...refund, source: 'settled' }) },
+    { name: 'paymentRefund', post: recipes.paymentRefund({ ...refund, source: 'settled', settledPot: 'user' }) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse(refund) },
     { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse({ ...refund, source: 'settled' }) },
+    { name: 'paymentRefundReverse', post: recipes.paymentRefundReverse({ ...refund, source: 'settled', settledPot: 'user' }) },
+    {
+      name: 'merchantProceedsPayoutHold',
+      post: recipes.merchantProceedsPayoutHold({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
+    {
+      name: 'merchantProceedsPayoutSettle',
+      post: recipes.merchantProceedsPayoutSettle({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
+    {
+      name: 'merchantProceedsPayoutReverse',
+      post: recipes.merchantProceedsPayoutReverse({
+        merchantId: 'm1',
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        withdrawalId: 'w1',
+      }),
+    },
+    {
+      name: 'fxConversion',
+      post: recipes.fxConversion({
+        conversionId: 'cv1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: AMT,
+      }),
+    },
+    {
+      name: 'fxConversion',
+      post: recipes.fxConversion({
+        conversionId: 'cv1f',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: 0n,
+      }),
+    },
+    {
+      name: 'fxConversion',
+      post: recipes.fxConversion({
+        conversionId: 'cv1s',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: AMT,
+      }),
+    },
+    {
+      name: 'fxConversion',
+      post: recipes.fxConversion({
+        conversionId: 'cv1z',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: 0n,
+      }),
+    },
+    {
+      name: 'fxConversionReverse',
+      post: recipes.fxConversionReverse({
+        conversionId: 'cv1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: AMT,
+      }),
+    },
+    {
+      name: 'fxConversionReverse',
+      post: recipes.fxConversionReverse({
+        conversionId: 'cv1f',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: 0n,
+      }),
+    },
+    {
+      name: 'fxConversionReverse',
+      post: recipes.fxConversionReverse({
+        conversionId: 'cv1s',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: AMT,
+      }),
+    },
+    {
+      name: 'fxConversionReverse',
+      post: recipes.fxConversionReverse({
+        conversionId: 'cv1z',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: 0n,
+      }),
+    },
+    {
+      name: 'fxConversionHold',
+      post: recipes.fxConversionHold({ conversionId: 'cv-hold', merchantId: 'm1', fromAsset: 'USD', amount: AMT }),
+    },
+    {
+      name: 'fxConversionRelease',
+      post: recipes.fxConversionRelease({ conversionId: 'cv-hold', merchantId: 'm1', fromAsset: 'USD', amount: AMT }),
+    },
+    {
+      name: 'fxConversionRelease',
+      post: recipes.fxConversionRelease({ conversionId: 'cv-rem', merchantId: 'm1', fromAsset: 'USD', amount: AMT, sequence: 1 }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-m',
+        conversionId: 'cv-late',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: AMT,
+        funding: 'merchant',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-mf',
+        conversionId: 'cv-late-f',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: 0n,
+        funding: 'merchant',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-ms',
+        conversionId: 'cv-late-s',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: AMT,
+        funding: 'merchant',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-mz',
+        conversionId: 'cv-late-z',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: 0n,
+        funding: 'merchant',
+      }),
+    },
+    // Inventory funding is four legs: fx-inventory USD, both venue boundaries,
+    // fx-inventory USDT for the gross. Fee and spread change the gross, not the
+    // accounts. A merchant credit or a fee leg under late_shortfall is not sampled.
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-i',
+        conversionId: 'cv-late-i',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: AMT,
+        funding: 'inventory',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-if',
+        conversionId: 'cv-late-if',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: AMT,
+        spreadAmount: 0n,
+        funding: 'inventory',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-is',
+        conversionId: 'cv-late-is',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: AMT,
+        funding: 'inventory',
+      }),
+    },
+    {
+      name: 'fxConversionLateFill',
+      post: recipes.fxConversionLateFill({
+        auditId: 'audit-iz',
+        conversionId: 'cv-late-iz',
+        merchantId: 'm1',
+        merchantUserId: U,
+        venueId: 'binance-spot',
+        fromAsset: 'USD',
+        toAsset: 'USDT',
+        fromAmount: AMT,
+        toAmount: AMT,
+        feeAmount: 0n,
+        spreadAmount: 0n,
+        funding: 'inventory',
+      }),
+    },
     { name: 'chargebackOpen', post: recipes.chargebackOpen(chargeback) },
+    {
+      name: 'chargebackOpen',
+      post: recipes.chargebackOpen({ ...chargeback, fromClearing: 0n, fromMerchantBalance: AMT, settledPot: 'user' }),
+    },
     { name: 'chargebackOpen', post: recipes.chargebackOpen({ ...chargeback, fromClearing: 0n, fromMerchantBalance: AMT }) },
     { name: 'chargebackShortfall', post: recipes.chargebackShortfall(shortfall) },
     { name: 'chargebackWon', post: recipes.chargebackWon(chargeback) },
@@ -457,6 +776,84 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       }),
     },
     {
+      name: 'tradeFillFeeCorrection',
+      post: recipes.tradeFillFeeCorrection({
+        fillId: 'f-corr',
+        correctionId: 'c1',
+        userId: U,
+        assetId: 'USDT',
+        difference: AMT,
+      }),
+    },
+    {
+      name: 'deposit',
+      post: recipes.deposit({
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        railRef: 'tx-sub',
+        subAccountId: S1,
+        confirmed: true,
+      }),
+    },
+    {
+      name: 'depositReverse',
+      post: recipes.depositReverse({
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        rail: 'crypto-native',
+        railRef: 'tx-sub',
+        depositId: 'dep-sub',
+        subAccountId: S1,
+        confirmed: true,
+      }),
+    },
+    {
+      name: 'futuresMarginLock',
+      post: recipes.futuresMarginLock({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresMarginAdd',
+      post: recipes.futuresMarginAdd({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        sequence: 1,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresMarginRelease',
+      post: recipes.futuresMarginRelease({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresRealizeLoss',
+      post: recipes.futuresRealizeLoss({
+        positionId: 'pos-sub',
+        userId: U,
+        assetId: 'USDT',
+        fromMargin: AMT,
+        fromInsurance: 0n,
+        lossId: 'l-sub',
+        subAccountId: S1,
+      }),
+    },
+    {
       name: 'loanReserveFund',
       post: recipes.loanReserveFund({ fundingId: 'f-user', debtAssetId: 'USDT', amount: AMT, from: userAvailable(U, 'USDT') }),
     },
@@ -519,6 +916,20 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         rail: 'card-sandbox',
         fromClearing: AMT,
         fromMerchantBalance: AMT,
+      }),
+    },
+    {
+      name: 'chargebackWon',
+      post: recipes.chargebackWon({
+        disputeId: 'd1',
+        paymentId: 'p1',
+        merchantId: 'm1',
+        merchantUserId: U,
+        assetId: 'USDT',
+        rail: 'card-sandbox',
+        fromClearing: 0n,
+        fromMerchantBalance: AMT,
+        settledPot: 'user',
       }),
     },
   ];
@@ -667,7 +1078,7 @@ function matchesRepeat(rules: readonly RepeatRule[], sigs: readonly string[]): b
 }
 
 function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySet<RecipeName> } {
-  const grouped = new Map<string, { minLegs: number; signatures: Set<string>; legs: string[][] }>();
+  const grouped = new Map<string, { name: RecipeName; minLegs: number; signatures: Set<string>; legs: string[][] }>();
   const sampled = new Set<RecipeName>();
 
   for (const { name, post } of samplePosts()) {
@@ -677,8 +1088,11 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
     const legs = post.entries.map((entry) => legSignature(entry));
     const existing = grouped.get(key);
     if (!existing) {
-      grouped.set(key, { minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
+      grouped.set(key, { name, minLegs: post.entries.length, signatures: new Set([legs.join(';')]), legs: [legs] });
       continue;
+    }
+    if (existing.name !== name) {
+      throw new Error(`recipe catalog key ${key} is shared by ${existing.name} and ${name}`);
     }
     existing.minLegs = Math.min(existing.minLegs, post.entries.length);
     existing.signatures.add(legs.join(';'));
@@ -688,6 +1102,7 @@ function buildCatalog(): { catalog: Map<string, CatalogRow>; sampled: ReadonlySe
   const catalog = new Map<string, CatalogRow>();
   for (const [key, row] of grouped) {
     catalog.set(key, {
+      name: row.name,
       minLegs: row.minLegs,
       signatures: row.signatures,
       repeats: deriveRepeatRules(row.legs),
@@ -703,17 +1118,40 @@ export function unsampledRecipeNames(): readonly RecipeName[] {
   return (Object.keys(recipes) as RecipeName[]).filter((name) => !SAMPLED_RECIPES.has(name)).sort();
 }
 
-export function assertKnownRecipePost(input: WirePost): void {
-  if (matchesFeeCharge(input) || matchesRewardPay(input) || matchesFeeSweep(input)) return;
+/** Samples the catalog was built from. Tests use this to check candidate names. */
+export function recipeGateSamples(): readonly { readonly name: RecipeName; readonly post: PostRequest }[] {
+  return samplePosts();
+}
 
-  const key = `${input.module}::${input.reason}`;
-  const spec = RECIPE_CATALOG.get(key);
-  if (!spec) throw recipeError(input.module, input.reason);
-
-  if (input.entries.length < spec.minLegs) throw recipeError(input.module, input.reason);
+function catalogRecipe(input: WirePost): RecipeName | null {
+  const spec = RECIPE_CATALOG.get(`${input.module}::${input.reason}`);
+  if (!spec) return null;
+  if (input.entries.length < spec.minLegs) return null;
 
   const sigs = input.entries.map((entry) => legSignature(entry));
-  if (spec.signatures.has(sigs.join(';'))) return;
-  if (matchesRepeat(spec.repeats, sigs)) return;
+  if (spec.signatures.has(sigs.join(';'))) return spec.name;
+  if (matchesRepeat(spec.repeats, sigs)) return spec.name;
+  return null;
+}
+
+/**
+ * Every recipe this body matches.
+ *
+ * Fee, reward, and sweep can share a shape with a catalog recipe (an
+ * interest-only loan repayment is also the feeCharge shape). The first hit
+ * is not the only name the caller may have been granted.
+ */
+export function recipeCandidates(input: WirePost): RecipeName[] {
+  const found: RecipeName[] = [];
+  if (matchesFeeCharge(input)) found.push('feeCharge');
+  if (matchesRewardPay(input)) found.push('rewardPay');
+  if (matchesFeeSweep(input)) found.push('sweepFeesToRewards');
+  const catalog = catalogRecipe(input);
+  if (catalog !== null && !found.includes(catalog)) found.push(catalog);
+  return found;
+}
+
+export function assertKnownRecipePost(input: WirePost): void {
+  if (recipeCandidates(input).length > 0) return;
   throw recipeError(input.module, input.reason);
 }

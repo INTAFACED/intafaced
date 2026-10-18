@@ -8,6 +8,13 @@ import { Details, Limit, Read, Select, presentActionFailure, type ActionControls
 import { t as copyText, Text } from './copy';
 import { Workbook } from './Workbook';
 import { academyLearningCopy as copy } from './academy-learning-copy';
+import { isAcademyPath, rememberLastLesson } from './academy-lms';
+import { useAcademyTracking } from './academy-tracking';
+import { AcademyCatalogue } from './AcademyCatalogue';
+import { academyLmsCopy } from './academy-lms-copy';
+import { kindLabel, pathLabel } from './AcademyLmsParts';
+import { Assessment } from './AcademyAssessment';
+import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -121,7 +128,8 @@ export function AcademyLearning({
   const api = useApi(),
     { userId } = useSession(),
     { language } = usePreferences(),
-    current = copy.useCopy();
+    current = copy.useCopy(),
+    { t: lms } = academyLmsCopy.useCopy();
   const { t, Copy } = current;
   const certificateControl = useId();
   const mounted = useRef(true);
@@ -211,6 +219,11 @@ export function AcademyLearning({
         : Promise.resolve({ ok: true as const, data: [] as z.infer<typeof summary>[] }),
     `academy-learning-path-items:${userId}:${certId}`,
   );
+  const overview = useAcademyTracking();
+  const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
+  useEffect(() => {
+    if (openedLesson) rememberLastLesson(userId, openedLesson);
+  }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
   const receiptMatches = receipt?.success && receipt.data.userId === userId && receipt.data.itemSlug === slug;
@@ -231,7 +244,6 @@ export function AcademyLearning({
           <Details
             items={[
               [copy.t('originalLesson'), <span lang="und">{lesson.title}</span>],
-              [copy.t('lessonReference'), <code lang="zxx">{lesson.slug}</code>],
               ...(expected.certId
                 ? [[copy.t('certificateReference'), <code lang="zxx">{expected.certId}</code>] as [string, ReactNode]]
                 : []),
@@ -368,7 +380,6 @@ export function AcademyLearning({
                                     · <Copy k="selectedLesson" />
                                   </>
                                 )}
-                                <code lang="zxx">{s}</code>
                               </small>
                             </div>
                             <a className="academy-learning-link" href={lessonHref(s, certId, lesson?.path)}>
@@ -425,14 +436,15 @@ export function AcademyLearning({
                           <span>
                             <Copy k="readingMinutes" params={{ minutes: lesson.estimatedMinutes }} />
                           </span>
-                          <code lang="zxx">
-                            {lesson.path} · {lesson.kind}
-                          </code>
+                          <span>
+                            {isAcademyPath(lesson.path) ? pathLabel(lms, lesson.path) : lesson.path} · {kindLabel(lms, lesson.kind)}
+                          </span>
                         </div>
                       </div>
-                      <code lang="zxx" className="academy-learning-ref">
-                        {lesson.slug}
-                      </code>
+                      <Read resource={overview.resource} retry={overview.reload}>
+                        {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
+                      </Read>
+                      <LessonVideoLink slug={lesson.slug} />
                       {lesson.fellBack && (
                         <p className="muted">
                           <Copy
@@ -462,19 +474,7 @@ export function AcademyLearning({
                           <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
                         </div>
                       </section>
-                      <section>
-                        <h3>
-                          <Text k="academy.check.your.understanding" />
-                        </h3>
-                        <p className="muted">
-                          <Copy k="selfCheckBoundary" />
-                        </p>
-                        <ul lang="und">
-                          {lesson.selfCheck.map((q) => (
-                            <li key={q}>{q}</li>
-                          ))}
-                        </ul>
-                      </section>
+                      <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
                       {receiptMatches && receipt?.success && (
                         <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
                           <h3>
@@ -491,7 +491,7 @@ export function AcademyLearning({
                                   {receipt.data.completedAt}
                                 </time>,
                               ],
-                              [t('lessonReference'), <code lang="zxx">{receipt.data.itemSlug}</code>],
+                              [t('originalLesson'), <span lang="und">{lesson.title}</span>],
                               [copyText('common.acting.as.account'), <code lang="zxx">{receipt.data.userId}</code>],
                             ]}
                           />
@@ -512,6 +512,9 @@ export function AcademyLearning({
                         </a>
                       </div>
                       {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
+                      <Read resource={overview.resource} retry={overview.reload}>
+                        {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
+                      </Read>
                     </>
                   )
                 }
@@ -522,6 +525,16 @@ export function AcademyLearning({
       ) : (
         <>
           {recovery}
+          <Read resource={overview.resource} retry={overview.reload}>
+            {(data) => (
+              <AcademyCatalogue
+                lessons={data.lessons}
+                tracking={data.tracking}
+                certId={certId}
+                selectedPath={isAcademyPath(initialPath) ? initialPath : null}
+              />
+            )}
+          </Read>
           <Panel title={t('learningPath')}>{pathPanel}</Panel>
           <Panel title={copyText('academy.learning.library')}>
             <div className="more-inline">
@@ -529,13 +542,22 @@ export function AcademyLearning({
                 label={copyText('academy.learning.path')}
                 value={path}
                 onChange={setPath}
-                options={['all', 'foundations', 'markets', 'builder', 'sovereign']}
+                options={[
+                  { value: 'all', label: lms('allPaths') },
+                  ...(['foundations', 'markets', 'builder', 'sovereign'] as const).map((value) => ({
+                    value,
+                    label: pathLabel(lms, value),
+                  })),
+                ]}
               />
               <Select
                 label={copyText('academy.content.kind')}
                 value={kind}
                 onChange={setKind}
-                options={['all', 'playbook', 'workbook', 'lesson']}
+                options={[
+                  { value: 'all', label: lms('kindAll') },
+                  ...(['playbook', 'workbook', 'lesson'] as const).map((value) => ({ value, label: kindLabel(lms, value) })),
+                ]}
               />
             </div>
             <Read resource={list.resource} retry={list.reload} empty={copyText('academy.no.curriculum.items.match.this.path')}>
@@ -545,7 +567,7 @@ export function AcademyLearning({
                     {rows.map((r) => (
                       <a className="more-room-link" key={r.slug} href={lessonHref(r.slug, certId, r.path)}>
                         <small>
-                          <span lang="zxx">{r.kind}</span> · <Copy k="readingMinutes" params={{ minutes: r.estimatedMinutes }} />
+                          <span>{kindLabel(lms, r.kind)}</span> · <Copy k="readingMinutes" params={{ minutes: r.estimatedMinutes }} />
                         </small>
                         <strong lang="und">{r.title}</strong>
                         <p lang="und">{r.summary}</p>

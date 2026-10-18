@@ -1,13 +1,15 @@
 # Three-way distribution — Denon · Shehzad (chain) · Nitro agents
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING law · 2026-08-04  
 **Tip at land:** re-derive `origin/main`  
 **Doctrine home:** `INTAFACED_DEFINITIVE_BUILD.md` §16–§25 (two planes, INTACHAIN §17)  
-**Last MVP boards (live queue 2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) — Phantom integrity · Shehzad **P0 only** until Nitro GO.  
+**Last MVP boards (live queue 2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) — Phantom integrity · Shehzad **P0 only** until Nitro GO.  
 **P1 timing (binding 2026-09-03):** [`adr/2026-09-03-protocol-rails-until-intachain.md`](adr/2026-09-03-protocol-rails-until-intachain.md) — house book + Base; INTACHAIN implement **parked**.  
 **Shehzad full runway:** [`SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md`](SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md) (P0 live; P1 not this wave)  
-**Denon live board:** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) §3. Historical 120-ID list: [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md)  
-**Denon historical + D-S factory origin:** [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md) · index [`SPEC-FACTORY-INDEX-2026-08-04.md`](SPEC-FACTORY-INDEX-2026-08-04.md) (18/18 done)  
+**Denon live board:** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) §3. Historical 120-ID list: [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md)  
+**Denon historical + D-S factory origin:** [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md) · index [`SPEC-FACTORY-INDEX-2026-08-04.md`](archive/SPEC-FACTORY-INDEX-2026-08-04.md) (18/18 done)  
 **Ownership lock:** [`GITHUB-OWNERSHIP-SHEHZAD.md`](GITHUB-OWNERSHIP-SHEHZAD.md)
 
 ---
@@ -61,9 +63,9 @@ Fiat matching stays `svc-matching` (house book). **Freedom:** he designs P0 PR D
 
 ## 4 · Denon — true human hard (mega board)
 
-**Live full inventory (2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md). Historical 120-ID list: [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md).  
+**Live full inventory (2026-08-23):** [`LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md). Historical 120-ID list: [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md).  
 **Historical shape / factory origin:** [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md).  
-**D-S-01…18:** **done on tip** — [`SPEC-FACTORY-INDEX-2026-08-04.md`](SPEC-FACTORY-INDEX-2026-08-04.md). Agents implement from law; they must not invent §8 numbers.
+**D-S-01…18:** **done on tip** — [`SPEC-FACTORY-INDEX-2026-08-04.md`](archive/SPEC-FACTORY-INDEX-2026-08-04.md). Agents implement from law; they must not invent §8 numbers.
 
 | Layer                   | What (live)                                                                                                                                   |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |

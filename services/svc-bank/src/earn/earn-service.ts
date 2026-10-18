@@ -20,6 +20,7 @@ import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
+import { readPoolTotals, type PoolTotal } from '../ops/pool-totals.js';
 
 /**
  * EARN — flexible and fixed pools as `stake`-kind ledger accounts (§8.1).
@@ -282,6 +283,14 @@ export class EarnService {
     return total;
   }
 
+  /**
+   * Operator totals. Same stake-pot read as `poolSize`, but an inflated
+   * principal column is ignored and a failed ledger read is null, not a refusal.
+   */
+  poolTotals(): Promise<{ asOf: string; pools: PoolTotal[] }> {
+    return readPoolTotals(this.sql, this.ledger);
+  }
+
   // ── Positions ──────────────────────────────────────────────────────────────
 
   /**
@@ -439,7 +448,8 @@ export class EarnService {
    *
    * Used by `resumePending`. Idempotent on `bank.earn.deposit:<positionId>`, so
    * a re-drive after a crash between the post and the activate does not stake
-   * twice. Failures leave the row pending for the next attempt (no delete).
+   * twice. Unknown failures leave the row pending for the next attempt; a
+   * definite refusal is handled by `resumePending`, which closes the claim.
    */
   private async drivePendingToActive(input: {
     positionId: string;
@@ -460,8 +470,12 @@ export class EarnService {
    * idempotent on `positionId`, and activate is conditional on `pending`. A
    * second pass finds nothing left to do.
    *
-   * Unlike `deposit`, a failed re-drive does **not** delete the row — the claim
-   * stays pending for the next attempt (or for ops to inspect).
+   * An UNKNOWN failure (transport error, 5xx, an untyped body) leaves the claim
+   * pending for the next attempt (or for ops to inspect): the post may have
+   * committed. A DEFINITE ledger refusal is final, exactly as in `deposit`: it
+   * proves nothing committed under this key, so the claim is deleted. A refused
+   * deposit must never stay pending, because it would book later, when funds
+   * arrive, with nobody's current yes (docs/adr/2026-10-14-recovery-lookup-first-no-expiry-yet.md).
    *
    * `limit` is required. Omit used to invent a 100-row pass. Blank refuses.
    * Owner/cron may pass 100 explicitly.
@@ -489,6 +503,12 @@ export class EarnService {
         });
         out.push({ positionId: row.id, outcome: 'completed' });
       } catch (err) {
+        if (isDefiniteLedgerRefusal(err)) {
+          // Same close as deposit(): only a pending claim, only on a definite refusal.
+          await this.sql`
+            DELETE FROM bank.earn_positions WHERE id = ${row.id} AND status = 'pending'
+          `;
+        }
         out.push({
           positionId: row.id,
           outcome: 'failed',

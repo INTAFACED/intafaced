@@ -1,12 +1,36 @@
+import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
 import { drainPendingPaymentIdentityIntents } from './payment-admission.js';
 import { createPayfacAuthorityGuard, drainPayfacPermissionIntents } from './payfac-authority.js';
 import { createFounderAuthority } from './founder-authority.js';
+import { ControlService, teamAccessPorts } from './control/index.js';
+import { teamReadFromSql } from './merchant-team-read.js';
+import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
+import { disputeEvidenceScanEnabled, disputeEvidenceUploadEnabled } from './merchant-ops/dispute-evidence-policy.js';
+import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
+import { createPayNamespaces } from './namespaces/index.js';
+import { createMetricsRuntime, startMetricsRefresher } from './metrics/index.js';
+import { retryAdoptConfig } from './halts/adopt-boot.js';
+import { setAutoTripAccountErrorSink } from './halts/autotrip-log.js';
+import { loadHaltAutoTripConfig } from './halts/config.js';
+import { PayHaltStore } from './halts/store.js';
+import { loadTreasuryLimits } from './treasury/config.js';
+import { createConversionInventory } from './conversion/inventory.js';
+import { ConversionService } from './conversion/service.js';
+import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
+import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
+import { createRegistryReader } from './registries/read-api.js';
+import { buildPayGuards } from './seams/registry.js';
 import { isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
+import { readMerchantStarterFee } from './starter-fee.js';
+import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
+import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
+import { roleOnMerchantForUser } from './control/access.js';
+import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -15,6 +39,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
+import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { PostgresBroadcastStore } from './rails/broadcast-store.js';
 import { PostgresRestIdempotencyStore } from './rest-idempotency.js';
@@ -48,6 +73,12 @@ import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metr
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { setIsolationDenialSink } from './isolation-log.js';
+import { onCapturedOverCap } from './control/over-cap-signal.js';
+import { setOverCapNoticeLogger } from './control/guards.js';
+import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
+import { setCaptureReconcileLogger } from './capture-reconcile.js';
+import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -121,6 +152,9 @@ const cryptoRail = new CryptoNativeAdapter({
   minConfirmations: env.PAY_MIN_CONFIRMATIONS,
   toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
 });
+/** Filled once Fastify exists. A malformed rail due date is logged and ignored. */
+const evidenceDueByLog: { warn: (eventId: string) => void } = { warn: () => undefined };
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
@@ -132,6 +166,7 @@ const rails = new RailRegistry([
         new CardSandboxAdapter({
           secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
           toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
+          noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
         }),
       ]
     : []),
@@ -150,6 +185,11 @@ const rails = new RailRegistry([
  * is handed to both services below, so the boot refusal and the per-call refusal
  * are one decision rather than two that can drift apart.
  */
+assertConversionBoot(process.env);
+/** Local-test starter fee. Unset stays null. Set outside dev/test refuses boot. */
+const merchantStarterFee = readMerchantStarterFee(process.env);
+const conversionConfig = readConversionConfig(process.env);
+const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
 const railStatus = railPostureStatus(rails, railPosture.policy);
 
@@ -178,13 +218,34 @@ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookS
 });
 
 const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+/** One store: the router reads it, and both rail-send paths record into it. */
+const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);
 const identityAdmission = createIdentityOperationDecisionClient({
   owner: 'svc-pay',
   identityUrl: env.IDENTITY_URL,
   secret: env.IDENTITY_ADMISSION_SECRET,
 });
 const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPermissionIntents(tx, current, identityAdmission));
+const payGuards = buildPayGuards({ sql, ledger });
+const conversion = new ConversionService({
+  sql,
+  ledger,
+  guards: payGuards,
+  venue: conversionVenue,
+  registries: createRegistryReader(sql),
+  slippageBps: conversionConfig.slippageBps,
+  placingMaxAgeMs: conversionConfig.placingMaxAgeMs,
+});
+const disputeCases = new PostgresDisputeCaseStore(sql);
+const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
+if (chargebackOutcomeSlots < 1) {
+  throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
+}
 const pay = new PayService(sql, ledger, rails, {
+  disputeCases,
+  chargebackOutcomeSlots,
+  guards: payGuards,
+  haltStore,
   identityOperationAdmission: identityAdmission,
   identityAuthorityGuard: createPayfacAuthorityGuard(subMerchants),
   payoutDestinations,
@@ -199,6 +260,7 @@ const pay = new PayService(sql, ledger, rails, {
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
+  checkoutPublicBasePath: env.PAY_PUBLIC_BASE_PATH,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
@@ -293,6 +355,8 @@ for (const railId of env.PAY_OPERATOR_CREDIT_RAILS) {
 }
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
+  guards: payGuards,
+  haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
 });
@@ -343,39 +407,99 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
+/** One live founder authority, shared by the founder console writer and every founder-only namespace. */
+const founderAuthority = createFounderAuthority({
+  identityUrl: env.IDENTITY_URL,
+  serviceSecret: env.INTERNAL_SERVICE_SECRET,
+  principalSecret: env.EDGE_PRINCIPAL_SECRET,
+});
+
+/** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */
+const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals),
+  // One line: isolation composition pin matches this call as a single substring.
+  // prettier-ignore
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
   createMerchantStateRouter(
     merchantState,
-    new MerchantAccountControls(
-      sql,
-      createFounderAuthority({
-        identityUrl: env.IDENTITY_URL,
-        serviceSecret: env.INTERNAL_SERVICE_SECRET,
-        principalSecret: env.EDGE_PRINCIPAL_SECRET,
-      }),
-      async (tx, merchantId) => {
-        await drainPendingPayoutIdentityIntents(tx, merchantId, identityAdmission);
-        await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
-      },
-    ),
+    new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
+      await drainPendingPayoutIdentityIntents(tx, merchantId, identityAdmission);
+      await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
+    }),
   ),
   createKybPspRouter(kyb, pspMode, actionApprovals, pay),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any
   // other and the subtree fence would be measuring the wrong actor.
-  createSubMerchantRouter(subMerchants, pay),
+  createSubMerchantRouter(subMerchants, pay, sql),
   createSubscriptionRouter(subscriptions, pay, subMerchants),
+  // merchantControl, merchantMetrics, founderAdmin, conversion, payHalts.
+  // A namespace with no service still refuses `pay.not_built`.
+  // W16 registries (founderAdmin.registries.*) are mounted inside founderAdmin through `registries`.
+  // W15 (merchantOps.*, founderAdmin.ops.*) needs the database handle.
+  // payHalts is built (W5): the same Postgres halt store the guards read.
+  createPayNamespaces({
+    founderAuthority,
+    metrics,
+    registries: { sql, approvals: actionApprovals },
+    sql,
+    starterFee: merchantStarterFee,
+    ledger,
+    webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
+    webhookRetry: loadWebhookRetryLimit(process.env),
+    disputes: disputeCases,
+    pay,
+    evidence: {
+      uploadEnabled: disputeEvidenceUploadEnabled(process.env),
+      scanEnabled: disputeEvidenceScanEnabled(process.env),
+    },
+    invoiceLinks: pay,
+    payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) },
+    treasury: { sql, limits: loadTreasuryLimits(process.env), inventory: createConversionInventory(sql, ledger) },
+    // `canApprovePayout` is the W15 `payout.approve` permission (finance, admin, owner); see control/access.ts.
+    control: new ControlService(sql, teamAccessPorts(sql)),
+    conversion,
+  }),
 );
 export type { PayRouter } from './router.js';
 export type { MerchantStateRouter } from './merchant-state-router.js';
 export type { KybPspRouter } from './kyb-router.js';
 export type { SubMerchantRouter } from './submerchant-router.js';
 export type { SubscriptionRouter } from './subscription-router.js';
+export type { PayNamespacesRouter } from './namespaces/index.js';
 
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, genReqId: () => randomUUID() });
+app.addHook('onRequest', async (req, reply) => {
+  reply.header('x-request-id', req.id);
+});
+evidenceDueByLog.warn = (eventId) => {
+  app.log.warn({ eventId }, 'pay.evidence_due_by_ignored');
+};
+// Callers get a uniform not-found; operators get the real reason (log only).
+setIsolationDenialSink((denial) => app.log.warn({ isolation: denial }, 'pay.isolation_denied'));
+setPaymentFactsReadFailureSink((event) => app.log.warn(event, 'payment facts unread after commit'));
+onCapturedOverCap((signal) => {
+  app.log.warn({ event: 'payment.captured_over_cap', ...signal }, 'payment.captured_over_cap');
+});
+setOverCapNoticeLogger((fields, message) => {
+  app.log.warn(fields, message);
+});
+setCaptureReconcileLogger({
+  warn: (fields, message) => {
+    app.log.warn(fields, message);
+  },
+});
+setAutoTripAccountErrorSink((event) => app.log.warn({ autotrip: event }, 'pay.halt_autotrip_account_failed'));
+// Not awaited: a down database retries a few times and then gives up. Boot does not wait.
+void retryAdoptConfig(
+  () => haltStore.adoptConfig(),
+  (err, attempt) => {
+    app.log.warn({ err, attempt }, 'pay.halt_autotrip_adopt_failed');
+  },
+);
 
 // Keep the exact request bytes so S2S verifiers can check the signed digest
 // (L2-6). Installed once here; internal registers pass `installRawBody: false`
@@ -453,10 +577,50 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  * so an unauthenticated caller cannot fan out invoices to every customer on the
  * platform.
  */
+registerPayStepUpGrantRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+registerOwnerPayScopeRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  installRawBody: false,
+  findOwnedMerchant: async (userId) => {
+    const rows = await sql<
+      Array<{
+        id: string;
+        user_id: string;
+        parent_merchant_id: string | null;
+        kyb_status: 'none' | 'pending' | 'approved' | 'rejected';
+        status: 'pending' | 'active' | 'suspended' | 'closed';
+      }>
+    >`
+      SELECT id, user_id, parent_merchant_id, kyb_status, status
+        FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      kybStatus: row.kyb_status,
+      status: row.status,
+      parentMerchantId: row.parent_merchant_id,
+    };
+  },
+});
+
 registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   subscriptions,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  installRawBody: false,
+});
+
+registerCaptureReconcileRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  pay,
+  mode: env.PAY_CAPTURE_RECONCILE,
   installRawBody: false,
 });
 
@@ -489,6 +653,9 @@ await registerPublicPayRest(app, {
   idempotency: new PostgresRestIdempotencyStore(sql),
   webhooks: merchantWebhooks,
   trees: subMerchants,
+  teamReads: teamReadFromSql(sql),
+  recheckOwnerPayScope: (principal, scope) =>
+    assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
 });
 
 /** Drain outbound merchant webhook deliveries (ADR §2.4 retry). */
@@ -498,6 +665,42 @@ const webhookDrain = setInterval(() => {
   });
 }, 15_000);
 webhookDrain.unref?.();
+
+/**
+ * Late-fill detection stays off the quote and execute path. A venue or rate
+ * error is logged and retried next tick; only a found fill blocks new conversions.
+ * The sweep does not book. Booking is the two-founder procedure.
+ */
+const lateFillSweep = setInterval(() => {
+  void conversion
+    .sweepLateFills('late-fill-sweep')
+    .then((result) => {
+      for (const failure of result.errors) {
+        app.log.warn({ conversionId: failure.conversionId, code: failure.code }, 'conversion late-fill lookup failed; retry next tick');
+      }
+    })
+    .catch((err) => {
+      app.log.warn({ err }, 'conversion late-fill sweep failed');
+    });
+}, CONVERSION_LATE_FILL_TICK_MS);
+lateFillSweep.unref?.();
+
+/**
+ * Orphan holds: a failed or missing conversion row whose clearing hold is still
+ * up. The founder trigger stays. A second replica finds the lock busy and skips.
+ */
+const holdSweep = setInterval(() => {
+  void conversion.sweepOrphanHolds('hold-sweep').catch((err) => {
+    app.log.warn({ err }, 'conversion hold sweep failed');
+  });
+}, CONVERSION_HOLD_SWEEP_MS);
+holdSweep.unref?.();
+
+/** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
+const metricsRefresher = startMetricsRefresher(metrics.projector, {
+  onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
+  onFailedKeys: (failed) => app.log.warn({ failed }, 'metrics refresh left merchant-days marked'),
+});
 
 /**
  * THE WEBHOOK ENDPOINT.
@@ -558,7 +761,8 @@ await app.register(async (webhookScope) => {
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });
     } catch (err) {
       if (err instanceof PayError && err.code === 'pay.webhook_invalid') {
-        return reply.code(401).send({ error: 'invalid signature' });
+        reply.header('x-request-id', request.id);
+        return reply.code(401).send({ error: 'invalid signature', requestId: request.id });
       }
       if (err instanceof PayError && err.code === 'pay.webhook_unmatched') {
         // 202: the delivery is genuine but about something we do not know. Not
@@ -585,7 +789,18 @@ await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
     router: appRouter,
-    createContext: ({ req }) => edgeContext(req),
+    createContext: ({ req }) => ({
+      ...edgeContext(req),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
+      },
+    }),
+    responseMeta({ ctx }) {
+      const requestId = ctx?.requestId;
+      if (!requestId) return {};
+      return { headers: { 'x-request-id': requestId } };
+    },
   } satisfies FastifyTRPCPluginOptions<typeof appRouter>['trpcOptions'],
 });
 
@@ -605,10 +820,14 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     pollIntervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS,
     cursorStore: watcherCursors,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
+    onAlive: () => cryptoRail.noteAlive(),
   });
   watcher.start();
   app.log.info({ intervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS }, 'crypto chain watcher started');
 }
+
+const railProbe = new RailHealthProbeLoop(rails.list());
+void railProbe.start();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -643,6 +862,11 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       watcher?.stop();
+      railProbe.stop();
+      clearInterval(lateFillSweep);
+      clearInterval(holdSweep);
+      // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
+      metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.

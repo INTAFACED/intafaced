@@ -70,7 +70,8 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-09-03T00:00:00.000Z');
 const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
-const OWNER_PUBLISHED_F5 = { maxOrder: '3', maxPosition: '5', maxLoss: '8' } as const;
+// Whole quote units (#4725 compares them): roomy enough for a 1 BTC open at 50,000.
+const OWNER_PUBLISHED_F5 = { maxOrder: '1000000', maxPosition: '5000000', maxLoss: '100000' } as const;
 
 function setCreditEnv(): void {
   process.env.TRADE_MAX_ORDER = OWNER_PUBLISHED_F5.maxOrder;
@@ -255,7 +256,7 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
 
     beforeEach(async () => {
       setCreditEnv();
-      await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+      await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets, trade.account_position_modes RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       bus = new MemoryEventBus('svc-trade');
       marks = memoryMarkBook();
@@ -299,15 +300,12 @@ describe('svc-trade position-mode (H8a PG-hard)', () => {
       );
     });
 
-    it('unset position mode refuses open before futuresMarginLock; zero lock posts', async () => {
-      await expect(open({ clientOpenId: 'f6-unset' })).rejects.toMatchObject({
-        name: 'FuturesError',
-        code: POSITION_MODE_UNSET,
-        status: 400,
-      });
-      expect(lockPosts()).toHaveLength(0);
-      expect(await sql`SELECT id FROM trade.positions`).toHaveLength(0);
-      expect(await avail()).toBe('100000');
+    it('a plain open with no mode stores one_way and does not answer position_mode_unset', async () => {
+      const pos = await open({ clientOpenId: 'f6-unset' });
+      expect(pos.status).toBe('open');
+      expect(lockPosts()).toHaveLength(1);
+      expect(await positions.readAccountMode(ALICE)).toMatchObject({ mode: 'one_way', source: 'stored' });
+      expect(await sql`SELECT id FROM trade.positions`).toHaveLength(1);
     });
 
     it('hedge without positionSide refuses; zero lock posts', async () => {

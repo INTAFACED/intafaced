@@ -6,6 +6,7 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { installOmsWriteRawBody } from './oms-write-hmac.js';
 import { loadMatchingVenueHalt } from './oms-matching-venue-halt.js';
+import { createExecutionApprovalClient } from './operator-desk.js';
 import { createExecutionRouter, type ExecutionRouter } from './router.js';
 import { registerStartBasketDoor } from './oms-basket-http.js';
 import { registerKillParentDoor } from './oms-kill-parent-http.js';
@@ -114,6 +115,10 @@ const appRouter = createExecutionRouter(
   fillAssignStore,
   matchingVenueHalt,
   env.MATCHING_URL,
+  undefined,
+  env.IDENTITY_URL && process.env.INTERNAL_SERVICE_SECRET && process.env.INTERNAL_SERVICE_SECRET.length >= 32
+    ? createExecutionApprovalClient(env.IDENTITY_URL, process.env.INTERNAL_SERVICE_SECRET)
+    : undefined,
 );
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({

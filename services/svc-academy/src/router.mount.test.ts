@@ -114,6 +114,7 @@ function stubAcademy(overrides: Partial<AcademyService> = {}): AcademyService {
       sceneFingerprint: 'stub-session-scene-fp',
     })),
     occupancy: vi.fn(async () => 3),
+    callerLiveSeats: vi.fn(async () => []),
     join: vi.fn(async () => ({ role: 'attendee' as const })),
     leave: vi.fn(async () => undefined),
     streamCredential: vi.fn(),
@@ -210,6 +211,11 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'grantCert',
         'myCerts',
         'certProgress',
+        'assessment.get',
+        'assessment.submit',
+        'assessment.attempts',
+        'certVerify',
+        'setCertHolderName',
         'certXpPlane',
         'certPerkPlane',
         'certPerkIntent',
@@ -227,6 +233,20 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'setStanding',
         'bulkSetStandings',
         'endSession',
+        'myCompletions',
+        'myEnrollments',
+        'leaveCertPath',
+        'learningState',
+        'touchLesson',
+        'residencyCohorts',
+        'videoProgress.get',
+        'videoProgress.set',
+        'myUpcomingSessions',
+        'sessionCalendar',
+        'admin.completionsByItem',
+        'admin.enrolments',
+        'admin.grantAudit',
+        'admin.opsMetrics',
         'health',
         'invite',
         'join',
@@ -956,7 +976,13 @@ describe('svc-academy mount — a cert grant reports its XP award', () => {
     const academy = stubAcademy({
       grantCert: vi.fn(async () => ({
         alreadyGranted: false,
-        grant: { userId: USER, certId: 'foundations-v1', grantedAt: new Date(), idempotencyKey: `cert:${USER}:foundations-v1` },
+        grant: {
+          userId: USER,
+          certId: 'foundations-v1',
+          grantedAt: new Date(),
+          idempotencyKey: `cert:${USER}:foundations-v1`,
+          publicId: 'a'.repeat(32),
+        },
         xp: { emitted: true as const, idempotencyKey: `academy.cert:cert:${USER}:foundations-v1`, xpDelta: 100 },
         perks: {
           status: 'real' as const,
@@ -979,7 +1005,13 @@ describe('svc-academy mount — a cert grant reports its XP award', () => {
     const academy = stubAcademy({
       grantCert: vi.fn(async () => ({
         alreadyGranted: true,
-        grant: { userId: USER, certId: 'foundations-v1', grantedAt: new Date(), idempotencyKey: `cert:${USER}:foundations-v1` },
+        grant: {
+          userId: USER,
+          certId: 'foundations-v1',
+          grantedAt: new Date(),
+          idempotencyKey: `cert:${USER}:foundations-v1`,
+          publicId: 'a'.repeat(32),
+        },
         xp: { emitted: false as const, reason: 'publisher_unavailable' as const },
         perks: {
           status: 'refuse' as const,
@@ -1004,7 +1036,13 @@ describe('svc-academy mount — a cert grant reports its XP award', () => {
     const academy = stubAcademy({
       grantCert: vi.fn(async () => ({
         alreadyGranted: false,
-        grant: { userId: USER, certId: 'not-in-policy-v1', grantedAt: new Date(), idempotencyKey: `cert:${USER}:not-in-policy-v1` },
+        grant: {
+          userId: USER,
+          certId: 'not-in-policy-v1',
+          grantedAt: new Date(),
+          idempotencyKey: `cert:${USER}:not-in-policy-v1`,
+          publicId: 'b'.repeat(32),
+        },
         xp: { emitted: false as const, reason: 'no_policy' as const },
         perks: {
           status: 'refuse' as const,

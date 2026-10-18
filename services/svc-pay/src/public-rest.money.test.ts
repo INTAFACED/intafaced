@@ -7,12 +7,42 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { MemoryLedger, formatAmount, merchantClearing, userAvailable, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  merchantClearing,
+  merchantProceeds,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { PayService } from './payment-service.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { MemoryRestIdempotencyStore, type RestIdempotencyStore } from './rest-idempotency.js';
 import { RailRegistry } from './rails/registry.js';
-import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { CardSandboxAdapter, type CardSandboxOptions } from './rails/card-sandbox.js';
+import type { RailAdapter } from './rails/rail-adapter.js';
+
+/**
+ * Test double with a live identity. The mock books stay in CardSandboxAdapter,
+ * which cannot itself be live. This object is a different adapter: id
+ * `card-acquirer`, mode `live`, so the HTTP money suite is not a sandbox key.
+ */
+function httpMoneyAcquirer(options: CardSandboxOptions): RailAdapter {
+  const inner = new CardSandboxAdapter(options);
+  return {
+    id: 'card-acquirer',
+    capabilities: inner.capabilities,
+    mode: 'live',
+    health: () => inner.health(),
+    authorize: (payment) => inner.authorize(payment),
+    capture: (ref) => inner.capture(ref),
+    refund: (ref, amount) => inner.refund(ref, amount),
+    payout: (instruction) => inner.payout(instruction),
+    payoutIdempotencyKey: (instruction) => inner.payoutIdempotencyKey(instruction),
+    queryPayout: (idempotencyKey) => inner.queryPayout(idempotencyKey),
+    verifyWebhook: (req) => inner.verifyWebhook(req),
+  };
+}
 
 /**
  * DOES THE PUBLIC WRITE SURFACE ACTUALLY MOVE MONEY, AND ONLY ONCE?
@@ -57,9 +87,10 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  * WHAT IT IS CAREFUL NOT TO CLAIM
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * That this is a live acquirer. The rail is `card-sandbox`. Nothing here is
- * evidence of a card programme, of KYB gating (still DIRECTION §8 item 4, owner-
- * only), or of a chargeback wire (`chargeback-unwired.test.ts` pins it absent).
+ * That this is a card programme. The rail is a live-mode test acquirer
+ * (`card-acquirer`) so these writes are not a sandbox credential. Sandbox keys
+ * are proved in `sandbox-isolation.db.test.ts`. Nothing here is evidence of
+ * KYB gating, or of a chargeback wire.
  *
  * H8a PG-hard: this file never `describe.skip` / `postgresAvailable`. CI uses
  * TEST_DATABASE_URL (per-run database via `createTestDatabase` so schema-qualified
@@ -70,9 +101,20 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS = ['0000_pay_init.sql', '0002_pay_payment_links.sql', '0003_pay_checkout_sessions.sql', '0005_pay_merchant_kyb.sql'].map(
-  (f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'),
-);
+const MIGRATIONS = [
+  '0000_pay_init.sql',
+  '0002_pay_payment_links.sql',
+  '0003_pay_checkout_sessions.sql',
+  '0005_pay_merchant_kyb.sql',
+  // createMerchant reads parent_merchant_id, so every list that creates a merchant carries 0009.
+  '0009_pay_submerchant_tree.sql',
+  // GET /v1/payments reads the stored pricing row. The table is empty here.
+  '0050_pay_control_tiers.sql',
+  '0051_pay_control_pricing.sql',
+  // createMerchant writes the name columns, so every list that creates a merchant carries 0071.
+  '0071_pay_merchant_names.sql',
+  '0073_pay_settlement_read.sql',
+].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 
 const EDGE_SECRET = 'a-pay-public-rest-money-edge-secret-long-enough';
 const RAIL_SECRET = 'svc-pay-money-rest-test-secret-32-characters-x';
@@ -88,8 +130,9 @@ function principal(overrides: Partial<Principal> = {}): Principal {
     scopes: ['pay:read', 'pay:write', 'pay:refund'],
     tier: 'basic',
     mfa: false,
-    // A sandbox key, so `createPayment` may legitimately name `card-sandbox`.
-    key_env: 'sandbox',
+    // A live key on `card-acquirer`. A sandbox key must not move this book;
+    // that refusal is `sandbox-isolation.db.test.ts`.
+    key_env: 'live',
     expiresAt: new Date(Date.now() + 60_000),
     ...overrides,
   } as Principal;
@@ -143,7 +186,20 @@ describe('svc-pay public REST money (source)', () => {
   });
 });
 
-describe('svc-pay public REST money paths PG-hard', () => {
+/**
+ * 30 s per test, not vitest's 5 s default. Ten local runs of this file on an
+ * idle throwaway Postgres finished the tests in 587 to 662 ms, 13 passed each
+ * time. On CI the journal-lost partial refund alone has been 1254 ms, 1298 ms
+ * and 2995 ms while the rest of the pay package shares one Postgres, so a 5 s
+ * limit is a speed failure on a loaded runner. The customer-only run that went
+ * red named this test; the body does not replan a second refund.
+ *
+ * vitest does not cancel a test body that has timed out. The body keeps
+ * posting while the next test's beforeEach TRUNCATE takes ACCESS EXCLUSIVE
+ * on the pay tables, and the two deadlock. The same budget is already on the
+ * money PG-hard suite. It is a limit, not a retry.
+ */
+describe('svc-pay public REST money paths PG-hard', { timeout: 30_000 }, () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let ledger: MemoryLedger;
@@ -174,7 +230,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
       getTx: (txId) => ledger.getTx(txId),
       getTxByKey: (key) => ledger.getTxByKey(key),
     };
-    pay = new PayService(db.sql, recording, new RailRegistry([new CardSandboxAdapter({ secret: RAIL_SECRET, toleranceSeconds: 300 })]));
+    pay = new PayService(db.sql, recording, new RailRegistry([httpMoneyAcquirer({ secret: RAIL_SECRET, toleranceSeconds: 300 })]));
   });
 
   afterAll(async () => {
@@ -203,7 +259,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
   }
 
   const clearingOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantClearing(merchantId, ASSET))).amount);
-  const availableOf = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, ASSET))).amount);
+  const proceedsOf = async (merchantId: string) => formatAmount((await ledger.balance(merchantProceeds(merchantId, ASSET))).amount);
   const keysMatching = (prefix: string) => postedKeys.filter((k) => k.startsWith(prefix));
 
   /** Merchant with a zero fee: this suite is about movement and identity, not pricing. */
@@ -222,7 +278,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
         amount,
         assetId: ASSET,
         method: 'card',
-        railAdapter: 'card-sandbox',
+        railAdapter: 'card-acquirer',
         instrument: { kind: 'card', token: 'tok_ok' },
       },
     });
@@ -312,7 +368,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('authority is asserted before value moves, not after', () => {
-    it('a stranger capturing another merchant’s payment refuses BY CODE and moves nothing', async () => {
+    it('a stranger capturing another merchant’s payment is told it does not exist, BY CODE and moves nothing', async () => {
       const http = await build(new MemoryRestIdempotencyStore());
       const m = await merchant();
       const id = await authorizedPayment(http, m.id, '100');
@@ -324,7 +380,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
         payload: {},
       });
 
-      expect(res.json().error.code).toBe('pay.merchant_forbidden');
+      expect(res.json().error.code).toBe('pay.payment_not_found');
       expect(await clearingOf(m.id)).toBe('0');
       expect(keysMatching('payment.capture:')).toEqual([]);
     });
@@ -406,9 +462,11 @@ describe('svc-pay public REST money paths PG-hard', () => {
       const id = await captured(http, m.id);
       const headers = { ...signed(), 'idempotency-key': `refund:${id}:partial` };
 
-      await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      const first = await http.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(first.statusCode, first.payload).toBe(200);
       const retried = await build(new MemoryRestIdempotencyStore());
       const second = await retried.inject({ method: 'POST', url: `/v1/payments/${id}/refund`, headers, payload: { amount: '10' } });
+      expect(second.statusCode, second.payload).toBe(200);
 
       // 90, not 80. One business event, one movement.
       expect(await clearingOf(m.id)).toBe('90');
@@ -545,7 +603,7 @@ describe('svc-pay public REST money paths PG-hard', () => {
       });
 
       expect(res.json().clearing).toBe(await clearingOf(m.id));
-      expect(res.json().available).toBe(await availableOf(OWNER));
+      expect(res.json().available).toBe(await proceedsOf(m.id));
     });
   });
 });

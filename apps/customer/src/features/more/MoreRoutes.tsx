@@ -11,11 +11,9 @@ import { Prediction } from './Prediction';
 import { Quant } from './Quant';
 import { Support } from './Support';
 import { Token } from './Token';
-import { MoreDiscovery } from './MoreDiscovery';
 import { launchCopy } from './launch-copy';
 import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
-import { discoveryCopy } from './discovery-copy';
 import type { ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
@@ -31,10 +29,18 @@ function MoreRooms({ path }: { path: string }) {
   const url = new URL(path, location.origin),
     p = url.pathname;
   const paper = url.searchParams.get('simulated') === 'true';
-  const { Copy } = discoveryCopy.useCopy();
-  let title: ReactNode = <Copy k="heading" />,
-    description: ReactNode = <Copy k="description" />,
-    content = <MoreDiscovery paper={paper} />;
+  let title: ReactNode = copyText('moreroutes.more'),
+    description: ReactNode = undefined,
+    content: ReactNode = (
+      <Panel title={copyText('moreroutes.more.destination.unavailable')}>
+        <EmptyState title={copyText('moreroutes.this.destination.has.no.customer.route')}>
+          <Text k="moreroutes.use.a.published.more.room.to.continue" />
+        </EmptyState>
+        <a className="text-link" href="/more">
+          <Text k="moreroutes.open.more" />
+        </a>
+      </Panel>
+    );
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
@@ -90,25 +96,20 @@ function MoreRooms({ path }: { path: string }) {
           ? copyText('moreroutes.quant.studio')
           : copyText('moreroutes.backtest');
     description = copyText('moreroutes.simulated.strategy.research.with.explicit.historical.evidence');
-    content = <Quant key={p} paper={paper} mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'} />;
+    content = (
+      <Quant
+        key={`${p}:${userId}`}
+        paper={paper}
+        mode={p === '/quant/studio' ? 'studio' : p === '/quant/backtest' ? 'backtest' : 'sandbox'}
+      />
+    );
   } else if (p === '/support') {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
     content = <Support />;
-  } else if (p !== '/more') {
-    content = (
-      <Panel title={copyText('moreroutes.more.destination.unavailable')}>
-        <EmptyState title={copyText('moreroutes.this.destination.has.no.customer.route')}>
-          <Text k="moreroutes.use.a.published.more.room.to.continue" />
-        </EmptyState>
-        <a className="text-link" href="/more">
-          <Text k="moreroutes.open.more" />
-        </a>
-      </Panel>
-    );
   }
   return (
-    <div className={p === '/more' ? 'more-feature more-feature--discovery' : 'more-feature'}>
+    <div className="more-feature">
       <Page
         key={userId ?? 'anonymous'}
         eyebrow={p === '/support' ? undefined : copyText('moreroutes.more')}

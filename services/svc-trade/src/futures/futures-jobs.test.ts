@@ -35,6 +35,29 @@ describe('startFuturesJobs', () => {
     handle.stop();
   });
 
+  it('ladderGate: no policy until the owner publishes one (production today); the published one is handed on, jobs enabled or not', () => {
+    const base = {
+      sql: {} as never,
+      ledger: { post: vi.fn(), balance: vi.fn() },
+      matching: { depth: vi.fn() } as never,
+      bus: null,
+      config: { enabled: false, liqIntervalMs: 1000, fundingIntervalMs: null, fundingMarketIds: [], fundingMaxAbsRate: null },
+    };
+    const none = startFuturesJobs(base as never);
+    expect(none.ladderGate.policy).toBeUndefined();
+    expect(typeof none.ladderGate.depth.depthNotional).toBe('function');
+    none.stop();
+    const policy = {
+      tiers: [{ uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 500 }],
+      marginCallBps: 12_000,
+      targetBps: 15_000,
+      maxTrancheBps: 10_000,
+    };
+    const some = startFuturesJobs({ ...base, ladderPolicy: policy } as never);
+    expect(some.ladderGate.policy).toBe(policy);
+    some.stop();
+  });
+
   it('enabled schedules liq + one funding job per market id', () => {
     const timers: string[] = [];
     // Intercept via createJobHost internals by checking list after start
@@ -113,6 +136,7 @@ describe('startFuturesJobs', () => {
       bids: [['99', '100']],
       asks: [['101', '100']],
       sequence: 1,
+      observedAt: new Date(),
     }));
     const handle = startFuturesJobs({
       sql: {} as never,

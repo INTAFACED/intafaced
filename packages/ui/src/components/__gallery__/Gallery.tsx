@@ -29,6 +29,9 @@ import {
   AutocompleteItem,
   AutocompleteList,
   Button,
+  DataTable,
+  EmptyState,
+  ChoiceGroup,
   ChangeText,
   Checkbox,
   CoinIcon,
@@ -90,6 +93,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '../index.js';
+import { KitSections } from './KitSections.js';
 
 // SAMPLE series for layout only.
 const UP = ['100', '101.2', '100.6', '102.4', '103.1', '102.2', '104.8', '105.5', '104.9', '106.8', '107.4', '108.9'];
@@ -143,6 +147,8 @@ const searchItems = [
 ];
 
 export function Gallery() {
+  // `?only=<part>` shows one kit part and hides the older sections (screenshots, focused review).
+  const onlyKit = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('only');
   const [hidden, setHidden] = React.useState(false);
   const [redUp, setRedUp] = React.useState(false);
   const [mode, setMode] = React.useState('simple');
@@ -159,10 +165,10 @@ export function Gallery() {
     <TooltipProvider>
       <ToastProvider>
         <div className="if-app min-h-screen" data-up-color={redUp ? 'red' : undefined} id="gallery">
-          {/* Top bar mock: UI-SPEC 3.1 */}
-          <header className="sticky top-0 z-40 flex h-12 items-center gap-8 border-b border-line bg-bg px-6">
+          {/* Top bar mock: UI-SPEC 3.1. Desktop only: there is no phone navigation yet, so below md the mock shows just the name and the account menu rather than overflowing. */}
+          <header className="sticky top-0 z-40 flex h-12 items-center gap-8 border-b border-line bg-bg px-4 md:px-6">
             <span className="text-md font-bold">intafaced</span>
-            <NavigationMenu>
+            <NavigationMenu className="hidden md:flex">
               <NavigationMenuList>
                 <NavigationMenuItem>
                   <NavigationMenuLink
@@ -231,33 +237,37 @@ export function Gallery() {
               </NavigationMenuList>
             </NavigationMenu>
             <div className="ml-auto flex items-center gap-3">
-              <Autocomplete items={searchItems}>
-                <AutocompleteInput placeholder="Search markets" hint="⌘K" aria-label="Search markets" />
-                <AutocompleteContent>
-                  <AutocompleteEmpty>No results</AutocompleteEmpty>
-                  <AutocompleteList>
-                    {(group: { value: string; items: string[] }) => (
-                      <AutocompleteGroup key={group.value} items={group.items}>
-                        <AutocompleteGroupLabel>{group.value}</AutocompleteGroupLabel>
-                        {group.items.map((item) => (
-                          <AutocompleteItem key={item} value={item}>
-                            {item}
-                          </AutocompleteItem>
-                        ))}
-                      </AutocompleteGroup>
-                    )}
-                  </AutocompleteList>
-                </AutocompleteContent>
-              </Autocomplete>
-              <SegmentedControl
-                aria-label="Layout mode"
-                value={mode}
-                onValueChange={setMode}
-                items={[
-                  { value: 'simple', label: 'Simple' },
-                  { value: 'pro', label: 'Pro' },
-                ]}
-              />
+              <div className="hidden md:block">
+                <Autocomplete items={searchItems}>
+                  <AutocompleteInput placeholder="Search markets" hint="⌘K" aria-label="Search markets" />
+                  <AutocompleteContent>
+                    <AutocompleteEmpty>No results</AutocompleteEmpty>
+                    <AutocompleteList>
+                      {(group: { value: string; items: string[] }) => (
+                        <AutocompleteGroup key={group.value} items={group.items}>
+                          <AutocompleteGroupLabel>{group.value}</AutocompleteGroupLabel>
+                          {group.items.map((item) => (
+                            <AutocompleteItem key={item} value={item}>
+                              {item}
+                            </AutocompleteItem>
+                          ))}
+                        </AutocompleteGroup>
+                      )}
+                    </AutocompleteList>
+                  </AutocompleteContent>
+                </Autocomplete>
+              </div>
+              <div className="hidden md:block">
+                <SegmentedControl
+                  aria-label="Layout mode"
+                  value={mode}
+                  onValueChange={setMode}
+                  items={[
+                    { value: 'simple', label: 'Simple' },
+                    { value: 'pro', label: 'Pro' },
+                  ]}
+                />
+              </div>
               <Menu>
                 <MenuTrigger render={<Button variant="secondary" size={32} />}>Account</MenuTrigger>
                 <MenuContent>
@@ -288,50 +298,79 @@ export function Gallery() {
             </Row>
 
             <HideBalancesProvider hidden={hidden}>
-              <Section title="Home hero (HeroNumber, ChangeText, action pills, market cards)">
-                <div className="flex flex-col gap-2">
-                  <span className="text-sm text-fg-2">Est. total value</span>
-                  <HeroNumber value="3489.16" decimals={2} prefix="$" unit="USD" />
-                  <ChangeText value="+$134.46 (+4.02%)" suffix="Today" className="text-base" />
-                </div>
-                <Row className="mt-6 gap-2">
-                  <Button variant="primary">Buy</Button>
-                  <Button variant="secondary">Sell</Button>
-                  <Button variant="secondary">Convert</Button>
-                  <Button variant="secondary">Send</Button>
-                  <Button variant="secondary">Receive</Button>
-                </Row>
-                <div className="mt-6 w-full max-w-[792px] rounded-lg bg-panel py-2">
-                  {[
-                    ['Cash', '$1,305.76', '$'],
-                    ['Crypto', '$2,183.40', '₿'],
-                  ].map(([name, value, glyph]) => (
-                    <div key={name} className="flex h-16 items-center gap-3 px-4">
-                      <span className="inline-flex size-8 items-center justify-center rounded-pill bg-raised text-md">{glyph}</span>
-                      <span className="text-md font-medium">{name}</span>
-                      <Money value={value} className="ml-auto text-md" />
+              <KitSections />
+              {onlyKit === null ? (
+                <>
+                  <Section title="Home hero (HeroNumber, ChangeText, action pills, market cards)">
+                    <div className="flex flex-col gap-2">
+                      <span className="text-sm text-fg-2">Est. total value</span>
+                      <HeroNumber value="3489.16" decimals={2} prefix="$" unit="USD" />
+                      <ChangeText value="+$134.46 (+4.02%)" suffix="Today" className="text-base" />
                     </div>
-                  ))}
-                </div>
-                <div className="mt-6 flex flex-wrap gap-4">
-                  <MarketCard ticker="BTC" name="Bitcoin" price="$83,281.80" pct="+1.24%" series={UP} />
-                  <MarketCard ticker="ETH" name="Ethereum" price="$2,494.09" pct="−2.34%" series={DOWN} />
-                  <MarketCard ticker="USDC" name="USD Coin" price="$1.0000" pct="0.00%" series={['1', '1', '1', '1', '1']} />
-                  <MarketCard ticker="IFC" name="Intacoin" price="—" pct="" series={[]} />
-                </div>
-                <Row className="mt-6">
-                  <Money value="1234.50" />
-                  <Money value={null} />
-                  <Amount value="0.0420 BTC" />
-                  <Price value="83,281.80" />
-                  <Pct value="+1.24%" arrow />
-                  <Pct value="−0.28%" arrow />
-                  <Pct value="0.00%" />
-                  <Pct value={null} />
-                </Row>
-              </Section>
+                    <Row className="mt-6 gap-2">
+                      <Button variant="primary">Buy</Button>
+                      <Button variant="secondary">Sell</Button>
+                      <Button variant="secondary">Convert</Button>
+                      <Button variant="secondary">Send</Button>
+                      <Button variant="secondary">Receive</Button>
+                    </Row>
+                    <div className="mt-6 w-full max-w-[792px] rounded-lg bg-panel py-2">
+                      {[
+                        ['Cash', '$1,305.76', '$'],
+                        ['Crypto', '$2,183.40', '₿'],
+                      ].map(([name, value, glyph]) => (
+                        <div key={name} className="flex h-16 items-center gap-3 px-4">
+                          <span className="inline-flex size-8 items-center justify-center rounded-pill bg-raised text-md">{glyph}</span>
+                          <span className="text-md font-medium">{name}</span>
+                          <Money value={value} className="ml-auto text-md" />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-6 flex flex-wrap gap-4">
+                      <MarketCard ticker="BTC" name="Bitcoin" price="$83,281.80" pct="+1.24%" series={UP} />
+                      <MarketCard ticker="ETH" name="Ethereum" price="$2,494.09" pct="−2.34%" series={DOWN} />
+                      <MarketCard ticker="USDC" name="USD Coin" price="$1.0000" pct="0.00%" series={['1', '1', '1', '1', '1']} />
+                      <MarketCard ticker="IFC" name="Intacoin" price="—" pct="" series={[]} />
+                    </div>
+                    <Row className="mt-6">
+                      <Money value="1234.50" />
+                      <Money value={null} />
+                      <Amount value="0.0420 BTC" />
+                      <Price value="83,281.80" />
+                      <Pct value="+1.24%" arrow />
+                      <Pct value="−0.28%" arrow />
+                      <Pct value="0.00%" />
+                      <Pct value={null} />
+                    </Row>
+                  </Section>
+                </>
+              ) : null}
             </HideBalancesProvider>
 
+            <Section title="Business page, fields and tables (TEST DATA)">
+              <div className="flex flex-col gap-4 rounded-md bg-panel p-6">
+                <Button>New payment</Button>
+                <ChoiceGroup
+                  items={['all', 'captured']}
+                  labels={{ all: 'All', captured: 'Captured' }}
+                  value="all"
+                  onChange={() => undefined}
+                  label="Test payment status"
+                />
+                <DataTable label="Test payments" headers={['Reference', 'Amount', 'Status']}>
+                  <tr>
+                    <td>TEST-001</td>
+                    <td>
+                      <Amount value="10.000001" sensitive={false} /> USDT
+                    </td>
+                    <td>
+                      <StatusTag status="filled" label="Captured" />
+                    </td>
+                  </tr>
+                </DataTable>
+                <EmptyState title="No test refunds" reason="Refunds appear after a payment is refunded." />
+              </div>
+            </Section>
             <Section title="Buttons">
               {(['primary', 'secondary', 'ghost', 'buy', 'sell'] as const).map((v) => (
                 <Row key={v} className="mb-3">
@@ -499,7 +538,7 @@ export function Gallery() {
             </Section>
 
             <Section title="Standard states (UI-SPEC 4.3)">
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-lg bg-panel p-4">
                   <StateBlock kind="loading" rows={3} rowHeight={40} label="Loading" className="[&>[data-slot=skeleton]]:bg-field" />
                 </div>
@@ -593,7 +632,7 @@ export function Gallery() {
                 </label>
                 <Switch defaultChecked aria-label="Demo switch" />
               </Row>
-              <div className="mt-6 grid grid-cols-2 gap-8">
+              <div className="mt-6 grid grid-cols-1 gap-8 sm:grid-cols-2">
                 <Collapsible className="rounded-lg bg-panel">
                   <CollapsibleTrigger className="flex h-14 w-full items-center justify-between px-4 text-md font-medium">
                     Small balances

@@ -1,6 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryLedger, formatAmount, merchantClearing, parseAmount as amt, recipes, railBoundary } from '@intafaced/ledger-client';
-import { postDisputeOpening } from './chargeback-ledger.js';
+import {
+  MemoryLedger,
+  formatAmount,
+  insuranceFund,
+  merchantClearing,
+  merchantProceeds,
+  parseAmount as amt,
+  recipes,
+  railBoundary,
+} from '@intafaced/ledger-client';
+import {
+  chargebackKeys,
+  disputeOpeningKey,
+  disputeShortfallKey,
+  disputeShortfallRecoveredKey,
+  disputeWonKey,
+  postDisputeOpening,
+  postDisputeShortfall,
+  postDisputeShortfallRecovered,
+  postDisputeWon,
+} from './chargeback-ledger.js';
 import { MemoryDisputeCaseStore } from './fraud/dispute-case.js';
 import { CHARGEBACK_LEDGER_REFUSE_CODE, CHARGEBACK_LEDGER_UNCOVERED_CODE } from './fraud/chargeback-ledger-socket.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -43,6 +62,66 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
+  it('pins lookup keys to the recipes and posts shortfall then won recovery once', async () => {
+    const ledger = new MemoryLedger();
+    const open = {
+      disputeId: 'dsp-keys',
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      merchantUserId: MERCHANT_USER,
+      assetId: 'USDT',
+      rail: RAIL,
+      fromClearing: amt('10'),
+      fromMerchantBalance: amt('0'),
+    };
+    const short = {
+      disputeId: 'dsp-keys',
+      paymentId: PAYMENT,
+      merchantId: MERCHANT,
+      assetId: 'USDT',
+      rail: RAIL,
+      amount: amt('5'),
+    };
+    expect(chargebackKeys('dsp-keys')).toEqual({
+      open: disputeOpeningKey(open),
+      shortfall: disputeShortfallKey(short),
+      won: disputeWonKey(open),
+      recovered: disputeShortfallRecoveredKey(short),
+    });
+    await ledger.post(
+      recipes.paymentCapture({
+        paymentId: PAYMENT,
+        merchantId: MERCHANT,
+        assetId: 'USDT',
+        amount: amt('10'),
+        rail: RAIL,
+        railRef: `ch_${PAYMENT}`,
+      }),
+    );
+    await ledger.post({
+      idempotencyKey: 'test.insurance.seed:dsp-keys',
+      module: 'pay',
+      reason: 'test.insurance.funded',
+      entries: [
+        { account: railBoundary('test-seed', 'USDT'), direction: 'credit', amount: amt('5') },
+        { account: insuranceFund('USDT'), direction: 'debit', amount: amt('5') },
+      ],
+    });
+    await postDisputeOpening(ledger, open);
+    await postDisputeShortfall(ledger, short);
+    expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('0');
+    await postDisputeShortfallRecovered(ledger, short);
+    await postDisputeWon(ledger, open);
+    const again = await postDisputeWon(ledger, open);
+    expect(again.txId).toBe((await ledger.getTxByKey(disputeWonKey(open)))?.id);
+    expect(formatAmount((await ledger.balance(merchantClearing(MERCHANT, 'USDT'))).amount)).toBe('10');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('5');
+    expect(formatAmount((await ledger.balance(merchantProceeds(MERCHANT, 'USDT'))).amount)).toBe('0');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.won')).toHaveLength(1);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
   it('a blank txId cannot mark the case posted', () => {
     const store = new MemoryDisputeCaseStore();
     const opened = store.open({
@@ -73,7 +152,57 @@ describe('postDisputeOpening — ledger-client only', () => {
     expect(event?.type).toBe('dispute.opened');
     expect(event?.disputeId).toBe('dsp-parse');
     expect(event?.reasonCode).toBe('4855');
+    expect(event?.evidenceDueBy).toBeUndefined();
     expect(formatAmount(event?.amount ?? 0n)).toBe('10');
+  });
+
+  it('card-sandbox keeps a rail evidence due date and treats a malformed one as absent', () => {
+    const noted: string[] = [];
+    const rail = new CardSandboxAdapter({
+      secret: 'svc-pay-test-secret-at-least-32-characters',
+      toleranceSeconds: 300,
+      noteMalformedEvidenceDueBy: (eventId) => noted.push(eventId),
+    });
+    const due = '2026-11-01T15:04:05.000Z';
+    const event = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        assetId: 'USDT',
+        disputeId: 'dsp-due',
+        evidenceDueBy: due,
+      }),
+    );
+    expect(event?.evidenceDueBy?.toISOString()).toBe(due);
+    expect(event?.type).toBe('dispute.opened');
+    const bad = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_bad_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        disputeId: 'dsp-bad',
+        evidenceDueBy: 'not-a-date',
+      }),
+    );
+    expect(bad?.type).toBe('dispute.opened');
+    expect(bad?.disputeId).toBe('dsp-bad');
+    expect(bad?.evidenceDueBy).toBeUndefined();
+    const numeric = rail.verifyWebhook(
+      rail.signWebhook({
+        id: 'evt_num_due',
+        type: 'dispute.opened',
+        ref: 'ch_1',
+        amount: '10',
+        disputeId: 'dsp-num',
+        evidenceDueBy: 30,
+      }),
+    );
+    expect(numeric?.type).toBe('dispute.opened');
+    expect(numeric?.evidenceDueBy).toBeUndefined();
+    expect(noted).toEqual(['evt_bad_due', 'evt_num_due']);
   });
 
   it('cover-fail refuse uses the uncovered code, not posted', () => {

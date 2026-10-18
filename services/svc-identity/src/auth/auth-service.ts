@@ -1,14 +1,42 @@
+import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { AccountState } from '@intafaced/contracts';
-import { assertDelegatableScopes, issueAccessToken, SESSION_SCOPES, type Scope, type TokenConfig } from '@intafaced/auth';
+import {
+  assertDelegatableScopes,
+  FOUNDER_SESSION_SCOPE_ALLOWLIST,
+  isPayStepUpScope,
+  issueAccessToken,
+  PAY_STEP_UP_ACCESS_TTL_SECONDS,
+  PAY_STEP_UP_FACTOR_TTL_SECONDS,
+  scopesForFounderSession,
+  SESSION_SCOPES,
+  type PayStepUpScope,
+  type Scope,
+  type TokenConfig,
+} from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
-import { dummyPasswordHash, generateApiKey, generateToken, hashPassword, hashToken, needsRehash, verifyPassword } from './passwords.js';
-import { assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import {
+  assertPasswordShape,
+  dummyPasswordHash,
+  generateApiKey,
+  generateToken,
+  hashPassword,
+  hashToken,
+  needsRehash,
+  verifyPassword,
+  WeakPasswordError,
+} from './passwords.js';
+import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
+import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
+
+export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
+import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import {
   b64urlDecode,
@@ -35,6 +63,8 @@ import {
   syncNavigatorSessionOpen,
   syncNavigatorSessionsClosedForUser,
 } from '../agents/navigator-session-projection-sync.js';
+import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
+import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import type { RankService } from '../rank/rank-service.js';
 
 /**
@@ -82,7 +112,29 @@ export class AuthError extends Error {
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
       | 'auth.delegate_cannot_grant'
-      | 'auth.too_many_attempts',
+      | 'auth.password_unchanged'
+      | 'auth.password_policy'
+      | 'auth.reset_proof_invalid'
+      | 'auth.reset_unwired'
+      | 'auth.email_confirm_invalid'
+      | 'auth.email_confirm_unwired'
+      | 'auth.email_confirm_rate_limited'
+      | 'auth.too_many_attempts'
+      | 'auth.invite_invalid'
+      | 'auth.invite_used'
+      | 'auth.invite_expired'
+      | 'auth.founder_enrolment_closed'
+      | 'auth.request_unsigned'
+      | 'auth.request_stale'
+      | 'auth.request_tampered'
+      | 'auth.request_replay'
+      | 'auth.ip_allowlist_required'
+      | 'auth.payee_email_unconfirmed'
+      | 'auth.payee_phone_unverified'
+      | 'auth.payee_phone_unset'
+      | 'auth.step_up_required'
+      | 'auth.step_up_expired'
+      | 'pay.role_not_allowed',
     /** Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` only. */
     readonly details?: { readonly retryAfterSeconds?: number },
   ) {
@@ -267,6 +319,15 @@ const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full:
 const STEP_UP_TTL_SECONDS = 300;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
+/** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
+export type PayStepUpGrant = {
+  readonly refundsCreate: boolean;
+  readonly payoutSend: boolean;
+};
+
+export type PayStepUpFactorProof =
+  { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
+
 export interface RegisterInput {
   handle: string;
   email: string;
@@ -291,6 +352,43 @@ const DEFAULT_WEBAUTHN: WebAuthnConfig = {
   origin: 'http://localhost:3000',
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === '23505';
+}
+
+function uniqueConstraintName(err: unknown): string {
+  const name = (err as { constraint_name?: unknown }).constraint_name;
+  return typeof name === 'string' ? name : '';
+}
+
+/**
+ * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
+ * value above the ceiling is off. Never invents 120.
+ */
+function recoveryWindowMs(seconds: number | undefined): number {
+  if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds)) return 0;
+  if (seconds <= 0 || seconds > REFRESH_RECOVERY_SECONDS_CEILING) return 0;
+  return seconds * 1000;
+}
+
+/**
+ * Drop the sealed copy of `sessionId` held by its predecessor.
+ * The predecessor is the same user and already revoked, so the predicate
+ * stays on `sessions_user_idx` (`user_id`, `revoked`) instead of scanning
+ * every session row. `clearPredecessorSeal` and the plan test share this text.
+ */
+export function predecessorSealCleanup(userId: string, sessionId: string): { text: string; values: string[] } {
+  return {
+    text: 'UPDATE sessions SET successor_refresh = NULL WHERE user_id = $1 AND revoked = true AND successor_id = $2 AND successor_refresh IS NOT NULL',
+    values: [userId, sessionId],
+  };
+}
+
+export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: string): Promise<void> {
+  const query = predecessorSealCleanup(userId, sessionId);
+  await tx.unsafe(query.text, query.values);
+}
+
 export class AuthService {
   private readonly pendingTotp: PendingTotpEnrolmentStore;
   private readonly challenges: ChallengeStorePort;
@@ -298,6 +396,40 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  /** How long a just-rotated refresh token may be presented again by a second tab. */
+  private readonly reuseGraceMs: number;
+  /**
+   * Owner-published lost-reply window past the grace, in milliseconds.
+   * 0 is off: a presentation outside the grace window is reuse, as before.
+   */
+  private readonly recoveryMs: number;
+  /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
+  private passwordResetTtlSeconds: number | undefined;
+  private passwordResetMail: PasswordResetMail | undefined;
+  private passwordResetNow: () => Date = () => new Date();
+  /**
+   * Optional lookup of the published owner pay grant. Unset means sessions
+   * stay on SESSION_SCOPES. A throw omits pay scopes and still issues the
+   * ordinary session.
+   */
+  private ownerPayScopeSource: ((userId: string) => Promise<readonly string[]>) | null = null;
+  /**
+   * svc-pay read: may this user refund or pay out for this merchant.
+   * Unset refuses the mint. A throw refuses the mint.
+   */
+  private payStepUpRoleSource: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null = null;
+  /** Same mail port as password reset. Unset refuses confirmation (`auth.email_confirm_unwired`). */
+  private emailConfirmMail: PasswordResetMail | undefined;
+  private emailConfirmTtlSeconds: number | undefined;
+  private emailConfirmRateMax: number | undefined;
+  private emailConfirmRateWindowSeconds: number | undefined;
+  private emailConfirmNow: () => Date = () => new Date();
+  /** Live founder directory. Unset means no founder desk scopes (fail closed). */
+  private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
+  /** Lead-published founder grant. Blank grants nothing. */
+  private founderSessionScopes: readonly Scope[] = [];
+  /** The config string whose sha256 is written on each founder issuance. */
+  private founderSessionConfigValue = '';
 
   constructor(
     private readonly sql: Sql,
@@ -309,6 +441,8 @@ export class AuthService {
     challenges?: ChallengeStorePort,
     pendingTotp?: PendingTotpEnrolmentStore,
     maxSubAccounts?: number,
+    reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
+    recoverySeconds?: number,
   ) {
     this.webauthn = webauthn;
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
@@ -316,6 +450,14 @@ export class AuthService {
     this.pendingTotp = pendingTotp ?? new SqlPendingTotpEnrolmentStore(sql);
     this.maxSubAccounts =
       maxSubAccounts !== undefined && Number.isFinite(maxSubAccounts) && maxSubAccounts >= 1 ? Math.floor(maxSubAccounts) : undefined;
+    const grace = Number.isFinite(reuseGraceSeconds) ? Math.floor(reuseGraceSeconds) : DEFAULT_REFRESH_REUSE_GRACE_SECONDS;
+    this.reuseGraceMs = Math.min(120, Math.max(0, grace)) * 1000;
+    this.recoveryMs = recoveryWindowMs(recoverySeconds);
+  }
+
+  /** Cookie Max-Age. Same number as the refresh-token row lifetime. */
+  refreshLifetimeSeconds(): number {
+    return this.tokens.refreshTtlSeconds;
   }
 
   /** Structured warn sink. Defaults to one JSON line on stderr; index.ts swaps in the Fastify logger. */
@@ -325,6 +467,154 @@ export class AuthService {
 
   useLogger(log: { warn(obj: Record<string, unknown>, msg: string): void }): void {
     this.log = log;
+  }
+
+  /** Install the mail handoff. Unset refuses every reset request the same way. */
+  usePasswordResetMail(mail: PasswordResetMail | undefined): void {
+    this.passwordResetMail = mail;
+  }
+
+  /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
+  usePasswordResetTtl(seconds: number | undefined): void {
+    this.passwordResetTtlSeconds = publishedPasswordResetTtlSeconds(seconds);
+  }
+
+  /**
+   * Install the svc-pay owner-grant lookup. Identity does not decide the law;
+   * it only attaches `pay:read`, `pay:write`, and `pay:onboard` when pay returns them.
+   */
+  useOwnerPayScopeSource(source: ((userId: string) => Promise<readonly string[]>) | null): void {
+    this.ownerPayScopeSource = source;
+  }
+
+  /** Install the svc-pay role read used by `stepUpPay`. Unset refuses every mint. */
+  usePayStepUpRoleSource(source: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null): void {
+    this.payStepUpRoleSource = source;
+  }
+
+  /** Test clock. Production uses the real clock. */
+  usePasswordResetClock(now: () => Date): void {
+    this.passwordResetNow = now;
+  }
+
+  /**
+   * Install the shared mail port plus the owner-published confirmation lifetime
+   * and rate budget. Any missing piece refuses every request the same way.
+   */
+  useEmailConfirmation(input: {
+    mail: PasswordResetMail | undefined;
+    ttlSeconds: number | undefined;
+    rateMax: number | undefined;
+    rateWindowSeconds: number | undefined;
+  }): void {
+    this.emailConfirmMail = input.mail;
+    this.emailConfirmTtlSeconds = input.ttlSeconds;
+    this.emailConfirmRateMax = input.rateMax;
+    this.emailConfirmRateWindowSeconds = input.rateWindowSeconds;
+  }
+
+  /** Test clock for confirmation expiry. Production uses the real clock. */
+  useEmailConfirmationClock(now: () => Date): void {
+    this.emailConfirmNow = now;
+  }
+
+  private emailConfirmDeps() {
+    return {
+      sql: this.sql,
+      mail: this.emailConfirmMail,
+      ttlSeconds: this.emailConfirmTtlSeconds,
+      rateMax: this.emailConfirmRateMax,
+      rateWindowSeconds: this.emailConfirmRateWindowSeconds,
+      now: this.emailConfirmNow,
+      log: this.log,
+    };
+  }
+
+  /** Founder desk scopes are added only when this directory says the user is a live founder. */
+  useFounderDirectory(directory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined): void {
+    this.founderDirectory = directory;
+  }
+
+  /**
+   * The lead's founder-session grant. Blank grants nothing. A scope outside
+   * the allowlist is refused here as well as at env parse.
+   */
+  useFounderSessionScopes(input: { readonly scopes: readonly Scope[]; readonly configValue: string } | undefined): void {
+    const scopes = input?.scopes ?? [];
+    for (const scope of scopes) {
+      if (!(FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope)) {
+        throw new Error(`identity.founder_scope_invalid: ${scope}`);
+      }
+    }
+    this.founderSessionScopes = [...scopes];
+    this.founderSessionConfigValue = input?.configValue ?? '';
+  }
+
+  private founderConfigHash(): string {
+    return createHash('sha256').update(this.founderSessionConfigValue).digest('hex');
+  }
+
+  private async founderScopesOn(
+    base: readonly Scope[],
+    userId: string,
+    mfa: boolean,
+    query: Sql | undefined,
+    gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
+  ): Promise<{ scopes: Scope[]; founder: boolean; granted: Scope[] }> {
+    let founder = false;
+    try {
+      founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
+    } catch {
+      founder = false;
+    }
+    const scopes = scopesForFounderSession(base, {
+      founder,
+      mfa,
+      apiKey: gates.apiKey === true,
+      subAccount: gates.subAccount === true,
+      configured: this.founderSessionScopes,
+    });
+    const granted = scopes.filter(
+      (scope) => (FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope) && !base.includes(scope),
+    );
+    return { scopes, founder, granted };
+  }
+
+  /** One audit row for a live founder issuance. A non-founder writes nothing. */
+  private async recordFounderScopeGrant(
+    query: Sql,
+    userId: string,
+    sessionId: string,
+    founder: boolean,
+    granted: readonly Scope[],
+  ): Promise<void> {
+    if (!founder) return;
+    await query`
+      INSERT INTO founder_session_scope_audit (audit_id, user_id, session_id, scopes, config_hash)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${[...granted]}, ${this.founderConfigHash()})
+    `;
+  }
+
+  /**
+   * Session scopes, the owner pay grant, then the configured founder grant.
+   * The pay lookup is a network call. Do not call this inside a session transaction.
+   * Step-up does not call this: a step-up token never receives founder scopes.
+   */
+  private async scopesFor(userId: string, mfa: boolean, sessionId: string, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    const pay = await this.scopesForNewAccessToken(userId);
+    const decided = await this.founderScopesOn([...pay, ...extra], userId, mfa, query, {});
+    await this.recordFounderScopeGrant(query ?? this.sql, userId, sessionId, decided.founder, decided.granted);
+    return decided.scopes;
+  }
+
+  private resetDeps() {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      ttlSeconds: this.passwordResetTtlSeconds,
+      now: this.passwordResetNow,
+      log: this.log,
+    };
   }
 
   /** Count a sign-in attempt (see attempt-lockout.ts); log once when this attempt is the one that sets a lock. */
@@ -364,24 +654,32 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<SessionTokens> {
     const passwordHash = await hashPassword(input.password);
-    const userId = await transaction(this.sql, async (tx) => {
-      const clash = await tx<
-        Array<{ handle: string; email: string }>
-      >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
-      for (const row of clash) {
-        if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
-          throw new AuthError('That handle is taken', 'auth.handle_taken');
-        }
-        throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
+    return this.finishRegistration(userId, input);
+  }
+
+  /** The user, profile and rank rows of a new account, inside the caller's transaction. */
+  private async insertNewUser(tx: Sql, input: RegisterInput, passwordHash: string): Promise<string> {
+    const clash = await tx<
+      Array<{ handle: string; email: string }>
+    >`SELECT handle, email FROM users WHERE handle = ${input.handle} OR email = ${input.email}`;
+    for (const row of clash) {
+      if (row.handle.toLowerCase() === input.handle.toLowerCase()) {
+        throw new AuthError('That handle is taken', 'auth.handle_taken');
       }
-      const inserted = await tx<
-        Array<{ id: string }>
-      >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
-      const id = inserted[0]!.id;
-      await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
-      await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
-      return id;
-    });
+      throw new AuthError('An account with that email already exists', 'auth.email_taken');
+    }
+    const inserted = await tx<
+      Array<{ id: string }>
+    >`INSERT INTO users (handle, email, password_hash) VALUES (${input.handle}, ${input.email}, ${passwordHash}) RETURNING id`;
+    const id = inserted[0]!.id;
+    await tx`INSERT INTO profiles (user_id, display_name, region) VALUES (${id}, ${input.handle}, ${input.region ?? null})`;
+    await tx`INSERT INTO rank_state (user_id) VALUES (${id})`;
+    return id;
+  }
+
+  /** After the account is committed: announce it, award the first XP, open a (non-MFA) session. */
+  private async finishRegistration(userId: string, input: RegisterInput): Promise<SessionTokens> {
     await this.bus.publish(
       'userCreated',
       { userId, handle: input.handle, ...(input.region ? { region: input.region } : {}) },
@@ -395,6 +693,103 @@ export class AuthService {
       idempotencyKey: `identity.registered:${userId}`,
     });
     return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
+  }
+
+  /**
+   * FOUNDER ENROLMENT (`auth.registerFounder`, src/auth/founder-enrolment.ts).
+   *
+   * Creates an ordinary account, exactly like `register`, but gated by a
+   * single-use invite instead of REGISTRATION_OPEN. The new account is NOT
+   * privileged until the founder pair is pinned to its id, so the session may
+   * enrol its first factor the normal way (factor-gate.ts is untouched).
+   *
+   * Order matters. The cheap refusals come first, before the argon2 hash that an
+   * attacker could otherwise make us pay for with a bad code:
+   *   closed (not configured, or the pair is pinned) → invalid → expired → used.
+   * The invite is then consumed in the SAME transaction as the user insert,
+   * behind a per-invite advisory lock, with the primary key as the backstop: one
+   * invite makes one account and a race has exactly one winner. The losing
+   * transaction rolls back its user row.
+   *
+   * Logging: one audit line, `founder.enrolled {userId}`. The invite, its hash
+   * and the password are never logged, and the hash is never put next to an
+   * email. The durable record is the `founder_invites_used` row (hash → user,
+   * time), which is immutable.
+   */
+  async registerFounder(
+    input: RegisterInput & { invite: string },
+    config: FounderEnrolmentConfig | undefined,
+    now: Date = new Date(),
+  ): Promise<SessionTokens> {
+    const closed = () => new AuthError('Founder enrolment is closed', 'auth.founder_enrolment_closed');
+    if (!config) throw closed();
+    if (await this.founderPairPinned(this.sql)) throw closed();
+    const hash = matchInvite(input.invite, config.hashes);
+    if (hash === null) throw new AuthError('That invite code is not valid', 'auth.invite_invalid');
+    if (now.getTime() >= config.expiresAt.getTime()) throw new AuthError('That invite code has expired', 'auth.invite_expired');
+    const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
+    if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
+
+    const passwordHash = await hashPassword(input.password);
+    let userId: string;
+    try {
+      userId = await transaction(
+        this.sql,
+        async (tx) => {
+          // Serialise every attempt on this invite, so the loser of a race gets
+          // `invite_used` (not a unique-violation 500) and never half-creates a user.
+          await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`founder-invite:${hash}`}, 0))`;
+          // Re-read under the lock: the pair may have been pinned, the invite spent, while we hashed.
+          if (await this.founderPairPinned(tx)) throw closed();
+          if (await this.founderInviteSpent(tx, hash)) throw usedError();
+          const id = await this.insertNewUser(tx, input, passwordHash);
+          const claimed = await tx<
+            Array<{ hash: string }>
+          >`INSERT INTO founder_invites_used (hash, user_id) VALUES (${hash}, ${id}) ON CONFLICT (hash) DO NOTHING RETURNING hash`;
+          if (claimed.length !== 1) throw usedError();
+          return id;
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (err) {
+      // Two founders racing different invites for the same handle/email: the unique index decides.
+      if (isUniqueViolation(err)) {
+        if (/founder_invites_used/.test(uniqueConstraintName(err))) throw usedError();
+        throw new AuthError(
+          /email/i.test(uniqueConstraintName(err)) ? 'An account with that email already exists' : 'That handle is taken',
+          /email/i.test(uniqueConstraintName(err)) ? 'auth.email_taken' : 'auth.handle_taken',
+        );
+      }
+      throw err;
+    }
+    this.log.warn({ audit: 'founder.enrolled', userId }, 'founder.enrolled');
+    return this.finishRegistration(userId, input);
+  }
+
+  /**
+   * Is founder enrolment open right now? True only while ALL hold: the invites
+   * are configured (hashes and expiry), the founder pair is not pinned, the
+   * expiry has not passed, and at least one invite is unspent. Reveals nothing else.
+   */
+  async founderEnrolmentOpen(config: FounderEnrolmentConfig | undefined, now: Date = new Date()): Promise<boolean> {
+    if (!config) return false;
+    if (now.getTime() >= config.expiresAt.getTime()) return false;
+    if (await this.founderPairPinned(this.sql)) return false;
+    const spent = await this.sql<
+      Array<{ n: number }>
+    >`SELECT count(*)::int AS n FROM founder_invites_used WHERE hash IN ${this.sql(config.hashes as string[])}`;
+    return (spent[0]?.n ?? 0) < config.hashes.length;
+  }
+
+  /** The founder pair is pinned permanently by the first verified boot (founder-controls.ts). */
+  private async founderPairPinned(q: Sql): Promise<boolean> {
+    const rows = await q<Array<{ pinned: boolean }>>`SELECT true AS pinned FROM founder_control_configuration LIMIT 1`;
+    return rows.length > 0;
+  }
+
+  private async founderInviteSpent(q: Sql, hash: string): Promise<boolean> {
+    const rows = await q<Array<{ hash: string }>>`SELECT hash FROM founder_invites_used WHERE hash = ${hash}`;
+    return rows.length > 0;
   }
 
   async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
@@ -460,8 +855,9 @@ export class AuthService {
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     const tier = await this.kycTier(userId);
+    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes: this.defaultScopes(), tier, mfa: options.mfa },
+      { userId, sessionId, scopes, tier, mfa: options.mfa },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -469,18 +865,78 @@ export class AuthService {
 
   async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
+    // Resolve the owner grant before the row lock. A pay round trip must not
+    // sit inside the session transaction.
+    const peek = this.ownerPayScopeSource
+      ? await this.sql<Array<{ user_id: string }>>`SELECT user_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`
+      : [];
+    const peekedUserId = peek[0]?.user_id;
+    const peekedScopes = peekedUserId ? await this.scopesForNewAccessToken(peekedUserId) : null;
+    type RefreshRow = {
+      id: string;
+      user_id: string;
+      revoked: boolean;
+      mfa: boolean;
+      expires_at: Date;
+      user_status: string;
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      device: string | null;
+    };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
+      | { kind: 'grace'; tokens: SessionTokens }
+      | {
+          kind: 'recovered';
+          tokens: SessionTokens;
+          userId: string;
+          predecessorId: string;
+          successorId: string;
+          ageSeconds: number;
+        }
       | { kind: 'rotated'; previousSessionId: string; tokens: SessionTokens };
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
-        Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date; user_status: string }>
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+        RefreshRow[]
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
-      if (session.revoked) return { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      if (session.revoked) {
+        // disable-user freezes the account and leaves sessions live, so the
+        // successor of a rotation inside the grace window is still usable.
+        // Refuse before any token is minted, and revoke that successor here.
+        if (session.user_status !== 'active') {
+          if (session.successor_id) {
+            await tx`UPDATE sessions SET revoked = true WHERE id = ${session.successor_id}`;
+          }
+          return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
+        }
+        const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
+        if (grace) return { kind: 'grace', tokens: grace };
+        const recovered = await this.recoverTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null, options.device);
+        if (recovered) {
+          return {
+            kind: 'recovered',
+            tokens: recovered.tokens,
+            userId: session.user_id,
+            predecessorId: session.id,
+            successorId: recovered.tokens.sessionId,
+            ageSeconds: recovered.ageSeconds,
+          };
+        }
+        // A rotation stamps the predecessor. Presenting that token again,
+        // outside the grace window and outside a published recovery window,
+        // is reuse and burns every live session. Logout and other explicit
+        // revokes leave no stamp: the token is dead, and saying so must not
+        // sign the person out elsewhere.
+        if (!session.rotated_at && !session.successor_id) {
+          throw new AuthError('Session not found', 'auth.session_invalid');
+        }
+        return { kind: 'reuse', userId: session.user_id, sessionId: session.id };
+      }
       if (session.expires_at.getTime() < Date.now()) {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'expired', sessionId: session.id };
@@ -489,16 +945,27 @@ export class AuthService {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
       }
-      await tx`UPDATE sessions SET revoked = true, last_used_at = now() WHERE id = ${session.id}`;
+      const rotatedAt = new Date();
+      await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
+      // The row that still holds a sealed copy of THIS session's refresh token
+      // is no longer pointing at the tip. Drop that copy in the same transaction,
+      // scoped to the user so it uses sessions_user_idx.
+      await clearPredecessorSeal(tx, session.user_id, session.id);
       const nextToken = generateToken(48);
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
         Array<{ id: string }>
       >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
+      await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
+      // Pay was resolved before the row lock. Do not call svc-pay again inside this transaction.
+      const payScopes = session.user_id === peekedUserId && peekedScopes ? peekedScopes : this.defaultScopes();
+      const decided = await this.founderScopesOn(payScopes, session.user_id, session.mfa, tx, {});
+      await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
+      const scopes = decided.scopes;
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes: this.defaultScopes(), tier, mfa: session.mfa },
+        { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
         this.tokens,
       );
       return {
@@ -514,6 +981,19 @@ export class AuthService {
         },
       };
     });
+    if (result.kind === 'grace') return result.tokens;
+    if (result.kind === 'recovered') {
+      this.log.warn(
+        {
+          userId: result.userId,
+          predecessorId: result.predecessorId,
+          successorId: result.successorId,
+          ageSeconds: result.ageSeconds,
+        },
+        'auth.refresh_recovered',
+      );
+      return result.tokens;
+    }
     if (result.kind === 'reuse') {
       await this.sql`UPDATE sessions SET revoked = true, reuse_detected_at = now() WHERE user_id = ${result.userId} AND revoked = false`;
       await this.sql`UPDATE sessions SET reuse_detected_at = now() WHERE id = ${result.sessionId}`;
@@ -534,18 +1014,288 @@ export class AuthService {
     return result.tokens;
   }
 
+  /**
+   * Second tab, same cookie, inside the grace window. The row lock on the
+   * predecessor serialises two refreshes: the loser sees the successor the
+   * winner committed and returns that refresh token plus a new access token
+   * for the same successor session. Outside the window the caller either
+   * recovers a lost reply or burns the family.
+   */
+  private async graceTokens(
+    tx: Sql,
+    session: {
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      user_id: string;
+    },
+    peekedScopes: readonly Scope[] | null,
+  ): Promise<SessionTokens | null> {
+    if (this.reuseGraceMs <= 0 || !session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
+    if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
+    if (!nextToken) return null;
+    const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
+      SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    `;
+    const successor = rows[0];
+    if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
+    const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      this.tokens,
+    );
+    return {
+      accessToken,
+      refreshToken: nextToken,
+      expiresAt: accessExpiresAt,
+      sessionId: successor.id,
+      userId: successor.user_id,
+      mfaRequired: false,
+    };
+  }
+
+  /**
+   * Lost reply, past the grace window, inside the owner-published recovery
+   * window. Same row locks as `refresh`: the predecessor is already locked,
+   * and the successor is locked here, so a concurrent rotation of that
+   * successor cannot commit beside this read. Any doubt returns null and the
+   * caller burns the family. Does not rotate, revoke, or insert.
+   */
+  private async recoverTokens(
+    tx: Sql,
+    session: {
+      id: string;
+      user_id: string;
+      user_status: string;
+      rotated_at: Date | null;
+      successor_id: string | null;
+      successor_refresh: string | null;
+      device: string | null;
+    },
+    peekedScopes: readonly Scope[] | null,
+    requestDevice: string | undefined,
+  ): Promise<{ tokens: SessionTokens; ageSeconds: number } | null> {
+    if (this.recoveryMs <= 0) return null;
+    if (session.user_status !== 'active') return null;
+    if (!session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
+    if (!this.deviceAllowsRecovery(session.device, requestDevice)) return null;
+    const age = Date.now() - session.rotated_at.getTime();
+    if (!Number.isFinite(age) || age <= this.reuseGraceMs || age > this.recoveryMs) return null;
+    const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
+    if (!nextToken) return null;
+    const rows = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        revoked: boolean;
+        mfa: boolean;
+        expires_at: Date;
+        rotated_at: Date | null;
+        successor_id: string | null;
+      }>
+    >`
+      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    `;
+    const successor = rows[0];
+    if (!successor || successor.user_id !== session.user_id) return null;
+    if (successor.revoked !== false) return null;
+    if (successor.rotated_at !== null) return null;
+    if (successor.successor_id !== null) return null;
+    if (successor.expires_at.getTime() <= Date.now()) return null;
+    const tier = await this.kycTier(successor.user_id, tx);
+    const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
+    const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
+      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      this.tokens,
+    );
+    return {
+      tokens: {
+        accessToken,
+        refreshToken: nextToken,
+        expiresAt: accessExpiresAt,
+        sessionId: successor.id,
+        userId: successor.user_id,
+        mfaRequired: false,
+      },
+      ageSeconds: Math.floor(age / 1000),
+    };
+  }
+
+  /**
+   * Open a sealed successor token only while it is still inside the longer of
+   * the grace and recovery windows. Older ciphertext is ignored even if the
+   * column still holds it. A bad seal returns null (fail closed).
+   */
+  private openSealedSuccessor(rotatedAt: Date, sealed: string): string | null {
+    const age = Date.now() - rotatedAt.getTime();
+    if (!Number.isFinite(age)) return null;
+    if (age > Math.max(this.reuseGraceMs, this.recoveryMs)) return null;
+    if (typeof sealed !== 'string' || sealed.length === 0) return null;
+    return openRefreshToken(this.tokens.secret, sealed);
+  }
+
+  /**
+   * The device check applies only when the predecessor stored a label and the
+   * request carries one. A mismatch, or a request device that is not a string,
+   * refuses recovery.
+   */
+  private deviceAllowsRecovery(stored: string | null, presented: string | undefined): boolean {
+    if (presented !== undefined && typeof presented !== 'string') return false;
+    const storedLabel = typeof stored === 'string' && stored.length > 0 ? stored : null;
+    const presentedLabel = typeof presented === 'string' && presented.length > 0 ? presented : null;
+    if (storedLabel !== null && presentedLabel !== null && storedLabel !== presentedLabel) return false;
+    return true;
+  }
+
   async logout(refreshToken: string): Promise<void> {
     const hash = hashToken(refreshToken);
-    const rows = await this.sql<Array<{ id: string }>>`SELECT id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1`;
-    await this.sql`UPDATE sessions SET revoked = true WHERE refresh_hash = ${hash}`;
-    const sessionId = rows[0]?.id;
-    if (sessionId) await syncNavigatorSessionClosed(this.sql, sessionId);
+    const rows = await this.sql<Array<{ id: string; successor_id: string | null }>>`
+      SELECT id, successor_id FROM sessions WHERE refresh_hash = ${hash} LIMIT 1
+    `;
+    const root = rows[0];
+    if (!root) return;
+    await this.sql`
+      WITH RECURSIVE chain AS (
+        SELECT id, successor_id FROM sessions WHERE id = ${root.id}
+        UNION ALL
+        SELECT s.id, s.successor_id FROM sessions s
+        INNER JOIN chain c ON s.id = c.successor_id
+        WHERE c.successor_id IS NOT NULL
+      )
+      UPDATE sessions SET revoked = true WHERE id IN (SELECT id FROM chain)
+    `;
+    await syncNavigatorSessionClosed(this.sql, root.id);
+    if (root.successor_id) await syncNavigatorSessionClosed(this.sql, root.successor_id);
   }
 
   async logoutAll(userId: string): Promise<number> {
     const result = await this.sql`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
     if (result.count > 0) await syncNavigatorSessionsClosedForUser(this.sql, userId);
     return result.count;
+  }
+
+  /**
+   * CHANGE PASSWORD (signed-in user).
+   *
+   * Failures this prevents:
+   *  - a stolen session (or a leaked API key) taking the account over by setting a
+   *    new password: it needs the CURRENT password, and an API key / sub-account
+   *    principal is refused outright (it is not a person at a keyboard);
+   *  - a stolen password plus a non-MFA session doing the same on an account that
+   *    has a second factor: any TOTP / passkey on the account requires the `mfa`
+   *    claim (TOTP or passkey login, or a fresh `auth.stepUp` token). An account
+   *    with NO second factor may change the password with the current one alone;
+   *  - the current password being brute-forced through this door: the guess is
+   *    reserved on the same per-account `password` counter as login BEFORE it is
+   *    verified, so the two doors share one budget;
+   *  - the old password living on in other devices: every OTHER session is revoked
+   *    in the same transaction as the hash update. The calling session stays.
+   *
+   * Order: gate (delegated / MFA) → reserve → verify current → policy → not-the-same
+   * → one transaction (re-check the hash we verified, write, revoke others, clear
+   * the counter). A wrong current password answers `auth.invalid_credentials`,
+   * identical to login. Entitlements (`operatorStatus`) are not touched: this writes
+   * only `users.password_hash` and `sessions`.
+   *
+   * AUDIT: no durable auth-audit table or password-changed bus event exists yet, so
+   * the record is the service's structured log line `auth.password_changed`
+   * (same sink as `identity.account_locked`). User id and counts only, never a secret.
+   */
+  async changePassword(input: {
+    userId: string;
+    sessionId: string;
+    actor: FactorActor;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<void> {
+    const { userId, sessionId, actor } = input;
+    // Delegated principals first: refused before any lookup, so it cannot probe ids.
+    if (actor.delegated) {
+      throw new AuthError('Sign in yourself to change your password; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<
+      Array<{ password_hash: string; status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT password_hash, status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    // Second factor on the account, or a privileged identity (founder pair / `admin:*`
+    // scope, which never gets the no-factor exception): the session must have passed it. Checked before the
+    // reservation so a missing step-up never spends the password budget.
+    if ((accountHasSecondFactor(user) || actor.privileged) && !actor.mfa) {
+      throw new AuthError('Verify with your second factor before changing your password', 'auth.mfa_required');
+    }
+    // Count the guess BEFORE verifying it (see attempt-lockout.ts); a locked account is refused here.
+    await this.reserve(userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.currentPassword))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    // The current password verified, so it is no longer a guess: a policy or same-password
+    // refusal below must not count toward the lock.
+    await recordSuccess(this.sql, userId, 'password');
+    try {
+      assertPasswordShape(input.newPassword);
+    } catch (err) {
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      throw err;
+    }
+    if (input.newPassword === input.currentPassword) {
+      throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
+    }
+    const nextHash = await hashPassword(input.newPassword);
+    const revokedIds = await transaction(this.sql, async (tx) => {
+      const locked = await tx<
+        Array<{ password_hash: string; status: string }>
+      >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
+      // A parallel change already moved the hash: the password we verified is no longer the current one.
+      if (!locked[0] || locked[0].password_hash !== user.password_hash) {
+        throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+      }
+      if (locked[0].status !== 'active') throw new AuthError(`Account is ${locked[0].status}`, 'auth.account_frozen');
+      const live = await tx<
+        Array<{ id: string }>
+      >`SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
+      if (!live[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${userId}`;
+      const revoked = await tx<
+        Array<{ id: string }>
+      >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
+      await recordSuccess(tx, userId, 'password');
+      return revoked.map((r) => r.id);
+    });
+    for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
+    this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
+  }
+
+  /**
+   * Signed-out reset, step 1. Same answer for every address. No session, no hash change.
+   * The one-time code goes to the mail port only.
+   */
+  async requestPasswordReset(input: { email: string }): Promise<{ accepted: true }> {
+    return requestPasswordReset(this.resetDeps(), input);
+  }
+
+  /** Signed-in. Mails a one-time link to this account's own address. Never returns the token. */
+  async requestEmailConfirmation(input: { userId: string }): Promise<{ accepted: true }> {
+    return requestEmailConfirmation(this.emailConfirmDeps(), input);
+  }
+
+  /** Public link. Sets `email_verified_at` once for the account the token was issued to. */
+  async confirmEmail(input: { token: string }): Promise<{ userId: string }> {
+    return confirmEmail(this.emailConfirmDeps(), input);
+  }
+
+  /**
+   * Signed-out reset, step 2. A correct proof replaces the hash and ends every
+   * session. This call does not sign the person in.
+   */
+  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
+    const result = await completePasswordReset(this.resetDeps(), input);
+    if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
+    this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }
 
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
@@ -855,9 +1605,11 @@ export class AuthService {
     domainWhitelist?: string[];
     expiresAt?: Date;
     mode?: 'live' | 'sandbox';
-  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox' }> {
+    /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
+    payStepUp?: boolean;
+  }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
-    assertDelegatableScopes(input.scopes, input.grantorScopes);
+    assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
     const rows = await transaction(
@@ -871,7 +1623,7 @@ export class AuthService {
       },
       { isolation: 'read committed' },
     );
-    return { id: rows[0]!.id, key, prefix, mode };
+    return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
   async verifyApiKey(
@@ -898,7 +1650,17 @@ export class AuthService {
   async exchangeApiKey(
     key: string,
     requestOrigin?: string | null,
-  ): Promise<{ accessToken: string; expiresAt: Date; userId: string; keyId: string; scopes: string[]; mode: 'live' | 'sandbox' }> {
+  ): Promise<{
+    accessToken: string;
+    expiresAt: Date;
+    userId: string;
+    keyId: string;
+    scopes: string[];
+    mode: 'live' | 'sandbox';
+    requireSignature?: boolean;
+    requireNonEmptyIpAllowlist?: boolean;
+    ipAllowlist?: string[];
+  }> {
     const verified = await this.verifyApiKey(key);
     if (!verified) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     if (!apiKeyOriginAllowed(verified.domainWhitelist, requestOrigin)) {
@@ -986,8 +1748,21 @@ export class AuthService {
    * is gone, which a live session should not be able to reach.
    */
   async handleOf(userId: string): Promise<string | null> {
-    const rows = await this.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${userId} LIMIT 1`;
-    return rows[0]?.handle ?? null;
+    const view = await this.selfView(userId);
+    return view?.handle ?? null;
+  }
+
+  /**
+   * The caller's own handle and whether the current email is confirmed, for
+   * `identity.me`. Null only when the account row is gone.
+   */
+  async selfView(userId: string): Promise<{ handle: string; emailVerified: boolean } | null> {
+    const rows = await this.sql<Array<{ handle: string; email_verified_at: Date | string | null }>>`
+      SELECT handle, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { handle: row.handle, emailVerified: isEmailConfirmed(row) };
   }
 
   /**
@@ -1003,6 +1778,106 @@ export class AuthService {
       SELECT id, handle FROM users WHERE handle = ${handle} AND status = 'active' LIMIT 1`;
     const row = rows[0];
     return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
+  /**
+   * Exact email or phone, and only when that person opted in and the address
+   * is verified. Frozen, closed, unknown, unverified and "did not consent"
+   * are the same null. The row's email and phone are not returned.
+   */
+  async searchPayee(query: { email: string } | { phone: string }): Promise<{ userId: string; handle: string } | null> {
+    const rows =
+      'email' in query
+        ? await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE email = ${query.email}
+               AND status = 'active'
+               AND payee_email_consent = true
+               AND email_verified_at IS NOT NULL
+             LIMIT 1`
+        : await this.sql<Array<{ id: string; handle: string }>>`
+            SELECT id, handle FROM users
+             WHERE phone = ${query.phone}
+               AND status = 'active'
+               AND payee_phone_consent = true
+               AND phone_verified_at IS NOT NULL
+             LIMIT 1`;
+    const row = rows[0];
+    return row ? { userId: row.id, handle: row.handle } : null;
+  }
+
+  /**
+   * The signed-in user turns email or phone discovery on or off, and may set
+   * their own phone. The phone number is stored and never written to the audit.
+   */
+  async setPayeeSearchConsent(
+    userId: string,
+    input: { emailConsent?: boolean; phoneConsent?: boolean; phone?: string | null },
+  ): Promise<{ emailConsent: boolean; phoneConsent: boolean; phoneOnFile: boolean }> {
+    return transaction(this.sql, async (tx) => {
+      const rows = await tx<
+        Array<{
+          phone: string | null;
+          payee_email_consent: boolean;
+          payee_phone_consent: boolean;
+          status: string;
+          email_verified_at: Date | string | null;
+          phone_verified_at: Date | string | null;
+        }>
+      >`
+        SELECT phone, payee_email_consent, payee_phone_consent, status, email_verified_at, phone_verified_at
+          FROM users WHERE id = ${userId} FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row || row.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+      let phone = row.phone;
+      let emailConsent = row.payee_email_consent;
+      let phoneConsent = row.payee_phone_consent;
+      let phoneVerifiedAt = row.phone_verified_at;
+      let phoneEvent: 'phone_set' | 'phone_cleared' | null = null;
+      if (input.phone === null) {
+        if (phone !== null) phoneEvent = 'phone_cleared';
+        phone = null;
+        phoneConsent = false;
+        phoneVerifiedAt = null;
+      } else if (typeof input.phone === 'string') {
+        phone = input.phone;
+        phoneEvent = 'phone_set';
+        phoneConsent = false;
+        phoneVerifiedAt = null;
+      }
+      if (input.emailConsent !== undefined) emailConsent = input.emailConsent;
+      if (input.phoneConsent !== undefined) phoneConsent = input.phoneConsent;
+      if (emailConsent && row.email_verified_at == null) {
+        throw new AuthError('Confirm your email before people can find you by it', 'auth.payee_email_unconfirmed');
+      }
+      if (phoneConsent && phoneVerifiedAt == null) {
+        throw new AuthError('Verify your phone before people can find you by it', 'auth.payee_phone_unverified');
+      }
+      if (phoneConsent && phone === null) {
+        throw new AuthError('Add a phone number before people can find you by it', 'auth.payee_phone_unset');
+      }
+      await tx`
+        UPDATE users
+           SET phone = ${phone},
+               phone_verified_at = ${phoneVerifiedAt},
+               payee_email_consent = ${emailConsent},
+               payee_phone_consent = ${phoneConsent},
+               updated_at = now()
+         WHERE id = ${userId}
+      `;
+      await tx`
+        INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+        VALUES (${userId}, 'consent', ${emailConsent}, ${phoneConsent})
+      `;
+      if (phoneEvent) {
+        await tx`
+          INSERT INTO payee_search_audit (user_id, event, email_consent, phone_consent)
+          VALUES (${userId}, ${phoneEvent}, ${emailConsent}, ${phoneConsent})
+        `;
+      }
+      return { emailConsent, phoneConsent, phoneOnFile: phone !== null };
+    });
   }
 
   async submitKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<KycRecordView> {
@@ -1127,6 +2002,85 @@ export class AuthService {
     });
   }
 
+  /**
+   * What the customer step-up sheet can ask for. A passkey challenge issued here
+   * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
+   * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
+   */
+  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+    const rows = await this.sql<
+      Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
+    >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const credentials = asCredentialList(user.webauthn_creds);
+    const totpEnrolled = typeof user.totp_secret === 'string' && user.totp_secret.length > 0;
+    if (!totpEnrolled && credentials.length === 0) {
+      throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+    }
+    return { totp: totpEnrolled, credentials };
+  }
+
+  passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * Prove a fresh factor for a customer step-up. Does not mint a token.
+   * A recovery code is refused and is not spent. The passkey challenge must be
+   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   */
+  async proveFreshFactor(input: {
+    userId: string;
+    sessionId: string;
+    totpCode?: string;
+    webauthn?: AuthenticationResponseJSON;
+    webauthnChallenge?: string;
+  }): Promise<void> {
+    const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
+    if (hasTotp === hasWebauthn) {
+      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    }
+    const users = await this.sql<
+      Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
+    >`SELECT totp_secret, status, webauthn_creds FROM users WHERE id = ${input.userId}`;
+    const user = users[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const sessions = await this.sql<
+      Array<{ id: string }>
+    >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
+    if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasTotp) {
+      if (!/^\d{6}$/.test(input.totpCode!)) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      if (!user.totp_secret) {
+        throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
+      }
+      await this.reserve(input.userId, 'mfa');
+      const secret = this.tryOpenTotpSecret(input.userId, user.totp_secret);
+      if (secret === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.consumeTotpCode(input.userId, secret, input.totpCode!);
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
+    const expected = input.webauthnChallenge;
+    if (!expected) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    if (asCredentialList(user.webauthn_creds).length === 0) {
+      throw new AuthError('Enrol a security key before confirming with a passkey', 'auth.webauthn_not_enrolled');
+    }
+    const clientChallenge = readClientChallenge(input.webauthn!.response.clientDataJSON);
+    if (!clientChallenge || clientChallenge !== expected) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    });
+  }
+
   async stepUp(input: {
     userId: string;
     sessionId: string;
@@ -1171,13 +2125,131 @@ export class AuthService {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       });
     }
-    const scopes: Scope[] = [...this.defaultScopes(), ...STEP_UP_SCOPES];
+    // A step-up token carries the withdraw scope only. Founder desk scopes stay
+    // on the interactive session and are re-read at the next refresh.
+    const pay = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...pay];
+    for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
     const tier = await this.kycTier(input.userId);
     const { token, expiresAt } = await issueAccessToken(
       { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
+  }
+
+  /**
+   * Mint a short-lived access token that carries the requested pay:refund
+   * and/or pay:payout scopes plus the caller's ordinary session scopes.
+   * No refresh token is issued. A later refresh rebuilds scopes without these.
+   */
+  async stepUpPay(input: {
+    userId: string;
+    sessionId: string;
+    merchantId: string;
+    scopes: readonly string[];
+    factorProof: PayStepUpFactorProof;
+  }): Promise<{ accessToken: string; expiresAt: Date; scopes: Scope[]; refreshable: false }> {
+    const requested = payStepUpScopes(input.scopes);
+    if (requested.length === 0) {
+      throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    }
+    const factor = await this.acceptPayStepUpFactor(input.userId, input.sessionId, input.factorProof);
+    await this.assertPayStepUpRole(input.userId, input.merchantId, requested);
+    const base = await this.scopesForNewAccessToken(input.userId);
+    const scopes = [...base];
+    for (const scope of requested) if (!scopes.includes(scope)) scopes.push(scope);
+    await this.sql`
+      INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
+    `;
+    const tier = await this.kycTier(input.userId);
+    const { token, expiresAt } = await issueAccessToken(
+      {
+        userId: input.userId,
+        sessionId: input.sessionId,
+        scopes,
+        tier,
+        mfa: true,
+        stepUpScopes: requested,
+      },
+      { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, PAY_STEP_UP_ACCESS_TTL_SECONDS) },
+    );
+    return { accessToken: token, expiresAt, scopes, refreshable: false };
+  }
+
+  private async acceptPayStepUpFactor(
+    userId: string,
+    sessionId: string,
+    proof: PayStepUpFactorProof,
+  ): Promise<'totp' | 'passkey' | 'proof'> {
+    if ('proofId' in proof) {
+      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
+        SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
+      `;
+      const row = rows[0];
+      if (!row || row.user_id !== userId || row.session_id !== sessionId) {
+        throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+      }
+      const expires = row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at);
+      if (expires.getTime() <= Date.now()) {
+        throw new AuthError('This confirmation timed out. Confirm again.', 'auth.step_up_expired');
+      }
+      const sessions = await this.sql<Array<{ id: string }>>`
+        SELECT id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
+      `;
+      if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+      return 'proof';
+    }
+    if ('totpCode' in proof) {
+      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
+      await this.recordPayStepUpProof(userId, sessionId, 'totp');
+      return 'totp';
+    }
+    // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
+    // A body-supplied challenge is not accepted: a captured assertion would mint again.
+    const clientChallenge = readClientChallenge(proof.webauthn.response.clientDataJSON);
+    if (!clientChallenge) throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    const held = await this.challenges.take(clientChallenge, 'step-up');
+    if (!held || held.userId !== userId) {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    await this.proveFreshFactor({
+      userId,
+      sessionId,
+      webauthn: proof.webauthn,
+      webauthnChallenge: held.challenge,
+    });
+    await this.recordPayStepUpProof(userId, sessionId, 'passkey');
+    return 'passkey';
+  }
+
+  private async recordPayStepUpProof(userId: string, sessionId: string, method: 'totp' | 'passkey'): Promise<void> {
+    const verifiedAt = new Date();
+    const expiresAt = new Date(verifiedAt.getTime() + PAY_STEP_UP_FACTOR_TTL_SECONDS * 1000);
+    await this.sql`
+      INSERT INTO pay_step_up_proofs (proof_id, user_id, session_id, method, verified_at, expires_at)
+      VALUES (${randomUUID()}, ${userId}, ${sessionId}, ${method}, ${verifiedAt}, ${expiresAt})
+    `;
+  }
+
+  private async assertPayStepUpRole(userId: string, merchantId: string, scopes: readonly PayStepUpScope[]): Promise<void> {
+    if (!this.payStepUpRoleSource) {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    let grant: PayStepUpGrant;
+    try {
+      grant = await this.payStepUpRoleSource({ userId, merchantId });
+    } catch {
+      throw new AuthError('Your role on this merchant does not allow this', 'pay.role_not_allowed');
+    }
+    for (const scope of scopes) {
+      const allowed = scope === 'pay:refund' ? grant.refundsCreate === true : grant.payoutSend === true;
+      if (!allowed) {
+        const permission = scope === 'pay:refund' ? 'refunds.create' : 'payout.send';
+        throw new AuthError(`Your role on this merchant does not allow ${permission}`, 'pay.role_not_allowed');
+      }
+    }
   }
 
   async freezeIdentity(userId: string): Promise<{ userId: string; status: 'frozen'; subAccountsRevoked: number; apiKeysRevoked: number }> {
@@ -1307,6 +2379,32 @@ export class AuthService {
   private defaultScopes(): Scope[] {
     return [...SESSION_SCOPES];
   }
+
+  /**
+   * Scopes for a newly issued access token. Ordinary session scopes, plus
+   * `pay:read`, `pay:write`, and `pay:onboard` when the published grant says so.
+   * Refund, payout, and anything else pay might return are dropped.
+   * A lookup failure leaves the ordinary session in place.
+   */
+  async scopesForNewAccessToken(userId: string): Promise<Scope[]> {
+    const base = this.defaultScopes();
+    if (!this.ownerPayScopeSource) return base;
+    let granted: readonly string[];
+    try {
+      granted = await this.ownerPayScopeSource(userId);
+    } catch (err) {
+      this.log.warn(
+        { err: err instanceof Error ? err.message : 'grant lookup failed' },
+        'owner pay scope grant lookup failed; session keeps ordinary scopes',
+      );
+      return base;
+    }
+    const extra: Scope[] = [];
+    if (granted.includes('pay:read')) extra.push('pay:read');
+    if (granted.includes('pay:write')) extra.push('pay:write');
+    if (granted.includes('pay:onboard')) extra.push('pay:onboard');
+    return [...base, ...extra];
+  }
 }
 
 function asCredentialList(raw: unknown): StoredWebAuthnCredential[] {
@@ -1349,6 +2447,16 @@ function readClientChallenge(clientDataJSONB64: string): string | null {
   } catch {
     return null;
   }
+}
+
+function payStepUpScopes(scopes: readonly string[]): PayStepUpScope[] {
+  if (scopes.length === 0) return [];
+  const out: PayStepUpScope[] = [];
+  for (const scope of scopes) {
+    if (!isPayStepUpScope(scope)) return [];
+    if (!out.includes(scope)) out.push(scope);
+  }
+  return out;
 }
 
 function mapWebAuthnError(err: unknown): AuthError {

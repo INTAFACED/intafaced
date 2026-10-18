@@ -19,6 +19,7 @@ import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
 import type { TicketKbLoopObserver } from './ticket-kb-loop-observation.js';
+import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
 
 const queueEntrySchema = z.object({
@@ -41,11 +42,11 @@ const queueResultSchema = z.discriminatedUnion('status', [
 
 function mapError(err: unknown): never {
   if (err instanceof SupportError) {
-    const message = userCopy(err.code);
+    const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);
     if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
     }
-    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb.revision_stale') {
+    if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb.revision_stale' || err.code === 'support.already_rated') {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
     if (
@@ -64,6 +65,7 @@ function mapError(err: unknown): never {
       err.code === 'support.kb.not_published' ||
       err.code === 'support.kb_version_unknown' ||
       err.code === 'support.identity_grounding_unwired' ||
+      err.code === 'support.order.user_mismatch' ||
       err.code === 'support.settle.refused' ||
       // listQueue / listAll / listMine / listComments / events / listKb / searchKb page size unpublished. Blank is not 100.
       err.code === 'support.queue_list_limit_unset' ||
@@ -71,9 +73,25 @@ function mapError(err: unknown): never {
       err.code === 'support.list_mine_limit_unset' ||
       err.code === 'support.list_comments_limit_unset' ||
       err.code === 'support.list_events_limit_unset' ||
-      err.code === 'support.list_kb_limit_unset'
+      err.code === 'support.list_kb_limit_unset' ||
+      err.code === 'support.staff_bootstrap' ||
+      err.code === 'support.release.not_queueable' ||
+      err.code === 'support.assign.not_queueable' ||
+      err.code === 'support.attachments_unconfigured' ||
+      err.code === 'support.rate_status_refused' ||
+      err.code === 'support.attachment_scan_refused' ||
+      err.code === 'support.attachment_too_large'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
+    }
+    if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
+      throw new TRPCError({ code: 'FORBIDDEN', message });
+    }
+    if (err.code === 'support.idempotency_conflict') {
+      throw new TRPCError({ code: 'CONFLICT', message });
+    }
+    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found') {
+      throw new TRPCError({ code: 'NOT_FOUND', message });
     }
     throw new TRPCError({ code: 'BAD_REQUEST', message });
   }
@@ -266,6 +284,27 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
       }),
 
     /**
+     * One order, read for this ticket. `userId` is not an input: it comes off
+     * the ticket. A mismatch is refused. Trade silence is `unknown`, not a
+     * cancel. No ledger post.
+     */
+    ticketOrder: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), orderId: z.string().uuid() }).strict())
+      .output(ticketOrderReadSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.readTicketOrder({
+            operatorId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            orderId: input.orderId,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
      * Account state for the ticket's owner, read from svc-identity.
      *
      * NO `userId` INPUT — the id comes off the ticket. `support:ops` plus a
@@ -397,6 +436,8 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
           bodyKey: z.string().min(1).max(200),
           /** 0 creates a new published row at revision 1. */
           baseRevision: z.number().int().nonnegative(),
+          category: z.string().min(1).max(200).nullable().optional(),
+          tags: z.array(z.string().min(1).max(200)).max(20).nullable().optional(),
         }),
       )
       .output(supportKbArticleSchema)
@@ -486,6 +527,208 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
         }
       }),
 
+    /** Owner close. Lifecycle table only. Replay returns the first ticket. */
+    close: scopedProcedure('support:write')
+      .input(z.object({ ticketId: z.string().uuid(), clientRequestId: z.string().min(1).max(200) }))
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await support.close({ userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Owner rating. Once per ticket, only when resolved or closed. */
+    rate: scopedProcedure('support:write')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          score: z.number().int(),
+          note: z.string().max(500).optional(),
+          clientRequestId: z.string().min(1).max(200),
+        }),
+      )
+      .output(
+        z.object({
+          ticketId: z.string().uuid(),
+          userId: z.string().uuid(),
+          score: z.number().int(),
+          note: z.string().nullable(),
+          createdAt: z.string().datetime(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await support.rate({ userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The caller's own rating, or null when they have not rated. */
+    rating: scopedProcedure('support:read')
+      .input(z.object({ ticketId: z.string().uuid() }))
+      .output(
+        z
+          .object({
+            ticketId: z.string().uuid(),
+            userId: z.string().uuid(),
+            score: z.number().int(),
+            note: z.string().nullable(),
+            createdAt: z.string().datetime(),
+          })
+          .nullable(),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.rating({ userId: ctx.principal!.userId, ticketId: input.ticketId, asOperator: false });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Operator read of a rating. Requires support:ops. */
+    ratingOps: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid() }))
+      .output(
+        z
+          .object({
+            ticketId: z.string().uuid(),
+            userId: z.string().uuid(),
+            score: z.number().int(),
+            note: z.string().nullable(),
+            createdAt: z.string().datetime(),
+          })
+          .nullable(),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.rating({ userId: ctx.principal!.userId, ticketId: input.ticketId, asOperator: true });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Owner attach. Unconfigured store, scanner, or limits refuse
+     * support.attachments_unconfigured and name the missing key.
+     */
+    attach: scopedProcedure('support:write')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          clientRequestId: z.string().min(1).max(200),
+          contentType: z.string().min(1).max(200),
+          bodyBase64: z.string(),
+        }),
+      )
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ticketId: z.string().uuid(),
+          ownerId: z.string().uuid(),
+          contentType: z.string(),
+          byteLength: z.number().int().nonnegative(),
+          storeKey: z.string(),
+          createdAt: z.string().datetime(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await support.attach({ userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Owner read of one attachment's metadata. */
+    attachment: scopedProcedure('support:read')
+      .input(z.object({ attachmentId: z.string().uuid() }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ticketId: z.string().uuid(),
+          ownerId: z.string().uuid(),
+          contentType: z.string(),
+          byteLength: z.number().int().nonnegative(),
+          storeKey: z.string(),
+          createdAt: z.string().datetime(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.attachment({ userId: ctx.principal!.userId, attachmentId: input.attachmentId, asOperator: false });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Operator read. support:ops, and only an attachment on a ticket assigned to them. */
+    attachmentOps: scopedProcedure('support:ops')
+      .input(z.object({ attachmentId: z.string().uuid() }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ticketId: z.string().uuid(),
+          ownerId: z.string().uuid(),
+          contentType: z.string(),
+          byteLength: z.number().int().nonnegative(),
+          storeKey: z.string(),
+          createdAt: z.string().datetime(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.attachment({
+            userId: ctx.principal!.userId,
+            attachmentId: input.attachmentId,
+            asOperator: true,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** One vote per account per published article version. A repeat updates nothing. */
+    kbFeedback: scopedProcedure('support:write')
+      .input(
+        z.object({
+          id: z.string().min(1).max(200),
+          helpful: z.boolean(),
+          clientRequestId: z.string().min(1).max(200),
+        }),
+      )
+      .output(
+        z.object({
+          articleId: z.string(),
+          version: z.number().int().positive(),
+          userId: z.string().uuid(),
+          helpful: z.boolean(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await support.kbFeedback({ userId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Published articles that share a category or tag. Excludes the article itself. */
+    kbRelated: publicProcedure
+      .input(z.object({ id: z.string().min(1).max(200) }))
+      .output(z.array(supportKbArticleSchema))
+      .query(async ({ input }) => {
+        try {
+          return await support.kbRelated(input);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Stage-2 — exclusive claim; refuse steal. No money. */
     claim: scopedProcedure('support:ops')
       .input(z.object({ ticketId: z.string().uuid() }))
@@ -497,6 +740,90 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             operatorId: ctx.principal!.userId,
             ticketId: input.ticketId,
           });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Counts across the whole queue, not one page. */
+    queueMetrics: scopedProcedure('support:ops')
+      .output(
+        z.object({
+          asOf: z.string(),
+          total: z.number().int(),
+          open: z.number().int(),
+          pending: z.number().int(),
+          resolved: z.number().int(),
+          closed: z.number().int(),
+          unassigned: z.number().int(),
+          claimed: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.queueMetrics();
+      }),
+
+    staffList: scopedProcedure('support:ops')
+      .output(
+        z.array(
+          z.object({
+            userId: z.string(),
+            role: z.enum(['agent', 'lead']),
+            appointedBy: z.string(),
+            appointedAt: z.string(),
+          }),
+        ),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.listStaff();
+      }),
+
+    staffAppoint: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          userId: z.string().uuid(),
+          role: z.enum(['agent', 'lead']),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The current assignee returns the ticket to the queue. */
+    unclaim: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), idempotencyKey: z.string().min(8).max(200) }))
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A lead assigns or reassigns a ticket to another staff member. */
+    assign: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          assigneeId: z.string().uuid(),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .output(supportTicketSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.assignTo({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

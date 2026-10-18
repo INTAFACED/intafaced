@@ -14,7 +14,9 @@ import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.j
 import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
 import { callerIpFromUpgrade } from './caller-ip.js';
 import { requestOriginFromUpgrade } from './key-origin.js';
+import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from './key-account.js';
+import { handlePositionsSubscribeText, type PositionsSeed, type PositionsStream } from './positions-stream.js';
 
 /**
  * Authenticated private stream (orders, fills, positions).
@@ -109,6 +111,17 @@ export interface PrivateWebSocketGatewayOptions {
   readonly liveCredential?: LiveCredentialPort | null;
   /** Mandatory positive authority for every private seat; missing refuses upgrades. */
   readonly authority?: CurrentAuthorityPort | null;
+  /**
+   * Sequenced positions journal. Omitted refuses `positions` subscribe with
+   * `ws.positions_source_unavailable` and leaves the existing fan-out alone.
+   */
+  readonly positions?: PositionsStream | null;
+  /**
+   * Customer page origins (`EDGE_ALLOWED_ORIGINS`). Undefined disables the
+   * check so older tests keep their shape. An empty list still refuses a
+   * foreign Origin. Missing Origin and a same-host Origin stay allowed.
+   */
+  readonly customerOrigins?: readonly string[];
 }
 
 export interface PrivateWebSocketGateway {
@@ -144,6 +157,7 @@ type PrivateSeat = {
   userId: string;
   hasWrite: boolean;
   sessionId: string;
+  scopes: string[];
   apiKeyId?: string;
   callerIp: string | null;
   requestOrigin: string | null;
@@ -344,14 +358,23 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     enabled,
     tokens,
     busAttached = () => true,
-    book = EMPTY_PRIVATE_BOOK,
+    book: configuredBook,
     codRange = null,
     tradeCancel = null,
     now = () => Date.now(),
     scheduleCod = defaultCodSchedule,
     liveCredential = null,
     authority = null,
+    customerOrigins,
+    positions = null,
   } = options;
+  const book = configuredBook ?? EMPTY_PRIVATE_BOOK;
+  // The positions channel seeds only through the strict read. `listOpenPositions`
+  // still feeds the connect-time hydrate and still turns a miss into [].
+  const positionsSeed: PositionsSeed | undefined =
+    configuredBook?.readOpenPositions !== undefined
+      ? (userId, accessToken) => configuredBook.readOpenPositions!({ accessToken, userId })
+      : undefined;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
   let draining = false;
@@ -406,6 +429,10 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         return;
       }
       if (url.pathname !== PRIVATE_STREAM_PATH) return;
+      if (foreignUpgradeOrigin(req, customerOrigins)) {
+        reject(socket, 403, 'Forbidden');
+        return;
+      }
       const feedRefuse = marketDataFeedRefuse(url.searchParams);
       if (feedRefuse) {
         writeMarketDataFeedRefuse(socket, feedRefuse);
@@ -439,6 +466,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         let expiresAtMs: number;
         let hasWrite: boolean;
         let sessionId: string;
+        let scopes: string[];
         let apiKeyId: string | undefined;
         let subject: CurrentAuthorityInput;
         try {
@@ -454,6 +482,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           userId = principal.userId;
           expiresAtMs = principal.expiresAt.getTime();
           hasWrite = principal.scopes.includes('trade:write');
+          scopes = [...principal.scopes];
           sessionId = principal.sid;
           apiKeyId = principal.kid;
           subject = {
@@ -505,6 +534,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
             userId,
             hasWrite,
             sessionId,
+            scopes,
             apiKeyId,
             callerIp,
             requestOrigin,
@@ -555,6 +585,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           // COD commands; each step runs after the previous settles.
           let inbound: Promise<void> = Promise.resolve();
           let inboundClosed = false;
+          let detachPositions: (() => void) | null = null;
           ws.on('message', (data) => {
             const text = messageText(data);
             if (text === null) return;
@@ -566,6 +597,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   const principal = await verifyAccessToken(seat.token, tokens);
                   hasWrite = principal.scopes.includes('trade:write');
                   seat.hasWrite = hasWrite;
+                  seat.scopes = [...principal.scopes];
                   seat.expiresAtMs = principal.expiresAt.getTime();
                 } catch {
                   // Break F1: graceful close() fires 'close' later; stop queued frames now.
@@ -585,6 +617,19 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
                   }
                 }
                 if (inboundClosed || !lease.isCurrent() || ws.readyState !== ws.OPEN) return;
+                const positionsHandled = await handlePositionsSubscribeText(text, {
+                  stream: positions,
+                  session: { userId: seat.userId, scopes: seat.scopes },
+                  nowIso: new Date(now()).toISOString(),
+                  accessToken: seat.token,
+                  seed: positionsSeed,
+                  send: (frame) => sink.send(frame),
+                  onDetach: (detach) => {
+                    detachPositions?.();
+                    detachPositions = detach;
+                  },
+                });
+                if (positionsHandled) return;
                 cod.handleText(ws, text, {
                   userId: seat.userId,
                   accessToken: seat.token,
@@ -598,6 +643,8 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           // terminate() still emits close — free the hub seat and the exp timer.
           ws.on('close', () => {
             inboundClosed = true;
+            detachPositions?.();
+            detachPositions = null;
             clearTimeout(expiryTimer);
             expiryTimers.delete(expiryTimer);
             unlisten();
@@ -658,6 +705,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
   const heartbeat = setInterval(() => {
     // Quiet lag: free seats held by slow consumers even when no events publish.
     hub.sweepLag();
+    positions?.heartbeat(new Date(now()).toISOString());
     for (const ws of wss.clients) {
       const seat = seats.get(ws);
       if (seat && !seat.lease.isCurrent()) {

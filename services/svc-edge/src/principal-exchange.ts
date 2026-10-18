@@ -1,11 +1,18 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { encodePrincipal, signPrincipalHeader, EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER } from '@intafaced/contracts';
+import {
+  encodePrincipal,
+  serviceAuthHeadersForBody,
+  signPrincipalHeader,
+  EDGE_PRINCIPAL_HEADER,
+  EDGE_SIGNATURE_HEADER,
+} from '@intafaced/contracts';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
 import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
 import { assertUserNotFrozen, optionalUserStatusFromExchange, KeyUserStatusError } from './api-key-user-status.js';
 import { assertApiKeyOrigin, optionalOriginAllowlistFromExchange, KeyOriginError } from './api-key-origin.js';
 import { assertApiKeyIp, optionalIpAllowlist, optionalIpAllowlistFromExchange, KeyIpError } from './api-key-ip.js';
+import { hashBody, ipAllowlistSatisfied, optionalFlag, readRequestSignHeaders, type RequestSignMaterial } from './api-key-request-sign.js';
 import { assertApiKeyProduct, optionalProductScopesFromExchange, requestProduct, KeyProductError } from './api-key-product.js';
 import { readEdgeAuthority } from './live-authority.js';
 
@@ -81,6 +88,12 @@ export interface ExchangeOptions {
    * Missing configuration refuses authenticated forwarding.
    */
   identityOwnershipSecret?: string;
+  /**
+   * The merchant request the edge is about to forward. Present so an opted-in
+   * key can be signed over these bytes. Absent on callers that only exchange
+   * a bearer (tests). Unsigned keys ignore it.
+   */
+  request?: { method: string; path: string; body?: Buffer | string | Uint8Array | null };
 }
 
 /**
@@ -180,6 +193,8 @@ export async function exchangeApiKeyForAccessToken(
   clientIp?: string | null,
   accountId?: string | null,
   product?: string | null,
+  requestSign?: RequestSignMaterial,
+  identityOwnershipSecret?: string,
 ): Promise<{
   accessToken: string;
   expiresAt?: Date;
@@ -188,16 +203,23 @@ export async function exchangeApiKeyForAccessToken(
   originAllowlist?: string[];
   ipAllowlist?: string[];
   productScopes?: string[];
+  requireSignature?: boolean;
+  requireNonEmptyIpAllowlist?: boolean;
 } | null> {
   const base = identityUrl.replace(/\/$/, '');
   const presented = typeof accountId === 'string' && accountId.trim().length > 0 ? accountId.trim() : undefined;
   const namedProduct = typeof product === 'string' && product.trim().length > 0 ? product.trim() : undefined;
   const path = presented ? '/trpc/exchangeApiKeyForAccount' : namedProduct ? '/trpc/exchangeApiKeyForProduct' : '/trpc/apiKeys.exchange';
+  // Identity accepts the signed request field only from a service-authenticated edge.
+  // Without the dedicated key, omit the field so a public body cannot carry it.
+  const attest = Boolean(requestSign && identityOwnershipSecret);
+  const request = attest ? { request: requestSign } : {};
   const payload = presented
-    ? { json: { key, accountId: presented } }
+    ? { json: { key, accountId: presented, ...request } }
     : namedProduct
-      ? { json: { key, product: namedProduct } }
-      : { json: { key } };
+      ? { json: { key, product: namedProduct, ...request } }
+      : { json: { key, ...request } };
+  const payloadText = JSON.stringify(payload);
   let response: Response;
   try {
     response = await fetchFn(`${base}${path}`, {
@@ -207,8 +229,9 @@ export async function exchangeApiKeyForAccessToken(
         ...(origin ? { origin } : {}),
         ...(clientIp ? { 'x-forwarded-for': clientIp, 'x-real-ip': clientIp } : {}),
         ...(namedProduct ? { 'x-product': namedProduct } : {}),
+        ...(attest ? serviceAuthHeadersForBody('svc-edge', identityOwnershipSecret!, payloadText) : {}),
       },
-      body: JSON.stringify(payload),
+      body: payloadText,
       signal: AbortSignal.timeout(5_000),
     });
   } catch {
@@ -235,6 +258,7 @@ export async function exchangeApiKeyForAccessToken(
   const originAllowlist = optionalOriginAllowlistFromExchange(body);
   const ipAllowlist = optionalIpAllowlistFromExchange(body);
   const productScopes = optionalProductScopesFromExchange(body);
+  const data = envelope.result?.data?.json ?? envelope.result?.data ?? body;
   return {
     accessToken,
     ...(expiresAt === undefined ? {} : { expiresAt }),
@@ -243,6 +267,8 @@ export async function exchangeApiKeyForAccessToken(
     ...(originAllowlist === undefined ? {} : { originAllowlist }),
     ...(ipAllowlist === undefined ? {} : { ipAllowlist }),
     ...(productScopes === undefined ? {} : { productScopes }),
+    ...(optionalFlag(data, 'requireSignature', 'require_signature') ? { requireSignature: true } : {}),
+    ...(optionalFlag(data, 'requireNonEmptyIpAllowlist', 'require_non_empty_ip_allowlist') ? { requireNonEmptyIpAllowlist: true } : {}),
   };
 }
 
@@ -278,13 +304,26 @@ export async function exchangePrincipal(
 
   let token = bearerFrom(headers);
   if (!token) return { headers: forward, principal: null, rejected: null };
+  const presentedApiKey = looksLikeApiKey(token);
 
-  if (looksLikeApiKey(token)) {
+  if (presentedApiKey) {
     if (!options.identityUrl) {
       return { headers: forward, principal: null, rejected: 'invalid' };
     }
     const presentedAccountId = requestAccountId(headers);
     const presentedProduct = options.resolvedProduct ?? requestProduct(headers);
+    const signHeaders = readRequestSignHeaders(headers);
+    const requestSign: RequestSignMaterial | undefined =
+      options.request && signHeaders.timestamp && signHeaders.nonce && signHeaders.signature
+        ? {
+            method: options.request.method,
+            path: options.request.path,
+            timestamp: signHeaders.timestamp,
+            nonce: signHeaders.nonce,
+            bodyHash: hashBody(options.request.body),
+            signature: signHeaders.signature,
+          }
+        : undefined;
     const exchanged = await exchangeApiKeyForAccessToken(
       token,
       options.identityUrl,
@@ -293,8 +332,16 @@ export async function exchangePrincipal(
       clientIp,
       presentedAccountId,
       presentedProduct,
+      requestSign,
+      options.identityOwnershipSecret,
     );
     if (!exchanged) {
+      return { headers: forward, principal: null, rejected: 'invalid' };
+    }
+    if (exchanged.requireSignature && !requestSign) {
+      return { headers: forward, principal: null, rejected: 'invalid' };
+    }
+    if (!ipAllowlistSatisfied(exchanged.requireNonEmptyIpAllowlist === true, exchanged.ipAllowlist)) {
       return { headers: forward, principal: null, rejected: 'invalid' };
     }
     try {
@@ -345,6 +392,7 @@ export async function exchangePrincipal(
     origin,
     accountId: requestAccountId(headers),
     product: options.resolvedProduct ?? requestProduct(headers),
+    apiKeyBearerSatisfied: presentedApiKey,
   });
   if (!authority) return { headers: forward, principal: null, rejected: 'invalid' };
   // Identity's current tier may have changed since this JWT was minted.

@@ -48,7 +48,7 @@ const POLICY: FuturesLadderPolicy = {
  * Size clears absolute + relative dust floors for a 10-contract position and
  * supplies deep close-into depth for the ladder.
  */
-function bookAtMid(mid: number, sequence: number): EngineDepth {
+function bookAtMid(mid: number, sequence: number, observedAt: Date): EngineDepth & { observedAt: Date } {
   const bid = String(mid - 1);
   const ask = String(mid + 1);
   return {
@@ -61,6 +61,7 @@ function bookAtMid(mid: number, sequence: number): EngineDepth {
       [String(mid + 2), '2000'],
     ],
     sequence,
+    observedAt,
   };
 }
 
@@ -117,7 +118,13 @@ function recordingLedger(opts?: { insuranceAvailable?: Amount }) {
         return { id: `tx-${posts.length}`, idempotencyKey: req.idempotencyKey } as never;
       },
       async balance(ref: AccountRef): Promise<Balance> {
-        const amount = ref.ownerType === 'house' && ref.ownerId === 'insurance-fund' ? insuranceAvailable : 0n;
+        // A position's collateral pot is ample, so the tick plans against the row's own margin (divergence guard: min(row, pot)).
+        const amount =
+          ref.ownerType === 'house' && ref.ownerId === 'insurance-fund'
+            ? insuranceAvailable
+            : ref.kind === 'collateral'
+              ? 1_000_000n * 10n ** 18n
+              : 0n;
         return { account: ref, accountId: `${ref.ownerType}:${ref.ownerId}`, amount };
       },
     },
@@ -155,7 +162,7 @@ async function walkSeries(mids: number[], hour: number) {
   const { ledger, posts } = recordingLedger();
   const attempts = memoryLiquidationAttemptStore();
   const acceptedMarks = memoryAcceptedMarkStore();
-  let book = bookAtMid(mids[0]!, 1);
+  let book = bookAtMid(mids[0]!, 1, new Date(Date.UTC(2026, 7, 12, hour, 0)));
   const readDepth = async () => book;
   const marks = markSourceFromDepth(readDepth);
   const depth = depthNotionalSourceFromDepth(readDepth);
@@ -163,12 +170,11 @@ async function walkSeries(mids: number[], hour: number) {
   const observedMids: string[] = [];
 
   for (const [index, mid] of mids.entries()) {
-    book = bookAtMid(mid, index + 1);
+    const at = new Date(Date.UTC(2026, 7, 12, hour, index));
+    book = bookAtMid(mid, index + 1, at);
     const minted = midFromBook(book.bids[0]![0], book.asks[0]![0]);
     expect(minted).toBe(String(mid));
     observedMids.push(minted!);
-
-    const at = new Date(Date.UTC(2026, 7, 12, hour, index));
     const result = await runLiquidationTick({
       marks,
       positions: live.positions,
@@ -252,15 +258,15 @@ describe('D26-P1-T1e mark/liq honesty on a gapping depth series (MVP-5)', () => 
     const { ledger, posts } = recordingLedger();
     const attempts = memoryLiquidationAttemptStore();
     const acceptedMarks = memoryAcceptedMarkStore();
-    let book = bookAtMid(100, 1);
+    let book = bookAtMid(100, 1, new Date(Date.UTC(2026, 7, 12, 2, 0)));
     const readDepth = async () => book;
     const marks = markSourceFromDepth(readDepth);
     const depth = depthNotionalSourceFromDepth(readDepth);
 
     for (const [index, mid] of [100, 60].entries()) {
-      book = bookAtMid(mid, index + 1);
-      expect(midFromBook(book.bids[0]![0], book.asks[0]![0])).toBe(String(mid));
       const at = new Date(Date.UTC(2026, 7, 12, 2, index));
+      book = bookAtMid(mid, index + 1, at);
+      expect(midFromBook(book.bids[0]![0], book.asks[0]![0])).toBe(String(mid));
       const result = await runLiquidationTick({
         marks,
         positions: live.positions,

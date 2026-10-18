@@ -371,6 +371,7 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
   describe('business', () => {
     it('payroll to a frozen recipient is refused before posting', async () => {
       const account = await bank.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('500'),
@@ -396,6 +397,7 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
 
     it('a business transfer to a closed recipient is refused before posting or claiming', async () => {
       const account = await bank.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('500'),
@@ -423,6 +425,7 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
 
     async function pendingToRecipient(bankUnderTest: BankServices = bank) {
       const account = await bankUnderTest.business.createAccount({
+        accountId: randomUUID(),
         name: 'Ops Co',
         assetId: 'USDT',
         spendThreshold: amt('100'),

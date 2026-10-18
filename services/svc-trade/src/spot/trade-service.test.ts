@@ -18,11 +18,16 @@ import {
   recipes,
   userAvailable,
   orderHoldAccount,
+  type LedgerClient,
+  type LedgerTx,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import { AUTH_ATTRIBUTION_MISSING } from './auth-attribution.js';
 import { DROP_COPY_SOURCE_REST, type DropCopyFillWire } from './drop-copy-ingest.js';
 
 import { TradeError, type Market } from './types.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS, classifyHoldPostError, type HoldUnknownAlert } from './hold-outcome.js';
+import { fakeOrder, presentCcxtOrder } from '../private-rest.js';
 import { HOUSE_MM_USER_UUID, mmSeedOrderIdFor, orderIdFor } from './ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';
 import { looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from '../mm/fill-account.js';
@@ -1126,5 +1131,734 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
     });
   });
 
-  // ── Retries ───────────────────────────────────────────────
+  // ── TRD-0540: lost order.hold reply ───────────────────────────────────────
+
+  describe('lost order.hold reply', () => {
+    function lostConnection(): Error {
+      return Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' });
+    }
+
+    function neverSent(): Error {
+      return Object.assign(new Error('fetch failed'), {
+        cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:4001'), { code: 'ECONNREFUSED' }),
+      });
+    }
+
+    function holdLedger(
+      inner: MemoryLedger,
+      hooks: {
+        onHoldPost?: (booked: () => Promise<LedgerTx>) => Promise<LedgerTx>;
+        onReadKey?: (key: string) => Promise<LedgerTx | null>;
+      },
+    ): LedgerClient {
+      return {
+        post: (req: PostRequest) => {
+          if (req.reason === 'order.hold' && hooks.onHoldPost) return hooks.onHoldPost(() => inner.post(req));
+          return inner.post(req);
+        },
+        balance: (ref) => inner.balance(ref),
+        balances: (ownerType, ownerId) => inner.balances(ownerType, ownerId),
+        getTx: (id) => inner.getTx(id),
+        getTxByKey: (key) => (hooks.onReadKey ? hooks.onReadKey(key) : inner.getTxByKey(key)),
+      };
+    }
+
+    function serviceFor(client: LedgerClient, alerts: HoldUnknownAlert[], overrides: { spotEnabled?: boolean } = {}) {
+      return new TradeService(sql, client, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: overrides.spotEnabled ?? true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        onHoldUnknownAlert: (alert) => alerts.push(alert),
+      });
+    }
+
+    const limitBuy = (clientOrderId: string, tif?: 'GTC' | 'IOC' | 'FOK') => ({
+      marketId: btcusdt.id,
+      side: 'buy' as const,
+      type: 'limit' as const,
+      qty: amt('0.1'),
+      price: amt('100'),
+      clientOrderId,
+      ...(tif ? { tif } : {}),
+    });
+
+    async function fundInner(inner: MemoryLedger, amount = '5000') {
+      await inner.post(
+        recipes.deposit({
+          userId: ALICE,
+          assetId: 'USDT',
+          amount: amt(amount),
+          rail: 'test',
+          railRef: `hold-unknown:${amount}:${Math.random()}`,
+        }),
+      );
+    }
+
+    it('timeout after the hold is booked keeps the funds and opens the order', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      const order = await svc.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('0.1'),
+        price: amt('100'),
+        clientOrderId: 'timeout-after',
+      });
+
+      expect(order.status).toBe('open');
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${order.id}`).toEqual([{ status: 'open' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', order.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+      expect(alerts).toEqual([]);
+    });
+
+    it('keeps the row when a hold commits after the read said absent, then the sweep books it', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) return null;
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('late-commit'))).rejects.toThrow(/wait \d+ seconds/);
+
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'late-commit'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', stuck[0]!.id))).amount)).toBe('0');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+
+      await inner.post(recipes.orderHold({ orderId: stuck[0]!.id, userId: ALICE, assetId: 'USDT', amount: amt('10') }));
+      matching.script1((req, next) => restsInFull(req, next()));
+      const swept = await svc.sweepHoldUnknown();
+
+      expect(swept.booked).toEqual([stuck[0]!.id]);
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${stuck[0]!.id}`).toEqual([{ status: 'open' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', stuck[0]!.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(1);
+    });
+
+    it('a definite refusal still deletes the pending row', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner, '1');
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(holdLedger(inner, {}), alerts);
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('2'),
+          price: amt('100'),
+          clientOrderId: 'refused',
+        }),
+      ).rejects.toBeInstanceOf(InsufficientFundsError);
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(await sql`SELECT id FROM trade.orders WHERE status = 'hold_unknown'`).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(alerts).toEqual([]);
+    });
+
+    it('a ledger timeout leaves hold_unknown and the same clientOrderId posts the hold once', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let attempts = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            attempts += 1;
+            if (attempts === 1) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            return book();
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'ledger-timeout'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(classifyHoldPostError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('unknown');
+
+      const retried = await svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'));
+      expect(retried.id).toBe(stuck[0]!.id);
+      expect(retried.status).toBe('open');
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', retried.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+
+      const again = await svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'));
+      expect(again.id).toBe(retried.id);
+      expect(again.status).toBe('open');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(attempts).toBe(2);
+      expect(alerts.some((alert) => alert.orderId === retried.id && alert.resolution === 'still_unknown')).toBe(true);
+    });
+
+    it('retries the same clientOrderId once the hold key can be read', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) throw lostConnection();
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'same-key',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status FROM trade.orders WHERE client_order_id = 'same-key'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', stuck[0]!.id))).amount)).toBe('10');
+      expect(matching.submitted).toHaveLength(0);
+
+      const retried = await svc.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('0.1'),
+        price: amt('100'),
+        clientOrderId: 'same-key',
+      });
+
+      expect(retried.id).toBe(stuck[0]!.id);
+      expect(retried.status).toBe('open');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+      expect(alerts.some((alert) => alert.resolution === 'still_unknown' && alert.orderId === retried.id)).toBe(true);
+    });
+
+    it('sweep recovers a booked hold and deletes an unfunded intent', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) throw lostConnection();
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+
+      await expect(
+        svc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'sweep-booked',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      matching.script1((req, next) => restsInFull(req, next()));
+      const recovered = await svc.sweepHoldUnknown();
+      expect(recovered.booked).toHaveLength(1);
+      expect(recovered.stillUnknown).toEqual([]);
+      expect(recovered.alerts.some((alert) => alert.resolution === 'booked')).toBe(true);
+      const open = await sql<Array<{ status: string }>>`SELECT status FROM trade.orders WHERE client_order_id = 'sweep-booked'`;
+      expect(open).toEqual([{ status: 'open' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+
+      const absentInner = new MemoryLedger();
+      await fundInner(absentInner);
+      let absentReads = 0;
+      const absentAlerts: HoldUnknownAlert[] = [];
+      const absentSvc = serviceFor(
+        holdLedger(absentInner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            absentReads += 1;
+            if (absentReads === 1) throw lostConnection();
+            return absentInner.getTxByKey(key);
+          },
+        }),
+        absentAlerts,
+      );
+      await expect(
+        absentSvc.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('0.1'),
+          price: amt('100'),
+          clientOrderId: 'sweep-absent',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      const kept = await absentSvc.sweepHoldUnknown();
+      expect(kept.absent).toHaveLength(0);
+      expect(kept.stillUnknown).toHaveLength(1);
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'sweep-absent'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(formatAmount((await absentInner.balance(orderHoldAccount(ALICE, 'USDT', stuck[0]!.id))).amount)).toBe('0');
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(1);
+
+      await sql`
+        UPDATE trade.orders
+           SET updated_at = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1})
+         WHERE id = ${stuck[0]!.id}
+      `;
+      const swept = await absentSvc.sweepHoldUnknown();
+      expect(swept.absent).toEqual([stuck[0]!.id]);
+      expect(await sql`SELECT id FROM trade.orders WHERE client_order_id = 'sweep-absent'`).toHaveLength(0);
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(absentInner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(1);
+    });
+
+    it('cancel on hold_unknown follows the read: unknown, absent inside the bound, absent past it, and present', async () => {
+      const unknownInner = new MemoryLedger();
+      await fundInner(unknownInner);
+      const unknownSvc = serviceFor(
+        holdLedger(unknownInner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async () => {
+            throw lostConnection();
+          },
+        }),
+        [],
+      );
+      await expect(unknownSvc.placeOrder(principalFor(ALICE), limitBuy('cancel-unknown'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      const unknownRow = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'cancel-unknown'`;
+      await expect(unknownSvc.cancelOrder(principalFor(ALICE), unknownRow[0]!.id)).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${unknownRow[0]!.id}`).toEqual([{ status: 'hold_unknown' }]);
+      expect(formatAmount((await unknownInner.balance(orderHoldAccount(ALICE, 'USDT', unknownRow[0]!.id))).amount)).toBe('10');
+      expect(unknownInner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(unknownInner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(matching.cancelledOrders).toHaveLength(0);
+
+      const inside = new MemoryLedger();
+      await fundInner(inside);
+      const insideSvc = serviceFor(
+        holdLedger(inside, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      await expect(insideSvc.placeOrder(principalFor(ALICE), limitBuy('cancel-inside'))).rejects.toThrow(/wait \d+ seconds/);
+      const insideRow = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'cancel-inside'`;
+      await expect(insideSvc.cancelOrder(principalFor(ALICE), insideRow[0]!.id)).rejects.toThrow(/wait \d+ seconds/);
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${insideRow[0]!.id}`).toEqual([{ status: 'hold_unknown' }]);
+      expect(formatAmount((await inside.balance(orderHoldAccount(ALICE, 'USDT', insideRow[0]!.id))).amount)).toBe('0');
+      expect(inside.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inside.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.cancelledOrders).toHaveLength(0);
+
+      const past = new MemoryLedger();
+      await fundInner(past);
+      const pastSvc = serviceFor(
+        holdLedger(past, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      await expect(pastSvc.placeOrder(principalFor(ALICE), limitBuy('cancel-past'))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      const pastRow = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'cancel-past'`;
+      await sql`
+        UPDATE trade.orders
+           SET updated_at = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1})
+         WHERE id = ${pastRow[0]!.id}
+      `;
+      const cancelled = await pastSvc.cancelOrder(principalFor(ALICE), pastRow[0]!.id);
+      expect(cancelled.status).toBe('cancelled');
+      expect(formatAmount((await past.balance(orderHoldAccount(ALICE, 'USDT', pastRow[0]!.id))).amount)).toBe('0');
+      expect(past.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(past.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(matching.cancelledOrders).toHaveLength(0);
+
+      const present = new MemoryLedger();
+      await fundInner(present);
+      let presentReads = 0;
+      const presentSvc = serviceFor(
+        holdLedger(present, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            presentReads += 1;
+            if (presentReads === 1) throw lostConnection();
+            return present.getTxByKey(key);
+          },
+        }),
+        [],
+      );
+      await expect(presentSvc.placeOrder(principalFor(ALICE), limitBuy('cancel-present'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      const presentRow = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'cancel-present'`;
+      const released = await presentSvc.cancelOrder(principalFor(ALICE), presentRow[0]!.id);
+      expect(released.status).toBe('cancelled');
+      expect(formatAmount((await present.balance(orderHoldAccount(ALICE, 'USDT', presentRow[0]!.id))).amount)).toBe('0');
+      expect(formatAmount((await present.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('5000');
+      expect(present.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(present.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(0);
+      expect(matching.cancelledOrders).toHaveLength(0);
+    });
+
+    it('sweep with spot disabled releases a booked hold and does not submit', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const client = holdLedger(inner, {
+        onHoldPost: async (book) => {
+          await book();
+          throw lostConnection();
+        },
+        onReadKey: async (key) => {
+          reads += 1;
+          if (reads === 1) throw lostConnection();
+          return inner.getTxByKey(key);
+        },
+      });
+      const placer = serviceFor(client, alerts, { spotEnabled: true });
+      await expect(placer.placeOrder(principalFor(ALICE), limitBuy('sweep-killed'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      const sweeper = serviceFor(client, alerts, { spotEnabled: false });
+      const swept = await sweeper.sweepHoldUnknown();
+      const row = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'sweep-killed'
+      `;
+      expect(row).toEqual([{ id: row[0]!.id, status: 'rejected' }]);
+      expect(swept.booked).toEqual([row[0]!.id]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', row[0]!.id))).amount)).toBe('0');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(0);
+      expect(alerts.some((alert) => alert.resolution === 'booked' && alert.detail.includes('spot trading is disabled'))).toBe(true);
+    });
+
+    it('releases a taker order older than the cap instead of submitting it', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let reads = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            await book();
+            throw lostConnection();
+          },
+          onReadKey: async (key) => {
+            reads += 1;
+            if (reads === 1) throw lostConnection();
+            return inner.getTxByKey(key);
+          },
+        }),
+        alerts,
+      );
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('stale-taker', 'IOC'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      await sql`
+        UPDATE trade.orders SET created_at = now() - interval '60 seconds' WHERE client_order_id = 'stale-taker'
+      `;
+      const swept = await svc.sweepHoldUnknown();
+      const row = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'stale-taker'
+      `;
+      expect(row).toEqual([{ id: row[0]!.id, status: 'rejected' }]);
+      expect(swept.booked).toEqual([row[0]!.id]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', row[0]!.id))).amount)).toBe('0');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(0);
+      expect(alerts.some((alert) => alert.resolution === 'booked' && alert.detail.includes('taker order is older'))).toBe(true);
+    });
+
+    it('deletes the pending row when the hold was refused before any byte was sent', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async () => {
+            throw neverSent();
+          },
+        }),
+        [],
+      );
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('never-sent'))).rejects.toThrow('fetch failed');
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(formatAmount((await inner.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('5000');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+    });
+
+    it('re-posts the same hold once when a retry reads absent inside the bound', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let posts = 0;
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            posts += 1;
+            if (posts === 1) throw lostConnection();
+            return book();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('repost-once'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+      matching.script1((req, next) => restsInFull(req, next()));
+      const retried = await svc.placeOrder(principalFor(ALICE), limitBuy('repost-once'));
+      expect(retried.status).toBe('open');
+      expect(posts).toBe(2);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', retried.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(1);
+      expect(await sql`SELECT status FROM trade.orders WHERE id = ${retried.id}`).toEqual([{ status: 'open' }]);
+    });
+
+    it('maps hold_unknown to recoveryRequired', () => {
+      const wire = presentCcxtOrder(fakeOrder({ status: 'hold_unknown' }), 'BTC/USDT');
+      expect(wire.recoveryRequired).toBe(true);
+      expect(wire.holdUnknown).toBe(true);
+    });
+
+    it('sweep rejects a booked hold_unknown order when the venue schedule is closed', async () => {
+      // Same closed-venue instant as the assertMarketOpen place door: Saturday FX.
+      const saturday = new Date('2026-01-10T12:00:00Z');
+      const inner = new MemoryLedger();
+      await fundInner(inner, '20');
+      await inner.post(
+        recipes.deposit({
+          userId: ALICE,
+          assetId: 'USD',
+          amount: amt('20'),
+          rail: 'test',
+          railRef: `closed-venue-usd:${Math.random()}`,
+        }),
+      );
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = new TradeService(sql, inner, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 150,
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        now: () => saturday,
+        onHoldUnknownAlert: (alert) => alerts.push(alert),
+      });
+      matching.script1((req, next) => restsInFull(req, next()));
+      const proofOrder = await svc.placeOrder(principalFor(ALICE), limitBuy('closed-proof'));
+      const proofRows = await sql<Array<{ proof: string }>>`
+        SELECT lifecycle_proof::text AS proof FROM trade.orders WHERE id = ${proofOrder.id}
+      `;
+      const eurusd = await svc.listMarket({
+        symbol: 'EUR/USD',
+        baseAsset: 'EUR',
+        quoteAsset: 'USD',
+        tickSize: amt('0.00001'),
+        lotSize: amt('1'),
+        minQty: amt('1'),
+        maxQty: null,
+        minNotional: amt('1'),
+        makerBps: 10,
+        takerBps: 20,
+        assetClass: 'forex',
+        schedule: 'fx-global',
+        paper: true,
+      });
+      const orderId = '44444444-4444-4444-8444-444444444444';
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${eurusd.id}, 'sweep-closed', 'buy', 'limit',
+          ${'1.10000'}::numeric, ${'1'}::numeric, 'hold_unknown', 'GTC',
+          'USD', ${'10'}::numeric, 0, false, ${proofRows[0]!.proof}::jsonb,
+          ${principalFor(ALICE).sid}
+        )
+      `;
+      await inner.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USD', amount: amt('10') }));
+      const submittedBefore = matching.submitted.length;
+      const swept = await svc.sweepHoldUnknown();
+      const row = await sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${orderId}`;
+      expect(row).toEqual([{ status: 'rejected' }]);
+      expect(swept.booked).toEqual([orderId]);
+      const releases = inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(orderId));
+      expect(releases).toHaveLength(1);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USD', orderId))).amount)).toBe('0');
+      expect(matching.submitted.slice(submittedBefore).filter((call) => call.request.orderId === orderId)).toHaveLength(0);
+      expect(alerts.some((alert) => alert.orderId === orderId && alert.detail.includes('is closed'))).toBe(true);
+    });
+
+    it('past-bound delete and cancel leave a fresh hold_unknown row and write one that is 8 minutes old', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async () => {
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('bound-fresh'))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      const fresh = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'bound-fresh'`;
+      const freshId = fresh[0]!.id;
+      const writers = svc as unknown as {
+        deleteAbsentHoldUnknownPastBound(orderId: string): Promise<number>;
+        cancelAbsentHoldUnknownPastBound(orderId: string): Promise<number>;
+      };
+
+      expect(await writers.deleteAbsentHoldUnknownPastBound(freshId)).toBe(0);
+      expect(await writers.cancelAbsentHoldUnknownPastBound(freshId)).toBe(0);
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${freshId}`).toEqual([{ status: 'hold_unknown' }]);
+
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '8 minutes' WHERE id = ${freshId}`;
+      expect(await writers.deleteAbsentHoldUnknownPastBound(freshId)).toBe(1);
+      expect(await sql`SELECT id FROM trade.orders WHERE id = ${freshId}`).toHaveLength(0);
+
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('bound-cancel'))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+      const past = await sql<Array<{ id: string }>>`SELECT id FROM trade.orders WHERE client_order_id = 'bound-cancel'`;
+      const pastId = past[0]!.id;
+      await sql`UPDATE trade.orders SET updated_at = now() - interval '8 minutes' WHERE id = ${pastId}`;
+      expect(await writers.cancelAbsentHoldUnknownPastBound(pastId)).toBe(1);
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${pastId}`).toEqual([{ status: 'cancelled' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
+    });
+
+    it('cancel-all cancels the older open order when a newer hold_unknown row refuses', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let posts = 0;
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            posts += 1;
+            if (posts === 1) return book();
+            throw lostConnection();
+          },
+          onReadKey: async () => null,
+        }),
+        [],
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+      const older = await svc.placeOrder(principalFor(ALICE), limitBuy('cancel-all-older'));
+      await sql`UPDATE trade.orders SET created_at = now() - interval '1 minute' WHERE id = ${older.id}`;
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('cancel-all-unknown'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+
+      await expect(svc.cancelAllOrders(principalFor(ALICE))).rejects.toMatchObject({ code: 'trade.hold_unknown' });
+
+      expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${older.id}`).toEqual([{ status: 'cancelled' }]);
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', older.id))).amount)).toBe('0');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(older.id))).toHaveLength(1);
+      const unknown = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'cancel-all-unknown'
+      `;
+      expect(unknown).toEqual([{ id: unknown[0]!.id, status: 'hold_unknown' }]);
+      expect(
+        inner.journal().filter((tx) => tx.reason === 'order.hold' && tx.idempotencyKey === `order.hold:${unknown[0]!.id}`),
+      ).toHaveLength(0);
+      expect(
+        inner.journal().filter((tx) => tx.reason === 'order.hold.released' && tx.idempotencyKey.includes(unknown[0]!.id)),
+      ).toHaveLength(0);
+    });
+  });
 });

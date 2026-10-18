@@ -10,6 +10,7 @@ import { CLOSE_GOING_AWAY, type DepthSink, type HubLogger } from '../depth/hub.j
 import { redactAccessTokenQuery } from '../private/gateway.js';
 import { callerIpFromUpgrade } from '../private/caller-ip.js';
 import { requestOriginFromUpgrade } from '../private/key-origin.js';
+import { foreignUpgradeOrigin } from '../customer-origin.js';
 import { requestAccountIdFromUpgrade } from '../private/key-account.js';
 import { assertLiveCredential, type LiveCredentialPort } from '../private/live-credential.js';
 import { DROP_COPY_CHANNEL, type DropCopyHub } from './hub.js';
@@ -39,6 +40,8 @@ export interface DropCopyWebSocketGatewayOptions {
    */
   readonly liveCredential?: LiveCredentialPort | null;
   readonly authority?: CurrentAuthorityPort | null;
+  /** Same customer-origin list as `/private/stream`. Undefined leaves the check off. */
+  readonly customerOrigins?: readonly string[];
 }
 
 export interface DropCopyWebSocketGateway {
@@ -126,7 +129,7 @@ function parseDropCopyChannel(raw: string | null): typeof DROP_COPY_CHANNEL | nu
 }
 
 export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGatewayOptions): DropCopyWebSocketGateway {
-  const { server, hub, heartbeatMs, log, enabled, tokens, liveCredential = null, authority = null } = options;
+  const { server, hub, heartbeatMs, log, enabled, tokens, liveCredential = null, authority = null, customerOrigins } = options;
   let draining = false;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
 
@@ -168,6 +171,10 @@ export function createDropCopyWebSocketGateway(options: DropCopyWebSocketGateway
         return;
       }
       if (url.pathname !== DROP_COPY_STREAM_PATH) return;
+      if (foreignUpgradeOrigin(req, customerOrigins)) {
+        reject(socket, 403, 'Forbidden');
+        return;
+      }
       req.url = redactAccessTokenQuery(req.url ?? '/');
 
       try {

@@ -240,7 +240,7 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
     toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
     settleOutcome: (market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]) => Promise<void>;
-    finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected') => Promise<void>;
+    finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected', reason?: string | null) => Promise<void>;
     [FLAG]?: true;
   };
   if (proto[FLAG]) return;
@@ -381,7 +381,7 @@ export function installOptionPlace(ctor: typeof TradeService): void {
     }
     await origSettle.call(this, market, fills, rest);
     for (const c of expired) {
-      await proto.finalize.call(this, c.orderId, 'expired');
+      await proto.finalize.call(this, c.orderId, 'expired', c.reason);
     }
   };
 }

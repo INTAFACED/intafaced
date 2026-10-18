@@ -1,6 +1,6 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import type { Principal, Scope } from '@intafaced/auth';
-import { requireScope, requireTier, AuthError } from '@intafaced/auth';
+import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { requireServiceCaller } from './service-auth.js';
@@ -51,11 +51,34 @@ export interface Context {
    * Null when the caller did not present service credentials.
    */
   service: string | null;
+  /**
+   * How `service` was authenticated, when the verifier can tell.
+   *
+   * `dedicated` means the HMAC matched that service's own secret, so the name
+   * is a verified key id. `shared` means only the fleet-wide internal secret
+   * matched, so the header name is a claim. Omit when the context was not
+   * produced by a verifier that distinguishes them. svc-ledger post treats
+   * anything other than `dedicated` as a claim.
+   */
+  serviceAuth?: 'dedicated' | 'shared';
   /** Resolved at the edge from IP / account region. Drives the matrix. */
   region: string;
   /** W3C traceparent so a call keeps its trace across services (§9). */
   traceparent?: string;
   requestId: string;
+  /**
+   * Optional recheck of an owner's `pay:read` / `pay:write` against the live
+   * merchant grant. Installed only by svc-pay production context. Callers who
+   * own no merchant (team members) are not refused here.
+   */
+  ownerPayGrant?: OwnerPayGrantRecheck;
+}
+
+/** The two acquiring scopes an API key can carry and a grant can later withdraw. */
+export type OwnerPayScope = 'pay:read' | 'pay:write';
+
+export interface OwnerPayGrantRecheck {
+  assertStillGranted(principal: Principal, scope: OwnerPayScope): Promise<void>;
 }
 
 function causeCode(cause: unknown): string | undefined {
@@ -78,14 +101,78 @@ export function retryAfterSecondsOf(cause: unknown): number | undefined {
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
 }
 
+const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
+
+const ALGO_MONEY_CODES = new Set(['trade.algo_insufficient_balance', 'trade.algo_balance_unreadable']);
+const ALGO_MONEY_KEYS = ['asset', 'required', 'available', 'fee', 'feeAsset', 'sliceQty'] as const;
+const ALGO_ASSET = /^[A-Z][A-Z0-9]{0,15}$/;
+const ALGO_DECIMAL = /^(0|[1-9]\d*)(\.\d+)?$/;
+
+/**
+ * Amounts on an algo creation refusal. Decimal strings and asset codes only.
+ * Any other key, or a value that is not that shape, is dropped so a sentence
+ * cannot ride out on this field.
+ */
+export function algoRefusalDetails(cause: unknown): Record<string, string> | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || !('data' in cause)) return undefined;
+  const code = (cause as { code?: unknown }).code;
+  if (typeof code !== 'string' || !ALGO_MONEY_CODES.has(code)) return undefined;
+  const raw = (cause as { data?: unknown }).data;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const key of ALGO_MONEY_KEYS) {
+    if (!(key in raw)) continue;
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value !== 'string') return undefined;
+    const ok = key === 'asset' || key === 'feeAsset' ? ALGO_ASSET.test(value) : ALGO_DECIMAL.test(value);
+    if (!ok) return undefined;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
+export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
+  if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
+  const raw = (cause as { blockers?: unknown }).blockers;
+  if (!Array.isArray(raw)) return undefined;
+  const blockers: { code: string }[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || !('code' in item)) return undefined;
+    const code = (item as { code?: unknown }).code;
+    if (typeof code !== 'string' || !BLOCKER_CODE.test(code)) return undefined;
+    blockers.push({ code });
+  }
+  return blockers.length > 0 ? blockers : undefined;
+}
+
+/** The current profile row on `identity.profile_version_conflict` only. */
+export function conflictProfile(
+  cause: unknown,
+): { displayName: string | null; locale: string; region: string | null; version: number } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'identity.profile_version_conflict') return undefined;
+  if (!('profile' in cause) || !cause.profile || typeof cause.profile !== 'object') return undefined;
+  const row = cause.profile as Record<string, unknown>;
+  const { displayName, locale, region, version } = row;
+  if (!(displayName === null || typeof displayName === 'string')) return undefined;
+  if (typeof locale !== 'string') return undefined;
+  if (!(region === null || typeof region === 'string')) return undefined;
+  if (typeof version !== 'number' || !Number.isInteger(version)) return undefined;
+  return { displayName, locale, region, version };
+}
+
 const t = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
+  errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
     const code = causeCode(cause);
+    const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
+    const blockers = errorBlockersOf(cause);
+    const algo = algoRefusalDetails(cause);
     return {
       ...shape,
       data: {
         ...shape.data,
+        ...(requestId ? { requestId } : {}),
         // Surface our own error codes so clients can branch on
         // 'ledger.insufficient_funds' rather than parsing prose.
         intafacedCode: cause instanceof AuthError || cause instanceof JurisdictionError ? cause.code : undefined,
@@ -96,8 +183,13 @@ const t = initTRPC.context<Context>().create({
         // tRPC strips `cause` in production. Copy the named code so a public
         // door can assert `token.buyback_tokens_unmoved` instead of prose.
         ...(code ? { cause: { code } } : {}),
+        // Only on a stale profile.compare-and-set, so the client can show the row
+        // that won. No other error grows a profile field.
+        ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
         // Only on `auth.too_many_attempts`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        ...(blockers ? { blockers } : {}),
+        ...(algo ? { algo } : {}),
       },
     };
   },
@@ -137,34 +229,103 @@ export interface GuardOptions {
  * Throws FORBIDDEN, or UNAUTHORIZED when the real problem is a missing second
  * factor: the client needs to tell "you may not" apart from "prove it again".
  */
+function isOwnerGrantWithdrawn(err: unknown): err is TRPCError {
+  return err instanceof TRPCError && err.message === 'pay.owner_grant_withdrawn';
+}
+
+async function assertLiveOwnerPayScope(ctx: Context & { principal: Principal }, scope: Scope): Promise<void> {
+  if (scope !== 'pay:read' && scope !== 'pay:write') return;
+  if (!ctx.ownerPayGrant) return;
+  await ctx.ownerPayGrant.assertStillGranted(ctx.principal, scope);
+}
+
+function refuseGuard(err: unknown): never {
+  if (err instanceof AuthError && err.code === 'mfa.required') {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
+  }
+  throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+}
+
+function refuseJurisdiction(ctx: Context & { principal: Principal }, guards: GuardOptions): void {
+  if (!guards.module) return;
+  const decision = checkAccess({
+    module: guards.module,
+    plane: guards.plane ?? 'fiat',
+    region: ctx.region,
+    kycTier: ctx.principal.tier,
+  });
+  if (!decision.allowed) {
+    const cause = new JurisdictionError(decision);
+    throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause });
+  }
+}
+
 export function scopedProcedure(scope: Scope, guards: GuardOptions = {}) {
-  return protectedProcedure.use(({ ctx, next }) => {
+  return protectedProcedure.use(async ({ ctx, next }) => {
     try {
       requireScope(ctx.principal, scope);
       if (guards.tier) requireTier(ctx.principal, guards.tier);
     } catch (err) {
-      if (err instanceof AuthError && err.code === 'mfa.required') {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
-      }
-      throw new TRPCError({ code: 'FORBIDDEN', message: (err as Error).message, cause: err });
+      refuseGuard(err);
     }
 
-    if (guards.module) {
-      const decision = checkAccess({
-        module: guards.module,
-        plane: guards.plane ?? 'fiat',
-        region: ctx.region,
-        kycTier: ctx.principal.tier,
-      });
-      if (!decision.allowed) {
-        // Thrown WITH a cause, so the decision's own code reaches the client.
-        // The scope check above already passed here: whatever this caller is
-        // short of, it is not authority.
-        const cause = new JurisdictionError(decision);
-        throw new TRPCError({ code: 'FORBIDDEN', message: decision.reason, cause });
-      }
-    }
+    await assertLiveOwnerPayScope(ctx, scope);
+    refuseJurisdiction(ctx, guards);
 
+    return next({ ctx });
+  });
+}
+
+/**
+ * Accepts the first scope the caller still holds. `pay:read` and `pay:write`
+ * are rechecked against the live owner grant when the context installs one;
+ * a withdrawn grant tries the next scope instead of failing the call.
+ * List `pay:onboard` before `pay:read` so a stale read does not hide a live
+ * onboarding session.
+ */
+export function anyScopeProcedure(scopes: readonly [Scope, ...Scope[]], guards: GuardOptions = {}) {
+  return protectedProcedure.use(async ({ ctx, next }) => {
+    let accepted = false;
+    let sawMfa = false;
+    let withdrawn: TRPCError | null = null;
+    for (const scope of scopes) {
+      if (!hasScope(ctx.principal.scopes, scope)) continue;
+      try {
+        requireScope(ctx.principal, scope);
+      } catch (err) {
+        if (err instanceof AuthError && err.code === 'mfa.required') {
+          sawMfa = true;
+          continue;
+        }
+        continue;
+      }
+      try {
+        await assertLiveOwnerPayScope(ctx, scope);
+      } catch (err) {
+        if (isOwnerGrantWithdrawn(err)) {
+          withdrawn = err;
+          continue;
+        }
+        throw err;
+      }
+      accepted = true;
+      if (guards.tier) {
+        try {
+          requireTier(ctx.principal, guards.tier);
+        } catch (err) {
+          refuseGuard(err);
+        }
+      }
+      break;
+    }
+    if (!accepted) {
+      if (withdrawn) throw withdrawn;
+      if (sawMfa) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'A second factor is required' });
+      }
+      throw new TRPCError({ code: 'FORBIDDEN', message: `One of ${scopes.join(', ')} is required` });
+    }
+    refuseJurisdiction(ctx, guards);
     return next({ ctx });
   });
 }

@@ -1,35 +1,33 @@
 /**
  * Redeem a one-time recovery code to enroll a new passkey.
- * Refuse if the code is missing, spent, or wrong. Reuses hashToken and StoredPasskey.
+ * Refuse if the code is missing, spent, or wrong. Reuses StoredPasskey.
+ * The credential is appended under the same row lock discipline as every other factor write.
  * No invented challenge.
+ * Spends the code through `redeemRecoveryCode` (recovery-redeem.ts): the `mfa` attempt is
+ * reserved first, the code is claimed under `SELECT ... FOR UPDATE`, so it can never be
+ * used twice, and a success clears the counter.
  */
+import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { StoredPasskey } from './enroll-passkey.js';
-import { hashToken } from './passwords.js';
+import { assertOwnLiveSession, redeemRecoveryCode, type RecoveryRedeemCode } from './recovery-redeem.js';
 
 export class RedeemRecoveryEnrollError extends Error {
   constructor(
     message: string,
-    readonly code: 'auth.recovery_missing' | 'auth.recovery_spent' | 'auth.recovery_invalid' | 'auth.not_found',
+    readonly code: RecoveryRedeemCode,
   ) {
     super(message);
     this.name = 'RedeemRecoveryEnrollError';
   }
 }
 
-function asStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is string => typeof v === 'string');
-}
-
-function asCreds(raw: unknown): StoredPasskey[] {
-  return Array.isArray(raw) ? (raw as StoredPasskey[]) : [];
-}
+const make = (message: string, code: RecoveryRedeemCode) => new RedeemRecoveryEnrollError(message, code);
 
 export function recoveryCodeEnrollsPasskey(code: unknown): void {
   const trimmed = typeof code === 'string' ? code.trim() : '';
   if (!trimmed) {
-    throw new RedeemRecoveryEnrollError('Recovery code missing', 'auth.recovery_missing');
+    throw make('Recovery code missing', 'auth.recovery_missing');
   }
 }
 
@@ -38,28 +36,13 @@ export async function enrollPasskeyAfterRecoveryCode(
   input: { userId: string; code: string; cred: StoredPasskey },
 ): Promise<{ credentialId: string }> {
   recoveryCodeEnrollsPasskey(input.code);
-  const rows = await sql<Array<{ recovery_code_hashes: unknown; webauthn_creds: unknown }>>`
-    SELECT recovery_code_hashes, webauthn_creds FROM users WHERE id = ${input.userId} LIMIT 1
-  `;
-  const user = rows[0];
-  if (!user) throw new RedeemRecoveryEnrollError('User not found', 'auth.not_found');
-  const hashes = asStringList(user.recovery_code_hashes);
-  if (hashes.length === 0) {
-    throw new RedeemRecoveryEnrollError('Recovery code spent', 'auth.recovery_spent');
-  }
-  const hash = hashToken(input.code.trim());
-  const idx = hashes.indexOf(hash);
-  if (idx < 0) {
-    throw new RedeemRecoveryEnrollError('Recovery code invalid', 'auth.recovery_invalid');
-  }
-  const nextHashes = hashes.slice(0, idx).concat(hashes.slice(idx + 1));
-  const nextCreds = [...asCreds(user.webauthn_creds), input.cred];
-  await sql`
-    UPDATE users
-       SET recovery_code_hashes = ${sql.json(nextHashes as never)},
-           webauthn_creds = ${sql.json(nextCreds as never)},
-           updated_at = now()
-     WHERE id = ${input.userId}
-  `;
-  return { credentialId: input.cred.credentialId };
+  return redeemRecoveryCode(sql, { userId: input.userId, code: input.code, make }, async () => {
+    await transaction(sql, async (tx) => {
+      const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      if (!rows[0]) throw make('User not found', 'auth.not_found');
+      const creds = Array.isArray(rows[0].webauthn_creds) ? (rows[0].webauthn_creds as StoredPasskey[]) : [];
+      await tx`UPDATE users SET webauthn_creds = ${tx.json([...creds, input.cred] as never)}, updated_at = now() WHERE id = ${input.userId}`;
+    });
+    return { credentialId: input.cred.credentialId };
+  });
 }

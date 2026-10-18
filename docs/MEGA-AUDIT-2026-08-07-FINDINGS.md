@@ -1,6 +1,8 @@
-> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
+> **Supersession (2026-08-09):** Any line that treats **Actions thrift**, run-count caps, `THRIFT_ALLOW`, or holding PRs for CI spend as current law is **void**. The repo is public; thrift was deleted 2026-08-07. See [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md).
 
 # MEGA AUDIT — 2026-08-07 · Findings
+
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 **Plan and scope:** [`MEGA-AUDIT-2026-08-07-PLAN.md`](MEGA-AUDIT-2026-08-07-PLAN.md)
 **Audited tip:** `6a4a360a` — _chore(ci): run the supply-chain audit on every PR so it can be required (#971)_, i.e. `origin/main` as of 2026-08-07

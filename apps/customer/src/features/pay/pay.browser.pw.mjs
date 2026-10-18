@@ -276,7 +276,7 @@ test('A confirmed transfer receipt survives failed source refresh and subsequent
   expect(posted).toHaveLength(1);
 });
 
-test('P2P keeps release behind seller-confirmed external payment and shows absent chat', async ({ page }) => {
+test('P2P keeps release behind seller-confirmed external payment and runs the order chat', async ({ page }) => {
   const trade = {
     id: orderId,
     offerId: spaceId,
@@ -296,21 +296,205 @@ test('P2P keeps release behind seller-confirmed external payment and shows absen
     resolvedAt: null,
     settledAt: null,
   };
-  await page.route('**/api/**', (route) => (route.request().url().includes('trades.get') ? reply(route, trade) : reply(route, null, 404)));
+  const stored = [
+    {
+      id: '55555555-5555-4555-8555-555555555551',
+      tradeId: orderId,
+      senderId: merchantId,
+      clientId: 'their-1',
+      text: 'I have sent the payment',
+      createdAt: '2026-10-07T12:01:00Z',
+    },
+  ];
+  const sends = [];
+  const seen = { list: 0, unread: 0 };
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('trades.get')) return reply(route, trade);
+    if (url.includes('chat.unread')) {
+      seen.unread += 1;
+      return reply(route, { tradeId: orderId, unread: 1 });
+    }
+    if (url.includes('chat.messages.list')) {
+      seen.list += 1;
+      return reply(route, { messages: stored, nextCursor: null, unread: 1 });
+    }
+    if (url.includes('chat.messages.send')) {
+      const body = route.request().postDataJSON();
+      sends.push(body);
+      const message = {
+        id: '55555555-5555-4555-8555-55555555555' + (sends.length + 1),
+        tradeId: orderId,
+        senderId: userId,
+        clientId: body.clientId,
+        text: body.text,
+        createdAt: '2026-10-07T12:02:00Z',
+      };
+      stored.push(message);
+      return reply(route, { ...message, created: true, notify: { delivered: false, code: 'p2p.chat_notify_unwired' } });
+    }
+    if (url.includes('contacts.list')) return reply(route, { following: [], blocking: [] });
+    return reply(route, null, 404);
+  });
   await mount(page, `/chat?tradeId=${orderId}`);
-  await expect(page.getByRole('heading', { name: 'Order details' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Where this order is' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Release escrow' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Message thread is not connected' })).toBeVisible();
+  await expect.poll(() => seen.unread).toBeGreaterThan(0);
+  // Off screen, the thread is not read, so nothing is marked read that nobody has seen.
+  expect(seen.list).toBe(0);
+  await page.getByRole('heading', { name: 'Order chat' }).scrollIntoViewIfNeeded();
+  await expect(page.getByText('I have sent the payment')).toBeVisible();
+  expect(seen.list).toBeGreaterThan(0);
+  await expect(page.getByText('New messages (1)')).toBeVisible();
+  await expect(page.getByTestId('chat-seller-warning')).toBeVisible();
+  await page.getByRole('button', { name: 'Please send the payment proof in chat' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('Please send the payment proof in chat');
+  await page.getByRole('textbox', { name: 'Message' }).fill('');
+  const send = page.getByRole('button', { name: 'Send message' });
+  await expect(send).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Message' }).fill('Received, releasing soon');
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(page.getByText('Received, releasing soon')).toHaveCount(1);
+  expect(sends).toHaveLength(1);
+  expect(sends[0]).toMatchObject({ tradeId: orderId, text: 'Received, releasing soon' });
+  expect(sends[0].clientId.length).toBeGreaterThan(8);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
   trade.status = 'fiat_sent';
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
   await page.getByRole('button', { name: 'Release escrow' }).click();
   await expect(page.getByRole('dialog', { name: 'Review: Release escrow' }).getByText('2 USDT', { exact: true })).toBeVisible();
 });
 
+test('A lost chat reply is checked before it is sent again, so it posts once', async ({ page }) => {
+  const trade = {
+    id: orderId,
+    offerId: spaceId,
+    sellerId: userId,
+    buyerId: merchantId,
+    asset: 'USDT',
+    amount: '2',
+    fiatCurrency: 'USD',
+    fiatAmount: '2.1',
+    price: '1.05',
+    method: 'operator-method',
+    status: 'escrowed',
+    resolution: null,
+    deadlineAt: null,
+    createdAt: '2026-10-07T12:00:00Z',
+    escrowedAt: '2026-10-07T12:00:00Z',
+    resolvedAt: null,
+    settledAt: null,
+  };
+  const stored = [];
+  const sends = [];
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('trades.get')) return reply(route, trade);
+    if (url.includes('chat.messages.list')) return reply(route, { messages: stored, nextCursor: null, unread: 0 });
+    if (url.includes('chat.messages.send')) {
+      const body = route.request().postDataJSON();
+      sends.push(body);
+      // The service stores the message, but the reply is lost on the way back.
+      if (!stored.some((message) => message.clientId === body.clientId))
+        stored.push({
+          id: '66666666-6666-4666-8666-666666666661',
+          tradeId: orderId,
+          senderId: userId,
+          clientId: body.clientId,
+          text: body.text,
+          createdAt: '2026-10-07T12:02:00Z',
+        });
+      return route.abort('connectionreset');
+    }
+    if (url.includes('contacts.list')) return reply(route, { following: [], blocking: [] });
+    return reply(route, null, 404);
+  });
+  await mount(page, `/chat?tradeId=${orderId}`);
+  await page.getByRole('heading', { name: 'Order chat' }).scrollIntoViewIfNeeded();
+  await expect(page.getByText('No messages yet.')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Message' }).fill('Paid, please check');
+  await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+  await expect(page.getByTestId('chat-pending').getByText('Not confirmed')).toBeVisible();
+  await page.getByRole('button', { name: 'Check and send' }).click();
+  await expect(page.getByTestId('chat-pending')).toHaveCount(0);
+  await expect(page.getByText('Paid, please check')).toHaveCount(1);
+  expect(sends).toHaveLength(1);
+});
+
+test('Order list marks unread chat, and the counterparty page confirms before blocking', async ({ page }) => {
+  const trade = {
+    id: orderId,
+    offerId: spaceId,
+    sellerId: merchantId,
+    buyerId: userId,
+    asset: 'USDT',
+    amount: '2',
+    fiatCurrency: 'USD',
+    fiatAmount: '2.1',
+    price: '1.05',
+    method: 'operator-method',
+    status: 'escrowed',
+    resolution: null,
+    deadlineAt: null,
+    createdAt: '2026-10-07T12:00:00Z',
+    escrowedAt: '2026-10-07T12:00:00Z',
+    resolvedAt: null,
+    settledAt: null,
+  };
+  const blocks = [];
+  let blocking = [];
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('trades.list')) return reply(route, [trade]);
+    if (url.includes('chat.unread')) return reply(route, { tradeId: orderId, unread: 3 });
+    if (url.includes('contacts.block')) {
+      blocks.push(route.request().postDataJSON());
+      blocking = [merchantId];
+      return reply(route, { following: [], blocking });
+    }
+    if (url.includes('contacts.list')) return reply(route, { following: [], blocking });
+    if (url.includes('reputation.get'))
+      return reply(route, {
+        tradesTotal: 2,
+        completed: 1,
+        cancelled: 1,
+        disputed: 0,
+        disputesLost: 0,
+        completionRate: 0.5,
+        avgReleaseSecs: 20,
+        badges: [],
+        merchant: null,
+      });
+    return reply(route, null, 404);
+  });
+  await mount(page, '/uc/order');
+  await expect(page.getByTestId('unread-badge')).toHaveText('3 new');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  await mount(page, `/checkuser?userId=${merchantId}`);
+  await page.getByRole('button', { name: 'Block', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Block this member?' });
+  await expect(dialog.getByText('Orders that are already open stay open, with their chat.')).toBeVisible();
+  expect(blocks).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Block', exact: true }).click();
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0].peerId).toBe(merchantId);
+  expect(blocks[0].idempotencyKey.length).toBeGreaterThanOrEqual(8);
+  await expect(page.getByText('You blocked this member.').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Unblock', exact: true })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations).toEqual([]);
+});
+
 test('Legacy counterparty IDs read reputation instead of addressing an order', async ({ page }) => {
   const requests = [];
   await page.route('**/api/**', (route) => {
     requests.push(route.request().url());
+    if (route.request().url().includes('contacts.list')) return reply(route, { following: [], blocking: [] });
     return reply(route, {
       tradesTotal: 2,
       completed: 1,
@@ -326,8 +510,12 @@ test('Legacy counterparty IDs read reputation instead of addressing an order', a
   await mount(page, `/checkuser?id=${merchantId}`);
   await expect(page.getByRole('heading', { name: 'Counterparty', exact: true })).toBeVisible();
   await expect(page.getByText('Programme unavailable', { exact: true })).toBeVisible();
-  expect(requests).toHaveLength(1);
-  expect(requests[0]).toContain('/api/p2p/trpc/reputation.get');
+  await expect(page.getByRole('button', { name: 'Follow', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Block', exact: true })).toBeEnabled();
+  const p2p = requests.filter((url) => url.includes('/api/p2p/'));
+  expect(p2p).toHaveLength(2);
+  expect(p2p.some((url) => url.includes('/api/p2p/trpc/reputation.get'))).toBe(true);
+  expect(p2p.some((url) => url.includes('/api/p2p/trpc/contacts.list'))).toBe(true);
 });
 
 test('Personal P2P programme application does not create Business authority', async ({ page }) => {
@@ -362,7 +550,7 @@ test('Personal P2P programme application does not create Business authority', as
   await mount(page, '/p2p?view=access');
   await expect(page.locator('nav[aria-label="P2P rooms"] [aria-current="page"]')).toHaveCount(1);
   await page.getByRole('button', { name: 'Apply to P2P programme', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm apply to p2p programme' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply to p2p programme' }).click();
   await expect(page.getByText('applied', { exact: true })).toBeVisible();
   expect(posted).toEqual([{}]);
   await mount(page, '/pay/links');
@@ -406,7 +594,7 @@ test('Public checkout keeps fixed amount authoritative and never invents a payme
   await page.getByLabel('Your country').fill('ID');
   await page.getByLabel('Payment method', { exact: true }).selectOption('card');
   await page.getByRole('button', { name: 'Open payment session', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm open payment session' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Open payment session' }).click();
   await expect(page.getByRole('heading', { name: 'Payment instructions were not returned' })).toBeVisible();
   expect(posted).toEqual([{ token: 'link-test-capability', geoCountry: 'ID', method: 'card' }]);
   await expect(page.getByRole('button', { name: /paid|capture|pay now/i })).toHaveCount(0);
@@ -425,7 +613,7 @@ test('Developer sandbox key cannot omit its mode or enter the live payment path'
   await page.getByLabel('Key name').fill('Sandbox test fixture');
   await page.getByLabel('pay:read', { exact: true }).check();
   await page.getByRole('button', { name: 'Create sandbox key', exact: true }).click();
-  await page.getByRole('button', { name: 'Confirm create sandbox key' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create sandbox key' }).click();
   await expect(page.getByRole('heading', { name: 'Sandbox secret returned once' })).toBeVisible();
   expect(posted).toHaveLength(1);
   expect(posted[0].body).toEqual({ name: 'Sandbox test fixture', scopes: ['pay:read'], mode: 'sandbox' });

@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { fromDerived, fromServer, summaryFetcher, SERVER_SUMMARY_MISSING, type ServerSummary } from './portfolio-source';
+import {
+  fromDerived,
+  fromServer,
+  pickMoneyView,
+  summaryFetcher,
+  toHomePortfolio,
+  SERVER_SUMMARY_MISSING,
+  type ServerSummary,
+} from './portfolio-source';
 import { valuePortfolio } from '../../data/derive';
 import type { DataEnv } from '../../data/queries';
 
@@ -67,6 +75,28 @@ describe('fromDerived', () => {
   });
 });
 
+describe('pickMoneyView', () => {
+  const retry = () => {};
+  const emptyDerived = { status: 'ready' as const, data: valuePortfolio({ balances: {}, markets: [], tickers: {}, nowMs: 1 }), asOf: 1 };
+  it('shows the bank error, not an invented zero, when the fallback has no rows', () => {
+    const view = pickMoneyView(true, { status: 'error', retry }, emptyDerived);
+    expect(view).toEqual({ status: 'error', retry });
+  });
+  it('shows the labelled fallback when it has rows', () => {
+    const derived = {
+      status: 'ready' as const,
+      data: valuePortfolio({ balances: { USDT: { free: '5', used: '0', total: '5' } }, markets: [], tickers: {}, nowMs: 1 }),
+      asOf: 1,
+    };
+    const view = pickMoneyView(true, { status: 'error', retry }, derived);
+    expect(view.status).toBe('ready');
+    if (view.status === 'ready') expect(view.data.source).toBe('derived');
+  });
+  it("uses the bank's summary when it answered", () => {
+    expect(pickMoneyView(false, { status: 'ready', data: summary(), asOf: 1 }, { status: 'loading' }).status).toBe('ready');
+  });
+});
+
 type Answer = { ok: true; data: unknown } | { ok: false; reason: string; message: string; status?: number; code?: string };
 const envWith = (answer: Answer) => ({ api: { query: async () => answer } }) as unknown as DataEnv;
 const signal = new AbortController().signal;
@@ -104,5 +134,41 @@ describe('summaryFetcher', () => {
     const out = await summaryFetcher(envWith({ ok: false, reason: 'unreachable', message: 'down', status: 502 }))(signal);
     expect(out).toMatchObject({ ok: false, status: 502 });
     expect((out as { code?: string }).code).toBeUndefined();
+  });
+});
+
+describe('toHomePortfolio (Home shows the Money total)', () => {
+  it("carries the bank's own total, which counts named spaces, unchanged", () => {
+    // The bank's total (12481.91) is what Money shows; Home must show the same, not a sum it works out itself.
+    const money = fromServer(summary());
+    const home = toHomePortfolio(money);
+    expect(home.totalUsd).toBe(money.totalUsd);
+    expect(home.totalUsd).toBe('12481.91');
+    expect([home.cashUsd, home.cryptoUsd, home.change24hUsd, home.change24hPct]).toEqual([
+      money.cashUsd,
+      money.cryptoUsd,
+      money.change24hUsd,
+      money.change24hPct,
+    ]);
+    expect(home.source).toBe('server');
+    expect(home.unpriced).toEqual(['ZED']);
+  });
+  it('lists the same coins in the same order with exact amounts', () => {
+    const home = toHomePortfolio(fromServer(summary()));
+    expect(home.holdings.map((holding) => [holding.asset, holding.total])).toEqual([
+      ['BTC', '0.1'],
+      ['USDT', '4100.00'],
+      ['DOGE', '5'],
+      ['ZED', '12'],
+    ]);
+  });
+  it('says so when it had to use the fallback', () => {
+    const derived = valuePortfolio({
+      balances: { USDT: { free: '100', used: '0', total: '100' } },
+      markets: [],
+      tickers: {},
+      nowMs: 1,
+    });
+    expect(toHomePortfolio(fromDerived(derived)).source).toBe('derived');
   });
 });

@@ -3,7 +3,7 @@ import { defineCopy, type CopyCatalog } from '../../shared/i18n';
 // Authored UI messages only. API values, identifiers, units and user content stay outside this catalog.
 const messages = {
   'view.language.partial': '{language} is selected. Some interface labels use English.',
-  'view.language.fallback': '{language} is selected. English is shown until {language} interface translations are available.',
+  'view.language.fallback': '{language} is selected. English is shown where {language} interface translations are not available.',
   'view.language.visit.only': 'Selected for this visit only. This browser can’t save it.',
 
   'view.daily.start.zoned': 'My time zone',
@@ -21,16 +21,10 @@ const messages = {
   'view.daily.start.utc8': 'UTC+8 midnight',
   'view.daily.history.settings': 'Applies to daily charts on this device only.',
   'accountroutes.business.verification': 'Business verification',
-  'accountroutes.verified.company.accounts.are.not.connected': 'Company accounts aren’t available yet',
+  'accountroutes.verified.company.accounts.are.not.connected': 'Company accounts aren’t available',
   'accountroutes.view.personal.verification': 'View personal verification ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'Company identity, owner membership and the associated merchant permissions are not available through the current account service. Personal verification or a strategy subaccount cannot activate a Business account.',
-  'accountroutes.dividend.records': 'Dividend records',
-  'accountroutes.dividend.history.is.not.connected': 'Dividends aren’t available yet',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'There is no mounted owner-scoped dividend history contract. Token stake and earning activity remain available in their own rooms.',
-  'accountroutes.open.token': 'Open Token ↗',
-  'accountroutes.open.earn': 'Open Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'The service confirmed the action.',
   'accountroutes.account': 'Account',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':
@@ -50,7 +44,7 @@ const messages = {
   'accountroutes.revoked': 'Revoked',
   'accountroutes.active': 'Active',
   'accountroutes.revoke': 'Revoke',
-  'accountroutes.this.is.the.returned.window.not.a': 'This is the returned window, not a complete account history.',
+  'accountroutes.this.is.the.returned.window.not.a': 'This is a recent window, not your complete account history.',
   'accountroutes.load.up.to.200': 'Load up to 200',
   'accountroutes.create.a.strategy.subaccount': 'Create a strategy subaccount',
   'accountroutes.purpose.optional': 'Purpose (optional)',
@@ -68,16 +62,16 @@ const messages = {
   'accountroutes.passkeys.two.factor.verification.and.signed.in': 'Passkeys, two-factor verification and signed-in sessions.',
   'accountroutes.passkeys': 'Passkeys',
   'accountroutes.add.passkey': 'Add passkey',
-  'accountroutes.no.passkeys.returned': 'No passkeys returned',
+  'accountroutes.no.passkeys.returned': 'No passkeys yet',
   'accountroutes.add.a.passkey.to.sign.in.using': 'Add a passkey to sign in using your device or security key.',
   'accountroutes.credential': 'Credential',
   'accountroutes.added': 'Added',
   'accountroutes.registered.passkeys': 'Registered passkeys',
   'accountroutes.remove': 'Remove',
-  'accountroutes.the.service.returned.a.50.key.window': 'The service returned a 50-key window.',
+  'accountroutes.the.service.returned.a.50.key.window': 'Showing up to 50 keys.',
   'accountroutes.sessions': 'Sessions',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'Session refresh follows the identity service. Credentials stay in memory; reloading this app requires sign-in.',
+    'Session refresh follows the identity service. Your sign-in is kept in a secure browser cookie that page scripts cannot read, so reloading this app keeps you signed in.',
   'accountroutes.sign.out.everywhere': 'Sign out everywhere',
   'accountroutes.two.factor.verification': 'Two-factor verification',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':
@@ -104,9 +98,9 @@ const messages = {
   'accountroutes.country': 'Country',
   'accountroutes.requested': 'Requested',
   'accountroutes.verification.requests': 'Verification requests',
-  'accountroutes.no.verification.requests.returned': 'No verification requests returned',
+  'accountroutes.no.verification.requests.returned': 'No verification requests yet',
   'accountroutes.request.the.tier.needed.for.your.account': 'Request the tier needed for your account.',
-  'accountroutes.up.to.50.requests.document.uploads.and': 'Up to 50 requests. You can’t upload documents with this form yet.',
+  'accountroutes.up.to.50.requests.document.uploads.and': 'Up to 50 requests. You can’t upload documents with this form.',
   'accountroutes.request.verification': 'Request verification',
   'accountroutes.basic': 'Basic',
   'accountroutes.full': 'Full',
@@ -116,13 +110,13 @@ const messages = {
   'accountroutes.review.request': 'Review request',
   'accountroutes.request.verification.review': 'Request verification review',
   'accountroutes.this.creates.a.pending.request.your.current':
-    'This creates a pending request. Your current verified tier remains authoritative.',
+    'This creates a pending request. Your current verified level stays in force until it is decided.',
   'accountroutes.submit.request': 'Submit request',
   'accountroutes.inbox.belongs.to.another.account': 'Inbox belongs to another account',
   'accountroutes.inbox': 'Inbox',
   'accountroutes.private.account.notifications.public.notices.are.a':
     'Private account notifications. Public notices are a separate surface.',
-  'accountroutes.no.notifications.returned': 'No notifications returned',
+  'accountroutes.no.notifications.returned': 'No notifications yet',
   'accountroutes.new.account.notifications.will.appear.here.when': 'New account notifications will appear here when delivered.',
   'accountroutes.notification.text.is.unavailable': 'This notification has no text',
   'accountroutes.this.notification.s.details.are.not.published':
@@ -145,7 +139,7 @@ const messages = {
   'accountroutes.referral.records': 'Referral records',
   'accountroutes.your.account.id': 'Your account ID: ',
   'accountroutes.a.customer.referral.tree.commission.balance.and':
-    'A customer referral tree, commission balance and promotion-card history are not mounted. No reward total or payout is inferred from a visit count.',
+    'Your referral tree, commission balance and promotion-card history aren’t connected. No reward total or payout is guessed from a visit count.',
   'view.preferences.saved.on.this.device': 'Preferences saved on this device.',
   'view.view': 'Display',
   'view.choose.how.the.product.feels.on.this': 'These choices are saved on this device.',
@@ -165,13 +159,13 @@ const messages = {
   'view.english': 'English',
   'view.espa.ol.partial': 'Español — partial',
   'view.fran.ais.partial': 'Français — partial',
-  'view.published.translations.are.used.where.available.new': 'Anything not translated yet is shown in English.',
+  'view.published.translations.are.used.where.available.new': 'Anything not translated is shown in English.',
   'view.money': 'Money',
   'view.hide.balance.values': 'Hide balance values',
   'view.display.currency': 'Display currency',
   'view.a.converted.total.requires.a.complete.valuation': 'Totals are shown in this currency when every coin you hold has a price.',
   'view.hiding.small.balances.requires.a.valuation.threshold':
-    'Hiding small balances requires a valuation threshold. That isn’t available yet.',
+    'Hiding small balances requires a valuation threshold. That isn’t available.',
   'view.chart.display': 'Chart display',
   'view.up.and.down.colors': 'Up colour',
   'view.green.up.red.down': 'Green for up, red for down',
@@ -183,7 +177,7 @@ const messages = {
   'view.chart.time.labels': 'Chart time labels',
   'view.device.time.zone': 'Device time zone',
   'view.daily.candle.boundaries.follow.the.history.service':
-    'Daily candle boundaries follow the history service. Changing their start is not supported by that contract.',
+    'Daily candles start at the same time for everyone. Changing the start time isn’t supported.',
   'view.show.working.orders': 'Show working orders',
   'view.show.old.fills': 'Show old fills',
   'view.trading.preferences': 'Trading preferences',
@@ -195,7 +189,7 @@ const messages = {
   'view.list': 'List',
   'view.cards': 'Cards',
   'view.futures.cooling.off.and.shared.drawings.require':
-    'Futures cooling-off and shared drawings require authoritative account contracts. They cannot be enforced by a device preference.',
+    'Futures cooling-off and shared drawings need account-level controls. A setting on this device can’t enforce them.',
   'view.restore.defaults': 'Restore defaults',
   'accountroutes.no.purpose.supplied': 'No purpose supplied.',
   'accountroutes.transport.not.published': 'Transport not published',
@@ -260,7 +254,7 @@ const messages = {
   'api.revoke.current.read': 'Read current records',
   'api.revoke.current.revoked': 'Exact target is marked revoked.',
   'api.revoke.current.not.revoked': 'Exact target is not marked revoked.',
-  'api.revoke.current.missing': 'Exact target was not returned in this read window.',
+  'api.revoke.current.missing': 'This exact key isn’t in the list shown.',
   'api.revoke.current.limit':
     'These are current key records. They do not verify the saved attempt. A missing key may be outside the selected window. The original remains unresolved.',
   'api.revoke.unavailable': 'Saved revoke state can’t be read',
@@ -293,12 +287,6 @@ const es = {
   'accountroutes.view.personal.verification': 'Ver verificación personal ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'La identidad de empresa, la pertenencia del propietario y los permisos de comerciante asociados no están disponibles mediante el servicio de cuentas actual. La verificación personal o una subcuenta de estrategia no pueden activar una cuenta Business.',
-  'accountroutes.dividend.records': 'Registros de dividendos',
-  'accountroutes.dividend.history.is.not.connected': 'El historial de dividendos no está conectado',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'No hay ningún contrato conectado de historial de dividendos limitado al propietario. El staking de tokens y la actividad de Earn siguen disponibles en sus propias salas.',
-  'accountroutes.open.token': 'Abrir Token ↗',
-  'accountroutes.open.earn': 'Abrir Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'El servicio ha confirmado la acción.',
   'accountroutes.account': 'Cuenta',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':
@@ -318,7 +306,7 @@ const es = {
   'accountroutes.revoked': 'Revocado',
   'accountroutes.active': 'Activo',
   'accountroutes.revoke': 'Revocar',
-  'accountroutes.this.is.the.returned.window.not.a': 'Este es el intervalo devuelto, no un historial completo de la cuenta.',
+  'accountroutes.this.is.the.returned.window.not.a': 'Esta es una ventana reciente, no el historial completo de tu cuenta.',
   'accountroutes.load.up.to.200': 'Cargar hasta 200',
   'accountroutes.create.a.strategy.subaccount': 'Crear una subcuenta de estrategia',
   'accountroutes.purpose.optional': 'Finalidad (opcional)',
@@ -337,16 +325,16 @@ const es = {
   'accountroutes.passkeys.two.factor.verification.and.signed.in': 'Claves de acceso, verificación de dos factores y sesiones iniciadas.',
   'accountroutes.passkeys': 'Claves de acceso',
   'accountroutes.add.passkey': 'Añadir clave de acceso',
-  'accountroutes.no.passkeys.returned': 'No se han devuelto claves de acceso',
+  'accountroutes.no.passkeys.returned': 'Aún no hay passkeys',
   'accountroutes.add.a.passkey.to.sign.in.using': 'Añade una clave de acceso para iniciar sesión con tu dispositivo o llave de seguridad.',
   'accountroutes.credential': 'Credencial',
   'accountroutes.added': 'Añadida',
   'accountroutes.registered.passkeys': 'Claves de acceso registradas',
   'accountroutes.remove': 'Eliminar',
-  'accountroutes.the.service.returned.a.50.key.window': 'El servicio ha devuelto un intervalo de 50 claves.',
+  'accountroutes.the.service.returned.a.50.key.window': 'Se muestran hasta 50 claves.',
   'accountroutes.sessions': 'Sesiones',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'La renovación de sesión sigue el servicio de identidad. Las credenciales permanecen en memoria; recargar esta aplicación requiere iniciar sesión.',
+    'La renovación de sesión sigue el servicio de identidad. Tu inicio de sesión se guarda en una cookie segura del navegador que los scripts de la página no pueden leer, así que recargar esta aplicación te mantiene con la sesión iniciada.',
   'accountroutes.sign.out.everywhere': 'Cerrar sesión en todas partes',
   'accountroutes.two.factor.verification': 'Verificación de dos factores',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':
@@ -373,7 +361,7 @@ const es = {
   'accountroutes.country': 'País',
   'accountroutes.requested': 'Solicitado',
   'accountroutes.verification.requests': 'Solicitudes de verificación',
-  'accountroutes.no.verification.requests.returned': 'No se han devuelto solicitudes de verificación',
+  'accountroutes.no.verification.requests.returned': 'Aún no hay solicitudes de verificación',
   'accountroutes.request.the.tier.needed.for.your.account': 'Solicita el nivel necesario para tu cuenta.',
   'accountroutes.up.to.50.requests.document.uploads.and':
     'Hasta 50 solicitudes. La carga de documentos y la revisión del proveedor no están conectadas mediante este formulario.',
@@ -386,13 +374,13 @@ const es = {
   'accountroutes.review.request': 'Revisar solicitud',
   'accountroutes.request.verification.review': 'Solicitar revisión de verificación',
   'accountroutes.this.creates.a.pending.request.your.current':
-    'Esto crea una solicitud pendiente. Tu nivel verificado actual sigue siendo la referencia oficial.',
+    'Esto crea una solicitud pendiente. Tu nivel verificado actual sigue vigente hasta que se decida.',
   'accountroutes.submit.request': 'Enviar solicitud',
   'accountroutes.inbox.belongs.to.another.account': 'La bandeja de entrada pertenece a otra cuenta',
   'accountroutes.inbox': 'Bandeja de entrada',
   'accountroutes.private.account.notifications.public.notices.are.a':
     'Notificaciones privadas de la cuenta. Los avisos públicos se muestran por separado.',
-  'accountroutes.no.notifications.returned': 'No se han devuelto notificaciones',
+  'accountroutes.no.notifications.returned': 'Aún no hay notificaciones',
   'accountroutes.new.account.notifications.will.appear.here.when':
     'Las nuevas notificaciones de la cuenta aparecerán aquí cuando se entreguen.',
   'accountroutes.notification.text.is.unavailable': 'El texto de la notificación no está disponible',
@@ -416,7 +404,7 @@ const es = {
   'accountroutes.referral.records': 'Registros de referidos',
   'accountroutes.your.account.id': 'ID de tu cuenta: ',
   'accountroutes.a.customer.referral.tree.commission.balance.and':
-    'No están conectados un árbol de referidos para clientes, un saldo de comisiones ni un historial de tarjetas promocionales. No se infiere ningún total de recompensas ni pago de un recuento de visitas.',
+    'Tu árbol de referidos, tu saldo de comisiones y el historial de tarjetas promocionales no están conectados. No se deduce ningún total de recompensas ni pago a partir del número de visitas.',
   'view.preferences.saved.on.this.device': 'Preferencias guardadas en este dispositivo.',
   'view.display': 'General',
   'view.view': 'Vista',
@@ -432,7 +420,7 @@ const es = {
   'view.espa.ol.partial': 'Español — parcial',
   'view.fran.ais.partial': 'Français — parcial',
   'view.published.translations.are.used.where.available.new':
-    'Se usan las traducciones escritas disponibles. Los textos aún sin traducir aparecen en inglés.',
+    'Se usan las traducciones escritas disponibles. Los textos sin traducir aparecen en inglés.',
   'view.money': 'Dinero',
   'view.hide.balance.values': 'Ocultar los saldos',
   'view.display.currency': 'Moneda de visualización',
@@ -451,7 +439,7 @@ const es = {
   'view.chart.time.labels': 'Horas del gráfico',
   'view.device.time.zone': 'Zona horaria del dispositivo',
   'view.daily.candle.boundaries.follow.the.history.service':
-    'Los límites de las velas diarias siguen el servicio de historial. Su contrato no permite cambiar el inicio.',
+    'Las velas diarias empiezan a la misma hora para todos. No se puede cambiar la hora de inicio.',
   'view.show.working.orders': 'Mostrar órdenes activas',
   'view.show.old.fills': 'Mostrar ejecuciones anteriores',
   'view.trading.preferences': 'Preferencias de trading',
@@ -463,7 +451,7 @@ const es = {
   'view.list': 'Lista',
   'view.cards': 'Tarjetas',
   'view.futures.cooling.off.and.shared.drawings.require':
-    'La pausa de futuros y los dibujos compartidos requieren contratos oficiales de la cuenta. Una preferencia del dispositivo no puede aplicarlos.',
+    'El periodo de reflexión de futuros y los dibujos compartidos necesitan controles a nivel de cuenta. Un ajuste de este dispositivo no puede aplicarlos.',
   'view.restore.defaults': 'Restaurar valores predeterminados',
   'accountroutes.no.purpose.supplied': 'No se ha proporcionado ninguna finalidad.',
   'accountroutes.transport.not.published': 'Transporte no publicado',
@@ -480,7 +468,7 @@ const es = {
   'api.records.read': 'Leer registros de claves API',
   'api.records.refresh': 'Actualizar registros',
   'api.records.loading': 'Leyendo registros de claves API…',
-  'api.records.empty': 'No se devolvieron registros de claves API en esta ventana.',
+  'api.records.empty': 'Aún no hay claves API.',
   'api.records.window.scope': 'Hasta {count} registros más recientes por lectura. Los anteriores pueden quedar fuera de esta ventana.',
   'api.records.failed': 'No se pudieron leer los registros',
   'api.records.forbidden': 'Se denegó el acceso a los registros de claves API',
@@ -528,7 +516,7 @@ const es = {
   'api.revoke.current.read': 'Leer registros actuales',
   'api.revoke.current.revoked': 'La clave exacta está marcada como revocada.',
   'api.revoke.current.not.revoked': 'La clave exacta no está marcada como revocada.',
-  'api.revoke.current.missing': 'La clave exacta no se devolvió en esta ventana de lectura.',
+  'api.revoke.current.missing': 'Esta clave exacta no está en la lista mostrada.',
   'api.revoke.current.limit':
     'Estos son los registros actuales de claves. No verifican el intento guardado. Una clave ausente puede quedar fuera de la ventana seleccionada. El original sigue sin resolverse.',
   'api.revoke.unavailable': 'Estado de revocación guardado no disponible',
@@ -562,12 +550,6 @@ const fr = {
   'accountroutes.view.personal.verification': 'Voir la vérification personnelle ↗',
   'accountroutes.company.identity.owner.membership.and.the.associated':
     'L’identité de l’entreprise, l’appartenance du propriétaire et les autorisations de marchand associées ne sont pas disponibles via le service de comptes actuel. La vérification personnelle ou un sous-compte de stratégie ne peuvent pas activer un compte Business.',
-  'accountroutes.dividend.records': 'Enregistrements de dividendes',
-  'accountroutes.dividend.history.is.not.connected': 'L’historique des dividendes n’est pas connecté',
-  'accountroutes.there.is.no.mounted.owner.scoped.dividend':
-    'Aucun contrat d’historique des dividendes limité au propriétaire n’est connecté. Le staking de tokens et l’activité d’Earn restent disponibles dans leurs propres espaces.',
-  'accountroutes.open.token': 'Ouvrir Token ↗',
-  'accountroutes.open.earn': 'Ouvrir Earn ↗',
   'accountroutes.the.service.confirmed.the.action': 'Le service a confirmé l’action.',
   'accountroutes.account': 'Compte',
   'accountroutes.your.identity.and.strategy.partitions.a.strategy':
@@ -587,7 +569,7 @@ const fr = {
   'accountroutes.revoked': 'Révoqué',
   'accountroutes.active': 'Actif',
   'accountroutes.revoke': 'Révoquer',
-  'accountroutes.this.is.the.returned.window.not.a': 'Il s’agit de la fenêtre renvoyée, et non d’un historique complet du compte.',
+  'accountroutes.this.is.the.returned.window.not.a': 'C’est une fenêtre récente, pas l’historique complet de ton compte.',
   'accountroutes.load.up.to.200': 'Charger jusqu’à 200',
   'accountroutes.create.a.strategy.subaccount': 'Créer un sous-compte de stratégie',
   'accountroutes.purpose.optional': 'Finalité (facultatif)',
@@ -605,17 +587,17 @@ const fr = {
   'accountroutes.passkeys.two.factor.verification.and.signed.in': 'Clés d’accès, vérification à deux facteurs et sessions connectées.',
   'accountroutes.passkeys': 'Clés d’accès',
   'accountroutes.add.passkey': 'Ajouter une clé d’accès',
-  'accountroutes.no.passkeys.returned': 'Aucune clé d’accès renvoyée',
+  'accountroutes.no.passkeys.returned': 'Aucune passkey pour l’instant',
   'accountroutes.add.a.passkey.to.sign.in.using':
     'Ajoutez une clé d’accès pour vous connecter avec votre appareil ou votre clé de sécurité.',
   'accountroutes.credential': 'Identifiant d’accès',
   'accountroutes.added': 'Ajoutée',
   'accountroutes.registered.passkeys': 'Clés d’accès enregistrées',
   'accountroutes.remove': 'Supprimer',
-  'accountroutes.the.service.returned.a.50.key.window': 'Le service a renvoyé une fenêtre de 50 clés.',
+  'accountroutes.the.service.returned.a.50.key.window': 'Jusqu’à 50 clés affichées.',
   'accountroutes.sessions': 'Sessions',
   'accountroutes.session.refresh.follows.the.identity.service.credentials':
-    'Le renouvellement de session suit le service d’identité. Les identifiants d’accès restent en mémoire ; recharger cette application nécessite une connexion.',
+    'Le renouvellement de session suit le service d’identité. Votre connexion est conservée dans un cookie sécurisé du navigateur que les scripts de la page ne peuvent pas lire ; recharger cette application vous laisse donc connecté.',
   'accountroutes.sign.out.everywhere': 'Se déconnecter partout',
   'accountroutes.two.factor.verification': 'Vérification à deux facteurs',
   'accountroutes.connect.an.authenticator.and.keep.your.recovery':
@@ -642,7 +624,7 @@ const fr = {
   'accountroutes.country': 'Pays',
   'accountroutes.requested': 'Demandé',
   'accountroutes.verification.requests': 'Demandes de vérification',
-  'accountroutes.no.verification.requests.returned': 'Aucune demande de vérification renvoyée',
+  'accountroutes.no.verification.requests.returned': 'Aucune demande de vérification pour l’instant',
   'accountroutes.request.the.tier.needed.for.your.account': 'Demandez le niveau nécessaire pour votre compte.',
   'accountroutes.up.to.50.requests.document.uploads.and':
     'Jusqu’à 50 demandes. Le téléversement de documents et la vérification du fournisseur ne sont pas connectés via ce formulaire.',
@@ -655,13 +637,13 @@ const fr = {
   'accountroutes.review.request': 'Vérifier la demande',
   'accountroutes.request.verification.review': 'Demander une révision de vérification',
   'accountroutes.this.creates.a.pending.request.your.current':
-    'Cela crée une demande en attente. Votre niveau vérifié actuel continue de faire autorité.',
+    'Cela crée une demande en attente. Ton niveau vérifié actuel reste en vigueur jusqu’à la décision.',
   'accountroutes.submit.request': 'Envoyer la demande',
   'accountroutes.inbox.belongs.to.another.account': 'La boîte de réception appartient à un autre compte',
   'accountroutes.inbox': 'Boîte de réception',
   'accountroutes.private.account.notifications.public.notices.are.a':
     'Notifications privées du compte. Les avis publics disposent d’un espace distinct.',
-  'accountroutes.no.notifications.returned': 'Aucune notification renvoyée',
+  'accountroutes.no.notifications.returned': 'Aucune notification pour l’instant',
   'accountroutes.new.account.notifications.will.appear.here.when':
     'Les nouvelles notifications du compte apparaîtront ici lorsqu’elles seront remises.',
   'accountroutes.notification.text.is.unavailable': 'Le texte de la notification est indisponible',
@@ -685,7 +667,7 @@ const fr = {
   'accountroutes.referral.records': 'Enregistrements de parrainage',
   'accountroutes.your.account.id': 'ID de votre compte : ',
   'accountroutes.a.customer.referral.tree.commission.balance.and':
-    'Aucun arbre de parrainage client, solde de commissions ou historique de cartes promotionnelles n’est connecté. Aucun total de récompenses ni paiement n’est déduit d’un nombre de visites.',
+    'Ton arbre de parrainage, ton solde de commissions et l’historique des cartes promotionnelles ne sont pas connectés. Aucun total de récompenses ni paiement n’est deviné à partir d’un nombre de visites.',
   'view.preferences.saved.on.this.device': 'Préférences enregistrées sur cet appareil.',
   'view.display': 'Général',
   'view.view': 'Affichage',
@@ -720,7 +702,7 @@ const fr = {
   'view.chart.time.labels': 'Horaires du graphique',
   'view.device.time.zone': 'Fuseau horaire de l’appareil',
   'view.daily.candle.boundaries.follow.the.history.service':
-    'Les limites des bougies quotidiennes suivent le service d’historique. Son contrat ne permet pas de modifier leur début.',
+    'Les bougies quotidiennes commencent à la même heure pour tout le monde. Modifier l’heure de début n’est pas pris en charge.',
   'view.show.working.orders': 'Afficher les ordres actifs',
   'view.show.old.fills': 'Afficher les exécutions passées',
   'view.trading.preferences': 'Préférences de trading',
@@ -732,7 +714,7 @@ const fr = {
   'view.list': 'Liste',
   'view.cards': 'Cartes',
   'view.futures.cooling.off.and.shared.drawings.require':
-    'La pause des contrats à terme et les dessins partagés exigent des contrats officiels du compte. Une préférence de l’appareil ne peut pas les appliquer.',
+    'Le délai de réflexion des futures et les dessins partagés nécessitent des contrôles au niveau du compte. Un réglage de cet appareil ne peut pas les appliquer.',
   'view.restore.defaults': 'Rétablir les valeurs par défaut',
   'accountroutes.no.purpose.supplied': 'Aucune finalité fournie.',
   'accountroutes.transport.not.published': 'Transport non publié',
@@ -749,7 +731,7 @@ const fr = {
   'api.records.read': 'Lire les enregistrements de clés API',
   'api.records.refresh': 'Actualiser les enregistrements',
   'api.records.loading': 'Lecture des enregistrements de clés API…',
-  'api.records.empty': 'Aucun enregistrement de clé API renvoyé dans cette fenêtre.',
+  'api.records.empty': 'Aucune clé API pour l’instant.',
   'api.records.window.scope':
     'Jusqu’à {count} enregistrements les plus récents par lecture. Les plus anciens peuvent être hors de cette fenêtre.',
   'api.records.failed': 'Les enregistrements n’ont pas pu être lus',
@@ -798,7 +780,7 @@ const fr = {
   'api.revoke.current.read': 'Lire les enregistrements actuels',
   'api.revoke.current.revoked': 'La clé exacte est marquée comme révoquée.',
   'api.revoke.current.not.revoked': 'La clé exacte n’est pas marquée comme révoquée.',
-  'api.revoke.current.missing': 'La clé exacte n’a pas été renvoyée dans cette fenêtre de lecture.',
+  'api.revoke.current.missing': 'Cette clé exacte ne figure pas dans la liste affichée.',
   'api.revoke.current.limit':
     'Ce sont les enregistrements actuels des clés. Ils ne vérifient pas la tentative enregistrée. Une clé absente peut être hors de la fenêtre sélectionnée. La demande d’origine reste non résolue.',
   'api.revoke.unavailable': 'État de révocation enregistré indisponible',

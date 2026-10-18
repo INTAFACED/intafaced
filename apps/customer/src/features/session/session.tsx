@@ -1,77 +1,68 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { z } from 'zod';
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createApiClient, type ApiClient, type ApiResult } from '../../shared/api';
+import { createSessionController, sessionSchema, type Session, type SessionNotice } from './session-restore';
 
-export const sessionSchema = z.object({
-  accessToken: z.string().min(1),
-  refreshToken: z.string().min(1),
-  expiresAt: z.string().datetime({ offset: true }),
-  userId: z.string().uuid(),
-});
-export type Session = z.infer<typeof sessionSchema>;
+export { sessionSchema, type Session };
 type SessionContext = {
   session: Session | null;
   api: ApiClient;
   commit: (session: Session) => void;
   clear: () => void;
   logout: () => Promise<ApiResult<{ ok: true }>>;
+  /** True until the boot refresh has answered. A private room waits; a public room does not. */
+  restoring: boolean;
+  /** The boot refresh could not reach the service: show Retry, not a sign-in prompt. The cookie is untouched. */
+  restoreFailed: boolean;
+  retryRestore: () => void;
+  /** Why the server ended the session, when it said (sign-in used elsewhere, frozen account). */
+  notice: SessionNotice | null;
+  /** Ask the server again to end the session after a logout it did not confirm. */
+  retryLogout: () => Promise<ApiResult<{ ok: true }>>;
   mode: 'Personal' | 'Business';
   userId: string | null;
 };
 const Context = createContext<SessionContext | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const current = useRef(session);
+  const [controller] = useState(createSessionController);
+  const { session, restoring, restoreFailed, notice } = useSyncExternalStore(
+    controller.subscribe,
+    controller.getState,
+    controller.getState,
+  );
   const accessToken = session?.accessToken;
-  function clear() {
-    current.current = null;
-    setSession(null);
-  }
-  function commit(value: Session) {
-    const validated = sessionSchema.parse(value);
-    current.current = validated;
-    setSession(validated);
-  }
+  useEffect(() => {
+    void controller.start();
+    return () => controller.stop();
+  }, [controller]);
   const api = useMemo(
     () =>
       createApiClient({
         token: () => accessToken,
-        canWrite: () => current.current?.accessToken === accessToken,
+        canWrite: () => controller.getState().session?.accessToken === accessToken,
         onUnauthorized: (requestToken) => {
-          if (requestToken && current.current?.accessToken === requestToken) clear();
+          if (requestToken && controller.getState().session?.accessToken === requestToken) controller.clear();
         },
       }),
-    [accessToken],
+    [accessToken, controller],
   );
-  useEffect(() => {
-    if (!session) return;
-    const deadline = Date.parse(session.expiresAt);
-    if (!Number.isFinite(deadline)) {
-      clear();
-      return;
-    }
-    const timeout = setTimeout(
-      () => {
-        void api.mutate('identity', 'auth.refresh', { refreshToken: session.refreshToken }, sessionSchema).then((result) => {
-          if (current.current?.refreshToken === session.refreshToken) {
-            if (result.ok) commit(result.data);
-            else clear();
-          }
-        });
-      },
-      Math.max(0, Math.min(2_147_483_647, deadline - Date.now() - 30_000)),
-    );
-    return () => clearTimeout(timeout);
-  }, [api, session]);
-  async function logout() {
-    const previous = current.current;
-    clear();
-    if (!previous) return { ok: true as const, data: { ok: true as const } };
-    return createApiClient().mutate('identity', 'auth.logout', { refreshToken: previous.refreshToken }, z.object({ ok: z.literal(true) }));
-  }
   return (
-    <Context.Provider value={{ session, api, commit, clear, logout, mode: 'Personal', userId: session?.userId ?? null }}>
+    <Context.Provider
+      value={{
+        session,
+        api,
+        commit: controller.commit,
+        clear: controller.clear,
+        logout: controller.logout,
+        restoring,
+        restoreFailed,
+        retryRestore: () => void controller.retryRestore(),
+        notice,
+        retryLogout: controller.retryLogout,
+        mode: 'Personal',
+        userId: session?.userId ?? null,
+      }}
+    >
       {children}
     </Context.Provider>
   );

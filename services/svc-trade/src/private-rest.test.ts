@@ -14,13 +14,15 @@ import {
   presentCcxtBalances,
   presentCcxtMyTrade,
   presentCcxtOrder,
+  presentCcxtOrderCost,
   presentCcxtTradingFee,
-  presentTradingFees,
+  presentAdminFees,
   registerPrivateRest,
   suppliedPriceFields,
   toCcxtOrderStatus,
   type PrivateRestDeps,
 } from './private-rest.js';
+import { parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { TradeError } from './spot/types.js';
 import type { PlaceOrderInput } from './spot/trade-service.js';
 import { fakeMarket } from './public-rest.js';
@@ -71,6 +73,7 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(toCcxtOrderStatus('rejected')).toBe('rejected');
     expect(toCcxtOrderStatus('expired')).toBe('expired');
     expect(toCcxtOrderStatus('recovery_required')).toBe('open');
+    expect(toCcxtOrderStatus('hold_unknown')).toBe('open');
   });
 
   it('projects unresolved execution separately from ordinary open/rejected', () => {
@@ -84,9 +87,17 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     );
     expect(wire.status).toBe('open'); // legacy CCXT vocabulary
     expect(wire.recoveryRequired).toBe(true);
+    expect(wire.holdUnknown).toBe(false);
     expect(wire.lifecycleState).toBe('RECOVERY_REQUIRED');
     expect(wire.executionOutcome).toMatchObject({ outcome: 'OUTCOME_UNKNOWN', state: 'SUBMIT_UNKNOWN' });
     expect(wire.executionOutcome?.reconciliationKey).toContain('trade.order.reconcile:');
+  });
+
+  it('maps hold_unknown to recoveryRequired so the customer does not send twice', () => {
+    const wire = presentCcxtOrder(fakeOrder({ status: 'hold_unknown' }), 'BTC/USDT');
+    expect(wire.status).toBe('open');
+    expect(wire.recoveryRequired).toBe(true);
+    expect(wire.holdUnknown).toBe(true);
   });
 
   it('presents an order that validates against orderSchema with decimal strings', () => {
@@ -105,6 +116,7 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.cost).toBe('50');
     expect(wire.postOnly).toBe(true);
     expect(wire.status).toBe('open');
+    expect(wire.rejectCode).toBeNull();
     expect(typeof wire.price).toBe('string');
     expect(typeof wire.amount).toBe('string');
   });
@@ -123,6 +135,18 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.price).toBeNull();
     expect(wire.cost).toBe('200');
     expect(wire.cost).not.toBe('0');
+  });
+
+  it('filled market sell cost ignores the protection floor and is null without fills', () => {
+    const order = fakeOrder({
+      side: 'sell',
+      type: 'market',
+      price: null,
+      protectionPrice: parseAmount('98'),
+      filledQty: parseAmount('1'),
+    });
+    expect(presentCcxtOrderCost(order)).toBeNull();
+    expect(presentCcxtOrderCost(order, [{ quoteAmount: parseAmount('99') }])).toBe('99');
   });
 
   it('filled market sell without fills: cost is null, never confident "0" (PEACE residual)', () => {
@@ -201,14 +225,6 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(wire.taker).toBe('0.002');
     expect(wire.percentage).toBe(true);
     expect(typeof wire.maker).toBe('string');
-  });
-
-  it('presentTradingFees keys by symbol and returns {} when listing is empty', () => {
-    expect(presentTradingFees([])).toEqual({});
-    const m = fakeMarket({ symbol: 'ETH/USDT', makerBps: 5, takerBps: 15 });
-    const fees = presentTradingFees([m]);
-    expect(Object.keys(fees)).toEqual(['ETH/USDT']);
-    expect(tradingFeeSchema.safeParse(fees['ETH/USDT']).success).toBe(true);
   });
 
   it('presentCcxtBalances maps available→free and hold/escrow/stake/collateral→used', () => {
@@ -312,6 +328,20 @@ describe('mapCreateOrderBody', () => {
         clientOrderId: 'bot-stop',
       }),
     ).toThrow(TradeError);
+  });
+
+  it('refuses maker-or-cancel with trade.invalid_tif', () => {
+    expect(() =>
+      mapCreateOrderBody({
+        symbol: 'BTC/USDT',
+        type: 'limit',
+        side: 'buy',
+        amount: '1',
+        price: '100',
+        timeInForce: 'MOC',
+        clientOrderId: 'bot-moc',
+      }),
+    ).toThrow(expect.objectContaining({ name: 'TradeError', code: 'trade.invalid_tif' }));
   });
 });
 
@@ -530,9 +560,13 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
-  it('admin fees requires admin:read and preserves configured decimal strings', async () => {
+  const PUBLISHED = parseFeeScheduleJson(
+    JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10', perpetual: { makerBps: '2', takerBps: '5' } }),
+  );
+
+  it('admin fees requires admin:read and returns the charged schedule, not the listing-row bps', async () => {
     const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
-    const app = await build(deps({ markets: async () => [rich] }));
+    const app = await build(deps({ markets: async () => [rich], feeSchedule: PUBLISHED }));
     const denied = await app.inject({
       method: 'GET',
       url: '/api/v1/admin/fees',
@@ -547,9 +581,48 @@ describe('private REST — mount boundary + order write path', () => {
     });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json()).toEqual({
-      'BTC/USDT': { symbol: 'BTC/USDT', maker: '0.001', taker: '0.002', percentage: true },
+      source: 'TRADE_FEE_SCHEDULE',
+      version: 'desk',
+      markets: [
+        {
+          symbol: 'BTC/USDT',
+          kind: 'spot',
+          product: 'spot',
+          charged: { makerBps: '8', takerBps: '10', makerRate: '0.0008', takerRate: '0.001' },
+          refusal: null,
+        },
+      ],
     });
     await app.close();
+  });
+
+  it('admin fees refuses with trade.fee_schedule_blank when the schedule is unpublished', async () => {
+    const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
+    const app = await build(deps({ markets: async () => [rich], feeSchedule: parseFeeScheduleJson('') }));
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/fees',
+      headers: signedHeaders(principal({ scopes: ['admin:read'] })),
+    });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ intafacedCode: 'trade.fee_schedule_blank' });
+    expect(JSON.stringify(res.json())).not.toMatch(/"10"|"20"/);
+    await app.close();
+  });
+
+  it('presentAdminFees reads the perpetual block for futures and refuses options and a missing perpetual block', () => {
+    const futures = fakeMarket({ symbol: 'BTC-PERP', kind: 'futures', makerBps: 10, takerBps: 20 });
+    const options = fakeMarket({ symbol: 'BTC-OPT', kind: 'options', makerBps: 10, takerBps: 20 });
+    const published = PUBLISHED as Extract<typeof PUBLISHED, { published: true }>;
+    const rows = presentAdminFees([futures, options], published).markets;
+    expect(rows[0]).toMatchObject({
+      product: 'perpetual',
+      charged: { makerBps: '2', takerBps: '5', makerRate: '0.0002', takerRate: '0.0005' },
+    });
+    expect(rows[1]).toMatchObject({ product: null, charged: null, refusal: 'trade.fee_product_unpublished' });
+    const noPerp = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v', makerBps: '8', takerBps: '10' }));
+    const none = presentAdminFees([futures], noPerp as Extract<typeof noPerp, { published: true }>).markets;
+    expect(none[0]).toMatchObject({ charged: null, refusal: 'trade.fee_product_unpublished' });
   });
 
   it('filters open orders by symbol when provided', async () => {
@@ -1325,6 +1398,18 @@ describe('private REST — mount boundary + order write path', () => {
     expect(parseAmendOrderBody({ qty: 1 }).ok).toBe(false);
   });
 
+  it('parseAmendOrderBody accepts expectedRemaining as money and expectedVersion as an integer', () => {
+    const ok = parseAmendOrderBody({ qty: '1', expectedRemaining: '1.5', expectedVersion: 4 });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.input.expectedRemaining).toBe(parseAmount('1.5'));
+      expect(ok.input.expectedVersion).toBe(4);
+    }
+    expect(parseAmendOrderBody({ qty: '1', expectedRemaining: 1.5 }).ok).toBe(false);
+    expect(parseAmendOrderBody({ qty: '1', expectedVersion: '4' }).ok).toBe(false);
+    expect(parseAmendOrderBody({ qty: '1', expectedVersion: -1 }).ok).toBe(false);
+  });
+
   // ── GET /orders/:id ───────────────────────────────────────────────────────
 
   it('GET /orders/:id: forged → 401', async () => {
@@ -1849,21 +1934,61 @@ describe('private REST — mount boundary + order write path', () => {
     await app.close();
   });
 
-  it('GET /account/fees: signed returns per-symbol TradingFee from market bps', async () => {
+  it('GET /account/fees: signed returns the owner schedule, not listing-row bps', async () => {
     const rich = fakeMarket({ id: market.id, symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
-    const app = await build(deps({ markets: async () => [rich] }));
+    const app = await build(
+      deps({
+        markets: async () => [rich],
+        feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'desk', makerBps: '8', takerBps: '10' })),
+      }),
+    );
     const res = await app.inject({
       method: 'GET',
       url: '/api/v1/account/fees',
       headers: signedHeaders(),
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as Record<string, unknown>;
-    expect(body['BTC/USDT']).toBeDefined();
+    const body = res.json() as Record<string, { maker: string; taker: string; makerBps: number; takerBps: number; version: string }>;
     expect(tradingFeeSchema.safeParse(body['BTC/USDT']).success).toBe(true);
-    expect((body['BTC/USDT'] as { maker: string; taker: string }).maker).toBe('0.001');
-    expect((body['BTC/USDT'] as { taker: string }).taker).toBe('0.002');
-    expect(typeof (body['BTC/USDT'] as { maker: string }).maker).toBe('string');
+    expect(body['BTC/USDT']?.maker).toBe('0.0008');
+    expect(body['BTC/USDT']?.taker).toBe('0.001');
+    expect(body['BTC/USDT']?.makerBps).toBe(8);
+    expect(body['BTC/USDT']?.takerBps).toBe(10);
+    expect(body['BTC/USDT']?.version).toBe('desk');
+    await app.close();
+  });
+
+  it('private reads carry serverTime and rejected orders carry rejectCode', async () => {
+    const clock = new Date('2026-10-17T04:05:00.000Z');
+    const rejected = fakeOrder({ status: 'rejected', rejectCode: 'post_only_would_cross' });
+    const app = await build(
+      deps({
+        now: () => clock,
+        openOrders: async () => [rejected],
+        myFills: async () => [fill],
+        userBalances: async () => [],
+      }),
+    );
+    const headers = signedHeaders();
+    const orders = await app.inject({ method: 'GET', url: '/api/v1/orders/open?limit=10', headers });
+    expect(orders.statusCode, orders.body).toBe(200);
+    expect(orders.headers['x-server-time']).toBe(String(clock.getTime()));
+    const orderWire = orders.json()[0];
+    expect(orderWire.serverTime).toBe(clock.getTime());
+    expect(orderWire.rejectCode).toBe('post_only_would_cross');
+    expect(orderSchema.safeParse(orderWire).success).toBe(true);
+    const bare = orderSchema.safeParse({ ...orderWire, rejectCode: undefined, serverTime: undefined });
+    expect(bare.success).toBe(true);
+
+    const fills = await app.inject({ method: 'GET', url: '/api/v1/account/trades?limit=10', headers });
+    expect(fills.headers['x-server-time']).toBe(String(clock.getTime()));
+    expect(fills.json()[0].serverTime).toBe(clock.getTime());
+    expect(tradeSchema.safeParse(fills.json()[0]).success).toBe(true);
+
+    const balances = await app.inject({ method: 'GET', url: '/api/v1/account/balance', headers });
+    expect(balances.headers['x-server-time']).toBe(String(clock.getTime()));
+    expect(balances.json().serverTime).toBe(clock.getTime());
+    expect(balancesSchema.safeParse(balances.json()).success).toBe(true);
     await app.close();
   });
 
@@ -2331,7 +2456,7 @@ describe('private REST — mount boundary + order write path', () => {
       let moneyPath = false;
       const marks = markSourceFromBook({
         async readBook() {
-          return { bestBid: null, bestAsk: null, last: '50000' };
+          return { bestBid: null, bestAsk: null, last: '50000', observedAt: new Date() };
         },
       });
       const app = await build(
@@ -2363,10 +2488,95 @@ describe('private REST — mount boundary + order write path', () => {
           leverage: '10',
         },
       });
-      expect(res.statusCode).toBe(503);
+      expect(res.statusCode).toBe(409);
       expect(res.json().error).toBe('trade.mark_unusable');
+      expect(res.json().committed).toBe(false);
       expect(res.json().message).toContain('last-trade');
       expect(moneyPath).toBe(false);
+      await app.close();
+    });
+
+    it('a plain open does not answer position_mode_unset when the account mode is unset', async () => {
+      let forwarded: string | undefined = 'missing';
+      const app = await build(
+        deps({
+          readAccountMode: async () => ({ mode: null, source: 'unset', code: 'trade.position_mode_unset' }),
+          openPosition: async (_principal, input) => {
+            forwarded = input.positionMode;
+            return { id: 'opened', symbol: input.symbol } as never;
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'plain-open', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().error).toBeUndefined();
+      expect(forwarded).toBeUndefined();
+      await app.close();
+    });
+
+    it('an open on a one-way account forwards one_way when the body omits positionMode', async () => {
+      let forwarded: string | undefined;
+      const app = await build(
+        deps({
+          readAccountMode: async () => ({ mode: 'one_way', source: 'stored' }),
+          openPosition: async (_principal, input) => {
+            forwarded = input.positionMode;
+            return { id: 'opened', symbol: input.symbol } as never;
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'one-way-open', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(forwarded).toBe('one_way');
+      await app.close();
+    });
+
+    it('a genuine internal failure on open stays 5xx without committed', async () => {
+      const app = await build(
+        deps({
+          openPosition: async () => {
+            throw new FuturesError('boom', 'trade.internal', 500);
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/positions',
+        headers: signedHeaders(),
+        payload: { clientOpenId: 'internal', symbol: 'BTC/USDT-PERP', side: 'long', size: '1', leverage: '10' },
+      });
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).toBe('trade.internal');
+      expect(res.json().committed).toBeUndefined();
+      await app.close();
+    });
+
+    it('a profitable close on an unusable mark answers 409 committed false', async () => {
+      const app = await build(
+        deps({
+          closePositionQuantity: async () => {
+            throw new FuturesError('Refusing to pay realised profit on this mark — last-trade', 'trade.mark_unusable', 503);
+          },
+        }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/v1/positions/${ORDER_ID}/close`,
+        headers: signedHeaders(),
+        payload: { quantity: '1', clientCloseId: 'close-mark-unusable' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: 'trade.mark_unusable', committed: false });
       await app.close();
     });
 
@@ -2387,7 +2597,7 @@ describe('private REST — mount boundary + order write path', () => {
       await app.close();
     });
 
-    it('DELETE with no price closes at the mark — the happy path still works', async () => {
+    it('DELETE with no price is cancel-not-close and does not call closePosition', async () => {
       const seen: string[] = [];
       const app = await build(
         deps({
@@ -2402,23 +2612,25 @@ describe('private REST — mount boundary + order write path', () => {
         url: `/api/v1/positions/${ORDER_ID}`,
         headers: signedHeaders(),
       });
-      expect(res.statusCode).toBe(200);
-      expect(seen).toEqual([ORDER_ID]);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('trade.cancel_not_close');
+      expect(seen).toEqual([]);
       await app.close();
     });
 
-    it('DELETE /positions unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
+    it('POST /positions/:id/close unnamed pot on winning close is NotSupported, not a 5xx retry', async () => {
       const app = await build(
         deps({
-          closePosition: async () => {
+          closePositionQuantity: async () => {
             throw new FuturesError('cannot pay', 'trade.profit_source_unconfigured', 403);
           },
         }),
       );
       const res = await app.inject({
-        method: 'DELETE',
-        url: `/api/v1/positions/${ORDER_ID}`,
+        method: 'POST',
+        url: `/api/v1/positions/${ORDER_ID}/close`,
         headers: signedHeaders(),
+        payload: { quantity: '1', clientCloseId: 'close-1' },
       });
       expect(res.statusCode).toBe(403);
       expect(res.json()).toMatchObject({

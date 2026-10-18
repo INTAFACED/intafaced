@@ -55,7 +55,7 @@ test.describe('Pass 3 auth fixture', () => {
     await expect(page.getByText('uipr…').first()).toBeVisible();
     expect(
       await page.evaluate(() => ({ token: localStorage.getItem('TOKEN'), member: localStorage.getItem('MEMBER') })),
-      'memory-only proof must not persist legacy authority keys',
+      'sign-in lives in memory plus the HttpOnly refresh cookie: no token or member key in localStorage',
     ).toEqual({ token: null, member: null });
 
     await page.screenshot({

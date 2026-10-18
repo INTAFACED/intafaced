@@ -41,9 +41,17 @@
     /* Top-aligned, so the tabs stay put when Send and Receive differ in height. */
     align-items: start;
     padding-top: 48px;
+    grid-template-areas: 'hero card' 'side card';
+    grid-template-rows: auto 1fr;
   }
   .pay-hero {
+    grid-area: hero;
     padding-top: 112px;
+  }
+  .pay-side {
+    grid-area: side;
+    min-width: 0;
+    padding-top: 40px;
   }
   .pay-hero h1 {
     font-size: var(--if-text-hero);
@@ -60,6 +68,7 @@
 
   /* The card: 520 wide */
   .pay-card {
+    grid-area: card;
     justify-self: end;
     width: 100%;
     max-width: 520px;
@@ -328,9 +337,14 @@
   @media (max-width: 1000px) {
     .pay-grid {
       grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'hero' 'card' 'side';
+      grid-template-rows: auto;
       row-gap: 32px;
     }
     .pay-hero {
+      padding-top: 0;
+    }
+    .pay-side {
       padding-top: 0;
     }
     .pay-card {

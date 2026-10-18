@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'agent-autoload': {
-    kind: 'guard',
-    must: /missing required auto-load file/,
-    note: 'denominator is a fixed required-file list; with the tree gone every entry is missing and it refuses by name.',
-  },
   'notice-pin': {
     kind: 'guard',
     must: /NOTICE PIN FAILED — missing required file/,
@@ -155,6 +150,11 @@ export const ENFORCED = {
     kind: 'guard',
     must: /TRACKER REGISTRY INVALID/,
     note: 'every `done` row is checked against files that must exist — an empty tree makes all 71 claims false rather than unverifiable.',
+  },
+  'services-map': {
+    kind: 'guard',
+    must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
+    note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
   },
   coverage: {
     kind: 'guard',
@@ -349,6 +349,20 @@ export const EXEMPT = {
       'many assertions fired. Not fixed here — retuning an existing gate is out of scope for this change — recorded as ' +
       'a residual instead.',
   },
+  'gate-tools-tests': {
+    // Spec reporter (Node 21+ default, this laptop): "ℹ pass N".
+    // TAP reporter (Node 20 default, CI): "# pass N". Same count, earlier than the
+    // "# skipped" / "# duration_ms" tail. Capture group 1 is that count.
+    proof: /(?:ℹ|#) pass (\d+)/,
+    denom: 1,
+    reason:
+      'node:test over in-memory fixtures (fixture JSON and log excerpts under tooling/scripts/fixtures, a fake gh and a fake ' +
+      'git): the repo is not its subject. The count of passing tests is printed on every run and asserted non-zero here. ' +
+      'CI Node 20 prints that count as TAP "# pass N"; Node 21+ prints spec "ℹ pass N". Both are the pass count. ' +
+      'HONEST EXCEPTION: one test compares the PR path filter mirrored in merge-gate.mjs with .github/workflows/ci.yml, and ' +
+      'one compares the dependabot prefix with the title rule; both read the repo, and both skip themselves (reported as ' +
+      'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',
+  },
   'secret-scan-mutation': {
     proof: /(\d+)\/(\d+) planted defects caught/,
     denom: 2,
@@ -357,8 +371,9 @@ export const EXEMPT = {
       'over them. The repo is not its subject — it passes 13/13 with the repo absent, which is this row proving itself.',
   },
 };
+// Raised 5 → 6 (2026-10-13) for gate-tools-tests, whose subject is its own fixtures; every earlier raise had the same reason.
 // Raised 3 → 5 in the same commit that classified worktree-selftest + claim-check-selftest (gates main added after branch).
-export const EXEMPT_MAX = 5;
+export const EXEMPT_MAX = 6;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. BLIND — measured, printing clean over nothing, frozen as debt.

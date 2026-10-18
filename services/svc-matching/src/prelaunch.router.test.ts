@@ -64,7 +64,11 @@ async function mount(): Promise<{ app: FastifyInstance; engine: MatchingEngine }
     snapshotEvery: 0,
   });
   const app = Fastify({ logger: false });
-  registerRoutes(app, engine, SECRET, { bodyBind: 'require', approvals: stubApprovalConsumer('ops-confirm') });
+  registerRoutes(app, engine, SECRET, {
+    bodyBind: 'require',
+    approvals: stubApprovalConsumer('ops-confirm'),
+    operatorIds: new Set(['ops-1', 'ops-confirm']),
+  });
   await app.ready();
   return { app, engine };
 }
@@ -152,7 +156,7 @@ describe('POST /markets/:marketId/prelaunch', () => {
       operationId: 'op-1',
     });
     await post(app, `/markets/${MARKET}/open`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -200,7 +204,7 @@ describe('POST /markets/:marketId/open', () => {
     expect(blocked.json().accepted).toBe(false);
 
     const opened = await post(app, `/markets/${MARKET}/open`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',
@@ -209,7 +213,7 @@ describe('POST /markets/:marketId/open', () => {
     expect(opened.json()).toMatchObject({
       accepted: true,
       prelaunch: false,
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       rejected: null,
     });
@@ -228,7 +232,7 @@ describe('POST /markets/:marketId/open', () => {
     expect((await app.inject({ method: 'GET', url: '/markets' })).json().markets).not.toContain(MARKET);
 
     const opened = await post(app, `/markets/${MARKET}/open`, {
-      operatorId: 'ops-2',
+      operatorId: 'ops-1',
       confirmOperatorId: 'ops-confirm',
       approvalId: 'appr-1',
       operationId: 'op-1',

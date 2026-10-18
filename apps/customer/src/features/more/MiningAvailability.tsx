@@ -1,23 +1,44 @@
-import { z } from 'zod';
+import { useState } from 'react';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
-import { Button } from '../../shared/ui';
+import { Button, Tabs } from '../../shared/ui';
 import { Read } from './common';
 import { miningCopy } from './mining-copy';
+import { miningHealth, type MiningHealth } from './mining-journey';
+import { MiningRooms } from './MiningRooms';
+import { miningDepthCopy } from './mining-depth-copy';
+import type { Resource } from '../../shared/resource';
 import './mining-availability.css';
 
-// Public liveness supplies no customer records or authority. A configured
-// connection or registered job is never evidence of a credit or payout.
-const miningHealth = z.object({
-  ok: z.literal(true),
-  service: z.literal('svc-mining-pool'),
-  ledger: z.object({ status: z.enum(['absent', 'configured']), code: z.string() }),
-  pg: z.object({ status: z.enum(['absent', 'configured']), code: z.string() }),
-  jobs: z.array(z.string()),
-});
+// The Status tab is public liveness only: it supplies no customer records. The other tabs read the customer's own records
+// from the pool. A configured connection or registered job is never evidence of a credit or payout.
+type Status = { resource: Resource<MiningHealth>; reload: () => void };
+const TABS = ['Overview', 'Workers', 'Shares', 'Rewards', 'Status'] as const;
 export function Mining() {
   const api = useApi();
   const status = useResource((signal) => api.plain('mining', '/health', miningHealth, { signal }), 'mining-health');
+  const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
+  const depth = miningDepthCopy.useCopy();
+  return (
+    <div className="more-grid">
+      <Tabs
+        items={TABS}
+        value={tab}
+        onChange={(value) => setTab(value as (typeof TABS)[number])}
+        label={depth.t('sections')}
+        labels={{
+          Overview: depth.t('tabOverview'),
+          Workers: depth.t('tabWorkers'),
+          Shares: depth.t('tabShares'),
+          Rewards: depth.t('tabRewards'),
+          Status: depth.t('tabStatus'),
+        }}
+      />
+      {tab === 'Status' ? <MiningStatusRoom status={status} /> : <MiningRooms room={tab} health={status} />}
+    </div>
+  );
+}
+function MiningStatusRoom({ status }: { status: Status }) {
   const { Copy, languageFor, directionFor } = miningCopy.useCopy();
   return (
     <div className="mining-room" lang={languageFor('unavailableTitle')} dir={directionFor('unavailableTitle')}>
@@ -84,9 +105,6 @@ export function Mining() {
                         </dt>
                         <dd>
                           <Copy k={s[key].status === 'configured' ? 'configured' : 'absent'} />
-                          <small lang="und" dir="ltr">
-                            {s[key].code}
-                          </small>
                         </dd>
                       </div>
                     ))}

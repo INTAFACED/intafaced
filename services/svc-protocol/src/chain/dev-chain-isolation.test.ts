@@ -2,8 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { mnemonicToAccount } from 'viem/accounts';
-import { devAccount, PUBLIC_ANVIL_DEV_MNEMONIC, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
+import { devAccount, PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS, suiteAccount, suiteId, suiteSenderIndex } from '../../scripts/dev-chain.js';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════
@@ -48,9 +47,14 @@ const label = (f: string) => relative(serviceRoot, f).replace(/\\/g, '/');
 const onChainSuites = testFiles.filter((f) => /devSuiteClients\(\s*import\.meta\.url/.test(readFileSync(f, 'utf8')));
 
 /** anvil's ten pre-funded accounts — `deploy-dev.ts` territory, off limits to suites. */
-const PREFUNDED = new Set(
-  Array.from({ length: 10 }, (_, i) => mnemonicToAccount(PUBLIC_ANVIL_DEV_MNEMONIC, { addressIndex: i }).address.toLowerCase()),
-);
+const PREFUNDED = new Set(Array.from({ length: 10 }, (_, i) => devAccount(i).address.toLowerCase()));
+
+/** Derived once at load. Repeating it inside the 5s test is what CI timed out. */
+const senders = new Map<string, string[]>();
+for (const file of onChainSuites) {
+  const address = suiteAccount(pathToFileURL(file).href).address.toLowerCase();
+  senders.set(address, [...(senders.get(address) ?? []), label(file)]);
+}
 
 describe('every on-chain suite sends from an account no other suite sends from', () => {
   it('found the on-chain suites at all', () => {
@@ -60,27 +64,21 @@ describe('every on-chain suite sends from an account no other suite sends from',
   });
 
   it('gives every suite a distinct sender', () => {
-    const byAddress = new Map<string, string[]>();
-    for (const file of onChainSuites) {
-      const address = suiteAccount(pathToFileURL(file).href).address.toLowerCase();
-      byAddress.set(address, [...(byAddress.get(address) ?? []), label(file)]);
-    }
-
-    const collisions = [...byAddress.entries()].filter(([, files]) => files.length > 1);
+    const collisions = [...senders.entries()].filter(([, files]) => files.length > 1);
     expect(collisions.map(([address, files]) => `${address} ← ${files.join(' + ')}`)).toEqual([]);
-    expect(byAddress.size).toBe(onChainSuites.length);
+    expect(senders.size).toBe(onChainSuites.length);
   });
 
   it('never lands a suite on one of anvil\u2019s ten pre-funded accounts', () => {
     // Those are `deploy-dev.ts`'s, and docker-compose.apps.yml names the CREATE
     // addresses that account's nonce produces. A suite sending from one of them
     // would move those addresses and the compose defaults would go stale.
-    for (const file of onChainSuites) {
-      const address = suiteAccount(pathToFileURL(file).href).address.toLowerCase();
-      expect(PREFUNDED.has(address), `${label(file)} derived a pre-funded account`).toBe(false);
+    for (const [address, files] of senders) {
+      expect(PREFUNDED.has(address), `${files.join(' + ')} derived a pre-funded account`).toBe(false);
     }
+    expect(devAccount(0).address).toBe(PUBLIC_ANVIL_DEV_ACCOUNT_0_ADDRESS);
     expect(PREFUNDED.has(devAccount(0).address.toLowerCase())).toBe(true);
-  });
+  }, 30_000);
 
   it('leaves no suite picking an anvil index by hand', () => {
     // The thing that actually drifted. `devChainClients(url, id, N)` is for

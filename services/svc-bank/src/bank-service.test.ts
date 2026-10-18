@@ -658,6 +658,9 @@ describe('svc-bank money PG-hard', () => {
       expect(executions[0]).toMatchObject({ occurrence: 0, status: 'settled' });
     });
 
+    // Eight racers on a pool of eight (`createTestDatabase` opens `max: 8`): the
+    // exact ratio that froze the pool before #4621. Keep racers == pool size;
+    // `pool-starvation.test.ts` is the deterministic version of this race.
     it('fires once even when eight runs race each other', async () => {
       const { rent } = await standingOrder('100');
       await fund(USER_A, 'USDT', '1000');
@@ -2933,6 +2936,11 @@ describe('svc-bank money PG-hard', () => {
         'spaces.goal_target': 'a savings TARGET the user set — never written by a money path',
         'scheduled_transfers.amount': 'the INSTRUCTION; immutable after insert',
         'transfer_executions.amount': 'a RECORD of one completed firing; written once',
+        'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
+        'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
+        'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',
+        'personal_transfer_terms.fee': 'a published POLICY fee, not a collected balance',
+        'personal_requests.amount': 'the amount asked for, an instruction until paid',
         'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
         'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',
         'interest_accruals.paid_amount': 'a RECORD of one day; summing the table is the lifetime figure',
@@ -2982,6 +2990,9 @@ describe('svc-bank money PG-hard', () => {
         // payment goes through at a till.
         'cards.per_authorization_limit':
           'a POLICY ceiling on ONE authorisation; it does not fall as the card is used and no money path writes it',
+        'cards.daily_limit': 'a POLICY ceiling for a UTC day; NULL means no ceiling; spend is summed from authorisation records',
+        'cards.monthly_limit': 'a POLICY ceiling for a UTC month; NULL means no ceiling; not a running total',
+        'cards.cash_limit': 'a POLICY ceiling for ATM cash in a UTC day; NULL means no ceiling; not a remaining balance',
         'card_authorizations.amount': 'a RECORD of one authorisation request, in the funding asset; written once',
         'card_settlements.amount': 'a RECORD of one completed capture or reversal; written once with its ledger tx id',
         'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',
@@ -3006,6 +3017,14 @@ describe('svc-bank money PG-hard', () => {
         // only place "how much is available" is answered.
         'ramp_onramps.amount': 'a RECORD of one on-ramp credit; written once with its ledger tx id',
         'ramp_offramps.amount': 'a RECORD of one off-ramp instruction; written once with hold+settle tx ids',
+        'ramp_onramp_quotes.amount': 'the crypto AMOUNT the customer asked to buy on one quote; not a balance',
+        'ramp_onramp_quotes.pay_amount': 'the pay amount the rate source published for that quote; written once',
+        'ramp_onramp_quotes.fee': 'the fee the rate source published for that quote; not a tariff this service computed',
+        'ramp_onramp_quotes.rate': 'the rate the source published for that quote; frozen on the row',
+        'customer_onramps.amount': 'a copy of the quote amount on one partner instruction; this row does not credit the ledger',
+        'customer_onramps.pay_amount': 'the pay amount copied onto that instruction; written once',
+        'customer_onramps.fee': 'the fee copied onto that instruction; written once',
+        'customer_onramps.rate': 'the rate copied onto that instruction; written once',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.
@@ -3013,6 +3032,8 @@ describe('svc-bank money PG-hard', () => {
         'auto_invest_rules.amount': 'a POLICY spend for a DCA schedule, or round-up granularity; instruction, not a holding',
         'auto_invest_runs.amount': 'a RECORD of one run (settled or rejected); written once',
         'business_accounts.spend_threshold': 'a POLICY dual-control floor; instruction, not a holding',
+        'business_control_requests.spend_threshold':
+          'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
       };

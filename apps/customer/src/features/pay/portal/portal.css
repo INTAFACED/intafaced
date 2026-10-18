@@ -1,0 +1,974 @@
+@layer theme, base, components, utilities;
+@layer components {
+  .if-business {
+    /* Merchant portal (W3a). Built from the app's tokens only; lime is only the one primary action, the active tab and the focus ring. Links, ids and statuses are never lime. */
+    /* Status chips: the word carries the meaning; the dot and the soft tone only back it up. Completed is green, never lime. */
+    .pp-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: var(--if-r-xs);
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+      color: var(--if-fg);
+      background: var(--if-raised);
+    }
+    .pp-chip::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.8;
+    }
+    .pp-chip--done {
+      color: var(--if-up-text);
+      background: var(--if-up-bg-soft);
+    }
+    .pp-chip--action {
+      color: var(--if-warn-text);
+      background: transparent;
+      outline: 1px solid var(--if-warn);
+      outline-offset: -1px;
+    }
+    .pp-chip--failed {
+      color: var(--if-down-text);
+      background: var(--if-down-bg);
+    }
+    .pp .pp-sr {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+    .pp a:focus-visible,
+    .pp button:focus-visible,
+    .pp input:focus-visible,
+    .pp select:focus-visible,
+    .pp textarea:focus-visible,
+    .pp [tabindex]:focus-visible {
+      outline: 2px solid var(--if-lime);
+      outline-offset: 2px;
+    }
+    .pp select,
+    .pp textarea,
+    .pp input[type='file'] {
+      width: 100%;
+      min-height: 46px;
+      color: var(--if-fg);
+      background: var(--if-panel);
+      border: 1px solid var(--if-line);
+      border-radius: 6px;
+      padding: 11px 12px;
+      font: inherit;
+    }
+    .pp textarea {
+      resize: vertical;
+      min-height: 84px;
+    }
+    .pp .field > span:first-child {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp .field small {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp .field small.error-text {
+      color: var(--if-down-text);
+    }
+    .pp-mono {
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .pp-copy {
+      user-select: all;
+    }
+    .pp-unit {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-exact-tag {
+      color: var(--if-fg-2);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pp-none {
+      color: var(--if-fg-2);
+    }
+    .pp-note {
+      font-size: 13px;
+      margin-top: 12px;
+    }
+    .pp-sub {
+      font-size: 16px;
+      margin: 28px 0 12px;
+    }
+    .pp-back {
+      align-self: flex-start;
+    }
+    .pp-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .pp-callout {
+      border: 1px solid var(--if-line);
+      border-left: 3px solid var(--if-line-strong);
+      background: var(--if-panel);
+      border-radius: var(--if-r-sm);
+      padding: 14px 16px;
+      font-size: 14px;
+      line-height: 22px;
+    }
+    .pp-confirmed {
+      color: var(--if-up-text);
+      font-size: 14px;
+    }
+    .pp-declared {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-group {
+      border: 1px solid var(--if-line);
+      border-radius: var(--if-r-md);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin: 0;
+      min-width: 0;
+    }
+    .pp-group legend {
+      color: var(--if-fg-2);
+      font-size: 13px;
+      padding-inline: 8px;
+    }
+    .pp-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      color: var(--if-fg);
+    }
+    .pp-check input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--if-fg-2);
+    }
+    .pp-filter-row {
+      display: flex;
+      gap: 16px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .pp-section-action .field {
+      min-width: 160px;
+    }
+
+    /* loading skeleton */
+    .pp-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding-block: 8px;
+    }
+    .pp-skeleton-row {
+      display: block;
+      height: 44px;
+      border-radius: var(--if-r-md);
+      background: linear-gradient(90deg, var(--if-panel) 0%, var(--if-raised) 50%, var(--if-panel) 100%);
+      background-size: 200% 100%;
+      animation: pp-shimmer 1.4s linear infinite;
+    }
+    @keyframes pp-shimmer {
+      to {
+        background-position: -200% 0;
+      }
+    }
+
+    /* KPI tiles */
+    .pp-kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .pp-kpis--tight {
+      margin-top: 8px;
+    }
+    .pp-kpi {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+      background: var(--if-panel);
+      border: 1px solid var(--if-line);
+      border-radius: var(--if-r-md);
+      padding: 16px;
+    }
+    a.pp-kpi:hover {
+      outline: 1px solid var(--if-line-stronger);
+      outline-offset: -1px;
+      background: var(--if-field);
+    }
+    .pp-kpi--attention {
+      border-color: var(--if-warn);
+    }
+    .pp-kpi-label {
+      color: var(--if-fg-2);
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .pp-kpi-label em {
+      font-style: normal;
+      color: var(--if-fg-3);
+    }
+    .pp-kpi-value {
+      font-size: 20px;
+      line-height: 28px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+      overflow-wrap: anywhere;
+    }
+    .pp-kpi-note {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-lines {
+      display: flex;
+      flex-direction: column;
+    }
+    .pp-glance h3 {
+      font-size: 14px;
+      color: var(--if-fg-2);
+      font-weight: 400;
+      margin-top: 20px;
+    }
+    .pp-asof {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-asof--warn {
+      color: var(--if-warn);
+    }
+
+    /* status strip */
+    .pp-status-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+    .pp-status-strip > div {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .pp-strip-label {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+
+    /* chips */
+
+    /* chart */
+    .pp-chart {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(0, 1fr);
+      gap: 3px;
+      align-items: end;
+      height: 180px;
+      margin-top: 16px;
+      border-bottom: 1px solid var(--if-line);
+    }
+    .pp-bar-slot {
+      height: 100%;
+      display: flex;
+      align-items: flex-end;
+    }
+    .pp-bar {
+      display: block;
+      width: 100%;
+      background: var(--if-fg-3);
+      border-radius: 2px 2px 0 0;
+      min-height: 0;
+    }
+    .pp-bar--today {
+      background: var(--if-fg);
+    }
+    .pp-chart-axis {
+      display: flex;
+      justify-content: space-between;
+      color: var(--if-fg-2);
+      font-size: 13px;
+      margin: 8px 0 12px;
+    }
+    .pp-two {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 40px;
+    }
+    .pp-mix {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .pp-mix-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .pp-mix-bar {
+      display: block;
+      height: 4px;
+      background: var(--if-line);
+      border-radius: 2px;
+      margin-top: 8px;
+    }
+    .pp-mix-bar > span {
+      display: block;
+      height: 100%;
+      background: var(--if-fg-3);
+      border-radius: 2px;
+    }
+
+    /* steps */
+    .pp-steps {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .pp-step-button {
+      width: 100%;
+      min-height: 84px;
+      display: flex;
+      gap: 12px;
+      text-align: left;
+      align-items: flex-start;
+      background: var(--if-panel);
+      border: 1px solid var(--if-line);
+      border-radius: var(--if-r-md);
+      padding: 16px;
+      color: var(--if-fg);
+    }
+    .pp-step-button:disabled {
+      opacity: 0.55;
+    }
+    .pp-step[aria-current='step'] .pp-step-button {
+      border-color: var(--if-fg);
+    }
+    .pp-step-button strong,
+    .pp-step-button small,
+    .pp-step-button em {
+      display: block;
+    }
+    .pp-step-button small {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-step-state {
+      font-style: normal;
+      font-size: 13px;
+      color: var(--if-fg-2);
+      margin-top: 4px;
+    }
+    .pp-step-num {
+      flex: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--if-line);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+    }
+    .pp-step--done .pp-step-num {
+      background: var(--if-up-bg-soft);
+      color: var(--if-up-text);
+      border-color: var(--if-up-text);
+    }
+
+    /* facts, timeline, cards, feed */
+    .pp-facts {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px 28px;
+      margin: 0;
+    }
+    .pp-facts dt {
+      color: var(--if-fg-2);
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+    .pp-facts dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .pp-timeline {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .pp-timeline li {
+      display: flex;
+      gap: 14px;
+      padding-bottom: 20px;
+      position: relative;
+    }
+    .pp-timeline li:not(:last-child)::before {
+      content: '';
+      position: absolute;
+      left: 4px;
+      top: 14px;
+      bottom: 0;
+      width: 1px;
+      background: var(--if-line);
+    }
+    .pp-timeline-dot {
+      flex: none;
+      width: 9px;
+      height: 9px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--if-fg-3);
+    }
+    .pp-timeline li:first-child .pp-timeline-dot {
+      background: var(--if-fg);
+    }
+    .pp-timeline p {
+      font-size: 14px;
+    }
+    .pp-cards,
+    .pp-prefs,
+    .pp-feed {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .pp-card,
+    .pp-pref,
+    .pp-feed-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+      padding-block: 16px;
+      border-bottom: 1px solid var(--if-line);
+    }
+    .pp-card small,
+    .pp-feed-main small {
+      display: block;
+    }
+    .pp-feed-item {
+      position: relative;
+    }
+    .pp-feed-dot {
+      flex: none;
+      width: 8px;
+      height: 8px;
+      margin-top: 9px;
+      border-radius: 50%;
+      background: transparent;
+    }
+    .pp-feed-item--unread .pp-feed-dot {
+      background: var(--if-fg);
+    }
+    .pp-feed-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .pp-feed-kind {
+      color: var(--if-fg-2);
+      font-size: 13px;
+    }
+    .pp-pref-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .pp-row-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: stretch;
+      min-width: 190px;
+      text-align: left;
+    }
+    .pp-row-actions .pay-action {
+      display: block;
+    }
+    .pp-row-actions .button {
+      width: 100%;
+    }
+    .pp tbody th[scope='row'] {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--if-fg);
+      text-align: left;
+      padding: 16px;
+      padding-left: 0;
+      border-top: 1px solid var(--if-line);
+      vertical-align: middle;
+    }
+    .pp-left td:last-child {
+      text-align: left;
+      font-size: 14px;
+      line-height: 22px;
+      padding-right: 16px;
+    }
+    .pp-row-actions .pp-select {
+      min-width: 130px;
+      flex: 1;
+    }
+    .pp-more {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 16px;
+    }
+    .pp-more p {
+      font-size: 13px;
+    }
+    .pp .pay-section > header {
+      align-items: flex-end;
+    }
+    /* Stacked on a phone, the heading starts at the left edge like everything else. */
+    @media (max-width: 680px) {
+      .pp .pay-section > header {
+        align-items: flex-start;
+      }
+    }
+
+    /* Screen-reader-only text is absolutely positioned. Inside a wide table it would sit past the right edge of the table's own scroller and
+   widen the whole page, so the scroller becomes its containing block. */
+    .pp .table-scroll {
+      position: relative;
+    }
+
+    /* W3b: not configured, test values, warnings, usage bars, approvals */
+    .pp-notconf {
+      display: inline-block;
+      color: var(--if-warn);
+      border: 1px dashed var(--if-line);
+      border-radius: 999px;
+      padding: 1px 10px;
+      font-size: 13px;
+    }
+    .pp-test {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      color: var(--if-warn-text);
+      background: transparent;
+      border: 1px solid var(--if-warn);
+      border-radius: 4px;
+      padding: 1px 6px;
+      vertical-align: middle;
+    }
+    .pp-callout--warn {
+      border-left-color: var(--if-warn);
+    }
+    .pp-callout p + p {
+      margin-top: 8px;
+    }
+    .pp-links {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .pp-links li > small {
+      display: block;
+    }
+    .pp-stepitem--bad .pp-timeline-dot {
+      background: var(--if-down-text);
+    }
+    .pp-stepitem--todo .pp-timeline-dot {
+      background: transparent;
+      border: 1px solid var(--if-fg-3);
+    }
+    .pp-stepitem--current .pp-timeline-dot {
+      background: var(--if-fg);
+    }
+    .pp-stepitem--done .pp-timeline-dot {
+      background: var(--if-up-text);
+    }
+    .pp-steps-list li:first-child .pp-timeline-dot {
+      background: var(--if-up-text);
+    }
+    .pp-usage {
+      position: relative;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--if-raised);
+      border: 1px solid var(--if-line);
+      overflow: hidden;
+      margin-block: 8px 12px;
+    }
+    .pp-usage-fill {
+      display: block;
+      height: 100%;
+      background: var(--if-fg-2);
+    }
+    .pp-usage-fill--full {
+      background: var(--if-down-text);
+    }
+    .pp-limits,
+    .pp-approvals {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .pp-limit,
+    .pp-approval {
+      padding-block: 20px;
+      border-bottom: 1px solid var(--if-line);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .pp-limit-head,
+    .pp-approval-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .pp-limit-head h3 {
+      font-size: 16px;
+    }
+    .pp-approval-amount {
+      font-size: 20px;
+      letter-spacing: -0.02em;
+    }
+    .pp-agechip {
+      font-size: 13px;
+      color: var(--if-fg-2);
+      border: 1px solid var(--if-line);
+      border-radius: 999px;
+      padding: 2px 10px;
+      white-space: nowrap;
+    }
+    .pp-decision {
+      margin-top: 8px;
+      max-width: 560px;
+    }
+    .pp-reserve .pp-sub {
+      margin-top: 20px;
+    }
+
+    @media (max-width: 1000px) {
+      .pp-two {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+      }
+    }
+    @media (max-width: 680px) {
+      .pp-steps {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .pp-kpis {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .pp-card,
+      .pp-pref,
+      .pp-feed-item {
+        flex-direction: column;
+      }
+      .pp-pref-controls {
+        align-items: flex-start;
+      }
+      .pp-row-actions {
+        min-width: 0;
+      }
+      .pp-chart {
+        height: 140px;
+        gap: 1px;
+      }
+    }
+    @media (max-width: 380px) {
+      .pp-kpis {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pp-skeleton-row {
+        animation: none;
+      }
+    }
+
+    .pp-timeline strong,
+    .pp-timeline small {
+      display: block;
+    }
+
+    /* Opaque references and receiver paths must wrap without widening the page on phones. */
+    .pp .pp-wrap {
+      overflow-wrap: anywhere;
+      min-width: 0;
+    }
+  }
+}
+@layer components {
+  .if-business .pp-kpi {
+    border: 0;
+    background: var(--if-field);
+    padding: 20px;
+    gap: 8px;
+  }
+  .if-business .pp-kpi--attention {
+    box-shadow: inset 0 2px var(--if-warn);
+  }
+  .if-business .pp-kpi-value {
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 600;
+  }
+  .if-business .pp-soon {
+    border: 0;
+    border-radius: var(--if-r-md);
+    background: var(--if-field);
+    padding: 20px;
+  }
+  .if-business .pp-soon-tag {
+    background: var(--if-raised);
+    color: var(--if-fg-2);
+    font-size: 12px;
+  }
+  .if-business .pp-group {
+    border-color: var(--if-line);
+    border-radius: var(--if-r-md);
+  }
+  .if-business .pp select,
+  .if-business .pp textarea,
+  .if-business .pp input[type='file'] {
+    background: var(--if-field);
+    border-color: transparent;
+    border-radius: var(--if-r-sm);
+    min-height: 40px;
+  }
+  @media (max-width: 600px) {
+    .if-business .pp-kpi {
+      padding: 16px;
+    }
+    .if-business .pp-kpi-value {
+      font-size: 20px;
+      line-height: 28px;
+    }
+  }
+}
+@layer components {
+  .if-business .pp-kpi-value.pp-kpi-value--text,
+  .if-business .plo .pp-kpi .pp-kpi-value.pp-kpi-value--text {
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 500;
+  }
+  .if-business .pp-kpi-label em {
+    color: var(--if-fg-2);
+  }
+  .if-business .pp-soon-tag {
+    background: var(--if-panel);
+  }
+}
+
+/* Opaque references and receiver paths must wrap without widening the page on phones. */
+.pp .pp-wrap {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+@layer components {
+  .if-business {
+    /* EntityList: a table from 720 px, two-line cards below. The whole row is a link. */
+    .pe-list .pe-cards {
+      display: none;
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .pe-row {
+      position: relative;
+    }
+    .pe-row:hover {
+      background: var(--if-hover);
+    }
+    .pe-open::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+    }
+    /* A control inside a row (revoke, copy, a second link) sits above the row link, so it is the thing that gets the click. */
+    .pe-row button,
+    .pe-row input,
+    .pe-row select,
+    .pe-row a:not(.pe-open) {
+      position: relative;
+      z-index: 1;
+    }
+    .pe-card {
+      border-top: 1px solid var(--if-line);
+    }
+    .pe-card-link {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 4px;
+      color: var(--if-fg);
+      text-decoration: none;
+    }
+    .pe-card-main,
+    .pe-card-side {
+      display: grid;
+      gap: 4px;
+      align-content: start;
+      min-width: 0;
+    }
+    .pe-card-side {
+      justify-items: end;
+      text-align: right;
+      margin-left: auto;
+      max-width: 100%;
+    }
+    .pe-card-main {
+      flex: 1 1 140px;
+    }
+    .pe-card-amount {
+      white-space: nowrap;
+    }
+    .pp-nowrap {
+      white-space: nowrap;
+    }
+    .pp-detail-head {
+      display: grid;
+      gap: 8px;
+    }
+    .pp-detail-title {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .pp-detail-title h2 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 500;
+    }
+    .pp-related ul {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 20px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .pp-filterbar {
+      display: grid;
+      gap: 8px;
+    }
+    /* The kit's text input is 40px high (h-10). Selects in the bar match it, so the row shares one top and one baseline. */
+    .pp-filterbar .pp-select select {
+      box-sizing: border-box;
+      height: 40px;
+      padding-block: 0;
+    }
+
+    @media (max-width: 719px) {
+      .pe-list .pe-table {
+        display: none;
+      }
+      .pe-list .pe-cards {
+        display: block;
+      }
+    }
+  }
+}
+
+/* Links are never lime. The shared `.text-link` rule sits outside every layer, so this one must too. */
+.if-business .pp .text-link,
+.if-business .plo .text-link {
+  color: var(--if-fg);
+}
+
+/* Filter bar: a select and the kit's text input share one label style and one control height (40px), so the row has a single
+   top and baseline. These sit outside the layer because the shared `.field` rules do. */
+.if-business .pp-filterbar .pp-select {
+  gap: 6px;
+}
+.if-business .pp-filterbar .pp-select > span:first-child {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* A KPI tile on a phone: the label and its period stack, so "Paid in" and "Today (UTC)" never run together. */
+@media (max-width: 480px) {
+  .if-business .pp-kpi-label {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .if-business .pp-kpi {
+    padding: 14px;
+  }
+}
+
+/* The portal keeps lime for the primary action and the active tab: a loading dot is neutral here. */
+.plo .loading-dot {
+  background: var(--color-muted);
+}
+
+/*
+ * A button that sits on its own line in a page's column is a normal-size button on the right at desktop width, not a
+ * bar across the page. On a phone it stays full width, where that is the easy thing to press. The row-action columns
+ * in a table keep their own width.
+ */
+@media (min-width: 720px) {
+  .if-business .stack > [data-slot='button'],
+  .if-business .form-stack > [data-slot='button'],
+  .if-business .pp-approval > [data-slot='button'],
+  .if-business .pay-action > [data-slot='button'] {
+    align-self: flex-end;
+    width: auto;
+  }
+  .if-business .pp-row-actions .pay-action > [data-slot='button'] {
+    align-self: stretch;
+    width: 100%;
+  }
+}

@@ -61,11 +61,12 @@ const shot = async (page, name, { full = false } = {}) => {
   await page.waitForTimeout(350); // let dialogs and fades finish
   await page.screenshot({ path: join(shots, `${name}.png`), fullPage: full });
 };
-/** Both sizes the desk is checked at: 1440x900 and 1280x800. */
+/** Every size the desk is checked at: 1440x900, 1280x800 and the narrow phone width 390x844. */
 const shotBoth = async (page, name, options) => {
   for (const [width, height] of [
     [1440, 900],
     [1280, 800],
+    [390, 844],
   ]) {
     await page.setViewportSize({ width, height });
     await shot(page, `${name}-${width}`, options);
@@ -86,6 +87,31 @@ const openReview = async (page) => {
   await expect(page.getByRole('alertdialog')).toBeVisible();
 };
 
+test('classic desktop keeps the complete ticket and monitoring tabs in view at three widths', async ({ page }) => {
+  const mounted = await mount(page);
+  await ready(page);
+  for (const [width, height] of [
+    [1280, 800],
+    [1440, 900],
+    [1920, 1080],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await expect(page.locator('.dk-left')).toBeVisible();
+    for (const selector of [
+      '.dk-form[data-side="buy"] button[type="submit"]',
+      '.dk-form[data-side="sell"] button[type="submit"]',
+      '.dk-bottom-head',
+    ]) {
+      const rectangle = await page.locator(selector).boundingBox();
+      expect(rectangle, selector).not.toBeNull();
+      expect(rectangle.y + rectangle.height, `${selector} at ${width}`).toBeLessThanOrEqual(height);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await shot(page, `classic-compact-${width}x${height}`);
+  }
+  expect(mounted.errors).toEqual([]);
+});
+
 test('ready state at 1440x900: the three columns, ticker, chart, book, form, strip and the words', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
@@ -93,17 +119,17 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   await expect(page.locator('.pc-host a[href*="tradingview"]')).toHaveCount(1); // attribution kept
   await page.waitForTimeout(800);
 
-  // Columns: 280 | centre | 280, panels separated by 3 px gutters
+  // Classic compact: watchlist | chart and dual ticket | book, with 1 px dividers.
   const box = async (selector) => await page.locator(selector).first().boundingBox();
-  expect(Math.abs((await box('.dk-left')).width - 280)).toBeLessThanOrEqual(2);
-  expect(Math.abs((await box('.dk-book')).width - 280)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await box('.dk-left')).width - 216)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await box('.dk-book')).width - 264)).toBeLessThanOrEqual(2);
   const centre = await box('.dk-centre');
-  expect(Math.abs(centre.width - (1440 - 280 - 280 - 6))).toBeLessThanOrEqual(2);
+  expect(Math.abs(centre.width - (1440 - 216 - 264 - 2))).toBeLessThanOrEqual(2);
   expect((await box('.dk-ticker')).height).toBe(48);
   const gutter = await page
     .locator('.if-desk')
     .evaluate((node) => getComputedStyle(node).rowGap + ' ' + getComputedStyle(node).backgroundColor);
-  expect(gutter).toContain('3px');
+  expect(gutter).toContain('1px');
 
   // Ticker strip: every figure from /ticker; plain quote prices, no "$" (critic L8)
   await expect(page.locator('.dk-pair')).toHaveText('BTC/USDT');
@@ -234,7 +260,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(buyButton(page)).toBeDisabled();
   await expect(dialog).toHaveCount(0);
   await expect(buyForm(page)).toContainText('Your buy order is in');
-  await expect(page.getByText('We haven’t found it yet.')).toHaveCount(0); // no lookup ran for an order still in flight
+  await expect(page.getByText('We haven’t found it. It may still arrive: check again in a moment.')).toHaveCount(0); // no lookup ran for an order still in flight
   expect(m.requests('POST', 'orders')).toHaveLength(1);
   const sent = m.requests('POST', 'orders')[0].body;
   expect(sent).toMatchObject({
@@ -353,6 +379,11 @@ test('a lost answer: the order is looked up, never sent again, and new orders wa
   await shotBoth(page, 'desk-checking', { full: true });
   await page.waitForTimeout(1500);
   expect(m.requests('POST', 'orders')).toHaveLength(1); // never retried
+  // The service still hides the order: the check says it was not found, and that it may still arrive.
+  await notice.getByRole('button', { name: 'Check order' }).click();
+  await expect(page.locator('.dk-note--warn')).toContainText('It may still arrive');
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+  await shotBoth(page, 'desk-checking-not-found', { full: true });
   // The service shows the order; the check finds it and the desk is free again.
   exchange.opts.hideOrders = false;
   await notice.getByRole('button', { name: 'Check order' }).click();
@@ -401,7 +432,7 @@ test('states: loading, no book, market closed, errors, signed out', async ({ pag
   exchange.opts.book = book({ empty: true });
   m = await mount(empty, exchange);
   await empty.locator('.dk-bk-note').waitFor();
-  await expect(empty.locator('.dk-bk-note')).toHaveText('No orders yet in this market.');
+  await expect(empty.locator('.dk-bk-note')).toHaveText('No orders in this market.');
   await expect(empty.locator('.dk-bk-mid')).toContainText('—');
   await shotBoth(empty, 'desk-no-book');
   await empty.close();
@@ -454,7 +485,7 @@ test('keyboard path: amount, then ⌘/Ctrl+Enter opens the review with focus ins
   await page.keyboard.press('ControlOrMeta+Enter');
   const dialog = page.getByRole('alertdialog');
   await expect(dialog).toBeVisible();
-  expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="alertdialog"]')))).toBe(true);
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('[role="alertdialog"]')))).toBe(true);
   for (let i = 0; i < 4; i += 1) {
     await page.keyboard.press('Tab');
     // Focus guards hand focus back to the dialog a moment after a Tab; it never settles outside.
@@ -517,8 +548,9 @@ test('market sell is off with a true reason; limit sell stays on', async ({ page
   await page.getByRole('tab', { name: 'Market' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
   await expect(sellForm(page).getByRole('button', { name: 'Sell BTC' })).toBeDisabled();
-  await expect(sellForm(page)).toContainText('Market sells aren’t available yet. Use a limit order.');
+  await expect(sellForm(page)).toContainText('Market sells are off. Use a limit order.');
   await expect(page.locator('body')).not.toContainText('This can’t be done right now');
+  await shotBoth(page, 'desk-market-sell-off');
   await page.getByRole('tab', { name: 'Limit' }).click();
   await sellForm(page).getByRole('textbox', { name: 'Price' }).fill('66000');
   await sellForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.0001');
@@ -614,4 +646,268 @@ test('commit cost while the desk refreshes: the React Profiler numbers for an id
   );
   // Development build with StrictMode is far slower than production; this guards against a runaway, not the 4 ms budget.
   expect(p95).toBeLessThan(25);
+});
+
+// ── The finished ticket: time in force, order kinds the market does not take, changing orders, cancel all, data status ──
+
+const pickTif = async (page, label) => {
+  await page.getByRole('combobox', { name: 'Time in force' }).click();
+  await page.getByRole('option', { name: label, exact: true }).click();
+};
+const openTable = (page) => page.locator('.dk-bottom-body table');
+
+test('time in force: post only, IOC and FOK are what the order sends; a market order offers only standard or fill or kill', async ({
+  page,
+}) => {
+  const m = await mount(page);
+  await ready(page);
+  await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Good till cancelled');
+  await page.getByRole('combobox', { name: 'Time in force' }).click();
+  await expect(page.getByRole('option')).toHaveText(['Good till cancelled', 'Post only', 'Immediate or cancel', 'Fill or kill']);
+  await page.keyboard.press('Escape');
+
+  await pickTif(page, 'Post only');
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  // A post-only order always rests as a maker, so the fee line says maker.
+  await expect(buyForm(page)).toContainText('Fee 0.10% · maker');
+  await openReview(page);
+  await expect(page.getByRole('alertdialog')).toContainText('Time in force');
+  await expect(page.getByRole('alertdialog')).toContainText('Post only');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Your buy order is in');
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+  expect(m.requests('POST', 'orders')[0].body).toMatchObject({ type: 'limit', timeInForce: 'PO', postOnly: true });
+  await expect(openTable(page).locator('tbody tr').first()).toContainText('Post only');
+
+  // Market: standard or fill or kill. A limit-only pick falls back to standard and comes back with Limit.
+  await page.getByRole('tab', { name: 'Market' }).click();
+  await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Standard');
+  await page.getByRole('combobox', { name: 'Time in force' }).click();
+  await expect(page.getByRole('option')).toHaveText(['Standard', 'Fill or kill']);
+  await page.keyboard.press('Escape');
+  await page.getByRole('tab', { name: 'Limit' }).click();
+  await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Post only');
+  expect(m.errors).toEqual([]);
+  await shotBoth(page, 'desk-tif-post-only', { full: true });
+});
+
+test('a post-only order that would match right away is refused in words, never called done, and nothing rests', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await pickTif(page, 'Post only');
+  await fillBuy(page, { price: '65001', amount: '0.0001' }); // above the best ask: it would take
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Post-only order not placed');
+  await expect(buyForm(page)).toContainText('Nothing was traded');
+  await expect(buyForm(page)).not.toContainText('is done');
+  await expect(buyForm(page).getByRole('textbox', { name: 'Amount' })).toHaveValue('0.0001'); // kept so the price can be fixed
+  await expect(page.getByText('No open orders.')).toBeVisible();
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+  expect(m.requests('POST', 'orders')[0].body).toMatchObject({ timeInForce: 'PO', postOnly: true });
+  await shotBoth(page, 'desk-post-only-refused');
+});
+
+test('fill or kill that the book cannot fill, and immediate or cancel with no match, both say nothing traded', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await pickTif(page, 'Fill or kill');
+  await fillBuy(page, { price: '65001', amount: '0.06' }); // more than the 0.04 on offer, within the balance
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Fill-or-kill order not placed');
+  await expect(buyForm(page)).toContainText('nothing was traded');
+  expect(m.requests('POST', 'orders')[0].body).toMatchObject({ timeInForce: 'FOK', postOnly: false });
+
+  await pickTif(page, 'Immediate or cancel');
+  await fillBuy(page, { price: '60000', amount: '0.0001' }); // below the ask: nothing to match
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Nothing filled');
+  expect(m.requests('POST', 'orders')[1].body).toMatchObject({ timeInForce: 'IOC', postOnly: false });
+  await expect(page.getByText('No open orders.')).toBeVisible();
+});
+
+test('stop-limit and take profit / stop loss are listed, disabled, with one reason; nothing is sent', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('button', { name: 'Other order types (not available)' }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toContainText('Not available on spot. This market takes limit and market orders only.');
+  const items = menu.getByRole('menuitem');
+  await expect(items).toHaveText(['Stop-limit', 'Take profit / stop loss', 'OCO (one cancels the other)', 'Trailing stop']);
+  for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
+  await shotBoth(page, 'desk-order-kinds-disabled');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tab', { name: 'Limit' })).toHaveAttribute('aria-selected', 'true');
+  expect(m.requests('POST', 'orders')).toHaveLength(0);
+});
+
+test('open orders: a smaller amount uses native amend and keeps the place in the queue; a new price replaces the order after a review', async ({
+  page,
+}) => {
+  const m = await mount(page);
+  await ready(page);
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('Edit order');
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0001');
+  await expect(dialog).toContainText('Lowering the amount keeps your place in the queue.');
+  await dialog.getByRole('button', { name: 'Change amount' }).click();
+  await expect(dialog).toContainText('Your place in the queue was kept');
+  expect(m.requests('PATCH', 'orders/order-1')).toHaveLength(1);
+  expect(m.requests('PATCH', 'orders/order-1')[0].body).toEqual({ qty: '0.0001' });
+  expect(m.requests('POST', 'orders/order-1/replace')).toHaveLength(0);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(openTable(page).locator('tbody tr').first()).toContainText('0.0001');
+
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  await dialog.getByRole('textbox', { name: 'Price' }).fill('63990');
+  await expect(dialog).toContainText('the old one is cancelled first');
+  await dialog.getByRole('button', { name: 'Review replacement' }).click();
+  await expect(dialog).toContainText('63,999.90 → 63,990.00');
+  expect(m.requests('POST', 'orders/order-1/replace')).toHaveLength(0); // nothing sent until the second click
+  await shotBoth(page, 'desk-edit-replace-review');
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  await expect(dialog).toContainText('Replaced. Your new order is 0.0001 BTC at 63,990.00 USDT.');
+  expect(m.requests('POST', 'orders/order-1/replace')).toHaveLength(1);
+  expect(m.requests('POST', 'orders/order-1/replace')[0].body).toMatchObject({
+    price: '63990',
+    amount: '0.0001',
+    timeInForce: 'GTC',
+    postOnly: false,
+  });
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+  await expect(openTable(page).locator('tbody tr').first()).toContainText('63,990.00');
+  expect(m.errors).toEqual([]);
+});
+
+test('cancel all: asks first, cancels only the orders of the market on screen, one request', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  for (const price of ['63999.9', '63998.9']) {
+    await fillBuy(page, { price, amount: '0.0001' });
+    await openReview(page);
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+    await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  }
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Cancel all (2)' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Cancel all BTC/USDT orders?');
+  expect(m.requests('DELETE', 'orders')).toHaveLength(0);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel all orders' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Cancelled 2 orders.');
+  expect(m.requests('DELETE', 'orders')).toHaveLength(1);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByText('No open orders.')).toBeVisible();
+});
+
+test('data status: one chip, each feed on its own line; one failed feed makes it a problem', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  const chip = page.getByRole('button', { name: /Data status/ });
+  await expect(chip).toContainText('Data OK');
+  await chip.click();
+  const pop = page.locator('.dk-feed-pop');
+  for (const line of ['Sign-in', 'Order book', 'Prices', 'Your orders', 'Your balances']) await expect(pop).toContainText(line);
+  await expect(pop).toContainText('Signed in');
+  await expect(pop).toContainText('not a live stream');
+  await shot(page, 'desk-data-status-ok');
+  await page.keyboard.press('Escape');
+  m.exchange.opts.fail.orders = 500;
+  await expect(chip).toContainText('Data problem', { timeout: 50000 });
+  await chip.click();
+  await expect(pop).toContainText('Couldn’t load');
+  await shot(page, 'desk-data-status-problem');
+});
+
+test('fee line: this order’s rate and role from the check, and the listed pair beside it', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await expect(buyForm(page)).toContainText('Fee up to 0.10%'); // a resting limit may fill as a maker, so "up to"
+  await expect(buyForm(page)).toContainText('Listed: maker 0.08% · taker 0.12%');
+});
+
+test('a frozen ledger: the service refuses the order with a generic error; the desk says orders are paused, nothing rests, Buy works again', async ({
+  page,
+}) => {
+  const m = await mount(page);
+  await ready(page);
+  m.exchange.opts.placeMode = { status: 400, json: { code: 'ExchangeError', message: 'ledger.frozen', intafacedCode: 'LedgerError' } };
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  await openReview(page);
+  const headBefore = (await page.locator('.dk-bottom-head').boundingBox()).y;
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Orders are paused right now');
+  // The refusal floats: the order monitor stays exactly where it was.
+  expect((await page.locator('.dk-bottom-head').boundingBox()).y).toBe(headBefore);
+  await expect(buyForm(page)).toContainText("this one wasn't placed");
+  await expect(buyForm(page)).not.toContainText("can't be done right now");
+  // The desk does not look ready to trade: the status chip says orders are paused, and the layout did not move.
+  await expect(page.getByRole('button', { name: /Data status/ })).toContainText('Orders paused');
+  await expect(page.getByText('No open orders.')).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
+  await expect(buyButton(page)).toBeEnabled();
+  expect(m.requests('POST', 'orders')).toHaveLength(1);
+  await shotBoth(page, 'desk-orders-paused');
+});
+
+test('edit: a higher amount is refused here; a refused or failed replacement never claims the old order is safe', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await pickTif(page, 'Post only');
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+
+  // More than is left: not sent from here.
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0005');
+  await expect(dialog).toContainText('You can only lower the amount here');
+  await expect(dialog.getByRole('button', { name: 'Change amount' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Keep order' })).toBeVisible(); // not "Cancel": the order stays live
+  expect(m.requests('PATCH', 'orders/order-1')).toHaveLength(0);
+
+  // Post-only moved to a price that would match: the old order is cancelled and the new one is REFUSED. Not "Replaced".
+  await dialog.getByRole('textbox', { name: 'Amount left' }).fill('0.0002');
+  await dialog.getByRole('textbox', { name: 'Price' }).fill('65001');
+  await dialog.getByRole('button', { name: 'Review replacement' }).click();
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  await expect(dialog).toContainText('the new order was refused');
+  await expect(dialog).not.toContainText('Replaced.');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByText('No open orders.')).toBeVisible(); // the dialog's answer stayed on screen until closed
+
+  // The service fails AFTER cancelling the original: the dialog says it cannot tell, and stops.
+  await pickTif(page, 'Good till cancelled');
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await openReview(page);
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(1);
+  m.exchange.opts.replaceError = true;
+  await openTable(page)
+    .getByRole('button', { name: /Edit buy order/ })
+    .click();
+  await dialog.getByRole('textbox', { name: 'Price' }).fill('63990');
+  await dialog.getByRole('button', { name: 'Review replacement' }).click();
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  await expect(dialog).toContainText('Your old order may already be cancelled');
+  await expect(dialog.getByRole('button', { name: 'Replace order' })).toHaveCount(0);
+  await expect(dialog).not.toContainText('Orders are paused');
+  expect(m.errors).toEqual([]);
 });

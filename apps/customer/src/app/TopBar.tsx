@@ -12,6 +12,9 @@ import { ShellIcon } from './icons';
 import { accountMenu, tabSpecs, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
+import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
+import { isMerchantArea } from '../features/pay/portal/chrome/model';
+import { GroupedMenu, groups } from '../features/pay/portal/home-layout/Navigation';
 
 /** Sets `--if-banner-offset` to the local stack's banner height (28 px), or 0 when there is no banner. */
 export function useBannerOffset() {
@@ -52,7 +55,10 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
   const link = useRef<HTMLAnchorElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const menuId = useId();
-  const hasMenu = tab.items.length > 0;
+  const groupedPay =
+    tab.door === 'Pay' &&
+    groups.some((g) => g.items.some(([href]) => location.pathname === href || location.pathname.startsWith(href + '/')));
+  const hasMenu = Boolean(groupedPay) || tab.items.length > 0;
   const show = () => {
     clearTimeout(timer.current);
     if (hasMenu) setOpen(true);
@@ -96,19 +102,23 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
         <div className="tb-popover tb-menu" id={menuId}>
-          <ul>
-            {tab.items.map((item) => (
-              <li key={item.id}>
-                <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
-                  <ShellIcon name={item.icon} />
-                  <span>
-                    <strong>{t(item.title)}</strong>
-                    <small>{t(item.description)}</small>
-                  </span>
-                </a>
-              </li>
-            ))}
-          </ul>
+          {groupedPay ? (
+            <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
+          ) : (
+            <ul>
+              {tab.items.map((item) => (
+                <li key={item.id}>
+                  <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
+                    <ShellIcon name={item.icon} />
+                    <span>
+                      <strong>{t(item.title)}</strong>
+                      <small>{t(item.description)}</small>
+                    </span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </li>
@@ -237,11 +247,12 @@ export function TopBar({
 }) {
   const { t } = shellCopy.useCopy();
   const { language, layoutMode } = usePreferences();
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
-  const tabs = tabSpecs(layoutMode, Boolean(session));
+  const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
+  if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
     <>
       <header className="tb">
@@ -263,6 +274,9 @@ export function TopBar({
               {notificationsLive && <BellPopover path={path} />}
               <AccountButton onSignOut={onSignOut} />
             </>
+          ) : restoring ? (
+            // The boot refresh has not answered: show neither the signed-in controls nor Log in / Sign up.
+            <span className="tb-restoring" aria-hidden="true" />
           ) : (
             <>
               <a className="tb-login" href={signIn}>
@@ -284,10 +298,10 @@ export function TopBar({
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   return (
     <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
-      {tabSpecs(layoutMode, Boolean(session)).map((tab) => (
+      {tabSpecs(layoutMode, Boolean(session) || restoring).map((tab) => (
         <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
           <ShellIcon name={tab.icon} />
           {doorLabel(tab.door, language)}

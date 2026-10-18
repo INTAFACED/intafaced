@@ -11,7 +11,7 @@ export const securityCopy = defineCopy(
     empty: 'No passkeys yet',
     emptyBody: 'Add a passkey to sign in using your device or security key.',
     window: 'Showing up to {limit} passkeys.',
-    maximum: 'This window ends at 200 credentials. Older credentials are not represented.',
+    maximum: 'Up to 200 passkeys are shown; older ones are not listed.',
     refresh: 'Refresh passkeys',
     expand: 'Show more',
     added: 'Added {time}',
@@ -50,7 +50,7 @@ export const securityCopy = defineCopy(
     unknown: 'Confirmation not received',
     unknownBody: 'The original action was sent and its result is still unknown. Do not repeat this action.',
     lookup: 'A current list or status cannot confirm this original request. These references stay available when you return.',
-    preparationUnknown: 'Setup response not received',
+    preparationUnknown: 'Setup result not received',
     optionsBoundary:
       'Preparation was requested, but no account credential registration was sent. Adding a passkey again is a separate choice; the earlier request stays unconfirmed.',
     setupBoundary:
@@ -63,18 +63,18 @@ export const securityCopy = defineCopy(
     confirmKind: 'Authenticator confirmation',
     logoutKind: 'Global sign-out',
     sent: 'Sending the original action',
-    receipt: 'Original security response',
+    receipt: 'Security action result',
     registered: 'The service registered the original browser credential.',
     removed: 'The service removed the reviewed credential.',
     notRemoved: 'No credential was removed. It may be absent or outside this account. This does not recover an earlier unknown request.',
     signedOut: 'The service ended {count} live sessions for the original account.',
     changed: 'The account, session or original review changed. No further security action was sent.',
-    keyChanged: 'The reviewed credential changed or is outside this window. No removal was sent. Refresh and review again.',
+    keyChanged: 'The passkey changed or is no longer in the list. Nothing was removed. Refresh and review again.',
     setupChanged: 'Another setup replaced this original setup. Its old key is hidden. Review a new setup to continue.',
     storage: 'The original request cannot be safely saved or read on this device. No new security action is sent.',
-    guardRetained: 'Response received; saved guard retained',
+    guardRetained: 'Result received; browser record kept',
     guardBody:
-      'A known response was received, but its original saved guard could not be removed safely. Contact Support before another action in this group.',
+      'A known result was received, but the record this browser saved for it could not be cleared safely. Contact Support before another action in this group.',
     another: 'Another tab is preparing or sending a security action for this account. Nothing was sent here.',
     locks: 'This browser can’t do this safely. Nothing was sent. Try Chrome, Safari or Firefox.',
     unsupported: 'Passkeys require a supported browser and a secure connection. No registration was sent.',
@@ -94,10 +94,10 @@ export const securityCopy = defineCopy(
         'Usa tu dispositivo o llave de seguridad. El registro de cuenta se envía solo después del proceso del navegador y de comprobar la cuenta actual.',
       empty: 'No se devolvieron claves de acceso',
       emptyBody: 'Añade una clave para iniciar sesión con tu dispositivo o llave de seguridad.',
-      window: 'Se muestran hasta {limit} credenciales recientes; las anteriores pueden quedar fuera de esta ventana.',
-      maximum: 'Esta ventana termina en 200 credenciales. Las anteriores no están representadas.',
+      window: 'Se muestran hasta {limit} claves de acceso.',
+      maximum: 'Se muestran hasta 200 claves de acceso; las más antiguas no aparecen.',
       refresh: 'Actualizar claves de acceso',
-      expand: 'Ampliar ventana de credenciales',
+      expand: 'Mostrar más',
       added: 'Añadida el {time}',
       reviewRemoval: 'Revisar eliminación',
       reviewCredential: 'Revisar eliminación de la credencial {id}',
@@ -141,7 +141,7 @@ export const securityCopy = defineCopy(
       unknownBody: 'La acción original se envió y su resultado sigue siendo desconocido. No repitas esta acción.',
       lookup:
         'Una lista o un estado actual no pueden confirmar esta solicitud original. Estas referencias seguirán disponibles cuando vuelvas.',
-      preparationUnknown: 'No se recibió la respuesta de configuración',
+      preparationUnknown: 'No se recibió el resultado de la configuración',
       optionsBoundary:
         'Se solicitó la preparación, pero no se envió ningún registro de credencial de cuenta. Añadir otra clave es una elección independiente; la solicitud anterior sigue sin confirmar.',
       setupBoundary:
@@ -154,22 +154,21 @@ export const securityCopy = defineCopy(
       confirmKind: 'Confirmación del autenticador',
       logoutKind: 'Cierre de todas las sesiones',
       sent: 'Enviando la acción original',
-      receipt: 'Respuesta de seguridad original',
+      receipt: 'Resultado de la acción de seguridad',
       registered: 'El servicio registró la credencial original del navegador.',
       removed: 'El servicio eliminó la credencial revisada.',
       notRemoved:
         'No se eliminó ninguna credencial. Puede no existir o estar fuera de esta cuenta. Esto no recupera una solicitud anterior desconocida.',
       signedOut: 'El servicio cerró {count} sesiones activas de la cuenta original.',
       changed: 'La cuenta, sesión o revisión original cambió. No se envió ninguna otra acción de seguridad.',
-      keyChanged:
-        'La credencial revisada cambió o está fuera de esta ventana. No se envió ninguna eliminación. Actualiza y revisa de nuevo.',
+      keyChanged: 'La clave de acceso cambió o ya no está en la lista. No se eliminó nada. Actualiza y revisa de nuevo.',
       setupChanged:
         'Otra configuración reemplazó esta configuración original. Su clave anterior está oculta. Revisa una nueva configuración para continuar.',
       storage:
         'La solicitud original no se puede guardar o leer con seguridad en este dispositivo. No se envía ninguna acción de seguridad nueva.',
-      guardRetained: 'Respuesta recibida; protección guardada conservada',
+      guardRetained: 'Resultado recibido; registro del navegador conservado',
       guardBody:
-        'Se recibió una respuesta conocida, pero no se pudo eliminar con seguridad su protección original. Contacta con Soporte antes de otra acción de este grupo.',
+        'Se recibió un resultado conocido, pero el registro que guardó este navegador no se pudo borrar con seguridad. Contacta con soporte antes de otra acción de este grupo.',
       another: 'Otra pestaña está preparando o enviando una acción de seguridad para esta cuenta. Aquí no se envió nada.',
       locks: 'La coordinación segura entre pestañas no está disponible. No se envió ninguna acción de seguridad.',
       unsupported: 'Las claves de acceso requieren un navegador compatible y una conexión segura. No se envió ningún registro.',
@@ -189,10 +188,10 @@ export const securityCopy = defineCopy(
         'Utilisez votre appareil ou votre clé de sécurité. L’enregistrement du compte est envoyé uniquement après la procédure du navigateur et la vérification du compte actuel.',
       empty: 'Aucune clé d’accès reçue',
       emptyBody: 'Ajoutez une clé pour vous connecter avec votre appareil ou votre clé de sécurité.',
-      window: 'Jusqu’à {limit} identifiants récents sont affichés ; les plus anciens peuvent être hors de cette fenêtre.',
-      maximum: 'Cette fenêtre est limitée à 200 identifiants. Les plus anciens ne sont pas représentés.',
+      window: 'Jusqu’à {limit} clés d’accès sont affichées.',
+      maximum: 'Jusqu’à 200 clés d’accès sont affichées ; les plus anciennes ne sont pas listées.',
       refresh: 'Actualiser les clés d’accès',
-      expand: 'Élargir la fenêtre des identifiants',
+      expand: 'Afficher plus',
       added: 'Ajoutée le {time}',
       reviewRemoval: 'Examiner la suppression',
       reviewCredential: 'Examiner la suppression de l’identifiant {id}',
@@ -236,7 +235,7 @@ export const securityCopy = defineCopy(
       unknownBody: 'L’action initiale a été envoyée et son résultat reste inconnu. Ne la répétez pas.',
       lookup:
         'Une liste ou un état actuel ne peut pas confirmer cette demande initiale. Ces références restent disponibles à votre retour.',
-      preparationUnknown: 'Réponse de configuration non reçue',
+      preparationUnknown: 'Résultat de la configuration non reçu',
       optionsBoundary:
         'La préparation a été demandée, mais aucun enregistrement de clé de compte n’a été envoyé. Ajouter une clé est un choix distinct ; la demande précédente reste non confirmée.',
       setupBoundary:
@@ -249,22 +248,21 @@ export const securityCopy = defineCopy(
       confirmKind: 'Confirmation de l’authentificateur',
       logoutKind: 'Déconnexion générale',
       sent: 'Envoi de l’action initiale',
-      receipt: 'Réponse de sécurité initiale',
+      receipt: 'Résultat de l’action de sécurité',
       registered: 'Le service a enregistré l’identifiant initial du navigateur.',
       removed: 'Le service a supprimé l’identifiant examiné.',
       notRemoved:
         'Aucun identifiant n’a été supprimé. Il peut être absent ou hors de ce compte. Cela ne résout pas une demande précédente au résultat inconnu.',
       signedOut: 'Le service a fermé {count} sessions actives du compte initial.',
       changed: 'Le compte, la session ou l’examen initial a changé. Aucune autre action de sécurité n’a été envoyée.',
-      keyChanged:
-        'L’identifiant examiné a changé ou est hors de cette fenêtre. Aucune suppression n’a été envoyée. Actualisez et examinez à nouveau.',
+      keyChanged: 'La clé d’accès a changé ou n’est plus dans la liste. Rien n’a été supprimé. Actualisez puis examinez de nouveau.',
       setupChanged:
         'Une autre configuration a remplacé la configuration initiale. Son ancienne clé est masquée. Examinez une nouvelle configuration pour continuer.',
       storage:
         'La demande initiale ne peut pas être enregistrée ou lue de façon sûre sur cet appareil. Aucune nouvelle action de sécurité n’est envoyée.',
-      guardRetained: 'Réponse reçue ; protection enregistrée conservée',
+      guardRetained: 'Résultat reçu ; trace du navigateur conservée',
       guardBody:
-        'Une réponse connue a été reçue, mais sa protection initiale n’a pas pu être supprimée de façon sûre. Contactez l’assistance avant une autre action de ce groupe.',
+        'Un résultat connu a été reçu, mais la trace enregistrée par ce navigateur n’a pas pu être effacée en sécurité. Contactez l’assistance avant une autre action de ce groupe.',
       another: 'Un autre onglet prépare ou envoie une action de sécurité pour ce compte. Rien n’a été envoyé ici.',
       locks: 'La coordination sûre entre onglets est indisponible. Aucune action de sécurité n’a été envoyée.',
       unsupported: 'Les clés d’accès nécessitent un navigateur compatible et une connexion sûre. Aucun enregistrement n’a été envoyé.',

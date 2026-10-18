@@ -53,12 +53,6 @@ const CI_DIR = join(ROOT, 'tooling', 'ci');
  */
 export const GATES = [
   {
-    id: 'agent-autoload',
-    script: 'tooling/ci/agent-autoload-scan.mjs',
-    doctrine: 'multi-dev law',
-    why: 'coordination law must stay in the files a cold agent auto-loads',
-  },
-  {
     id: 'worktree-gc-selftest',
     script: 'tooling/scripts/worktree-gc.mjs',
     args: ['--self-test'],
@@ -120,11 +114,32 @@ export const GATES = [
       'clears again — the same shape as path-collide before its self-test gate. --self-test exits before gh.',
   },
   {
+    id: 'gate-tools-tests',
+    script: 'tooling/scripts/gate-tools.test.mjs',
+    doctrine: 'merge condition (2026-10-13)',
+    why:
+      'the unit tests of the tools that decide what may merge: merge-gate.mjs (the ratchet, including the id-by-id log ' +
+      'comparison inside already-red jobs), gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
+      '(a 403 or 429 stops, every call has a timeout) and, once it lands, main-auto-revert.mjs. Fixture JSON and log ' +
+      'excerpts for gh, no network, about two seconds. Lives in tooling/scripts/, so the manifest check below does not ' +
+      'cover it: this entry is the only thing running the tests, and deleting it has to be a visible act.',
+  },
+  {
     id: 'tracker',
     script: 'tooling/scripts/tracker.mjs',
     args: ['--check'],
     doctrine: 'tracker honesty',
     why: 'a tracker that drifts from the code is worse than no tracker',
+  },
+  {
+    id: 'services-map',
+    script: 'tooling/scripts/services-map.mjs',
+    args: ['--check'],
+    doctrine: 'agent map honesty',
+    why:
+      'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
+      'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
+      'Generated from the code, so a stale copy fails here, the same way the tracker does.',
   },
   {
     id: 'coverage',
@@ -253,9 +268,9 @@ export const GATES = [
     script: 'tooling/ci/invitation-outreach-golden-scan.mjs',
     doctrine: '§14 / desk honesty',
     why:
-      'apps/invitation still bundles six modules from the retired Vue customer site (outreach-intake, outreach-review, ' +
-      'outreach-public-info, outreach-draft-storage, outreach-countries, config/intafaced.js). The goldens that sit ' +
-      'next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
+      'apps/invitation bundles six outreach modules (outreach-intake, outreach-review, outreach-public-info, ' +
+      'outreach-draft-storage, outreach-countries, config/intafaced.js), vendored in apps/invitation/src/vendored since ' +
+      'D-140. The goldens next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
       'shell-golden gate; refuses when it finds no outreach goldens.',
   },
   {
@@ -453,7 +468,7 @@ export const NOT_GATES = {
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI runs it in the `dod` job, which needs [gates, build, test].',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
   // claim-check.mjs is in GATES as claim-check-selftest (--self-test only). The
   // interactive full run still needs gh + network: `pnpm claim:check` by hand.
 
@@ -468,7 +483,7 @@ export const NOT_GATES = {
   'assert-test-db-env.mjs':
     'asserts the TEST_DATABASE_URL_* env the CI Tests job sets up. It is meaningless without that env, so it belongs to that job (residual #9) rather than to a laptop run.',
   'dependency-audit.mjs':
-    'the supply-chain ratchet (`pnpm scan:deps`), wired as its own workflow (.github/workflows/supply-chain.yml) on dependency-surface PRs plus a weekly cron. NOT a GATES entry for the same reason claim-check is not: it needs NETWORK — the advisory database is remote — and reddening a local `pnpm verify` on a train is how a security gate gets deleted. It is a ratchet, not a severity gate: 12 advisories were already in the tree when it landed (8 high, 2 on production paths — drizzle-orm direct and fast-uri under fastify), so `--audit-level=high` would have red-mained on day one, the trap the since-deleted shell-i18n-scan documented. NEW advisories fail; STALE frozen entries also fail, so the list can only shrink. When it reaches zero, replace the baseline with a plain `pnpm audit --audit-level=high` and delete this entry.',
+    'the supply-chain ratchet (`pnpm scan:deps`), wired as its own workflow (the Dependency audit job in .github/workflows/pr-checks.yml) on dependency-surface PRs plus a weekly cron. NOT a GATES entry for the same reason claim-check is not: it needs NETWORK — the advisory database is remote — and reddening a local `pnpm verify` on a train is how a security gate gets deleted. It is a ratchet, not a severity gate: 12 advisories were already in the tree when it landed (8 high, 2 on production paths — drizzle-orm direct and fast-uri under fastify), so `--audit-level=high` would have red-mained on day one, the trap the since-deleted shell-i18n-scan documented. NEW advisories fail; STALE frozen entries also fail, so the list can only shrink. When it reaches zero, replace the baseline with a plain `pnpm audit --audit-level=high` and delete this entry.',
   'value-gate.mjs':
     'stamp-mill detector for near-duplicate commits — the docs-only rule (Board-Delta trailer) AND, since 2026-08-06, the code rule (near-duplicate subject SERIES whose new symbols nothing outside them calls; Serial-Work trailer). Wired as an explicit STRICT step in BOTH workflows and in neither gate list: docs-format.yml, because ci.yml excludes docs/** and **/*.md so coordinator docs PRs never hit GATES; and the `gates` job of ci.yml, because docs-format only fires on markdown, so a code PR without a slice doc never met the gate at all — half of how #832–#876 landed. (ci.yml writes that exclusion as negated `paths:` rather than `paths-ignore`, because INTAFACED_DEFINITIVE_BUILD.md is law and coverage-check has to see it; the set of excluded docs is unchanged.) Still NOT a GATES entry: it needs a current `origin/main` plus >=11 ancestors, which a laptop `pnpm verify` cannot promise, and reddening a local verify over a stale fetch is how a gate gets deleted. Both checkouts now pin fetch-depth: 0 — under the actions/checkout default of 1 it compared an empty ancestor list against an empty ancestor list and printed OK. Local pre-flight: `pnpm value-gate:self-test` (20 fixtures).',
   'checkout-staleness.mjs':

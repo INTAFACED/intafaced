@@ -20,11 +20,12 @@ import {
   useFavorites,
   useMarkets,
   useMovers,
-  usePortfolio,
+  useHomePortfolio,
+  DerivedTotalNote,
   useSparklines,
   useTickers,
   type Loadable,
-  type PortfolioSummary,
+  type HomePortfolio,
   type TickerRow,
 } from './deps';
 import { InfoTip } from './InfoTip';
@@ -90,7 +91,7 @@ function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) 
   );
 }
 
-function HoldingsCard({ portfolio, hidden }: { portfolio: PortfolioSummary; hidden: boolean }) {
+function HoldingsCard({ portfolio, hidden }: { portfolio: HomePortfolio; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
   const rows = [
     { id: 'cash', label: t('Cash'), glyph: '$', value: portfolio.cashUsd },
@@ -128,7 +129,7 @@ function HoldingsSkeleton() {
   );
 }
 
-function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>; hidden: boolean }) {
+function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
   const { timeZone } = usePreferences();
 
@@ -204,6 +205,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
           {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
         </p>
       ) : null}
+      <DerivedTotalNote source={data.source} className="home-note" />
       {unpriced > 0 ? (
         <p className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
@@ -218,7 +220,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<PortfolioSummary>;
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone } = usePreferences();
-  const portfolio = usePortfolio();
+  const portfolio = useHomePortfolio();
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);

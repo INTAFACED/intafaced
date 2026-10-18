@@ -1,55 +1,63 @@
 # Instructions for AI agents
 
-INTAFACED monorepo. Build the product and ship it.
+INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. Build it, check it yourself, and merge only through the rules below. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) says what is where.
 
-Doctrine: [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md). Protocol: [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md).
+## The product
 
-Locate code with `rg`, `rg --files`, and focused Git history. Graphify is retired; historical instructions to install, query, or update it are obsolete.
-
-## Ship (full access)
-
-1. Review, audit, and debug the change. **Merge when done.** Any agent may merge their own pull request.
-2. **Do not wait for CI green.** Full-suite CI and `pnpm verify` are informational; required branch-protection checks still apply. A 403 or 429 from `gh` means stop. Do not retry in a loop, do not switch accounts, and do not create a new token.
-3. Start without waiting for a person, an audit seal, FREEZE, a tracker claim, LIVE-LANES, or `pnpm ledger`. A blocked money path refuses closed, with an honest empty state. Leave the audit flag alone.
-4. Any product path is fair game once its dependencies are met, including money. A blank price, limit, or sanctions list stays blank: refuse that action with a typed error. Do not invent live §8 magnitudes or sanctions list content.
+1. The front end is React: `apps/customer` (Vite and React) and `apps/admin` (Next.js). Vue (`vendor/upstream-exchange/05_Web_Front`) is history. Never build on it.
+2. Find code with `rg` and `rg --files`. Read the target service's `README.md` before you edit it. Start any product path whose dependencies are met without waiting for a tracker claim, an audit seal or a person.
+3. Product law:
+   - "Parked" means visible with the real blocker named. Never hide a room, route or control.
+   - No "coming soon" screens. Every room gets its full layout and every control, with an honest empty or refuse state where its data or rail is not wired.
+   - No fake balances, books, metrics or sample numbers. Label any illustrative figure TEST.
+   - A blank price, limit, fee, sanctions list or provider setting stays blank: refuse with a typed error. Never invent live magnitudes.
+   - INTACHAIN P1 is approved (owner decision 2026-10-17; ADR update in #4640, which supersedes the "implement parked" lines in `docs/adr/2026-09-03-protocol-rails-until-intachain.md`). `svc-chain`, INTACORE and Predict are @shehzad002's lane unless assigned. `/chain`, `/dex` and `/protocol` must be visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
+   - A new look is the owner's call: bring two or three rendered options traced to a measured reference.
 
 ## Money
 
-1. Move value only through `packages/ledger-client`. No module holds its own balance.
-2. Never store money in a `number`. Decimal strings on the wire, scaled bigint in memory.
-3. A **second money book** is out. This redesign may replace the product UI and the unsettled color lock: [`docs/adr/2026-10-02-redesign-may-replace-product-ui.md`](docs/adr/2026-10-02-redesign-may-replace-product-ui.md). **Internet leverage law:** [`docs/INTERNET-LEVERAGE-LAW.md`](docs/INTERNET-LEVERAGE-LAW.md). Exchange take/keep/never: [`PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md`](PRO_TRADER_EXCHANGE_DEFINITIVE_SCOPE.md) **§0.3**. Leave FIX, SBE, and Greeks as adapters. Leave npm `ccxt` and a second CLOB uninstalled. INTACHAIN stays parked until Nitro writes GO.
+1. Move value only through `packages/ledger-client` recipes (`packages/ledger-client/src/recipes`). Never assemble entries inline. There is one custodial ledger (`svc-ledger`) and no module holds its own balance.
+2. Never store money in a `number`. Use decimal strings on the wire and scaled bigint in memory.
+3. A second money book is out: no service-held balances, no outside system as source of truth, no second order book, no npm `ccxt`. Leave FIX, SBE and Greeks as adapters.
+4. Idempotency keys are business keys (`deposit:crypto-native:0xabc`), never `randomUUID()`. Every money path tests its failure branches and has an invariant test. Ask: if this crashes exactly here, whose funds are stranded?
+5. Protocol Plane services never import ledger write recipes (`pnpm scan:custody`).
+6. Freezing one account belongs to `svc-identity`. The platform-wide posting freeze belongs to `svc-ledger`. Do not mix them up.
 
-## One chain of work
+## Services and events
 
-1. Work in a worktree (`pnpm wt <branch>`), never the main checkout. Bare `git worktree add` is the wrong start. Orca `worktree create` is the same thing with a sidebar card.
-2. One service per pull request. Never push `main`.
-3. If an open pull request already touches that service, or the same files, leave it and take a different part. Several agents may work at once on different parts.
-4. When you stop and this folder is not home, remove the worktree from the home checkout with `git worktree remove --force`. `orca worktree rm` deletes the branch. `git branch -D` deletes the branch. Leave home, OS, and PSP in place. `pnpm wt <branch>` restores a folder.
+1. One service per pull request. If another open PR touches the same service or files, take a different part.
+2. A cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first, then the service PR.
+3. Services never read each other's tables. Use tRPC through `packages/contracts` or an event. Publish only subjects declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
+4. User-facing copy names no partner or model vendor (`pnpm scan:brand`).
 
-## INTACHAIN
+## Check, then merge
 
-Trading stays on the house book. Base work that already exists continues. INTACHAIN stays parked until Nitro writes GO. Leave `svc-chain` and P1 unstarted. [`docs/adr/2026-09-03-protocol-rails-until-intachain.md`](docs/adr/2026-09-03-protocol-rails-until-intachain.md).
+1. Run the checks on your machine before you push: affected tests, typecheck, and `pnpm exec prettier --check` on every file you changed. Do not add GitHub rules or required checks.
+2. Merge only when both hold: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>`, run on the exact head from a clean, up-to-date `origin/main` checkout (not the PR's branch), passed or failed only on checks that item 3 accepts; and an independent review passed that same head. Every PR gets that review. What the gate (the tool) does: it waits for finished checks, requires Gitleaks and Dependency audit, blocks every red test shard (protocol, money, trade, pay-bank), blocks any other failing check that main's latest completed CI run does not share, and inside "Tests (full)" compares failing tests by name with main's last 5 completed runs. Inside "Tests (full)" it treats money and security packages like any other package. Item 3 is the stricter rule for them.
+3. Accepted reds (the reviewer's rule; it decides whether a gate FAIL may still merge). Every failing check must be one of these: (a) `CX-8 assembled smoke` failing on "Sanctions screening list is unset"; (b) `CI merge seal` failing only because of other accepted reds; (c) a test failure whose test file also failed in at least one of main's last 3 completed CI runs, or that lives in a package the PR does not touch and that does not depend on a package the PR touches. For money or security code — `packages/ledger-client`, every package that depends on `@intafaced/ledger-client` directly, and `services/svc-edge`, `services/svc-ops`, `services/svc-protocol` and `services/svc-fix` — (c) applies only when the PR changes no file in that package; a red in a protected package the PR touches blocks the merge even when main shares it. Every other failing check blocks. The gate never merges: run the merge command separately. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title and must pass main's copy of the gate. Agent-rule files are never docs-only.
+4. GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass. A gate PASS does not override them. Never bypass them.
+5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
+6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
+7. Never push `main`.
 
-## What you write
+## Git
 
-Spend the session on the product. `/grill-with-docs` may add one `GLOSSARY.md` entry, or one ADR in the existing dated `docs/adr/` shape, when a word or a hard-to-reverse decision has just settled. Do not start a `0001-` series. Status boards, LIVE-LANES, and tracker recooks stay unwritten.
+1. Work in a worktree, never the main checkout. `pnpm wt <branch>` creates one in a `<checkout-folder>-worktrees` folder beside the checkout (`sovereign-worktrees` for the Sovereign checkout).
+2. When your task is merged or handed off, stop any service you started, then remove your own worktree with `git worktree remove <path>`. Never use `--force`.
+3. Never delete a branch. Never run `pnpm wt:rm`, `pnpm wt:gc:apply` or `orca worktree rm`. Leave other agents' worktrees and running work alone.
 
-Coordination map, not a permission system: [`docs/COORDINATION-TRUTH-LAYERS.md`](docs/COORDINATION-TRUTH-LAYERS.md).
+## Skills and status files
 
-## Skills
+1. This file wins over a skill that says to wait for a person.
+2. Write no status boards and no tracker recooks; spend the session on the product.
 
-Use the installed skills. This file wins where a skill says to wait for a person, wait for CI, or use `git worktree add`.
+## Where things are
 
-## Agent skills
-
-### Issue tracker
-
-Issues and specs live as GitHub issues on Phantom-X-007/intafaced. Use the `gh` CLI only when an active account is logged in. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Canonical roles, each label equal to its name: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one root `GLOSSARY.md` and dated ADRs in `docs/adr/`. See `docs/agents/domain.md`.
+1. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): apps, services, packages, money flow, how to run.
+2. [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations procedures.
+3. [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape and money-path rules. [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md) is the original product spec. Where it disagrees with the code or this file, the code and this file win.
+4. Current truth is this file, `docs/ARCHITECTURE.md` and the generated `docs/SERVICES.md`, plus `docs/adr/`, `docs/runbooks/`, `docs/refs/` (measured front-end references) and `docs/agents/`. Everything else under `docs/` is history: each file opens with a "Not current rules" banner, and `docs/archive/` is history too. [`docs/README.md`](docs/README.md) lists what is kept and why. Where an ADR or any other doc disagrees with this file, this file wins.
+5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.
+6. Active work and owners: open GitHub PRs and issues (`gh pr list`, `gh issue list`). `docs/TRACKER.md`, `docs/LIVE-LANES.md` and `docs/ops/claims` are history.
+7. Services, ports and required env: the generated `docs/SERVICES.md`. Read the target service's `README.md` first.
+8. Customer front end: a top-level screen whose id is in `apps/customer/src/app/screens.ts` goes in `apps/customer/src/screens/<id>/index.tsx`. Every other room goes in `apps/customer/src/features/<area>/`, routed from that area's routes file (`rooms.tsx` in money, `<Area>Routes.tsx` elsewhere); feature-registry status is proof state (blocked = reachable, not yet proven live), never visibility. The merchant portal is `apps/customer/src/features/pay/portal/`. Add a new screen id to `ScreenId` in `apps/customer/src/app/screen-types.ts` first.

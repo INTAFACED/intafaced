@@ -1,4 +1,6 @@
 'use client';
+import { formatAsOf } from '@/lib/as-of';
+import { CRM_NOT_CONFIGURED_TEXT, CRM_REFUSED_TEXT, crmRefusalKind, crmUpstreamCode, type CrmRefusalKind } from './crm-refusal';
 /** Writes retain their request identity until a confirmed, validated receipt. */
 export type PendingCrmWrite = { inputKey: string; requestId: string };
 /** An input equal to this is replaced by the current time on every fetch, so "overdue" is measured when the data is read. */
@@ -8,13 +10,25 @@ export function resolveFetchTime(input: Record<string, unknown>, now = new Date(
 }
 /** A failed reload keeps what is on screen only when that value came from the very same request; otherwise it would be another filter's figures. */
 export const readFailureKeepsValue = (shownUrl: string | null, url: string) => shownUrl !== null && shownUrl === url;
+/** A refused CRM request, with what kind of refusal it was so a screen can drop actions that cannot help. */
+export class CrmBrowserError extends Error {
+  constructor(
+    message: string,
+    readonly kind: CrmRefusalKind,
+  ) {
+    super(message);
+  }
+}
 export async function crmJson<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...options, cache: 'no-store' });
   if (!response.ok) {
-    if (response.status === 401 || response.status === 403) throw new Error('Your founder session is unavailable. Sign in again.');
-    if (response.status === 409 || response.status === 412)
-      throw new Error('The record changed or this action was refused. Refresh and review before retrying.');
-    throw new Error('We could not confirm the request. Keep your entries and retry the same action.');
+    const kind = crmRefusalKind(response.status, crmUpstreamCode(await response.json().catch(() => null)));
+    if (kind === 'unconfigured') throw new CrmBrowserError(CRM_NOT_CONFIGURED_TEXT, kind);
+    if (kind === 'session') throw new CrmBrowserError('Your founder session is unavailable. Sign in again.', kind);
+    if (kind === 'refused') throw new CrmBrowserError(CRM_REFUSED_TEXT, kind);
+    if (kind === 'conflict')
+      throw new CrmBrowserError('The record changed or this action was refused. Refresh and review before retrying.', kind);
+    throw new CrmBrowserError('We could not confirm the request. Keep your entries and retry the same action.', kind);
   }
   return (await response.json()) as T;
 }
@@ -49,6 +63,8 @@ const TIME = new Intl.DateTimeFormat('en-GB', { timeStyle: 'short' });
 const RELATIVE = new Intl.RelativeTimeFormat('en-GB', { numeric: 'auto' });
 export const crmDate = (value: string) => DATE_TIME.format(new Date(value));
 export const crmTime = (value: string) => TIME.format(new Date(value));
+/** "Updated 02:58:05 UTC": when the workspace list was last read, in the shared founder time form, so the zone is never a guess. */
+export const crmUpdatedText = (value: string) => `Updated ${formatAsOf(value)}`;
 /** "in 2 days", "yesterday", "3 hours ago": for due dates and ages, next to crmDate, never instead of it. */
 export function crmRelative(value: string, now = Date.now()): string {
   const seconds = (Date.parse(value) - now) / 1000;

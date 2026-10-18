@@ -129,6 +129,8 @@ Modules may still call `rank.awardXp` directly — it is a `serviceProcedure` on
 
 **Password policy — length, not composition.** 12 characters minimum, no character-class rules. Composition requirements push people to `Password1!`; NIST dropped them for that reason.
 
+**Email confirmation.** `auth.requestEmailConfirmation` (signed-in session, not an API key) mails a one-time link to that account's own address. `auth.confirmEmail` sets `users.email_verified_at`. The token is stored only as a SHA-256, compared in constant time, and is single-use. Changing the email clears the stamp and consumes open proofs. `identity.me` returns `emailVerified`. Unset mail, lifetime (`IDENTITY_EMAIL_CONFIRM_TTL_SECONDS`), or rate budget (`IDENTITY_EMAIL_CONFIRM_RATE_MAX` and `IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS`) refuses with `auth.email_confirm_unwired`. The only transport is `IDENTITY_MAIL_TRANSPORT=local-outbox`, and only when `APP_ENV` is exactly `dev` or `test`; it appends a `LOCAL-TEST` line to `IDENTITY_LOCAL_MAIL_OUTBOX`. Staging and production stay unwired. No mail provider is configured.
+
 **Login timing.** An unknown account is compared against a _real_ hash of a random string, so it costs the same time as a wrong password. A hand-written fake would return early and leak the difference — that is an account-enumeration oracle.
 
 **TOTP — RFC 6238, implemented here.** ~60 lines of well-specified arithmetic, which lets the tests run the RFC's own published vectors. A dependency in the authentication path we cannot check against the spec is one we would be trusting blind. Constant-time comparison; ±1 step drift window.
@@ -192,6 +194,23 @@ credentials. Missing/malformed IDs, missing migrations or unverified users leave
 controls unconfigured. `/ready` reports `founderControls.configured`. The first
 verified pair is pinned in Postgres; changing environment IDs cannot replace it,
 and restarting cannot restore revoked operator entitlement.
+
+### Founder enrolment (before the pair is pinned)
+
+The two founders create their own accounts through `auth.registerFounder
+{invite, handle, email, password}` while public sign-up (`REGISTRATION_OPEN`)
+stays closed. Apply `drizzle/0028_founder_invites_used.sql`. Run
+`pnpm --filter @intafaced/svc-identity founder:invites` on a trusted machine: it
+prints two single-use codes (160 bits, base32, grouped) and exactly two lines to
+configure, `IDENTITY_FOUNDER_INVITE_HASHES` (two lowercase sha256 hex values) and
+`IDENTITY_FOUNDER_INVITE_EXPIRES_AT` (ISO 8601, 72 h out). It touches no network, file
+or database; give each code to one founder over a separate channel. Unset means
+closed. `auth.founderEnrolmentStatus` answers `{open}`: true only while the pair is
+not pinned, both variables are set, the expiry has not passed and an invite is unspent.
+Refusals (`intafacedCode`): `auth.invite_invalid`, `auth.invite_used`,
+`auth.invite_expired`, `auth.founder_enrolment_closed`. An invite is spent in the same
+transaction as the user insert; once the founder pair is pinned the door is shut for
+good. The new account enrols TOTP/passkey through the normal first-factor path.
 
 `accountControls.change`, `compliance.freezeIdentity`, `compliance.unfreezeIdentity`
 and `disableUser` require the shared strict identity command: `requestId`,

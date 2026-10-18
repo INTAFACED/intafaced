@@ -19,8 +19,8 @@ export type MarketKind = 'spot' | 'futures' | 'options';
 export type MarketStatus = 'pending' | 'active' | 'halted' | 'delisted';
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'market' | 'limit';
-export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'GTD' | 'GTT';
-export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required';
+export type TimeInForce = 'GTC' | 'IOC' | 'FOK' | 'PO' | 'MOC' | 'GTD' | 'GTT';
+export type OrderStatus = 'pending' | 'open' | 'filled' | 'cancelled' | 'rejected' | 'expired' | 'recovery_required' | 'hold_unknown';
 export type RecoveryReason = 'SUBMIT_UNKNOWN' | 'CANCEL_UNKNOWN' | 'AMEND_UNKNOWN' | 'RECONCILIATION_REQUIRED';
 export type AmendPriority = 'retained' | 'lost';
 export type Liquidity = 'maker' | 'taker';
@@ -32,6 +32,8 @@ export type Liquidity = 'maker' | 'taker';
  */
 export type ReconcileCase =
   | 'orphan_pending'
+  /** `pending` + zero hold, still inside the hold in-flight bound. Row stays. */
+  | 'pending_in_flight'
   | 'open_hold_no_engine'
   /** Funded engine-miss whose `trade.fills` do not prove no fill — hold stays. */
   | 'open_hold_no_engine_unknown'
@@ -83,6 +85,19 @@ export interface Market {
   readonly schedule: ScheduleKey;
   /** Paper / simulated market — never posts real ledger holds (academy paper drills). */
   readonly paper: boolean;
+  /** Human label. Absent on rows loaded before the column was selected. */
+  readonly displayName?: string;
+  /**
+   * Local TEST swap. Hidden from the public board unless TRADE_FUTURES_TEST_SEED
+   * is on. Never set by production config.
+   */
+  readonly test?: boolean;
+  /** Explicit seed values. Null on every production listing. */
+  readonly testFixture?: {
+    readonly leverageCap: string;
+    readonly markFeed: string;
+    readonly liquidationPolicy: string | Record<string, unknown>;
+  } | null;
   /**
    * Futures constitution style. `dated` requires expiry + owner fixing stamp.
    * Omitted / null on non-futures. kind=futures with null → perpetual (legacy rows).
@@ -144,7 +159,9 @@ export type ReplaceOutcomeCode =
   | 'RECONCILIATION_REQUIRED'
   | 'REPLACEMENT_SUBMIT_UNKNOWN'
   | 'REPLACEMENT_NOT_SUBMITTED'
-  | 'LIFECYCLE_REFUSED';
+  | 'LIFECYCLE_REFUSED'
+  /** Owner pre-trade limit would refuse the replacement; the original was left untouched (#4725). */
+  | 'LIMIT_REFUSED';
 
 /** Honest result of the two-step cancel → finalized release → submit saga. */
 export interface ReplaceOrderOutcome {
@@ -275,6 +292,17 @@ export type TradeErrorCode =
   | 'trade.lifecycle_transition_partial'
   | 'trade.lifecycle_transition_unknown'
   | 'trade.lifecycle_recovery_required'
+  /**
+   * `order.hold` did not answer, and a read of `order.hold:<orderId>` did not
+   * answer either. The row is `hold_unknown`. Retry the same clientOrderId.
+   * Do not treat this as a cancel.
+   */
+  | 'trade.hold_unknown'
+  /**
+   * The lost `order.hold` reply was read back and the hold was not booked.
+   * The intent row is gone. The same clientOrderId may be placed again.
+   */
+  | 'trade.hold_not_booked'
   | 'trade.product_disabled'
   | 'trade.matching_market_missing'
   | 'trade.matching_unavailable'
@@ -345,6 +373,8 @@ export type TradeErrorCode =
    * listing-row maker_bps/taker_bps (10/20) and never invented bps.
    */
   | 'trade.fee_schedule_blank'
+  /** A product's own maker/taker rate is unpublished. The spot rate is not charged in its place. */
+  | 'trade.fee_product_unpublished'
   /**
    * Forex/commodity production listing or place without settlement law
    * (D26-P1-T7 / §13 `socket.forex-settlement` — needs D26-P0-05 + fiat rails).
@@ -434,6 +464,18 @@ export type TradeErrorCode =
    */
   | 'trade.slippage_cap_unset'
   /**
+   * Market sell or flatten with no owner protection floor. Preview and place
+   * both refuse. Never `orderable: true` with a null protection price.
+   */
+  | 'trade.protection_unset'
+  /**
+   * Owner pre-trade limits (#4725): a published TRADE_MAX_ORDER / TRADE_MAX_POSITION /
+   * TRADE_MAX_LOSS would be exceeded. The limit is the owner's, never invented.
+   */
+  | 'trade.limit_max_order'
+  | 'trade.limit_max_position'
+  | 'trade.limit_max_loss'
+  /**
    * MM seed refused: TRADE_MM_SEED_HALF_SPREAD_BPS or TRADE_MM_SEED_STEP_BPS
    * blank / non-integer. Never invent 10.
    */
@@ -468,7 +510,12 @@ export type TradeErrorCode =
   | 'trade.algo_price_band'
   | 'trade.algo_mark_unusable'
   | 'trade.algo_mark_missing'
+  | 'trade.algo_mark_invalid'
+  /** Mark policy key blank at creation. Names `AlgoMarkPolicy.maxAgeSeconds`. */
+  | 'trade.algo_mark_policy_unset'
   | 'trade.algo_insufficient_balance'
+  /** Ledger balance read failed at creation. Never treated as enough funds. */
+  | 'trade.algo_balance_unreadable'
   | 'trade.algo_child_refused'
   | 'trade.algo_child_cancel_failed'
   | 'trade.algo_principal_unavailable'
@@ -516,6 +563,8 @@ export type TradeErrorCode =
   | 'trade.iceberg_display_missing'
   /** Iceberg display not smaller than total — trade does not invent a display. */
   | 'trade.iceberg_display_not_smaller'
+  /** REST iceberg door: peak is not a positive lot-multiple strictly below the order, or the order is not a limit in a PLACE lifecycle. */
+  | 'trade.iceberg_display_invalid'
   /** Option without a caller strike — trade does not invent a mark. */
   | 'trade.missing_strike'
   /** Option without a caller expiry — trade does not invent a mark. */
@@ -562,14 +611,27 @@ export type TradeErrorCode =
    * Place/fill/ledger without session or API-key id from the signed principal
    * (R-auth / PTX-M01-R05). Trade does not invent a session.
    */
-  | 'trade.auth_attribution_missing';
+  | 'trade.auth_attribution_missing'
+  /** Operator fat-finger notional is set and this order is past it. */
+  | 'trade.operator_fat_finger'
+  /** Operator collar (max price) is set and this order is past it. */
+  | 'trade.operator_collar'
+  /** Operator throttle is set and this account is already at it. */
+  | 'trade.operator_throttle'
+  /** Operator circuit breaker is set and no reference mark is configured. */
+  | 'trade.circuit_breaker_reference_unset';
 
 export class TradeError extends Error {
+  /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */
+  readonly data?: Readonly<Record<string, string>>;
+
   constructor(
     message: string,
     readonly code: TradeErrorCode,
+    data?: Readonly<Record<string, string>>,
   ) {
     super(message);
     this.name = 'TradeError';
+    this.data = data;
   }
 }

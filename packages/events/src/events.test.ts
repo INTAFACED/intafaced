@@ -951,6 +951,12 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       drift: '0.01',
       module: 'ledger',
     },
+    ledgerReconciliationRunFailed: {
+      errorCode: '57014',
+      phase: 'proof',
+      consecutiveIncomplete: 1,
+      runId: null,
+    },
     ledgerFreezeUpdated: {
       frozen: true,
       reason: 'reconciliation drift',
@@ -1108,6 +1114,24 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       amount: '0.01',
       assetId: 'USDT',
       chargeKey: 'agents.usage:w1',
+    },
+    personalRequestCreated: {
+      requestId: uid(),
+      payerUserId: uid(),
+      payeeHandle: 'ada',
+      amount: '12.5',
+      assetId: 'USDT',
+      note: 'lunch',
+      expiresAt: '2026-10-18T00:00:00.000Z',
+      sequence: 1,
+    },
+    personalRequestSettled: {
+      requestId: uid(),
+      payeeUserId: uid(),
+      payerHandle: 'bob',
+      amount: '12.5',
+      assetId: 'USDT',
+      ledgerTxId: uid(),
     },
     p2pOfferCreated: {
       offerId: uid(),

@@ -18,8 +18,20 @@ import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js
 import { createLedgerClient } from './ledger-client.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
+import { identityApprovalBook } from './admin/identity-approval.js';
+import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
+import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
+import { wireTradeOpsAdmin } from './admin/wire.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
+import {
+  conditionalTriggerScheduled,
+  createConditionalOrderService,
+  registerConditionalOrdersRest,
+  refuseFuturesRestingLimit,
+  startConditionalOrderJobs,
+} from './futures/conditional-orders/index.js';
+import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { registerPrivateRest } from './private-rest.js';
 import { attachExpireStash, bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { attachReduceOnlyStash, bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
@@ -27,6 +39,7 @@ import { attachPostOnlyStash, bindPostOnly, installPostOnlyPlace } from './spot/
 import { attachIocStash, bindIoc, installIocPlace } from './spot/ioc-place.js';
 import { attachFokStash, bindFok, installFokPlace } from './spot/fok-place.js';
 import { attachIcebergStash, bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { sqlIcebergDisplay } from './spot/iceberg-door.js';
 import { attachStopLimitStash, bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
 import { attachTrailingStopStash, bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
 import { attachOptionStash, bindOption, installOptionPlace } from './spot/option-place.js';
@@ -69,8 +82,10 @@ import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVen
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
 import { presentInsuranceListingPolicy } from './futures/insurance-listing-gate.js';
 import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
+import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
 import { resolveFundingMaxAbsRateForBoot } from './futures/funding-rate-bound.js';
@@ -82,6 +97,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
+import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
@@ -95,8 +111,12 @@ import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
 import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/fee-share-law.js';
+import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { sqlLeaderDirectory } from './copy/leader-directory.js';
+import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
+import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
@@ -126,6 +146,7 @@ await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
 await assertNoLocalTestLifecycleRows(sql, process.env);
 
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
   createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
@@ -156,11 +177,14 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['trade'],
 });
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
+const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+retainRawBody(app);
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
+  futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   optionsSettlementAssetLaw: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW,
   optionsSettlementFixing: env.TRADE_OPTIONS_SETTLEMENT_FIXING,
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
@@ -175,6 +199,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
+  holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
+  onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
 const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
@@ -221,29 +247,47 @@ const otc = new OtcDeskService(ledger, otcStakes, {
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
+const copyDisclosureLaw = parseCopyDisclosureLawJson(env.TRADE_COPY_DISCLOSURE_LAW);
+const copyStore = new SqlCopyFollowStore(sql);
+const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
+  if (!input.followId) throw new TradingControlError('auth.credential_denied');
+  const order = await trade.placeCopyMirror(
+    principal,
+    {
+      symbol: input.symbol,
+      marketId: input.marketId,
+      side: input.side,
+      type: 'limit',
+      qty: input.qty,
+      price: input.price,
+      tif: 'GTC',
+      clientOrderId: input.clientOrderId,
+    },
+    input.followId,
+  );
+  return { orderId: order.id };
+};
 const copy = new CopyService(ledger, {
   accountAdmission: tradingControls,
   feeShareLaw: copyFeeShareLaw,
   jurisdictionLaw: copyJurisdictionLaw,
-  store: new SqlCopyFollowStore(sql),
-  placeFollowerOrder: async (principal, input) => {
-    if (!input.followId) throw new TradingControlError('auth.credential_denied');
-    const order = await trade.placeCopyMirror(
-      principal,
-      {
-        symbol: input.symbol,
-        marketId: input.marketId,
-        side: input.side,
-        type: 'limit',
-        qty: input.qty,
-        price: input.price,
-        tif: 'GTC',
-        clientOrderId: input.clientOrderId,
-      },
-      input.followId,
-    );
-    return { orderId: order.id };
-  },
+  disclosureLaw: copyDisclosureLaw,
+  store: copyStore,
+  directory: sqlLeaderDirectory(sql, { now: () => new Date(), feeShareLaw: copyFeeShareLaw }),
+  placeFollowerOrder,
+  flattenCopyPosition: createFollowerFlattenPort({
+    sql,
+    ledger,
+    store: copyStore,
+    placeFollowerOrder,
+    slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+    bestBid: async (marketId) => {
+      const depth = await matching.depth(marketId, 1);
+      const best = depth.bids[0];
+      return best ? parseAmount(best[0]) : null;
+    },
+  }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
     return market ? { paper: market.paper } : null;
@@ -286,11 +330,20 @@ const copy = new CopyService(ledger, {
     };
   },
 });
-export const appRouter = createTradeRouter(trade, otc, copy, tradingControls);
+export const appRouter = createTradeRouter(
+  trade,
+  otc,
+  copy,
+  tradingControls,
+  wireTradeOpsAdmin({
+    sql,
+    trade,
+    ledger,
+    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+  }),
+);
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
-const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
-retainRawBody(app);
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);
@@ -354,6 +407,9 @@ const positions = new PositionService(sql, ledger, {
   profitSource,
   bus,
   maxLeverage,
+  // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
+  // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
+  ladder: futuresJobs.ladderGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
       await assertAdlDisclosureAcked(adlDisclosureAcks, userId);
@@ -364,6 +420,25 @@ const positions = new PositionService(sql, ledger, {
       throw err;
     }
   },
+});
+const conditionalJobsConfig = {
+  enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
+  intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
+};
+const conditionalOrders = createConditionalOrderService({
+  sql,
+  triggerScheduled: conditionalTriggerScheduled(conditionalJobsConfig),
+  publishedMark: async (marketId, symbol) => {
+    const mark = await futuresJobs.publicMark(marketId, symbol);
+    return mark?.price ?? null;
+  },
+  closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
+  placeLimit: refuseFuturesRestingLimit,
+});
+const conditionalJobs = startConditionalOrderJobs({
+  config: conditionalJobsConfig,
+  evaluate: () => conditionalOrders.evaluate({ enabled: true }),
+  onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
 });
 const candleJobs = startCandleJobs({
   sql,
@@ -414,6 +489,7 @@ const mmSeedJobs = startMmSeedJobs({
     targets: mmSeedTargets,
   },
   statePath: env.TRADE_MM_SEED_STATE_PATH,
+  operatorSeedAllows: (marketId) => readOperatorSeedAllows(sql, marketId),
   recordSeededOrder: async (row) => {
     await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::text::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
   },
@@ -443,6 +519,27 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
     settlementFixing: env.TRADE_OPTIONS_SETTLEMENT_FIXING,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
+});
+const holdUnknownSweep = startHoldUnknownSweepJobs({
+  trade,
+  config: {
+    enabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
+  },
+  onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onResult: (r) => {
+    if (r.alerts.length === 0) return;
+    app.log.error(
+      {
+        examined: r.examined,
+        booked: r.booked,
+        absent: r.absent,
+        stillUnknown: r.stillUnknown,
+        alerts: r.alerts,
+      },
+      'hold-unknown sweep — order.hold reply was lost',
+    );
+  },
 });
 const reconcileJobs = startEngineLedgerReconcileJobs({
   sql,
@@ -529,6 +626,7 @@ registerPublicRest(app, {
       indexPrice: null,
     };
   },
+  futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -541,10 +639,16 @@ registerPublicRest(app, {
     maxLeverage: maxLeverage == null ? null : formatAmount(maxLeverage),
   },
 });
+registerConditionalOrdersRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  serviceName: env.SERVICE_NAME,
+  orders: conditionalOrders,
+});
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   fundingForMarket: (marketId) => futuresJobs.getPublishedRate(marketId),
+  factsForMarket: (marketId, nowMs) => readFuturesTickerFacts(sql, marketId, new Date(nowMs)),
 });
 registerPositionPreviewRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -586,17 +690,30 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
   },
+  bestBid: async (marketId) => {
+    const depth = await matching.depth(marketId, 1);
+    const best = depth.bids[0];
+    return best ? parseAmount(best[0]) : null;
+  },
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   feeSchedule,
+  feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
+const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   publishFundingRate: (entry) => futuresJobs.publishFundingRate(entry),
+  recordFundingHistory: (row) => fundingHistory.record(row),
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
+  approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+});
+registerFundingHistory(app, {
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  historyForMarket: async (marketId) => fundingHistory.list(marketId),
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -690,9 +807,11 @@ registerPrivateRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketById: (marketId) => trade.marketById(marketId),
   markets: (limit) => trade.markets(limit),
+  feeSchedule,
+  now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
-  listPositions: (principal, symbol) => positions.listOpen(principal.userId, symbol),
+  listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
   openPosition: (principal, input) =>
@@ -706,10 +825,22 @@ registerPrivateRest(app, {
         marginMode: input.marginMode,
         collateralClass: input.collateralClass,
         clientOpenId: input.clientOpenId,
+        ...(input.reduceOnly ? { reduceOnly: true as const } : {}),
+        ...(input.positionMode ? { positionMode: input.positionMode } : {}),
       },
       principal,
     ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
+  marginModeAudit: sqlMarginModeSwitchAudit(sql),
+  closePositionQuantity: (principal, positionId, input) =>
+    positions.closeQuantity(principal.userId, positionId, {
+      quantity: parseAmount(input.quantity),
+      clientCloseId: input.clientCloseId,
+    }),
+  closeAllPositions: (principal, input) => positions.closeAll(principal.userId, input),
+  marginSummary: (principal) => positions.marginSummary(principal.userId),
+  readAccountMode: (principal) => positions.readAccountMode(principal.userId),
+  writeAccountMode: (principal, input) => positions.writeAccountMode(principal.userId, input),
   setLeverage: (principal, input) =>
     positions.setLeverage(
       {
@@ -748,6 +879,12 @@ registerPrivateRest(app, {
     presentAdlDisclosureWire(await adlDisclosureAcks.recordAck(principal.userId, ADL_DISCLOSURE_VERSION, new Date())),
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
+  convertExport: (principal, query) => trade.convertExport(principal, query),
+  rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  icebergDisplay: sqlIcebergDisplay(sql),
+  findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
+  listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
+  listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
 });
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
@@ -764,6 +901,7 @@ app.log.info(
     spotEnabled: env.TRADE_SPOT_ENABLED,
     futuresEnabled: env.TRADE_FUTURES_ENABLED,
     futuresJobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
+    conditionalJobsEnabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
     futuresJobs: futuresJobs.host.list(),
     venueMark: venueMarkConfigured ? { configured: true, symbolCount: venueMarkConfigured.symbolCount } : null,
     candleJobsEnabled: env.TRADE_CANDLE_JOBS_ENABLED,
@@ -776,6 +914,8 @@ app.log.info(
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
     reconcileJobs: reconcileJobs.host.list(),
+    holdUnknownSweepEnabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
+    holdUnknownSweep: holdUnknownSweep.host.list(),
     trpc: true,
   },
   'svc-trade ready',
@@ -784,11 +924,13 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       futuresJobs.stop();
+      conditionalJobs.stop();
       candleJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
+      holdUnknownSweep.stop();
       await Promise.all([...venueMaintainedBooks.values()].map((b) => b.close()));
       await app.close();
       for (const subscription of subscriptions) await subscription.unsubscribe();

@@ -32,6 +32,10 @@ export type VideoListItem = {
   readonly slug: string;
   readonly title: string;
   readonly path: 'foundations' | 'markets' | 'builder' | 'sovereign';
+  readonly durationSeconds: number | null;
+  readonly thumbnailUrl: string | null;
+  readonly language: string | null;
+  readonly captionsUrl: string | null;
 };
 
 export type VideoPlayback = {
@@ -79,7 +83,15 @@ export function videoGateFromEnv(env: {
 
 export function listAcademyVideos(deps: VideoLibraryDeps): readonly VideoListItem[] {
   assertVideoStorageConfigured(deps.storage);
-  return listVideoSpine().map((item) => ({ slug: item.slug, title: item.title, path: item.path }));
+  return listVideoSpine().map((item) => ({
+    slug: item.slug,
+    title: item.title,
+    path: item.path,
+    durationSeconds: item.durationSeconds,
+    thumbnailUrl: item.thumbnailUrl,
+    language: item.language,
+    captionsUrl: item.captionsUrl,
+  }));
 }
 
 export async function grantAcademyVideoPlayback(input: {

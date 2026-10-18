@@ -5,8 +5,7 @@ import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
-  bankActionPayloadHash,
-  readApprovalIds,
+  consumeBankOpsApproval,
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
@@ -14,10 +13,43 @@ import { BankError } from './errors.js';
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
+import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
 import { describeBusinessPolicy } from './business/business-policy.js';
+import { poolTotalsProcedure } from './ops/pool-totals.js';
+import { loanBookProcedure } from './ops/loan-book.js';
+import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import { rampHealthProcedure } from './ops/ramp-health.js';
+import { transferHealthProcedure } from './ops/transfer-health.js';
+import { failedTransfersProcedure } from './ops/failed-transfers.js';
+import { transferDetailProcedure } from './ops/transfer-detail.js';
+import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { createActivityRouter } from './activity/activity.router.js';
+import { createStatementsRouter } from './statements/statement.router.js';
+import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
+import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
+import { plainNote, plainReference } from './transfers/personal-pay.js';
+import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
+import {
+  addMemberBinding,
+  removeMemberBinding,
+  setMemberRoleBinding,
+  approveBinding,
+  createTransferBinding,
+  issueCardBinding,
+  proposeTransferBinding,
+  revealCardBinding,
+  revealCardPinBinding,
+  setCardLimitsBinding,
+  setCardPinBinding,
+  runPayrollBinding,
+  scheduleBinding,
+  scheduleToUserBinding,
+  toUserBinding,
+  unfreezeCardBinding,
+  type DoorBinding,
+} from './step-up/money-out-fields.js';
 
 /**
  * svc-bank's API.
@@ -134,7 +166,11 @@ function publicDoorWireMessage(err: BankError): string {
     err.code === 'bank.loan_health_price_unset' ||
     err.code === 'bank.recipient_cannot_receive' ||
     err.code === 'bank.recipient_check_unavailable' ||
-    err.code === 'bank.recipient_check_unset'
+    err.code === 'bank.recipient_check_unset' ||
+    err.code === 'bank.step_up_required' ||
+    err.code === 'bank.step_up_mismatch' ||
+    err.code === 'bank.step_up_used' ||
+    err.code === 'bank.step_up_unavailable'
   ) {
     return facing + ' (' + err.code + ')';
   }
@@ -160,15 +196,22 @@ function toTrpcError(err: unknown): TRPCError {
     switch (err.code) {
       case 'bank.space_not_found':
       case 'bank.schedule_not_found':
+      case 'bank.activity_not_found':
       case 'bank.pool_not_found':
       case 'bank.position_not_found':
       case 'bank.loan_not_found':
       case 'bank.loan_product_not_found':
+      case 'bank.personal_transfer_not_found':
+      case 'bank.ops_transfer_not_found':
+      case 'bank.personal_request_not_found':
+      case 'bank.personal_request_payer_unknown':
       case 'bank.auto_invest_not_found':
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.not_owner':
+      case 'bank.personal_request_not_payer':
+      case 'bank.personal_request_not_payee':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
       case 'bank.pool_underfunded':
       case 'bank.earn_principal_mismatch':
@@ -203,6 +246,9 @@ function toTrpcError(err: unknown): TRPCError {
       // input is malformed, and the same request may succeed later.
       case 'bank.loan_not_settled':
       case 'bank.loan_not_drawable':
+      // The last attempt on a pending loan is inside the in-flight bound: wait.
+      case 'bank.loan_attempt_too_recent':
+      case 'bank.loan_collateral_rejected':
       case 'bank.loan_liquidating':
       case 'bank.margin_call_required':
       case 'bank.loan_closed':
@@ -256,6 +302,23 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.schedule_conflict':
       case 'bank.business_payroll_conflict':
       case 'bank.business_request_conflict':
+      case 'bank.personal_transfer_conflict':
+      case 'bank.personal_request_conflict':
+      case 'bank.personal_request_closed':
+      case 'bank.personal_request_expired':
+      case 'bank.personal_request_amount_mismatch':
+      case 'bank.personal_request_payee_mismatch':
+      case 'bank.personal_request_claim_held':
+      case 'bank.business_change_pending':
+      case 'bank.card_issue_conflict':
+      case 'bank.card_command_conflict':
+      case 'bank.card_replace_conflict':
+      case 'bank.card_operator_frozen':
+      case 'bank.business_conflict':
+      case 'bank.transfer_message_conflict':
+      case 'bank.activity_note_conflict':
+      case 'bank.activity_dispute_conflict':
+      case 'bank.activity_dispute_exists':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -273,6 +336,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_not_found':
       case 'bank.card_not_active':
       case 'bank.card_limit_exceeded':
+      case 'bank.card_shipping_address_required':
+      case 'bank.card_pin_invalid':
       case 'bank.card_authorization_not_found':
       case 'bank.card_authorization_declined':
       case 'bank.card_authorization_closed':
@@ -304,10 +369,30 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.auto_invest_list_limit_unset':
       case 'bank.business_list_limit_unset':
       case 'bank.business_pending_list_limit_unset':
+      case 'bank.business_approvals_list_limit_unset':
+      case 'bank.business_cursor_invalid':
+      case 'bank.business_recipient_query':
       case 'bank.onramps_list_limit_unset':
       case 'bank.offramps_list_limit_unset':
       case 'bank.convert_markets_limit_unset':
       case 'bank.validation_failed':
+      case 'bank.activity_range':
+      case 'bank.statement_range':
+      case 'bank.personal_note_invalid':
+      case 'bank.personal_reference_invalid':
+      case 'bank.personal_transfer_limit_exceeded':
+      case 'bank.personal_transfer_daily_limit_exceeded':
+      case 'bank.personal_request_self':
+      case 'bank.personal_request_list_limit_unset':
+      case 'bank.ops_reason_too_short':
+      case 'bank.card_programme_span_unset':
+      case 'bank.card_programme_span_too_long':
+      case 'bank.ramp_health_window_unset':
+      case 'bank.transfer_health_window_unset':
+      case 'bank.failed_transfers_window_unset':
+      case 'bank.failed_transfers_limit_unset':
+      case 'bank.failed_transfers_cursor_invalid':
+      case 'bank.ops_business_approvals_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -316,12 +401,26 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.card_sim_not_live':
       case 'bank.cashback_pot_unfunded':
       case 'bank.rewards_issuer_unset':
+      case 'bank.rewards_asset_ambiguous':
+      case 'bank.card_pan_issuer_unset':
+      case 'bank.card_pin_issuer_unset':
+      case 'bank.card_wallet_issuer_unset':
       case 'bank.no_ramp_rail':
       case 'bank.live_ramp_unset':
       case 'bank.no_paycheck_rail':
       case 'bank.fiat_ramp_no_pay_adapter':
       case 'bank.no_fiat_rail':
       case 'bank.fiat_ramp_socket':
+      case 'bank.onramp_rate_unset':
+      case 'bank.onramp_quote_missing':
+      case 'bank.onramp_quote_expired':
+      case 'bank.onramp_instruction_missing':
+      case 'bank.offramp_fee_unset':
+      case 'bank.offramp_fee_inconsistent':
+      case 'bank.deposit_custody_unset':
+      case 'bank.deposit_catalogue_invalid':
+      case 'bank.deposit_asset_unpublished':
+      case 'bank.deposit_pending_unbounded':
       case 'bank.withdraw_destination_missing':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
@@ -331,6 +430,22 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.earn_rate_unset':
       case 'bank.auto_invest_rate_unset':
       case 'bank.business_payroll_rate_unset':
+      case 'bank.business_directory_unset':
+      case 'bank.business_directory_incomplete':
+      case 'bank.business_last_admin':
+      case 'bank.business_close_blocked':
+      case 'bank.business_member_has_pending':
+      // The client must run its step-up sheet (passkey or TOTP) and retry with `stepUpApprovalId`.
+      case 'bank.step_up_required':
+      case 'bank.step_up_mismatch':
+      case 'bank.step_up_used':
+      case 'bank.activity_lookup_bounded':
+      case 'bank.statement_pdf_one_month':
+      case 'bank.statement_too_large':
+      case 'bank.personal_transfer_terms_unset':
+      case 'bank.personal_transfer_fee_unwired':
+      case 'bank.pay_request_notify_unwired':
+      case 'bank.party_handles_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -349,11 +464,19 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ledger_outcome_unknown':
       // Identity could not answer; nothing was posted. Retry with the same id.
       case 'bank.recipient_check_unavailable':
+      // Identity could not confirm the step-up approval; nothing was posted.
+      case 'bank.step_up_unavailable':
+      case 'bank.party_handles_unavailable':
+      case 'bank.business_directory_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
+
+      case 'bank.business_directory_rate_limited':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });
 
       // svc-trade's prices could not be read. A retry later may work; the
       // caller sent nothing wrong.
       case 'bank.prices_unavailable':
+      case 'bank.statement_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -560,7 +683,25 @@ export type BankRouterOptions = {
    * injects unwired — tests pass stubApprovalConsumer(approverId).
    */
   approvals?: ActionApprovalConsumer;
+  /**
+   * Money-out step-up (BANK_STEP_UP_MONEY_OUT). Omitted or `off` leaves the money-out doors as they
+   * were. Card number, CVV and PIN reveal/set are the exception: they refuse
+   * `bank.step_up_unavailable` until the mode is `required`. When `required`, sends to other users,
+   * business payments and membership, card unfreeze/issue and standing orders to other people need
+   * `stepUpApprovalId` (a same-person identity approval).
+   */
+  stepUp?: StepUpGate;
 };
+
+/** Optional on the wire so a missing approval is `bank.step_up_required`, not a Zod error. */
+const stepUpApprovalField = z.string().min(1).max(128).optional();
+
+function refuseCardSecretWithoutStepUp(): never {
+  throw new BankError(
+    'Showing or setting card secrets needs step-up, and step-up is not switched on in this deployment.',
+    'bank.step_up_unavailable',
+  );
+}
 
 const actionApprovalFields = {
   confirmOperatorId: z.string().max(128).nullish(),
@@ -576,28 +717,37 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const autoInvestEnabled = options.autoInvestEnabled ?? true;
   const autoInvestConvertWired = options.autoInvestConvertWired ?? false;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const stepUp = options.stepUp ?? stepUpOff;
+  const stepUpEnforced = stepUp.mode === 'required';
+
+  async function requireStepUp(
+    principal: { readonly userId: string; readonly sid: string },
+    binding: DoorBinding,
+    approvalId: string | undefined,
+    replay = true,
+  ): Promise<void> {
+    await stepUp.require({
+      userId: principal.userId,
+      sessionId: principal.sid,
+      actionType: binding.actionType,
+      fields: binding.fields,
+      operationKey: binding.operationKey,
+      approvalId,
+      replay,
+    });
+  }
+
+  /** The asset of a space the caller names, for the hash. Unknown spaces hash as '' and the service refuses them. */
+  async function assetOfSpace(spaceId: string): Promise<string> {
+    return (await bank.spaces.find(spaceId))?.assetId ?? '';
+  }
 
   async function consumeOpsApproval(
     input: { readonly approvalId?: string | null; readonly operationId?: string | null },
     targetId: string,
     fields: Record<string, string>,
   ): Promise<string> {
-    const ids = readApprovalIds(input);
-    const consumed = await approvals.consume({
-      approvalId: ids.approvalId,
-      operationId: ids.operationId,
-      payloadHash: bankActionPayloadHash(targetId, fields),
-      targetService: 'svc-bank',
-      targetId,
-      expectedVersion: '1',
-    });
-    if (!consumed.approverId) {
-      throw new ActionApprovalConsumeError(
-        'consumed approval has no approver; a typed-in name is not approval',
-        'action_approval.consume_failed',
-      );
-    }
-    return consumed.approverId;
+    return consumeBankOpsApproval(approvals, input, targetId, fields);
   }
 
   /** HTTP job twin: HMAC as svc-bank. Session admin:treasury is 401 unsigned. */
@@ -704,6 +854,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toSpaceId: z.string().uuid(),
           amount: amountString,
+          note: z
+            .string()
+            .min(1)
+            .max(140)
+            .refine((value) => !/[\u0000-\u001F]/.test(value), 'note has a control character')
+            .optional(),
+          reference: z
+            .string()
+            .min(1)
+            .max(64)
+            .regex(/^[\x20-\x7E]+$/)
+            .optional(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
@@ -733,6 +896,28 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
            */
           assertSelf(ctx.principal.userId, from.userId);
 
+          // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
+          // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
+          if (stepUpEnforced) {
+            const to = await bank.spaces.find(input.toSpaceId);
+            if (to === null || to.userId !== ctx.principal.userId) {
+              await requireStepUp(
+                ctx.principal,
+                createTransferBinding({
+                  actor: ctx.principal.userId,
+                  transferId: input.transferId,
+                  fromSpaceId: input.fromSpaceId,
+                  toSpaceId: input.toSpaceId,
+                  assetId: from.assetId,
+                  amount: input.amount,
+                  note: input.note,
+                  reference: input.reference,
+                }),
+                input.stepUpApprovalId,
+              );
+            }
+          }
+
           const gate = await gateDestination(bank, ctx.principal.userId, from, input.toSpaceId);
 
           const result = await bank.transfers
@@ -741,6 +926,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               fromSpaceId: input.fromSpaceId,
               toSpaceId: input.toSpaceId,
               amount: parseAmount(input.amount),
+              note: input.note ?? null,
+              reference: input.reference ?? null,
             })
             .catch((err: unknown) => {
               throw gate.mayDescribe ? err : hideDestinationDetail(err);
@@ -756,21 +943,127 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           fromSpaceId: z.string().uuid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
+          /** Recipient-visible plain text. Omitted means no note. */
+          note: z.string().max(140).optional(),
+          /** Printable payment reference. Omitted means none. */
+          reference: z.string().max(64).optional(),
+          /** Settles this open payment request. One payment, one request. */
+          requestId: z.string().uuid().optional(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          amount: amountString,
+          note: z.string().nullable(),
+          reference: z.string().nullable(),
+          requestId: z.string().uuid().nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
-          const result = await bank.transfers.transferToUser({
+          const note = plainNote(input.note) ?? undefined;
+          const reference = plainReference(input.reference) ?? undefined;
+          if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
+            await requireStepUp(
+              ctx.principal,
+              toUserBinding({
+                actor: ctx.principal.userId,
+                transferId: input.transferId,
+                fromSpaceId: input.fromSpaceId,
+                toUserId: input.toUserId,
+                assetId: from.assetId,
+                amount: input.amount,
+                ...(note ? { note } : {}),
+                ...(reference ? { reference } : {}),
+                ...(input.requestId ? { requestId: input.requestId } : {}),
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          const result = await bank.personalPay.send({
+            actorUserId: ctx.principal.userId,
             transferId: input.transferId,
             fromSpaceId: input.fromSpaceId,
             toUserId: input.toUserId,
             amount: parseAmount(input.amount),
+            note,
+            reference,
+            requestId: input.requestId ?? null,
           });
-          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+          return {
+            ledgerTxId: result.ledgerTxId,
+            amount: result.amount,
+            note: result.note,
+            reference: result.reference,
+            requestId: result.requestId,
+          };
         }),
+      ),
+
+    /** Receipt for one personal send. Parties only. A stranger gets the same not-found as a missing id. */
+    get: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ ledgerTxId: z.string().min(1).max(128) }))
+      .output(
+        z.object({
+          ledgerTxId: z.string(),
+          transferId: z.string(),
+          createdAt: z.string().datetime(),
+          fromHandle: z.string().nullable(),
+          toHandle: z.string().nullable(),
+          handlesBlocker: z.string().nullable(),
+          fee: z.null(),
+          status: z.literal('posted'),
+          amount: amountString,
+          assetId: z.string(),
+          note: z.string().nullable(),
+          reference: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const row = await bank.personalPay.get(ctx.principal.userId, input.ledgerTxId);
+          return {
+            ledgerTxId: row.ledgerTxId,
+            transferId: row.transferId,
+            createdAt: row.createdAt,
+            fromHandle: row.fromHandle,
+            toHandle: row.toHandle,
+            handlesBlocker: row.handlesBlocker,
+            fee: row.fee,
+            status: row.status,
+            amount: row.amount,
+            assetId: row.assetId,
+            note: row.note,
+            reference: row.reference,
+          };
+        }),
+      ),
+
+    /**
+     * Limits and fee for a personal send, before the review step.
+     * Refuses when nothing is published. Never fills a zero fee or a default cap.
+     */
+    quote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ assetId: z.string().min(1).max(16), amount: amountString }))
+      .output(
+        z.object({
+          assetId: z.string(),
+          amount: amountString,
+          perTransferLimit: amountString,
+          dailyLimit: amountString,
+          spentToday: amountString,
+          fee: amountString,
+          feeBlocker: z.string().nullable(),
+          withinPerTransfer: z.boolean(),
+          withinDaily: z.boolean(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount))),
       ),
 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })
@@ -783,6 +1076,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
@@ -790,6 +1084,25 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
+          // Approval happens at creation. The order's amount and payee are immutable afterwards and it runs
+          // without a session, so execution, pause and resume need none (cancel and pause are protective).
+          if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
+            await requireStepUp(
+              ctx.principal,
+              scheduleToUserBinding({
+                actor: ctx.principal.userId,
+                scheduleId: input.scheduleId,
+                fromSpaceId: input.fromSpaceId,
+                toUserId: input.toUserId,
+                assetId: from.assetId,
+                amount: input.amount,
+                cadence: input.cadence,
+                startsAt: input.startsAt,
+                endsAt: input.endsAt,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const schedule = await bank.transfers.scheduleToUser({
             userId: ctx.principal.userId,
             fromSpaceId: input.fromSpaceId,
@@ -814,6 +1127,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
@@ -824,6 +1138,28 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           // side is the side that can lose value, and a standing order to
           // another user is the same product feature on a timer.
           assertSelf(ctx.principal.userId, from.userId);
+
+          // A standing order to another person is approved at creation; an unknown destination counts as foreign.
+          if (stepUpEnforced) {
+            const to = await bank.spaces.find(input.toSpaceId);
+            if (to === null || to.userId !== ctx.principal.userId) {
+              await requireStepUp(
+                ctx.principal,
+                scheduleBinding({
+                  actor: ctx.principal.userId,
+                  scheduleId: input.scheduleId,
+                  fromSpaceId: input.fromSpaceId,
+                  toSpaceId: input.toSpaceId,
+                  assetId: from.assetId,
+                  amount: input.amount,
+                  cadence: input.cadence,
+                  startsAt: input.startsAt,
+                  endsAt: input.endsAt,
+                }),
+                input.stepUpApprovalId,
+              );
+            }
+          }
 
           // Same gate too, and it matters MORE here. A one-off transfer asks the
           // question once; a standing order that could be created against a
@@ -1473,7 +1809,88 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     status: z.enum(['active', 'frozen', 'closed']),
     cashbackBps: z.number().int(),
     perAuthorizationLimit: amountString,
+    dailyLimit: amountString.nullable(),
+    monthlyLimit: amountString.nullable(),
+    cashLimit: amountString.nullable(),
+    online: z.boolean(),
+    contactless: z.boolean(),
+    atm: z.boolean(),
+    abroad: z.boolean(),
+    cardType: z.enum(['virtual', 'physical']),
+    shippingAddress: z
+      .object({
+        name: z.string(),
+        line1: z.string(),
+        line2: z.string().nullable(),
+        city: z.string(),
+        region: z.string().nullable(),
+        postalCode: z.string(),
+        country: z.string(),
+      })
+      .nullable(),
   });
+
+  const shippingAddressInput = z.object({
+    name: z.string().trim().min(1).max(120),
+    line1: z.string().trim().min(1).max(200),
+    line2: z.string().trim().max(200).optional(),
+    city: z.string().trim().min(1).max(120),
+    region: z.string().trim().max(120).optional(),
+    postalCode: z.string().trim().min(1).max(32),
+    country: z
+      .string()
+      .trim()
+      .regex(/^[A-Za-z]{2}$/),
+  });
+
+  function presentCard(c: CardRecord) {
+    return {
+      id: c.id,
+      assetId: c.assetId,
+      settlementAssetId: c.settlementAssetId,
+      issuer: c.issuer,
+      simulated: c.simulated,
+      panTail: c.panTail,
+      status: c.status,
+      cashbackBps: c.cashbackBps,
+      perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
+      dailyLimit: c.dailyLimit == null ? null : formatAmount(c.dailyLimit),
+      monthlyLimit: c.monthlyLimit == null ? null : formatAmount(c.monthlyLimit),
+      cashLimit: c.cashLimit == null ? null : formatAmount(c.cashLimit),
+      online: c.online ?? true,
+      contactless: c.contactless ?? true,
+      atm: c.atm ?? true,
+      abroad: c.abroad ?? true,
+      cardType: c.cardType ?? 'virtual',
+      shippingAddress: c.shippingAddress ?? null,
+    };
+  }
+
+  function ceilingLoosens(current: bigint | null, next: bigint | null | undefined): boolean {
+    if (next === undefined) return false;
+    if (next === null) return current !== null;
+    if (current === null) return false;
+    return next > current;
+  }
+
+  function limitField(value: string | null | undefined): string {
+    if (value === undefined) return '';
+    if (value === null) return 'null';
+    return value;
+  }
+
+  function shippingToken(address: z.infer<typeof shippingAddressInput> | undefined): string {
+    if (!address) return '';
+    return JSON.stringify({
+      name: address.name.trim(),
+      line1: address.line1.trim(),
+      line2: address.line2?.trim() ?? '',
+      city: address.city.trim(),
+      region: address.region?.trim() ?? '',
+      postalCode: address.postalCode.trim(),
+      country: address.country.trim().toUpperCase(),
+    });
+  }
 
   const cards = router({
     /** What this deployment's card programme is — including that it is not one. */
@@ -1482,15 +1899,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .query(async () => guard(async () => bank.cards.programme())),
 
     /**
-     * Rewards are not the cashback rate. Refuses until a card issuer exists.
-     * The balance slot stays empty and nothing is posted.
+     * Cashback already paid, in one asset, once a non-simulated issuer is connected.
+     * card-sim and an unconfigured programme refuse `bank.rewards_issuer_unset`.
+     * Nothing here posts a reward or invents a zero for a missing issuer.
      */
     rewards: scopedProcedure('bank:read', { module: 'bank' })
-      .output(z.object({ balance: z.null() }))
-      .query(() =>
+      .output(z.object({ balance: amountString, asset: z.string(), simulated: z.literal(false) }))
+      .query(({ ctx }) =>
         guard(async () => {
-          bank.cards.rewards();
-          return { balance: null };
+          const reward = await bank.cards.rewards(ctx.principal.userId);
+          return { balance: formatAmount(reward.balance), asset: reward.assetId, simulated: false as const };
         }),
       ),
 
@@ -1510,17 +1928,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const rows = await bank.cards.cardsOf(ctx.principal.userId, input?.limit);
-          return rows.map((c) => ({
-            id: c.id,
-            assetId: c.assetId,
-            settlementAssetId: c.settlementAssetId,
-            issuer: c.issuer,
-            simulated: c.simulated,
-            panTail: c.panTail,
-            status: c.status,
-            cashbackBps: c.cashbackBps,
-            perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
-          }));
+          return rows.map((c) => presentCard(c));
         }),
       ),
 
@@ -1545,11 +1953,30 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           settlementAssetId: z.string().min(1).max(16).optional(),
           cashbackBps: z.number().int().min(0).max(10_000).optional(),
           perAuthorizationLimit: amountString,
+          cardType: z.enum(['virtual', 'physical']).optional(),
+          shippingAddress: shippingAddressInput.optional(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(cardOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              issueCardBinding({
+                actor: ctx.principal.userId,
+                cardId: input.cardId,
+                assetId: input.assetId,
+                settlementAssetId: input.settlementAssetId,
+                cashbackBps: input.cashbackBps,
+                perAuthorizationLimit: input.perAuthorizationLimit,
+                cardType: input.cardType ?? 'virtual',
+                shippingAddress: input.cardType === 'physical' ? shippingToken(input.shippingAddress) : '',
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const card = await bank.cards.issue({
             cardId: input.cardId,
             userId: ctx.principal.userId,
@@ -1557,18 +1984,22 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             ...(input.settlementAssetId === undefined ? {} : { settlementAssetId: input.settlementAssetId }),
             ...(input.cashbackBps === undefined ? {} : { cashbackBps: input.cashbackBps }),
             perAuthorizationLimit: parseAmount(input.perAuthorizationLimit),
+            ...(input.cardType === undefined ? {} : { cardType: input.cardType }),
+            ...(input.shippingAddress === undefined
+              ? {}
+              : {
+                  shippingAddress: {
+                    name: input.shippingAddress.name,
+                    line1: input.shippingAddress.line1,
+                    line2: input.shippingAddress.line2 ?? null,
+                    city: input.shippingAddress.city,
+                    region: input.shippingAddress.region ?? null,
+                    postalCode: input.shippingAddress.postalCode,
+                    country: input.shippingAddress.country,
+                  },
+                }),
           });
-          return {
-            id: card.id,
-            assetId: card.assetId,
-            settlementAssetId: card.settlementAssetId,
-            issuer: card.issuer,
-            simulated: card.simulated,
-            panTail: card.panTail,
-            status: card.status,
-            cashbackBps: card.cashbackBps,
-            perAuthorizationLimit: formatAmount(card.perAuthorizationLimit),
-          };
+          return presentCard(card);
         }),
       ),
 
@@ -1577,14 +2008,240 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * something is wrong, so it is user surface and not an operator ticket.
      */
     setStatus: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ cardId: z.string().uuid(), status: z.enum(['active', 'frozen', 'closed']) }))
+      .input(z.object({ cardId: z.string().uuid(), status: z.enum(['active', 'frozen', 'closed']), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ id: z.string(), status: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const card = await bank.cards.card(input.cardId);
           assertSelf(ctx.principal.userId, card.userId);
+          // Only UNFREEZING loosens a safeguard. Freeze and close are protective and never prompt; asking
+          // for `active` on a card that already is changes nothing. One approval re-applies nothing: no replay.
+          if (stepUpEnforced && input.status === 'active' && card.status !== 'active') {
+            await requireStepUp(
+              ctx.principal,
+              unfreezeCardBinding({ actor: ctx.principal.userId, cardId: input.cardId, fromStatus: card.status }),
+              input.stepUpApprovalId,
+              false,
+            );
+          }
           const updated = await bank.cards.setStatus(input.cardId, input.status);
           return { id: updated.id, status: updated.status };
+        }),
+      ),
+
+    /**
+     * Spending ceilings. Step-up only when a ceiling is raised or removed.
+     * Tightening does not prompt. `commandId` retries the same change.
+     */
+    setLimits: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          cardId: z.string().uuid(),
+          commandId: z.string().uuid(),
+          perAuthorizationLimit: amountString,
+          dailyLimit: amountString.nullable().optional(),
+          monthlyLimit: amountString.nullable().optional(),
+          cashLimit: amountString.nullable().optional(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(cardOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const per = parseAmount(input.perAuthorizationLimit);
+          const daily = input.dailyLimit === undefined ? undefined : input.dailyLimit === null ? null : parseAmount(input.dailyLimit);
+          const monthly =
+            input.monthlyLimit === undefined ? undefined : input.monthlyLimit === null ? null : parseAmount(input.monthlyLimit);
+          const cash = input.cashLimit === undefined ? undefined : input.cashLimit === null ? null : parseAmount(input.cashLimit);
+          const loosens =
+            per > card.perAuthorizationLimit ||
+            ceilingLoosens(card.dailyLimit, daily) ||
+            ceilingLoosens(card.monthlyLimit, monthly) ||
+            ceilingLoosens(card.cashLimit, cash);
+          if (stepUpEnforced && loosens) {
+            await requireStepUp(
+              ctx.principal,
+              setCardLimitsBinding({
+                actor: ctx.principal.userId,
+                cardId: input.cardId,
+                commandId: input.commandId,
+                perAuthorizationLimit: input.perAuthorizationLimit,
+                dailyLimit: limitField(input.dailyLimit),
+                monthlyLimit: limitField(input.monthlyLimit),
+                cashLimit: limitField(input.cashLimit),
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          const updated = await bank.cards.setLimits({
+            cardId: input.cardId,
+            userId: ctx.principal.userId,
+            commandId: input.commandId,
+            perAuthorizationLimit: per,
+            ...(daily === undefined ? {} : { dailyLimit: daily }),
+            ...(monthly === undefined ? {} : { monthlyLimit: monthly }),
+            ...(cash === undefined ? {} : { cashLimit: cash }),
+          });
+          return presentCard(updated);
+        }),
+      ),
+
+    /** Online, contactless, ATM and abroad. `commandId` retries the same four flags. */
+    setChannels: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          cardId: z.string().uuid(),
+          commandId: z.string().uuid(),
+          online: z.boolean(),
+          contactless: z.boolean(),
+          atm: z.boolean(),
+          abroad: z.boolean(),
+        }),
+      )
+      .output(cardOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const updated = await bank.cards.setChannels({
+            cardId: input.cardId,
+            userId: ctx.principal.userId,
+            commandId: input.commandId,
+            online: input.online,
+            contactless: input.contactless,
+            atm: input.atm,
+            abroad: input.abroad,
+          });
+          return presentCard(updated);
+        }),
+      ),
+
+    /**
+     * PAN, expiry and CVV from a live issuer. Step-up every time. Not stored.
+     * card-sim refuses `bank.card_pan_issuer_unset` before step-up. With step-up
+     * not `required`, the call refuses `bank.step_up_unavailable` and the issuer is not called.
+     */
+    reveal: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().uuid(), revealId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
+      .output(z.object({ pan: z.string(), expiry: z.string(), cvv: z.string(), expiresAt: z.string() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          bank.cards.assertSecretIssuer('pan', 'revealCredentials');
+          if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+          await requireStepUp(
+            ctx.principal,
+            revealCardBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
+            input.stepUpApprovalId,
+            false,
+          );
+          return bank.cards.reveal({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+        }),
+      ),
+
+    pin: router({
+      reveal: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().uuid(), revealId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
+        .output(z.object({ pin: z.string(), expiresAt: z.string() }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            bank.cards.assertSecretIssuer('pin', 'revealPin');
+            if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+            await requireStepUp(
+              ctx.principal,
+              revealCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, revealId: input.revealId }),
+              input.stepUpApprovalId,
+              false,
+            );
+            return bank.cards.revealPin({ cardId: input.cardId, userId: ctx.principal.userId, revealId: input.revealId });
+          }),
+        ),
+      set: scopedProcedure('bank:write', { module: 'bank' })
+        .input(
+          z.object({
+            cardId: z.string().uuid(),
+            commandId: z.string().uuid(),
+            pin: z.string().min(1).max(64),
+            stepUpApprovalId: stepUpApprovalField,
+          }),
+        )
+        .output(z.object({ ok: z.literal(true) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const card = await bank.cards.card(input.cardId);
+            assertSelf(ctx.principal.userId, card.userId);
+            bank.cards.assertPinDigits(input.pin);
+            bank.cards.assertSecretIssuer('pin', 'setPin');
+            if (!stepUpEnforced) refuseCardSecretWithoutStepUp();
+            await requireStepUp(
+              ctx.principal,
+              setCardPinBinding({ actor: ctx.principal.userId, cardId: input.cardId, commandId: input.commandId }),
+              input.stepUpApprovalId,
+            );
+            return bank.cards.setPin({
+              cardId: input.cardId,
+              userId: ctx.principal.userId,
+              commandId: input.commandId,
+              pin: input.pin,
+            });
+          }),
+        ),
+    }),
+
+    /** Opaque push-provisioning payload. Refuses until socket.live-issuer can produce one. */
+    walletProvision: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          cardId: z.string().uuid(),
+          provisionId: z.string().uuid(),
+          wallet: z.enum(['apple', 'google']),
+          nonce: z.string().min(1).max(4096),
+        }),
+      )
+      .output(z.object({ payload: z.string(), expiresAt: z.string() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          return bank.cards.walletProvision({
+            cardId: input.cardId,
+            userId: ctx.principal.userId,
+            provisionId: input.provisionId,
+            wallet: input.wallet,
+            nonce: input.nonce,
+          });
+        }),
+      ),
+
+    /**
+     * Close this card and issue another with the same asset, ceilings and channels.
+     * `replacementId` is the idempotency key.
+     */
+    replace: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          cardId: z.string().uuid(),
+          replacementId: z.string().uuid(),
+          reason: z.enum(['lost', 'stolen', 'damaged']),
+        }),
+      )
+      .output(cardOutput)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const replaced = await bank.cards.replace({
+            cardId: input.cardId,
+            userId: ctx.principal.userId,
+            replacementId: input.replacementId,
+            reason: input.reason,
+          });
+          return presentCard(replaced);
         }),
       ),
 
@@ -1614,6 +2271,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             /** WHAT MOVED, in the card's funding asset. */
             amount: amountString,
             merchantCategory: z.string().nullable(),
+            channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']),
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
             status: z.string(),
@@ -1653,6 +2311,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             authorizationRef: a.authorizationRef,
             amount: formatAmount(a.amount),
             merchantCategory: a.merchantCategory,
+            channel: a.channel,
             decision: a.decision,
             declineCode: a.declineCode,
             status: a.status,
@@ -1963,12 +2622,27 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     /** Give up on a pending loan and give the borrower their collateral back. */
     abandonPendingLoan: scopedProcedure('admin:treasury')
       .input(z.object({ loanId: z.string().uuid(), ...actionApprovalFields }))
-      .output(z.object({ released: amountString, ledgerTxId: z.string().nullable(), confirmOperatorId: z.string() }))
+      .output(
+        z.object({
+          released: amountString,
+          ledgerTxId: z.string().nullable(),
+          /** True when the draw had in fact booked: the loan was completed to active and no collateral moved. */
+          adopted: z.boolean(),
+          drawLedgerTxId: z.string().nullable(),
+          confirmOperatorId: z.string(),
+        }),
+      )
       .mutation(async ({ input }) =>
         guard(async () => {
           const confirmOperatorId = await consumeOpsApproval(input, 'bank.abandon_pending_loan', { loanId: input.loanId });
           const result = await bank.loans.abandonPending(input.loanId);
-          return { released: formatAmount(result.released), ledgerTxId: result.ledgerTxId, confirmOperatorId };
+          return {
+            released: formatAmount(result.released),
+            ledgerTxId: result.ledgerTxId,
+            adopted: result.adopted,
+            drawLedgerTxId: result.drawLedgerTxId,
+            confirmOperatorId,
+          };
         }),
       ),
 
@@ -2010,6 +2684,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
            */
           amount: amountString,
           merchantCategory: z.string().min(1).max(64).optional(),
+          channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']).optional(),
           ...actionApprovalFields,
         }),
       )
@@ -2045,6 +2720,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             authorizationRef: input.authorizationRef,
             amount: parseAmount(input.amount),
             ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.channel === undefined ? {} : { channel: input.channel }),
           });
           return {
             authorizationId: authorization.id,
@@ -2365,6 +3041,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+
+    poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
+    loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    cardProgramme: cardProgrammeProcedure(bank, guard),
+    setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
+    rampHealth: rampHealthProcedure(bank, guard),
+    transferHealth: transferHealthProcedure(bank, guard),
+    failedTransfers: failedTransfersProcedure(bank, guard),
+    transferDetail: transferDetailProcedure(bank, guard),
+    businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 
   /**
@@ -2706,10 +3392,195 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     // `auth.stepUp` mints it for five minutes against a second factor (§9). `bank:write` alone let a leaked
     // key or an XSS-stolen access token change where money is sent and send it.
     setWithdrawDestination: scopedProcedure('trade:withdraw', { module: 'bank' })
-      .input(z.object({ kind: z.enum(['crypto', 'bank']), ref: z.string().min(1).max(256) }))
+      .input(
+        z.object({
+          kind: z.enum(['crypto', 'bank']),
+          ref: z.string().min(1).max(256),
+          label: z.string().min(1).max(64).optional(),
+        }),
+      )
       .output(z.object({ kind: z.string(), ref: z.string() }))
       .mutation(async ({ ctx, input }) =>
-        guard(async () => bank.ramps.setWithdrawDestination({ userId: ctx.principal.userId, kind: input.kind, ref: input.ref })),
+        guard(async () =>
+          bank.ramps.setWithdrawDestination({
+            userId: ctx.principal.userId,
+            kind: input.kind,
+            ref: input.ref,
+            ...(input.label !== undefined ? { label: input.label } : {}),
+          }),
+        ),
+      ),
+
+    /**
+     * Saved wallets and bank accounts. Cooling end uses the owner window.
+     * When that window is unpublished, `coolingOffEndsAt` is null and
+     * `coolingBlocker` names `bank.offramp_cooling_unset`. No 24h default.
+     */
+    destinations: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.array(
+            z.object({
+              destinationId: z.string(),
+              label: z.string().nullable(),
+              kind: z.enum(['crypto', 'bank']),
+              ref: z.string(),
+              addedAt: z.string(),
+              coolingOffEndsAt: z.string().nullable(),
+              coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+            }),
+          ),
+        )
+        .query(async ({ ctx }) => guard(async () => bank.ramps.listDestinations(ctx.principal.userId))),
+
+      remove: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ destinationId: z.string().uuid(), idempotencyKey: z.string().min(1).max(128) }))
+        .output(z.object({ destinationId: z.string(), removed: z.literal(true) }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.ramps.removeDestination({
+              userId: ctx.principal.userId,
+              destinationId: input.destinationId,
+              idempotencyKey: input.idempotencyKey,
+            }),
+          ),
+        ),
+    }),
+
+    /**
+     * On-ramp quote. Pay amount, fee, and rate come from the rate source.
+     * A blank PSP or a blank source refuses. This door does not invent them.
+     */
+    onrampQuote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          assetId: z.string().min(1).max(16),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          country: z.string().regex(/^[A-Za-z]{2}$/),
+        }),
+      )
+      .output(
+        z.object({
+          quoteId: z.string(),
+          assetId: z.string(),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          country: z.string(),
+          payAmount: amountString,
+          fee: amountString,
+          rate: amountString,
+          payCurrency: z.string(),
+          expiresAt: z.string(),
+          simulated: z.literal(true),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.ramps.onrampQuote({
+            userId: ctx.principal.userId,
+            assetId: input.assetId,
+            amount: input.amount,
+            method: input.method,
+            country: input.country,
+          }),
+        ),
+      ),
+
+    /**
+     * Customer on-ramp. Idempotent by `onrampId`. Stores the partner's hosted
+     * URL or bank-transfer instruction and does not credit the ledger.
+     * A blank partner refuses `bank.fiat_ramp_socket` before any row.
+     */
+    onrampCreate: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          onrampId: z.string().uuid(),
+          quoteId: z.string().uuid(),
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+        }),
+      )
+      .output(
+        z.object({
+          onrampId: z.string(),
+          quoteId: z.string(),
+          assetId: z.string(),
+          amount: amountString,
+          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          payAmount: amountString,
+          fee: amountString,
+          rate: amountString,
+          payCurrency: z.string(),
+          status: z.literal('pending_payment'),
+          simulated: z.literal(true),
+          partnerRail: z.string(),
+          hostedUrl: z.string().nullable(),
+          bankInstructions: z.object({ reference: z.string(), accountName: z.string(), accountRef: z.string() }).nullable(),
+          createdAt: z.string(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const row = await bank.ramps.onrampCreate({
+            userId: ctx.principal.userId,
+            onrampId: input.onrampId,
+            quoteId: input.quoteId,
+            method: input.method,
+          });
+          return {
+            onrampId: row.onrampId,
+            quoteId: row.quoteId,
+            assetId: row.assetId,
+            amount: row.amount,
+            method: row.method,
+            payAmount: row.payAmount,
+            fee: row.fee,
+            rate: row.rate,
+            payCurrency: row.payCurrency,
+            status: row.status,
+            simulated: row.simulated,
+            partnerRail: row.partnerRail,
+            hostedUrl: row.hostedUrl,
+            bankInstructions: row.bankInstructions,
+            createdAt: row.createdAt,
+          };
+        }),
+      ),
+
+    /**
+     * Off-ramp fee quote. Kind fiat refuses `bank.fiat_ramp_socket`.
+     * Crypto refuses `bank.offramp_fee_unset` until a fee schedule is published.
+     */
+    offrampQuote: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          assetId: z.string().min(1).max(16),
+          amount: amountString,
+          kind: z.enum(['crypto', 'fiat']),
+          destinationRef: z.string().min(1).max(256),
+        }),
+      )
+      .output(
+        z.object({
+          assetId: z.string(),
+          amount: amountString,
+          kind: z.literal('crypto'),
+          destinationRef: z.string(),
+          fee: amountString,
+          netAmount: amountString,
+          expiresAt: z.string(),
+          simulated: z.literal(true),
+        }),
+      )
+      .query(async ({ input }) =>
+        guard(async () =>
+          bank.ramps.offrampQuote({
+            assetId: input.assetId,
+            amount: input.amount,
+            kind: input.kind,
+            destinationRef: input.destinationRef,
+          }),
+        ),
       ),
 
     /**
@@ -2820,6 +3691,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     create: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
+          accountId: z.string().uuid(),
           name: z.string().min(1).max(128),
           assetId: z.string().min(1).max(16),
           spendThreshold: amountString,
@@ -2829,6 +3701,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const a = await bank.business.createAccount({
+            accountId: input.accountId,
             name: input.name,
             assetId: input.assetId,
             spendThreshold: parseAmount(input.spendThreshold),
@@ -2851,11 +3724,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           accountId: z.string().uuid(),
           userId: z.string().min(1),
           role: z.enum(['admin', 'maker', 'checker']),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              addMemberBinding({ actor: ctx.principal.userId, accountId: input.accountId, userId: input.userId, role: input.role }),
+              input.stepUpApprovalId,
+            );
+          }
           const m = await bank.business.addMember({
             accountId: input.accountId,
             actorUserId: ctx.principal.userId,
@@ -2874,6 +3755,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           toSpaceId: z.string().uuid(),
           amount: amountString,
           clientId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(
@@ -2891,6 +3773,21 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              proposeTransferBinding({
+                actor: ctx.principal.userId,
+                clientId: input.clientId,
+                accountId: input.accountId,
+                fromSpaceId: input.fromSpaceId,
+                toSpaceId: input.toSpaceId,
+                assetId: await assetOfSpace(input.fromSpaceId),
+                amount: input.amount,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const result = await bank.business.proposeTransfer({
             accountId: input.accountId,
             makerUserId: ctx.principal.userId,
@@ -2923,10 +3820,19 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       ),
 
     approve: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ approvalId: z.string().uuid() }))
+      .input(z.object({ approvalId: z.string().uuid(), stepUpApprovalId: stepUpApprovalField }))
       .output(z.object({ transferId: z.string(), ledgerTxId: z.string() }))
       .mutation(async ({ ctx, input }) =>
-        guard(async () => bank.business.approve({ approvalId: input.approvalId, checkerUserId: ctx.principal.userId })),
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              approveBinding({ actor: ctx.principal.userId, approvalId: input.approvalId }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.approve({ approvalId: input.approvalId, checkerUserId: ctx.principal.userId });
+        }),
       ),
 
     reject: scopedProcedure('bank:write', { module: 'bank' })
@@ -2960,15 +3866,39 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           limit: z.number().int().min(1).max(200).optional(),
         }),
       )
-      .output(z.array(businessApprovalOutput))
+      .output(
+        z.array(
+          z.object({
+            id: z.string(),
+            accountId: z.string(),
+            makerHandle: z.string().nullable(),
+            makerHandleReason: z.enum(['handle_unresolved']).nullable(),
+            receiverOwnerHandle: z.string().nullable(),
+            receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
+            receiverOwnerName: z.string().nullable(),
+            fromSpaceId: z.string(),
+            toSpaceId: z.string(),
+            assetId: z.string(),
+            amount: amountString,
+            status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
+            transferId: z.string().nullable(),
+            holdLedgerTxId: z.string().nullable(),
+            ledgerTxId: z.string().nullable(),
+            createdAt: z.string(),
+          }),
+        ),
+      )
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const rows = await bank.business.listPending(input.accountId, ctx.principal.userId, input.limit);
           return rows.map((a) => ({
             id: a.id,
             accountId: a.accountId,
-            makerUserId: a.makerUserId,
-            checkerUserId: a.checkerUserId,
+            makerHandle: a.makerHandle,
+            makerHandleReason: a.makerHandleReason,
+            receiverOwnerHandle: a.receiverOwnerHandle,
+            receiverOwnerHandleReason: a.receiverOwnerHandleReason,
+            receiverOwnerName: a.receiverOwnerName,
             fromSpaceId: a.fromSpaceId,
             toSpaceId: a.toSpaceId,
             assetId: a.assetId,
@@ -2982,10 +3912,328 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         }),
       ),
 
+    members: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid() }))
+      .output(
+        z.object({
+          members: z.array(
+            z.object({
+              accountId: z.string(),
+              userId: z.string(),
+              role: z.enum(['admin', 'maker', 'checker']),
+              handle: z.string(),
+            }),
+          ),
+          pendingControls: z.array(
+            z.object({
+              requestId: z.string(),
+              kind: z.enum(['set_threshold', 'close']),
+              spendThreshold: amountString.nullable(),
+              proposedByHandle: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const team = await bank.business.team(input.accountId, ctx.principal.userId);
+          return {
+            members: team.members,
+            pendingControls: team.pendingControls.map((row) => ({
+              requestId: row.requestId,
+              kind: row.kind,
+              spendThreshold: row.spendThreshold === null ? null : formatAmount(row.spendThreshold),
+              proposedByHandle: row.proposedByHandle,
+              createdAt: row.createdAt.toISOString(),
+            })),
+          };
+        }),
+      ),
+
+    removeMember: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          userId: z.string().min(1),
+          requestId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(z.object({ accountId: z.string(), userId: z.string(), removed: z.literal(true) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              removeMemberBinding({
+                actor: ctx.principal.userId,
+                accountId: input.accountId,
+                userId: input.userId,
+                requestId: input.requestId,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.removeMember({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            userId: input.userId,
+            requestId: input.requestId,
+          });
+        }),
+      ),
+
+    setMemberRole: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          userId: z.string().min(1),
+          role: z.enum(['admin', 'maker', 'checker']),
+          requestId: z.string().uuid(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              setMemberRoleBinding({
+                actor: ctx.principal.userId,
+                accountId: input.accountId,
+                userId: input.userId,
+                role: input.role,
+                requestId: input.requestId,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          return bank.business.setMemberRole({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            userId: input.userId,
+            role: input.role,
+            requestId: input.requestId,
+          });
+        }),
+      ),
+
+    resolveRecipientSpace: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          assetId: z.string().min(1).max(16),
+          handle: z.string().max(64).optional(),
+          email: z.string().max(320).optional(),
+        }),
+      )
+      .output(
+        z.discriminatedUnion('found', [
+          z.object({ found: z.literal(false) }),
+          z.object({
+            found: z.literal(true),
+            handle: z.string(),
+            assetId: z.string(),
+            spaceId: z.string().uuid().nullable(),
+          }),
+        ]),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.business.resolveRecipientSpace({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            assetId: input.assetId,
+            handle: input.handle,
+            email: input.email,
+          }),
+        ),
+      ),
+
+    approvals: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          status: z.enum(['pending', 'approved', 'rejected', 'cancelled']).optional(),
+          /**
+           * Page size. Optional so omit reaches `bank.business_approvals_list_limit_unset`
+           * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
+           */
+          limit: z.number().int().min(1).max(200).optional(),
+          cursor: z.string().min(1).max(512).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          items: z.array(
+            z.object({
+              id: z.string(),
+              accountId: z.string(),
+              makerHandle: z.string().nullable(),
+              makerHandleReason: z.enum(['handle_unresolved']).nullable(),
+              checkerHandle: z.string().nullable(),
+              receiverOwnerHandle: z.string().nullable(),
+              receiverOwnerHandleReason: z.enum(['handle_unresolved']).nullable(),
+              receiverOwnerName: z.string().nullable(),
+              fromSpaceId: z.string(),
+              toSpaceId: z.string(),
+              assetId: z.string(),
+              amount: amountString,
+              status: z.enum(['pending', 'approved', 'rejected', 'cancelled']),
+              transferId: z.string().nullable(),
+              holdLedgerTxId: z.string().nullable(),
+              ledgerTxId: z.string().nullable(),
+              createdAt: z.string(),
+              decidedAt: z.string().nullable(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const page = await bank.business.listApprovals(input.accountId, ctx.principal.userId, {
+            status: input.status,
+            limit: input.limit,
+            cursor: input.cursor,
+          });
+          return {
+            nextCursor: page.nextCursor,
+            items: page.items.map((a) => ({
+              id: a.id,
+              accountId: a.accountId,
+              makerHandle: a.makerHandle,
+              makerHandleReason: a.makerHandleReason,
+              checkerHandle: a.checkerHandle,
+              receiverOwnerHandle: a.receiverOwnerHandle,
+              receiverOwnerHandleReason: a.receiverOwnerHandleReason,
+              receiverOwnerName: a.receiverOwnerName,
+              fromSpaceId: a.fromSpaceId,
+              toSpaceId: a.toSpaceId,
+              assetId: a.assetId,
+              amount: formatAmount(a.amount),
+              status: a.status,
+              transferId: a.transferId,
+              holdLedgerTxId: a.holdLedgerTxId,
+              ledgerTxId: a.ledgerTxId,
+              createdAt: a.createdAt.toISOString(),
+              decidedAt: a.decidedAt ? a.decidedAt.toISOString() : null,
+            })),
+          };
+        }),
+      ),
+
+    setThreshold: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          accountId: z.string().uuid(),
+          spendThreshold: amountString,
+          requestId: z.string().uuid(),
+        }),
+      )
+      .output(
+        z.object({
+          status: z.enum(['pending', 'applied']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.setThreshold({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            spendThreshold: parseAmount(input.spendThreshold),
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
+        }),
+      ),
+
+    close: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .output(
+        z.object({
+          status: z.enum(['pending', 'applied']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.closeAccount({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
+        }),
+      ),
+
+    cancelControl: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid(), requestId: z.string().uuid() }))
+      .output(
+        z.object({
+          status: z.enum(['cancelled']),
+          requestId: z.string(),
+          account: businessAccountOutput,
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const result = await bank.business.cancelControl({
+            accountId: input.accountId,
+            actorUserId: ctx.principal.userId,
+            requestId: input.requestId,
+          });
+          return {
+            status: result.status,
+            requestId: result.requestId,
+            account: {
+              id: result.account.id,
+              name: result.account.name,
+              assetId: result.account.assetId,
+              spendThreshold: formatAmount(result.account.spendThreshold),
+              status: result.account.status,
+              createdAt: result.account.createdAt.toISOString(),
+            },
+          };
+        }),
+      ),
+
     /**
      * Atomic multi-recipient payroll. One ledger post. Cross-asset lines
      * refuse `bank.business_payroll_rate_unset` — rates are owner law, never invented.
      */
+    myRole: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ accountId: z.string().uuid() }))
+      .output(z.object({ role: z.enum(['admin', 'maker', 'checker']) }))
+      .query(async ({ ctx, input }) => guard(async () => ({ role: await bank.business.myRole(input.accountId, ctx.principal.userId) }))),
+
     runPayroll: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
@@ -2996,6 +4244,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             .array(z.object({ toSpaceId: z.string().uuid(), amount: amountString }))
             .min(1)
             .max(64),
+          stepUpApprovalId: stepUpApprovalField,
         }),
       )
       .output(
@@ -3011,6 +4260,20 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              runPayrollBinding({
+                actor: ctx.principal.userId,
+                payrollId: input.payrollId,
+                accountId: input.accountId,
+                fromSpaceId: input.fromSpaceId,
+                assetId: await assetOfSpace(input.fromSpaceId),
+                recipients: input.recipients,
+              }),
+              input.stepUpApprovalId,
+            );
+          }
           const run = await bank.business.runPayroll({
             payrollId: input.payrollId,
             accountId: input.accountId,
@@ -3054,11 +4317,81 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loans,
     cards,
     ramps,
+    deposits: router({
+      /**
+       * Assets custody says can be paid in. A blank port refuses
+       * `bank.deposit_custody_unset`. Minimums are the port's decimals.
+       */
+      assets: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            assets: z.array(
+              z.object({
+                assetId: z.string(),
+                networks: z.array(
+                  z.object({
+                    id: z.string(),
+                    label: z.string(),
+                    minimumDeposit: amountString,
+                    confirmationsRequired: z.number().int().nonnegative(),
+                    estimatedArrivalMinutes: z.number().int().nonnegative(),
+                  }),
+                ),
+              }),
+            ),
+          }),
+        )
+        .query(() => guard(async () => bank.deposits.assets())),
+
+      /**
+       * Idempotent on (asset, network). The address is the one custody issued.
+       * A blank port refuses before any row.
+       */
+      address: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ assetId: z.string().min(1).max(16), networkId: z.string().min(1).max(32) }))
+        .output(
+          z.object({
+            assetId: z.string(),
+            networkId: z.string(),
+            address: z.string(),
+            memo: z.string().nullable(),
+            qrPayload: z.string().nullable(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => bank.deposits.address({ userId: ctx.principal.userId, assetId: input.assetId, networkId: input.networkId })),
+        ),
+
+      /**
+       * Incoming deposits custody is still confirming. A blank port refuses.
+       * An empty list means custody is connected and nothing is incoming.
+       */
+      pending: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string(),
+                assetId: z.string(),
+                networkId: z.string(),
+                amount: amountString,
+                confirmations: z.number().int().nonnegative(),
+                confirmationsRequired: z.number().int().nonnegative(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId))),
+    }),
     autoInvest,
     business,
     analytics,
     portfolio,
     activity: createActivityRouter(bank),
+    statements: createStatementsRouter(bank),
+    bills: createBillsRouter(bank, stepUp),
+    global: createGlobalRouter(bank, stepUp),
+    personalRequest: createPersonalRequestRouter(bank, guard),
     ops,
   });
 }

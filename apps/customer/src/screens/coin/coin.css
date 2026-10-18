@@ -194,6 +194,24 @@
     position: absolute;
     inset: 0;
   }
+  .coin-nomarket__quote {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+  }
+  .coin-chart-loading {
+    position: relative;
+    height: 100%;
+  }
+  .coin-chart-loading__label {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
   .coin-chart-empty {
     display: flex;
     align-items: center;
@@ -431,6 +449,20 @@
     .coin-yours {
       grid-template-columns: minmax(0, 1fr);
       row-gap: 16px;
+    }
+  }
+  @media (max-width: 767px) {
+    /* Give the exact figure its own line; a quote selector must never cover its digits. */
+    .coin-price-card__head {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .coin-price-card__figure {
+      --if-text-hero: var(--if-text-hero-pro);
+      --if-leading-hero: var(--if-leading-hero-pro);
+    }
+    .coin-price-card__head > [data-testid='quote-pill'] {
+      align-self: flex-end;
     }
   }
 }

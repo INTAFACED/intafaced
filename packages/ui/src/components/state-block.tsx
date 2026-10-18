@@ -1,3 +1,5 @@
+'use client';
+
 import * as React from 'react';
 import { Button } from './button.js';
 import { Skeleton } from './skeleton.js';
@@ -24,8 +26,8 @@ export type StateBlockProps = {
   | {
       /** One line and at most one button, inside the panel. */
       kind: 'empty';
-      title: string;
-      body?: string;
+      title: React.ReactNode;
+      body?: React.ReactNode;
       action?: StateAction;
     }
   | {
@@ -41,7 +43,7 @@ export type StateBlockProps = {
       /** Typed 4xx refusal; copy comes from the app's refusalCopy(code). */
       kind: 'refused';
       title: string;
-      body: string;
+      body: React.ReactNode;
       /** Shown in `text-2xs fg-3` so support can ask for it. */
       code?: string;
       action?: StateAction;
@@ -51,7 +53,7 @@ export type StateBlockProps = {
 function ActionButton({ action, variant }: { action: StateAction; variant: 'primary' | 'secondary' }) {
   if (action.href) {
     return (
-      <Button variant={variant} size={40} nativeButton={false} render={<a href={action.href} />}>
+      <Button variant={variant} size={40} nativeButton={false} role="link" render={<a href={action.href} />}>
         {action.label}
       </Button>
     );
@@ -87,7 +89,7 @@ export function StateBlock(props: StateBlockProps) {
   if (props.kind === 'empty') {
     return (
       <div data-slot="state-block" data-kind="empty" className={cn(base, props.className)}>
-        <p className="text-md font-medium text-fg">{props.title}</p>
+        <h3 className="text-md font-medium text-fg">{props.title}</h3>
         {props.body ? <p className="text-base text-fg-2">{props.body}</p> : null}
         {props.action ? (
           <div className="mt-3">

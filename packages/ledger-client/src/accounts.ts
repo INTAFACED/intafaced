@@ -159,6 +159,25 @@ export function subAccountHold(subAccountId: string, assetId: string, purpose: s
   };
 }
 
+/** Sub-account collateral FOR ONE CLAIM. Same pairing rule as `userCollateral`. */
+export function subAccountCollateral(subAccountId: string, assetId: string, purpose: string): AccountRef {
+  if (!purpose?.trim()) {
+    throw new Error('subAccountCollateral requires a purpose (P0-3) — e.g. `position:<id>`');
+  }
+  return {
+    ownerType: 'subaccount',
+    ownerId: subAccountId,
+    assetId,
+    kind: 'collateral',
+    purpose: purpose.trim(),
+  };
+}
+
+/** Margin collateral securing ONE futures position on a named sub-account. */
+export function subAccountPositionCollateral(subAccountId: string, assetId: string, positionId: string): AccountRef {
+  return subAccountCollateral(subAccountId, assetId, `position:${positionId}`);
+}
+
 /** Where a module's fee revenue lands. Staking yield is distributed from here (§4.3). */
 export function houseFees(module: string, assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: `fees:${module}`, assetId, kind: 'available' };
@@ -167,6 +186,14 @@ export function houseFees(module: string, assetId: string): AccountRef {
 /** Futures insurance fund backstop (§5.2). */
 export function insuranceFund(assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: 'insurance-fund', assetId, kind: 'available' };
+}
+
+/**
+ * Realized futures loss sink. Not `houseFees('trade')` — a fee total is only fees.
+ * A loss debits this pot. It is hard non-negative, same as every other house pot.
+ */
+export function futuresLossSink(assetId: string): AccountRef {
+  return { ownerType: 'house', ownerId: 'futures-loss', assetId, kind: 'available' };
 }
 
 /** Rewards engine — the pot real-yield and cashback are paid from. */
@@ -217,6 +244,72 @@ export function moduleAccount(module: string, purpose: string, assetId: string):
  */
 export function merchantClearing(merchantId: string, assetId: string): AccountRef {
   return { ownerType: 'module', ownerId: `pay:clearing:${merchantId}`, assetId, kind: 'available' };
+}
+
+/**
+ * MERCHANT PROCEEDS — settled net this merchant can pay out.
+ *
+ * Not the owner's trading balance. Card spend, bank transfer, and trade spend
+ * `userAvailable`. This pot is named only by pay settlement, a settled refund,
+ * the chargeback settled leg, and the payout trio. `merchantId` is the pay
+ * merchant id, so two merchants of one person do not share it.
+ *
+ * `module` accounts are hard non-negative, so a payout cannot overdraw one
+ * merchant into another's pot or into the owner's trading balance. The owner
+ * id follows the clearing slug (`pay:proceeds:<uuid>`): a lowercase letter,
+ * then colon-separated segments. A bare merchant UUID is not an owner id.
+ */
+export function merchantProceeds(merchantId: string, assetId: string): AccountRef {
+  return { ownerType: 'module', ownerId: `pay:proceeds:${merchantId}`, assetId, kind: 'available' };
+}
+
+/**
+ * One in-flight payout, funded from that merchant's proceeds.
+ *
+ * The hold sits on the proceeds owner. `assertPairedLocks` funds a hold only
+ * from the same owner's available balance, so proceeds cannot be parked in
+ * the user's withdrawal hold (where a personal `withdrawSettle` would send
+ * them out).
+ */
+export function merchantProceedsPayoutHold(merchantId: string, assetId: string, withdrawalId: string): AccountRef {
+  if (!withdrawalId?.trim()) throw new Error('merchantProceedsPayoutHold requires a withdrawalId — e.g. `<settlementId>:<attempt>`');
+  return {
+    ownerType: 'module',
+    ownerId: `pay:proceeds:${merchantId}`,
+    assetId,
+    kind: 'hold',
+    purpose: `payout:${withdrawalId.trim()}`,
+  };
+}
+
+/**
+ * Clearing reserved for one conversion attempt.
+ *
+ * Same owner as `merchantClearing`, so the hold is funded by that merchant's
+ * own pot and no other conversion can spend it. Purpose is the conversion id.
+ */
+export function merchantClearingHold(merchantId: string, assetId: string, conversionId: string): AccountRef {
+  if (!conversionId?.trim()) throw new Error('merchantClearingHold requires a conversion id');
+  return {
+    ownerType: 'module',
+    ownerId: `pay:clearing:${merchantId}`,
+    assetId,
+    kind: 'hold',
+    purpose: `conversion:${conversionId.trim()}`,
+  };
+}
+
+/**
+ * House inventory for a conversion fill the merchant does not keep.
+ *
+ * Treasury, not a house available pot: a below-minimum fill leaves USD at the
+ * venue and restores the merchant from this account, so the USD side runs
+ * negative by exactly the uncovered short. A house pot would refuse that post
+ * and the only way to make the merchant whole would be to wipe the venue leg.
+ * A negative balance here is that short, visible next to the venue boundary.
+ */
+export function conversionInventory(assetId: string): AccountRef {
+  return { ownerType: 'treasury', ownerId: 'pay:fx-inventory', assetId, kind: 'available' };
 }
 
 /**

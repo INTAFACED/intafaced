@@ -1,0 +1,42 @@
+import { defineCopy } from '../../../shared/i18n';
+
+const en = {
+  refundsTitle: 'Refunds',
+  filterStatus: 'Refund status',
+  allStatuses: 'All statuses',
+  completed: 'Completed',
+  in_progress: 'In progress',
+  reversed: 'Reversed',
+  amount: 'Amount',
+  status: 'Status',
+  count: 'Recorded refunds',
+  pending: 'In progress',
+  sort: 'Sort refunds',
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  linkNew: 'Create a payment link',
+  linkLabel: 'Link label',
+  asset: 'Asset code',
+  profile: 'Checkout profile ID',
+  expiry: 'Expiry',
+  payerChooses: 'Customer chooses',
+  uses: 'Completed payments',
+  created: 'Created',
+  active: 'Available',
+  inactive: 'Deactivated',
+  expired: 'Expired',
+  unknown: 'Availability unknown',
+  activeTip: 'Turned on and within its expiry and use limit in the records shown.',
+  expiredTip: 'This link is past its expiry and cannot take another payment.',
+  exhaustedTip: 'This link has reached its completed-payment cap.',
+  unknownTip: 'The expiry couldn’t be verified. Refresh before sharing the link.',
+  refresh: 'Refresh records',
+  available: 'Available balance',
+  reserveTitle: 'Reserve policy',
+  reserveDays: 'Hold days',
+  reportsTitle: 'Reports',
+  unsaved: 'Leave this page? Your unsaved entries will be lost.',
+} as const;
+export const w3cCopy = defineCopy('pay.portal.w3c', en);
+/** The wording as written, for the copy lint. */
+export const w3cMessages: Record<string, string> = en;

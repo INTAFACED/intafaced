@@ -1,9 +1,11 @@
+import { paymentLabel, portalAmount } from './portal/presentation';
 import { payCopy, PayCopy, payRefusal } from './copy';
 import { useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { displayAmount, parseAmount, formatAmount } from '../../shared/money';
-import { Button, DataTable, Field } from '../../shared/ui';
+import { Button, DataTable } from '@intafaced/ui';
+import { Field } from './ui-kit';
 import type { BusinessPayApi } from './pay-api';
 import { PayDetails, PayNotice, PayPagination, PaySection, PayState, ReviewedAction, Status } from './components';
 import { validatedMutation, railHealthSchema } from './BusinessPay';
@@ -14,15 +16,24 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
   const merchantId = pay.authority!.merchantId;
   const [limit, setLimit] = useState(50);
   const [status, setStatus] = useState('');
-  const [openedId, setOpenedId] = useState('');
+  // The portal's payment page links here with ?payment=<id> to refund or capture that payment.
+  const [openedId, setOpenedId] = useState(() => {
+    try {
+      return room === 'payments' ? (new URLSearchParams(location.search).get('payment') ?? '') : '';
+    } catch {
+      return '';
+    }
+  });
   const payments = useResource(
     (signal) =>
-      pay.query(
-        'payment.list',
-        { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
-        z.array(s.paymentSchema),
-        signal,
-      ),
+      pay
+        .query(
+          'payment.list',
+          { merchantId, limit, ...(room === 'disputes' ? { status: 'disputed' } : status ? { status } : {}) },
+          z.object({ items: z.array(s.paymentSchema), nextCursor: z.string().nullable() }),
+          signal,
+        )
+        .then((result) => s.listed(result)),
     `pay:payments:${merchantId}:${room}:${status}:${limit}`,
   );
   return (
@@ -105,17 +116,17 @@ export function MerchantPayments({ pay, room }: { pay: BusinessPayApi; room: 'pa
                 {rows.map((payment) => (
                   <tr key={payment.id}>
                     <td>
-                      {payment.id.slice(0, 8)}
+                      {paymentLabel(payment)}
                       <small className="pay-cell-note">{payment.createdAt}</small>
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.amount)} {payment.assetId}
+                      {portalAmount(payment.amount, payment.assetId)} {payment.assetId}
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.capturedAmount)} {payment.assetId}
+                      {portalAmount(payment.capturedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td className="numeric">
-                      {displayAmount(payment.refundedAmount)} {payment.assetId}
+                      {portalAmount(payment.refundedAmount, payment.assetId)} {payment.assetId}
                     </td>
                     <td>
                       <Status value={payment.status} />

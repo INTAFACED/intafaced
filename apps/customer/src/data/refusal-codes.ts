@@ -34,9 +34,16 @@ export type RefusalKind =
   | 'priceInvalid'
   | 'belowMinimum'
   | 'selfTrade'
+  | 'orderTypeUnsupported'
+  | 'postOnlyWouldCross'
+  | 'fokUnfillable'
+  | 'tifInvalid'
+  | 'ordersPaused'
   | 'accountOnHold'
   | 'notFound'
   | 'duplicate'
+  | 'notSetUp'
+  | 'algoSchedulerOff'
   | 'unknown';
 
 /** Exact codes first. */
@@ -89,6 +96,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
   'trade.convert_insufficient_depth': 'insufficientDepth',
+  'trade.matching_market_missing': 'noBook',
   // A size the screen should never send (both or neither of qty and quoteQty): an internal mistake, not the customer's.
   'trade.convert_invalid_qty': 'quoteFailed',
 
@@ -97,6 +105,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.hold_uncovered': 'insufficient',
   'trade.insufficient_margin': 'insufficient',
   'trade.algo_insufficient_balance': 'insufficient',
+  'trade.algo_balance_unreadable': 'tryAgain',
+  'trade.fee_schedule_blank': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
@@ -109,12 +119,23 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.outside_collar': 'priceInvalid',
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
+  'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.post_only_would_cross': 'postOnlyWouldCross',
+  post_only_would_cross: 'postOnlyWouldCross',
+  'trade.fok_unfillable': 'fokUnfillable',
+  fok_unfillable: 'fokUnfillable',
+  'trade.invalid_tif': 'tifInvalid',
+  'trade.orders_paused': 'ordersPaused',
+  'trade.below_min_notional': 'belowMinimum',
+  'trade.below_min_qty': 'belowMinimum',
 
   'trade.market_not_found': 'notFound',
   'bank.space_not_found': 'notFound',
   'pay.payment_not_found': 'notFound',
   'pay.link_not_found': 'notFound',
   'pay.merchant_not_found': 'notFound',
+  'trade.algo_jobs_disabled': 'algoSchedulerOff',
+  'trade.algo_jobs_unknown': 'tryAgain',
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
@@ -131,6 +152,8 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['denied.', 'screening'],
   ['kyc.', 'verify'],
   ['kyc_', 'verify'],
+  ['token.params_', 'notSetUp'],
+  ['token_params.', 'notSetUp'],
   ['trade.lifecycle', 'marketNotOpen'],
   ['trade.market_', 'marketNotOpen'],
   ['trade.venue_', 'marketNotOpen'],
@@ -141,7 +164,12 @@ const PREFIXES: ReadonlyArray<readonly [prefix: string, kind: RefusalKind]> = [
   ['trade.fx_', 'marketNotOpen'],
 ];
 
-const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [['.tier_required', 'verify']];
+// `*_unset` / `*_unwired` are the services' "an operator has not configured this yet" refusals.
+const SUFFIXES: ReadonlyArray<readonly [suffix: string, kind: RefusalKind]> = [
+  ['.tier_required', 'verify'],
+  ['_unset', 'notSetUp'],
+  ['_unwired', 'notSetUp'],
+];
 
 /** Sort a service code into a kind; unknown and empty codes are `unknown`. */
 export function classifyRefusal(code: string | null | undefined): RefusalKind {

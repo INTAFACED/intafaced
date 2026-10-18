@@ -1,43 +1,37 @@
 import { test, expect } from '@playwright/test';
-test('Quant Studio saves exact block amounts and compulsory risk controls only after review', async ({ page }) => {
-  let seen: Record<string, unknown> | undefined;
+test('Quant Studio keeps the draft on this device, closes the shared library, and makes no list or save call', async ({ page }) => {
+  const saves: unknown[] = [];
   await page.route('**/api/**', async (route) => {
     const proc = new URL(route.request().url()).pathname.split('/').at(-1);
-    let data: unknown = { strategies: [] };
-    if (proc === 'studio.save') {
-      seen = route.request().postDataJSON();
-      data = {
-        ...seen,
-        id: 'strategy-owned-by-service',
-        language: 'javascript',
-        source: 'compiled by service',
-        kind: 'paper',
-        claimLabel: 'Paper — not live performance',
-        live: false,
-        simulated: true,
-      };
-    }
-    await route.fulfill({ json: { result: { data } } });
+    if (proc === 'studio.save' || proc === 'studio.list') saves.push(proc);
+    await route.fulfill({ json: { result: { data: { strategies: [] } } } });
   });
   await page.goto('/quant/studio');
   await page.getByLabel('Strategy name').fill('My experiment');
   await page.getByLabel('Simulated starting cash').fill('0.000000000000000123');
   await page.getByLabel('Block 1 symbol').fill('ACTUAL/USD');
   await page.getByLabel('Block 1 quantity').fill('0.000000000000000456');
-  await page.getByLabel('Max drawdown (service unit unspecified)').fill('0.1');
-  await page.getByLabel('Max notional (service unit unspecified)').fill('0.2');
-  await page.getByLabel('Kill threshold (service unit unspecified)').fill('0.3');
-  await page.getByRole('button', { name: 'Review strategy', exact: true }).click();
-  expect(seen).toBeUndefined();
-  await page.getByRole('dialog').getByRole('button', { name: 'Save strategy' }).click();
-  await expect(page.getByText('Strategy saved in the deployment catalogue')).toBeVisible();
-  expect(seen).toMatchObject({
-    cash: '0.000000000000000123',
-    blocks: [{ side: 'buy', symbol: 'ACTUAL/USD', qty: '0.000000000000000456' }],
-    risk: { maxDrawdown: '0.1', maxNotional: '0.2', kill: '0.3' },
-    environment: 'paper',
-    presentedAs: 'paper',
+  await expect(page.getByText('Saving to a library is off on this service, so the library is closed.')).toBeVisible();
+  const save = page.getByRole('button', { name: 'Save to library', exact: true });
+  await expect(save).toBeDisabled();
+  await expect(page.getByText('Saving to a library is off on this service. Your draft stays on this device.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Strategy name')).toHaveValue('My experiment');
+  await expect(page.getByLabel('Block 1 quantity')).toHaveValue('0.000000000000000456');
+  expect(saves).toEqual([]);
+});
+test('Quant Backtest lists only local drafts, never reads the shared library, and asks for a Studio strategy first', async ({ page }) => {
+  const listed: string[] = [];
+  await page.route('**/api/**', async (route) => {
+    const proc = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (proc === 'studio.list') listed.push(proc);
+    await route.fulfill({ json: { result: { data: { strategies: [] } } } });
   });
+  await page.goto('/quant/backtest');
+  await expect(page.getByText('Create a strategy in Studio first')).toBeVisible();
+  await expect(page.getByLabel('Your hypothesis')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review historical analysis' })).toBeDisabled();
+  expect(listed).toEqual([]);
 });
 test('campaign assessment shows the real warehouse refusal and sends no publication request', async ({ page }) => {
   let seen: unknown;
@@ -203,7 +197,7 @@ test('Academy media requests a real seat credential and never labels an expired 
   await page.getByRole('button', { name: 'Rooms', exact: true }).click();
   await page.getByRole('button', { name: 'Open Study' }).click();
   await page.getByRole('button', { name: 'Connect audio/video' }).click({ timeout: 3000 });
-  await expect(page.getByText('The service returned an expired media credential. No connection was started.')).toBeVisible();
+  await expect(page.getByText('The connection details have expired, so no connection was started.')).toBeVisible();
   expect(credentials).toBe(1);
   await expect(page.getByRole('button', { name: 'Enable microphone' })).toHaveCount(0);
 });
@@ -609,37 +603,20 @@ test('academy deep link loads source learning content and reviews completion wit
   expect(await page.evaluate(() => Reflect.get(window, 'unsafe'))).toBeUndefined();
   expect(writes).toBe(1);
 });
-test('blueprint onboarding sends keyed answers as the signed actor and clears optional birth data', async ({ page }) => {
-  let seen: unknown;
+test('blueprint session stays switched off with the reason and sends no free-text answers', async ({ page }) => {
+  const sent: string[] = [];
   await page.route('**/api/**', async (route) => {
-    const proc = new URL(route.request().url()).pathname.split('/').at(-1);
-    let data: unknown = null;
-    if (proc === 'mentors') data = [];
-    if (proc === 'onboard') {
-      seen = route.request().postDataJSON();
-      await route.fulfill({
-        status: 412,
-        json: { error: { message: 'Neural Engine is unavailable', data: { code: 'PRECONDITION_FAILED' } } },
-      });
-      return;
-    }
-    await route.fulfill({ json: { result: { data } } });
+    const proc = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
+    if (proc === 'onboard') sent.push(proc);
+    await route.fulfill({ json: { result: { data: proc === 'mentors' ? [] : null } } });
   });
   await page.goto('/blueprint');
-  await page.getByLabel('Answer key').fill('learning', { timeout: 3000 });
-  await page.getByLabel('Your answer').fill('I learn by building.');
-  await page.getByLabel('Birth date (optional)').fill('2000-01-01');
-  await page.getByRole('button', { name: 'Review Blueprint session' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Run Blueprint session' }).click();
-  await expect(page.getByText('Neural Engine is unavailable')).toBeVisible();
-  expect(seen).toMatchObject({
-    responses: [{ key: 'learning', value: 'I learn by building.' }],
-    birthData: { date: '2000-01-01' },
-    visibility: 'private',
-    mentorAvailable: false,
-  });
-  expect(seen).not.toHaveProperty('userId');
-  await expect(page.getByLabel('Birth date (optional)')).toHaveValue('');
+  await expect(page.getByText('The Blueprint service does not publish its question list', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create your Blueprint' })).toBeDisabled();
+  await expect(page.getByLabel('Answer key')).toHaveCount(0);
+  await expect(page.getByLabel('Initial visibility')).toBeDisabled();
+  await expect(page.getByLabel('Opt in to mentor availability')).toBeDisabled();
+  expect(sent).toEqual([]);
 });
 test('quant sandbox labels server output simulated and never offers live deployment', async ({ page }) => {
   await page.route('**/api/**', async (route) => {
@@ -648,7 +625,13 @@ test('quant sandbox labels server output simulated and never offers live deploym
     if (proc === 'sandbox.capabilities')
       data = { isolate: 'wired', languages: ['javascript', 'typescript', 'python'], venueVault: 'unset', refuse: null };
     if (proc === 'sandbox.run') {
-      expect(route.request().postDataJSON()).toMatchObject({ cash: '17.125', environment: 'paper', presentedAs: 'paper' });
+      expect(route.request().postDataJSON()).toMatchObject({
+        cash: '17.125',
+        environment: 'paper',
+        presentedAs: 'paper',
+        idempotencyKey: expect.any(String),
+      });
+      expect(String(route.request().postDataJSON().idempotencyKey).trim()).not.toBe('');
       data = {
         ok: true,
         language: 'javascript',
@@ -688,10 +671,12 @@ test('token funds actions refuse when the public contract omits the configured a
   });
   await page.goto('/token');
   await expect(
-    page.getByText('Staking and unstaking are unavailable until the service publishes its configured asset ID.', { exact: true }),
-  ).toBeVisible({ timeout: 3000 });
+    page.getByText('Staking and unstaking are off because INTAFACED does not say which token balance they would move.', { exact: true }),
+  ).toBeVisible({
+    timeout: 3000,
+  });
   await expect(page.getByRole('button', { name: 'Review stake' })).toHaveCount(0);
-  await expect(page.getByText('17.125 · asset identity unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('17.125 · token not named', { exact: true })).toBeVisible();
   expect(writes).toBe(0);
 });
 test('market purchase refuses a changed listing before moving value', async ({ page }) => {

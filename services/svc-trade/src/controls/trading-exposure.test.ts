@@ -6,6 +6,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes, orderHoldAccount } from '@intafaced/ledger-client';
 import type { IdentityOperationDecision, IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { TradeService } from '../spot/trade-service.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { PositionService } from '../futures/position-service.js';
 import { memoryMarkBook } from '../futures/mark-source.js';
 import { profitSourceFromConfig, recipeProfitFundingAccount, formatAccountRef } from '../futures/profit-source.js';
@@ -70,7 +71,9 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     price: amt('100'),
     clientOrderId,
   });
+  const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
   beforeAll(async () => {
+    process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
     const directory = new URL('../../drizzle/', import.meta.url);
     const migrations = readdirSync(directory)
       .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
@@ -79,10 +82,12 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     db = await createTestDatabase({ service: 'trade', migrations });
   }, 30_000);
   afterAll(async () => {
+    if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+    else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
     await db?.drop();
   }, 30_000);
   beforeEach(async () => {
-    await db.truncateAll();
+    await truncateTradeExceptOrderEvents(db.sql);
     ledger = new MemoryLedger();
     matching = new StubMatching();
     onGrant = undefined;
@@ -111,38 +116,30 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     const placed = await trade.placeOrder(principalFor(user), input);
     await controls.change(context(), command());
     await expect(trade.placeOrder(principalFor(user), order())).rejects.toMatchObject({ code: 'trade.account_restricted' });
-    await expect(trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') })).rejects.toMatchObject({
-      code: 'trade.account_restricted',
-    });
+    const raised = await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') });
+    expect(raised).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
     expect(matching.amended).toHaveLength(0);
     expect((await trade.placeOrder(principalFor(user), input)).id).toBe(placed.id);
     expect((await trade.cancelOrder(principalFor(user), placed.id)).status).toBe('cancelled');
     expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(0n);
   });
-  it('native qty-up admits its own exact original amount before posting the extra hold', async () => {
+  it('a larger amend is trade.amend_qty_up and does not admit an increase', async () => {
     const placed = await trade.placeOrder(principalFor(user), order());
-    expect((await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') })).code).toBe('AMENDED');
-    const rows = await db.sql`SELECT intent, payload FROM trade.operation_intents WHERE intent->'operation'->>'kind' = 'order.increase'`;
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.payload).toMatchObject({ qty: '2', extra: '100' });
+    const outcome = await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') });
+    expect(outcome).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
+    const rows = await db.sql`SELECT intent FROM trade.operation_intents WHERE intent->'operation'->>'kind' = 'order.increase'`;
+    expect(rows).toHaveLength(0);
+    expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(amt('100'));
   });
-  it('recovers a funded native increase after response loss and restriction without a new grant or hold', async () => {
+  it('a refused qty-up does not call matching and leaves the original hold', async () => {
     const placed = await trade.placeOrder(principalFor(user), order());
-    const amend = matching.amend.bind(matching);
     matching.amend = async () => {
       throw new Error('Synthetic lost amendment response before engine execution');
     };
-    expect((await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') })).code).toBe('AMEND_UNKNOWN');
-    expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(amt('200'));
-    await controls.change(context(), command());
-    matching.amend = amend;
-    // Simulate owner reconciliation proving the engine kept the old version.
-    await db.sql`UPDATE trade.orders SET status='open',recovery_reason=NULL WHERE id=${placed.id}`;
-    await expect(trade.amendOrder(principalFor(user), placed.id, { qty: amt('3') })).rejects.toMatchObject({ code: 'operation.conflict' });
-    expect(matching.amended).toHaveLength(0);
-    expect((await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') })).code).toBe('AMENDED');
-    expect(identityRows.size).toBe(2);
-    expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(amt('200'));
+    const outcome = await trade.amendOrder(principalFor(user), placed.id, { qty: amt('2') });
+    expect(outcome).toMatchObject({ accepted: false, code: 'NOT_AMENDABLE', reasonCode: 'trade.amend_qty_up' });
+    expect((await ledger.balance(orderHoldAccount(user, 'USDT', placed.id))).amount).toBe(amt('100'));
+    expect((await trade.cancelOrder(principalFor(user), placed.id)).status).toBe('cancelled');
   });
   it('new Convert execution cannot bypass restriction and moves no additional money', async () => {
     const quote = await trade.convertQuote(principalFor(user, TRADE_READ), { symbol: spot.symbol, side: 'buy', qty: amt('1') });

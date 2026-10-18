@@ -22,7 +22,20 @@ export type FuturesJobsHealth = {
   readonly venueMarkConfigured: boolean;
   readonly venueMarkDefault: false;
   readonly reason: FuturesJobsHealthReason;
+  /**
+   * Operator alerts. While the jobs flag is off, one alert names that
+   * `futures.liquidation` is not scheduled (TRADEV4-0005 / TRD-0225).
+   * The flag stays the explicit off switch and stays default false.
+   */
+  readonly alerts: readonly { readonly name: 'futures.liquidation'; readonly message: string }[];
 };
+
+export const LIQUIDATION_NOT_SCHEDULED = 'futures.liquidation is not scheduled';
+
+export function liquidationJobAlerts(enabled: boolean): FuturesJobsHealth['alerts'] {
+  if (enabled) return [];
+  return [{ name: 'futures.liquidation', message: LIQUIDATION_NOT_SCHEDULED }];
+}
 
 export function presentFuturesJobsHealth(input: {
   readonly enabled: boolean;
@@ -52,5 +65,6 @@ export function presentFuturesJobsHealth(input: {
     venueMarkConfigured: input.venueMarkConfigured === true,
     venueMarkDefault: false,
     reason,
+    alerts: liquidationJobAlerts(enabled),
   };
 }

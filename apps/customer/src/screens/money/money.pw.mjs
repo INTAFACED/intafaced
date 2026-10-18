@@ -29,7 +29,7 @@ mkdirSync(shots, { recursive: true });
 const referencePortfolio = process.env.MONEY_REFERENCE_PORTFOLIO;
 const referenceActivity = process.env.MONEY_REFERENCE_ACTIVITY;
 
-const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\bspaces?\b|\broom\b|\bledger\b|\btier\b/i;
+const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\broom\b|\bledger\b|\btier\b/i;
 const moneyShape = /^[−+]?[$]?[\d,]+(\.\d+)?[%A-Z ]*$|^—$|^••••$/;
 
 const missing = {
@@ -222,7 +222,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await page.locator('.money-small__trigger').click();
 
   // Named accounts, each with its balance (the main account is not one of them).
-  await expect(page.locator('#accounts h2')).toHaveText('Your accounts');
+  await expect(page.locator('#accounts h2')).toHaveText('Your spaces');
   expect(await texts(page.locator('.money-accounts__row'))).toEqual(['Rent300 USDT', 'Long term0.04 BTC']);
 
   // Order on the page: value -> actions (right) -> allocation -> Cash -> Crypto -> accounts.
@@ -484,6 +484,7 @@ const pro = (page, extra = {}) =>
 
 test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy and Sell go to the desk (critic H4)', async ({ page }) => {
   await mock(page, {
+    bank: { 'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })) },
     rest: {
       balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
     },
@@ -504,14 +505,17 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     'Today',
     'Available',
     'In orders',
+    'In spaces',
     'Actions',
   ]);
   const usdt = page.locator('#cash tr[data-asset="USDT"]');
   expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['4,095']);
   expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['5']);
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
   expect(await texts(btc.locator('td[data-col="available"]'))).toEqual(['0.1']);
   expect(await texts(btc.locator('td[data-col="in-orders"]'))).toEqual(['0']);
+  expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0']);
   expect(Math.round((await btc.boundingBox()).height)).toBe(40);
   // Pro means the desk.
   await expect(page.locator('.money-actions a').nth(0)).toHaveAttribute('href', '/trade/spot/BTC-USDT');
@@ -531,6 +535,46 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   }
 });
 
+test('Pro Money: Available + In orders + In spaces add up to Amount (USDT 3,795 + 5 + 300 = 4,100)', async ({ page }) => {
+  await mock(page, {
+    rest: {
+      balance: () =>
+        balances({
+          USDT: { free: '3795', used: '5', total: '3800.00' },
+          BTC: { free: '0.06', used: '0', total: '0.06' },
+          ETH: { free: '0.5', used: '0', total: '0.5' },
+          DOGE: { free: '5', used: '0', total: '5' },
+          ZED: { free: '12', used: '0', total: '12' },
+        }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['3,795']);
+  expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['5']);
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['300']);
+  const btc = page.locator('#crypto tr[data-asset="BTC"]');
+  expect(await texts(btc.locator('td[data-col="in-spaces"]'))).toEqual(['0.04']);
+  await expect(page.getByTestId('held-note')).toHaveCount(0);
+});
+
+test('Pro Money with the bank summary missing: In spaces is a dash, never 0, and the note points to Your spaces', async ({ page }) => {
+  await mock(page, {
+    bank: { 'portfolio.summary': missing },
+    rest: {
+      balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  await expect(page.locator('.if-money')).toHaveAttribute('data-source', 'derived');
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="in-spaces"]'))).toEqual(['—']);
+  await expect(page.getByTestId('held-note')).toHaveCount(1);
+  await expect(page.getByTestId('held-note')).toContainText('It is listed under Your spaces below.');
+});
+
 test('Simple Money has no Available and In orders columns', async ({ page }) => {
   await mock(page);
   await open(page);
@@ -548,14 +592,23 @@ test('Money lists the named accounts only when one of them holds something (crit
 
 const ALL = '/money/activity?tab=all';
 
-test('activity opens on Trades, built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
+test('activity opens on All, with Trades one tab along', async ({ page }) => {
+  await mock(page);
+  await open(page, '/money/activity');
+  await expect(page.locator('h1')).toHaveText('Activity');
+  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['All', 'Trades', 'Orders', 'Deposits', 'Transfers']);
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+  await open(page, '/money/activity?tab=nonsense');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
+});
+
+test('activity Trades tab is built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const api = await mock(page);
-  await open(page, '/money/activity');
+  await open(page, '/money/activity?tab=trades');
   await expect(page.locator('h1')).toHaveText('Activity');
-  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['Trades', 'Orders', 'All', 'Deposits', 'Transfers']);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
   expect(await texts(page.locator('.money-trade-tab thead th'))).toEqual(['Time', 'Trade', 'Price', 'Total', 'Fee']);
   const rows = page.locator('.money-trade-tab tbody tr');
@@ -590,7 +643,7 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
   await open(page, '/money/activity?tab=trades&asset=BTC');
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
   await expect(chip('BTC')).toHaveText('BTC');
-  await open(page, '/money/activity?asset=USDT');
+  await open(page, '/money/activity?tab=trades&asset=USDT');
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
   await open(page, '/money/activity?tab=trades&asset=ETH');
   await expect(chip('ETH')).toBeVisible();
@@ -905,7 +958,7 @@ test('activity empty: a way forward', async ({ page }) => {
 
 test('Trades with no trades says so, and Orders with no orders says so', async ({ page }) => {
   await mock(page, { rest: { 'account/trades': () => [], 'orders/open': () => [], 'orders/closed': () => [] } });
-  await open(page, '/money/activity');
+  await open(page, '/money/activity?tab=trades');
   await expect(page.locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No trades yet');
   await open(page, '/money/activity?tab=orders');
   const blocks = page.locator('[data-slot="state-block"][data-kind="empty"]');
@@ -998,7 +1051,7 @@ test('activity: hide balances masks the amounts; no horizontal scroll at narrow 
     await page.screenshot({ path: join(shots, `activity-${size.width}x${size.height}.png`) });
   }
   // The Trades and Orders tabs do not scroll sideways either.
-  for (const tab of ['/money/activity', '/money/activity?tab=orders']) {
+  for (const tab of ['/money/activity?tab=trades', '/money/activity?tab=orders']) {
     await open(page, tab);
     await expect(page.locator('.money-trade-tab table').first()).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

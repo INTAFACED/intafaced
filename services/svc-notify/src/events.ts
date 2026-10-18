@@ -2,6 +2,8 @@ import {
   agentActionCompleted,
   agentActionRejected,
   bankMarginCalled,
+  personalRequestCreated,
+  personalRequestSettled,
   fillSettled,
   kycApproved,
   orderUpdated,
@@ -652,6 +654,56 @@ export async function subscribeNotificationEvents(
           sourceIdempotencyKey: `${payload.sessionId}:${payload.sequence}`,
           // Inbox only — email/SMS/push stay refuse-until-credentials (#1991).
           outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'personalRequestCreated', personalRequestCreated.subject, 'notify-personal-request-created', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.payerUserId,
+          kind: 'pay.request_created',
+          titleKey: 'notify.pay.request_created.title',
+          bodyKey: 'notify.pay.request_created.body',
+          params: {
+            payeeHandle: payload.payeeHandle,
+            amount: payload.amount,
+            assetId: payload.assetId,
+            note: payload.note ?? '',
+            expiresAt: payload.expiresAt,
+            requestId: payload.requestId,
+            sequence: payload.sequence,
+          },
+          href: `/pay/request/${payload.requestId}`,
+          severity: 'action',
+          sourceSubject: personalRequestCreated.subject,
+          sourceIdempotencyKey: `${payload.requestId}:${payload.sequence}`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'personalRequestSettled', personalRequestSettled.subject, 'notify-personal-request-settled', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.payeeUserId,
+          kind: 'pay.request_paid',
+          titleKey: 'notify.pay.request_paid.title',
+          bodyKey: 'notify.pay.request_paid.body',
+          params: {
+            payerHandle: payload.payerHandle,
+            amount: payload.amount,
+            assetId: payload.assetId,
+            requestId: payload.requestId,
+            ledgerTxId: payload.ledgerTxId,
+          },
+          href: `/pay/request/${payload.requestId}`,
+          severity: 'info',
+          sourceSubject: personalRequestSettled.subject,
+          sourceIdempotencyKey: payload.requestId,
         }),
       );
     }),

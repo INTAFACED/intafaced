@@ -20,7 +20,6 @@ function SignedIn({ children }: { children: ReactNode }) {
   useEffect(() => {
     commit({
       accessToken: 'harness-token',
-      refreshToken: 'harness-refresh',
       expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       userId: '00000000-0000-4000-8000-000000000001',
     });

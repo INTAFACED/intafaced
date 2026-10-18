@@ -2,7 +2,7 @@
  * INTAFACED customer-app design tokens (UI-SPEC section 2).
  * GENERATED from src/theme/tokens.ts by src/theme/generate.ts.
  * Do not edit by hand: theme/tokens.test.ts fails if the two drift.
- * Values are PROVISIONAL until measured from okx.com CSS.
+ * Values are measured from okx.com (MEASURED-TOKENS.md) unless tokens.ts says otherwise.
  */
 
 :root {
@@ -37,6 +37,8 @@
   --if-up-hover: #1a8d40;
   --if-down-hover: #b43255;
   --if-up-bg-soft: #072110;
+  --if-error: #ff5d73;
+  --if-error-text: #f57a8a;
   --if-lime: #c8f64a;
   --if-lime-hover: #d4fa6e;
   --if-lime-press: #b5e03a;
@@ -57,6 +59,7 @@
   --if-alloc-4: #737373;
   --if-alloc-5: #4d4d4d;
   --if-alloc-6: #2e2e2e;
+  --if-base: var(--if-bg);
   --if-font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --if-font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
   --if-text-2xs: 12px;
@@ -105,6 +108,12 @@
   --if-nav-menu-item-h: 56px;
   --if-container-max: 1224px;
   --if-gutter: 24px;
+  --if-ctl-h: 44px;
+  --if-ctl-h-dense: 32px;
+  --if-table-row-h: 44px;
+  --if-table-row-h-dense: 32px;
+  --if-table-head-h: 39px;
+  --if-table-head-h-dense: 28px;
   --if-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.5);
   --if-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --if-t-fast: 120ms;

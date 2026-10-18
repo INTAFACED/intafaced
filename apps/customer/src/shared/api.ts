@@ -4,14 +4,34 @@ import { uiMessage, type UiMessage } from './ui-copy';
 export type RefusalReason =
   'unauthorized' | 'forbidden' | 'not_mounted' | 'not_supported' | 'unreachable' | 'invalid_response' | 'aborted' | 'error' | 'uncertain';
 export type ApiResult<T> =
-  { ok: true; data: T } | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number };
-export type RequestOptions = { signal?: AbortSignal };
+  | { ok: true; data: T }
+  | { ok: false; reason: RefusalReason; message: string; messageCopy?: UiMessage; code?: string; status?: number; requestId?: string };
+export type RequestOptions = {
+  signal?: AbortSignal;
+  /**
+   * Send this one call with this bearer token instead of the signed-in session's. The session itself is not touched:
+   * a refusal of this token never ends the session, and nothing else uses it. Used only for the short confirmation
+   * token that lets a refund or a payout through (`features/pay/portal/access/step-up.ts`).
+   */
+  bearer?: string;
+  /**
+   * Service codes whose 401 is this call's own answer (a wrong confirmation code), not proof that the session ended.
+   * A 401 with one of these codes does not sign the person out; any other 401 follows the normal path.
+   */
+  keepSessionFor?: readonly string[];
+};
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   idempotencyKey?: string;
 };
+
+/**
+ * Only the gateway's "this service is not connected in this environment" answer is permanent. A 502 or 504 is a crash, a
+ * restart or a timeout, so the HTTP status alone never means "not connected".
+ */
+export const isServiceNotConnected = (code: string | undefined): boolean => code === 'edge.upstream_unwired';
 
 /** Keep authored copy separate from opaque service explanations. The descriptor
  * also lets a mounted refusal follow a later device-language change. */
@@ -32,6 +52,7 @@ const errorEnvelope = z
               .object({
                 code: z.string().optional(),
                 intafacedCode: z.string().optional(),
+                requestId: z.string().optional(),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -42,15 +63,30 @@ const errorEnvelope = z
       .optional(),
     message: z.string().optional(),
     code: z.string().optional(),
+    // The public market routes answer in the exchange error shape: `code` is a broad class such as "ExchangeError" and the
+    // specific reason, such as `trade.no_book`, sits beside it.
+    intafacedCode: z.string().optional(),
     name: z.string().optional(),
   })
   .passthrough();
+
+/** Picks a bearer for one call by procedure name. Set by the feature that holds such tokens; none by default. */
+export type ScopedBearer = (module: string, procedure: string) => string | undefined;
+let scopedBearer: ScopedBearer | null = null;
+/** Registers (or, with null, removes) the one resolver that supplies a per-call bearer. The token never passes through the session. */
+export function setScopedBearer(resolver: ScopedBearer | null): void {
+  scopedBearer = resolver;
+}
 
 export function createApiClient(
   options: {
     token?: () => string | undefined;
     canWrite?: () => boolean;
     fetch?: typeof fetch;
+    /** `same-origin` unless a caller must send or receive the refresh cookie across origins (session restore). */
+    credentials?: 'same-origin' | 'include';
+    /** Per-request timeout. Default 15 s; session refresh uses a shorter one (see session-restore.ts). */
+    timeoutMs?: number;
     onUnauthorized?: (requestToken: string | undefined) => void;
   } = {},
 ) {
@@ -67,19 +103,22 @@ export function createApiClient(
     if (method !== 'GET' && options.canWrite && !options.canWrite()) return authoredRefusal('aborted', { key: 'accountChanged' });
     // A JSON content type on a body-less request (DELETE /orders/:id) makes Fastify answer 400 FST_ERR_CTP_EMPTY_JSON_BODY.
     const headers: Record<string, string> = input === undefined ? {} : { 'content-type': 'application/json' };
-    const token = options.token?.();
+    const overridden = requestOptions.bearer !== undefined;
+    const token = requestOptions.bearer ?? options.token?.();
+    // A refusal of an override token, or of a call that owns its 401, never counts as the session ending.
+    const sessionEnds = (code?: string) => !overridden && !(code !== undefined && requestOptions.keepSessionFor?.includes(code));
     if (token) headers.authorization = `Bearer ${token}`;
     if (requestOptions.idempotencyKey) headers['Idempotency-Key'] = requestOptions.idempotencyKey;
     const controller = new AbortController();
     const cancel = () => controller.abort(requestOptions.signal?.reason);
     if (requestOptions.signal?.aborted) cancel();
     else requestOptions.signal?.addEventListener('abort', cancel, { once: true });
-    const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), 15_000);
+    const timeout = setTimeout(() => controller.abort(new Error('Request timed out')), options.timeoutMs ?? 15_000);
     try {
       const response = await fetcher(url, {
         method,
         headers,
-        credentials: 'same-origin',
+        credentials: options.credentials ?? 'same-origin',
         signal: controller.signal,
         ...(input === undefined ? {} : { body: JSON.stringify(input) }),
       });
@@ -102,14 +141,14 @@ export function createApiClient(
                         ? 'unreachable'
                         : 'uncertain'
                       : 'error';
-          if (reason === 'unauthorized') options.onUnauthorized?.(token);
+          if (reason === 'unauthorized' && sessionEnds()) options.onUnauthorized?.(token);
           return authoredRefusal(
             reason,
             reason === 'unreachable'
               ? { key: 'gatewayUnreachable' }
               : reason === 'uncertain'
                 ? { key: 'gatewayUncertain' }
-                : { key: 'unreadableRefusal', status: response.status },
+                : { key: 'unreadableRefusal' },
             response.status,
           );
         }
@@ -125,25 +164,41 @@ export function createApiClient(
         const error = typeof data?.error === 'object' ? data.error : undefined;
         const code =
           error?.data?.intafacedCode ??
+          data?.intafacedCode ??
           error?.data?.cause?.code ??
           error?.data?.code ??
           data?.code ??
           data?.name ??
           (typeof data?.error === 'string' ? data.error : undefined);
         const message = error?.message ?? data?.message;
+        // The service's own reference for this request, when it sends one (error body or `x-request-id`). Never made up.
+        const requestId = error?.data?.requestId ?? response.headers.get('x-request-id') ?? undefined;
         let reason: RefusalReason = 'error';
         if (response.status === 401) {
           reason = 'unauthorized';
-          options.onUnauthorized?.(token);
+          if (sessionEnds(code)) options.onUnauthorized?.(token);
         } else if (response.status === 403) reason = 'forbidden';
         else if (response.status === 404) reason = 'not_mounted';
         else if (response.status === 501) reason = 'not_supported';
         else if (response.status >= 500) reason = method === 'GET' ? 'unreachable' : 'uncertain';
         return {
           ...(message === undefined
-            ? authoredRefusal(reason, { key: 'serviceRefusal', status: response.status }, response.status)
+            ? authoredRefusal(
+                reason,
+                {
+                  key: isServiceNotConnected(code)
+                    ? 'serviceNotConnected'
+                    : reason === 'uncertain'
+                      ? 'gatewayUncertain'
+                      : reason === 'unreachable'
+                        ? 'serviceNoAnswer'
+                        : 'serviceRefusal',
+                },
+                response.status,
+              )
             : { ok: false as const, reason, message, status: response.status }),
           ...(code ? { code } : {}),
+          ...(requestId ? { requestId } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);
@@ -182,7 +237,16 @@ export function createApiClient(
       return request(url, 'GET', schema, undefined, false, opts);
     },
     mutate<T>(module: string, procedure: string, input: unknown, schema: ZodType<T>, opts: RequestOptions = {}) {
-      return request(`/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}`, 'POST', schema, input ?? {}, false, opts);
+      // A call that names its own bearer keeps it; otherwise the registered resolver may supply one for this procedure only.
+      const bearer = opts.bearer ?? scopedBearer?.(module, procedure);
+      return request(
+        `/api/${encodeURIComponent(module)}/trpc/${encodeURIComponent(procedure)}`,
+        'POST',
+        schema,
+        input ?? {},
+        false,
+        bearer === undefined ? opts : { ...opts, bearer },
+      );
     },
     rest<T>(path: string, schema: ZodType<T>, opts: RestOptions = {}) {
       const query = new URLSearchParams();

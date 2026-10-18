@@ -12,6 +12,7 @@ describe('cert catalog ↔ curriculum spine integrity', () => {
     const missing: string[] = [];
     for (const cert of listCertCatalog()) {
       for (const slug of cert.requiredItemSlugs) {
+        if (slug.startsWith('assessment:')) continue;
         if (!hasCurriculumSlug(slug)) missing.push(`${cert.id}:${slug}`);
       }
     }

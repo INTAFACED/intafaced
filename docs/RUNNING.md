@@ -1,5 +1,7 @@
 # Running the platform
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Eleven services, two Next apps, and the infrastructure they need — one command.
 
 ---
@@ -75,6 +77,69 @@ the same containers and the same volumes. `platform:up` after `infra:up` adds
 the application containers to what is already running; it does not restart the
 database.
 
+### Founder access on the local Docker stack
+
+Two doors, two ports: the **customer app is http://localhost:8090** (register and
+password sign-in; `REGISTRATION_OPEN=true` comes from `.env.example`) and the
+**founder console is http://localhost:3100** (the two founders only). Use
+`localhost`, not `127.0.0.1`: passwords work on either, but a passkey cannot be
+bound to an IP address (WebAuthn RP ID `localhost`, origins `:8090` and `:3100`).
+Use Chrome or Firefox for the console; Safari will not store its secure cookie over plain http.
+
+Local only. Every command below refuses unless `NODE_ENV` is not `production`,
+`INTAFACED_LOCAL_FOUNDER=1` is set, and `APP_ENV` is exactly `dev` or `test`. The
+compose files only pass values through; staging and production keep refusing blank
+secrets, `localhost` passkey origins and plain-http admin origins.
+
+```bash
+cp .env.example .env                                   # APP_ENV=dev, REGISTRATION_OPEN=true
+
+# 1. Fresh local secrets and two single-use founder invites (valid 72 h). Writes two
+#    git-ignored mode-600 files and prints only their paths:
+#      .env.founder.local          compose env file (keys, origins, invite hashes)
+#      .env.founder-secrets.local  founder passwords, invite codes, 2FA secrets
+INTAFACED_LOCAL_FOUNDER=1 pnpm local:founder init
+
+# 2. Start the stack with both env files (this replaces `pnpm platform:up` for founder work).
+#    pnpm platform:up:founder is exactly:
+#      docker compose --env-file .env --env-file .env.founder.local -f docker-compose.apps.yml up -d --build
+pnpm platform:up:founder
+
+# 3. When pnpm platform:ps shows svc-edge healthy, create the founders. This calls the
+#    real svc-identity doors (auth.registerFounder, then totp.enrol / totp.confirm)
+#    through http://localhost:4000. No SQL. Safe to re-run if it stops half way.
+INTAFACED_LOCAL_FOUNDER=1 pnpm local:founder enrol
+
+# 4. Repeat step 2 (pnpm platform:up:founder). svc-identity now sees the founder pair and pins it.
+```
+
+Then open http://localhost:3100/login:
+
+1. Handle `local_nitro` (or `local_phantom`) and the password from `.env.founder-secrets.local`.
+2. The 6-digit code: `INTAFACED_LOCAL_FOUNDER=1 pnpm local:founder code nitro`
+   (prints one code, good for under a minute; a code works once, so wait for the next to sign in again).
+   Or add the founder's `totpSecret` from that file to any authenticator app.
+
+Things to know:
+
+- **The pin is permanent for that database.** Re-running with a different pair does
+  nothing. To start over: `pnpm platform:reset` (destroys local data and
+  restarts without the founder env file), then `init --force --force-new-db`, then steps 2 to 4. `--force` alone
+  is refused while the secrets file records created founders, and the old files are
+  always kept as `.env.founder*.bak-<timestamp>.local` (mode 600, still git-ignored)
+  before new ones are written. Never use these flags on a database that still has
+  founders: the new `IDENTITY_TOTP_SECRET_KEY` locks them out.
+- `enrol` is safe to re-run: it resumes a half-finished founder, including after a lost
+  reply or a TOTP enrolment older than 15 minutes (it starts a fresh one).
+- The two founders are labelled local accounts (`local-*@local.invalid`). Their
+  passwords, 2FA secrets and recovery codes exist only in `.env.founder-secrets.local`.
+- The console starts blank-closed: `.env.example` leaves `ADMIN_ORIGIN` and
+  `ADMIN_SESSION_SECRET` empty, and only `.env.founder.local` fills them in. With neither
+  set in `.env` nor that file, every login answers `admin.session_unconfigured`.
+- Kill-switch and ledger-freeze reads in the console still need `ADMIN_OPERATOR_TOKEN` /
+  `ADMIN_TREASURY_TOKEN` (see `.env.example`); founder sign-in does not.
+- `pnpm local:founder:test` runs the script's tests (no Docker, no network).
+
 ### Optional investor outreach runtime
 
 The outreach overlay is opt-in; the default `pnpm platform:up` does not enable
@@ -118,7 +183,9 @@ use the existing svc-notify-owned schema/migration and database connection.
 notification HTTP contract; SMTP or a generic provider API is not automatically
 compatible. Compose configuration does not probe delivery.
 
-The two founder accounts do not exist yet. Bootstrap the real identity and edge
+The two founder accounts do not exist yet. On a local stack, create them with
+[Founder access on the local Docker stack](#founder-access-on-the-local-docker-stack).
+Elsewhere, bootstrap the real identity and edge
 runtime with guest CRM capture unavailable, then use the existing `/register`
 and `/uc/safe` screens. Each founder completes their own TOTP or WebAuthn
 enrollment. Verify both live active users and bind the exact ordered pair before

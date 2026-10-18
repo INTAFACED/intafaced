@@ -99,7 +99,9 @@ export const timeInForceEnum = trade.enum('time_in_force', ['GTC', 'IOC', 'FOK',
  * recovery — delete it — is also the only thing it can do. Every other status
  * implies a hold that is either live or provably released. `recovery_required`
  * is the explicit frozen-spine unknown outcome; its hold stays encumbered until
- * lookup/reconciliation proves a safe terminal transition.
+ * lookup/reconciliation proves a safe terminal transition. `hold_unknown` is
+ * earlier: the `order.hold` reply was lost, so the row stays until
+ * `order.hold:<orderId>` is read back.
  */
 export const orderStatusEnum = trade.enum('order_status', [
   'pending',
@@ -109,6 +111,7 @@ export const orderStatusEnum = trade.enum('order_status', [
   'rejected',
   'expired',
   'recovery_required',
+  'hold_unknown',
 ]);
 
 /** Which side of the match a fill leg was. Fee rates differ, so it is stored, not inferred. */
@@ -138,6 +141,11 @@ export const markets = trade.table(
     /** How many `quoteUnit`s one quoted price covers. Almost always '1'. */
     unitSize: amount('unit_size').notNull().default('1'),
     /**
+     * Futures contract multiplier. Null where the market row never recorded one.
+     * Not `unit_size`: that column defaults to 1, and 1 would be an invented size.
+     */
+    contractSize: amount('contract_size'),
+    /**
      * The conventional smallest quoted move — 0.0001 on most FX majors, 0.01 on
      * JPY crosses and on gold. NULL on crypto, which has no pip convention.
      *
@@ -150,6 +158,10 @@ export const markets = trade.table(
     schedule: tradingScheduleEnum('schedule').notNull().default('crypto-24x7'),
     /** Paper/sim market — placeOrder never posts real ledger holds. */
     paper: boolean('paper').notNull().default(false),
+    /** Local TEST listing. Default false. Hidden unless TRADE_FUTURES_TEST_SEED is on. */
+    test: boolean('test').notNull().default(false),
+    /** Explicit seed values. Null on production rows. */
+    testFixture: jsonb('test_fixture'),
     /**
      * European option terms (0017) — all null unless kind=options.
      * CHECK `markets_options_terms_ck` makes half-listed options impossible.
@@ -512,4 +524,27 @@ export const positionFundingApplied = trade.table(
   (t) => [primaryKey({ columns: [t.positionId, t.periodId] }), index('position_funding_applied_period_idx').on(t.periodId)],
 );
 
-export const schema = { markets, orders, orderReplaceRequests, fills, positions, positionMarginAdjustments, positionFundingApplied };
+/** Observed futures marks. A 24h change is two of these, or null when the span is short. */
+export const futuresMarkSamples = trade.table(
+  'futures_mark_samples',
+  {
+    marketId: uuid('market_id')
+      .notNull()
+      .references(() => markets.id, { onDelete: 'cascade' }),
+    price: amount('price').notNull(),
+    observedAt: tstz('observed_at').notNull(),
+    source: text('source').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.marketId, t.observedAt] })],
+);
+
+export const schema = {
+  markets,
+  orders,
+  orderReplaceRequests,
+  fills,
+  positions,
+  positionMarginAdjustments,
+  positionFundingApplied,
+  futuresMarkSamples,
+};

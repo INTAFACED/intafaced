@@ -91,6 +91,17 @@ const schema = baseEnvSchema
       MATCHING_URL: z.string().url().optional(),
 
       /**
+       * Signs operator control calls to svc-matching as `svc-edge`.
+       * Unset refuses `matching_credential_unconfigured` and names this key.
+       * svc-matching today verifies every caller with the fleet
+       * INTERNAL_SERVICE_SECRET and admits only svc-trade on these routes,
+       * so this key must never be set to INTERNAL_SERVICE_SECRET. The routes
+       * stay refusing (typed 502) until svc-matching has a per-caller key
+       * and admits svc-edge. A blank value is not replaced with one.
+       */
+      MATCHING_EDGE_SIGNING_SECRET: z.string().min(32).optional(),
+
+      /**
        * Dedicated read key matching IDENTITY_EDGE_AUTHORITY_SECRET in identity.
        * Only currentAuthority POST and key metadata GET are authorized.
        * Missing key refuses authenticated forwarding; anonymous intake stays usable.
@@ -118,6 +129,12 @@ const schema = baseEnvSchema
        * only. Multi-replica share still §13 residual — file is per process host.
        */
       EDGE_KILL_STATE_PATH: z.string().default('.data/edge-kill-state.json'),
+
+      /** Compliance queue restart file. Empty keeps the queue in process memory. */
+      EDGE_COMPLIANCE_QUEUE_PATH: z.string().default('.data/edge-compliance-queue.json'),
+
+      /** Last successful ledger reconcile proxied by this edge. */
+      EDGE_RECONCILE_LAST_PATH: z.string().default('.data/edge-reconcile-last.json'),
 
       /**
        * Request throttle (see `hardening.ts`). On by default: the front door
@@ -191,19 +208,6 @@ const schema = baseEnvSchema
         .int()
         .min(1024)
         .max(32 * 1024 * 1024),
-
-      /**
-       * Commercial licence for the embeddable ramp widget (`/api/widget/ramp`).
-       *
-       * UNSET / blank → named refuse `ops.infra_licence_unset`. This is not a
-       * money secret and not a default-on switch: packaging stays refuse-closed
-       * until an operator sets a licence. Do not invent licence content here.
-       */
-      INFRA_LICENCE: z.string().optional(),
-      /** White-label accent — hex only; widget ignores anything else. */
-      INFRA_WIDGET_ACCENT: z.string().optional(),
-      /** Operator-supplied CSS for the widget chrome. Query string cannot set this. */
-      INFRA_WIDGET_CSS: z.string().optional(),
     }),
   );
 

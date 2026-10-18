@@ -48,7 +48,7 @@ export type QuoteState =
   | { status: 'loading' }
   | { status: 'ready'; quote: Quote; heldUntil: number }
   /** A typed refusal: words and a way forward from the data layer's copy. */
-  | { status: 'refused'; copy: RefusalCopy; kind: ReturnType<typeof classifyRefusal> }
+  | { status: 'refused'; copy: RefusalCopy; kind: ReturnType<typeof classifyRefusal>; code: string | null }
   /** The book cannot fill that much right now. */
   | { status: 'depth' }
   /** Even the smallest whole lot, with our price on top, costs more than the budget. */
@@ -169,12 +169,13 @@ function toState(result: ApiResult<Quote>, request: QuoteRequest, receivedAt: nu
     status: 'refused',
     copy: convertRefusal(result, { pair: request.pair.replace('/', '-') }),
     kind: classifyRefusal(result.code ?? ''),
+    code: result.code ?? null,
   };
 }
 
 /**
- * The live quote for the current input: asked 400 ms after the last change, asked again the moment it expires (and as
- * soon as the tab is visible again), and dropped the moment the input changes so a number for another amount is never shown.
+ * The live quote for the current input: asked 400 ms after the last change, asked again the moment it expires (and the
+ * moment the tab is visible again), and dropped the moment the input changes so a number for another amount is never shown.
  */
 export function useQuote(tools: ToolApi, request: QuoteRequest | null) {
   const [held, setHeld] = useState<{ key: string; state: QuoteState }>({ key: '', state: { status: 'idle' } });
@@ -183,7 +184,7 @@ export function useQuote(tools: ToolApi, request: QuoteRequest | null) {
   const key = request ? `${request.symbol}|${request.side}|${request.qty}|${request.typed}|${request.cap}|${request.spend ?? ''}` : '';
   const requestRef = useRef(request);
   requestRef.current = request;
-  // A quote belongs to the input it was asked for: for any other input there is nothing to show yet.
+  // A quote belongs to the input it was asked for: for any other input there is nothing to show.
   const state: QuoteState = !request ? { status: 'idle' } : held.key === key ? held.state : { status: 'loading' };
 
   useEffect(() => {

@@ -1,20 +1,59 @@
+import { useState } from 'react';
+import { SubNav } from '@intafaced/ui';
+import { Tabs } from '../../shared/ui';
 import { launchCopy } from './launch-copy';
+import { launchDepthCopy } from './launch-depth-copy';
+import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';
 import './launch-availability.css';
+
+type LaunchTab = 'Journey' | 'Check' | 'Requirements' | 'Participation';
+const TABS: readonly LaunchTab[] = ['Journey', 'Check', 'Requirements', 'Participation'];
+/** Issuer journey, pre-listing check, requirements and participation. */
+export function Launch({ orders = false }: { orders?: boolean }) {
+  const [tab, setTab] = useState<LaunchTab>(orders ? 'Participation' : 'Journey');
+  const { t } = launchDepthCopy.useCopy();
+  return (
+    <div className="more-grid">
+      <Tabs
+        items={TABS}
+        value={tab}
+        onChange={(value) => setTab(value as LaunchTab)}
+        label={t('sections')}
+        labels={{
+          Journey: t('tabJourney'),
+          Check: t('tabCheck'),
+          Requirements: t('tabRequirements'),
+          Participation: t('tabParticipation'),
+        }}
+      />
+      {tab === 'Journey' ? (
+        <LaunchJourney onTab={setTab} />
+      ) : tab === 'Check' ? (
+        <LaunchCheck />
+      ) : tab === 'Participation' ? (
+        <LaunchParticipation />
+      ) : (
+        <LaunchRequirements orders={false} />
+      )}
+    </div>
+  );
+}
 
 /** No customer launch/participation contract is mounted. Keep each required
  * capability explicit; Market access listings do not fulfill asset listing. */
-export function Launch({ orders = false }: { orders?: boolean }) {
+function LaunchRequirements({ orders = false }: { orders?: boolean }) {
   const { Copy, t, languageFor, directionFor } = launchCopy.useCopy();
   return (
     <div className="launch-room" lang={languageFor('launchUnavailable')} dir={directionFor('launchUnavailable')}>
-      <nav className="launch-room-tabs" aria-label={t('nav')}>
-        <a href="/launch" aria-current={orders ? undefined : 'page'}>
-          <Copy k="overview" />
-        </a>
-        <a href="/uc/innovation/myorders" aria-current={orders ? 'page' : undefined}>
-          <Copy k="participation" />
-        </a>
-      </nav>
+      <SubNav
+        aria-label={t('nav')}
+        active={orders ? 'participation' : 'overview'}
+        className="px-0"
+        items={[
+          { id: 'overview', label: t('overview'), href: '/launch' },
+          { id: 'participation', label: t('participation'), href: '/uc/innovation/myorders' },
+        ]}
+      />
       <div className="launch-room-workspace">
         <section className="launch-room-primary">
           <div className="launch-room-status">

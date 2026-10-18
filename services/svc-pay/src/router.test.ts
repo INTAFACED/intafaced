@@ -4,9 +4,11 @@ import type { Context } from '@intafaced/contracts';
 import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
-import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
+import { MemoryDisputeCaseStore, defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { defaultFraudReviewQueue } from './fraud/review-queue.js';
 import { PayError, assertPaymentHistoryLimit, type PayService, type PaymentView, type SettlementRecord } from './payment-service.js';
+import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
+import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
 import type { DepositRecord, UserMoneyService, WithdrawalRecord } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -50,7 +52,14 @@ const SETTLEMENT = '33333333-3333-4333-8333-333333333333';
  */
 async function ctx(
   scopes: string[],
-  opts: { tier?: 'none' | 'basic' | 'full'; region?: string; mfa?: boolean; userId?: string } = {},
+  opts: {
+    tier?: 'none' | 'basic' | 'full';
+    region?: string;
+    mfa?: boolean;
+    userId?: string;
+    apiKeyId?: string;
+    stepUpScopes?: string[];
+  } = {},
 ): Promise<Context> {
   const region = opts.region ?? 'DE';
   if (scopes.length === 0) return { principal: null, region, requestId: 'req-1' };
@@ -62,6 +71,8 @@ async function ctx(
       scopes,
       tier: opts.tier ?? 'full',
       mfa: opts.mfa ?? true,
+      ...(opts.apiKeyId ? { apiKeyId: opts.apiKeyId } : {}),
+      ...(opts.stepUpScopes ? { stepUpScopes: opts.stepUpScopes } : {}),
     },
     authConfig,
   );
@@ -166,9 +177,15 @@ function stubService(): Stub {
     getMerchant: record('getMerchant', merchant),
     getMerchantByUserId: record('getMerchantByUserId', merchant),
     submitKyb: record('submitKyb', () => ({ ...merchant(), kybStatus: 'pending' as const, kybRef: 'dossier-1' })),
-    decideKyb: record('decideKyb', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
+    decideKyb: record('decideKyb', ((input: { beforeWrite?: () => Promise<void> }) => {
+      const consume = input.beforeWrite?.() ?? Promise.resolve();
+      return consume.then(() => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' }));
+    }) as unknown as () => ReturnType<typeof merchant>),
     decideKybStub: record('decideKybStub', () => ({ ...merchant(), kybStatus: 'approved' as const, kybRef: 'dossier-1' })),
-    listPayments: record('listPayments', () => [paymentView({ status: 'captured', capturedAmount: amt('100') })]),
+    listPayments: record('listPayments', () => ({
+      items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
+      nextCursor: null,
+    })),
     createProfile: record('createProfile', () => ({ id: SETTLEMENT, merchantId: MERCHANT })),
     clearingBalance: record('clearingBalance', () => amt('100.5')),
     merchantBalance: record('merchantBalance', () => amt('97.5')),
@@ -187,7 +204,20 @@ function stubService(): Stub {
       settlementRecord({ status: 'paid_out', payoutMethod: 'card-sandbox', payoutRef: 'po_1' }),
     ),
     getSettlement: record('getSettlement', () => settlementRecord()),
-    listSettlements: record('listSettlements', () => [settlementRecord()]),
+    listSettlements: record('listSettlements', () => ({
+      items: [
+        {
+          ...settlementRecord(),
+          createdAt: new Date('2026-07-27T00:00:00.000Z'),
+          sentAt: null,
+          settledAt: new Date('2026-07-27T01:00:00.000Z'),
+          failedAt: null,
+          failure: null,
+          pricingSnapshot: null,
+        },
+      ],
+      nextCursor: null,
+    })),
     createPaymentLink: record('createPaymentLink', () => ({
       id: LINK,
       token: 'pl_generated_token',
@@ -195,6 +225,7 @@ function stubService(): Stub {
       label: 'Invoice',
       expiresAt: new Date('2026-08-29T00:00:00.000Z'),
       maxUses: null,
+      checkoutUrl: '/checkout?token=pl_generated_token',
     })),
     resolvePaymentLink: record('resolvePaymentLink', () => ({
       id: LINK,
@@ -311,7 +342,31 @@ let router: ReturnType<typeof createPayRouter>;
 beforeEach(() => {
   stub = stubService();
   money = stubUserMoney();
-  router = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM));
+  router = createPayRouter(
+    stub.service,
+    rails,
+    money.service,
+    null,
+    undefined,
+    stubApprovalConsumer(CONFIRM),
+    null,
+    undefined,
+    (async () => [
+      {
+        profile_version: '0',
+        legal_name: null,
+        statement_descriptor: null,
+        industry: null,
+        address_line1: null,
+        address_line2: null,
+        address_city: null,
+        address_region: null,
+        address_postal_code: null,
+        address_country: null,
+      },
+    ]) as never,
+    { bps: 250, source: 'local_test' },
+  );
 });
 
 const caller = async (scopes: string[], opts?: Parameters<typeof ctx>[1]) => router.createCaller(await ctx(scopes, opts));
@@ -405,6 +460,35 @@ describe('money crosses this boundary as a decimal string', () => {
     expect(() => JSON.stringify(payment)).not.toThrow();
   });
 
+  it('returns the committed capture when the post-commit facts read fails', async () => {
+    const seen: string[] = [];
+    setPaymentFactsReadFailureSink((event) => {
+      seen.push(event.paymentId);
+    });
+    try {
+      (stub.service as PayService).paymentFacts = async () => {
+        throw new Error('facts unread');
+      };
+      const api = await caller(['pay:write']);
+      const payment = await api.payment.capture({ paymentId: PAYMENT });
+      expect(payment.id).toBe(PAYMENT);
+      expect(payment.status).toBe('captured');
+      expect(payment.pricingSnapshot).toBeNull();
+      expect(payment.failure).toBeNull();
+      expect(seen).toEqual([PAYMENT]);
+    } finally {
+      setPaymentFactsReadFailureSink(null);
+    }
+  });
+
+  it('still fails payment.get when the facts read fails, because nothing was committed', async () => {
+    (stub.service as PayService).paymentFacts = async () => {
+      throw new Error('facts unread');
+    };
+    const api = await caller(['pay:read']);
+    await expect(api.payment.get({ paymentId: PAYMENT })).rejects.toThrow();
+  });
+
   it('returns settlement gross, fees and net as decimal strings that still add up', async () => {
     const api = await caller(['pay:write']);
     const settlement = await api.settlement.run({ merchantId: MERCHANT, window: '2026-07-27', assetId: 'USDT' });
@@ -419,6 +503,15 @@ describe('money crosses this boundary as a decimal string', () => {
       clearing: '100.5',
       available: '97.5',
     });
+  });
+
+  it('a caller who does not own the merchant cannot read merchant balances', async () => {
+    stub.ownedBy('99999999-9999-4999-8999-999999999999');
+    const api = await caller(['pay:read']);
+    const err = await api.merchant.balances({ merchantId: MERCHANT, assetId: 'USDT' }).catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('NOT_FOUND');
+    expect(stub.calls.some((c) => c.method === 'merchantBalance')).toBe(false);
+    expect(stub.calls.some((c) => c.method === 'clearingBalance')).toBe(false);
   });
 
   it('passes an optional capture amount through as a bigint, and omits it when absent', async () => {
@@ -573,9 +666,8 @@ describe('authority', () => {
     ).rejects.toThrow(/pay:payout/);
   });
 
-  it('REQUIRES MFA on settlement.payout — pay:payout is INTERACTIVE_ONLY', async () => {
-    // Engine C: the scope table marks pay:payout interactive-only; until this
-    // endpoint is pinned, a stolen single-factor session could drain settlements.
+  it('a pay:payout caller still cannot name a destination', async () => {
+    // D-142. The scope is no longer interactive-only (D-145). Naming a destination stays refused.
     const api = await caller(['pay:payout'], { mfa: false });
     const err = await api.settlement
       .payout({
@@ -585,11 +677,26 @@ describe('authority', () => {
       })
       .catch((e: unknown) => e);
 
-    expect((err as { code?: string }).code).toBe('UNAUTHORIZED');
-    expect((err as Error).message).toMatch(/two-factor/i);
+    expect((err as Error).message).toMatch(/cannot name a destination/i);
     expect(stub.calls.filter((c) => c.method === 'payoutSettlement')).toHaveLength(0);
-    expect(INTERACTIVE_ONLY_SCOPES).toContain('pay:payout');
-    expect(() => assertKeyScopesAllowed(['pay:payout'])).toThrow(/interactive/i);
+    expect(INTERACTIVE_ONLY_SCOPES).not.toContain('pay:payout');
+    expect(() => assertKeyScopesAllowed(['pay:payout'])).not.toThrow();
+  });
+
+  it('a step-up refund token refunds, and a plain session or a key without the scope cannot', async () => {
+    const stepped = await caller(['pay:read', 'pay:refund'], { mfa: true, stepUpScopes: ['pay:refund'] });
+    await stepped.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-step' });
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(1);
+
+    const plain = await caller([...SESSION_SCOPES]);
+    await expect(plain.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-plain' })).rejects.toThrow(/pay:refund/);
+
+    const key = await caller(['pay:read', 'pay:write'], { mfa: false, apiKeyId: '88888888-8888-4888-8888-888888888888' });
+    await expect(key.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-key' })).rejects.toThrow(/pay:refund/);
+
+    const explicit = await caller(['pay:read', 'pay:refund'], { mfa: false, apiKeyId: '99999999-9999-4999-8999-999999999999' });
+    await explicit.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'r-explicit' });
+    expect(stub.calls.filter((c) => c.method === 'refund')).toHaveLength(2);
   });
 
   it('REFUSES default SESSION_SCOPES on merchant money procedures', async () => {
@@ -689,7 +796,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.payment.get({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
   });
 
   it('still serves payment.get to the merchant who owns it', async () => {
@@ -702,7 +809,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.payment.history({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     // Refused before the read, not after it. `payment_events` carries
     // instrument metadata and customer references; not returning it is not the
     // same as not fetching it.
@@ -731,7 +838,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const api = await caller(['pay:read']);
 
     const err = await api.settlement.get({ settlementId: SETTLEMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
   });
 
   it('still serves settlement.get to the merchant who owns it', async () => {
@@ -740,15 +847,17 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
       id: SETTLEMENT,
       gross: '100',
       net: '97.5',
+      createdAt: null,
     });
   });
 
   it('owner can list settlements for a merchant', async () => {
     const api = await caller(['pay:read']);
     const rows = await api.settlement.list({ merchantId: MERCHANT, status: 'posted', limit: 50 });
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.gross).toBe('100');
-    expect(rows[0]!.net).toBe('97.5');
+    expect(rows.items).toHaveLength(1);
+    expect(rows.items[0]!.gross).toBe('100');
+    expect(rows.items[0]!.net).toBe('97.5');
+    expect(rows.nextCursor).toBeNull();
     expect(stub.calls.filter((c) => c.method === 'listSettlements')).toHaveLength(1);
   });
 
@@ -756,7 +865,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:read']);
     const err = await api.settlement.list({ merchantId: MERCHANT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'listSettlements')).toHaveLength(0);
   });
 
@@ -847,13 +956,14 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     expect(p.inventsSecondCheckoutBook).toBe(false);
   });
 
-  it('refuses with FORBIDDEN rather than NOT_FOUND, consistently, on all three', async () => {
+  it('refuses with NOT_FOUND, consistently, on all three (someone else’s row is indistinguishable from a missing one)', async () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:read']);
 
     // Stated as its own test because the value here is the CONSISTENCY: a
     // client that learns to branch on one of these must be able to branch on
-    // all of them. See `assertMerchantOwner` for why this direction was chosen.
+    // all of them. NOT_FOUND, never FORBIDDEN: a distinct refusal for "exists but
+    // not yours" is an existence oracle (see merchant-ownership.ts).
     const codes = await Promise.all(
       [
         api.payment.get({ paymentId: PAYMENT }),
@@ -861,14 +971,14 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
         api.settlement.get({ settlementId: SETTLEMENT }),
       ].map((p) => p.catch((e: unknown) => codeOf(e))),
     );
-    expect(codes).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN']);
+    expect(codes).toEqual(['NOT_FOUND', 'NOT_FOUND', 'NOT_FOUND']);
   });
 
   it('refuses payment.capture on another merchant’s payment before the rail runs', async () => {
     stub.ownedBy(ANOTHER_USER);
     const api = await caller(['pay:write']);
     const err = await api.payment.capture({ paymentId: PAYMENT }).catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'capture')).toHaveLength(0);
   });
 
@@ -878,16 +988,119 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     const err = await api.settlement
       .payout({ settlementId: SETTLEMENT, railId: 'card-sandbox', destination: { kind: 'bank', ref: 'GB82WEST12345698765432' } })
       .catch((e: unknown) => e);
-    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect(codeOf(err)).toBe('NOT_FOUND');
     expect(stub.calls.filter((c) => c.method === 'payoutSettlement')).toHaveLength(0);
   });
 
   it('binds merchant.create to the principal, not a body userId', async () => {
-    const api = await caller(['pay:write']);
-    await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 } });
+    const api = await caller(['pay:onboard']);
+    await api.merchant.create({ mode: 'psp', pricing: { feeBps: 0 } });
     const call = stub.calls.find((c) => c.method === 'createMerchant');
     expect(call).toBeDefined();
-    expect((call!.args[0] as { userId: string }).userId).toBe(USER);
+    expect(call!.args[0]).toMatchObject({ userId: USER, mode: 'gateway', pricing: { feeBps: 250 } });
+  });
+
+  it('forwards trimmed merchant names to the service and never lets a body choose the owner', async () => {
+    const api = await caller(['pay:onboard']);
+    await api.merchant.create({
+      mode: 'gateway',
+      pricing: { feeBps: 250 },
+      displayName: '  Acme Shop  ',
+      legalName: 'Acme Trading Ltd',
+      // A forged owner in the body is not part of the input contract and is dropped, not honoured.
+      ...({ userId: ANOTHER_USER } as object),
+    });
+    const call = stub.calls.filter((c) => c.method === 'createMerchant').at(-1)!;
+    expect(call.args[0]).toMatchObject({ userId: USER, displayName: 'Acme Shop', legalName: 'Acme Trading Ltd' });
+  });
+
+  // Bidi marks and overrides, line and paragraph separators, zero-width space, word joiner and BOM. U+200D (ZWJ) is allowed.
+  const INVISIBLE_NAME_CHARS = [
+    '\u061c',
+    '\u200e',
+    '\u200f',
+    '\u202a',
+    '\u202b',
+    '\u202c',
+    '\u202d',
+    '\u202e',
+    '\u2066',
+    '\u2067',
+    '\u2068',
+    '\u2069',
+    '\u2028',
+    '\u2029',
+    '\u200b',
+    '\u2060',
+    '\ufeff',
+  ];
+
+  it('accepts an emoji name that uses a zero-width joiner', async () => {
+    const api = await caller(['pay:onboard']);
+    const family = '\u{1F468}\u200d\u{1F469}\u200d\u{1F467} Family Shop';
+    await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: family });
+    expect(stub.calls.filter((c) => c.method === 'createMerchant').at(-1)!.args[0]).toMatchObject({ displayName: family });
+  });
+
+  it('refuses a blank, over-long or control-character merchant name before the service runs', async () => {
+    const api = await caller(['pay:onboard']);
+    const before = stub.calls.filter((c) => c.method === 'createMerchant').length;
+    for (const bad of [
+      '',
+      '   ',
+      'x'.repeat(121),
+      'two\nlines',
+      'tab\there',
+      'esc\u001b[31m',
+      'del\u007f',
+      'c1\u0085',
+      ...INVISIBLE_NAME_CHARS.map((c) => `a${c}b`),
+    ]) {
+      const err = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, displayName: bad }).catch((e: unknown) => e);
+      expect(codeOf(err), JSON.stringify(bad)).toBe('BAD_REQUEST');
+      const legal = await api.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 }, legalName: bad }).catch((e: unknown) => e);
+      expect(codeOf(legal), JSON.stringify(bad)).toBe('BAD_REQUEST');
+    }
+    expect(stub.calls.filter((c) => c.method === 'createMerchant')).toHaveLength(before);
+  });
+
+  it('refuses merchant.create on pay:write and when the starter fee is unpublished', async () => {
+    const writer = await caller(['pay:write']);
+    await expect(writer.merchant.create({ mode: 'gateway', pricing: { feeBps: 250 } })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(stub.calls.filter((c) => c.method === 'createMerchant')).toHaveLength(0);
+
+    const bare = createPayRouter(
+      stub.service,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+      null,
+      undefined,
+      (async () => []) as never,
+    );
+    const onboard = bare.createCaller(await ctx(['pay:onboard']));
+    await expect(onboard.merchant.create({ mode: 'gateway', pricing: { feeBps: 1 } })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: expect.stringContaining('pay.starter_fee_unpublished'),
+    });
+  });
+
+  it('keeps payments, payout destinations and the KYB stub off pay:onboard', async () => {
+    const api = await caller(['pay:onboard']);
+    await expect(
+      api.payment.create({ merchantId: MERCHANT, amount: '1', assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(
+      api.merchant.setPayoutDestination({
+        merchantId: MERCHANT,
+        railId: 'crypto-native',
+        kind: 'crypto',
+        ref: '0x000000000000000000000000000000000000dEaD',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(api.merchant.decideKybStub({ merchantId: MERCHANT, decision: 'approved' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {
@@ -908,8 +1121,30 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
         .merchant.me();
     };
     expect((await me(undefined))?.feeBps).toBeNull();
+    expect((await me(undefined))?.starterFee).toBeNull();
     expect((await me(0))?.feeBps).toBe(0);
     expect((await me(250))?.feeBps).toBe(250);
+  });
+
+  it('labels a local-test starter fee on merchant.me and leaves the merchant fee alone', async () => {
+    const pay = {
+      getMerchantByUserId: async () => ({
+        id: MERCHANT,
+        userId: USER,
+        mode: 'gateway' as const,
+        status: 'active' as const,
+        kybStatus: 'approved' as const,
+        kybRef: null,
+        pricing: { feeBps: 150 },
+      }),
+    } as unknown as PayService;
+    const row = await createPayRouter(pay, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, undefined, null, {
+      bps: 250,
+      source: 'local_test',
+    })
+      .createCaller(await ctx(['pay:read']))
+      .merchant.me();
+    expect(row).toMatchObject({ feeBps: 150, starterFee: { bps: 250, source: 'local_test' } });
   });
 
   it('merchant.decideKyb is operator admin:compliance, not merchant pay:write', async () => {
@@ -1246,6 +1481,23 @@ describe('leftover treasury mutates consume identity approval', () => {
     await expect(api.fraud.listOpenReviews()).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     await expect(api.fraud.listOpenReviews({ limit: 50 })).resolves.toEqual(expect.any(Array));
   });
+
+  it('refuses list, claim, and decide to a caller who is not an operator', async () => {
+    const merchant = await caller(['pay:write']);
+    const id = `rev-op-${Date.now()}`;
+    await merchant.fraud.enqueueReview({
+      id,
+      merchantId: MERCHANT,
+      amount: '99',
+      assetId: 'USDT',
+      recentPaymentCount: 50,
+      thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+    });
+    await expect(merchant.fraud.listOpenReviews({ limit: 50 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(merchant.fraud.claimReview({ id })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(merchant.fraud.resolveReview({ id, outcome: 'allow' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(defaultFraudReviewQueue.get(id)?.status).toBe('open');
+  });
 });
 
 // ── User money out: the withdrawal ───────────────────────────────────────────
@@ -1573,6 +1825,26 @@ describe('payment links are capability URLs on the wire too', () => {
     expect((call.args[0] as { maxUses?: unknown }).maxUses).toBe(1);
   });
 
+  it('refuses a blank idempotency key before minting', async () => {
+    const api = await caller(['pay:write']);
+    const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: '   ' }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('BAD_REQUEST');
+    expect((err as { message?: string }).message).toContain('pay.idempotency_required');
+    expect(stub.calls.filter((c) => c.method === 'createPaymentLink')).toHaveLength(0);
+  });
+
+  it('forwards the idempotency key and maps a body conflict to CONFLICT', async () => {
+    const api = await caller(['pay:write']);
+    await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: ' link-1 ' });
+    expect(stub.calls.find((c) => c.method === 'createPaymentLink')!.args[0]).toMatchObject({ idempotencyKey: ' link-1 ' });
+
+    stub.fail(new PayError('Idempotency-Key was already used with a different request body', 'pay.idempotency_conflict'));
+    const err = await api.merchant
+      .createLink({ merchantId: MERCHANT, label: 'Invoice', idempotencyKey: 'link-1' })
+      .catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
+  });
+
   it('refuses a maxUses of zero rather than creating a link nobody can pay', async () => {
     const api = await caller(['pay:write']);
     const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', maxUses: 0 }).catch((e: unknown) => e);
@@ -1583,5 +1855,85 @@ describe('payment links are capability URLs on the wire too', () => {
     const api = await caller(['pay:read']);
     const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice' }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('FORBIDDEN');
+  });
+});
+
+describe('fraud doors are fenced to the merchant on the case', () => {
+  const stranger = '99999999-9999-4999-8999-999999999999';
+
+  it('getDispute answers not-found for a missing id and for another merchant, without the id', async () => {
+    const disputes = new MemoryDisputeCaseStore();
+    disputes.open({ disputeId: 'dp-owned', paymentId: PAYMENT, merchantId: MERCHANT, amount: '10', assetId: 'USDT', reasonCode: '4853' });
+    const fenced = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, disputes);
+    const owner = fenced.createCaller(await ctx(['pay:read']));
+    const found = await owner.fraud.getDispute({ disputeId: 'dp-owned' });
+    expect(found.merchantId).toBe(MERCHANT);
+
+    const other = fenced.createCaller(await ctx(['pay:read'], { userId: stranger }));
+    const foreign = await other.fraud.getDispute({ disputeId: 'dp-owned' }).catch((e: unknown) => e);
+    const missing = await owner.fraud.getDispute({ disputeId: 'dp-missing' }).catch((e: unknown) => e);
+    for (const err of [foreign, missing]) {
+      expect(err).toMatchObject({ code: 'NOT_FOUND', message: expect.stringContaining('pay.dispute_not_found') });
+      expect((err as { message: string }).message).not.toContain('dp-owned');
+      expect((err as { message: string }).message).not.toContain('dp-missing');
+    }
+  });
+
+  it('enqueueReview refuses another merchant before the queue is written', async () => {
+    const id = `rev-fence-${Date.now()}`;
+    const other = await caller(['pay:write'], { userId: stranger });
+    await expect(
+      other.fraud.enqueueReview({
+        id,
+        merchantId: MERCHANT,
+        amount: '99',
+        assetId: 'USDT',
+        recentPaymentCount: 50,
+        thresholds: { maxPaymentsInWindow: 5, velocityCountAction: 'review' },
+      }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(defaultFraudReviewQueue.get(id)).toBeNull();
+  });
+});
+
+describe('a stored pay scope is rechecked against the live owner grant', () => {
+  it('refuses pay:read after KYB rejection and pay:write after suspension, and still allows a caller with no merchant', async () => {
+    const rejected = router.createCaller({
+      ...(await ctx(['pay:read'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, async () => ({
+            id: MERCHANT,
+            userId: principal.userId,
+            kybStatus: 'rejected',
+            status: 'active',
+          })),
+      },
+    });
+    await expect(rejected.merchant.me()).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+
+    const suspended = router.createCaller({
+      ...(await ctx(['pay:write'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) =>
+          assertOwnerPayScopeStillGranted(principal, scope, async () => ({
+            id: MERCHANT,
+            userId: principal.userId,
+            kybStatus: 'approved',
+            status: 'suspended',
+          })),
+      },
+    });
+    await expect(
+      suspended.payment.create({ merchantId: MERCHANT, amount: '1', assetId: 'USDT', method: 'card', railAdapter: 'card-sandbox' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'pay.owner_grant_withdrawn' });
+
+    const team = router.createCaller({
+      ...(await ctx(['pay:read'])),
+      ownerPayGrant: {
+        assertStillGranted: (principal, scope) => assertOwnerPayScopeStillGranted(principal, scope, async () => null),
+      },
+    });
+    await expect(team.merchant.me()).resolves.toMatchObject({ id: MERCHANT });
   });
 });

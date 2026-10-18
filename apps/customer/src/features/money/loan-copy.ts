@@ -1,15 +1,23 @@
 import { defineCopy } from '../../shared/i18n';
 
 const messages = {
+  statusPending: 'Pending',
+  statusActive: 'Active',
+  statusMarginCall: 'Margin call',
+  statusLiquidating: 'Liquidation in progress',
+  statusRepaid: 'Repaid',
+  statusLiquidated: 'Liquidated',
+  statusUnavailable: 'Status unavailable',
   riskLabel: 'This loan LTV',
   riskFor: 'Risk for loan {loanId}',
   riskLoading: 'Checking loan risk…',
   riskUnavailable: 'Loan risk unavailable',
-  riskUnavailableNote: 'No usable individual ratio is supplied by this read. Refresh the loan and risk to check again.',
-  riskRange: 'Unbounded or capped LTV',
-  riskNote: 'Returned loan risk. Mark time is unavailable. This ratio does not promise an allowed collateral release.',
+  riskUnavailableNote: 'No usable ratio is available for this loan. Refresh the loan and risk to check again.',
+  riskRange: 'LTV, uncapped or capped',
+  riskNote:
+    "Loan risk as last reported. The time of the price used isn't available, so it may not be current. This ratio doesn't promise any collateral can be released.",
   riskRefresh: 'Refresh loan risk',
-  portfolioRange: 'Unbounded or capped',
+  portfolioRange: 'Uncapped or capped',
   pendingPrincipal: 'Principal in pending record',
   pending: 'Principal credit is unconfirmed while this loan is pending. Adding collateral does not complete the draw.',
   marginCall: 'Adding collateral does not itself clear this margin call.',
@@ -24,25 +32,31 @@ const messages = {
   changed:
     'Original loan {loanId} is missing, changed or no longer supports this action. No request was sent. Close this review and refresh.',
   releaseTooLarge:
-    'The release must not exceed the collateral returned for this loan. Current marks and the allowed release are checked by the service.',
+    'The release can’t be more than the collateral held for this loan. The service checks current prices and the release allowed.',
   repaymentOffer:
     'The amount is your repayment offer. The service takes no more than the current debt, pays interest first and releases settled collateral when the debt clears.',
   unavailableHistory:
-    'This bounded list is not repayment or collateral-event history. An unknown original request remains guarded even when a refreshed loan matches.',
+    'This list isn’t your repayment or collateral history. If an earlier request never got a clear answer, new requests stay blocked until you check it, even if a refreshed loan looks the same.',
 } as const;
 
 const es = {
+  statusPending: 'Pendiente',
+  statusActive: 'Activo',
+  statusMarginCall: 'Llamada de margen',
+  statusLiquidating: 'Liquidación en curso',
+  statusRepaid: 'Pagado',
+  statusLiquidated: 'Liquidado',
+  statusUnavailable: 'Estado no disponible',
   riskLabel: 'LTV de este préstamo',
   riskFor: 'Riesgo del préstamo {loanId}',
   riskLoading: 'Comprobando el riesgo del préstamo…',
   riskUnavailable: 'Riesgo del préstamo no disponible',
-  riskUnavailableNote:
-    'Esta lectura no proporciona una ratio individual utilizable. Actualiza el préstamo y el riesgo para comprobarlos de nuevo.',
-  riskRange: 'LTV sin límite o limitado por rango',
+  riskUnavailableNote: 'No hay una proporción utilizable para este préstamo. Actualiza el préstamo y el riesgo para comprobarlo de nuevo.',
+  riskRange: 'LTV, sin tope o con tope',
   riskNote:
-    'Riesgo del préstamo devuelto. La hora de la cotización no está disponible. Esta ratio no promete una liberación de garantía admisible.',
+    'Riesgo del préstamo según el último informe. No se dispone de la hora del precio usado, así que puede no estar al día. Esta proporción no garantiza que se pueda liberar garantía.',
   riskRefresh: 'Actualizar riesgo del préstamo',
-  portfolioRange: 'Sin límite o limitado por rango',
+  portfolioRange: 'Sin tope o con tope',
   pendingPrincipal: 'Capital en el registro pendiente',
   pending: 'El abono del capital no está confirmado mientras este préstamo siga pendiente. Añadir garantía no completa el desembolso.',
   marginCall: 'Añadir garantía no resuelve por sí solo esta llamada de margen.',
@@ -59,24 +73,30 @@ const es = {
   changed:
     'El préstamo original {loanId} no aparece, ha cambiado o ya no admite esta acción. No se ha enviado ninguna solicitud. Cierra esta revisión y actualiza.',
   releaseTooLarge:
-    'La liberación no debe superar la garantía devuelta para este préstamo. El servicio comprueba las cotizaciones actuales y la liberación permitida.',
+    'La liberación no puede superar la garantía retenida para este préstamo. El servicio comprueba los precios actuales y la liberación permitida.',
   repaymentOffer:
     'El importe es tu oferta de pago. El servicio no toma más que la deuda actual, paga primero los intereses y libera la garantía al saldar la deuda.',
   unavailableHistory:
-    'Esta lista limitada no es un historial de pagos ni de eventos de garantía. Una solicitud original de resultado desconocido sigue protegida aunque un préstamo actualizado coincida.',
+    'Esta lista no es tu historial de pagos ni de garantía. Si una solicitud anterior no recibió una respuesta clara, las nuevas solicitudes quedan bloqueadas hasta que la revises, aunque un préstamo actualizado parezca igual.',
 } as const;
 const fr = {
+  statusPending: 'En attente',
+  statusActive: 'Actif',
+  statusMarginCall: 'Appel de marge',
+  statusLiquidating: 'Liquidation en cours',
+  statusRepaid: 'Remboursé',
+  statusLiquidated: 'Liquidé',
+  statusUnavailable: 'Statut indisponible',
   riskLabel: 'LTV de ce prêt',
   riskFor: 'Risque du prêt {loanId}',
   riskLoading: 'Vérification du risque du prêt…',
   riskUnavailable: 'Risque du prêt indisponible',
-  riskUnavailableNote:
-    'Cette lecture ne fournit aucun ratio individuel utilisable. Actualise le prêt et le risque pour les vérifier à nouveau.',
-  riskRange: 'LTV non borné ou plafonné par la plage',
+  riskUnavailableNote: 'Aucun ratio exploitable n’est disponible pour ce prêt. Actualise le prêt et le risque pour vérifier à nouveau.',
+  riskRange: 'LTV, sans plafond ou plafonné',
   riskNote:
-    'Risque du prêt renvoyé. L’heure du prix de référence est indisponible. Ce ratio ne promet pas une libération de garantie autorisée.',
+    'Risque du prêt selon le dernier relevé. L’heure du prix utilisé n’est pas disponible, il peut donc ne pas être à jour. Ce ratio ne promet pas qu’une garantie pourra être libérée.',
   riskRefresh: 'Actualiser le risque du prêt',
-  portfolioRange: 'Non borné ou plafonné par la plage',
+  portfolioRange: 'Sans plafond ou plafonné',
   pendingPrincipal: 'Capital dans l’enregistrement en attente',
   pending: 'Le crédit du capital n’est pas confirmé tant que ce prêt est en attente. Ajouter une garantie n’effectue pas le décaissement.',
   marginCall: 'Ajouter une garantie ne résout pas à lui seul cet appel de marge.',
@@ -94,10 +114,30 @@ const fr = {
   changed:
     'Le prêt original {loanId} est absent, a changé ou ne prend plus en charge cette action. Aucune demande n’a été envoyée. Ferme cette vérification et actualise.',
   releaseTooLarge:
-    'La libération ne doit pas dépasser la garantie renvoyée pour ce prêt. Le service vérifie les prix de référence actuels et la libération autorisée.',
+    'La libération ne peut pas dépasser la garantie détenue pour ce prêt. Le service vérifie les prix actuels et la libération autorisée.',
   repaymentOffer:
     'Le montant est ton offre de remboursement. Le service ne prélève pas plus que la dette actuelle, paie d’abord les intérêts et libère la garantie lorsque la dette est soldée.',
   unavailableHistory:
-    'Cette liste limitée n’est pas un historique de remboursements ou d’événements de garantie. Une demande originale au résultat inconnu reste protégée même si un prêt actualisé correspond.',
+    'Cette liste n’est pas ton historique de remboursements ni de garantie. Si une demande précédente n’a pas reçu de réponse claire, les nouvelles demandes restent bloquées tant que tu ne l’as pas vérifiée, même si un prêt actualisé semble identique.',
 } as const;
 export const loanCopy = defineCopy('customer.money.loans', messages, { es, fr });
+
+/** Presentation only: raw statuses still govern service/action admission. */
+export function loanStatusLabel(status: string, copy: Pick<ReturnType<typeof loanCopy.forLocale>, 't'> = loanCopy): string {
+  switch (status) {
+    case 'pending':
+      return copy.t('statusPending');
+    case 'active':
+      return copy.t('statusActive');
+    case 'margin_call':
+      return copy.t('statusMarginCall');
+    case 'liquidating':
+      return copy.t('statusLiquidating');
+    case 'repaid':
+      return copy.t('statusRepaid');
+    case 'liquidated':
+      return copy.t('statusLiquidated');
+    default:
+      return copy.t('statusUnavailable');
+  }
+}

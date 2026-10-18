@@ -986,7 +986,7 @@ function renderFreezeMd(m) {
   // sealed as residual honesty; the generator used to omit it, so the next
   // honest `pnpm swarm:freeze` erased the stamp (W8 L08 / #1399 class).
   lines.push(
-    '> **STALE SNAPSHOT — not cold-start law.** Tip SHA below must match `origin/main` or regenerate: `pnpm swarm:freeze`. Numbers (free claims, Actions, worktrees) go bad in hours. Prefer live `pnpm wt:gc` over any apply line printed here.',
+    '> **STALE SNAPSHOT — not cold-start law.** Tip SHA below must match `origin/main` or regenerate: `pnpm swarm:freeze`. Numbers (free claims, Actions, worktrees) go bad in hours. Prefer live `pnpm wt:gc` (dry run) over any command line printed here; never force-remove a worktree or delete a branch.',
   );
   lines.push('');
   lines.push('**Do not hand-edit.** Regenerate: `pnpm swarm:freeze` (also rewrites R00–R02 + DASHBOARD) or `pnpm swarm:report`');
@@ -1016,7 +1016,7 @@ function renderFreezeMd(m) {
   // "Another lane's worktree-gc --apply deleted two of this lane's worktrees
   // mid-edit" happened (docs/LANE-CLOSEOUT-OPS-2026-08-08.md).
   lines.push(
-    `- **Worktrees:** ${m.worktreeCount ?? '?'} ${m.worktreeOverCap ? '⚠ OVER CAP 20 — review with `pnpm wt:gc` (dry run; it prints why each one is kept). Removal is attended-only.' : '(cap 20)'}`,
+    `- **Worktrees:** ${m.worktreeCount ?? '?'} ${m.worktreeOverCap ? '⚠ OVER CAP 20 — review with `pnpm wt:gc` (dry run; it prints why each one is kept). It removes nothing: remove only your own worktree with `git worktree remove <path>` (never --force, never delete a branch).' : '(cap 20)'}`,
   );
   if (m.actionsRuns24h) {
     const by = Object.entries(m.actionsRuns24h.byName || {})
@@ -1029,7 +1029,7 @@ function renderFreezeMd(m) {
     lines.push('- **Actions runs (24h):** (gh unavailable — re-run with network)');
   }
   lines.push(
-    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/styleboard/`) — NO-FLEET is Docker, not "never seen UI".',
+    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/archive/styleboard/`) — NO-FLEET is Docker, not "never seen UI".',
   );
   lines.push('- **Claims:** docs/ops/claims/<id>.md (do not hand-edit LIVE-LANES mid-wave)');
   lines.push(
@@ -1330,7 +1330,7 @@ function pasteFor(claim) {
     `Note: ${claim.note || '—'}`,
     'Forbidden: Shehzad protocol/INTACHAIN implement; dual-edit Denon open PR files; invent money/depth; apps/web product; main checkout; mid-wave features.mjs thrash.',
     'Proof: if no Docker — NO-FLEET (proof_missing: fleet-blocked). If :8090 listener cwd ≠ your worktree — visual proof invalid.',
-    'PRE-PUSH: format and check the changed files. Review and verify the affected behavior; honor required protection checks without waiting for full CI green.',
+    'PRE-PUSH: format and check the changed files. Review and verify the affected behavior; honor required protection checks. Before merging, run node tooling/scripts/merge-gate.mjs <pr> --head <sha> from an up-to-date origin/main checkout; merge only after it passes.',
     'Worktree from current origin/main. One service per PR; parallel PRs stay. Record checkable evidence of the change.',
     'Coord width: 6–8 concurrent path-disjoint writers when free claims allow.',
     '--- end paste ---',

@@ -172,6 +172,13 @@ export interface MarketDataAdapter {
 // TRADING — credentials required, and the requirement is enforced
 // ════════════════════════════════════════════════════════════════════════════
 
+/** History search around a conversion claim. Times are unix milliseconds. */
+export interface ClosedOrderWindow {
+  readonly startTimeMs: number;
+  readonly endTimeMs: number;
+  readonly orderId?: string | null;
+}
+
 /**
  * A place-order request.
  *
@@ -184,6 +191,7 @@ export interface PlaceOrderRequest {
   readonly symbol: string;
   readonly side: 'buy' | 'sell';
   readonly type: VenueOrderType;
+  /** Quantity in base units (never quote value), for limit and market orders alike. */
   readonly amount: Amount;
   /** Required on a limit order, refused on a market order. */
   readonly price?: Amount;
@@ -191,6 +199,11 @@ export interface PlaceOrderRequest {
   /** True to refuse the order rather than take liquidity. */
   readonly postOnly?: boolean;
   readonly reduceOnly?: boolean;
+  /**
+   * Limit time in force. Absent means the venue adapter's resting default
+   * (GTC). Conversion sends IOC so a price under the floor cannot rest.
+   */
+  readonly timeInForce?: 'GTC' | 'IOC' | 'FOK';
 }
 
 export interface TradeAdapter {
@@ -199,6 +212,15 @@ export interface TradeAdapter {
   /** By client id, not venue id — a `pending` order has no venue id to cancel by. */
   cancelOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
   fetchOrder(symbol: string, clientOrderId: string): Promise<VenueOrder>;
+  /**
+   * A closed spot order, which some venues drop from the realtime list.
+   * Absent on venues whose `fetchOrder` already returns closed orders.
+   * `null` is a confirmed miss. Any other failure throws.
+   * `window` is the claim interval a history search must cover before a miss
+   * is real. Binance uses it for allOrders and myTrades. Bybit passes it as
+   * startTime/endTime on order history, which otherwise returns only 7 days.
+   */
+  fetchClosedOrder?(symbol: string, clientOrderId: string, window?: ClosedOrderWindow): Promise<VenueOrder | null>;
   openOrders(symbol?: string): Promise<VenueOrder[]>;
 }
 

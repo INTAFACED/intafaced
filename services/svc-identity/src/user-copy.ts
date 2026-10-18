@@ -33,8 +33,47 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'auth.webauthn_not_enrolled': 'error.forbidden',
 };
 
+/**
+ * Sentences for codes that have no catalog row yet (`auth.changePassword`). They live here, in
+ * one place, until a catalog PR moves them into `@intafaced/i18n`. `auth.invalid_credentials`
+ * stays unkeyed on purpose (it is pinned to echo its key, same as login), and
+ * `auth.mfa_required` already aliases a catalog row.
+ */
+const LOCAL_COPY: Readonly<Record<string, string>> = {
+  'auth.password_unchanged': 'Choose a new password that is different from your current one.',
+  'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
+  'auth.reset_proof_invalid': 'That reset code is not valid. Request a new one.',
+  'auth.reset_unwired': 'Password reset is not available yet.',
+  'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
+  'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
+  'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',
+  'auth.change_unwired': 'Changing this contact is not available yet.',
+  'auth.step_up_required': "Confirm it's you with a passkey or authenticator code.",
+  'auth.step_up_expired': 'That confirmation expired. Confirm again.',
+  'identity.contact_code_invalid': 'That code is not valid. Request a new one.',
+  'identity.email_invalid': 'Enter a valid email address.',
+  'identity.phone_invalid': 'Enter a phone number in international format, starting with +.',
+  'identity.phone_missing': 'There is no phone number on this account.',
+  'identity.step_up_required': 'Confirm this change with your passkey or authenticator code first.',
+  'identity.step_up_expired': 'That confirmation expired. Confirm the change again.',
+  'identity.step_up_used': 'That confirmation was already used. Confirm the change again.',
+  'identity.step_up_not_yours': 'That confirmation belongs to a different sign-in. Confirm the change again.',
+  'identity.step_up_target': 'That confirmation is for a different address. Confirm this address again.',
+  'identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot change this.',
+  'identity.region_change_requires_review': 'Region is reviewed by the desk. You cannot change it here.',
+  'identity.profile_version_conflict': 'Your profile was updated somewhere else. Review it and try again.',
+  'identity.display_name_invalid': 'Use a display name of 1 to 60 characters, without hidden or control characters.',
+  'identity.handle_impersonation': "That display name matches someone else's handle. Choose a different name.",
+  'identity.locale_unsupported': 'That language is not available.',
+  'identity.profile_no_change': 'Nothing in your profile changed.',
+  'identity.profile_missing': 'Your profile is not available.',
+  'identity.profile_unwired': 'Profile edits are not available yet.',
+  'identity.account_unwired': 'Contact changes are not available yet.',
+};
+
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {
   const alias = typeof key === 'string' && Object.hasOwn(CATALOG_ALIAS, key) ? CATALOG_ALIAS[key] : undefined;
+  if (typeof key === 'string' && Object.hasOwn(LOCAL_COPY, key)) return copyWithoutInsuredClaim(LOCAL_COPY[key]!);
   const lookup = typeof alias === 'string' ? alias : typeof key === 'string' ? key : '';
   // The catalog object inherits constructor / toString / __proto__. Passing the
   // key string is the echo; if that lookup throws or yields native source, keep the key.

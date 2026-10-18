@@ -19,6 +19,7 @@ import {
   type Plane,
 } from '@intafaced/config';
 import { Chip, type ChipTone } from '@/components/chip';
+import { formatWhen } from '@/lib/as-of';
 
 /**
  * JURISDICTION MATRIX — §3, §9, §22.
@@ -79,6 +80,10 @@ export function JurisdictionBoard() {
             structure, not legal advice — each <code>status</code> and <code>minTier</code> needs counsel sign-off before the market is
             switched on.
           </p>
+          <p>
+            <strong>Compiled policy, not live state.</strong> This matrix is read from <code>@intafaced/config</code> as built into this
+            console. What the running edge reports right now is in the live section above.
+          </p>
         </div>
       </div>
 
@@ -118,7 +123,7 @@ export function JurisdictionBoard() {
                     <tr key={entry.region} data-unreviewed={!signed}>
                       <td className="adm-key">{entry.region === '*' ? '* (default)' : entry.region}</td>
                       <td className="adm-desc">{entry.reviewedBy ?? '— not signed —'}</td>
-                      <td className="adm-desc">{entry.reviewedAt ?? '—'}</td>
+                      <td className="adm-desc">{entry.reviewedAt ? formatWhen(entry.reviewedAt) : '—'}</td>
                       <td className="adm-num">{overrideCount}</td>
                       <td>{entry.blocked ? <Chip tone="danger">Blocked</Chip> : <Chip tone="dark">No</Chip>}</td>
                       <td>

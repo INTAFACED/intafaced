@@ -21,6 +21,7 @@ import { BankError } from '../errors.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
 import { assertLoanAccrueBatchLimit, assertLoanResumePendingLimit, assertLoanRiskSweepLimit } from '../job-batch-limit.js';
+import { withSessionAdvisoryLock, withSessionAdvisoryLocks } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import {
   affiliateLegAfterLoanLiquidate,
@@ -54,6 +55,7 @@ import {
   type Mark,
   type PortfolioMark,
 } from './risk.js';
+import { readLoanBook, type LoanBook } from '../ops/loan-book.js';
 
 /**
  * LOANS (§8.1) — collateral lock, LTV marking, margin call, liquidation, accrual.
@@ -132,6 +134,37 @@ import {
  * would be made from it.
  */
 
+/**
+ * How long after its last post attempt a pending loan's ledger call is
+ * expected to be able to commit, in seconds. Used by `abandonPending` before it
+ * releases collateral.
+ *
+ *   - 25 s   the caller's retry deadline: the last signed attempt starts up to
+ *            25 s after `touchAttempt` wrote the timestamp
+ *   - 300 s  `SERVICE_CALL_MAX_SKEW_SECONDS`: svc-ledger refuses a signed call
+ *            older than that, so a delayed request can start up to 300 s late
+ *   - 15 s   `statement_timeout` on svc-ledger's pool
+ *   - 60 s   `idle_in_transaction_session_timeout` on svc-ledger's pool (the
+ *            ledger posting transaction cannot sit idle longer than this
+ *            between statements)
+ *
+ * 400 s, rounded up to 7 minutes. docs/runbooks/bank-recovery-ops.md. If any of
+ * the four moves, this moves with it.
+ *
+ * RESIDUAL, STATED HONESTLY: this is strong evidence, not proof. The sum leaves
+ * out time a request can spend inside svc-ledger AFTER its signature check:
+ * Fastify has no request timeout (`svc-ledger/src/index.ts`), and postgres.js
+ * queues queries with no acquire deadline when the pool is busy, so an
+ * overloaded ledger (exactly when replies get lost) can hold an accepted post
+ * in its pool queue past 7 minutes. `statement_timeout` and the idle limit bound
+ * each statement and each gap, not the whole multi-statement posting
+ * transaction. A late draw that lands after an abandon leaves the borrower with
+ * the principal AND the collateral back, and the loan marked repaid: a platform
+ * loss. Check svc-ledger health before every abandon (runbook 2.2). The real
+ * fence is phase 2 of the ADR.
+ */
+export const LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS = 7 * 60;
+
 export interface LoanProductRecord {
   id: string;
   name: string;
@@ -207,6 +240,8 @@ export interface LiquidationVenue {
     markPrice: Amount;
   }): Promise<{ proceeds: Amount; buyer: { collateralTo: AccountRef; proceedsFrom: AccountRef } } | null>;
 }
+
+type LiquidationQuote = NonNullable<Awaited<ReturnType<LiquidationVenue['quote']>>>;
 
 /**
  * The internal market maker takes the other side, at the mark.
@@ -530,22 +565,7 @@ export class LoanService {
     // difference matters in the other direction — a stale HIGH collateral mark
     // lets them over-borrow, so `maxLtvBps` sits well below the margin-call
     // threshold precisely to leave room for that error.
-    const marks = await this.marksFor(product.collateralAssetId, product.debtAssetId, product.quoteAssetId, now);
-
-    const collateralMark = marks.get(product.collateralAssetId)!;
-    const debtMark = marks.get(product.debtAssetId)!;
-
-    const debtValue = quoteValue(input.principal, debtMark.price, 'ceil');
-    const collateralValue = quoteValue(input.collateralAmount, collateralMark.price, 'floor');
-    const openingLtv = ltvBps(debtValue, collateralValue);
-
-    if (openingLtv > product.maxLtvBps) {
-      throw new BankError(
-        `Opening LTV ${describeLtv(openingLtv)} exceeds the ${describeLtv(product.maxLtvBps)} limit for "${product.name}" — ` +
-          `post more collateral or borrow less`,
-        'bank.ltv_exceeded',
-      );
-    }
+    const openingLtv = await this.checkOpeningLtv(product, input.collateralAmount, input.principal, now);
 
     // ── The row, before any money moves ─────────────────────────────────────
     //
@@ -559,11 +579,13 @@ export class LoanService {
 
     const inserted = await this.sql<Array<Record<string, unknown>>>`
       INSERT INTO bank.loans (
-        id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at
+        id, product_id, user_id, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, principal, opening_collateral, opened_at,
+        margin_call_ltv_bps, liquidation_ltv_bps
       ) VALUES (
         ${loanId}, ${product.id}, ${input.userId}, ${product.debtAssetId}, ${product.collateralAssetId},
         ${product.quoteAssetId}, ${product.aprBps}, ${formatAmount(input.principal)}::numeric,
-        ${formatAmount(input.collateralAmount)}::numeric, ${now}
+        ${formatAmount(input.collateralAmount)}::numeric, ${now},
+        ${product.policy.marginCallLtvBps}, ${product.policy.liquidationLtvBps}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING *
@@ -621,89 +643,226 @@ export class LoanService {
   }
 
   /**
+   * Opening LTV on marks that must pass the marking guards (`maxAgeSeconds`).
+   * Throws `bank.mark_missing` when a mark is missing or stale and
+   * `bank.ltv_exceeded` over the product cap. Shared by `open` and by
+   * `resumePending`, which must re-check before it re-posts a draw.
+   */
+  private async checkOpeningLtv(product: LoanProductRecord, collateralAmount: Amount, principal: Amount, now: Date): Promise<number> {
+    const marks = await this.marksFor(product.collateralAssetId, product.debtAssetId, product.quoteAssetId, now);
+
+    const collateralMark = marks.get(product.collateralAssetId)!;
+    const debtMark = marks.get(product.debtAssetId)!;
+
+    const debtValue = quoteValue(principal, debtMark.price, 'ceil');
+    const collateralValue = quoteValue(collateralAmount, collateralMark.price, 'floor');
+    const openingLtv = ltvBps(debtValue, collateralValue);
+
+    if (openingLtv > product.maxLtvBps) {
+      throw new BankError(
+        `Opening LTV ${describeLtv(openingLtv)} exceeds the ${describeLtv(product.maxLtvBps)} limit for "${product.name}" — ` +
+          `post more collateral or borrow less`,
+        'bank.ltv_exceeded',
+      );
+    }
+    return openingLtv;
+  }
+
+  /** The draw's business key, the one `abandonPending` and `resumePending` look up first. */
+  private drawKey(loan: LoanRecord): string {
+    return recipes.loanDraw({
+      loanId: loan.id,
+      userId: loan.userId,
+      debtAssetId: loan.debtAssetId,
+      principal: loan.principal,
+    }).idempotencyKey;
+  }
+
+  /**
+   * One open/abandon at a time per loan, across replicas. Without it,
+   * `abandonPending` could check "not booked, last attempt old" while a
+   * `resumePending` pass posts the draw, and release collateral under a loan
+   * that then goes active. The lock is not taken inside any other session lock.
+   */
+  private async withOpenLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    return withSessionAdvisoryLock(this.sql, 'bank.loan.open', loanId, body);
+  }
+
+  /**
+   * Record "an attempt to post is starting now", on the DATABASE clock, in
+   * `updated_at`. A pending loan's row is touched by nothing else, so this is
+   * the last-attempt time `abandonPending` measures the in-flight bound from.
+   */
+  private async touchAttempt(loanId: string): Promise<void> {
+    await this.sql`UPDATE bank.loans SET updated_at = now() WHERE id = ${loanId} AND status = 'pending'`;
+  }
+
+  /**
+   * Complete a loan whose draw is already booked: record it and flip to
+   * `active`. Never posts. If the lock row did not record its transaction (a
+   * crash after the post), it is settled from the ledger's own record.
+   */
+  private async adoptBookedDraw(
+    loan: LoanRecord,
+    drawTxId: string,
+    now: Date,
+  ): Promise<{ loan: LoanRecord; collateralLedgerTxId: string; drawLedgerTxId: string }> {
+    const lock = await this.collateralEvent(loan.id, 0);
+    let collateralTxId = lock?.ledger_tx_id ?? '';
+    if (lock && !lock.ledger_tx_id) {
+      const booked = await this.ledger.getTxByKey(
+        recipes.loanCollateralLock({
+          loanId: loan.id,
+          userId: loan.userId,
+          collateralAssetId: loan.collateralAssetId,
+          amount: parseAmount(lock.amount),
+          sequence: 0,
+        }).idempotencyKey,
+      );
+      if (booked) {
+        collateralTxId = booked.id;
+        await this.sql`
+          UPDATE bank.loan_collateral_events
+             SET status = 'settled', ledger_tx_id = ${booked.id}, settled_at = now()
+           WHERE loan_id = ${loan.id} AND sequence = 0 AND status = 'pending'
+        `;
+      }
+    }
+    const updated = await this.sql<Array<Record<string, unknown>>>`
+      UPDATE bank.loans
+         SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
+             last_mark_price = ${null}, updated_at = now()
+       WHERE id = ${loan.id} AND status = 'pending'
+       RETURNING *
+    `;
+    return {
+      loan: updated.length > 0 ? toLoan(updated[0]!) : await this.loan(loan.id),
+      collateralLedgerTxId: collateralTxId,
+      drawLedgerTxId: drawTxId,
+    };
+  }
+
+  /**
    * Drive a `pending` loan to `active`: lock (once), then draw (once).
    *
    * Called by `open` and, after a crash, by `resumePending`. Both paths run the
    * same code with the same idempotency keys, which is the whole reason recovery
    * is not a separate code path with its own bugs.
+   *
+   * `recovery` is the unattended path (`resumePending`). Before it re-posts the
+   * draw it looks the draw key up and adopts a booked draw, and otherwise
+   * re-checks the opening LTV on a fresh mark. The customer-driven `open` has
+   * just done that check itself.
    */
   private async completePending(
     loan: LoanRecord,
     collateralAmount: Amount,
     openingLtv: number,
     now: Date,
+    recovery = false,
   ): Promise<{ loan: LoanRecord; ltvBps: number; collateralLedgerTxId: string; drawLedgerTxId: string }> {
-    return withMoneySpan('bank.loan.open', { operation: 'loan-open', loanId: loan.id }, async (span) => {
-      // ── STEP 1: COLLATERAL ────────────────────────────────────────────────
-      // A crash after this and before step 2 leaves the borrower's collateral in
-      // their OWN purposed ledger account with the reserve untouched. Nothing is
-      // stranded in the platform's hands.
-      let collateralTxId: string;
-      try {
-        collateralTxId = (await this.lockCollateral(loan, collateralAmount, 0, loan.id)).ledgerTxId;
-      } catch (err) {
-        if (isInsufficientFunds(err)) {
-          // Borrower cannot fund the lock. Loan stays `pending` with no lock
-          // committed to the ledger (or with a claimed event awaiting re-drive).
-          // Typed as BankError so callers never see a raw ledger insufficient
-          // bubble out of open() — and so a retry with DIFFERENT terms can hit
-          // the principal-mismatch gate as a BankError rather than racing the
-          // lock again under a ledger message that names nothing about terms.
-          throw new BankError(
-            `Borrower cannot lock ${formatAmount(collateralAmount)} ${loan.collateralAssetId} for loan ${loan.id}. ` +
-              `The loan is pending; fund the collateral or abandon the pending row.`,
-            'bank.loan_collateral_short',
-          );
+    return withMoneySpan('bank.loan.open', { operation: 'loan-open', loanId: loan.id }, async (span) =>
+      this.withOpenLock(loan.id, async () => {
+        // Re-read under the lock: an abandon or another pass may have finished it.
+        const current = await this.loan(loan.id);
+        if (current.status !== 'pending') {
+          const existing = await this.drawRecord(loan.id);
+          return {
+            loan: current,
+            ltvBps: openingLtv,
+            collateralLedgerTxId: existing.collateralLedgerTxId,
+            drawLedgerTxId: existing.drawLedgerTxId,
+          };
         }
-        throw err;
-      }
 
-      // ── STEP 2: PRINCIPAL ─────────────────────────────────────────────────
-      let drawTxId: string;
-      try {
-        const posted = await this.ledger.post(
-          recipes.loanDraw({
-            loanId: loan.id,
-            userId: loan.userId,
-            debtAssetId: loan.debtAssetId,
-            principal: loan.principal,
-          }),
-        );
-        drawTxId = posted.id;
-      } catch (err) {
-        if (isInsufficientFunds(err)) {
-          // The RESERVE is short, not the borrower. Rethrown as its own code so
-          // the alert says "the platform cannot lend" rather than blaming a user
-          // who did everything right. The loan stays `pending` with its collateral
-          // locked and recoverable — see `abandonPending`.
-          throw new BankError(
-            `The ${loan.debtAssetId} lending reserve cannot fund ${formatAmount(loan.principal)}. ` +
-              `The loan is pending with collateral locked; release it or fund the reserve.`,
-            'bank.loan_reserve_underfunded',
-          );
+        if (recovery) {
+          // LOOK FIRST. A booked draw is adopted at any age: the money moved,
+          // the record catches up. Nothing is re-posted.
+          const booked = await this.ledger.getTxByKey(this.drawKey(current));
+          if (booked) {
+            const adopted = await this.adoptBookedDraw(current, booked.id, now);
+            return { ...adopted, ltvBps: openingLtv };
+          }
+          // NOT BOOKED: re-posting books principal now, so it needs a price now.
+          // A stale or missing mark, or a breached cap, leaves the loan pending
+          // for the operator to abandon (`abandonPending`).
+          const product = await this.product(current.productId);
+          openingLtv = await this.checkOpeningLtv(product, collateralAmount, current.principal, now);
         }
-        throw err;
-      }
 
-      // Status and tx id commit together, so there is no window in which the
-      // principal has moved and the row does not know.
-      const updated = await this.sql<Array<Record<string, unknown>>>`
-        UPDATE bank.loans
-           SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
-               last_mark_price = ${null}, updated_at = now()
-         WHERE id = ${loan.id} AND status = 'pending'
-         RETURNING *
-      `;
+        // ── STEP 1: COLLATERAL ──────────────────────────────────────────────
+        // A crash after this and before step 2 leaves the borrower's collateral in
+        // their OWN purposed ledger account with the reserve untouched. Nothing is
+        // stranded in the platform's hands.
+        let collateralTxId: string;
+        try {
+          await this.touchAttempt(current.id);
+          collateralTxId = (await this.lockCollateral(current, collateralAmount, 0, current.id)).ledgerTxId;
+        } catch (err) {
+          if (isInsufficientFunds(err)) {
+            // Borrower cannot fund the lock. Loan stays `pending` with no lock
+            // committed to the ledger (or with a claimed event awaiting re-drive).
+            // Typed as BankError so callers never see a raw ledger insufficient
+            // bubble out of open() — and so a retry with DIFFERENT terms can hit
+            // the principal-mismatch gate as a BankError rather than racing the
+            // lock again under a ledger message that names nothing about terms.
+            throw new BankError(
+              `Borrower cannot lock ${formatAmount(collateralAmount)} ${current.collateralAssetId} for loan ${current.id}. ` +
+                `The loan is pending; fund the collateral or abandon the pending row.`,
+              'bank.loan_collateral_short',
+            );
+          }
+          throw err;
+        }
 
-      span.setAttribute('intafaced.ltv_bps', openingLtv);
+        // ── STEP 2: PRINCIPAL ───────────────────────────────────────────────
+        let drawTxId: string;
+        try {
+          await this.touchAttempt(current.id);
+          const posted = await this.ledger.post(
+            recipes.loanDraw({
+              loanId: current.id,
+              userId: current.userId,
+              debtAssetId: current.debtAssetId,
+              principal: current.principal,
+            }),
+          );
+          drawTxId = posted.id;
+        } catch (err) {
+          if (isInsufficientFunds(err)) {
+            // The RESERVE is short, not the borrower. Rethrown as its own code so
+            // the alert says "the platform cannot lend" rather than blaming a user
+            // who did everything right. The loan stays `pending` with its collateral
+            // locked and recoverable — see `abandonPending`.
+            throw new BankError(
+              `The ${current.debtAssetId} lending reserve cannot fund ${formatAmount(current.principal)}. ` +
+                `The loan is pending with collateral locked; release it or fund the reserve.`,
+              'bank.loan_reserve_underfunded',
+            );
+          }
+          throw err;
+        }
 
-      return {
-        loan: updated.length > 0 ? toLoan(updated[0]!) : await this.loan(loan.id),
-        ltvBps: openingLtv,
-        collateralLedgerTxId: collateralTxId,
-        drawLedgerTxId: drawTxId,
-      };
-    });
+        // Status and tx id commit together, so there is no window in which the
+        // principal has moved and the row does not know.
+        const updated = await this.sql<Array<Record<string, unknown>>>`
+          UPDATE bank.loans
+             SET status = 'active', draw_ledger_tx_id = ${drawTxId}, drawn_at = ${now},
+                 last_mark_price = ${null}, updated_at = now()
+           WHERE id = ${current.id} AND status = 'pending'
+           RETURNING *
+        `;
+
+        span.setAttribute('intafaced.ltv_bps', openingLtv);
+
+        return {
+          loan: updated.length > 0 ? toLoan(updated[0]!) : await this.loan(current.id),
+          ltvBps: openingLtv,
+          collateralLedgerTxId: collateralTxId,
+          drawLedgerTxId: drawTxId,
+        };
+      }),
+    );
   }
 
   /**
@@ -714,10 +873,23 @@ export class LoanService {
    * business keys, so a loan that got its collateral locked before the crash does
    * not lock it twice, and one that got its draw in does not draw twice.
    *
+   * Per loan, in this order:
+   *   1. a REJECTED collateral lock is final: nothing is re-posted (the ledger
+   *      refused it; abandon the loan);
+   *   2. the draw key is looked up, and a BOOKED draw is adopted (the loan goes
+   *      `active`, nothing is posted);
+   *   3. otherwise the opening LTV is re-checked on a mark no older than the
+   *      price policy's `maxAgeSeconds`, and only then is the draw re-posted. A
+   *      stale or missing mark, or a breached cap, fails the loan for this pass
+   *      and leaves it pending for `abandonPending`.
+   *
    * `limit` is required. Omit used to invent a 100-row pass. Blank refuses.
    * Owner/cron may pass 100 explicitly.
    */
-  async resumePending(limit?: number): Promise<Array<{ loanId: string; outcome: 'completed' | 'failed'; reason?: string }>> {
+  async resumePending(
+    limit?: number,
+    now: Date = new Date(),
+  ): Promise<Array<{ loanId: string; outcome: 'completed' | 'failed'; reason?: string }>> {
     const batch = assertLoanResumePendingLimit(limit);
     const rows = await this.sql<Array<Record<string, unknown>>>`
       SELECT * FROM bank.loans WHERE status = 'pending' ORDER BY opened_at ASC LIMIT ${batch}
@@ -736,7 +908,18 @@ export class LoanService {
           out.push({ loanId: loan.id, outcome: 'failed', reason: 'no collateral event to resume from' });
           continue;
         }
-        await this.completePending(loan, parseAmount(locked.amount), 0, new Date());
+        if (locked.status === 'rejected') {
+          // The ledger definitely refused this lock. Re-posting it would book a
+          // lock nobody is asking for any more, and the draw after it. The loan
+          // stays pending until an operator abandons it (nothing is locked).
+          out.push({
+            loanId: loan.id,
+            outcome: 'failed',
+            reason: 'bank.loan_collateral_rejected: the collateral lock was refused by the ledger; abandon the loan',
+          });
+          continue;
+        }
+        await this.completePending(loan, parseAmount(locked.amount), 0, now, true);
         out.push({ loanId: loan.id, outcome: 'completed' });
       } catch (err) {
         out.push({ loanId: loan.id, outcome: 'failed', reason: err instanceof Error ? err.message : String(err) });
@@ -747,31 +930,72 @@ export class LoanService {
   }
 
   /**
-   * Give up on a `pending` loan and give the collateral back.
-   *
-   * The other half of the crash story. A loan stuck `pending` because the reserve
-   * could not fund it must not hold the borrower's collateral indefinitely —
-   * that IS stranding funds, just slowly. Refuses once the principal has been
-   * drawn, because at that point the collateral is securing real debt.
+   * Seconds still to wait before the last post attempt on a pending loan can no
+   * longer be in flight. 0 means it is safe to treat an unbooked key as dead.
+   * Read on the DATABASE clock against the `updated_at` that `touchAttempt` wrote.
    */
-  async abandonPending(loanId: string): Promise<{ released: Amount; ledgerTxId: string | null }> {
-    const loan = await this.loan(loanId);
-    if (loan.status !== 'pending') {
-      throw new BankError(
-        `Loan ${loanId} is ${loan.status}, not pending — its collateral secures drawn principal`,
-        'bank.loan_not_drawable',
-      );
-    }
+  private async inFlightWaitSeconds(loanId: string): Promise<number> {
+    const rows = await this.sql<Array<{ wait: string }>>`
+      SELECT GREATEST(0, CEIL(${LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS}::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::text AS wait
+        FROM bank.loans WHERE id = ${loanId}
+    `;
+    return Number(rows[0]?.wait ?? 0);
+  }
 
-    const held = await this.collateralOf(loan);
-    if (held <= 0n) {
+  /**
+   * Resolve a `pending` loan whose process died or whose reply was lost.
+   *
+   * LOOK FIRST. The draw key is looked up before anything else:
+   *   - BOOKED: the principal is already in the borrower's hands. The loan is
+   *     ADOPTED (completed to `active`); collateral is never released and the
+   *     loan is never marked repaid, because that collateral now secures real debt.
+   *   - NOT BOOKED, and the last post attempt is older than
+   *     `LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS` on the database clock: nothing
+   *     can still commit, so the collateral goes back and the loan is closed.
+   *   - NOT BOOKED, but the last attempt is recent: refused with
+   *     `bank.loan_attempt_too_recent`. The ledger may still commit that call,
+   *     and releasing now could leave a drawn loan with no collateral behind it.
+   *
+   * Refuses once the principal has been drawn and recorded, because at that
+   * point the collateral is securing real debt.
+   */
+  async abandonPending(
+    loanId: string,
+  ): Promise<{ released: Amount; ledgerTxId: string | null; adopted: boolean; drawLedgerTxId: string | null }> {
+    return this.withOpenLock(loanId, async () => {
+      const loan = await this.loan(loanId);
+      if (loan.status !== 'pending') {
+        throw new BankError(
+          `Loan ${loanId} is ${loan.status}, not pending — its collateral secures drawn principal`,
+          'bank.loan_not_drawable',
+        );
+      }
+
+      const booked = await this.ledger.getTxByKey(this.drawKey(loan));
+      if (booked) {
+        await this.adoptBookedDraw(loan, booked.id, new Date());
+        return { released: 0n, ledgerTxId: null, adopted: true, drawLedgerTxId: booked.id };
+      }
+
+      const wait = await this.inFlightWaitSeconds(loanId);
+      if (wait > 0) {
+        throw new BankError(
+          `Loan ${loanId} had a ledger post attempt less than ${Math.round(LOAN_ATTEMPT_IN_FLIGHT_BOUND_SECONDS / 60)} minutes ago, ` +
+            `so the ledger may still commit it. Wait ${wait} seconds and try again`,
+          'bank.loan_attempt_too_recent',
+        );
+      }
+
+      const held = await this.collateralOf(loan);
+      if (held <= 0n) {
+        await this.sql`UPDATE bank.loans SET status = 'repaid', closed_at = now(), updated_at = now() WHERE id = ${loanId}`;
+        return { released: 0n, ledgerTxId: null, adopted: false, drawLedgerTxId: null };
+      }
+
+      const txId = await this.releaseCollateral(loan, held);
       await this.sql`UPDATE bank.loans SET status = 'repaid', closed_at = now(), updated_at = now() WHERE id = ${loanId}`;
-      return { released: 0n, ledgerTxId: null };
-    }
-
-    const txId = await this.releaseCollateral(loan, held);
-    await this.sql`UPDATE bank.loans SET status = 'repaid', closed_at = now(), updated_at = now() WHERE id = ${loanId}`;
-    return { released: held, ledgerTxId: txId };
+      return { released: held, ledgerTxId: txId, adopted: false, drawLedgerTxId: null };
+    });
   }
 
   // ── Collateral movements ───────────────────────────────────────────────────
@@ -803,6 +1027,15 @@ export class LoanService {
     const loan = await this.loan(input.loanId);
     if (loan.status === 'repaid' || loan.status === 'liquidated') {
       throw new BankError(`Loan ${loan.id} is ${loan.status}`, 'bank.loan_closed');
+    }
+    if (loan.status === 'pending') {
+      // A top-up is for a drawn loan. On a pending one it would take neither the
+      // open lock nor move the last-attempt time, so it could land beside an
+      // abandon and strand the borrower's funds. Same code as releaseExcess.
+      throw new BankError(
+        `Loan ${loan.id} is pending — it has no drawn principal to secure; resume or abandon it rather than topping it up`,
+        'bank.loan_not_drawable',
+      );
     }
     if (input.amount <= 0n) throw new BankError('Collateral top-up must be positive', 'bank.below_minimum');
 
@@ -1961,29 +2194,56 @@ export class LoanService {
   /**
    * ONE RUNG. Seize, sell and repay atomically; book any shortfall by name.
    *
-   * The tranche number, the claim insert, and the sale share one session lock.
-   * A second sweep cannot allocate another tranche while that sale is in flight.
-   * When the lock is free, a plan priced against collateral that has already
-   * moved does not post again, and status becomes `liquidating` only from an
-   * open loan.
+   * A new sale's venue quote runs before the loan lock, so a repayment can
+   * settle while the quote is in flight. The debt is read again under the lock
+   * and the sale posts only when that debt is still the quoted plan. A pending
+   * rung stays inside the lock and finishes the sale already stored.
+   *
+   * The tranche number, the claim insert, and the sale share one session lock
+   * with repayment. A second sweep cannot allocate another tranche while that
+   * sale is in flight. When the lock is free, a plan priced against debt or
+   * collateral that has already moved does not post again, and status becomes
+   * `liquidating` only from an open loan.
    */
   private async liquidateTranche(input: Parameters<LoanService['liquidateTrancheLocked']>[0]): Promise<void> {
-    await this.withLiquidationLock(input.loan.id, () => this.liquidateTrancheLocked(input));
+    const { loan } = input;
+    if (loan.quoteAssetId !== loan.debtAssetId || (await this.hasPendingLiquidation(loan.id))) {
+      await this.withLiquidationLock(loan.id, () => this.liquidateTrancheLocked(input));
+      return;
+    }
+
+    const quoted = await this.venue.quote({
+      loanId: loan.id,
+      collateralAssetId: loan.collateralAssetId,
+      collateralAmount: input.collateralToSell,
+      debtAssetId: loan.debtAssetId,
+      markPrice: input.collateralMark.price,
+    });
+    if (quoted === null || quoted.proceeds <= 0n) {
+      throw new BankError(
+        `No counterparty for ${formatAmount(input.collateralToSell)} ${loan.collateralAssetId} on loan ${loan.id}`,
+        'bank.no_liquidation_counterparty',
+      );
+    }
+    await this.withLiquidationLock(loan.id, () => this.liquidateTrancheLocked(input, quoted));
   }
 
-  private async liquidateTrancheLocked(input: {
-    loan: LoanRecord;
-    product: LoanProductRecord;
-    ltv: number;
-    graceWaived: boolean;
-    collateralToSell: Amount;
-    closesPosition: boolean;
-    /** Collateral the rung was priced against. A sale that already moved it makes this plan stale. */
-    collateralAtPlan: Amount;
-    collateralMark: QuotedMark;
-    debt: LoanDebt;
-    now: Date;
-  }): Promise<void> {
+  private async liquidateTrancheLocked(
+    input: {
+      loan: LoanRecord;
+      product: LoanProductRecord;
+      ltv: number;
+      graceWaived: boolean;
+      collateralToSell: Amount;
+      closesPosition: boolean;
+      /** Collateral the rung was priced against. A sale that already moved it makes this plan stale. */
+      collateralAtPlan: Amount;
+      collateralMark: QuotedMark;
+      debt: LoanDebt;
+      now: Date;
+    },
+    externalQuote?: LiquidationQuote,
+  ): Promise<void> {
     const { loan, product, collateralMark } = input;
 
     // The collateral mark is denominated in the quote asset. Proceeds from
@@ -2045,11 +2305,16 @@ export class LoanService {
         }
       : null;
 
-    // A new sale needs the loan still open and the collateral the plan was
-    // priced against. A second sweep that waited out the first sale finds one
-    // of those false and does not post. A pending rung is not a new sale.
+    // A new sale needs the loan still open and BOTH sides of the priced LTV
+    // unchanged. The quote ran before this lock, so a repayment may have
+    // settled. Selling input.debt would collect principal the borrower already
+    // paid. A pending rung instead finishes its stored sale, even if debt changed.
     let openStatus: 'active' | 'margin_call' | null = null;
+    let pricedDebt = input.debt;
     if (!pending) {
+      const debtNow = await this.outstanding(loan.id);
+      if (debtNow.principal !== input.debt.principal || debtNow.interest !== input.debt.interest) return;
+      pricedDebt = debtNow;
       const heldNow = await this.collateralOf(loan);
       if (heldNow !== input.collateralAtPlan) return;
       const statusRows = await this.sql<Array<{ status: string }>>`
@@ -2058,19 +2323,35 @@ export class LoanService {
       const status = statusRows[0]?.status;
       if (status !== 'active' && status !== 'margin_call') return;
       openStatus = status;
+      if (await this.hasPendingRepayment(loan.id)) {
+        throw new BankError(
+          `Loan ${loan.id} has a repayment whose ledger outcome is not yet known — no sale until that repayment is re-driven`,
+          'bank.ledger_outcome_unknown',
+        );
+      }
     }
 
     // The sale is already on the ledger once ledger_tx_id is stored. A later
-    // quote is not a buyer for that rung.
-    const quoted = pending?.ledger_tx_id
-      ? null
-      : await this.venue.quote({
+    // quote is not a buyer for that rung. A quote taken before this lock is
+    // used only for a new sale; a pending rung keeps the sale stored on it.
+    const quoted = pending
+      ? pending.ledger_tx_id
+        ? null
+        : await this.venue.quote({
+            loanId: loan.id,
+            collateralAssetId: loan.collateralAssetId,
+            collateralAmount: storedSale ? storedSale.collateralSold : input.collateralToSell,
+            debtAssetId: loan.debtAssetId,
+            markPrice: storedSale ? storedSale.markPrice : collateralMark.price,
+          })
+      : (externalQuote ??
+        (await this.venue.quote({
           loanId: loan.id,
           collateralAssetId: loan.collateralAssetId,
-          collateralAmount: storedSale ? storedSale.collateralSold : input.collateralToSell,
+          collateralAmount: input.collateralToSell,
           debtAssetId: loan.debtAssetId,
-          markPrice: storedSale ? storedSale.markPrice : collateralMark.price,
-        });
+          markPrice: collateralMark.price,
+        })));
 
     if (!pending?.ledger_tx_id && (quoted === null || quoted.proceeds <= 0n)) {
       // No buyer means no sale. Booking one anyway would post a fictional trade
@@ -2107,8 +2388,8 @@ export class LoanService {
           }
         : splitProceeds({
             proceeds: quoted!.proceeds,
-            interestOwed: input.debt.interest,
-            principalOwed: input.debt.principal,
+            interestOwed: pricedDebt.interest,
+            principalOwed: pricedDebt.principal,
             penaltyBps: product.policy.penaltyBps,
             closesPosition: input.closesPosition,
           });
@@ -2486,6 +2767,28 @@ export class LoanService {
     };
   }
 
+  /**
+   * Marks that pass the marking guards. A missing asset is omitted.
+   * The loan book uses that omission as `unpriced` rather than as healthy.
+   */
+  marksAccepted(assetIds: readonly string[], quoteAssetId: string, now: Date): Promise<Map<string, QuotedMark>> {
+    return this.acceptedMarks(assetIds, quoteAssetId, now);
+  }
+
+  /** Open book: counts, principal per asset, bands at the thresholds stored on each loan. */
+  loanBook(now = new Date()): Promise<LoanBook> {
+    return readLoanBook(
+      {
+        sql: this.sql,
+        loan: (id) => this.loan(id),
+        outstanding: (id) => this.outstanding(id),
+        collateralOf: (loan) => this.collateralOf(loan as LoanRecord),
+        marksAccepted: (assetIds, quote, at) => this.marksAccepted(assetIds, quote, at),
+      },
+      now,
+    );
+  }
+
   /** Insurance-fund balance — the platform's declared capacity to absorb bad debt. */
   async insuranceCapacity(debtAssetId: string): Promise<Amount> {
     return (await this.ledger.balance(insuranceFund(debtAssetId))).amount;
@@ -2595,6 +2898,13 @@ export class LoanService {
   private async hasPendingLiquidation(loanId: string, tx: Sql = this.sql): Promise<boolean> {
     const rows = await tx<Array<{ n: string }>>`
       SELECT COUNT(*)::text AS n FROM bank.loan_liquidations WHERE loan_id = ${loanId} AND status = 'pending'
+    `;
+    return Number(rows[0]?.n ?? 0) > 0;
+  }
+
+  private async hasPendingRepayment(loanId: string, tx: Sql = this.sql): Promise<boolean> {
+    const rows = await tx<Array<{ n: string }>>`
+      SELECT COUNT(*)::text AS n FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'pending'
     `;
     return Number(rows[0]?.n ?? 0) > 0;
   }
@@ -2809,50 +3119,21 @@ export class LoanService {
   }
 
   /**
-   * One liquidation at a time for a loan, from the tranche allocation through
-   * the sale. Distinct from the repay lock: a repayment and a liquidation are
-   * different claims, and this path must not take or change the repay key.
-   *
-   * `pg_advisory_lock` is session-scoped, so it is still held while the ledger
-   * post runs after the claim transaction commits. The connection is reserved
-   * so unlock hits the session that took the lock.
+   * One repayment and one liquidation at a time for a loan, from the debt
+   * re-read through the ledger post. Both historical keys are taken on one
+   * connection, in sorted order, so a replica still on the old single key
+   * collides with this one. The quote for a new sale is not inside this lock.
    */
-  private async withLiquidationLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.loan.liquidate'), hashtext(${loanId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.loan.liquidate'), hashtext(${loanId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+  private async withLoanMoneyLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    return withSessionAdvisoryLocks(this.sql, ['bank.loan.liquidate', 'bank.loan.repay'], loanId, body);
   }
 
-  /**
-   * One repayment at a time for a loan, from the debt re-read through settle.
-   *
-   * `pg_advisory_lock` is session-scoped, so it survives the claim commit. The
-   * connection is reserved so unlock hits the session that took the lock.
-   */
+  private async withLiquidationLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
+    return this.withLoanMoneyLock(loanId, body);
+  }
+
   private async withRepayLock<T>(loanId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.loan.repay'), hashtext(${loanId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+    return this.withLoanMoneyLock(loanId, body);
   }
 
   private async nextCollateralSequence(loanId: string): Promise<number> {
@@ -2867,9 +3148,12 @@ export class LoanService {
     return Number(rows[0]?.next ?? 0);
   }
 
-  private async collateralEvent(loanId: string, sequence: number): Promise<{ amount: string; ledger_tx_id: string | null } | null> {
-    const rows = await this.sql<Array<{ amount: string; ledger_tx_id: string | null }>>`
-      SELECT amount, ledger_tx_id FROM bank.loan_collateral_events WHERE loan_id = ${loanId} AND sequence = ${sequence}
+  private async collateralEvent(
+    loanId: string,
+    sequence: number,
+  ): Promise<{ amount: string; ledger_tx_id: string | null; status: string } | null> {
+    const rows = await this.sql<Array<{ amount: string; ledger_tx_id: string | null; status: string }>>`
+      SELECT amount, ledger_tx_id, status FROM bank.loan_collateral_events WHERE loan_id = ${loanId} AND sequence = ${sequence}
     `;
     return rows[0] ?? null;
   }

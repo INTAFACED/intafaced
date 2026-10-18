@@ -459,7 +459,7 @@ test('past 50 rows only the visible rows are drawn, and scrolling reaches the la
   await expect(page.locator('[role="row"][data-symbol]').last()).toBeVisible();
   const last = await page.locator('[role="row"][data-symbol]').evaluateAll((nodes) => nodes.at(-1).dataset.symbol);
   expect(await rowSymbols(page)).toContain(last);
-  // Keyboard: End on a focused link reaches the true last row even though it is not drawn yet.
+  // Keyboard: End on a focused link reaches the true last row even though it is not drawn.
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.locator('[role="row"][data-symbol] [data-row-link]').first().focus();
   await page.keyboard.press('End');
@@ -487,7 +487,7 @@ test('responsive: no horizontal page scroll at 1280x800 and below', async ({ pag
     );
     expect(overflow, `${size.width}px, too wide: ${wide.join(' | ')}`).toBeLessThanOrEqual(0);
     if (size.width === 390) {
-      // Phone is not designed yet; it must not break: name, price and change stay, and the row is still a link.
+      // Phone is not designed; it must not break: name, price and change stay, and the row is still a link.
       await expect(page.locator('[data-symbol="BTC/USDT"] [data-row-link]')).toBeVisible();
       await expect(page.locator('[data-symbol="BTC/USDT"] [data-slot="pct"]')).toBeVisible();
     }
@@ -523,3 +523,38 @@ test('with two top cards, the two share the row (no empty third) (critic M8)', a
   // However many cards are drawn (one to three), together with their gaps they fill the row.
   expect(widths.reduce((a, b) => a + b, 0) + (count - 1) * 24).toBeGreaterThanOrEqual(row - 2);
 });
+
+for (const mode of ['simple', 'pro']) {
+  test(`phase2 ${mode}: phone quote identifiers remain fully visible`, async ({ page }) => {
+    if (mode === 'pro') await pro(page);
+    await mock(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page);
+    await ready(page);
+    for (const symbol of ['BTC/USDT', 'BTC/USDC']) {
+      const row = page.locator(`[role="row"][data-symbol="${symbol}"]`);
+      const identity = await row.locator('.mkt-name__ticker').evaluate((node) => {
+        const quote = node.querySelector('.mkt-name__quote');
+        const rect = node.getBoundingClientRect();
+        const ink = document.createRange();
+        ink.selectNodeContents(quote);
+        const value = ink.getBoundingClientRect();
+        return {
+          text: node.textContent,
+          right: rect.right,
+          inkRight: value.right,
+          top: rect.top,
+          inkTop: value.top,
+          bottom: rect.bottom,
+          inkBottom: value.bottom,
+        };
+      });
+      expect(identity.text.replace(/\s/g, '')).toBe(symbol);
+      expect(identity.inkRight).toBeLessThanOrEqual(identity.right + 1);
+      expect(identity.inkTop).toBeGreaterThanOrEqual(identity.top - 1);
+      expect(identity.inkBottom).toBeLessThanOrEqual(identity.bottom + 1);
+      expect((await row.boundingBox()).height).toBeGreaterThanOrEqual(60);
+    }
+    await page.screenshot({ path: join(shots, `phase2-phone-${mode}.png`), fullPage: true });
+  });
+}

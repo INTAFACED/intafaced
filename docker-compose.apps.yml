@@ -1,13 +1,13 @@
 name: intafaced
 
-# THE WHOLE PLATFORM — eleven services, two apps, on top of the infrastructure.
+# THE WHOLE PLATFORM — the application services (see docs/SERVICES.md), two apps, on top of the infrastructure.
 #
 #   docker compose -f docker-compose.apps.yml up -d --build     (or: pnpm platform:up)
 #
 # ── Why this is a second file and not more of docker-compose.yml ─────────────
 #
 # `docker-compose.yml` is what `pnpm infra:up` starts, and what the integration
-# tests need: a Postgres, a Redis, a NATS. Folding thirteen application
+# tests need: a Postgres, a Redis, a NATS. Folding the application
 # containers into it would mean a developer who wants a database for `vitest`
 # waits for a full monorepo image build first. That is a real cost paid every
 # day by people who did not ask for it.
@@ -28,7 +28,7 @@ include:
 
 x-app: &app
   # One image for every service and both apps — see the Dockerfile header for
-  # why. All thirteen declare the same build so `up` works from a clean clone
+  # why. All of them declare the same build so `up` works from a clean clone
   # with no image present; BuildKit deduplicates them into one build.
   image: intafaced/app:dev
   build:
@@ -175,6 +175,24 @@ services:
       # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
+      # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
+      # still posts. Every shared-secret post is counted as unbound, and a
+      # recipe or module outside the claim is counted too. The warning is
+      # rate-limited, so a quiet log is not a zero count. Set enforce only when
+      # unbound is 0 for every posting service and allowlist violations are 0
+      # for a full business cycle. Per-service secrets are optional
+      # pass-through (empty = unset). A pull with no new .env keys must keep
+      # booting. Do not use :? here.
+      # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
+      LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
+      LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}
+      LEDGER_CALLER_SECRET_SVC_BANK: ${LEDGER_CALLER_SECRET_SVC_BANK:-}
+      LEDGER_CALLER_SECRET_SVC_IDENTITY: ${LEDGER_CALLER_SECRET_SVC_IDENTITY:-}
+      LEDGER_CALLER_SECRET_SVC_MARKET: ${LEDGER_CALLER_SECRET_SVC_MARKET:-}
+      LEDGER_CALLER_SECRET_SVC_P2P: ${LEDGER_CALLER_SECRET_SVC_P2P:-}
+      LEDGER_CALLER_SECRET_SVC_PAY: ${LEDGER_CALLER_SECRET_SVC_PAY:-}
+      LEDGER_CALLER_SECRET_SVC_TOKEN: ${LEDGER_CALLER_SECRET_SVC_TOKEN:-}
+      LEDGER_CALLER_SECRET_SVC_TRADE: ${LEDGER_CALLER_SECRET_SVC_TRADE:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
@@ -267,10 +285,6 @@ services:
       # when set. Unset omits the key so unresolved region stays fall-open.
       # Do not default true — `:-true` would refuse XX on every compose boot.
       INTAFACED_REGION_FAIL_CLOSED:
-      # Embeddable ramp widget. Unset → ops.infra_licence_unset. White-label is CSS.
-      INFRA_LICENCE:
-      INFRA_WIDGET_ACCENT:
-      INFRA_WIDGET_CSS:
       EDGE_RATE_LIMIT_ENABLED: ${EDGE_RATE_LIMIT_ENABLED:-true}
       # Per-replica throttle pair: no git default — blank refuses (never 300 /
       # never 60000). Owner may set 300 and 60000 explicitly. Same `:?` shape as
@@ -283,6 +297,8 @@ services:
       EDGE_BODY_LIMIT_BYTES: ${EDGE_BODY_LIMIT_BYTES:-}
       EDGE_KILL_STATE_PATH: ${EDGE_KILL_STATE_PATH:-.data/edge-kill-state.json}
       UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-15000}
+      # Customer page origins. Blank → dev default outside staging/prod. Same name on svc-ws.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       IDENTITY_URL: http://svc-identity:4002
       TRADE_URL: http://svc-trade:4004
       TOKEN_URL: http://svc-token:4003
@@ -334,6 +350,8 @@ services:
       # Host `.env` can pin session refresh life; do not raise the compose
       # default above 2592000.
       JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+      # Two-tab refresh grace. Default 10 seconds. 0 disables it. Ceiling 120.
+      REFRESH_REUSE_GRACE_SECONDS: ${REFRESH_REUSE_GRACE_SECONDS:-10}
       # Registration open? §11 drop sequence. Empty pass-through — blank refuses
       # identity.registration_open_unset. Owner-explicit true is allowed. Never invent true.
       REGISTRATION_OPEN: ${REGISTRATION_OPEN:-}
@@ -349,7 +367,24 @@ services:
       # real domain. Do not invent a production registrable domain here.
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-localhost}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-INTAFACED}
-      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:3000}
+      # Local compose serves the customer app on :8090 and the founder console on
+      # :3100, so those are the origins a browser passkey ceremony will report.
+      # `localhost` only: a passkey cannot be bound to 127.0.0.1 (an IP is not a
+      # valid RP ID). STAGING / PRODUCTION: this default is a localhost, non-https
+      # origin and identity's WebAuthn posture check refuses to boot on it with
+      # APP_ENV staging/prod, so a real host must set WEBAUTHN_RP_ID and an https
+      # WEBAUTHN_ORIGIN (or WEBAUTHN_ENABLED=off). Nothing here is accepted in prod.
+      WEBAUTHN_ORIGIN: ${WEBAUTHN_ORIGIN:-http://localhost:8090,http://localhost:3100}
+      # Founder pair + single-use enrolment invites. Pass-through only, NO default:
+      # blank = founder controls unconfigured and enrolment closed (the refuse-closed
+      # state), exactly as when the variables are unset. Values come from the local
+      # founder seed (`pnpm local:founder`) or the operator's own .env; see
+      # docs/RUNNING.md "Founder access on the local Docker stack". The outreach
+      # overlay re-declares the pair as required and wins over these lines.
+      IDENTITY_FOUNDER_NITRO_USER_ID: ${IDENTITY_FOUNDER_NITRO_USER_ID:-}
+      IDENTITY_FOUNDER_PHANTOM_USER_ID: ${IDENTITY_FOUNDER_PHANTOM_USER_ID:-}
+      IDENTITY_FOUNDER_INVITE_HASHES: ${IDENTITY_FOUNDER_INVITE_HASHES:-}
+      IDENTITY_FOUNDER_INVITE_EXPIRES_AT: ${IDENTITY_FOUNDER_INVITE_EXPIRES_AT:-}
       # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
       # M01 DMA broker/desk/shift law — pass-through, no compose default, no invented tree.
@@ -360,6 +395,9 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
+      # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
+      API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
@@ -401,6 +439,9 @@ services:
       # BUYBACK_SYMBOL / BUYBACK_QUOTE_ASSET stay blank — refuse-closed, never invent a listing.
       EMISSIONS_ENABLED: ${EMISSIONS_ENABLED:-true}
       EMISSIONS_AUTO_TICK: ${EMISSIONS_AUTO_TICK:-false}
+      # Epoch length: owner-present 1 day (Nitro, 2026-10-14). Time gate between NEW epochs; not the reward.
+      EMISSIONS_EPOCH_MS: ${EMISSIONS_EPOCH_MS:-86400000}
+      # Auto-tick poll only; blank = poll min(epoch length, 60s).
       EMISSIONS_TICK_MS: ${EMISSIONS_TICK_MS:-}
       YIELD_JOB_ENABLED: ${YIELD_JOB_ENABLED:-false}
       BUYBACK_JOB_ENABLED: ${BUYBACK_JOB_ENABLED:-false}
@@ -431,7 +472,7 @@ services:
     container_name: intafaced-svc-matching
     command: ['node', 'services/svc-matching/dist/index.js']
     environment:
-      <<: [*service-env, *internal-secret]
+      <<: [*service-env, *internal-secret, *edge-secret]
       SERVICE_NAME: svc-matching
       # 4005, not the code default of 4004: svc-trade's MATCHING_URL default is
       # `http://localhost:4005`, and three services share 4004 as a default
@@ -450,6 +491,19 @@ services:
       # Public rulebook version (M00 / R-A7). EMPTY default — do not invent a
       # string. Blank → GET /rulebook unpublished. Host `.env` can pin.
       MATCHING_RULEBOOK_VERSION: ${MATCHING_RULEBOOK_VERSION:-}
+      # Operators who may propose and approve venue actions (open, halt, ...).
+      # Comma-separated identity user ids, at least two distinct; whitespace is
+      # trimmed. EMPTY pass-through, no invented ids: blank or one id REFUSES
+      # BOOT with a FATAL message (services/svc-matching/src/env.ts), so a lost
+      # host `.env` entry stops the container instead of leaving markets with no
+      # reachable halt. Host `.env` publishes it. `docker compose config` stays
+      # valid because the variable has an empty default.
+      MATCHING_OPERATOR_IDS: ${MATCHING_OPERATOR_IDS:-}
+      # Replay hold check. Read-only balances on svc-ledger. No default in env.ts:
+      # a blank URL leaves a book that replayed resting orders closed. Compose
+      # points at the ledger the same way svc-trade does.
+      LEDGER_URL: http://svc-ledger:4001
+      # Founder door verifies the edge principal. Blank → matching.operator_auth_unconfigured.
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4005']
     volumes:
@@ -460,6 +514,8 @@ services:
     healthcheck: *healthcheck
     depends_on:
       <<: *needs-bus
+      svc-ledger:
+        condition: service_healthy
 
   # QuickFIX/J 3.0.2 acceptor (H1). Not the Node image.
   # Pin: services/svc-fix/PIN.quickfixj commit 6334e2d288e5 (QFJ 3.0.2).
@@ -565,11 +621,18 @@ services:
       # in .env.example; compose still has no default). This flag governs
       # orderability only.
       TRADE_FUTURES_ENABLED: ${TRADE_FUTURES_ENABLED:-false}
+      # Local TEST swap on the public board. Default OFF. Does not enable futures.
+      TRADE_FUTURES_TEST_SEED: ${TRADE_FUTURES_TEST_SEED:-false}
       # Residual jobs (liquidation scan + funding ticks). Default OFF — same
       # shape as TRADE_FUTURES_ENABLED. `${VAR:-true}` here would start funding
       # ticks on a clean clone while env.ts still read as off. Does not invent
       # a market list or a |rate| ceiling; those stay empty until named.
       TRADE_FUTURES_JOBS_ENABLED: ${TRADE_FUTURES_JOBS_ENABLED:-false}
+      # Conditional stops, take-profits, and trails. Default OFF. A blank
+      # interval does not start the timer. Does not enable futures or the
+      # liquidation job.
+      TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED: ${TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED:-false}
+      TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS: ${TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS:-}
       # Liquidation scan interval when jobs are on. Matches env.ts 15s.
       # Does not turn jobs on. Host `.env` can pin cadence.
       TRADE_FUTURES_LIQ_INTERVAL_MS: ${TRADE_FUTURES_LIQ_INTERVAL_MS:-15000}
@@ -641,6 +704,8 @@ services:
       # Published JSON lives in `.env.example`. Blank host still refuse-closed.
       TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
+      # TRD-0773 disclosure wording. Empty = unpublished. Compose does not invent text.
+      TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -694,6 +759,12 @@ services:
       # Host `.env` can pin cadence. No invented market list.
       TRADE_RECONCILE_JOBS_ENABLED: ${TRADE_RECONCILE_JOBS_ENABLED:-false}
       TRADE_RECONCILE_JOBS_INTERVAL_MS: ${TRADE_RECONCILE_JOBS_INTERVAL_MS:-60000}
+      # Lost order.hold reply (TRD-0540). Default ON. Reads order.hold:<orderId>
+      # for rows left in hold_unknown. Does not release a hold it has not seen.
+      TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
+      TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
+      # Market, IOC, and FOK rows older than this are released, not submitted.
+      TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: ${TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS:-30000}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4004']
     healthcheck: *healthcheck
@@ -735,6 +806,8 @@ services:
       INTAFACED_SBE_JAVA: ${INTAFACED_SBE_JAVA:-/app/sbe-codec.jar}
       # 4014: 4013 is svc-indexer, and everything below it is taken.
       HTTP_PORT: '4014'
+      # Same customer origins as svc-edge. Blank → dev default, or closed in staging/prod.
+      EDGE_ALLOWED_ORIGINS: ${EDGE_ALLOWED_ORIGINS:-}
       MATCHING_URL: http://svc-matching:4005
       # WHICH MARKETS EXIST, as opposed to which ones have traded.
       #
@@ -758,9 +831,19 @@ services:
       # refuse-closed (ws.max_connections_unset). Host may set 5000 explicitly.
       # Never invent 5000.
       WS_MAX_CONNECTIONS: ${WS_MAX_CONNECTIONS:-}
+      # Multiplexed subscription seats, separate from the ?market= pool.
+      # Blank refuses the attach (ws.close.mux_max_seats_unset). Never invent a size.
+      WS_MUX_MAX_SEATS: ${WS_MUX_MAX_SEATS:-}
+      # Idle multiplexed sockets that hold no subscription. Blank does not
+      # invent a timeout: this service has no connection idle setting, so the
+      # multiplexed door stays unmounted. Never invent a duration.
+      WS_MUX_IDLE_MS: ${WS_MUX_IDLE_MS:-}
       # Host can pin ping cadence. Default matches env.ts (30_000). Without
       # this name, a host `.env` never reaches the container.
       WS_HEARTBEAT_MS: ${WS_HEARTBEAT_MS:-30000}
+      # Owner-published futures mark freshness. Blank refuses futures.mark
+      # with ws.freshness_limit_unset. Never invent 300.
+      WS_MARK_FRESHNESS_SECONDS: ${WS_MARK_FRESHNESS_SECONDS:-}
       # Owner-published outbound high-water — pass-through, no compose default.
       # Blank stays refuse-closed (ws.high_water_bytes_unset). Host may set
       # 1048576 explicitly. Never invent 1048576.
@@ -841,6 +924,10 @@ services:
       PAY_CHECKOUT_SESSION_TTL_SECONDS: ${PAY_CHECKOUT_SESSION_TTL_SECONDS:?missing — copy .env.example to .env}
       PAY_PUBLIC_BASE_PATH: ${PAY_PUBLIC_BASE_PATH:-/api/pay}
       PAY_ALLOW_SANDBOX_RAILS: ${PAY_ALLOW_SANDBOX_RAILS:-false}
+      # Authorized-capture reconciler. Default off: the job refuses and moves
+      # nothing. `required` finishes payments whose ledger capture key already
+      # exists, and does not post again. env.ts default is the same `off`.
+      PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
@@ -906,6 +993,9 @@ services:
       P2P_OFFER_MAX_STANDARD: ${P2P_OFFER_MAX_STANDARD:-}
       P2P_OFFER_MAX_MERCHANT: ${P2P_OFFER_MAX_MERCHANT:-}
       P2P_MODERATOR_USER_IDS: ${P2P_MODERATOR_USER_IDS:-}
+      # Dispute rulings stay single-moderator until a lead turns this on.
+      # Empty is off. Do not set true here.
+      P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL: ${P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL:-}
       # Kill new offers/takes. Default ON matches env.ts; host can set false.
       P2P_TRADING_ENABLED: ${P2P_TRADING_ENABLED:-true}
       # Escrow clocks + sweep. env.ts already names these; without compose
@@ -1053,6 +1143,11 @@ services:
       # rather than inventing 24. Zero is a real choice (no wait). Dest-elapsed
       # uses the dest row's updated_at — compose must not invent a number.
       BANK_OFFRAMP_COOLING_HOURS: ${BANK_OFFRAMP_COOLING_HOURS:-}
+      # Money-out step-up (off | required). `off` leaves every door as it was.
+      # `required` makes sends to other people, standing orders to them, business
+      # payments, card unfreeze/issue need a same-person identity approval. Flip it
+      # only when the customer app ships the step-up sheet. Any other value refuses boot.
+      BANK_STEP_UP_MONEY_OUT: ${BANK_STEP_UP_MONEY_OUT:-off}
       # Standing-order + auto-invest runners. env.ts already names these;
       # without compose pass-through a host `.env` never reaches the container.
       # Defaults match env.ts (`true`) — an operator stop is host `.env` plus
@@ -1084,6 +1179,12 @@ services:
       # default. Blank refuses boot. Host may set 500 explicitly. Never invent
       # 500. Sweep stays OFF above — this is not turning it on. No APY/LTV/mids.
       LOAN_SWEEP_BATCH_SIZE: ${LOAN_SWEEP_BATCH_SIZE:-}
+      # Unknown loan/earn recovery. Interval default matches the trade
+      # hold-unknown sweep (60000). Batch default matches sweepHoldUnknown (50).
+      # `${VAR-default}` keeps a blank host value so the process can disable
+      # with a startup warning. `:-` would fill the blank back in.
+      BANK_RECOVERY_JOBS_INTERVAL_MS: ${BANK_RECOVERY_JOBS_INTERVAL_MS-60000}
+      BANK_RECOVERY_JOBS_BATCH_LIMIT: ${BANK_RECOVERY_JOBS_BATCH_LIMIT-50}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4009']
     healthcheck: *healthcheck
@@ -1382,6 +1483,9 @@ services:
       EXECUTION_MM_SPREAD_SKEW_BANDS: ${EXECUTION_MM_SPREAD_SKEW_BANDS:-}
       # execution.arbitrage owner freshness window — blank = refuse-closed (no invented maxQuoteAgeMs).
       EXECUTION_ARB_MAX_QUOTE_AGE_MS: ${EXECUTION_ARB_MAX_QUOTE_AGE_MS:-}
+      # Founder halt consume. Blank → action_approval.identity_unwired.
+      # Do not add INTERNAL_SERVICE_SECRET here: that would open HMAC writes.
+      IDENTITY_URL: ${IDENTITY_URL:-}
     expose: ['4019']
     volumes:
       - execution-ems-journal:/data/execution
@@ -1427,9 +1531,14 @@ services:
       SANDBOX_MAX_SOURCE: ${SANDBOX_MAX_SOURCE:-}
       # Venue Vault trade-only pin. Blank = venue OMS refuses quant.venue_vault_unset.
       QUANT_VENUE_VAULT: ${QUANT_VENUE_VAULT:-}
+      # Role svc_quant and schema quant come from postgres-init.
+      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env)
+      # still refuses quant.database_pool_max_unset.
+      DATABASE_URL: postgres://svc_quant:${SVC_QUANT_DB_PASSWORD:-svc_quant}@postgres:5432/intafaced
     expose: ['4021']
     healthcheck: *healthcheck
-    depends_on: {}
+    depends_on:
+      <<: *needs-schema
 
   # CRM / team / warehouse revenue / projects (ops.business-systems).
   # Non-custodial. Blank analytics replica → ops.warehouse_unwired.
@@ -1460,6 +1569,11 @@ services:
       # Blank/unknown freeze policy → createApproval/execute refuse ops.custody_freeze_unset.
       # frozen → ops.custody_frozen. open passes freeze only — never a live send.
       OPS_CUSTODY_FREEZE_POLICY: ${OPS_CUSTODY_FREEZE_POLICY:-}
+      # Joint-restore archive. Blank → ops.restore_archive_unconfigured.
+      # Not the erasure archive. A set URL is not probed.
+      OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
+      # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
+      OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
     expose: ['4022']
     healthcheck: *healthcheck
     depends_on:
@@ -1600,7 +1714,14 @@ services:
       SERVICE_NAME: svc-mining-pool
       HTTP_PORT: '4023'
       LEDGER_URL: http://svc-ledger:4001
+      # Role svc_mining_pool and schema mining_pool come from postgres-init.
+      # The drizzle files are applied by migrate-all. Without this URL the
+      # fleet never creates windows/shares (workspace-sync).
+      DATABASE_URL: postgres://svc_mining_pool:${SVC_MINING_POOL_DB_PASSWORD:-svc_mining_pool}@postgres:5432/intafaced
     expose: ['4023']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # ── Protocol Plane (§17.4) ─────────────────────────────────────
 
@@ -1652,6 +1773,9 @@ services:
       PROTOCOL_IMPLEMENTATION_ADDRESS: ${PROTOCOL_IMPLEMENTATION_ADDRESS:-}
       PROTOCOL_TOKEN_FACTORY_ADDRESS: ${PROTOCOL_TOKEN_FACTORY_ADDRESS:-}
       PROTOCOL_AMM_FACTORY_ADDRESS: ${PROTOCOL_AMM_FACTORY_ADDRESS:-}
+      # No default bps. Blank stays unset; the swap path refuses
+      # protocol.swap_slippage_unset. Never invent 50 (or any other tolerance).
+      PROTOCOL_SWAP_SLIPPAGE_BPS: ${PROTOCOL_SWAP_SLIPPAGE_BPS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4012']
     extra_hosts:
@@ -1876,6 +2000,15 @@ services:
       HOSTNAME: 0.0.0.0
       HEALTHCHECK_PORT: '3100'
       HEALTHCHECK_PATH: /
+      # Founder sign-in. Pass-through only, NO default: blank refuses every login
+      # with `admin.session_unconfigured` (fail closed). ADMIN_ORIGIN is the exact
+      # origin the browser uses (local: http://localhost:3100, accepted only while
+      # APP_ENV is dev/test; staging and prod need https). ADMIN_SESSION_SECRET is
+      # a 32-byte base64url key; generate with
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+      # The outreach overlay re-declares both as required and wins over these lines.
+      ADMIN_ORIGIN: ${ADMIN_ORIGIN:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
       # The control plane this console reaches (§14.6). Container port 4000, not
       # the host's — the console calls the edge across the compose network.
       EDGE_URL: ${EDGE_URL:-http://svc-edge:4000}
@@ -1897,6 +2030,12 @@ services:
       ANALYTICS_REPLICA_IDENTITY_URL:
       ANALYTICS_REPLICA_CONFIGURED:
       ANALYTICS_REPLICA_LAG_SECONDS:
+      # HSTS stage, read per request (not baked into the image) and validated at boot (`config.hsts_invalid`): max-age seconds
+      # 0..63072000 and includeSubDomains true|false. Default is the gentle one day, host-only. Above one day needs
+      # production posture; includeSubDomains is refused on the registrable domain. There is no preload setting by design:
+      # docs/adr/2026-10-14-hsts-staged-ramp-no-preload.md.
+      HSTS_MAX_AGE_SECONDS: ${ADMIN_HSTS_MAX_AGE_SECONDS:-86400}
+      HSTS_INCLUDE_SUBDOMAINS: ${ADMIN_HSTS_INCLUDE_SUBDOMAINS:-false}
     ports: ['3100:3100']
     healthcheck: *healthcheck
 

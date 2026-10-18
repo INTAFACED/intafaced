@@ -62,7 +62,10 @@ export function requireNewCopyIntentAllowed(follow: CopyFollow): void {
   throw new CopyError('Copy is detached — new mirrors are refused; positions stay with the follower', 'trade.copy_detached');
 }
 
-export function presentCopyControlAck(follow: CopyFollow, disposition: CopyControlDisposition): CopyControlAck {
+export function presentCopyControlAck<D extends CopyControlDisposition>(
+  follow: CopyFollow,
+  disposition: D,
+): CopyControlAck & { readonly disposition: D } {
   const relationshipState = followRelationshipState(follow);
   return {
     followId: follow.followId,

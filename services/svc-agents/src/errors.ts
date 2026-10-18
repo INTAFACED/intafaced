@@ -27,7 +27,11 @@ export type AgentErrorCode =
   | 'agents.session_log_limit_unset'
   | 'agents.kb_search_limit_unset'
   | 'agents.tickers_limit_unset'
-  | 'agents.navigator_markets_limit_unset';
+  | 'agents.navigator_markets_limit_unset'
+  | 'agents.ops_sessions_limit_unset'
+  | 'agents.session_mine_limit_unset'
+  | 'agents.cursor_invalid'
+  | 'agents.fee_asset_unset';
 
 export class AgentError extends Error {
   constructor(
@@ -119,6 +123,46 @@ export function assertSessionLogPageLimit(limit: unknown): number {
     throw new AgentError(
       'Session log page limit is unset — pass limit (never invent 100)',
       'agents.session_log_limit_unset',
+      'agents.refused.log_mine_limit_unset',
+    );
+  }
+  return Math.min(500, n);
+}
+
+/** Operator session list page size. Blank / non-finite / <1 refuses. Never invent 100. */
+export function assertOpsSessionsLimit(limit: unknown): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) {
+    throw new AgentError(
+      'ops sessions page limit is unset — pass limit (never invent 100)',
+      'agents.ops_sessions_limit_unset',
+      'agents.refused.log_mine_limit_unset',
+    );
+  }
+  const n = Math.floor(limit);
+  if (n < 1) {
+    throw new AgentError(
+      'ops sessions page limit is unset — pass limit (never invent 100)',
+      'agents.ops_sessions_limit_unset',
+      'agents.refused.log_mine_limit_unset',
+    );
+  }
+  return Math.min(500, n);
+}
+
+/** Caller session list page size. Blank / non-finite / <1 refuses. Never invent 100. */
+export function assertSessionMineLimit(limit: unknown): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) {
+    throw new AgentError(
+      'session.mine page limit is unset — pass limit (never invent 100)',
+      'agents.session_mine_limit_unset',
+      'agents.refused.log_mine_limit_unset',
+    );
+  }
+  const n = Math.floor(limit);
+  if (n < 1) {
+    throw new AgentError(
+      'session.mine page limit is unset — pass limit (never invent 100)',
+      'agents.session_mine_limit_unset',
       'agents.refused.log_mine_limit_unset',
     );
   }

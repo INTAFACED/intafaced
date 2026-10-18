@@ -332,6 +332,14 @@ describe('public REST routes', () => {
     return app;
   }
 
+  it('GET /api/v1/time returns the public clock with no auth', async () => {
+    const app = await build();
+    const res = await app.inject({ method: 'GET', url: '/api/v1/time' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ serverTime: 1_700_000_000_000 });
+    await app.close();
+  });
+
   it('GET /api/v1/markets lists markets with no auth', async () => {
     const app = await build();
     const res = await app.inject({ method: 'GET', url: '/api/v1/markets?limit=50' });
@@ -1156,7 +1164,7 @@ describe('public REST routes', () => {
     });
     const marks = markSourceFromBook({
       async readBook() {
-        return { bestBid: null, bestAsk: null, last: '50000' };
+        return { bestBid: null, bestAsk: null, last: '50000', observedAt: new Date() };
       },
     });
     const app = await build(
@@ -1191,7 +1199,7 @@ describe('public REST routes', () => {
     });
     const marks = markSourceFromBook({
       async readBook() {
-        return { bestBid: '49900', bestAsk: '50100', last: '48000' };
+        return { bestBid: '49900', bestAsk: '50100', last: '48000', observedAt: new Date() };
       },
     });
     const app = await build(

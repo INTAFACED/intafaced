@@ -1,12 +1,14 @@
-import { copy, t as copyText, Text } from './copy';
-import { EmptyState, Failure, Page } from '../../shared/ui';
+import { copy, Text } from './copy';
+import { Failure } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { View } from './View';
 import { Verification } from './Verification';
 import { Security } from './Security';
 import { Account } from './Account';
 import { Notifications } from './Notifications';
+import { BusinessVerification } from './BusinessVerification';
 import { Promotions } from './Promotions';
+import { Dividends } from './Dividends';
 import './account.css';
 
 export function AccountRoutes({ path }: { path: string }) {
@@ -23,38 +25,9 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
-  if (clean === '/identbusiness')
-    return (
-      <Page title={copyText('accountroutes.business.verification')}>
-        <EmptyState
-          title={copyText('accountroutes.verified.company.accounts.are.not.connected')}
-          action={
-            <a href="/verification" className="text-link">
-              <Text k="accountroutes.view.personal.verification" />
-            </a>
-          }
-        >
-          <Text k="accountroutes.company.identity.owner.membership.and.the.associated" />
-        </EmptyState>
-      </Page>
-    );
-  if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions />;
-  if (clean === '/uc/paydividends')
-    return (
-      <Page title={copyText('accountroutes.dividend.records')}>
-        <EmptyState title={copyText('accountroutes.dividend.history.is.not.connected')}>
-          <Text k="accountroutes.there.is.no.mounted.owner.scoped.dividend" />
-        </EmptyState>
-        <div className="actions">
-          <a className="text-link" href="/token">
-            <Text k="accountroutes.open.token" />
-          </a>
-          <a className="text-link" href="/bank/earn">
-            <Text k="accountroutes.open.earn" />
-          </a>
-        </div>
-      </Page>
-    );
+  if (clean === '/identbusiness') return <BusinessVerification />;
+  if (clean?.startsWith('/uc/promotion') || clean === '/uc/invitingmining') return <Promotions path={path} />;
+  if (clean === '/uc/paydividends') return <Dividends />;
   return <Account />;
 }
 function ResultNotice({ result }: { result: ApiResult<unknown> | null }) {

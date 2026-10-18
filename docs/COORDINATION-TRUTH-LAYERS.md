@@ -1,5 +1,7 @@
 # Coordination truth layers (binding)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING · **auto-load enforced** (full access · no human gate before code)  
 **Home for this fact:** this file. Pointers only elsewhere.  
 **Intent:** Denon multi-dev context + zero agent conflict **without** slowing parallel autonomous ship.  
@@ -26,7 +28,7 @@
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
 | **Speed**           | No PR cap · no serialize-agents · no “wait for CI idle” · no CI spend throttle · a 403 or 429 is a stop |
 | **Quality**         | False `done` still fails `pnpm tracker:check` · doctrine gates unchanged                                |
-| **Autonomy**        | Full access — any agent, any row, **merge when done** · CI/verify are not ship gates                    |
+| **Autonomy**        | Full access — any agent, any row; merging follows [`AGENTS.md`](../AGENTS.md)                           |
 | **Zero manual ops** | Never wait for audit seal, FREEZE, or chat permission to start code                                     |
 | **No every-PR tax** | Craft under an already-`wip` mountain does **not** require a `features.mjs` edit                        |
 
@@ -120,4 +122,4 @@ pnpm tracker ready   # or read tooling/tracker/features.mjs owners
 - Plan + anti-list: [`TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md`](TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md)
 - Evidence: [`DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md`](DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md)
 - Claim how-to: `CONTRIBUTING.md` §3.5 · `AGENTS.md`
-- CI spend: none — retired 2026-08-07, [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](GITHUB-CI-SPEND-CONTROL-2026-07-31.md)
+- CI spend: none — retired 2026-08-07, [`GITHUB-CI-SPEND-CONTROL-2026-07-31.md`](archive/GITHUB-CI-SPEND-CONTROL-2026-07-31.md)

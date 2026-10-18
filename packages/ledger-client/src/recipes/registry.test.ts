@@ -22,11 +22,17 @@ import { RECIPE_MATRIX } from './live-path-inventory.js';
  * header — D26-P2-11 closes that count lie (and the live-path inventory).
  * D26-P1-M2 adds two §13 market fee recipes → 55. businessPayroll → 56.
  * orderHoldAmend (qty-up extra hold, same pot as orderHold) → 57.
+ * merchant proceeds payout trio → 60.
+ * fxConversion + fxConversionReverse (W6 sandbox USD→USDT) → 62.
+ * fxConversionHold + fxConversionRelease (clearing reserved around the venue call) → 64.
+ * fxConversionLateFill (late fill from clearing or fx-inventory) → 65.
+ * depositReverse (rewritten deposit block, WAL-0070) → 66.
+ * tradeFillFeeCorrection (posted fill fee, new key, TRD-0171) → 67.
  */
 describe('recipes registry', () => {
   it('exports every named recipe and nothing unnamed', () => {
     const names = Object.keys(recipes) as RecipeName[];
-    expect(names.length).toBe(57);
+    expect(names.length).toBe(67);
     expect(names).toContain('marketPurchase');
     expect(names).toContain('businessApprovalHold');
     expect(names).toContain('businessPayroll');
@@ -43,24 +49,27 @@ describe('recipes registry', () => {
     const mdPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'RECIPES.md');
     const md = readFileSync(mdPath, 'utf8');
     const countMatch = md.match(/\*\*(\d+) pure recipes\.\*\*/);
-    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('57');
+    expect(countMatch?.[1], 'RECIPES.md must state the pure-recipe count').toBe('67');
 
     const rowNames = [...md.matchAll(/^\| `([a-zA-Z][a-zA-Z0-9]*)`\s*\|/gm)].map((m) => m[1]!);
     const registry = Object.keys(recipes).sort();
     expect(rowNames.sort()).toEqual(registry);
   });
 
-  it('RECIPES.md states the chargeback four as §13 sockets and names the svc-pay post', () => {
+  it('RECIPES.md states the chargeback four as live and names the svc-pay post', () => {
     const recipesDir = dirname(fileURLToPath(import.meta.url));
     const md = readFileSync(join(recipesDir, '..', '..', 'RECIPES.md'), 'utf8');
     const paySrc = readFileSync(join(recipesDir, '..', '..', '..', '..', 'services/svc-pay/src/chargeback-ledger.ts'), 'utf8');
     expect(paySrc).toMatch(/\brecipes\.chargebackOpen\b/);
+    expect(paySrc).toMatch(/\brecipes\.chargebackShortfall\b/);
+    expect(paySrc).toMatch(/\brecipes\.chargebackWon\b/);
+    expect(paySrc).toMatch(/\brecipes\.chargebackShortfallRecovered\b/);
 
     for (const name of ['chargebackOpen', 'chargebackShortfall', 'chargebackWon', 'chargebackShortfallRecovered'] as const) {
       const row = RECIPE_MATRIX[name];
-      expect(row.kind).toBe('socket');
-      if (row.kind !== 'socket') continue;
-      expect(row.socket).toBe('§13');
+      expect(row.kind).toBe('live');
+      if (row.kind !== 'live') continue;
+      expect(row.proof).toBe('services/svc-pay/src/chargeback-ledger.ts');
     }
 
     const closure = md.split('\n').find((line) => line.includes('D26-P2-11 live-path closure'));
@@ -68,21 +77,17 @@ describe('recipes registry', () => {
     expect(closure).not.toMatch(/other than `chargebackOpen`/);
     expect(closure).not.toMatch(/not a §13 socket/);
     expect(closure).not.toMatch(/unwired/);
-    expect(closure).toMatch(
-      /`chargebackOpen`, `chargebackShortfall`, `chargebackWon`, and `chargebackShortfallRecovered` are explicit §13 sockets/,
-    );
-    expect(closure).toMatch(/not `live`/);
+    expect(closure).toMatch(/`chargebackOpen`, `chargebackShortfall`, `chargebackWon`, and `chargebackShortfallRecovered` are live/);
     expect(closure).toMatch(/`chargebackOpen` is posted from `services\/svc-pay\/src\/chargeback-ledger\.ts`/);
 
     const sourceRow = md.split('\n').find((line) => line.includes('`src/recipes/chargeback.ts`'));
     expect(sourceRow).not.toMatch(/not wired|unwired/);
-    expect(sourceRow).toMatch(/explicit §13 sockets/);
+    expect(sourceRow).toMatch(/live/);
     expect(sourceRow).toMatch(/chargeback-ledger\.ts/);
 
     const note = md.split('\n').find((line) => line.startsWith('- **Chargeback**'));
     expect(note).not.toMatch(/unwired|not wired/);
-    expect(note).toMatch(/explicit §13 sockets/);
-    expect(note).toMatch(/not `live`/);
+    expect(note).toMatch(/are live/);
     expect(note).toMatch(/services\/svc-pay\/src\/chargeback-ledger\.ts/);
 
     expect(md).not.toMatch(/not a §13 socket/);

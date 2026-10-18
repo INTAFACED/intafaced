@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { AuthError, requireMfa, requireScope } from '@intafaced/auth';
 import { sbeCodec, type SbeCodec } from '@intafaced/sbe-codec';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { marketLifecycleAdmissionProofSchema, orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
@@ -7,6 +8,7 @@ import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
   rawBodyOf,
   retainRawBody,
+  verifyForwardedPrincipal,
   verifyServiceHeaders,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
@@ -28,11 +30,19 @@ import { installMassQuote, type MassQuoteCommand, type MassQuoteResult } from '.
 import { installMmp } from './engine/mmp.js';
 import { missingSessionRefuse } from './engine/session.js';
 import { operatorRefuse, readConfirmOperatorId, readOperatorId } from './engine/halt.js';
+import { idempotencyKeyOrNull, matchingInFlightRead } from './operator-desk.js';
 import {
   ActionApprovalConsumeError,
+  ACTION_APPROVAL_MISSING,
+  assertFounderAudienceAttestation,
   matchingActionPayloadHash,
   readApprovalIds,
   unwiredApprovalConsumer,
+  sameUser,
+  ACTION_APPROVAL_NOT_OPERATOR,
+  ACTION_APPROVAL_WRONG_ACTION,
+  ACTION_APPROVAL_OPERATORS_UNSET,
+  ACTION_APPROVAL_OPERATOR_MISMATCH,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { bindPostOnlyTif, postOnlyCannotRest } from './engine/post-only.js';
@@ -488,6 +498,17 @@ export interface MatchingRouteOptions {
   sbe?: SbeCodec;
   /** Halt/resume/mode consume. Tests inject a stub. Unset → refuse. */
   approvals?: ActionApprovalConsumer;
+  /**
+   * User ids allowed to propose and approve `matching.open`
+   * (`MATCHING_OPERATOR_IDS`). Unset / empty → nobody may open.
+   */
+  operatorIds?: ReadonlySet<string>;
+  /**
+   * Founder door verifies the edge principal. Unset → `/operator/*` answers 503
+   * `matching.operator_auth_unconfigured` and does not read the book.
+   * S2S halt stays on the HMAC routes. This door does not read a bearer.
+   */
+  edgePrincipalSecret?: string;
 }
 
 export function registerRoutes(
@@ -500,6 +521,8 @@ export function registerRoutes(
   const rulebookVersion = options.rulebookVersion ?? process.env.MATCHING_RULEBOOK_VERSION ?? '';
   const sbe = options.sbe ?? sbeCodec;
   const approvals = options.approvals ?? unwiredApprovalConsumer();
+  const operatorIds = options.operatorIds ?? new Set<string>();
+  const isOperator = (userId: string): boolean => operatorIds.has(userId.trim().toLowerCase());
   retainRawBody(app);
 
   /** Book writes from funded trade, execution basket children, and FIX NOS. HMAC still required. Unmapped refuse. */
@@ -547,8 +570,17 @@ export function registerRoutes(
     if (missing || operatorId === null) {
       return { ok: false, status: 200, operatorId, confirmOperatorId: confirmTyped, rejected: missing ?? operatorRefuse(null)! };
     }
+    const refuse = (code: string, message: string) => ({ ok: false as const, status: 400 as const, body: { code, message } });
     try {
       const ids = readApprovalIds(parsed);
+      // Stop early, before the single-use approval is spent: no operator list,
+      // or a typed name that is not on it.
+      if (operatorIds.size === 0) {
+        return refuse(ACTION_APPROVAL_OPERATORS_UNSET, 'MATCHING_OPERATOR_IDS is unpublished; matching does not guess who is an operator');
+      }
+      if (!isOperator(operatorId)) {
+        return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'the requester is not an operator of this venue');
+      }
       const consumed = await approvals.consume({
         approvalId: ids.approvalId,
         operationId: ids.operationId,
@@ -557,11 +589,33 @@ export function registerRoutes(
         targetId,
         expectedVersion: '1',
       });
-      return {
-        ok: true,
-        operatorId,
-        confirmOperatorId: consumed.approverId ?? consumed.requesterId,
-      };
+      // The approval must be for exactly this door and target. Identity stores the
+      // action label the proposer typed, so matching checks it rather than trusting
+      // the hash alone; a mislabelled approval for another action never runs here.
+      if (
+        consumed.actionType !== actionType ||
+        consumed.targetService !== 'svc-matching' ||
+        consumed.targetId !== targetId ||
+        consumed.status !== 'CONSUMED'
+      ) {
+        return refuse(ACTION_APPROVAL_WRONG_ACTION, `the approval is not for ${actionType} on ${targetId}`);
+      }
+      // The body's operatorId is a claim. Identity recorded who actually
+      // proposed; the two must be the same person.
+      if (!sameUser(consumed.requesterId, operatorId)) {
+        return refuse(ACTION_APPROVAL_OPERATOR_MISMATCH, 'operatorId is not the person who proposed this approval');
+      }
+      // Never fall back to the requester: a second person approved, or nothing runs.
+      const approverId = consumed.approverId;
+      if (approverId === null || sameUser(approverId, consumed.requesterId)) {
+        return refuse(ACTION_APPROVAL_MISSING, 'the approval has no distinct approver');
+      }
+      if (!isOperator(consumed.requesterId) || !isOperator(approverId)) {
+        return refuse(ACTION_APPROVAL_NOT_OPERATOR, 'both the proposer and the approver must be operators of this venue');
+      }
+      // #4790 kept the founder-only audience for matching.* (protective brakes skip it).
+      assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-matching', targetId });
+      return { ok: true, operatorId: consumed.requesterId, confirmOperatorId: approverId };
     } catch (err) {
       if (err instanceof ActionApprovalConsumeError) {
         return { ok: false, status: 400, body: { code: err.code, message: err.message } };
@@ -1442,6 +1496,225 @@ export function registerRoutes(
       amount: null,
     });
   });
+
+  const founderIdem = new Map<string, { fingerprint: string; value: unknown }>();
+
+  const headerValue = (req: FastifyRequest, name: string): string | undefined => {
+    const value = req.headers[name];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  const founderPrincipal = async (
+    req: FastifyRequest,
+    scope: 'admin:read' | 'admin:write',
+  ): Promise<
+    | { ok: true; userId: string }
+    | {
+        ok: false;
+        status: number;
+        body: { code: string; message: string; rejected?: 'bad-signature' | 'malformed' | 'expired' | null };
+      }
+  > => {
+    if (!options.edgePrincipalSecret) {
+      return {
+        ok: false,
+        status: 503,
+        body: {
+          code: 'matching.operator_auth_unconfigured',
+          message: 'EDGE_PRINCIPAL_SECRET is unpublished. The founder door does not read the book and does not halt.',
+        },
+      };
+    }
+    const region = headerValue(req, 'x-intafaced-region') ?? 'XX';
+    const verified = verifyForwardedPrincipal(
+      headerValue(req, 'x-intafaced-principal'),
+      headerValue(req, 'x-intafaced-principal-sig'),
+      options.edgePrincipalSecret,
+      new Date(),
+      region,
+    );
+    if (verified.principal === null) {
+      return {
+        ok: false,
+        status: 401,
+        body: {
+          code: 'token.invalid',
+          message: verified.rejected ? `Edge principal refused (${verified.rejected}).` : 'An edge-signed principal is required.',
+          rejected: verified.rejected,
+        },
+      };
+    }
+    try {
+      requireScope(verified.principal, scope);
+      if (scope === 'admin:write') requireMfa(verified.principal);
+      return { ok: true, userId: verified.principal.userId };
+    } catch (err) {
+      if (err instanceof AuthError) {
+        return {
+          ok: false,
+          status: err.code === 'scope.denied' ? 403 : 401,
+          body: { code: err.code, message: err.message },
+        };
+      }
+      throw err;
+    }
+  };
+
+  app.get('/operator/in-flight', async (req, reply) => {
+    const auth = await founderPrincipal(req, 'admin:read');
+    if (!auth.ok) return reply.code(auth.status).send(auth.body);
+    return reply.code(200).send(matchingInFlightRead(engine, new Date().toISOString()));
+  });
+
+  const founderBody = z.object({
+    marketId: z.string().min(1).max(64).optional(),
+    approvalId: z.string().max(128),
+    operationId: z.string().max(128),
+    idempotencyKey: z.string(),
+  });
+
+  const founderMutate = async (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    spec: {
+      readonly actionType: string;
+      readonly needsMarket: boolean;
+      readonly targetId: (marketId: string) => string;
+      readonly fields: (marketId: string) => Record<string, string>;
+      readonly apply: (marketId: string, operatorId: string, confirmOperatorId: string) => Promise<Record<string, unknown>>;
+    },
+  ) => {
+    const auth = await founderPrincipal(req, 'admin:write');
+    if (!auth.ok) return reply.code(auth.status).send(auth.body);
+    const parsed = founderBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+    const key = idempotencyKeyOrNull(parsed.data.idempotencyKey);
+    if (!key.ok) {
+      return reply.code(400).send({ code: 'matching.idempotency_key_invalid', message: 'idempotencyKey must be 8 to 200 characters' });
+    }
+    const marketId = parsed.data.marketId ?? '';
+    if (spec.needsMarket && !marketId) {
+      return reply.code(400).send({ code: 'matching.market_required', message: 'marketId is required for this door' });
+    }
+    const fingerprint = JSON.stringify({
+      actionType: spec.actionType,
+      marketId,
+      approvalId: parsed.data.approvalId,
+      operationId: parsed.data.operationId,
+    });
+    const prior = founderIdem.get(key.key);
+    if (prior && prior.fingerprint !== fingerprint) {
+      return reply.code(409).send({
+        code: 'matching.idempotency_conflict',
+        message: 'This idempotency key was already used for a different request',
+      });
+    }
+    if (prior) return reply.code(200).send(prior.value);
+    const authz = await consumeVenueKill(
+      {
+        operatorId: auth.userId,
+        approvalId: parsed.data.approvalId,
+        operationId: parsed.data.operationId,
+      },
+      spec.actionType,
+      spec.fields(marketId),
+      spec.targetId(marketId),
+    );
+    if (!authz.ok && authz.status === 400) return reply.code(400).send(authz.body);
+    if (!authz.ok) {
+      return reply.code(200).send({
+        accepted: false,
+        marketId: spec.needsMarket ? marketId : undefined,
+        operatorId: authz.operatorId,
+        confirmOperatorId: authz.confirmOperatorId,
+        rejected: authz.rejected,
+      });
+    }
+    const applied = await spec.apply(marketId, authz.operatorId, authz.confirmOperatorId);
+    const value = { ...applied, rejected: applied.rejected ?? null };
+    founderIdem.set(key.key, { fingerprint, value });
+    return reply.code(200).send(value);
+  };
+
+  app.post('/operator/halt', async (req, reply) =>
+    founderMutate(req, reply, {
+      actionType: 'matching.halt',
+      needsMarket: true,
+      targetId: (marketId) => `halt:${marketId}`,
+      fields: (marketId) => ({ marketId }),
+      apply: async (marketId, operatorId, confirmOperatorId) => {
+        const result = await engine.halt(marketId, { operatorId, confirmOperatorId });
+        return {
+          accepted: result.accepted,
+          marketId: result.marketId,
+          halted: result.halted,
+          operatorId: result.operatorId,
+          confirmOperatorId: result.confirmOperatorId ?? confirmOperatorId,
+          rejected: result.rejected ?? null,
+        };
+      },
+    }),
+  );
+
+  app.post('/operator/resume', async (req, reply) =>
+    founderMutate(req, reply, {
+      actionType: 'matching.resume',
+      needsMarket: true,
+      targetId: (marketId) => `resume:${marketId}`,
+      fields: (marketId) => ({ marketId }),
+      apply: async (marketId, operatorId, confirmOperatorId) => {
+        const result = await engine.resume(marketId, { operatorId, confirmOperatorId });
+        return {
+          accepted: result.accepted,
+          marketId: result.marketId,
+          halted: result.halted,
+          operatorId: result.operatorId,
+          confirmOperatorId: result.confirmOperatorId ?? confirmOperatorId,
+          rejected: result.rejected ?? null,
+        };
+      },
+    }),
+  );
+
+  app.post('/operator/halt-all', async (req, reply) =>
+    founderMutate(req, reply, {
+      actionType: 'matching.halt_all',
+      needsMarket: false,
+      targetId: () => 'halt_all',
+      fields: () => ({}),
+      apply: async (_marketId, operatorId, confirmOperatorId) => {
+        const result = await engine.haltAll({ operatorId, confirmOperatorId });
+        return {
+          accepted: result.accepted,
+          halted: result.halted,
+          operatorId: result.operatorId,
+          confirmOperatorId: result.confirmOperatorId ?? confirmOperatorId,
+          rejected: result.rejected ?? null,
+        };
+      },
+    }),
+  );
+
+  app.post('/operator/resume-all', async (req, reply) =>
+    founderMutate(req, reply, {
+      actionType: 'matching.resume_all',
+      needsMarket: false,
+      targetId: () => 'resume_all',
+      fields: () => ({}),
+      apply: async (_marketId, operatorId, confirmOperatorId) => {
+        const result = await engine.resumeAll({ operatorId, confirmOperatorId });
+        return {
+          accepted: result.accepted,
+          halted: result.halted,
+          operatorId: result.operatorId,
+          confirmOperatorId: result.confirmOperatorId ?? confirmOperatorId,
+          rejected: result.rejected ?? null,
+        };
+      },
+    }),
+  );
 }
 
 function presentSurveillanceCase(row: EngineSurveillanceCase) {

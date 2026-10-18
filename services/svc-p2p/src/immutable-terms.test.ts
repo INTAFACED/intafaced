@@ -3,6 +3,7 @@ import { createServer } from 'node:http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
+  InsufficientFundsError,
   MemoryLedger,
   parseAmount,
   formatAmount,
@@ -200,7 +201,9 @@ describe('native P2P original terms and decisions', () => {
             '400.000000000000000000',
           );
         }
-        await expect(ledger.getTxByKey(`p2p.escrow.lock:${TRADE}`)).rejects.toThrow(/not exposed/);
+        // The shared client can ask the ledger by key now (it used to throw "not exposed"). What must stay true is that a
+        // failed transport, a 500, a malformed answer or a refusal is never read as "not booked": the lookup throws.
+        await expect(ledger.getTxByKey(`p2p.escrow.lock:${TRADE}`)).rejects.toThrow();
       } finally {
         vi.unstubAllGlobals();
       }
@@ -274,6 +277,10 @@ describe('native P2P original terms and decisions', () => {
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
+      let posted!: () => void;
+      const committed = new Promise<void>((resolve) => {
+        posted = resolve;
+      });
       const keys: string[] = [];
       const server = createServer(async (request, response) => {
         try {
@@ -293,6 +300,7 @@ describe('native P2P original terms and decisions', () => {
               response.writeHead(held === 'error_body' ? 500 : 200, { 'content-type': 'application/json' });
               response.write(ack.slice(0, 1));
             }
+            posted();
             await gate;
             response.end(held !== 'headers' ? ack.slice(1) : ack);
           } else response.end(ack);
@@ -308,25 +316,69 @@ describe('native P2P original terms and decisions', () => {
       if (!address || typeof address === 'string') throw new Error('owned fixture HTTP port unavailable');
       const bus = new MemoryEventBus('svc-p2p');
       const publish = vi.spyOn(bus, 'publish');
-      const service = new P2pService(
-        db.sql,
-        createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
-        bus,
-        {
-          instruments: new InstrumentService(db.sql),
-          feeBps: 100,
-          deadlines: {
-            escrowSeconds: 120,
-            paymentSeconds: 900,
-            releaseSeconds: 1800,
-            disputeSeconds: 604800,
-            escalationRecheckSeconds: 3600,
+      // The 100ms budget used to start when fetch started, so a slow CI loop aborted before the fixture
+      // posted. The body and error_body cases abort only after the client has the headers, so the abort
+      // lands while the held body is read.
+      let abortHeld: (() => void) | undefined;
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+        const controller = new AbortController();
+        if (abortHeld) {
+          const timer = setTimeout(() => controller.abort(), ms);
+          timer.unref();
+          return controller.signal;
+        }
+        abortHeld = () => controller.abort();
+        return controller.signal;
+      });
+      const realFetch = globalThis.fetch.bind(globalThis);
+      let headersSeen: (() => void) | undefined;
+      const sawHeaders = new Promise<void>((resolve) => {
+        headersSeen = resolve;
+      });
+      vi.stubGlobal('fetch', async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        const response = await realFetch(input, init);
+        // One microtask later the client has continued past await fetch and is reading the held body.
+        if (held !== 'headers') queueMicrotask(() => headersSeen?.());
+        return response;
+      });
+      const serviceWith = (timeoutMs: number) =>
+        new P2pService(
+          db.sql,
+          createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs }),
+          bus,
+          {
+            instruments: new InstrumentService(db.sql),
+            feeBps: 100,
+            deadlines: {
+              escrowSeconds: 120,
+              paymentSeconds: 900,
+              releaseSeconds: 1800,
+              disputeSeconds: 604800,
+              escalationRecheckSeconds: 3600,
+            },
           },
-        },
-      );
+        );
+      // Cancel keeps the 100ms budget. The first abort fires only after the fixture posts, so a slow
+      // CI loop cannot abort before the ledger lock. The refund replay is not that abort, so it gets
+      // a budget a loaded runner can meet.
+      const service = serviceWith(100);
+      const patient = serviceWith(10_000);
       try {
-        const failed = await service.cancelTrade(TRADE, SELLER).catch((error) => error as Error);
-        expect(['TimeoutError', 'AbortError']).toContain((failed as Error).name);
+        const pending = service.cancelTrade(TRADE, SELLER);
+        await committed;
+        if (held !== 'headers') await sawHeaders;
+        if (!abortHeld) throw new Error('ledger post committed before the client armed its abort');
+        abortHeld();
+        const failed = await pending.catch((error) => error as Error);
+        timeoutSpy.mockRestore();
+        if (held === 'error_body') {
+          // The 500's own body never finishes, so the shared transport cannot read a reason: the refusal is the plain
+          // "failed (500)" error (not a funds refusal, so nothing is voided), where the old client surfaced the abort itself.
+          expect((failed as Error).message).toMatch(/\/trpc\/post failed \(500\)/);
+          expect(failed).not.toBeInstanceOf(InsufficientFundsError);
+        } else {
+          expect(['TimeoutError', 'AbortError']).toContain((failed as Error).name);
+        }
         const original = await service.getTrade(TRADE);
         expect(original.status).toBe('created');
         expect(original.resolution).toBeNull();
@@ -339,10 +391,12 @@ describe('native P2P original terms and decisions', () => {
         await db.sql.begin(async (tx) => {
           await tx`SELECT id FROM p2p.p2p_trades WHERE id = ${TRADE} FOR UPDATE NOWAIT`;
         });
+        // Immediate, not waited for: the lock must already have committed at the ledger while the response was still held
+        // (the gate is not released yet), which is what proves the abort came after the post, not before it.
         expect(formatAmount((await ledger.balance(tradeEscrowAccount(SELLER, 'USDT', TRADE))).amount)).toBe('100');
         release();
         await db.sql`UPDATE p2p.p2p_trades SET deadline_at = now() - interval '1 hour' WHERE id = ${TRADE}`;
-        expect((await service.sweepDeadlines(undefined, 100)).failed).toBe(0);
+        expect((await patient.sweepDeadlines(undefined, 100)).failed).toBe(0);
         expect((await service.getTrade(TRADE)).resolution).toBe('refunded');
         expect(keys).toEqual([`p2p.escrow.lock:${TRADE}`, `p2p.escrow.lock:${TRADE}`, `p2p.escrow.refund:${TRADE}`]);
         expect(ledger.journal().filter((tx) => tx.idempotencyKey === `p2p.escrow.lock:${TRADE}`)).toHaveLength(1);
@@ -351,6 +405,8 @@ describe('native P2P original terms and decisions', () => {
         expect(ledger.reconcile()).toEqual({ ok: true });
         expect(ledger.verifyChain()).toEqual({ ok: true });
       } finally {
+        timeoutSpy.mockRestore();
+        vi.unstubAllGlobals();
         release();
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => {
@@ -358,6 +414,7 @@ describe('native P2P original terms and decisions', () => {
         });
       }
     },
+    60_000,
   );
 
   it.each([
@@ -808,11 +865,13 @@ describe('native P2P original terms and decisions', () => {
     });
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('owned HTTP fixture unavailable');
+    // The first call must time out because the handler is held at the gate; any budget shorter than the gate does that.
+    // 100 ms also made the LATER calls (balance, refund) flake on a loaded runner, so it is 2 s: the meaning is unchanged.
     const bus = new MemoryEventBus('svc-p2p');
     const publish = vi.spyOn(bus, 'publish');
     const service = new P2pService(
       db.sql,
-      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 100 }),
+      createLedgerClient(`http://127.0.0.1:${address.port}`, 'synthetic-p2p-fixture-internal-secret', { timeoutMs: 2_000 }),
       bus,
       {
         instruments: new InstrumentService(db.sql),
@@ -873,7 +932,7 @@ describe('native P2P original terms and decisions', () => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     }
-  });
+  }, 60_000);
 
   it('persists a committed claim even when its SQL acknowledgement is lost, before any remote effect', async () => {
     await db.sql`TRUNCATE p2p.payment_instruments, p2p.p2p_trades, p2p.offers CASCADE`;
@@ -1088,11 +1147,12 @@ describe('native P2P original terms and decisions', () => {
             await tx.unsafe(read(file));
           });
         expect(
-          (await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' AS terms FROM p2p.p2p_trades t`)[0]
-            ?.terms,
+          (
+            await legacy.sql`SELECT to_jsonb(t) - 'original_terms_claimed_at' - 'escrow_lock_attempts' - 'terms_snapshot' AS terms FROM p2p.p2p_trades t`
+          )[0]?.terms,
         ).toEqual(original);
-        const row = (await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at FROM p2p.p2p_trades`)[0];
-        expect(row).toEqual({ amount: '100.000000000000000000', original_terms_claimed_at: null });
+        const row = (await legacy.sql`SELECT amount::text AS amount, original_terms_claimed_at, terms_snapshot FROM p2p.p2p_trades`)[0];
+        expect(row).toEqual({ amount: '100.000000000000000000', original_terms_claimed_at: null, terms_snapshot: null });
         await expect(legacy.sql`UPDATE p2p.p2p_trades SET original_terms_claimed_at = now() WHERE id = ${TRADE}`).rejects.toThrow();
         const ledger = new MemoryLedger();
         const posted = vi.spyOn(ledger, 'post');

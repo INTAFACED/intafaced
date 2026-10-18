@@ -1,12 +1,19 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   railFailure,
+  railHealthStaleReason,
+  railRefusalIfBlocking,
+  RAIL_HEALTH_MAX_STALENESS_MS,
+  RAIL_MARKED_DOWN,
+  RAIL_SANDBOX_ONLY,
   type PaymentIntent,
   type RailAdapter,
   type RailCapability,
   type RailEvent,
   type RailHealth,
+  type RailProbeResult,
   type RailResult,
+  type PayoutRailStatus,
   type RailWebhookRequest,
   type SettlementInstruction,
 } from './rail-adapter.js';
@@ -35,6 +42,8 @@ export interface CardSandboxOptions {
   readonly now?: () => Date;
   /** Deliveries older than this are treated as replays. Owner-published — never invent 300. */
   readonly toleranceSeconds: number;
+  /** A due date that is not a parseable string is ignored. The event still stands. */
+  readonly noteMalformedEvidenceDueBy?: (eventId: string) => void;
 }
 
 /** Instrument tokens that steer the sandbox, the way a real sandbox uses test PANs. */
@@ -82,12 +91,25 @@ export class CardSandboxAdapter implements RailAdapter {
   }
 
   health(): RailHealth {
-    return {
-      healthy: this.up,
-      latencyMs: 12,
-      lastUpdate: this.lastContact,
-      reason: this.up ? undefined : 'sandbox acquirer marked down',
-    };
+    const ageMs = this.now().getTime() - this.lastContact.getTime();
+    if (ageMs > RAIL_HEALTH_MAX_STALENESS_MS) {
+      return { healthy: false, latencyMs: 12, lastUpdate: this.lastContact, reason: railHealthStaleReason(ageMs) };
+    }
+    if (!this.up) {
+      return { healthy: false, latencyMs: 12, lastUpdate: this.lastContact, reason: RAIL_MARKED_DOWN };
+    }
+    return { healthy: true, latencyMs: 12, lastUpdate: this.lastContact, reason: RAIL_SANDBOX_ONLY };
+  }
+
+  /** In-process. Success refreshes contact. A marked-down acquirer does not. */
+  async probe(): Promise<RailProbeResult> {
+    if (!this.up) return { ok: false, reason: RAIL_MARKED_DOWN };
+    this.lastContact = this.now();
+    return { ok: true };
+  }
+
+  private blockMoney(amount: Amount, assetId: string, railRef = ''): RailResult | null {
+    return railRefusalIfBlocking(this, { amount, assetId, railRef, at: this.now() });
   }
 
   // ── Test controls ──────────────────────────────────────────────────────────
@@ -116,6 +138,8 @@ export class CardSandboxAdapter implements RailAdapter {
   // ── The interface ──────────────────────────────────────────────────────────
 
   async authorize(p: PaymentIntent): Promise<RailResult> {
+    const blocked = this.blockMoney(p.amount, p.assetId, chargeRef(p.paymentId));
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
     const forced = this.takeForcedFailure(chargeRef(p.paymentId), p.amount, p.assetId);
@@ -177,9 +201,11 @@ export class CardSandboxAdapter implements RailAdapter {
   }
 
   async capture(ref: string): Promise<RailResult> {
+    const charge = this.charges.get(ref);
+    const blocked = this.blockMoney(charge?.authorized ?? 0n, charge?.assetId ?? '', ref);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
-    const charge = this.charges.get(ref);
     if (!charge) return this.unknownReference(ref);
 
     const forced = this.takeForcedFailure(ref, charge.authorized, charge.assetId);
@@ -210,9 +236,11 @@ export class CardSandboxAdapter implements RailAdapter {
   }
 
   async refund(ref: string, amount: Amount): Promise<RailResult> {
+    const charge = this.charges.get(ref);
+    const blocked = this.blockMoney(amount, charge?.assetId ?? '', ref);
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
-    const charge = this.charges.get(ref);
     if (!charge) return this.unknownReference(ref);
 
     const forced = this.takeForcedFailure(ref, amount, charge.assetId);
@@ -259,10 +287,22 @@ export class CardSandboxAdapter implements RailAdapter {
     };
   }
 
+  payoutIdempotencyKey(s: SettlementInstruction): string {
+    return `po_${s.settlementId}`;
+  }
+
+  async queryPayout(idempotencyKey: string): Promise<PayoutRailStatus> {
+    const row = this.payouts.get(idempotencyKey);
+    if (!row) return { status: 'not_sent' };
+    return { status: 'sent', railRef: row.ref, amount: row.amount, assetId: row.assetId };
+  }
+
   async payout(s: SettlementInstruction): Promise<RailResult> {
+    const blocked = this.blockMoney(s.amount, s.assetId, this.payoutIdempotencyKey(s));
+    if (blocked) return blocked;
     this.lastContact = this.now();
 
-    const ref = `po_${s.settlementId}`;
+    const ref = this.payoutIdempotencyKey(s);
     const forced = this.takeForcedFailure(ref, s.amount, s.assetId);
     if (forced) return forced;
 
@@ -313,7 +353,7 @@ export class CardSandboxAdapter implements RailAdapter {
       return null;
     }
 
-    return toRailEvent(this.id, body);
+    return toRailEvent(this.id, body, this.options.noteMalformedEvidenceDueBy);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -383,7 +423,7 @@ const EVENT_TYPES = new Set([
 ]);
 
 /** Shape-check a verified body. A valid signature proves origin, not structure. */
-function toRailEvent(railId: string, body: unknown): RailEvent | null {
+function toRailEvent(railId: string, body: unknown, noteMalformedEvidenceDueBy?: (eventId: string) => void): RailEvent | null {
   if (typeof body !== 'object' || body === null) return null;
   const b = body as Record<string, unknown>;
 
@@ -412,6 +452,17 @@ function toRailEvent(railId: string, body: unknown): RailEvent | null {
 
   const disputeId = typeof b.disputeId === 'string' && b.disputeId.trim() ? b.disputeId.trim() : undefined;
   const reasonCode = typeof b.reasonCode === 'string' && b.reasonCode.trim() ? b.reasonCode.trim() : undefined;
+  let evidenceDueBy: Date | undefined;
+  if (b.evidenceDueBy !== undefined && b.evidenceDueBy !== null) {
+    const parsed = typeof b.evidenceDueBy === 'string' ? new Date(b.evidenceDueBy) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) {
+      // A bad due date must not drop the dispute. The opening still runs; the
+      // deadline stays absent, which is what a rail that sent none looks like.
+      noteMalformedEvidenceDueBy?.(eventId);
+    } else {
+      evidenceDueBy = parsed;
+    }
+  }
 
   return {
     railId,
@@ -424,5 +475,6 @@ function toRailEvent(railId: string, body: unknown): RailEvent | null {
     failureCode: typeof b.failureCode === 'string' ? b.failureCode : undefined,
     disputeId,
     reasonCode,
+    evidenceDueBy,
   };
 }

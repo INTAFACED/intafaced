@@ -5,8 +5,8 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "build": "node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json",
+    "typecheck": "node ./scripts/ensure-dep-types.mjs && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -15,7 +15,7 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@fastify/swagger": "^9.9.1",
+    "@fastify/swagger": "^9.9.2",
     "@intafaced/auth": "workspace:*",
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
@@ -24,20 +24,22 @@
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
+    "@intafaced/venue-adapter": "workspace:*",
+    "@intafaced/venue-contracts": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@trpc/server": "^11.19.0",
-    "drizzle-orm": "^0.45.3",
+    "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.5",
     "postgres": "^3.4.5",
-    "viem": "^2.57.3",
+    "viem": "^2.57.4",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
-    "@types/node": "^22.10.2",
-    "drizzle-kit": "^0.31.10",
+    "@types/node": "^22.20.5",
+    "drizzle-kit": "^0.31.11",
     "rimraf": "^6.0.1",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "vitest": "^3.0.5"
   }

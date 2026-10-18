@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
+import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
@@ -215,6 +216,18 @@ const schema = serviceEnvSchema
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
 
       /**
+       * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.
+       *
+       * `off` (default) leaves every door as it was. `required` makes sends to other users, standing
+       * orders to other people, business payments and membership, and card unfreeze/issue demand
+       * `stepUpApprovalId`: a same-person approval from svc-identity, bound to that exact payload.
+       * Flip to `required` only once the customer app can show the step-up sheet, or every send
+       * to another person fails. Any other value (including blank) refuses boot: a typo must never
+       * read as "off".
+       */
+      BANK_STEP_UP_MONEY_OUT: z.enum(['off', 'required']).default('off'),
+
+      /**
        * Owner-set offramp cooling window in hours (PTX-M17-R03).
        *
        * No default. Blank / unset / non-integer / negative → offramp refuses
@@ -244,6 +257,52 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.coerce.number().int().min(1).max(500).optional(),
       ),
+
+      /**
+       * How often the in-process recovery pass re-drives pending loan opens,
+       * unknown loan repayments/releases, and pending earn deposits.
+       *
+       * Unset uses 60000, the same default as TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS
+       * (the other lost-acknowledgement sweep). Blank disables the timer and
+       * svc-bank logs a startup warning. A non-integer refuses boot. There is
+       * no silent "do nothing" and no invented 8h.
+       */
+      BANK_RECOVERY_JOBS_INTERVAL_MS: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseRecoveryInterval(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid recovery interval',
+            });
+            return z.NEVER;
+          }
+        }),
+
+      /**
+       * Rows one recovery pass may scan. Unset uses 50, the same default as
+       * svc-trade `sweepHoldUnknown`. Blank disables the timer and svc-bank
+       * logs a startup warning — blank is not 0 and not the old invented 100.
+       * The HTTP jobs still require their own body.limit; this is the timer's
+       * cap, passed into the same assert functions.
+       */
+      BANK_RECOVERY_JOBS_BATCH_LIMIT: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseRecoveryBatchLimit(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid recovery batch',
+            });
+            return z.NEVER;
+          }
+        }),
     }),
   );
 

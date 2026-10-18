@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import { AuthError, bearerToken, requireMfa, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import {
@@ -13,6 +15,8 @@ import {
   queryWarehouseSurface,
   resolveWarehouseReplicaConfig,
   warehouseSurfaceStatusLine,
+  type ActionApproval,
+  type ActionApprovalConsumeInput,
   type LagSource,
   type WarehouseLagProbe,
   type WarehouseSurfaceResult,
@@ -26,6 +30,7 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { EdgeComplianceQueue, edgeComplianceHonesty, type EdgeComplianceHonesty } from './compliance-honesty.js';
+import { readConfirmOperatorId, requireDualControl } from './dual-control.js';
 
 import type { KillSwitchAuditEntry, KillSwitchDurability, KillSwitchState } from './kill-switch.js';
 import { ENFORCEABLE_MODULES, OUTSIDE_THE_DOOR } from './routes.js';
@@ -179,6 +184,8 @@ const thawSchema = z.object({
   operationId: z.string().max(128).nullish(),
 });
 
+const reconcileSchema = thawSchema;
+
 export interface KillSwitchSnapshot {
   readonly disabledModules: readonly ModuleId[];
   readonly reasons: Readonly<Record<string, string>>;
@@ -218,7 +225,7 @@ export interface ControlPlaneHonesty {
   readonly outsideTheDoor: Readonly<Record<string, string>>;
   /** Modules this edge can actually refuse traffic for (route-table-derived). */
   readonly enforceableModules: readonly ModuleId[];
-  /** Process-local durability — multi-replica share is always false today. */
+  /** File and memory are process-local. True only when a shared kill store is attached. */
   readonly killState: KillSwitchDurability;
   /**
    * Live control surface name — not a feature-flag key.
@@ -250,7 +257,7 @@ export interface FreezeSnapshot {
  * become one.
  */
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze',
+  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile',
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
@@ -259,6 +266,8 @@ export type LedgerOperatorCall = (
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
   authenticate(header: string | undefined): Promise<Principal>;
+  /** Verify an Authorization header for founder reads. `admin:read`, no MFA. */
+  authenticateRead(header: string | undefined): Promise<Principal>;
   /** Verify an Authorization header for treasury control, or throw `AuthError`. */
   authenticateTreasury(header: string | undefined): Promise<Principal>;
   /** Current kill-switch state and its audit trail, as the console renders it. */
@@ -284,6 +293,11 @@ export interface AdminApi {
   readFreeze(header: string): Promise<{ status: number; body: unknown }>;
   /** Freeze or thaw the ledger. Attribution and durability are svc-ledger's. */
   setFreeze(frozen: boolean, body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** Last ledger reconcile the edge successfully proxied, or a typed miss. */
+  readReconcile(): Promise<{ status: number; body: unknown }>;
+  /** Forward POST /operator/reconcile and keep a 2xx body as the last result. */
+  runReconcile(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  consumeApproval(input: ActionApprovalConsumeInput, operator: Principal): Promise<ActionApproval>;
   /**
    * Ops honesty residual (VPN/network, freeze invent, compliance queue, analytics dark).
    * Reads env at call time so tests can inject without rebooting the process.
@@ -294,7 +308,11 @@ export interface AdminApi {
   /** Open a case — never auto-invented. */
   openComplianceCase(item: ComplianceQueueItem): ReturnType<EdgeComplianceQueue['snapshot']>;
   /** Dispose a case — partner_cleared refuses without screening partner. */
-  disposeComplianceCase(itemId: string, request: ComplianceQueueDispositionRequest): ComplianceQueueDispositionResult;
+  disposeComplianceCase(
+    itemId: string,
+    request: ComplianceQueueDispositionRequest,
+    meta?: { readonly approverId?: string | null; readonly reason?: string | null },
+  ): ComplianceQueueDispositionResult;
   /**
    * Analytics warehouse door with a real replica lag probe when URLs are set.
    * Absent URL / probe off / connect fail → unknown, never invented live.
@@ -324,6 +342,10 @@ export interface AdminApiDeps {
    * in the token is not an operator. Unset in unit tests that mint their own tokens.
    */
   readonly sessionLive?: (principal: Principal) => Promise<void>;
+  /** Restart file for the compliance queue. Unset keeps the queue in memory. */
+  readonly complianceQueuePath?: string | undefined;
+  /** Restart file for the last successful reconcile report. */
+  readonly reconcileLastPath?: string | undefined;
 }
 
 export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): AdminApi {
@@ -342,8 +364,9 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
 
   const unreachable = { status: 503, body: { error: 'This edge is not configured to reach svc-ledger', code: 'edge.ledger_unreachable' } };
 
-  /** Process-local queue — mechanism only; full case product residual. */
-  const complianceQueue = new EdgeComplianceQueue(() => process.env);
+  /** File-backed when a path is configured; otherwise process memory. */
+  const complianceQueue = new EdgeComplianceQueue(() => process.env, { statePath: deps.complianceQueuePath });
+  let lastReconcile: { status: number; body: unknown } | null = readReconcileFile(deps.reconcileLastPath);
 
   return {
     async authenticate(header) {
@@ -351,6 +374,13 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       // Order matters only for the message the operator sees; both throw.
       requireScope(principal, 'admin:write');
       requireMfa(principal);
+      if (deps.sessionLive) await deps.sessionLive(principal);
+      return principal;
+    },
+
+    async authenticateRead(header) {
+      const principal = await verify(header);
+      requireScope(principal, 'admin:read');
       if (deps.sessionLive) await deps.sessionLive(principal);
       return principal;
     },
@@ -419,7 +449,7 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         },
         operator,
       );
-      const confirmOperatorId = consumed.approverId ?? consumed.requesterId;
+      const confirmOperatorId = requireDualControl(operator.userId, readConfirmOperatorId({ confirmOperatorId: consumed.approverId }));
 
       /**
        * The audit entry is written by `state.set` before the booleans move, and
@@ -451,6 +481,37 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       return deps.ledger(frozen ? '/operator/freeze' : '/operator/unfreeze', 'POST', header, payload);
     },
 
+    async readReconcile() {
+      if (!deps.ledger) return unreachable;
+      if (!lastReconcile) {
+        return {
+          status: 404,
+          body: {
+            error: 'No reconciliation has completed through this edge, so there is no result to show.',
+            code: 'edge.reconcile_never_run',
+          },
+        };
+      }
+      return lastReconcile;
+    },
+
+    async runReconcile(body, header) {
+      if (!deps.ledger) return unreachable;
+      const payload = reconcileSchema.parse(body ?? {});
+      readApprovalIds(payload);
+      const res = await deps.ledger('/operator/reconcile', 'POST', header, payload);
+      if (res.status >= 200 && res.status < 300) {
+        lastReconcile = { status: res.status, body: res.body };
+        writeReconcileFile(deps.reconcileLastPath, lastReconcile);
+      }
+      return res;
+    },
+
+    async consumeApproval(input, operator) {
+      const consumer = deps.approvals ?? unwiredApprovalConsumer();
+      return consumer.consume(input, operator);
+    },
+
     opsHonesty: () =>
       edgeComplianceHonesty(process.env, {
         queueItems: complianceQueue.snapshot().items,
@@ -460,7 +521,7 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
 
     openComplianceCase: (item) => complianceQueue.open(item),
 
-    disposeComplianceCase: (itemId, request) => complianceQueue.dispose(itemId, request),
+    disposeComplianceCase: (itemId, request, meta) => complianceQueue.dispose(itemId, request, meta),
 
     async probeWarehouse() {
       const honesty = edgeComplianceHonesty(process.env, {
@@ -578,4 +639,23 @@ export function httpLedgerOperator(baseUrl: string, timeoutMs: number): LedgerOp
       };
     }
   };
+}
+
+function readReconcileFile(path: string | undefined): { status: number; body: unknown } | null {
+  const file = path?.trim();
+  if (!file) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { status?: unknown; body?: unknown };
+    if (parsed.status === 200 && parsed.body && typeof parsed.body === 'object') return { status: 200, body: parsed.body };
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function writeReconcileFile(path: string | undefined, value: { status: number; body: unknown }): void {
+  const file = path?.trim();
+  if (!file) return;
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(value)}\n`, { mode: 0o600 });
 }

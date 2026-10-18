@@ -3,7 +3,7 @@ import { createApiClient } from '../../shared/api';
 import type { JournalStorage, JournalLocks } from '../../shared/minimal-original-journal';
 import { createPersonalPayApi, createBusinessPayApi, createPayMutationGuard, createCheckoutApi } from './pay-api';
 import { z } from 'zod';
-import { paymentSchema } from './schemas';
+import { paymentSchema, subscriptionSchema } from './schemas';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const spaceId = '22222222-2222-4222-8222-222222222222';
@@ -261,6 +261,37 @@ describe('Public checkout capability boundary', () => {
 });
 
 describe('Business Pay authority boundary', () => {
+  it('persists the original subscription outcome reference through the business mutation boundary', async () => {
+    const guard = createPayMutationGuard();
+    const api = createApiClient({
+      fetch: async (url) => {
+        if (String(url).includes('merchant.me'))
+          return response({
+            id: merchantId,
+            userId,
+            mode: 'gateway',
+            status: 'active',
+            kybStatus: 'approved',
+            kybRef: 'verified',
+            feeBps: null,
+          });
+        throw new TypeError('TEST disconnected');
+      },
+    });
+    const pay = createBusinessPayApi(
+      api,
+      userId,
+      { verified: true, companyId: 'TEST-company', companyName: 'TEST company', merchantId, userId, scopes: ['pay:read', 'pay:write'] },
+      guard,
+    );
+    const operation = `subscription:${transferId}`;
+    expect((await pay.mutate('subscription.pause', { subscriptionId: transferId }, z.unknown(), 'pay:write', operation, 'paused')).ok).toBe(
+      false,
+    );
+    expect(guard.status(`${userId}:${operation}`)).toBe('uncertain');
+    expect(guard.reference(`${userId}:${operation}`)).toBe('paused');
+  });
+
   it('keeps refund permission distinct from payment creation permission', async () => {
     const requests: string[] = [];
     const api = createApiClient({
@@ -335,6 +366,320 @@ describe('Business Pay authority boundary', () => {
       reason: 'invalid_response',
       code: 'pay.merchant_projection_mismatch',
     });
+  });
+});
+
+describe('subscription.create attempt ids', () => {
+  const mandateId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const operation = `subscription-create:${mandateId}`;
+  const lockId = `${userId}:${operation}`;
+  const attemptIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const firstId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const secondId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const authority = {
+    verified: true as const,
+    companyId: 'verified-company',
+    companyName: 'Company fixture',
+    merchantId,
+    userId,
+    scopes: ['pay:read', 'pay:write'],
+  };
+  function subscriptionRow(id: string, status: 'active' | 'cancelled' = 'active') {
+    return {
+      id,
+      mandateId,
+      merchantId,
+      customerId: 'cust-replay',
+      nextRunAt: '2026-01-15T00:00:00.000Z',
+      status,
+      cancelledAt: status === 'cancelled' ? '2026-02-01T00:00:00.000Z' : null,
+      path: 'crypto_invoice',
+      createdAt: '2026-01-15T00:00:00.000Z',
+      anchorAt: null,
+      anchorOccurrence: 0,
+      pausedAt: null,
+      resumedAt: null,
+      stalledAt: null,
+      stallReason: null,
+    };
+  }
+  function merchantResponse() {
+    return response({
+      id: merchantId,
+      userId,
+      mode: 'gateway',
+      status: 'active',
+      kybStatus: 'approved',
+      kybRef: 'verified',
+      feeBps: null,
+    });
+  }
+  function attemptOf(key: string | undefined) {
+    expect(key?.startsWith(`${lockId}:`)).toBe(true);
+    const attemptId = key!.slice(lockId.length + 1);
+    expect(attemptId).toMatch(attemptIdPattern);
+    expect(attemptId).not.toBe(lockId);
+    return attemptId;
+  }
+
+  it('retries the stored attempt id after the response is lost and returns the original subscription', async () => {
+    const creates: Array<{ idempotencyKey?: string; mandateId?: string; path?: string }> = [];
+    const stored = new Map<string, ReturnType<typeof subscriptionRow>>();
+    const subscription = subscriptionRow(firstId);
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (!href.includes('subscription.create')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string; mandateId?: string; path?: string };
+        creates.push(body);
+        const key = body.idempotencyKey ?? '';
+        const prior = stored.get(key);
+        if (!prior) {
+          stored.set(key, subscription);
+          throw new Error('socket hang up');
+        }
+        return response(prior);
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const lost = await pay.mutate('subscription.create', { mandateId, path: 'crypto_invoice' }, subscriptionSchema, 'pay:write', operation);
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    const attemptId = attemptOf(creates[0]?.idempotencyKey);
+    expect(creates[0]).toMatchObject({ mandateId, path: 'crypto_invoice' });
+    expect(pay.guard.status(lockId)).toBe('uncertain');
+    expect(pay.guard.reference(lockId)).toBe(attemptId);
+
+    const replayed = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(replayed).toEqual({ ok: true, data: subscription });
+    expect(creates[1]?.idempotencyKey).toBe(`${lockId}:${attemptId}`);
+    expect(stored.size).toBe(1);
+    expect(pay.guard.status(lockId)).toBeNull();
+    expect(pay.guard.reference(lockId)).toBeNull();
+  });
+
+  it('sends the same key when a payment link create is repeated after a lost reply, and gets the same link back', async () => {
+    const creates: Array<{ idempotencyKey?: string; label?: string }> = [];
+    const stored = new Map<string, object>();
+    const link = {
+      id: firstId,
+      token: 'pl_testtokenvalue',
+      prefix: 'pl_testtok',
+      label: 'Invoice',
+      expiresAt: '2026-03-01T00:00:00.000Z',
+      maxUses: null,
+      checkoutUrl: '/checkout?token=pl_testtokenvalue',
+    };
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (!href.includes('merchant.createLink')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string; label?: string };
+        creates.push(body);
+        const key = body.idempotencyKey ?? '';
+        if (!stored.has(key)) {
+          stored.set(key, link);
+          throw new Error('socket hang up');
+        }
+        return response(stored.get(key));
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const schema = z.object({
+      id: z.string(),
+      token: z.string(),
+      prefix: z.string(),
+      label: z.string(),
+      expiresAt: z.string(),
+      maxUses: z.number().nullable(),
+      checkoutUrl: z.string().nullish(),
+    });
+    const lock = `${userId}:link-create`;
+    const input = { merchantId, label: 'Invoice' };
+    const lost = await pay.mutate('merchant.createLink', input, schema, 'pay:write', 'link-create');
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    expect(creates[0]?.idempotencyKey?.startsWith(`${lock}:`)).toBe(true);
+    const again = await pay.mutate('merchant.createLink', input, schema, 'pay:write', 'link-create');
+    expect(again).toEqual({ ok: true, data: link });
+    expect(creates[1]?.idempotencyKey).toBe(creates[0]?.idempotencyKey);
+    expect(stored.size).toBe(1);
+    expect(pay.guard.status(lock)).toBeNull();
+  });
+
+  it('clears the journal when a replay is a definite refusal so the next click uses a new attempt id', async () => {
+    const creates: Array<{ idempotencyKey?: string }> = [];
+    let createsSeen = 0;
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (!href.includes('subscription.create')) throw new Error(href);
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string };
+        creates.push(body);
+        createsSeen += 1;
+        if (createsSeen === 1) throw new Error('socket hang up');
+        if (createsSeen === 2) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: 'pay.mandate_inactive: Mandate is inactive',
+                data: { code: 'CONFLICT', cause: { code: 'pay.mandate_inactive' } },
+              },
+            }),
+            { status: 409 },
+          );
+        }
+        return response(subscriptionRow(secondId));
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const lost = await pay.mutate('subscription.create', { mandateId, path: 'crypto_invoice' }, subscriptionSchema, 'pay:write', operation);
+    expect(lost).toMatchObject({ ok: false, reason: 'uncertain' });
+    const attemptId = attemptOf(creates[0]?.idempotencyKey);
+    expect(pay.guard.status(lockId)).toBe('uncertain');
+    expect(pay.guard.reference(lockId)).toBe(attemptId);
+
+    const refused = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(refused).toMatchObject({ ok: false, reason: 'error', code: 'pay.mandate_inactive' });
+    expect(creates[1]?.idempotencyKey).toBe(`${lockId}:${attemptId}`);
+    expect(pay.guard.status(lockId)).toBeNull();
+    expect(pay.guard.reference(lockId)).toBeNull();
+
+    const again = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(again).toEqual({ ok: true, data: subscriptionRow(secondId) });
+    const nextAttempt = attemptOf(creates[2]?.idempotencyKey);
+    expect(nextAttempt).not.toBe(attemptId);
+    expect(pay.guard.status(lockId)).toBeNull();
+  });
+
+  it('mints a new attempt after cancel so the same mandate can subscribe again', async () => {
+    const creates: Array<{ idempotencyKey?: string }> = [];
+    const byKey = new Map<string, ReturnType<typeof subscriptionRow>>();
+    const byId = new Map<string, ReturnType<typeof subscriptionRow>>();
+    const ids = [firstId, secondId];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        const body = JSON.parse(String(options?.body)) as { idempotencyKey?: string; subscriptionId?: string };
+        if (href.includes('subscription.create')) {
+          creates.push(body);
+          const key = body.idempotencyKey ?? '';
+          const prior = byKey.get(key);
+          if (prior) return response(prior);
+          const id = ids[byKey.size];
+          if (!id) throw new Error('unexpected create');
+          const row = subscriptionRow(id);
+          byKey.set(key, row);
+          byId.set(id, row);
+          return response(row);
+        }
+        if (href.includes('subscription.cancel')) {
+          const row = byId.get(body.subscriptionId ?? '');
+          if (!row) throw new Error('missing subscription');
+          const cancelled = subscriptionRow(row.id, 'cancelled');
+          byKey.forEach((value, key) => {
+            if (value.id === row.id) byKey.set(key, cancelled);
+          });
+          byId.set(row.id, cancelled);
+          return response(cancelled);
+        }
+        throw new Error(href);
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard());
+    const created = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice', idempotencyKey: lockId },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(created).toEqual({ ok: true, data: subscriptionRow(firstId) });
+    const firstAttempt = attemptOf(creates[0]?.idempotencyKey);
+    expect(pay.guard.status(lockId)).toBeNull();
+
+    const cancelled = await pay.mutate(
+      'subscription.cancel',
+      { subscriptionId: firstId },
+      subscriptionSchema,
+      'pay:write',
+      `subscription:${firstId}`,
+    );
+    expect(cancelled).toEqual({ ok: true, data: subscriptionRow(firstId, 'cancelled') });
+
+    const again = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(again).toEqual({ ok: true, data: subscriptionRow(secondId) });
+    const secondAttempt = attemptOf(creates[1]?.idempotencyKey);
+    expect(secondAttempt).not.toBe(firstAttempt);
+    expect(byKey.size).toBe(2);
+    expect(pay.guard.reference(lockId)).toBeNull();
+  });
+
+  it('does not send a create when an uncertain attempt has no stored attempt id', async () => {
+    const values = new Map<string, string>();
+    values.set(`pay.unresolved:${lockId}`, JSON.stringify({ status: 'uncertain' }));
+    let creates = 0;
+    const api = createApiClient({
+      fetch: async (url) => {
+        const href = String(url);
+        if (href.includes('merchant.me')) return merchantResponse();
+        if (href.includes('subscription.create')) {
+          creates += 1;
+          return response(subscriptionRow(firstId));
+        }
+        throw new Error(href);
+      },
+    });
+    const pay = createBusinessPayApi(
+      api,
+      userId,
+      authority,
+      createPersistentTestGuard({
+        getItem: (key) => values.get(key) ?? null,
+        setItem: (key, value) => {
+          values.set(key, value);
+        },
+        removeItem: (key) => {
+          values.delete(key);
+        },
+      }),
+    );
+    const result = await pay.mutate(
+      'subscription.create',
+      { mandateId, path: 'crypto_invoice' },
+      subscriptionSchema,
+      'pay:write',
+      operation,
+    );
+    expect(result).toMatchObject({ ok: false, reason: 'uncertain', code: 'pay.operation_unresolved' });
+    expect(creates).toBe(0);
+    expect(values.get(`pay.unresolved:${lockId}`)).toBe(JSON.stringify({ status: 'uncertain' }));
   });
 });
 

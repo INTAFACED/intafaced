@@ -3,9 +3,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
+import { createTestDb } from './fixture-truncate.testkit.js';
 import { AuthService } from './auth/auth-service.js';
 import { RankService } from './rank/rank-service.js';
 import { createIdentityRouter } from './router.js';
@@ -113,7 +114,7 @@ if (!available) {
     it('returns the caller userId and stored handle', async () => {
       const me = await signUp('Whoami_Now');
       const out = await (await as(me)).me();
-      expect(out).toEqual({ userId: me, handle: 'Whoami_Now' });
+      expect(out).toEqual({ userId: me, handle: 'Whoami_Now', emailVerified: false });
     });
   });
 }

@@ -26,6 +26,8 @@ export class AdminSessionError extends Error {
     public readonly status: number,
     /** svc-identity's own refusal code (`auth.*` only), so a page can say "invite already used" rather than "refused". */
     public readonly upstreamCode?: string,
+    /** The service's own typed code that is not an `auth.*` code (for example `ops.crm.storage_unconfigured`), kept so a desk can say what really happened. */
+    public readonly upstream?: string,
   ) {
     super(code);
   }
@@ -46,6 +48,34 @@ export function upstreamAuthCode(body: unknown): string | undefined {
   const data = error?.data ?? error?.json?.data;
   const code = data?.intafacedCode ?? data?.cause?.code;
   return typeof code === 'string' && UPSTREAM_AUTH_CODE.test(code) ? code : undefined;
+}
+
+const UPSTREAM_CODE = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
+const EMBEDDED_CODE = /\b(ops\.crm\.[a-z][a-z0-9_]*)\b/;
+/**
+ * The typed code a service put in a tRPC or REST error body, or null. Only a dotted lower-case code is kept, so free text
+ * from a service can never travel to the browser through this field.
+ */
+export function upstreamCodeOf(body: unknown): string | null {
+  const root = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const error = root.error && typeof root.error === 'object' ? (root.error as Record<string, unknown>) : {};
+  const json = error.json && typeof error.json === 'object' ? (error.json as Record<string, unknown>) : error;
+  const data = json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : {};
+  for (const candidate of [root.intafacedCode, json.intafacedCode, data.appCode, root.code, json.message, root.message]) {
+    if (typeof candidate !== 'string' || candidate.length > 120) continue;
+    if (UPSTREAM_CODE.test(candidate)) return candidate;
+    const embedded = EMBEDDED_CODE.exec(candidate)?.[1];
+    if (embedded) return embedded;
+  }
+  return null;
+}
+
+/**
+ * The generic typed code for the browser, with every `auth.*` code removed: those reach a page only through `upstreamCode`,
+ * and only on a route that names them, so a sign-in reply never says which part of a credential was wrong.
+ */
+function nonAuthCode(code: string | null): string | undefined {
+  return code !== null && !code.startsWith('auth.') ? code : undefined;
 }
 
 export function adminSessionConfig(env: Record<string, string | undefined> = process.env): AdminSessionConfig {
@@ -197,6 +227,7 @@ export async function founderEdgeCall(
       response.status === 401 || response.status === 403 ? 'admin.authority_refused' : 'admin.upstream_refused',
       response.status >= 400 && response.status < 600 ? response.status : 502,
       upstreamAuthCode(body),
+      nonAuthCode(upstreamCodeOf(body)),
     );
   if (!body || typeof body !== 'object' || !('result' in body)) throw new AdminSessionError('admin.upstream_invalid', 502);
   const result = (body as { result?: { data?: unknown } }).result;
@@ -231,8 +262,11 @@ export async function authorizeAdminRequest(request: Request): Promise<{ session
  */
 export function adminSessionErrorResponse(error: unknown, allowUpstream?: readonly string[]): Response {
   const known = error instanceof AdminSessionError ? error : new AdminSessionError('admin.request_failed', 500);
-  const upstream = known.upstreamCode && allowUpstream?.includes(known.upstreamCode) ? known.upstreamCode : undefined;
-  return Response.json(upstream ? { code: known.code, upstreamCode: upstream } : { code: known.code }, {
+  const authCode = known.upstreamCode && allowUpstream?.includes(known.upstreamCode) ? known.upstreamCode : undefined;
+  const body: Record<string, string> = { code: known.code };
+  if (authCode) body.upstreamCode = authCode;
+  if (known.upstream) body.upstream = known.upstream;
+  return Response.json(body, {
     status: known.status,
     headers: { 'cache-control': 'no-store' },
   });

@@ -145,6 +145,8 @@ export const en = {
   'notify.trade.fill.body': '{side} {qty} on {marketId} at {price}.',
   'notify.trade.order.terminal.title': 'Order {status}',
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
+  'notify.trade.market_halted.title': 'Market halted',
+  'notify.trade.market_halted.body': 'New submits on {marketId} are refused. Cancels remain available.',
   // Liquidation copy names only fields the payload guarantees are present.
   // Realised loss, mark price and liquidation price are all nullable on
   // `trade.position.updated`, so none of them appears here: a notification that
@@ -170,6 +172,22 @@ export const en = {
   'notify.agents.action.rejected.body': 'A guardrail blocked {tool} ({refusalCode}).',
   'notify.agents.action.completed.title': 'Agent action finished',
   'notify.agents.action.completed.body': 'Your agent finished ({kind}).',
+  'notify.pay.request_created.title': 'Payment request',
+  'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
+  'notify.pay.request_paid.title': 'Request paid',
+  'notify.pay.request_paid.body': '{payerHandle} paid your request for {amount} {assetId}.',
+  'notify.merchant.email_provider_unset.title': 'email not set up yet',
+  'notify.merchant.email_provider_unset.body': 'This notice stayed in the portal. Email is not set up yet.',
+  'notify.merchant.payment_refunded.title': 'Refund outcome',
+  'notify.merchant.payment_refunded.body': 'Refund {outcome} for {amount} {assetId}.',
+  'notify.merchant.rail_refused.title': 'Payout failed',
+  'notify.merchant.rail_refused.body': 'A payout was refused ({failureCode}).',
+  'notify.merchant.dispute_due.title': 'Dispute deadline',
+  'notify.merchant.dispute_due.body': 'Respond to dispute {disputeId} by {responseDueAt}.',
+  'notify.merchant.invited.title': 'Team invite',
+  'notify.merchant.invited.body': 'You were invited to a merchant team as {role}. The invite ends {expiresAt}.',
+  'notify.bank.deposit.credited.title': 'Deposit credited',
+  'notify.bank.deposit.credited.body': '{amount} {asset} is in your available balance.',
   'notify.bank.margin_call.title': 'Margin call on your loan',
   'notify.bank.margin_call.body':
     'Add {cureCollateralAmount} {collateralAssetId} before {graceExpiresAt} or part of your collateral may be sold.',
@@ -213,7 +231,7 @@ export const en = {
   // No third-party product names (§0.7). Bodies stay general platform help.
   'support.kb.account_access.title': 'Sign-in and account access',
   'support.kb.account_access.body':
-    'If you cannot sign in, use account recovery from the sign-in screen. Support never asks for your password or recovery codes in chat.',
+    'If you cannot sign in, choose “Recover account access” on the sign-in screen. It opens the password reset page, which shows the steps: ask for a code, enter it, then choose a new password. If that page says reset is not switched on, write to support and a person will help. Support never asks for your password or recovery codes in chat.',
   'support.kb.security_basics.title': 'Security basics',
   'support.kb.security_basics.body':
     'Enable two-factor verification, review sessions, and treat unexpected withdrawal prompts as urgent. We never ask you to move funds to “verify” an account.',
@@ -249,6 +267,8 @@ export const en = {
   'agents.refused.place_idempotency_required':
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
+  'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
+  'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',
   'agents.error.route_not_found': 'No Sovereign Intelligence route is configured for “{task}”.',
   'agents.error.capability_unavailable': 'The Neural Engine cannot serve this kind of request right now.',

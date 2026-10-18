@@ -34,14 +34,15 @@ import type { Principal } from '@intafaced/auth';
 import { TradingControlError, canonicalPayload, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { positionIdFor } from './ids.js';
-import { formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { div, formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { Position } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { planClose } from './close-planner.js';
-import { planLiquidation } from './liquidation-planner.js';
-import type { MarkRequest, MarkSource } from './liquidation-tick.js';
+import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
+import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
+import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForEntry,
@@ -55,7 +56,13 @@ import { PROFIT_SOURCE_UNCONFIGURED, checkProfitBound, type ProfitSource } from 
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-mark.js';
 import { TradeError } from '../spot/types.js';
+import { PRETRADE_LIMIT_HTTP_STATUS, checkOpenAdmission } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
+import { HAIRCUT_CREDIT_SHORT, HAIRCUT_UNSET, decideOpenCredit, readOwnerHaircutBps, requireOwnerHaircutBps } from './haircut-credit.js';
+import { checkCloseQuantity, planProportionalClose } from './desk-quantity.js';
+import { summarizeMargin, type MarginSummary } from './margin-summary.js';
+import { readTradePlanes } from './plane-capabilities.js';
+import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
 
 /**
  * How long one close waits for another close of the SAME position.
@@ -77,6 +84,12 @@ function isLockTimeout(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === PG_LOCK_NOT_AVAILABLE;
 }
 
+/** Same truthy set as env.ts. Unset, blank, and "false" stay off. */
+function publishedFlagOn(raw: string | undefined): boolean {
+  if (raw == null) return false;
+  return ['1', 'true', 'on', 'yes'].includes(raw.trim().toLowerCase());
+}
+
 /**
  * THE IDEMPOTENCY ROOT OF A VOLUNTARY CLOSE.
  *
@@ -94,13 +107,19 @@ export function closeIdFor(positionId: string): string {
 }
 
 export class FuturesError extends Error {
+  readonly rung?: 'closing' | 'partial';
+  readonly addMarginAllowed?: boolean;
+
   constructor(
     message: string,
     readonly code: string,
     readonly status = 400,
+    extra?: { readonly rung?: 'closing' | 'partial'; readonly addMarginAllowed?: boolean },
   ) {
     super(message);
     this.name = 'FuturesError';
+    this.rung = extra?.rung;
+    this.addMarginAllowed = extra?.addMarginAllowed;
   }
 }
 
@@ -130,6 +149,14 @@ export interface OpenPositionInput {
    * instead of locking a second pot under a random id.
    */
   clientOpenId: string;
+  /**
+   * When true, the open may only shrink an opposite position. Opening or
+   * enlarging refuses `trade.reduce_only_would_increase`. Resting orders are
+   * a different door.
+   */
+  reduceOnly?: boolean;
+  /** Forwarded by the account-mode door. The open mill reads it; a direct caller may omit it. */
+  positionMode?: 'one_way' | 'hedge';
 }
 
 export interface SetLeverageInput {
@@ -169,6 +196,18 @@ export const MARGIN_BELOW_INITIAL = 'trade.margin_below_initial';
 export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
+/**
+ * A liquidation rung is live (planned or posted) on this position: its loss is booked or
+ * about to be, and the row has not caught up. Refused with 409, retryable once the rung
+ * has applied (a tick, normally). See `assertLiquidationHold`.
+ */
+export const LIQUIDATION_IN_PROGRESS = 'trade.liquidation_in_progress';
+/**
+ * The position is PARKED: its latest liquidation rung was abandoned (loss booked, row not
+ * reconciled) or an old-style claim row exists. An operator must reconcile it first
+ * (`docs/runbooks/liquidation-rung-ops.md` section 2). Only adding margin is allowed.
+ */
+export const POSITION_UNDER_REVIEW = 'trade.position_under_review';
 
 /** Blank / non-integer / out of 1..500 listClosed limit refuse. Never invent 100. */
 export const TRADE_LIST_CLOSED_LIMIT_UNSET = 'trade.list_closed_limit_unset' as const;
@@ -236,6 +275,15 @@ export interface PositionServiceDeps {
   assertAdlDisclosureAcked?: (userId: string) => Promise<void>;
   /** Test-only crash seam after the external ledger accepts, before DB finalize. */
   afterMarginLedgerPost?: (request: string) => Promise<void>;
+  /**
+   * The published liquidation ladder (the same `depth` source and `policy` the liquidation
+   * tick uses). When `policy` is set, the "would this be liquidatable" gate on a margin
+   * outflow (`reduceIsolatedMargin`, `setLeverage`) uses the ladder's depth-tiered
+   * maintenance, so a withdrawal cannot leave a position the ladder would liquidate on the
+   * next tick. Omitted, or `policy` unset (production today: owner D3 numbers are unset):
+   * the equity-only gate (`planLiquidation`, equity <= 0) applies, as before.
+   */
+  ladder?: { depth: DepthNotionalSource; policy?: FuturesLadderPolicy };
 }
 
 /** Why a position is frozen waiting for a mark — futures-namespaced refuse codes. */
@@ -254,7 +302,9 @@ export interface PositionRow {
   margin_mode: 'cross' | 'isolated';
   size: string;
   entry_price: string;
-  leverage: string;
+  /** Null on a legacy row that never recorded one. Never inferred from margin. */
+  leverage: string | null;
+  client_open_id: string | null;
   margin_initial: string;
   /** Residual after funding; close/liq release from this, not margin_initial. */
   margin_current: string;
@@ -274,9 +324,39 @@ export interface PositionRow {
   accepted_mark_at: Date | null;
   /** Non-null only while status=closing. */
   closing_reason: string | null;
+  /** Present on every `p.*` read. Null only if a writer omitted it. */
+  updated_at: Date | null;
+  /** From the joined market. Null where that row recorded no contract size. */
+  contract_size: string | null;
   /** Last posted futuresMarginAdd/Release sequence; close residual uses 1. */
   margin_adjust_seq: number;
   margin_adjust_request: string | null;
+}
+
+/** What a presenter already knows. Omitted mark means this call did not read one. */
+interface PresentExtras {
+  markPrice?: string | null;
+  markReason?: 'mark_missing' | 'mark_unusable' | 'mark_not_read' | null;
+  realizedPnl?: string | null;
+  maintenanceMargin?: string | null;
+  maintenanceReason?: string | null;
+  replayed?: boolean;
+}
+
+/**
+ * Unrealised PnL over initial margin, in CCXT percent points.
+ *
+ * `div(unrealized * 100n, initialMargin, half-up)`. Amounts are 1e18-scaled
+ * bigints, so multiplying the scaled PnL by the plain integer `100n` is exact.
+ * Rounding is `half-up` (`div` in `@intafaced/ledger-client`): a percent, not a
+ * fee, so neither side is favoured by a one-sided ceil or floor. The PnL
+ * itself is `unrealizedPnl` from `liquidation-planner`, the same truncation
+ * toward zero that `planClose` posts. `'20'` means +20%.
+ */
+export const POSITION_PERCENTAGE_ROUNDING = 'half-up' as const;
+
+export function positionPercentage(unrealized: Amount, initialMarginAmount: Amount): Amount {
+  return div(unrealized * 100n, initialMarginAmount, POSITION_PERCENTAGE_ROUNDING);
 }
 
 export class PositionService {
@@ -306,6 +386,86 @@ export class PositionService {
   }
 
   /**
+   * New exposure needs both switches. Trading on with the liquidation job off
+   * would open positions nothing is scheduled to close. Reduce and close do
+   * not call this. A replay of an already-admitted open returns before it.
+   */
+  private refuseIfFuturesExposureOff(): void {
+    const off: string[] = [];
+    if (!readTradePlanes(process.env).futures.enabled) off.push('TRADE_FUTURES_ENABLED');
+    if (!publishedFlagOn(process.env.TRADE_FUTURES_JOBS_ENABLED)) off.push('TRADE_FUTURES_JOBS_ENABLED');
+    if (off.length === 0) return;
+    const verb = off.length === 1 ? 'is' : 'are';
+    throw new FuturesError(`futures exposure cannot increase while ${off.join(' and ')} ${verb} off`, 'trade.futures_disabled', 403);
+  }
+
+  /**
+   * credit(available + Σ margin_current) must cover Σ margin_initial + the new
+   * requirement. One read of each. A shortfall or a failed read refuses and
+   * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
+   * delta when setLeverage is raising margin.
+   */
+  private async assertAggregateHaircutCredit(input: {
+    userId: string;
+    asset: string;
+    additionalInitialMargin: Amount;
+    available?: Amount;
+  }): Promise<void> {
+    let haircutBps: number;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut';
+      throw new FuturesError(message, HAIRCUT_UNSET, 400);
+    }
+
+    let rows: ReadonlyArray<{ margin_initial: string; margin_current: string | null }>;
+    try {
+      rows = await this.sql<{ margin_initial: string; margin_current: string | null }[]>`
+        SELECT margin_initial, margin_current
+        FROM trade.positions
+        WHERE user_id = ${input.userId}
+          AND margin_asset = ${input.asset}
+          AND status IN ('open', 'closing')
+      `;
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    let available = input.available;
+    if (available === undefined) {
+      try {
+        available = (await this.ledger.balance(userAvailable(input.userId, input.asset))).amount;
+      } catch (err) {
+        if (err instanceof FuturesError) throw err;
+        throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+      }
+    }
+
+    let sumCurrent = 0n;
+    let sumInitial = 0n;
+    try {
+      for (const row of rows) {
+        const initial = parseAmount(String(row.margin_initial));
+        const current = parseAmount(String(row.margin_current ?? row.margin_initial));
+        sumInitial += initial;
+        if (current > 0n) sumCurrent += current;
+      }
+    } catch (err) {
+      if (err instanceof FuturesError) throw err;
+      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+    }
+
+    const decision = decideOpenCredit({
+      postedCash: (available + sumCurrent) as Amount,
+      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
+      haircutBps,
+    });
+    if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
+  }
+
+  /**
    * Commit the semantic request before touching the external ledger. A retry of
    * the exact request resumes; a different request cannot inherit its sequence.
    */
@@ -318,13 +478,13 @@ export class PositionService {
       await tx.unsafe(`SET LOCAL lock_timeout = ${CLOSE_LOCK_TIMEOUT_MS}`);
       const rows = input.positionId
         ? await tx<PositionRow[]>`
-            SELECT p.*, m.symbol FROM trade.positions p
+            SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
             LIMIT 1 FOR UPDATE OF p
           `
         : await tx<PositionRow[]>`
-            SELECT p.*, m.symbol FROM trade.positions p
+            SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.user_id = ${input.userId} AND m.symbol = ${input.symbol} AND p.status = 'open'
             FOR UPDATE OF p
@@ -396,6 +556,107 @@ export class PositionService {
       throw new FuturesError('margin adjustment intent is missing or changed', 'trade.idempotency_conflict', 409);
     }
     return record.status === 'completed' ? record.result : null;
+  }
+
+  /**
+   * LIQUIDATION SERIALISATION — a trader may not move the money a liquidation is moving.
+   *
+   * Call it INSIDE the transaction, AFTER the position row is locked (`FOR UPDATE OF p`).
+   * That order is the whole point: the liquidation tick's `begin` and `apply` take the same
+   * row lock before they touch `trade.liquidation_rungs`, so for one position exactly one of
+   * "the trader's mutation" and "a rung becoming live" wins. Either this mutation commits
+   * first (and `begin` then sees a changed row and plans nothing), or the rung is already
+   * live here and the mutation refuses. Every writer takes the position row FIRST and reads
+   * (never locks) the rung table, so there is no lock-order cycle.
+   *
+   * WHY THE RULE EXISTS. A rung books its loss against the position's collateral pot. A
+   * withdrawal, a leverage change that releases margin or a voluntary close that lands
+   * between the plan and the post shrinks that pot, and the ledger then refuses the loss; the
+   * closing-rung amendment makes the INSURANCE FUND pay for money the trader just took out.
+   * Refusing the outflow at the source removes that fraud path (see
+   * `docs/adr/2026-10-14-liquidation-shortfall-insurance-leg.md`).
+   *
+   *   · A LIVE rung (planned/posted): `close`, `reduceIsolatedMargin` and `setLeverage` are
+   *     refused with 409 `trade.liquidation_in_progress`. `addIsolatedMargin` is refused only
+   *     while the live rung is a CLOSING one: a partial rung applies a DELTA to the row, so
+   *     margin added meanwhile survives it; a closing rung would strand it in the pot.
+   *   · A PARKED position (latest rung abandoned, or an old-style `liquidation_attempts` claim
+   *     on a still-open position): `close`, `reduceIsolatedMargin` and `setLeverage` are
+   *     refused with 409 `trade.position_under_review`. The row is not reconciled with a loss
+   *     that is already booked, so any outflow would compound the difference. Adding margin is
+   *     the only thing allowed (it cannot hurt the books); the operator resolves the park per
+   *     the runbook, section 2.
+   *
+   * FUNDING IS NOT BLOCKED. A payee is owed; the rung's amendment path absorbs the race.
+   */
+  private async assertLiquidationHold(
+    tx: TransactionSql,
+    positionId: string,
+    operation: 'close' | 'reduce_margin' | 'set_leverage' | 'add_margin',
+  ): Promise<void> {
+    const [hold] = await tx<{ live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean }[]>`
+      SELECT
+        (SELECT r.kind FROM trade.liquidation_rungs r
+          WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted') LIMIT 1) AS live_kind,
+        (SELECT r.state FROM trade.liquidation_rungs r
+          WHERE r.position_id = ${positionId} ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1) AS latest_state,
+        EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)}) AS claimed
+    `;
+    if (!hold) return;
+    if (hold.live_kind !== null && !(operation === 'add_margin' && hold.live_kind === 'partial')) {
+      throw new FuturesError(
+        `a liquidation of this position is in progress (${hold.live_kind} rung) — retry in a moment`,
+        LIQUIDATION_IN_PROGRESS,
+        409,
+        { rung: hold.live_kind, addMarginAllowed: hold.live_kind === 'partial' },
+      );
+    }
+    if (operation !== 'add_margin' && (hold.latest_state === 'abandoned' || hold.claimed)) {
+      throw new FuturesError(
+        'this position is under review after a liquidation that could not be reconciled — only adding margin is allowed until support resolves it',
+        POSITION_UNDER_REVIEW,
+        409,
+      );
+    }
+  }
+
+  /**
+   * Would this isolated margin leave the position liquidatable at this mark?
+   *
+   * With a published ladder policy: the ladder's own rung (depth-tiered maintenance), so the
+   * gate and the liquidation tick cannot disagree. Without one: equity <= 0 only (the old
+   * `planLiquidation` gate; no maintenance number is invented).
+   */
+  private async wouldBeLiquidatable(row: PositionRow, margin: Amount, markPrice: Amount, gateId: string): Promise<boolean> {
+    const position = {
+      positionId: row.id,
+      userId: row.user_id,
+      side: row.side,
+      size: parseAmount(row.size),
+      entryPrice: parseAmount(row.entry_price),
+      margin,
+      marginAsset: row.margin_asset,
+    };
+    const ladder = this.deps.ladder;
+    if (ladder?.policy) {
+      const depthNotional = await ladder.depth
+        .depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol })
+        .catch(() => null);
+      if (depthNotional == null || depthNotional <= 0n) {
+        throw new FuturesError(
+          `no readable ${row.side === 'long' ? 'bid' : 'ask'} depth to rate this position against — refusing to release margin blind`,
+          'trade.depth_unknown',
+          503,
+        );
+      }
+      try {
+        return planLadderRung({ position, markPrice, depthNotional, policy: ladder.policy }).action === 'liquidate';
+      } catch (err) {
+        if (err instanceof FuturesLadderError) throw new FuturesError(err.message, err.code, 503);
+        throw err;
+      }
+    }
+    return planLiquidation({ liquidationId: gateId, position, markPrice: formatAmount(markPrice) }).liquidate;
   }
 
   /**
@@ -525,27 +786,29 @@ export class PositionService {
    * Active positions: `open` and `closing`. A frozen exit must remain visible
    * and must never render as a normal open (ADR 2026-08-07 done bar 7).
    */
-  async listOpen(userId: string, symbol?: string): Promise<Position[]> {
+  async listOpen(userId: string, symbol?: string, clientOpenId?: string): Promise<Position[]> {
+    const openId = clientOpenId === undefined ? null : clientOpenId;
     const rows = symbol
       ? await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.user_id = ${userId}
             AND p.status IN ('open', 'closing')
             AND m.symbol = ${symbol}
+            AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `
       : await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.user_id = ${userId}
             AND p.status IN ('open', 'closing')
+            AND (${openId}::text IS NULL OR p.client_open_id = ${openId})
           ORDER BY p.opened_at DESC
         `;
-    // List is not a valuation: no mark source, no invented 0. Close attaches extras.
-    return rows.map((row) => presentPosition(row));
+    return Promise.all(rows.map((row) => this.presentListed(row)));
   }
 
   /**
@@ -561,7 +824,7 @@ export class PositionService {
     const rows =
       symbol && sinceDate
         ? await this.sql<PositionRow[]>`
-            SELECT p.*, m.symbol
+            SELECT p.*, m.symbol, m.contract_size
             FROM trade.positions p
             JOIN trade.markets m ON m.id = p.market_id
             WHERE p.user_id = ${userId}
@@ -573,7 +836,7 @@ export class PositionService {
           `
         : symbol
           ? await this.sql<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${userId}
@@ -584,7 +847,7 @@ export class PositionService {
             `
           : sinceDate
             ? await this.sql<PositionRow[]>`
-                SELECT p.*, m.symbol
+                SELECT p.*, m.symbol, m.contract_size
                 FROM trade.positions p
                 JOIN trade.markets m ON m.id = p.market_id
                 WHERE p.user_id = ${userId}
@@ -594,7 +857,7 @@ export class PositionService {
                 LIMIT ${limit}
               `
             : await this.sql<PositionRow[]>`
-                SELECT p.*, m.symbol
+                SELECT p.*, m.symbol, m.contract_size
                 FROM trade.positions p
                 JOIN trade.markets m ON m.id = p.market_id
                 WHERE p.user_id = ${userId}
@@ -602,7 +865,7 @@ export class PositionService {
                 ORDER BY COALESCE(p.closed_at, p.opened_at) DESC
                 LIMIT ${limit}
               `;
-    return rows.map((row) => presentPosition(row));
+    return Promise.all(rows.map((row) => this.presentListed(row)));
   }
 
   /**
@@ -615,17 +878,18 @@ export class PositionService {
       throw new FuturesError('position id is required', 'trade.bad_request', 400);
     }
     const [row] = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol
+      SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.id = ${id} AND p.user_id = ${userId}
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
-    return presentPosition(row);
+    return this.presentListed(row);
   }
 
   async open(input: OpenPositionInput, principal?: Principal): Promise<Position> {
+    if (input.reduceOnly === true) return this.reduceOnlyOpen(input);
     /**
      * NO POT, NO NEW POSITIONS.
      *
@@ -693,6 +957,8 @@ export class PositionService {
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
     }
+
+    this.refuseIfFuturesExposureOff();
 
     if (m.kind !== 'futures') {
       throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
@@ -782,8 +1048,32 @@ export class PositionService {
       entryPrice,
       leverage,
     });
+    await this.assertAggregateHaircutCredit({
+      userId: input.userId,
+      asset: m.quote_asset,
+      additionalInitialMargin: margin,
+    });
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
+    // Owner pre-trade limits (#4725), before the margin lock. A retry of an
+    // already-admitted open returned above and is never newly refused.
+    const limitRefusal = await checkOpenAdmission({
+      sql: this.sql,
+      userId: input.userId,
+      marketId: m.id,
+      quoteAsset: m.quote_asset,
+      side: input.side,
+      size: input.size,
+      entryPrice,
+      positionMode: (input as { positionMode?: unknown }).positionMode,
+      markFor: async (marketId, symbol) => (await this.markFor(marketId, symbol, at, null)).price,
+    });
+    if (limitRefusal)
+      throw new FuturesError(
+        limitRefusal.message,
+        limitRefusal.code,
+        limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
+      );
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },
@@ -806,9 +1096,9 @@ export class PositionService {
     const marginMode = String(evidence.marginMode);
     const margin = parseAmount(String(evidence.margin));
     const at = new Date(String(evidence.at));
-    const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol FROM trade.positions p
+    const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${positionId} AND p.user_id = ${input.userId}`;
-    if (existing) return presentPosition(existing);
+    if (existing) return this.presentListed(existing);
     // Money first — never a position row without a ledger claim.
     await this.ledger.post(
       recipes.futuresMarginLock({
@@ -838,7 +1128,7 @@ export class PositionService {
         INSERT INTO trade.positions (
           id, user_id, market_id, side, status, margin_mode,
           size, entry_price, leverage, margin_initial, margin_current, margin_asset, funding_paid,
-          accepted_mark, accepted_mark_at
+          accepted_mark, accepted_mark_at, client_open_id
         ) VALUES (
           ${positionId},
           ${input.userId},
@@ -854,7 +1144,8 @@ export class PositionService {
           ${m.quote_asset},
           '0',
           ${formatAmount(entryPrice)},
-          ${at}
+          ${at},
+          ${input.clientOpenId}
         )
       `;
     } catch (err) {
@@ -866,14 +1157,14 @@ export class PositionService {
        */
       {
         const existing = await this.sql<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.id = ${positionId}
           LIMIT 1
         `;
         if (existing[0]) {
-          return presentPosition(existing[0]);
+          return this.presentListed(existing[0]);
         }
       }
       // Roll margin back if the row failed (unique open, etc.).
@@ -890,13 +1181,18 @@ export class PositionService {
     }
 
     const [row] = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol
+      SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id
       WHERE p.id = ${positionId}
     `;
+    await this.sql`
+      INSERT INTO trade.futures_open_requests (user_id, market_id, client_open_id, reduce_only)
+      VALUES (${input.userId}, ${m.id}, ${input.clientOpenId}, false)
+      ON CONFLICT (user_id, market_id, client_open_id) DO NOTHING
+    `;
     await this.publishPositionUpdated(row!);
-    return presentPosition(row!);
+    return this.presentListed(row!);
   }
 
   /** Owned recovery hook, independent of live credentials; no public receipt is accepted. */
@@ -949,7 +1245,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -957,7 +1253,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -986,7 +1282,11 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'set_leverage');
 
+        if (row.leverage == null) {
+          throw new FuturesError('leverage was not recorded on this position', 'leverage_not_recorded', 400);
+        }
         const currentLeverage = parseAmount(row.leverage);
         if (currentLeverage === input.leverage) {
           await tx`UPDATE trade.positions SET margin_adjust_request = NULL, updated_at = now()
@@ -1003,27 +1303,22 @@ export class PositionService {
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const target = initialMargin({ size, entryPrice, leverage: input.leverage });
 
-        const at = this.now();
-        const mark = await this.markFor(row.market_id, row.symbol, at, size);
-        const wouldLiq = planLiquidation({
-          liquidationId: `re-leverage-gate:${row.id}`,
-          position: {
-            positionId: row.id,
-            userId: input.userId,
-            side: row.side,
-            size,
-            entryPrice,
-            margin: target,
-            marginAsset: row.margin_asset,
-          },
-          markPrice: formatAmount(mark.price),
-        });
-        if (wouldLiq.liquidate) {
-          throw new FuturesError(
-            `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
-            LEVERAGE_WOULD_LIQUIDATE,
-            400,
-          );
+        /**
+         * THE LIQUIDATION GATE GUARDS AN OUTFLOW ONLY. Raising leverage releases margin (target below what
+         * the position holds) and must leave something the ladder would not liquidate. Lowering leverage
+         * ADDS margin: it can only improve the position, so it is never refused by this gate, by a dark
+         * mark, or by an unreadable book (`trade.depth_unknown`). The mark is not even read for an inflow.
+         */
+        if (target < currentMargin) {
+          const at = this.now();
+          const mark = await this.markFor(row.market_id, row.symbol, at, size);
+          if (await this.wouldBeLiquidatable(row, target, mark.price, `re-leverage-gate:${row.id}`)) {
+            throw new FuturesError(
+              `refusing leverage ${formatAmount(input.leverage)}x — new isolated margin would already be in liquidation at the current mark`,
+              LEVERAGE_WOULD_LIQUIDATE,
+              400,
+            );
+          }
         }
 
         if (input.leverage > currentLeverage) {
@@ -1051,14 +1346,27 @@ export class PositionService {
         const seq = (Number.isFinite(prevSeq) && prevSeq >= 1 ? prevSeq : 1) + 1;
 
         if (delta > 0n) {
-          const available = await this.ledger.balance(userAvailable(input.userId, row.margin_asset));
-          if (available.amount < delta) {
+          this.refuseIfFuturesExposureOff();
+          let availableAmount: Amount;
+          try {
+            availableAmount = (await this.ledger.balance(userAvailable(input.userId, row.margin_asset))).amount;
+          } catch (err) {
+            if (err instanceof FuturesError) throw err;
+            throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
+          }
+          if (availableAmount < delta) {
             throw new FuturesError(
-              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(available.amount)}`,
+              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(availableAmount)}`,
               LEVERAGE_INSUFFICIENT_MARGIN,
               400,
             );
           }
+          await this.assertAggregateHaircutCredit({
+            userId: input.userId,
+            asset: row.margin_asset,
+            additionalInitialMargin: delta,
+            available: availableAmount,
+          });
           ledgerAttempted = true;
           await this.ledger.post(
             recipes.futuresMarginAdd({
@@ -1096,7 +1404,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this leverage update', 'trade.position_not_open', 409);
@@ -1154,7 +1462,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -1162,7 +1470,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -1191,6 +1499,7 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'add_margin');
 
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const nextMargin = currentMargin + input.amount;
@@ -1229,7 +1538,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this margin add', 'trade.position_not_open', 409);
@@ -1285,7 +1594,7 @@ export class PositionService {
 
         const locked = input.positionId
           ? await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.id = ${input.positionId} AND p.user_id = ${input.userId}
@@ -1293,7 +1602,7 @@ export class PositionService {
               FOR UPDATE OF p
             `
           : await tx<PositionRow[]>`
-              SELECT p.*, m.symbol
+              SELECT p.*, m.symbol, m.contract_size
               FROM trade.positions p
               JOIN trade.markets m ON m.id = p.market_id
               WHERE p.user_id = ${input.userId}
@@ -1322,6 +1631,7 @@ export class PositionService {
         }
         const replay = await this.completedMarginAdjustment(tx, row.id, adjustmentId, request);
         if (replay) return replay;
+        await this.assertLiquidationHold(tx, row.id, 'reduce_margin');
 
         const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
         const initial = parseAmount(row.margin_initial);
@@ -1334,24 +1644,9 @@ export class PositionService {
           );
         }
 
-        const size = parseAmount(row.size);
-        const entryPrice = parseAmount(row.entry_price);
         const at = this.now();
-        const mark = await this.markFor(row.market_id, row.symbol, at, size);
-        const wouldLiq = planLiquidation({
-          liquidationId: `margin-reduce-gate:${row.id}`,
-          position: {
-            positionId: row.id,
-            userId: input.userId,
-            side: row.side,
-            size,
-            entryPrice,
-            margin: nextMargin,
-            marginAsset: row.margin_asset,
-          },
-          markPrice: formatAmount(mark.price),
-        });
-        if (wouldLiq.liquidate) {
+        const mark = await this.markFor(row.market_id, row.symbol, at, parseAmount(row.size));
+        if (await this.wouldBeLiquidatable(row, nextMargin, mark.price, `margin-reduce-gate:${row.id}`)) {
           throw new FuturesError(
             `refusing isolated margin reduce — remaining collateral would already be in liquidation at the current mark`,
             MARGIN_WOULD_LIQUIDATE,
@@ -1385,7 +1680,7 @@ export class PositionService {
             AND p.user_id = ${input.userId}
             AND p.status = 'open'
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         if (!updated) {
           throw new FuturesError('position changed underneath this margin reduce', 'trade.position_not_open', 409);
@@ -1479,14 +1774,11 @@ export class PositionService {
    */
   async close(userId: string, positionId: string): Promise<Position> {
     const outcome = await this.closeAtomically(userId, positionId);
-    await this.publishPositionUpdated(outcome.row, outcome.extras);
-    return presentPosition(outcome.row, outcome.extras);
+    if (!outcome.extras.replayed) await this.publishPositionUpdated(outcome.row, outcome.extras);
+    return this.presentListed(outcome.row, outcome.extras);
   }
 
-  private async closeAtomically(
-    userId: string,
-    positionId: string,
-  ): Promise<{ row: PositionRow; extras: { markPrice: string | null; realizedPnl: string | null } }> {
+  private async closeAtomically(userId: string, positionId: string): Promise<{ row: PositionRow; extras: PresentExtras }> {
     try {
       return await this.sql.begin(async (tx) => {
         // Bounded, so a wedged ledger call cannot pin one pooled connection per
@@ -1506,7 +1798,7 @@ export class PositionService {
          * queued behind, not the stale `open` it originally matched.
          */
         const [row] = await tx<PositionRow[]>`
-          SELECT p.*, m.symbol
+          SELECT p.*, m.symbol, m.contract_size
           FROM trade.positions p
           JOIN trade.markets m ON m.id = p.market_id
           WHERE p.id = ${positionId} AND p.user_id = ${userId}
@@ -1514,9 +1806,24 @@ export class PositionService {
           FOR UPDATE OF p
         `;
         if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+        if (row.status === 'closed') {
+          const storedMark =
+            row.accepted_mark == null || row.accepted_mark.trim() === '' ? null : formatAmount(parseAmount(row.accepted_mark));
+          return {
+            row,
+            extras: {
+              replayed: true,
+              markPrice: storedMark,
+              markReason: storedMark == null ? 'mark_missing' : null,
+            },
+          };
+        }
         if (row.status !== 'open' && row.status !== 'closing') {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
+        // Under the row lock, before the mark read and before anything posts: a trader may not
+        // close out from under a live rung or a parked position (see `assertLiquidationHold`).
+        await this.assertLiquidationHold(tx, row.id, 'close');
 
         /**
          * THE STAKE, TAKEN OFF THE LOCKED ROW.
@@ -1562,7 +1869,7 @@ export class PositionService {
               AND p.user_id = ${userId}
               AND p.status = 'open'
               AND m.id = p.market_id
-            RETURNING p.*, m.symbol
+            RETURNING p.*, m.symbol, m.contract_size
           `;
           if (!frozen) {
             throw new FuturesError('position changed underneath this close', 'trade.position_not_open', 409);
@@ -1722,7 +2029,7 @@ export class PositionService {
             AND p.user_id = ${userId}
             AND p.status IN ('open', 'closing')
             AND m.id = p.market_id
-          RETURNING p.*, m.symbol
+          RETURNING p.*, m.symbol, m.contract_size
         `;
         /**
          * Unreachable while the lock holds — and asserted rather than assumed,
@@ -1775,7 +2082,7 @@ export class PositionService {
         entryPrice: formatAmount(entry),
         markPrice: extras?.markPrice ?? null,
         notional: formatAmount(notional),
-        leverage: formatAmount(parseAmount(row.leverage)),
+        leverage: row.leverage == null ? null : formatAmount(parseAmount(row.leverage)),
         collateral: formatAmount(parseAmount(row.margin_current ?? row.margin_initial)),
         unrealizedPnl: null,
         realizedPnl: extras?.realizedPnl ?? null,
@@ -1788,12 +2095,540 @@ export class PositionService {
       { idempotencyKey: `trade.position.updated:${row.id}:${row.status}:${ts}` },
     );
   }
+
+  /**
+   * Reduce-only open. Shrinks an opposite position by at most its size and
+   * never opens or enlarges. The flag is stored on `futures_open_requests`
+   * before the decision, including a refusal.
+   */
+  private async reduceOnlyOpen(input: OpenPositionInput): Promise<Position> {
+    const clientOpenId = input.clientOpenId?.trim() ?? '';
+    if (clientOpenId.length === 0 || clientOpenId.length > 64) {
+      throw new FuturesError(
+        'clientOpenId is required (1–64 chars) — omit would double-lock margin on retry',
+        'trade.client_open_id_required',
+        400,
+      );
+    }
+    const market = await this.sql<{ id: string; symbol: string; kind: string; lot_size: string }[]>`
+      SELECT id, symbol, kind, lot_size FROM trade.markets WHERE symbol = ${input.symbol} LIMIT 1
+    `;
+    const m = market[0];
+    if (!m) throw new FuturesError(`unknown market ${input.symbol}`, 'trade.market_not_found', 404);
+    if (m.kind !== 'futures') {
+      throw new FuturesError(`market ${input.symbol} is ${m.kind}, not futures`, 'trade.not_futures_market', 400);
+    }
+
+    const stored = await this.sql<{ reduce_only: boolean; outcome: ReduceOnlyOutcome | null }[]>`
+      SELECT reduce_only, outcome FROM trade.futures_open_requests
+      WHERE user_id = ${input.userId} AND market_id = ${m.id} AND client_open_id = ${clientOpenId}
+    `;
+    if (stored[0]?.outcome) return replayReduceOnly(stored[0].outcome);
+    if (!stored[0]) {
+      await this.sql`
+        INSERT INTO trade.futures_open_requests (user_id, market_id, client_open_id, reduce_only)
+        VALUES (${input.userId}, ${m.id}, ${clientOpenId}, true)
+        ON CONFLICT (user_id, market_id, client_open_id) DO NOTHING
+      `;
+      const again = await this.sql<{ outcome: ReduceOnlyOutcome | null }[]>`
+        SELECT outcome FROM trade.futures_open_requests
+        WHERE user_id = ${input.userId} AND market_id = ${m.id} AND client_open_id = ${clientOpenId}
+      `;
+      if (again[0]?.outcome) return replayReduceOnly(again[0].outcome);
+    }
+
+    const refuse = async (code: string, message: string): Promise<never> => {
+      const outcome: ReduceOnlyOutcome = { refused: true, code, message };
+      await this.sql`
+        UPDATE trade.futures_open_requests
+        SET outcome = ${this.sql.json(outcome as never)}
+        WHERE user_id = ${input.userId} AND market_id = ${m.id} AND client_open_id = ${clientOpenId}
+          AND outcome IS NULL
+      `;
+      throw new FuturesError(message, code, 400);
+    };
+
+    if (input.size <= 0n) return refuse('trade.size_invalid', `size must be greater than zero, got ${formatAmount(input.size)}`);
+
+    const opposite = input.side === 'long' ? 'short' : 'long';
+    const rows = await this.sql<(PositionRow & { lot_size: string })[]>`
+      SELECT p.*, m.symbol, m.contract_size, m.lot_size
+      FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id
+      WHERE p.user_id = ${input.userId} AND p.market_id = ${m.id} AND p.status = 'open' AND p.side = ${opposite}
+      LIMIT 1
+    `;
+    const target = rows[0];
+    if (!target) {
+      return refuse('trade.reduce_only_would_increase', 'reduce-only would open or enlarge a position');
+    }
+    const size = parseAmount(target.size);
+    const quantity = input.size > size ? size : input.size;
+    const lot = checkCloseQuantity({ quantity, size, lotSize: parseAmount(target.lot_size) });
+    if (!lot.ok) return refuse(lot.code, lot.reason);
+
+    const position = await this.closeQuantity(input.userId, target.id, { quantity, clientCloseId: clientOpenId });
+    const outcome: ReduceOnlyOutcome = { refused: false, position };
+    await this.sql`
+      UPDATE trade.futures_open_requests
+      SET outcome = ${this.sql.json(outcome as never)}
+      WHERE user_id = ${input.userId} AND market_id = ${m.id} AND client_open_id = ${clientOpenId}
+    `;
+    return position;
+  }
+
+  /** Partial or full close keyed by `clientCloseId`. Quantity equal to the size is a full close. */
+  async closeQuantity(userId: string, positionId: string, input: { quantity: Amount; clientCloseId: string }): Promise<Position> {
+    const clientCloseId = input.clientCloseId.trim();
+    if (clientCloseId.length === 0 || clientCloseId.length > 160) {
+      throw new FuturesError('clientCloseId is required (1–160 chars)', 'trade.client_close_id_required', 400);
+    }
+    const outcome = await this.closePartialAtomically(userId, positionId, { quantity: input.quantity, clientCloseId });
+    if ('replay' in outcome) return outcome.replay;
+    await this.publishPositionUpdated(outcome.row, outcome.extras);
+    return presentPosition(outcome.row, outcome.extras);
+  }
+
+  private async closePartialAtomically(
+    userId: string,
+    positionId: string,
+    partial: { quantity: Amount; clientCloseId: string },
+  ): Promise<{ replay: Position } | { row: PositionRow; extras: { markPrice: string | null; realizedPnl: string | null } }> {
+    try {
+      return await this.sql.begin(async (tx) => {
+        await tx.unsafe(`SET LOCAL lock_timeout = ${CLOSE_LOCK_TIMEOUT_MS}`);
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${userId}), hashtext(${partial.clientCloseId}))`;
+        const prior = await tx<{ result: Position }[]>`
+          SELECT result FROM trade.position_close_intents
+          WHERE user_id = ${userId} AND client_close_id = ${partial.clientCloseId}
+        `;
+        if (prior[0]) return { replay: prior[0].result };
+
+        const [row] = await tx<(PositionRow & { lot_size: string | null })[]>`
+          SELECT p.*, m.symbol, m.contract_size, m.lot_size
+          FROM trade.positions p
+          JOIN trade.markets m ON m.id = p.market_id
+          WHERE p.id = ${positionId} AND p.user_id = ${userId}
+          LIMIT 1
+          FOR UPDATE OF p
+        `;
+        if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+        const again = await tx<{ result: Position }[]>`
+          SELECT result FROM trade.position_close_intents
+          WHERE user_id = ${userId} AND client_close_id = ${partial.clientCloseId}
+        `;
+        if (again[0]) return { replay: again[0].result };
+        if (row.status !== 'open' && row.status !== 'closing') {
+          throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
+        }
+        await this.assertLiquidationHold(tx, row.id, 'close');
+
+        const size = parseAmount(row.size);
+        const lotCheck = checkCloseQuantity({
+          quantity: partial.quantity,
+          size,
+          lotSize: row.lot_size == null ? null : parseAmount(row.lot_size),
+        });
+        if (!lotCheck.ok) throw new FuturesError(lotCheck.reason, lotCheck.code, 400);
+
+        /**
+         * A `closing` row already asked to leave at freeze-time `accepted_mark`
+         * (ADR 2026-08-07 property 2). A smaller slice would settle the outage
+         * move and overwrite that basis for the remainder. Only the full size
+         * is accepted, and it posts nothing until that full close is priced.
+         */
+        const settlingFromClosing = row.status === 'closing';
+        if (settlingFromClosing && partial.quantity !== size) {
+          throw new FuturesError(
+            'position is waiting to exit at its frozen mark; only a full close is accepted',
+            'trade.position_closing_full_only',
+            400,
+          );
+        }
+
+        const at = this.now();
+        const markOrDark = await this.tryMarkForMarking(row.market_id, row.symbol, at, partial.quantity);
+        if (!markOrDark.ok) {
+          throw new FuturesError(markOrDark.detail, markOrDark.reason, 409);
+        }
+        const previous = readAcceptedMark(row);
+        /**
+         * The fresh mark only triggers settlement once the feed is usable again.
+         * The exit price stays the freeze basis. A blank basis refuses rather
+         * than inventing a price from the mark that just came back.
+         */
+        let exitPrice: string;
+        if (settlingFromClosing) {
+          if (row.accepted_mark == null || row.accepted_mark.trim() === '') {
+            throw new FuturesError(
+              'closing position has no accepted_mark to settle at — refuse invent from current mark',
+              'trade.closing_basis_missing',
+              503,
+            );
+          }
+          exitPrice = formatAmount(parseAmount(row.accepted_mark));
+        } else {
+          exitPrice = formatAmount(markOrDark.mark.price);
+        }
+        const margin = parseAmount(row.margin_current ?? row.margin_initial);
+        const marginInitial = parseAmount(row.margin_initial);
+        const releaseSequence = partial.quantity === size ? 1 : Number(row.margin_adjust_seq) + 1;
+        const closeId = partial.quantity === size ? closeIdFor(row.id) : `close:${row.id}:${partial.clientCloseId}`;
+        const plan = planProportionalClose({
+          closeId,
+          positionId: row.id,
+          userId,
+          side: row.side,
+          size,
+          closeQty: partial.quantity,
+          entryPrice: parseAmount(row.entry_price),
+          exitPrice: parseAmount(exitPrice),
+          margin,
+          marginInitial,
+          marginAsset: row.margin_asset,
+          releaseSequence,
+        });
+        if (!plan.close) throw new FuturesError(plan.reason, plan.code, 400);
+
+        if (plan.profit > 0n) {
+          // Freeze-time accepted_mark was gated when stored. The mark that
+          // unlocked this close must not re-price the payout (Denon §§3–4).
+          if (!settlingFromClosing) {
+            this.requirePayoutGrade(markOrDark.mark, previous, at);
+          }
+          const source = this.deps.profitSource;
+          if (source == null) {
+            throw new FuturesError(
+              `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${PROFIT_SOURCE_UNCONFIGURED}`,
+              'trade.profit_source_unconfigured',
+              403,
+            );
+          }
+          const bound = await checkProfitBound({
+            source,
+            assetId: row.margin_asset,
+            amount: plan.profit,
+            balance: (ref) => this.ledger.balance(ref),
+          });
+          if (!bound.ok) {
+            throw new FuturesError(
+              `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${bound.reason}`,
+              'trade.profit_source_underfunded',
+              409,
+            );
+          }
+        }
+        if (plan.fromInsurance > 0n) {
+          const insurance = await checkInsuranceBound({
+            assetId: row.margin_asset,
+            fromInsurance: plan.fromInsurance,
+            balance: (ref) => this.ledger.balance(ref),
+          });
+          if (!insurance.ok) {
+            throw new FuturesError(`Cannot close through insurance shortfall — ${insurance.reason}`, INSURANCE_UNDERFUNDED, 409);
+          }
+        }
+        for (const recipe of plan.recipes) await this.ledger.post(recipe);
+
+        const closedFull = plan.full;
+        const [updated] = closedFull
+          ? await tx<PositionRow[]>`
+              UPDATE trade.positions p
+              SET status = 'closed', closed_at = now(), updated_at = now(), closing_reason = NULL,
+                  accepted_mark = ${exitPrice}, accepted_mark_at = ${at}
+              FROM trade.markets m
+              WHERE p.id = ${positionId} AND p.user_id = ${userId} AND p.status IN ('open', 'closing') AND m.id = p.market_id
+              RETURNING p.*, m.symbol, m.contract_size
+            `
+          : await tx<PositionRow[]>`
+              UPDATE trade.positions p
+              SET size = ${formatAmount(plan.figures.remainQty)},
+                  margin_current = ${formatAmount(plan.figures.remainMargin)},
+                  margin_initial = ${formatAmount(plan.figures.remainInitial)},
+                  margin_adjust_seq = ${releaseSequence},
+                  accepted_mark = ${exitPrice},
+                  accepted_mark_at = ${at},
+                  updated_at = now()
+              FROM trade.markets m
+              WHERE p.id = ${positionId} AND p.user_id = ${userId} AND p.status IN ('open', 'closing') AND m.id = p.market_id
+              RETURNING p.*, m.symbol, m.contract_size
+            `;
+        if (!updated) throw new FuturesError('position changed underneath this close', 'trade.position_not_open', 409);
+        const presented = presentPosition(updated, {
+          markPrice: formatAmount(plan.exitPrice),
+          realizedPnl: formatAmount(plan.realizedPnl),
+        });
+        await tx`
+          INSERT INTO trade.position_close_intents (user_id, client_close_id, position_id, quantity, result)
+          VALUES (
+            ${userId},
+            ${partial.clientCloseId},
+            ${positionId},
+            ${formatAmount(partial.quantity)},
+            ${tx.json(presented as never)}
+          )
+        `;
+        return {
+          row: updated,
+          extras: { markPrice: formatAmount(plan.exitPrice), realizedPnl: formatAmount(plan.realizedPnl) },
+        };
+      });
+    } catch (err) {
+      if (isLockTimeout(err)) {
+        throw new FuturesError('another close of this position is already in flight — retry in a moment', 'trade.close_in_progress', 409);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Close each of the caller's open positions in order. One position's refusal
+   * does not roll another back. A replay of `clientBatchId` returns the stored
+   * batch and posts nothing.
+   */
+  async closeAll(userId: string, input: { clientBatchId: string; market?: string }): Promise<CloseAllResult> {
+    const clientBatchId = input.clientBatchId.trim();
+    if (clientBatchId.length === 0 || clientBatchId.length > 64) {
+      throw new FuturesError('clientBatchId is required (1–64 chars)', 'trade.client_batch_id_required', 400);
+    }
+    const stored = await this.sql<{ result: CloseAllResult }[]>`
+      SELECT result FROM trade.position_close_batches
+      WHERE user_id = ${userId} AND client_batch_id = ${clientBatchId}
+    `;
+    if (stored[0]) return stored[0].result;
+
+    const market = input.market?.trim() || undefined;
+    const open = await this.listOpen(userId, market);
+    const ordered = [...open].sort((a, b) => (a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0));
+    const results: CloseAllItem[] = [];
+    for (const pos of ordered) {
+      if (!pos.id) continue;
+      const [row] = await this.sql<(PositionRow & { lot_size: string | null })[]>`
+        SELECT p.*, m.symbol, m.contract_size, m.lot_size
+        FROM trade.positions p
+        JOIN trade.markets m ON m.id = p.market_id
+        WHERE p.id = ${pos.id} AND p.user_id = ${userId}
+        LIMIT 1
+      `;
+      if (!row || (row.status !== 'open' && row.status !== 'closing')) {
+        results.push({ positionId: pos.id, status: 'refused', code: 'trade.position_not_open', reason: 'position is not open' });
+        continue;
+      }
+      const mark = await this.tryMarkForMarking(row.market_id, row.symbol, this.now(), parseAmount(row.size));
+      if (!mark.ok) {
+        results.push({ positionId: pos.id, status: 'refused', code: mark.reason, reason: mark.detail });
+        continue;
+      }
+      try {
+        const closed = await this.closeQuantity(userId, pos.id, {
+          quantity: parseAmount(row.size),
+          clientCloseId: `${clientBatchId}:${pos.id}`,
+        });
+        results.push({
+          positionId: pos.id,
+          status: 'closed',
+          realizedPnl: closed.realizedPnl,
+          contracts: closed.contracts,
+        });
+      } catch (err) {
+        const code = err instanceof FuturesError ? err.code : 'trade.close_refused';
+        const reason = err instanceof Error ? err.message : 'close refused';
+        results.push({ positionId: pos.id, status: 'refused', code, reason });
+      }
+    }
+    const body: CloseAllResult = { results };
+    await this.sql`
+      INSERT INTO trade.position_close_batches (user_id, client_batch_id, market, result)
+      VALUES (${userId}, ${clientBatchId}, ${market ?? null}, ${this.sql.json(body as never)})
+      ON CONFLICT (user_id, client_batch_id) DO NOTHING
+    `;
+    const written = await this.sql<{ result: CloseAllResult }[]>`
+      SELECT result FROM trade.position_close_batches
+      WHERE user_id = ${userId} AND client_batch_id = ${clientBatchId}
+    `;
+    return written[0]?.result ?? body;
+  }
+
+  async marginSummary(userId: string): Promise<MarginSummary> {
+    const rows = await this.sql<PositionRow[]>`
+      SELECT p.*, m.symbol, m.contract_size
+      FROM trade.positions p
+      JOIN trade.markets m ON m.id = p.market_id
+      WHERE p.user_id = ${userId} AND p.status IN ('open', 'closing')
+    `;
+    let haircutBps: number | null = null;
+    try {
+      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
+    } catch {
+      haircutBps = null;
+    }
+    const assets = new Set(rows.map((row) => row.margin_asset));
+    let available: string | null = null;
+    if (assets.size === 1) {
+      const asset = [...assets][0]!;
+      available = formatAmount((await this.ledger.balance(userAvailable(userId, asset))).amount);
+    }
+    return summarizeMargin({
+      positions: rows.map((row) => ({
+        initialMargin: row.margin_initial,
+        maintenanceMargin: null,
+        collateral: row.margin_current ?? row.margin_initial,
+        unrealizedPnl: null,
+      })),
+      available,
+      haircutBps,
+    });
+  }
+
+  async readAccountMode(userId: string): Promise<AccountModeRead> {
+    const rows = await this.sql<{ mode: 'one_way' | 'hedge'; client_mode_id: string }[]>`
+      SELECT mode, client_mode_id FROM trade.account_position_modes WHERE user_id = ${userId}
+    `;
+    const row = rows[0];
+    const stored: StoredAccountMode | null = row ? { mode: row.mode, source: 'stored', clientModeId: row.client_mode_id } : null;
+    return presentAccountMode(stored);
+  }
+
+  async writeAccountMode(userId: string, input: { mode: unknown; clientModeId: string }): Promise<AccountModeRead> {
+    const clientModeId = input.clientModeId.trim();
+    if (clientModeId.length === 0 || clientModeId.length > 64) {
+      throw new FuturesError('clientModeId is required (1–64 chars)', 'trade.client_mode_id_required', 400);
+    }
+    const currentRows = await this.sql<{ mode: 'one_way' | 'hedge'; client_mode_id: string }[]>`
+      SELECT mode, client_mode_id FROM trade.account_position_modes WHERE user_id = ${userId}
+    `;
+    const openRows = await this.sql<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM trade.positions
+      WHERE user_id = ${userId} AND status IN ('open', 'closing')
+    `;
+    const decision = decideModeWrite({
+      current: currentRows[0]?.mode ?? null,
+      next: input.mode,
+      openPositionCount: Number(openRows[0]?.n ?? '0'),
+      sameClientKey: currentRows[0]?.client_mode_id === clientModeId,
+    });
+    if (!decision.ok) throw new FuturesError(decision.reason, decision.code, 400);
+    if (decision.changed) {
+      await this.sql`
+        INSERT INTO trade.account_position_modes (user_id, mode, source, client_mode_id)
+        VALUES (${userId}, ${decision.mode}, 'stored', ${clientModeId})
+        ON CONFLICT (user_id) DO UPDATE
+          SET mode = EXCLUDED.mode, source = 'stored', client_mode_id = EXCLUDED.client_mode_id, updated_at = now()
+      `;
+    }
+    return this.readAccountMode(userId);
+  }
+
+  /**
+   * List, get, and a close response. Mark comes from `tryMarkForMarking` unless
+   * the caller already priced this row (the close that just posted). A missing
+   * or unusable mark is null with a reason. Never a zero stand-in.
+   */
+  private async presentListed(row: PositionRow, extras?: PresentExtras): Promise<Position> {
+    let markPrice = extras?.markPrice;
+    let markReason = extras?.markReason ?? null;
+    if (markPrice === undefined) {
+      const got = await this.tryMarkForMarking(row.market_id, row.symbol, this.now(), parseAmount(row.size));
+      if (!got.ok) {
+        markPrice = null;
+        markReason = got.reason === 'trade.mark_missing' ? 'mark_missing' : 'mark_unusable';
+      } else {
+        markPrice = formatAmount(got.mark.price);
+        markReason = null;
+      }
+    }
+    let maintenanceMargin = extras?.maintenanceMargin;
+    let maintenanceReason = extras?.maintenanceReason ?? null;
+    // A settled row has no maintenance requirement. Do not read depth for it.
+    if (row.status === 'closed' || row.status === 'liquidated') {
+      maintenanceMargin = null;
+      maintenanceReason = 'position_closed';
+    } else if (maintenanceMargin === undefined) {
+      if (markPrice == null) {
+        maintenanceMargin = null;
+        maintenanceReason = markReason;
+      } else {
+        const maint = await this.maintenanceAt(row, parseAmount(markPrice));
+        maintenanceMargin = maint.amount;
+        maintenanceReason = maint.reason;
+      }
+    }
+    return presentPosition(row, {
+      ...extras,
+      markPrice,
+      markReason,
+      maintenanceMargin,
+      maintenanceReason,
+    });
+  }
+
+  /** Same `planLadderRung` the liquidation tick plans with. No copied ladder. */
+  private async maintenanceAt(row: PositionRow, markPrice: Amount): Promise<{ amount: string | null; reason: string | null }> {
+    const ladder = this.deps.ladder;
+    if (!ladder?.policy) return { amount: null, reason: 'maintenance_policy_unset' };
+    let depthNotional: Amount | null;
+    try {
+      depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
+    } catch (err) {
+      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      return { amount: null, reason: 'depth_unknown' };
+    }
+    if (depthNotional == null || depthNotional <= 0n) return { amount: null, reason: 'depth_unknown' };
+    try {
+      const rung = planLadderRung({
+        position: {
+          positionId: row.id,
+          userId: row.user_id,
+          side: row.side,
+          size: parseAmount(row.size),
+          entryPrice: parseAmount(row.entry_price),
+          margin: parseAmount(row.margin_current ?? row.margin_initial),
+          marginAsset: row.margin_asset,
+        },
+        markPrice,
+        depthNotional,
+        policy: ladder.policy,
+      });
+      if (rung.action === 'refuse') return { amount: null, reason: rung.reason };
+      return { amount: formatAmount(rung.maintenanceRequired), reason: null };
+    } catch (err) {
+      if (err instanceof FuturesLadderError) return { amount: null, reason: err.code };
+      throw err;
+    }
+  }
 }
 
-function presentPosition(row: PositionRow, extras?: { markPrice?: string | null; realizedPnl?: string | null }): Position {
+type ReduceOnlyOutcome = { refused: true; code: string; message: string } | { refused: false; position: Position };
+
+function replayReduceOnly(outcome: ReduceOnlyOutcome): Position {
+  if (outcome.refused) throw new FuturesError(outcome.message, outcome.code, 400);
+  return outcome.position;
+}
+
+export interface CloseAllItem {
+  readonly positionId: string;
+  readonly status: 'closed' | 'refused';
+  readonly code?: string;
+  readonly reason?: string;
+  readonly realizedPnl?: string | null;
+  readonly contracts?: string | null;
+}
+
+export interface CloseAllResult {
+  readonly results: readonly CloseAllItem[];
+}
+
+function isoOf(value: Date | string | null | undefined): string | null {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
   const size = parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
-  const leverage = parseAmount(row.leverage);
+  const leverage = row.leverage == null ? null : parseAmount(row.leverage);
   // W4 R6: collateral = residual margin; initialMargin stays the open stake.
   // After funding debits, margin_current drops while margin_initial does not —
   // reporting both as residual lied to every client risk view.
@@ -1803,27 +2638,147 @@ function presentPosition(row: PositionRow, extras?: { markPrice?: string | null;
   const notional = (size * entry) / SCALE;
   const opened = row.opened_at instanceof Date ? row.opened_at : new Date(row.opened_at);
   const liq = row.liq_price != null ? formatAmount(parseAmount(row.liq_price)) : null;
+
+  const markPrice = extras?.markPrice === undefined ? null : extras.markPrice;
+  let markReason = extras?.markReason ?? null;
+  if (markPrice != null) markReason = null;
+  else if (markReason == null) {
+    if (row.status === 'closing' && row.closing_reason === 'trade.mark_unusable') markReason = 'mark_unusable';
+    else if (row.status === 'closing') markReason = 'mark_missing';
+    else if (extras?.markPrice === undefined) markReason = 'mark_not_read';
+    else markReason = 'mark_missing';
+  }
+
+  const settled = row.status === 'closed' || row.status === 'liquidated';
+
+  let unrealized: Amount | null = null;
+  let unrealizedReason: string | null = null;
+  if (settled) unrealizedReason = 'position_closed';
+  else if (markPrice == null) unrealizedReason = markReason;
+  else {
+    unrealized = unrealizedPnl(row.side, size, entry, parseAmount(markPrice));
+  }
+
+  let percentage: string | null = null;
+  let percentageReason: string | null = null;
+  if (settled) percentageReason = 'position_closed';
+  else if (unrealized == null) percentageReason = unrealizedReason;
+  else if (marginInitial <= 0n) percentageReason = 'initial_margin_missing';
+  else percentage = formatAmount(positionPercentage(unrealized, marginInitial));
+
+  let maintenanceMargin = extras?.maintenanceMargin === undefined ? null : extras.maintenanceMargin;
+  let maintenanceReason = extras?.maintenanceReason ?? null;
+  if (settled) {
+    maintenanceMargin = null;
+    maintenanceReason = 'position_closed';
+  } else if (maintenanceMargin != null) maintenanceReason = null;
+  else if (maintenanceReason == null) maintenanceReason = markReason;
+
+  let contractSize: string | null = null;
+  let contractReason: string | null = null;
+  if (row.contract_size == null || row.contract_size.trim() === '') contractReason = 'contract_size_not_recorded';
+  else contractSize = formatAmount(parseAmount(row.contract_size));
+
+  const closedAt = isoOf(row.closed_at);
+  let closedReason: string | null = null;
+  if ((row.status === 'closed' || row.status === 'liquidated') && closedAt == null) closedReason = 'closed_at_not_recorded';
+
+  const updatedAt = isoOf(row.updated_at);
+  const updatedReason = updatedAt == null ? 'updated_at_not_recorded' : null;
+
+  let realizedPnl = extras?.realizedPnl === undefined ? null : extras.realizedPnl;
+  let realizedReason: string | null = null;
+  if (extras?.realizedPnl !== undefined) {
+    realizedReason =
+      realizedPnl == null ? (row.status === 'closed' || row.status === 'liquidated' ? 'realized_pnl_not_recorded' : 'not_realized') : null;
+  } else if (row.status === 'closed') {
+    if (row.accepted_mark == null || row.accepted_mark.trim() === '') realizedReason = 'realized_pnl_not_recorded';
+    else realizedPnl = formatAmount(unrealizedPnl(row.side, size, entry, parseAmount(row.accepted_mark)));
+  } else if (row.status === 'liquidated') {
+    // Liquidation writes no exit price and no realised figure. accepted_mark is the tick mark.
+    realizedReason = 'realized_pnl_not_recorded';
+  } else {
+    realizedReason = 'not_realized';
+  }
+
+  const fieldReasons: Record<string, string> = {};
+  if (markPrice == null && markReason) fieldReasons.markPrice = markReason;
+  if (maintenanceMargin == null && maintenanceReason) fieldReasons.maintenanceMargin = maintenanceReason;
+  if (unrealized == null && unrealizedReason) fieldReasons.unrealizedPnl = unrealizedReason;
+  if (percentage == null && percentageReason) fieldReasons.percentage = percentageReason;
+  if (contractSize == null && contractReason) fieldReasons.contractSize = contractReason;
+  if (realizedPnl == null && realizedReason) fieldReasons.realizedPnl = realizedReason;
+  if (closedAt == null && closedReason) fieldReasons.closedAt = closedReason;
+  if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
+
   return {
     id: row.id,
     symbol: row.symbol,
     timestamp: opened.getTime(),
     datetime: opened.toISOString(),
+    openedAt: opened.toISOString(),
+    clientOpenId: row.client_open_id ?? null,
     side: row.side,
     status: row.status,
     closingReason: row.status === 'closing' ? (row.closing_reason ?? null) : null,
     contracts: formatAmount(size),
-    contractSize: null,
+    contractSize,
     entryPrice: formatAmount(entry),
-    markPrice: extras?.markPrice ?? null,
+    markPrice,
     notional: formatAmount(notional),
-    leverage: formatAmount(leverage),
+    leverage: leverage == null ? null : formatAmount(leverage),
+    leverageReason: leverage == null ? 'leverage_not_recorded' : null,
     collateral: formatAmount(marginCurrent),
     initialMargin: formatAmount(marginInitial),
-    maintenanceMargin: null,
-    unrealizedPnl: null,
-    realizedPnl: extras?.realizedPnl ?? null,
+    maintenanceMargin,
+    unrealizedPnl: unrealized == null ? null : formatAmount(unrealized),
+    realizedPnl,
     liquidationPrice: liq,
     marginMode: row.margin_mode,
-    percentage: null,
+    percentage,
+    closedAt,
+    updatedAt,
+    ...(extras?.replayed === true ? { replayed: true } : {}),
+    fieldReasons,
   };
+}
+
+/**
+ * Stored futures entry is the size-weighted average of opening fills.
+ * A reducing fill leaves that price. A caller-supplied price is not stored.
+ */
+export function storedEntryAfterFill(
+  position: { readonly size: Amount; readonly entryPrice: Amount },
+  fill: { readonly effect: 'open' | 'reduce'; readonly qty: Amount; readonly price: Amount },
+): { size: Amount; entryPrice: Amount } {
+  if (fill.qty <= 0n) {
+    throw new FuturesError(`fill qty must be greater than zero, got ${formatAmount(fill.qty)}`, 'trade.size_invalid', 400);
+  }
+  if (fill.effect === 'reduce') {
+    if (fill.qty > position.size) {
+      throw new FuturesError('a reducing fill is larger than the position', 'trade.size_invalid', 400);
+    }
+    return { size: (position.size - fill.qty) as Amount, entryPrice: position.entryPrice };
+  }
+  if (fill.price <= 0n) {
+    throw new FuturesError('an opening fill needs a positive price', 'trade.invalid_price', 400);
+  }
+  const newSize = (position.size + fill.qty) as Amount;
+  if (position.size === 0n) return { size: newSize, entryPrice: fill.price };
+  const entry = ((position.size * position.entryPrice + fill.qty * fill.price) / newSize) as Amount;
+  return { size: newSize, entryPrice: entry };
+}
+
+export function entryFromOpeningFills(
+  fills: readonly { readonly qty: Amount; readonly price: Amount }[],
+  callerPrice?: Amount,
+): { size: Amount; entryPrice: Amount } {
+  if (callerPrice != null && fills.length === 0) {
+    throw new FuturesError('a caller-supplied price is not stored as the entry', 'trade.invalid_price', 400);
+  }
+  let position: { size: Amount; entryPrice: Amount } = { size: 0n as Amount, entryPrice: 0n as Amount };
+  for (const fill of fills) {
+    position = storedEntryAfterFill(position, { effect: 'open', qty: fill.qty, price: fill.price });
+  }
+  return position;
 }

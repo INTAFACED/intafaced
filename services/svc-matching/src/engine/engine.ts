@@ -2,6 +2,7 @@ import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-
 import type { MarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
 import type { EventBus, PayloadOf } from '@intafaced/events';
 import { publishedEngineL2Limit } from '../l2-limit.js';
+import { publishWithStartupRetry } from '../startup-publish.js';
 import { withEngineSpan, withSpan } from '../tracing.js';
 import { OrderBook } from './book.js';
 import { unsupportedAmendField } from './amend-priority.js';
@@ -34,6 +35,7 @@ import {
   replayDelistedMarkets,
   replayExpiredMarkets,
 } from './expire.js';
+import { maintenanceAmendResult, maintenanceSubmitResult, replayMaintenance, maintenanceRefuse } from './maintenance.js';
 import {
   inFlightAmendResult,
   inFlightCancelResult,
@@ -57,14 +59,18 @@ import {
 } from './journal.js';
 import type {
   AmendResult,
+  CancelReason,
   CancelResult,
   CancelledRef,
   EngineAmend,
   EngineLiveOrder,
   EngineOrder,
+  RestingHoldSubject,
   EngineSurveillanceCase,
   Fill,
   MarketHaltResult,
+  MarketMaintenanceResult,
+  ExpirySweepResult,
   MarketId,
   MarketPostOnlyResult,
   MarketDelistResult,
@@ -131,6 +137,8 @@ export interface MatchingEngineOptions {
   readonly snapshotSink?: SnapshotSink;
   /** Kill-switch mirror of the `matching.engine` flag (§14 admin controls). */
   readonly enabled?: boolean;
+  /** Startup publish backoff. Tests pass a no-op. Production waits. */
+  readonly startupSleep?: (ms: number) => Promise<void>;
 }
 
 type PendingEvent =
@@ -150,6 +158,10 @@ export class MatchingEngine {
   private enabled: boolean;
   /** One-market operator halt. Not the process kill-switch. No duration. */
   private readonly halted = new Set<MarketId>();
+  /** One-market maintenance. Not halt. Customer cancels refuse. No duration. */
+  private readonly maintenance = new Set<MarketId>();
+  /** Books the expiry pass must not read. The resting order stays. */
+  private readonly unreadableBooks = new Map<MarketId, string>();
   /** Operator halt of every market. Distinct from one-market halt. No duration. */
   private venueHalted = false;
   /** One-market operator reduce-only. Not halt. No duration. */
@@ -172,6 +184,16 @@ export class MatchingEngine {
   private readonly deadSessions = new Set<string>();
   /** Unconfirmed amend/cancel. Second live rest or duplicate fill for that id refuses. */
   private readonly inFlight = new Map<OrderId, InFlightMark>();
+  /**
+   * Set for the whole book when the replay hold check cannot be asked.
+   * Not a journal halt: the next boot asks again. While set, nothing matches.
+   */
+  private admissionClosed: string | null = null;
+  /** One market, when a bad hold could not be cancelled. Not an operator halt. */
+  private readonly holdHalted = new Map<MarketId, string>();
+  /** True from recover() until finishStartupAnnounce(). Publishes retry on TIMEOUT. */
+  private announcing = false;
+  private readonly startupSleep: (ms: number) => Promise<void>;
 
   constructor(options: MatchingEngineOptions) {
     this.journal = options.journal;
@@ -181,6 +203,7 @@ export class MatchingEngine {
     this.snapshotEvery = publishedSnapshotEvery(options.snapshotEvery);
     this.sink = options.snapshotSink ?? new MemorySnapshotSink();
     this.enabled = options.enabled ?? true;
+    this.startupSleep = options.startupSleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /**
@@ -191,6 +214,11 @@ export class MatchingEngine {
     const records: readonly JournalRecord[] = this.journal.read();
     this.books.clear();
     this.halted.clear();
+    this.maintenance.clear();
+    this.unreadableBooks.clear();
+    this.admissionClosed = null;
+    this.holdHalted.clear();
+    this.announcing = true;
     this.venueHalted = false;
     this.reduceOnlyMarkets.clear();
     this.postOnlyMarkets.clear();
@@ -204,6 +232,7 @@ export class MatchingEngine {
     for (const [marketId, book] of replayed.books) this.books.set(marketId, book);
     this.venueHalted = replayVenueHalted(records);
     for (const marketId of replayHaltedMarkets(records)) this.halted.add(marketId);
+    for (const marketId of replayMaintenance(records)) this.maintenance.add(marketId);
     for (const marketId of replayReduceOnlyMarkets(records)) this.reduceOnlyMarkets.add(marketId);
     for (const marketId of replayPostOnlyMarkets(records)) this.postOnlyMarkets.add(marketId);
     for (const marketId of replayPrelaunchMarkets(records)) this.prelaunchMarkets.add(marketId);
@@ -212,7 +241,12 @@ export class MatchingEngine {
     for (const marketId of replayDelistedMarkets(records)) this.delistedMarkets.add(marketId);
     for (const sessionId of replayDeadSessions(records)) this.deadSessions.add(sessionId);
     for (const [orderId, mark] of replayInFlight(records)) this.inFlight.set(orderId, mark);
-    await this.emit(replayed.fills.map((row) => filledEvent(row.marketId, row.fill, row.at)));
+    const announced = [
+      ...replayed.fills.map((row) => filledEvent(row.marketId, row.fill, row.at)),
+      ...replayed.holdCancels.map((row) => cancelledEvent(row.marketId, row.cancellation)),
+    ];
+    announced.sort((a, b) => a.sequence - b.sequence);
+    await this.emit(announced);
     return { records: records.length, markets: this.books.size };
   }
 
@@ -222,6 +256,17 @@ export class MatchingEngine {
 
   get isEnabled(): boolean {
     return this.enabled;
+  }
+
+  isMaintenance(marketId: MarketId): boolean {
+    return this.maintenance.has(marketId);
+  }
+
+  /** The expiry pass skips this book and records the reason. The order stays. */
+  noteBookUnreadable(marketId: MarketId, reason: string): void {
+    const trimmed = reason.trim();
+    if (trimmed.length === 0) return;
+    this.unreadableBooks.set(marketId, trimmed);
   }
 
   isHalted(marketId: MarketId): boolean {
@@ -393,6 +438,78 @@ export class MatchingEngine {
     return this.restingOrders().length;
   }
 
+  /**
+   * Resting orders for the hold check. Stops carry their limit as `fundingPrice`
+   * (null when the stop has no limit). `restingOrders().price` is the trigger
+   * for a stop, which is not the notional the hold was sized at.
+   */
+  restingHoldSubjects(): RestingHoldSubject[] {
+    const subjects: RestingHoldSubject[] = [];
+    for (const book of this.books.values()) {
+      const state = book.toState();
+      const takeSide = (levels: readonly PriceLevelState[], side: OrderSide): void => {
+        for (const level of levels) {
+          for (const order of level.orders) {
+            subjects.push({
+              marketId: state.marketId,
+              orderId: order.orderId,
+              accountId: order.accountId,
+              side,
+              remaining: order.remaining,
+              fundingPrice: level.price,
+              sequence: order.sequence,
+            });
+          }
+        }
+      };
+      takeSide(state.bids, 'buy');
+      takeSide(state.asks, 'sell');
+      for (const stop of state.stops) {
+        subjects.push({
+          marketId: state.marketId,
+          orderId: stop.orderId,
+          accountId: stop.accountId,
+          side: stop.side,
+          remaining: stop.qty,
+          fundingPrice: stop.price,
+          sequence: stop.sequence,
+        });
+      }
+    }
+    return subjects.sort((a, b) => (a.marketId === b.marketId ? a.sequence - b.sequence : a.marketId < b.marketId ? -1 : 1));
+  }
+
+  get admissionOpen(): boolean {
+    return this.admissionClosed === null;
+  }
+
+  get admissionReason(): string | null {
+    return this.admissionClosed;
+  }
+
+  holdHaltedMarkets(): readonly MarketId[] {
+    return [...this.holdHalted.keys()].sort();
+  }
+
+  holdHaltReason(marketId: MarketId): string | null {
+    return this.holdHalted.get(marketId) ?? null;
+  }
+
+  /** Fail closed for the whole book. Not journalled — the next boot asks again. */
+  closeAdmission(reason: string): void {
+    this.admissionClosed = reason;
+  }
+
+  /** One market stays halted because a resting hold could not be pulled. Not an operator halt. */
+  holdHalt(marketId: MarketId, reason: string): void {
+    this.holdHalted.set(marketId, reason);
+  }
+
+  /** Live publishes after this do not take the startup backoff. */
+  finishStartupAnnounce(): void {
+    this.announcing = false;
+  }
+
   /** Open STP cases across live books. Evidence only — not a sanction. */
   openSurveillanceCases(): readonly EngineSurveillanceCase[] {
     const opened: EngineSurveillanceCase[] = [];
@@ -420,8 +537,20 @@ export class MatchingEngine {
           const result = disabled(order.orderId);
           return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
         }
+        if (this.admissionClosed) {
+          const result = holdCheckClosedResult(order.orderId, this.admissionClosed);
+          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        }
+        if (this.holdHalted.has(marketId)) {
+          const result = holdUnconfirmedResult(marketId, order.orderId, this.holdHalted.get(marketId) ?? 'matching.hold_unconfirmed');
+          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        }
         if (this.venueHalted) {
           const result = venueHaltedSubmitResult(order.orderId);
+          return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
+        }
+        if (this.maintenance.has(marketId)) {
+          const result = maintenanceSubmitResult(marketId, order.orderId);
           return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
         }
         if (this.halted.has(marketId)) {
@@ -482,8 +611,18 @@ export class MatchingEngine {
     );
   }
 
-  async cancel(marketId: MarketId, orderId: OrderId): Promise<CancelResult> {
+  async cancel(marketId: MarketId, orderId: OrderId, reason: CancelReason = 'requested'): Promise<CancelResult> {
     return withEngineSpan('matching.cancel', { marketId, orderId }, async (): Promise<CancelResult & { fillCount: number }> => {
+      if (this.maintenance.has(marketId)) {
+        return {
+          cancelled: false,
+          orderId,
+          sequence: null,
+          cancellation: null,
+          rejected: maintenanceRefuse(marketId),
+          fillCount: 0,
+        };
+      }
       const inFlightCancel = this.refuseInFlightCancel(orderId);
       if (inFlightCancel) return { ...inFlightCancel, fillCount: 0 };
 
@@ -494,9 +633,15 @@ export class MatchingEngine {
 
       const at = this.clock().toISOString();
       this.beginInFlight(marketId, orderId, 'cancel', at);
-      this.journal.append({ kind: 'cancel', marketId, at, orderId });
+      this.journal.append({
+        kind: 'cancel',
+        marketId,
+        at,
+        orderId,
+        ...(reason !== 'requested' ? { reason } : {}),
+      });
 
-      const result = existing.cancel(orderId);
+      const result = existing.cancel(orderId, reason);
       this.endInFlight(orderId);
       if (result.cancellation) await this.emit([cancelledEvent(marketId, result.cancellation)]);
       await this.maybeSnapshot();
@@ -510,6 +655,15 @@ export class MatchingEngine {
     cmd: { readonly accountId: string; readonly sessionId?: string | null; readonly side?: OrderSide | null },
   ): Promise<MassCancelResult> {
     return withEngineSpan('matching.massCancel', { marketId }, async (): Promise<MassCancelResult & { fillCount: number }> => {
+      if (this.maintenance.has(marketId)) {
+        return {
+          accepted: false,
+          accountId: cmd.accountId,
+          cancellations: [],
+          rejected: maintenanceRefuse(marketId),
+          fillCount: 0,
+        };
+      }
       const sessionRefuse = massCancelSessionRefuse(readSessionId(cmd));
       if (sessionRefuse) {
         return {
@@ -568,7 +722,7 @@ export class MatchingEngine {
       const events: PendingEvent[] = [];
       for (const marketId of [...this.books.keys()].sort()) {
         const book = this.books.get(marketId);
-        if (!book) continue;
+        if (!book || this.maintenance.has(marketId)) continue;
         const pulled = book.cancelSession(sessionId);
         for (const cancellation of pulled) {
           cancellations.push(cancellation);
@@ -589,7 +743,12 @@ export class MatchingEngine {
    */
   amendRefusal(marketId: MarketId, cmd: EngineAmend, book?: OrderBook | null): AmendResult | null {
     if (!this.enabled) return disabledAmend(cmd.orderId);
+    if (this.admissionClosed) return holdCheckClosedAmend(cmd.orderId, this.admissionClosed);
+    if (this.holdHalted.has(marketId)) {
+      return holdUnconfirmedAmend(marketId, cmd.orderId, this.holdHalted.get(marketId) ?? 'matching.hold_unconfirmed');
+    }
     if (this.venueHalted) return venueHaltedAmendResult(cmd.orderId);
+    if (this.maintenance.has(marketId)) return maintenanceAmendResult(marketId, cmd.orderId);
     if (this.halted.has(marketId)) return haltedAmendResult(marketId, cmd.orderId);
     if (this.expiredMarkets.has(marketId)) return expiredAmendResult(marketId, cmd.orderId);
     if (this.delistedMarkets.has(marketId)) return delistedAmendResult(marketId, cmd.orderId);
@@ -1078,6 +1237,113 @@ export class MatchingEngine {
     });
   }
 
+  async enterMaintenance(
+    marketId: MarketId,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
+  ): Promise<MarketMaintenanceResult> {
+    return withEngineSpan('matching.maintenance', { marketId }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const refuse = dualControlRefuse(operatorId, confirmOperatorId);
+      if (refuse) {
+        return {
+          accepted: false,
+          marketId,
+          maintenance: this.maintenance.has(marketId),
+          operatorId,
+          confirmOperatorId,
+          rejected: refuse,
+        };
+      }
+      const at = this.clock().toISOString();
+      this.journal.append({
+        kind: 'maintenance',
+        marketId,
+        at,
+        operatorId: operatorId!,
+        ...(confirmOperatorId ? { confirmOperatorId } : {}),
+      });
+      this.maintenance.add(marketId);
+      return { accepted: true, marketId, maintenance: true, operatorId, confirmOperatorId };
+    });
+  }
+
+  async endMaintenance(
+    marketId: MarketId,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
+  ): Promise<MarketMaintenanceResult> {
+    return withEngineSpan('matching.end_maintenance', { marketId }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const refuse = dualControlRefuse(operatorId, confirmOperatorId);
+      if (refuse) {
+        return {
+          accepted: false,
+          marketId,
+          maintenance: this.maintenance.has(marketId),
+          operatorId,
+          confirmOperatorId,
+          rejected: refuse,
+        };
+      }
+      const at = this.clock().toISOString();
+      this.journal.append({
+        kind: 'end_maintenance',
+        marketId,
+        at,
+        operatorId: operatorId!,
+        ...(confirmOperatorId ? { confirmOperatorId } : {}),
+      });
+      this.maintenance.delete(marketId);
+      return { accepted: true, marketId, maintenance: false, operatorId, confirmOperatorId };
+    });
+  }
+
+  /**
+   * Cancel GTD/GTT rests that are already due, even when no later order arrives.
+   * A book that cannot be read is left in place and named on the miss.
+   */
+  async sweepExpiry(): Promise<ExpirySweepResult> {
+    if (this.expiryClock === null) {
+      return {
+        accepted: false,
+        cancelled: [],
+        misses: [],
+        rejected: {
+          code: 'engine_clock_missing',
+          message: 'GTD/GTT expires on the engine clock; refuse when that clock is missing',
+        },
+      };
+    }
+    const now = this.expiryClock();
+    const cancelled: CancelledRef[] = [];
+    const misses: ExpirySweepResult['misses'][number][] = [];
+    for (const marketId of [...this.books.keys()].sort()) {
+      const unread = this.unreadableBooks.get(marketId);
+      if (unread !== undefined) {
+        misses.push({ marketId, code: 'book_unreadable', reason: unread });
+        continue;
+      }
+      const book = this.books.get(marketId);
+      if (!book) {
+        misses.push({ marketId, code: 'book_unreadable', reason: 'book missing' });
+        continue;
+      }
+      let due: string[] = [];
+      try {
+        due = book.dueExpiry(now);
+      } catch {
+        misses.push({ marketId, code: 'book_unreadable', reason: 'book unreadable' });
+        continue;
+      }
+      for (const orderId of due) {
+        const result = await this.cancel(marketId, orderId, 'expired');
+        if (result.cancellation) cancelled.push(result.cancellation);
+      }
+    }
+    return { accepted: true, cancelled, misses };
+  }
+
   private eventsForSubmit(marketId: MarketId, orderId: OrderId, result: SubmitResult, at: string): PendingEvent[] {
     const events: PendingEvent[] = [];
 
@@ -1115,17 +1381,20 @@ export class MatchingEngine {
   private async emit(events: readonly PendingEvent[]): Promise<void> {
     for (const event of events) {
       const opts = { idempotencyKey: event.key };
-      switch (event.name) {
-        case 'orderAccepted':
-          await this.bus.publish('orderAccepted', event.payload, opts);
-          break;
-        case 'orderFilled':
-          await this.bus.publish('orderFilled', event.payload, opts);
-          break;
-        case 'orderCancelled':
-          await this.bus.publish('orderCancelled', event.payload, opts);
-          break;
-      }
+      const send = () => this.publishNamed(event, opts);
+      if (this.announcing) await publishWithStartupRetry(send, this.startupSleep);
+      else await send();
+    }
+  }
+
+  private publishNamed(event: PendingEvent, opts: { readonly idempotencyKey: string }): Promise<unknown> {
+    switch (event.name) {
+      case 'orderAccepted':
+        return this.bus.publish('orderAccepted', event.payload, opts);
+      case 'orderFilled':
+        return this.bus.publish('orderFilled', event.payload, opts);
+      case 'orderCancelled':
+        return this.bus.publish('orderCancelled', event.payload, opts);
     }
   }
 
@@ -1175,6 +1444,72 @@ function publishedSnapshotEvery(value: number | undefined | null): number {
     throw new Error('MatchingEngine snapshotEvery is unset — refuse to invent 500');
   }
   return value;
+}
+
+function holdCheckClosedResult(orderId: OrderId, reason: string): SubmitResult {
+  return {
+    accepted: false,
+    sequence: null,
+    fills: [],
+    resting: null,
+    rejected: {
+      code: 'hold_check_unreachable',
+      message: `hold check did not answer (${reason}); market stays closed — order ${orderId} not processed`,
+    },
+    cancellations: [],
+    triggered: [],
+  };
+}
+
+function holdUnconfirmedResult(marketId: MarketId, orderId: OrderId, reason: string): SubmitResult {
+  return {
+    accepted: false,
+    sequence: null,
+    fills: [],
+    resting: null,
+    rejected: {
+      code: 'hold_unconfirmed',
+      message: `market ${marketId} stays halted (${reason}) — order ${orderId} not processed`,
+    },
+    cancellations: [],
+    triggered: [],
+  };
+}
+
+function holdCheckClosedAmend(orderId: OrderId, reason: string): AmendResult {
+  return {
+    accepted: false,
+    orderId,
+    sequence: null,
+    version: null,
+    priority: null,
+    fills: [],
+    resting: null,
+    rejected: {
+      code: 'hold_check_unreachable',
+      message: `hold check did not answer (${reason}); market stays closed — order ${orderId} not processed`,
+    },
+    cancellations: [],
+    triggered: [],
+  };
+}
+
+function holdUnconfirmedAmend(marketId: MarketId, orderId: OrderId, reason: string): AmendResult {
+  return {
+    accepted: false,
+    orderId,
+    sequence: null,
+    version: null,
+    priority: null,
+    fills: [],
+    resting: null,
+    rejected: {
+      code: 'hold_unconfirmed',
+      message: `market ${marketId} stays halted (${reason}) — order ${orderId} not processed`,
+    },
+    cancellations: [],
+    triggered: [],
+  };
 }
 
 function disabled(orderId: OrderId): SubmitResult {

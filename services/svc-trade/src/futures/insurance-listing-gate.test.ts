@@ -13,17 +13,15 @@ async function ledgerWithInsurance(amount: string) {
   const ledger = new MemoryLedger();
   if (amount === '0') return ledger;
   const seed = amt(amount);
-  const pos = 'seed-pos';
   await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: seed, rail: 'test', railRef: `d-${amount}` }));
-  await ledger.post(recipes.futuresMarginLock({ positionId: pos, userId: USER, assetId: 'USDT', amount: seed }));
   await ledger.post(
-    recipes.futuresRealizeLoss({
-      positionId: pos,
+    recipes.feeCharge({
+      chargeId: `fee-${amount}`,
       userId: USER,
+      module: 'trade',
+      mode: 'asset',
       assetId: 'USDT',
-      fromMargin: seed,
-      fromInsurance: 0n,
-      lossId: `seed-loss-${amount}`,
+      amount: seed,
     }),
   );
   await ledger.post(recipes.futuresInsuranceTopup({ topupId: `top-${amount}`, assetId: 'USDT', amount: seed }));
@@ -82,7 +80,7 @@ describe('checkInsuranceFundedForListing', () => {
     expect(check.code).toBe(INSURANCE_FUND_EMPTY);
     expect(check.available).toBe(0n);
     expect(check.reason).toContain(formatAccountRef(insuranceFund('USDT')));
-    expect(check.reason).toContain('DIRECTION:33');
+    expect(check.reason).toContain('positive balance');
   });
 
   it('passes when the fund holds any positive balance — no invented target size', async () => {

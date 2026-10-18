@@ -48,6 +48,12 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'Maker/taker bps on fill → houseFees(trade).',
   },
+  'trade.spot.fill_fee_correction': {
+    kind: 'recipe',
+    recipe: 'tradeFillFeeCorrection',
+    feeModule: 'trade',
+    note: 'Excess posted fill fee returns from houseFees(trade) under a new key. The original trade.fill stays.',
+  },
   'trade.spot.mm_maker_fill_fee': {
     kind: 'recipe',
     recipe: 'marketMakerMakerFill',
@@ -57,8 +63,7 @@ export const FEE_REVENUE_PATHS = {
   'trade.futures.realize_loss_sink': {
     kind: 'recipe',
     recipe: 'futuresRealizeLoss',
-    feeModule: 'trade',
-    note: 'Realized loss temporarily sinks into houseFees(trade).',
+    note: 'Realized loss debits house futures-loss. It does not touch houseFees(trade).',
   },
   'trade.futures.realize_profit': {
     kind: 'recipe',
@@ -109,6 +114,24 @@ export const FEE_REVENUE_PATHS = {
     recipe: 'merchantSettlement',
     feeModule: 'pay',
     note: 'Merchant settlement fee → houseFees(pay).',
+  },
+  'pay.conversion_fee_spread': {
+    kind: 'recipe',
+    recipe: 'fxConversion',
+    feeModule: 'pay',
+    note: 'Sandbox USD→USDT conversion: locked fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg.',
+  },
+  'pay.conversion_fee_spread_reverse': {
+    kind: 'recipe',
+    recipe: 'fxConversionReverse',
+    feeModule: 'pay',
+    note: 'Reverses a below-minimum conversion fill onto house inventory. Venue-boundary legs stay on the original booking.',
+  },
+  'pay.conversion_late_fill': {
+    kind: 'recipe',
+    recipe: 'fxConversionLateFill',
+    feeModule: 'pay',
+    note: 'Late-fill booking from merchant clearing: the original order fee and spread, in the to-asset, → houseFees(pay). Zero omits the leg. Inventory funding books the venue position to fx-inventory and posts no fee.',
   },
   'token.fee_charge': {
     kind: 'recipe',
@@ -203,12 +226,15 @@ export type FeeRevenuePathId = keyof typeof FEE_REVENUE_PATHS;
  */
 export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
+  'tradeFillFeeCorrection',
   'marketMakerMakerFill',
-  'futuresRealizeLoss',
   'futuresRealizeProfit',
   'futuresInsuranceTopup',
   'escrowRelease',
   'merchantSettlement',
+  'fxConversion',
+  'fxConversionLateFill',
+  'fxConversionReverse',
   'feeCharge',
   'sweepFeesToRewards',
   'loanRepay',

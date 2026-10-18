@@ -62,6 +62,7 @@ export function encodePrincipal(principal: Principal): string {
     ...(principal.sub_account ? { sub_account: principal.sub_account } : {}),
     ...(principal.kid ? { kid: principal.kid } : {}),
     ...(principal.key_env ? { key_env: principal.key_env } : {}),
+    ...(principal.stp && principal.stp.length > 0 ? { stp: [...principal.stp] } : {}),
   };
   return JSON.stringify(wire);
 }

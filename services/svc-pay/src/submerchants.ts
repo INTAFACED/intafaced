@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { logIsolationDenial } from './isolation-log.js';
 import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
 
 /**
@@ -67,6 +68,18 @@ import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
  * would be decorative and the tree would collapse back into "every node owns its
  * whole subtree".
  */
+
+/**
+ * Sub-merchant create, grant, and revoke stay closed until the named account
+ * consents. The service methods stay callable so a fixture can seed a tree.
+ * The public doors call this first.
+ */
+export function refuseSubMerchantWithoutConsent(): never {
+  throw new SubMerchantError(
+    'Sub-merchant onboarding and permission changes stay closed until the named account consents.',
+    'pay.submerchant_consent_required',
+  );
+}
 
 /** Thrown for every refusal here. Transport-free — the routers render it. */
 export class SubMerchantError extends Error {
@@ -438,10 +451,10 @@ export class SubMerchantService {
   async assertWithinSubtree(actorMerchantId: string, subjectMerchantId: string, tx: Sql = this.sql): Promise<string[]> {
     const chain = await this.ancestry(subjectMerchantId, tx);
     if (!chain.includes(actorMerchantId)) {
-      throw new SubMerchantError(
-        `Merchant ${subjectMerchantId} is not inside merchant ${actorMerchantId}'s sub-merchant tree`,
-        'pay.submerchant_out_of_scope',
-      );
+      // The caller sees exactly what a missing id gets (same code, same words as
+      // `ancestry`). The real reason is operator-only: see isolation-log.ts.
+      logIsolationDenial({ reason: 'out_of_scope', merchantId: subjectMerchantId, actorMerchantId });
+      throw new SubMerchantError(`No merchant ${subjectMerchantId}`, 'pay.merchant_not_found');
     }
     return chain;
   }

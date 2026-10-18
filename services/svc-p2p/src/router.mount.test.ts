@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client';
+import { z } from 'zod';
 import {
   ActionApprovalConsumeError,
   p2pActionPayloadHash,
@@ -88,6 +90,40 @@ function consumedApproval(approverId: string | null, requesterId = REQUESTER) {
   };
 }
 
+/**
+ * Copy of `apps/customer/src/features/pay/schemas.ts` `offerSchema` (and its
+ * `amount` string). The live board parses `offers.list` with `z.array` of
+ * this object. Extra service fields are stripped; a `{ offers, nextCursor }`
+ * envelope is not an array and fails the parse.
+ */
+const customerAmount = z
+  .string()
+  .refine((value) => {
+    try {
+      return parseAmount(value) >= 0n;
+    } catch {
+      return false;
+    }
+  }, 'Expected an unsigned exact decimal string')
+  .refine((value) => /^\d+(\.\d{1,18})?$/.test(value));
+
+const customerOfferSchema = z.object({
+  id: z.string().uuid(),
+  makerId: z.string(),
+  side: z.enum(['buy', 'sell']),
+  asset: z.string().min(1).max(16),
+  fiatCurrency: z.string(),
+  priceType: z.enum(['fixed', 'float']),
+  price: customerAmount,
+  minAmount: customerAmount,
+  maxAmount: customerAmount,
+  remainingAmount: customerAmount,
+  methods: z.array(z.unknown()),
+  terms: z.string(),
+  status: z.enum(['active', 'paused', 'closed']),
+  createdAt: z.string(),
+});
+
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-p2p' });
 
 function principal(overrides: Partial<Principal> = {}): Principal {
@@ -133,6 +169,9 @@ function forged(p: Principal = principal()) {
 function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     listOffers: async () => [],
+    listOfferBoard: async () => ({ offers: [], nextCursor: null }),
+    releasedTradeCounts: async () => new Map<string, number>(),
+    tradesInWindow: async () => 0,
     ...overrides,
   } as unknown as P2pService;
 }
@@ -218,11 +257,59 @@ describe('svc-p2p mount — authorisation', () => {
     await expect(routerFor(stubP2p()).createCaller(signed()).offers.list({ limit: 50 })).resolves.toEqual([]);
   });
 
+  it('parses offers.list with the customer offer schema', async () => {
+    const offerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const p2p = stubP2p({
+      listOfferBoard: async () => ({
+        offers: [
+          {
+            id: offerId,
+            makerId: USER,
+            side: 'sell' as const,
+            asset: 'USDT',
+            fiatCurrency: 'USD',
+            priceType: 'fixed' as const,
+            price: parseAmount('1'),
+            minAmt: parseAmount('10'),
+            maxAmt: parseAmount('100'),
+            totalAmt: parseAmount('500'),
+            remainingAmt: parseAmount('500'),
+            methods: ['sepa'],
+            terms: 'pay within 15 minutes',
+            status: 'active' as const,
+            createdAt: new Date('2026-10-17T00:00:00.000Z'),
+          },
+        ],
+        nextCursor: 'cursor-must-not-be-the-reply',
+      }),
+      releasedTradeCounts: async () => new Map<string, number>([[offerId, 2]]),
+    });
+    const reply = await routerFor(p2p).createCaller(signed()).offers.list({ limit: 50 });
+    expect(z.array(customerOfferSchema).parse(reply)).toEqual([
+      {
+        id: offerId,
+        makerId: USER,
+        side: 'sell',
+        asset: 'USDT',
+        fiatCurrency: 'USD',
+        priceType: 'fixed',
+        price: '1',
+        minAmount: '10',
+        maxAmount: '100',
+        remainingAmount: '500',
+        methods: ['sepa'],
+        terms: 'pay within 15 minutes',
+        status: 'active',
+        createdAt: '2026-10-17T00:00:00.000Z',
+      },
+    ]);
+  });
+
   it('offers.list omit is PRECONDITION_FAILED — never invents a 50-row page', async () => {
     const p2p = stubP2p({
-      listOffers: async (filter: { limit?: number } = {}) => {
+      listOfferBoard: async (filter: { limit?: number } = {}) => {
         assertOfferListLimit(filter.limit);
-        return [];
+        return { offers: [], nextCursor: null };
       },
     });
     const caller = routerFor(p2p).createCaller(signed());
@@ -235,6 +322,11 @@ describe('svc-p2p mount — authorisation', () => {
       message: 'p2p.offer_list_limit_unset',
     });
     await expect(caller.offers.list({ limit: 50 })).resolves.toEqual([]);
+    await expect(caller.offers.page({})).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'p2p.offer_list_limit_unset',
+    });
+    await expect(caller.offers.page({ limit: 50 })).resolves.toEqual({ offers: [], nextCursor: null });
   });
 
   it('trades.list omit is PRECONDITION_FAILED — never invents a 50-row page', async () => {
@@ -1333,7 +1425,14 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: false,
       offerLimitsPosture: 'unset',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
+  });
+
+  it('names a local-test key provider without calling it a configured KMS', async () => {
+    await expect(
+      createP2pRouter(stubP2p(), stubInstruments(), undefined, { instrumentKeyProvider: 'local-test' }).createCaller(anonymous()).health(),
+    ).resolves.toMatchObject({ instrumentKmsConfigured: false, instrumentKeyProvider: 'local-test' });
   });
 
   it('discloses moderationConfigured on health when an allowlist is set — never reachable', async () => {
@@ -1350,6 +1449,7 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: false,
       offerLimitsPosture: 'unset',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
   });
 
@@ -1372,6 +1472,7 @@ describe('svc-p2p mount — the public surface', () => {
       offerLimitsConfigured: true,
       offerLimitsPosture: 'configured',
       instrumentKmsConfigured: false,
+      instrumentKeyProvider: 'none',
     });
   });
 
@@ -1485,6 +1586,7 @@ describe('svc-p2p mount — offer methods shape', () => {
           minAmount: '10',
           maxAmount: '100',
           methods: ['sepa'],
+          idempotencyKey: 'kms-refuse-key',
         }),
     ).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',

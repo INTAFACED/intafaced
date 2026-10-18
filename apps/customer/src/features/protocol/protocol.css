@@ -1,0 +1,54 @@
+.protocol-room .protocol-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px 24px;
+  margin: 0;
+}
+.protocol-room .protocol-facts dt {
+  color: var(--color-muted);
+  font-size: 13px;
+}
+.protocol-room .protocol-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.protocol-room .protocol-actions {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+.protocol-room .protocol-actions__reason {
+  margin: 8px 0 0;
+  color: var(--color-muted);
+}
+.protocol-room .protocol-quote {
+  display: grid;
+  gap: 16px;
+  max-width: 420px;
+  margin-block: 16px;
+}
+.protocol-room .protocol-rails {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.protocol-room .protocol-refuse__title {
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+.protocol-room .page > * + * {
+  margin-top: 16px;
+}
+
+.protocol-room .page-heading .eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.protocol-room .protocol-pill {
+  text-transform: none;
+  letter-spacing: 0;
+}

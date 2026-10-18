@@ -5,9 +5,14 @@ import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contra
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
+import { openIdentityMail } from './auth/local-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
+import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
+import { selectOnboardingUser } from './auth/onboarding-user.js';
+import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
+import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
-import { assertProdTotpKey } from './auth/totp-crypto.js';
+import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
@@ -18,6 +23,9 @@ import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
 import { assertArgon2Available, argon2Available } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
+import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
+import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
+import { gateFrozenSubAccount } from './auth/sub-account-place-gate.js';
 import { createApiKeyIpRouter } from './api-key-ip-router.js';
 import { createApiKeyOriginRouter } from './api-key-origin-router.js';
 import { createApiKeyAccountRouter } from './api-key-account-router.js';
@@ -33,10 +41,14 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
+import { SavedRecipientService } from './saved-recipients.js';
+import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
@@ -47,6 +59,9 @@ import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
+import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
+import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
+import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -54,9 +69,15 @@ import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
 import { createActionApprovalRouter } from './action-approval-router.js';
+import { createStepUpRouter } from './step-up-router.js';
+import { CustomerStepUpService } from './auth/customer-step-up.js';
+import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
+import { ProfileService } from './profile/profile-service.js';
+import { AccountChange } from './account/account-router.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
+import { registerBusinessDirectoryRoutes, sqlBusinessDirectory } from './business-directory.js';
 import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
 import { createNavigatorSessionStore } from './agents/navigator-session-store.js';
 import { registerNavigatorSessionRoutes } from './agents/navigator-session-routes.js';
@@ -92,6 +113,9 @@ if (env.APP_ENV === 'prod') {
   // TOTP secrets must not sit base32-plaintext in prod; refuse boot without key.
   assertProdTotpKey(env);
 }
+// Request-signing secrets must not sit plaintext in prod or staging.
+assertSigningEncKey(env);
+const signingEncKey = parseTotpSecretKey(env.API_KEY_SIGNING_ENC_KEY);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -107,6 +131,63 @@ await sql`SELECT 1 FROM users LIMIT 1`.catch(() => {
 await sql`SELECT consecutive_failures FROM auth_attempts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: auth_attempts (with consecutive_failures) is missing — apply drizzle/0027_auth_attempt_lockouts.sql before starting svc-identity',
+  );
+});
+
+// Same for 0028: registerFounder would otherwise fail on the first invite, not at boot.
+await sql`SELECT hash FROM founder_invites_used LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: founder_invites_used is missing — apply drizzle/0028_founder_invites_used.sql before starting svc-identity',
+  );
+});
+await sql`SELECT require_signature FROM api_keys LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: api_keys.require_signature is missing — apply drizzle/0030_api_keys_request_sign.sql before starting svc-identity',
+  );
+});
+await sql`SELECT code_hash FROM password_reset_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: password_reset_proofs is missing — apply drizzle/0031_password_reset_proofs.sql before starting svc-identity',
+  );
+});
+await sql`SELECT successor_refresh FROM sessions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sessions.successor_refresh is missing — apply drizzle/0032_session_refresh_grace.sql before starting svc-identity',
+  );
+});
+await sql`SELECT challenge_id FROM customer_step_ups LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: customer_step_ups is missing — apply drizzle/0033_customer_step_up.sql before starting svc-identity',
+  );
+});
+await sql`SELECT email_verified_at FROM users LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: users.email_verified_at is missing — apply drizzle/0034_email_confirmation.sql before starting svc-identity',
+  );
+});
+await sql`SELECT consumed_by_service, consumed_by_principal, consumed_request_id FROM action_approvals LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: action_approvals consume provenance is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT user_id, restricted, version FROM trading_restrictions LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: trading_restrictions is missing — apply drizzle/0038_action_approval_consume_provenance.sql before starting svc-identity',
+  );
+});
+await sql`SELECT version FROM profiles LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: profiles.version is missing — apply drizzle/0042_profile_version.sql before starting svc-identity',
+  );
+});
+await sql`SELECT code_hash FROM contact_change_proofs LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: contact_change_proofs is missing — apply drizzle/0043_contact_change.sql before starting svc-identity',
+  );
+});
+await sql`SELECT phone FROM user_phones LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: user_phones is missing — apply drizzle/0043_contact_change.sql before starting svc-identity',
   );
 });
 
@@ -156,12 +237,59 @@ const auth = new AuthService(
   undefined,
   undefined,
   env.IDENTITY_MAX_SUB_ACCOUNTS,
+  env.REFRESH_REUSE_GRACE_SECONDS,
+  env.REFRESH_RECOVERY_SECONDS,
 );
+if (env.PAY_URL) {
+  const payUrl = env.PAY_URL;
+  auth.useOwnerPayScopeSource(async (userId) => {
+    const user = await selectOnboardingUser(sql, userId);
+    return fetchOwnerPayScopes({
+      payUrl,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      userId,
+      ...(user ? { user } : {}),
+    });
+  });
+  auth.usePayStepUpRoleSource(async ({ userId, merchantId }) => {
+    const grant = await fetchPayStepUpGrant({
+      payUrl,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      userId,
+      merchantId,
+    });
+    return {
+      refundsCreate: grant.permissions['refunds.create'] === true,
+      payoutSend: grant.permissions['payout.send'] === true,
+    };
+  });
+}
+// Lifetime can be published without a mail port. With either one missing, every
+// reset request refuses auth.reset_unwired. The only transport this process
+// can install is the local-outbox file, and only when APP_ENV is exactly dev
+// or test. Staging and production stay unwired. No provider is configured.
+const mail = openIdentityMail({
+  appEnv: process.env.APP_ENV,
+  transport: env.IDENTITY_MAIL_TRANSPORT,
+  outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
+});
+auth.usePasswordResetMail(mail);
+auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+auth.useEmailConfirmation({
+  mail,
+  ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
+  rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
+  rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
-const founderControls = new FounderControls(sql, founderPair);
+const founderControls = new FounderControls(sql, founderPair, {
+  tradingRestrictRequiresApproval: env.IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL === true,
+});
 await founderControls.bootstrap();
+auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
+auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
@@ -201,9 +329,45 @@ installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
 installFourEyes();
 installApiKeyAttribution(auth);
+installApiKeyRequestSignExchange(auth, sql, signingEncKey);
 
-const actionApprovals = new ActionApprovalService(new SqlActionApprovalStore(sql), {
-  ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+const stepUpStore = new SqlCustomerStepUpStore(sql);
+const actionApprovals = new ActionApprovalService(
+  new SqlActionApprovalStore(sql),
+  {
+    ttlSeconds: env.IDENTITY_ACTION_APPROVAL_TTL_SECONDS,
+    // Founder-only action types (pay, matching, ledger, bank, token, ...) re-check both parties against the live founder
+    // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
+    founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
+  },
+  () => new Date(),
+  (row, at) =>
+    stepUpStore.auditConsumed({
+      approvalId: row.approvalId,
+      requesterId: row.requesterId,
+      sessionId: row.sessionId,
+      actionType: row.actionType,
+      at,
+    }),
+);
+const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
+await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
+const profile = new ProfileService(sql);
+// Phone codes have no provider. account.phone.begin refuses auth.change_unwired
+// until an owner installs a PhoneCodeSender. This process does not send SMS.
+const account = new AccountChange({
+  sql,
+  approvals: actionApprovals,
+  mail,
+  phone: undefined,
+  ttlSeconds: env.IDENTITY_CONTACT_CHANGE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS,
+  now: () => new Date(),
+  log: { warn() {} },
 });
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
@@ -212,6 +376,7 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     referral,
     share,
@@ -224,11 +389,15 @@ export const appRouter = mergeRouters(
     actionApprovals,
     founderControls,
     privilegedUserIds: founderPair ?? [],
+    assertStaffSessionLive: (sessionId, userId) => assertStaffSessionLive(createSqlTradeIdentityStore(sql), sessionId, userId),
+    profile,
+    account,
   }),
   createApiKeyIpRouter(sql, auth),
+  createApiKeyRequestSignRouter(sql, signingEncKey),
   createApiKeyOriginRouter(sql, auth),
   createApiKeyAccountRouter(sql, auth),
-  createApiKeyRotateRouter(sql, auth),
+  createApiKeyRotateRouter(sql, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),
@@ -239,8 +408,11 @@ export const appRouter = mergeRouters(
   createApiKeyAttributionRouter(auth),
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
+  createOperatorOpsRouter(sql),
+  createPreferencesRouter(sql),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
+  createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(
     sql,
@@ -257,7 +429,22 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
-  createActionApprovalRouter(actionApprovals),
+  createActionApprovalRouter(actionApprovals, {
+    privilegedUserIds: founderPair ?? [],
+    // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
+    verifyFactor: async (input) => {
+      await auth.stepUp(input);
+    },
+  }),
+  createStepUpRouter(customerStepUp),
+  createTradeIdentityAuthRouter(sql, {
+    tokens: {
+      secret: env.JWT_ACCESS_SECRET,
+      issuer: env.JWT_ISSUER,
+      audience: env.JWT_AUDIENCE,
+      accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 
@@ -281,6 +468,13 @@ const identityRequestContext = createIdentityRequestContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
+account.useLog({
+  warn(obj, msg) {
+    app.log.warn(obj, msg);
+  },
+});
+
+const refreshCookieOf = installRefreshCookieHooks(app);
 
 app.addHook('onRequest', (req, _reply, done) => {
   const rawIp = req.headers['x-forwarded-for'] ?? req.headers['x-real-ip'];
@@ -328,6 +522,12 @@ registerAffiliateProducerAccrue(app, {
   accrualTierLaw,
 });
 
+registerBusinessDirectoryRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  store: sqlBusinessDirectory(sql),
+  installRawBody: false,
+});
+
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   freeze,
@@ -367,7 +567,8 @@ app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (r
 
 /**
  * Service-to-service sub-account ownership (svc-trade placeOrder gate).
- * Fail-closed at the caller: missing credentials → 401; unknown id → 404.
+ * Fail-closed at the caller: missing credentials → 401; unknown id → 404;
+ * frozen → 423. A freeze read that throws answers 5xx, never 200.
  * Body is the published `subAccountOwnershipSchema` contract.
  */
 app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccountId', async (req, reply) => {
@@ -383,7 +584,9 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   if (!row) {
     return reply.code(404).send({ error: 'sub-account not found', code: 'identity.sub_account_not_found' });
   }
-  return row;
+  const gated = await gateFrozenSubAccount(sql, row);
+  if (gated.status !== 200) return reply.code(gated.status).send(gated.body);
+  return gated.body;
 });
 
 /**
@@ -452,6 +655,31 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
   return state;
 });
 
+/**
+ * Public handle for a user id. svc-bank snapshots it onto a personal-send receipt.
+ * Service credentials only. 404 for an unknown id. Frozen and closed still have
+ * a handle; the caller does not learn the status from this route.
+ */
+app.get<{ Params: { userId: string } }>('/internal/handle/:userId', async (req, reply) => {
+  if (
+    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
+      rawBody: rawBodyOf(req),
+      mode: env.INTERNAL_SERVICE_BODY_BIND,
+    }).service === null
+  ) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const handle = await auth.handleOf(userId);
+  if (!handle) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return { userId, handle };
+});
+
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
@@ -463,7 +691,8 @@ await app.register(fastifyTRPCPlugin, {
       // Origin for apiKeys.exchange domain_whitelist (edge-forwarded; not body).
       const raw = req.headers.origin ?? req.headers['x-forwarded-origin'];
       const clientOrigin = Array.isArray(raw) ? raw[0] : raw;
-      return clientOrigin ? { ...base, clientOrigin } : base;
+      const refreshCookie = refreshCookieOf(req) ?? null;
+      return clientOrigin ? { ...base, clientOrigin, refreshCookie } : { ...base, refreshCookie };
     },
   } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
 });

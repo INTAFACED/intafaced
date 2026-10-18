@@ -1,5 +1,7 @@
 # Merchant Public API — quickstart
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **For merchants integrating payments from their own servers.**  
 You do **not** need this monorepo. You need an API key, the OpenAPI document, and this page.
 
@@ -91,7 +93,7 @@ create → authorize → capture → (optional) refund
 | Capture   | `POST /payments/:id/capture`   | `pay:write`  | Full authorized amount only — partial capture is refused (`pay.partial_capture_unsupported`) |
 | Refund    | `POST /payments/:id/refund`    | `pay:refund` | Own scope on purpose                                                                         |
 | Get       | `GET /payments/:id`            | `pay:read`   |                                                                                              |
-| List      | `GET /payments?merchantId=`    | `pay:read`   |                                                                                              |
+| List      | `GET /payments?merchantId=`    | `pay:read`   | `{ items, nextCursor }`. `nextCursor` is null on the last page. Pass `limit` (omit refuses). |
 | Balances  | `GET /balances?merchantId=`    | `pay:read`   | Clearing + settled                                                                           |
 
 ### Sandbox vs live rail (step 4)

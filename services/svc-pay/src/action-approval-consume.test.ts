@@ -11,12 +11,23 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 
-function consumeResult(input: ActionApprovalConsumeInput, status: ActionApprovalStatus, approverId: string | null) {
+type Attestation = { approverIsFounder?: boolean; requesterIsFounder?: boolean };
+/** What identity attests on a consume of a founder-only row: both parties are live founders. */
+const FOUNDERS: Attestation = { approverIsFounder: true, requesterIsFounder: true };
+
+function consumeResult(
+  input: ActionApprovalConsumeInput,
+  status: ActionApprovalStatus,
+  approverId: string | null,
+  attestation: Attestation = FOUNDERS,
+  requesterId = 'requester',
+) {
   return actionApprovalSchema.parse({
     ...input,
     actionType: input.targetId,
-    requesterId: 'requester',
+    requesterId,
     approverId,
+    ...attestation,
     policyVersion: 'v1',
     createdAt: '2026-09-09T12:00:00.000Z',
     expiresAt: '2026-09-09T12:10:00.000Z',
@@ -25,10 +36,15 @@ function consumeResult(input: ActionApprovalConsumeInput, status: ActionApproval
   });
 }
 
-function consumerReturning(status: ActionApprovalStatus, approverId: string | null): ActionApprovalConsumer {
+function consumerReturning(
+  status: ActionApprovalStatus,
+  approverId: string | null,
+  attestation: Attestation = FOUNDERS,
+  requesterId = 'requester',
+): ActionApprovalConsumer {
   return {
     async consume(input) {
-      return consumeResult(input, status, approverId);
+      return consumeResult(input, status, approverId, attestation, requesterId);
     },
   };
 }
@@ -139,5 +155,93 @@ describe('pay action-approval consume', () => {
         decision: 'approved',
       }),
     ).resolves.toBe('approver-1');
+  });
+
+  describe('founder re-check at consume (no grandfathering)', () => {
+    const cmd = { approvalId: 'appr-1', operationId: 'op-1' };
+    const consume = (consumer: ActionApprovalConsumer) => consumePayApproval(consumer, cmd, 'pay.deposit_credit', { amount: '1' });
+
+    it('refuses an approver identity does not attest as a founder', async () => {
+      await expect(
+        consume(consumerReturning('CONSUMED', 'approver-1', { approverIsFounder: false, requesterIsFounder: true })),
+      ).rejects.toMatchObject({
+        code: 'action_approval.not_founders',
+      });
+    });
+
+    it('refuses a proposer identity does not attest as a founder', async () => {
+      await expect(
+        consume(consumerReturning('CONSUMED', 'approver-1', { approverIsFounder: true, requesterIsFounder: false })),
+      ).rejects.toMatchObject({
+        code: 'action_approval.not_founders',
+      });
+    });
+
+    it('refuses when identity sends no attestation at all (an identity from before this check fails closed)', async () => {
+      await expect(consume(consumerReturning('CONSUMED', 'approver-1', {}))).rejects.toMatchObject({
+        code: 'action_approval.not_founders',
+      });
+    });
+
+    it('refuses the proposer as their own approver, whatever the attestation says', async () => {
+      await expect(consume(consumerReturning('CONSUMED', 'Requester', FOUNDERS, 'requester '))).rejects.toMatchObject({
+        code: 'action_approval.not_founders',
+      });
+    });
+
+    it('accepts a distinct founder pair', async () => {
+      await expect(consume(consumerReturning('CONSUMED', 'founder-b', FOUNDERS, 'founder-a'))).resolves.toBe('founder-b');
+    });
+
+    it('through the identity client: a payload mismatch is typed action_approval.payload_mismatch', async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            error: {
+              message: 'payload hash does not match the approved action [action_approval.payload_mismatch]',
+              data: { code: 'PRECONDITION_FAILED', httpStatus: 412 },
+            },
+          }),
+          { status: 412 },
+        )) as typeof fetch;
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!');
+        await expect(consume(client)).rejects.toMatchObject({ code: 'action_approval.payload_mismatch' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
+    it('through the identity client: a pre-existing APPROVED row approved by a non-founder is refused by identity and surfaces as a failed consume', async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            error: { message: 'founders only [action_approval.founder_only]', data: { code: 'FORBIDDEN', httpStatus: 403 } },
+          }),
+          { status: 403 },
+        )) as typeof fetch;
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!');
+        await expect(consume(client)).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
+
+    it('through the identity client: a consumed row with no founder attestation is refused even though identity said 200', async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        const input = JSON.parse(String(init?.body)) as ActionApprovalConsumeInput;
+        return new Response(JSON.stringify({ result: { data: consumeResult(input, 'CONSUMED', 'admin-1', {}) } }), { status: 200 });
+      }) as typeof fetch;
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!');
+        await expect(consume(client)).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
   });
 });

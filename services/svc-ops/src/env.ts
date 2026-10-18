@@ -34,6 +34,16 @@ const schema = baseEnvSchema
        * the freeze gate only. Never invents thresholds or a send.
        */
       OPS_CUSTODY_FREEZE_POLICY: blankAsAbsent(z.string().optional()),
+      /**
+       * Joint-restore archive. Blank → restore.record refuses
+       * ops.restore_archive_unconfigured. A set URL is not probed.
+       */
+      OPS_RESTORE_ARCHIVE_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * Alert source. Blank → alerts.list names ops.alert_source_unconfigured.
+       * A set URL is not probed and acknowledge still refuses.
+       */
+      OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
     }),
   );
 

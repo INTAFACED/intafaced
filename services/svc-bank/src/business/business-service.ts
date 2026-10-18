@@ -11,7 +11,15 @@ import {
   type LedgerTx,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import { assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
+import { assertBusinessApprovalsListLimit, assertBusinessListLimit, assertBusinessPendingListLimit } from '../owner-list-limit.js';
+import {
+  BusinessDirectoryError,
+  BusinessLookupLimiter,
+  normaliseEmailQuery,
+  normaliseHandleQuery,
+  unconfiguredBusinessDirectory,
+  type BusinessDirectoryPort,
+} from './business-directory.js';
 import { accountForSpace, type SpaceRecord, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { withMoneySpan } from '../tracing.js';
@@ -112,6 +120,27 @@ interface MemberRow {
   role: BusinessMemberRole;
 }
 
+interface MemberCommandRow {
+  id: string;
+  account_id: string;
+  actor_user_id: string;
+  target_user_id: string;
+  action: 'remove' | 'set_role';
+  role: BusinessMemberRole | null;
+}
+
+interface ControlRow {
+  id: string;
+  account_id: string;
+  kind: 'set_threshold' | 'close';
+  spend_threshold: string | null;
+  proposed_by: string;
+  confirmed_by: string | null;
+  status: 'pending' | 'applied' | 'cancelled';
+  created_at: Date;
+  decided_at: Date | null;
+}
+
 interface ApprovalRow {
   id: string;
   account_id: string;
@@ -128,6 +157,47 @@ interface ApprovalRow {
   rejection_code: string | null;
   created_at: Date;
   decided_at: Date | null;
+}
+
+function uniqueViolationName(err: unknown): string | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const row = err as { code?: string; constraint_name?: string };
+  if (row.code !== '23505') return null;
+  return row.constraint_name ?? '';
+}
+
+function encodeOperatorCursor(at: string, id: string): string {
+  return Buffer.from(JSON.stringify({ at, id }), 'utf8').toString('base64url');
+}
+
+function decodeOperatorCursor(cursor: string): { at: string; id: string } {
+  try {
+    const json = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { at?: unknown; id?: unknown };
+    if (typeof json.at !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/.test(json.at)) throw new Error('time');
+    if (typeof json.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(json.id))
+      throw new Error('id');
+    return { at: json.at, id: json.id };
+  } catch (err) {
+    if (err instanceof BankError) throw err;
+    throw new BankError('The approvals page cursor is not valid. Ask for the first page again.', 'bank.business_cursor_invalid');
+  }
+}
+
+function encodeApprovalCursor(createdAt: Date, id: string): string {
+  return Buffer.from(JSON.stringify({ at: createdAt.toISOString(), id }), 'utf8').toString('base64url');
+}
+
+function decodeApprovalCursor(cursor: string): { at: string; id: string } {
+  try {
+    const json = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { at?: unknown; id?: unknown };
+    if (typeof json.at !== 'string' || typeof json.id !== 'string') throw new Error('shape');
+    if (Number.isNaN(Date.parse(json.at))) throw new Error('time');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(json.id)) throw new Error('id');
+    return { at: new Date(json.at).toISOString(), id: json.id };
+  } catch (err) {
+    if (err instanceof BankError) throw err;
+    throw new BankError('The approvals page cursor is not valid. Ask for the first page again.', 'bank.business_cursor_invalid');
+  }
 }
 
 function toAccount(row: AccountRow): BusinessAccount {
@@ -212,31 +282,126 @@ function decideExistingProposal(
   throw new BankError(`Approval ${existing.id} is ${existing.status}`, 'bank.business_approval_inactive');
 }
 
+export interface BusinessTeamMember {
+  accountId: string;
+  userId: string;
+  role: BusinessMemberRole;
+  handle: string;
+}
+
+export interface BusinessPendingControl {
+  requestId: string;
+  kind: 'set_threshold' | 'close';
+  spendThreshold: Amount | null;
+  proposedByHandle: string;
+  createdAt: Date;
+}
+
+export interface BusinessPartyView {
+  handle: string | null;
+  handleReason: 'handle_unresolved' | null;
+  displayName: string | null;
+}
+
+export interface BusinessPendingView {
+  id: string;
+  accountId: string;
+  makerHandle: string | null;
+  makerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerHandle: string | null;
+  receiverOwnerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerName: string | null;
+  fromSpaceId: string;
+  toSpaceId: string;
+  assetId: string;
+  amount: Amount;
+  status: BusinessApprovalStatus;
+  transferId: string | null;
+  holdLedgerTxId: string | null;
+  ledgerTxId: string | null;
+  createdAt: Date;
+}
+
+export interface BusinessApprovalView {
+  id: string;
+  accountId: string;
+  makerHandle: string | null;
+  makerHandleReason: 'handle_unresolved' | null;
+  checkerHandle: string | null;
+  receiverOwnerHandle: string | null;
+  receiverOwnerHandleReason: 'handle_unresolved' | null;
+  receiverOwnerName: string | null;
+  fromSpaceId: string;
+  toSpaceId: string;
+  assetId: string;
+  amount: Amount;
+  status: BusinessApprovalStatus;
+  transferId: string | null;
+  holdLedgerTxId: string | null;
+  ledgerTxId: string | null;
+  createdAt: Date;
+  decidedAt: Date | null;
+}
+
+export type BusinessControlResult = {
+  status: 'pending' | 'applied' | 'cancelled';
+  requestId: string;
+  account: BusinessAccount;
+};
+
 export class BusinessService {
   constructor(
     private readonly sql: Sql,
     private readonly ledger: LedgerClient,
     private readonly spaces: SpaceService,
     private readonly transfers: TransferService,
+    private readonly directory: BusinessDirectoryPort = unconfiguredBusinessDirectory(),
+    private readonly lookups: BusinessLookupLimiter = new BusinessLookupLimiter(),
   ) {}
 
-  async createAccount(input: { name: string; assetId: string; spendThreshold: Amount; creatorUserId: string }): Promise<BusinessAccount> {
+  async createAccount(input: {
+    accountId: string;
+    name: string;
+    assetId: string;
+    spendThreshold: Amount;
+    creatorUserId: string;
+  }): Promise<BusinessAccount> {
+    if (!input.accountId) {
+      throw new BankError('Business create needs a caller-stable account id', 'bank.business_request_id_required');
+    }
     if (input.spendThreshold <= 0n) {
       throw new BankError('Business spend threshold must be positive', 'bank.business_invalid_threshold');
     }
     const name = input.name.trim();
     if (!name) throw new BankError('Business account needs a name', 'bank.business_invalid_name');
+    const threshold = formatAmount(input.spendThreshold);
 
-    const rows = await this.sql<AccountRow[]>`
-      INSERT INTO bank.business_accounts (name, asset_id, spend_threshold, status)
-      VALUES (${name}, ${input.assetId}, ${formatAmount(input.spendThreshold)}::numeric, 'active')
-      RETURNING id, name, asset_id, spend_threshold, status, created_at
-    `;
-    const account = toAccount(rows[0]!);
-    await this.sql`
-      INSERT INTO bank.business_members (account_id, user_id, role)
-      VALUES (${account.id}::uuid, ${input.creatorUserId}, 'admin')
-    `;
+    const account = await transaction(this.sql, async (tx) => {
+      const inserted = await tx<AccountRow[]>`
+        INSERT INTO bank.business_accounts (id, name, asset_id, spend_threshold, status)
+        VALUES (${input.accountId}::uuid, ${name}, ${input.assetId}, ${threshold}::numeric, 'active')
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id, name, asset_id, spend_threshold, status, created_at
+      `;
+      if (inserted[0]) {
+        await tx`
+          INSERT INTO bank.business_members (account_id, user_id, role)
+          VALUES (${inserted[0].id}::uuid, ${input.creatorUserId}, 'admin')
+        `;
+        return toAccount(inserted[0]);
+      }
+      const existing = await this.accountIn(tx, input.accountId);
+      const members = await tx<MemberRow[]>`
+        SELECT account_id, user_id, role FROM bank.business_members
+         WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.creatorUserId}
+      `;
+      const sameOwner = members[0]?.role === 'admin';
+      const sameRules = existing.name === name && existing.assetId === input.assetId && formatAmount(existing.spendThreshold) === threshold;
+      if (!sameOwner || !sameRules) {
+        throw new BankError('This business id is already in use on different terms (bank.business_conflict)', 'bank.business_conflict');
+      }
+      return existing;
+    });
     await this.spaces.ensurePrimary(input.creatorUserId, input.assetId);
     return account;
   }
@@ -268,7 +433,8 @@ export class BusinessService {
       SELECT a.id, a.name, a.asset_id, a.spend_threshold, a.status, a.created_at
         FROM bank.business_accounts a
         JOIN bank.business_members m ON m.account_id = a.id
-       WHERE m.user_id = ${userId} AND a.status = 'active'
+       WHERE m.user_id = ${userId}
+       -- Closed accounts stay on the list. A closed company is a fact, not a hidden row.
        ORDER BY a.created_at DESC
        LIMIT ${page}
     `;
@@ -440,28 +606,22 @@ export class BusinessService {
   }
 
   /**
-   * Maker cancels their pending proposal, or an admin cancels any pending one.
-   * Hold returns to the debit pot.
+   * The maker cancels their own pending proposal without a current membership,
+   * so removing them cannot strand the hold. An admin cancels anyone else's.
+   * A repeat on an already cancelled or rejected row releases the hold again.
    */
   async cancel(input: { approvalId: string; actorUserId: string }): Promise<void> {
     const approval = await this.approval(input.approvalId);
+    const own = approval.makerUserId === input.actorUserId;
     if (approval.status === 'cancelled' || approval.status === 'rejected') {
-      if (approval.makerUserId === input.actorUserId) {
-        await this.assertMember(approval.accountId, input.actorUserId);
-      } else {
-        await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
-      }
+      if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
       await this.releaseHold(approval);
       return;
     }
     if (approval.status !== 'pending') {
       throw new BankError(`Approval ${approval.id} is ${approval.status}`, 'bank.business_approval_inactive');
     }
-    if (approval.makerUserId === input.actorUserId) {
-      await this.assertMember(approval.accountId, input.actorUserId);
-    } else {
-      await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
-    }
+    if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
     await this.claimAndRelease(approval, {
       actorUserId: input.actorUserId,
       status: 'cancelled',
@@ -469,7 +629,7 @@ export class BusinessService {
     });
   }
 
-  async listPending(accountId: string, actorUserId: string, limit?: number): Promise<BusinessApproval[]> {
+  async listPending(accountId: string, actorUserId: string, limit?: number): Promise<BusinessPendingView[]> {
     await this.assertMember(accountId, actorUserId);
     const page = assertBusinessPendingListLimit(limit);
     const rows = await this.sql<ApprovalRow[]>`
@@ -481,7 +641,302 @@ export class BusinessService {
        ORDER BY created_at ASC
        LIMIT ${page}
     `;
-    return rows.map(toApproval);
+    return this.withParties(rows);
+  }
+
+  /**
+   * Teammates and waiting account controls. Handles come from identity.
+   * A missing handle refuses the page: a raw user id is not a name.
+   */
+  async team(
+    accountId: string,
+    actorUserId: string,
+  ): Promise<{ members: BusinessTeamMember[]; pendingControls: BusinessPendingControl[] }> {
+    await this.assertMember(accountId, actorUserId);
+    const members = await this.sql<MemberRow[]>`
+      SELECT account_id, user_id, role FROM bank.business_members
+       WHERE account_id = ${accountId}
+       ORDER BY created_at ASC
+       LIMIT 201
+    `;
+    if (members.length > 200) {
+      throw new BankError(
+        'This team is larger than the published page. It is not truncated (bank.business_directory_incomplete)',
+        'bank.business_directory_incomplete',
+      );
+    }
+    const controls = await this.sql<ControlRow[]>`
+      SELECT id, account_id, kind, spend_threshold, proposed_by, confirmed_by, status, created_at, decided_at
+        FROM bank.business_control_requests
+       WHERE account_id = ${accountId} AND status = 'pending'
+       ORDER BY created_at ASC
+    `;
+    const handles = await this.handlesFor([...members.map((row) => row.user_id), ...controls.map((row) => row.proposed_by)]);
+    return {
+      members: members.map((row) => ({
+        accountId: row.account_id,
+        userId: row.user_id,
+        role: row.role,
+        handle: handles.get(row.user_id)!,
+      })),
+      pendingControls: controls.map((row) => ({
+        requestId: row.id,
+        kind: row.kind,
+        spendThreshold: row.spend_threshold === null ? null : parseAmount(row.spend_threshold),
+        proposedByHandle: handles.get(row.proposed_by)!,
+        createdAt: row.created_at,
+      })),
+    };
+  }
+
+  async removeMember(input: {
+    accountId: string;
+    actorUserId: string;
+    userId: string;
+    requestId: string;
+  }): Promise<{ accountId: string; userId: string; removed: true }> {
+    this.requireRequestId(input.requestId);
+    return transaction(this.sql, async (tx) => {
+      const existing = await this.memberCommand(tx, input.requestId, true);
+      if (existing) {
+        this.assertCommandTerms(existing, { ...input, action: 'remove', role: null });
+        return { accountId: input.accountId, userId: input.userId, removed: true as const };
+      }
+      const members = await this.lockMembers(tx, input.accountId);
+      this.assertAdminLocked(members, input.actorUserId);
+      const target = members.find((row) => row.user_id === input.userId);
+      if (!target) throw new BankError('Not a member of this business account', 'bank.business_not_member');
+      if (target.role === 'admin' && members.filter((row) => row.role === 'admin').length < 2) {
+        throw new BankError('The last administrator cannot be removed (bank.business_last_admin)', 'bank.business_last_admin');
+      }
+      const waiting = await tx<Array<{ id: string }>>`
+        SELECT id FROM bank.business_approvals
+         WHERE account_id = ${input.accountId}::uuid
+           AND maker_user_id = ${input.userId}
+           AND status = 'pending'
+         LIMIT 1
+      `;
+      if (waiting[0]) {
+        throw new BankError(
+          'This person still has a payment waiting. Decide or cancel those payments before removing them (bank.business_member_has_pending)',
+          'bank.business_member_has_pending',
+        );
+      }
+      const inserted = await tx<Array<{ id: string }>>`
+        INSERT INTO bank.business_member_commands (id, account_id, actor_user_id, target_user_id, action, role)
+        VALUES (${input.requestId}::uuid, ${input.accountId}::uuid, ${input.actorUserId}, ${input.userId}, 'remove', NULL)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      if (!inserted[0]) {
+        const raced = await this.memberCommand(tx, input.requestId, true);
+        if (!raced) throw new BankError('The member change could not be recorded', 'bank.business_request_conflict');
+        this.assertCommandTerms(raced, { ...input, action: 'remove', role: null });
+        return { accountId: input.accountId, userId: input.userId, removed: true as const };
+      }
+      await tx`
+        DELETE FROM bank.business_members
+         WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
+      `;
+      return { accountId: input.accountId, userId: input.userId, removed: true as const };
+    });
+  }
+
+  async setMemberRole(input: {
+    accountId: string;
+    actorUserId: string;
+    userId: string;
+    role: BusinessMemberRole;
+    requestId: string;
+  }): Promise<BusinessMember> {
+    this.requireRequestId(input.requestId);
+    return transaction(this.sql, async (tx) => {
+      const existing = await this.memberCommand(tx, input.requestId, true);
+      if (existing) {
+        this.assertCommandTerms(existing, { ...input, action: 'set_role', role: input.role });
+        return { accountId: input.accountId, userId: input.userId, role: input.role };
+      }
+      const members = await this.lockMembers(tx, input.accountId);
+      this.assertAdminLocked(members, input.actorUserId);
+      const target = members.find((row) => row.user_id === input.userId);
+      if (!target) throw new BankError('Not a member of this business account', 'bank.business_not_member');
+      if (target.role === 'admin' && input.role !== 'admin' && members.filter((row) => row.role === 'admin').length < 2) {
+        throw new BankError('The last administrator cannot be demoted (bank.business_last_admin)', 'bank.business_last_admin');
+      }
+      const inserted = await tx<Array<{ id: string }>>`
+        INSERT INTO bank.business_member_commands (id, account_id, actor_user_id, target_user_id, action, role)
+        VALUES (
+          ${input.requestId}::uuid, ${input.accountId}::uuid, ${input.actorUserId}, ${input.userId},
+          'set_role', ${input.role}
+        )
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `;
+      if (!inserted[0]) {
+        const raced = await this.memberCommand(tx, input.requestId, true);
+        if (!raced) throw new BankError('The member change could not be recorded', 'bank.business_request_conflict');
+        this.assertCommandTerms(raced, { ...input, action: 'set_role', role: input.role });
+        return { accountId: input.accountId, userId: input.userId, role: input.role };
+      }
+      await tx`
+        UPDATE bank.business_members SET role = ${input.role}
+         WHERE account_id = ${input.accountId}::uuid AND user_id = ${input.userId}
+      `;
+      return { accountId: input.accountId, userId: input.userId, role: input.role };
+    });
+  }
+
+  /**
+   * The primary space of an active person, for a company payment or payroll.
+   * Does not create a space. A miss is `{ found: false }` for unknown, frozen,
+   * closed and a badly shaped handle or email.
+   */
+  async resolveRecipientSpace(input: {
+    accountId: string;
+    actorUserId: string;
+    assetId: string;
+    handle?: string;
+    email?: string;
+  }): Promise<{ found: false } | { found: true; handle: string; assetId: string; spaceId: string | null }> {
+    await this.assertMember(input.accountId, input.actorUserId);
+    if (!this.lookups.tryTake(input.actorUserId)) {
+      throw new BankError(
+        'Too many recipient lookups. Try again in a minute (bank.business_directory_rate_limited)',
+        'bank.business_directory_rate_limited',
+      );
+    }
+    const handleRaw = input.handle?.trim() ?? '';
+    const emailRaw = input.email?.trim() ?? '';
+    if ((handleRaw === '') === (emailRaw === '')) {
+      throw new BankError('Send a handle or an email, not both (bank.business_recipient_query)', 'bank.business_recipient_query');
+    }
+    const handle = handleRaw === '' ? null : normaliseHandleQuery(handleRaw);
+    const email = emailRaw === '' ? null : normaliseEmailQuery(emailRaw);
+    if (handleRaw !== '' && handle === null) return { found: false };
+    if (emailRaw !== '' && email === null) return { found: false };
+    let hit: { userId: string; handle: string } | null;
+    try {
+      hit = await this.directory.findActive(handle !== null ? { handle } : { email: email! });
+    } catch (err) {
+      this.directoryError(err);
+    }
+    if (!hit) return { found: false };
+    const space = await this.spaces.findPrimary(hit.userId, input.assetId);
+    return { found: true, handle: hit.handle, assetId: input.assetId, spaceId: space?.id ?? null };
+  }
+
+  /**
+   * Approval history. `business.pending` stays the waiting queue. This page
+   * can filter by status and names the maker and checker by handle.
+   */
+  async listApprovals(
+    accountId: string,
+    actorUserId: string,
+    input: { status?: BusinessApprovalStatus; limit?: number; cursor?: string },
+  ): Promise<{ items: BusinessApprovalView[]; nextCursor: string | null }> {
+    await this.assertMember(accountId, actorUserId);
+    const page = assertBusinessApprovalsListLimit(input.limit);
+    const cursor = input.cursor ? decodeApprovalCursor(input.cursor) : null;
+    const status = input.status ?? null;
+    const rows = await this.sql<ApprovalRow[]>`
+      SELECT id, account_id, maker_user_id, checker_user_id, from_space_id, to_space_id,
+             asset_id, amount, status, transfer_id, hold_ledger_tx_id, ledger_tx_id, rejection_code,
+             created_at, decided_at
+        FROM bank.business_approvals
+       WHERE account_id = ${accountId}
+         AND (${status}::text IS NULL OR status::text = ${status})
+         AND (
+           ${cursor?.at ?? null}::timestamptz IS NULL
+           OR created_at < ${cursor?.at ?? null}::timestamptz
+           OR (created_at = ${cursor?.at ?? null}::timestamptz AND id < ${cursor?.id ?? null}::uuid)
+         )
+       ORDER BY created_at DESC, id DESC
+       LIMIT ${page}
+    `;
+    const checkerIds = rows.flatMap((row) => (row.checker_user_id ? [row.checker_user_id] : []));
+    const checkers = checkerIds.length === 0 ? new Map<string, string>() : await this.handlesFor(checkerIds);
+    const named = await this.withParties(rows);
+    const items = named.map((row, index) => ({
+      ...row,
+      checkerHandle: rows[index]?.checker_user_id ? (checkers.get(rows[index]!.checker_user_id!) ?? null) : null,
+      decidedAt: rows[index]?.decided_at ?? null,
+    }));
+    const last = rows.at(-1);
+    return {
+      items,
+      nextCursor: last && rows.length === page ? encodeApprovalCursor(last.created_at, last.id) : null,
+    };
+  }
+
+  /**
+   * First administrator records the new threshold. A different administrator
+   * confirms the same request id and the same amount. One person cannot apply it.
+   */
+  async setThreshold(input: {
+    accountId: string;
+    actorUserId: string;
+    spendThreshold: Amount;
+    requestId: string;
+  }): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
+    this.requireRequestId(input.requestId);
+    if (input.spendThreshold <= 0n) {
+      throw new BankError('Business spend threshold must be positive', 'bank.business_invalid_threshold');
+    }
+    return this.control(input.accountId, input.actorUserId, {
+      requestId: input.requestId,
+      kind: 'set_threshold',
+      spendThreshold: input.spendThreshold,
+    });
+  }
+
+  /** First administrator records the close. A different administrator confirms it. */
+  async closeAccount(input: {
+    accountId: string;
+    actorUserId: string;
+    requestId: string;
+  }): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
+    this.requireRequestId(input.requestId);
+    return this.control(input.accountId, input.actorUserId, {
+      requestId: input.requestId,
+      kind: 'close',
+      spendThreshold: null,
+    });
+  }
+
+  /**
+   * Any administrator, including the proposer, withdraws a pending control.
+   * A repeat returns the same cancelled result. An applied control stays applied.
+   */
+  async cancelControl(input: {
+    accountId: string;
+    actorUserId: string;
+    requestId: string;
+  }): Promise<{ status: 'cancelled'; requestId: string; account: BusinessAccount }> {
+    this.requireRequestId(input.requestId);
+    return transaction(this.sql, async (tx) => {
+      const existing = await this.controlRow(tx, input.requestId, true);
+      if (!existing || existing.account_id !== input.accountId) {
+        throw new BankError(`Business control ${input.requestId} not found`, 'bank.business_not_found');
+      }
+      this.assertAdminLocked(await this.lockMembers(tx, input.accountId), input.actorUserId);
+      if (existing.status === 'applied') {
+        throw new BankError(`Request ${input.requestId} is already applied`, 'bank.business_approval_inactive');
+      }
+      if (existing.status === 'pending') {
+        const updated = await tx<Array<{ id: string }>>`
+          UPDATE bank.business_control_requests
+             SET status = 'cancelled', confirmed_by = ${input.actorUserId}, decided_at = now()
+           WHERE id = ${input.requestId}::uuid AND status = 'pending'
+          RETURNING id
+        `;
+        if (!updated[0]) throw new BankError(`Request ${input.requestId} is no longer waiting`, 'bank.business_approval_inactive');
+      }
+      return {
+        status: 'cancelled' as const,
+        requestId: input.requestId,
+        account: await this.accountIn(tx, input.accountId),
+      };
+    });
   }
 
   /**
@@ -962,6 +1417,390 @@ export class BusinessService {
         amount: approval.amount,
       }),
     );
+  }
+
+  private requireRequestId(requestId: string): void {
+    if (!requestId) throw new BankError('This change needs a caller-stable request id', 'bank.business_request_id_required');
+  }
+
+  private directoryError(err: unknown): never {
+    if (err instanceof BusinessDirectoryError && err.reason === 'unset') {
+      throw new BankError(err.message, 'bank.business_directory_unset');
+    }
+    const message =
+      err instanceof BusinessDirectoryError
+        ? err.message
+        : 'svc-identity did not answer the business directory (bank.business_directory_unavailable)';
+    throw new BankError(message, 'bank.business_directory_unavailable');
+  }
+
+  async myRole(accountId: string, userId: string): Promise<BusinessMemberRole> {
+    const rows = await this.sql<Array<{ role: string }>>`
+      SELECT m.role::text AS role
+        FROM bank.business_accounts a
+        JOIN bank.business_members m ON m.account_id = a.id AND m.user_id = ${userId}
+       WHERE a.id = ${accountId}::uuid
+    `;
+    const role = rows[0]?.role;
+    if (role !== 'admin' && role !== 'maker' && role !== 'checker') {
+      throw new BankError(`Business account ${accountId} not found`, 'bank.business_not_found');
+    }
+    return role;
+  }
+
+  /**
+   * Operator queue across businesses. Read-only. A missing directory refuses
+   * the page; a person with no handle is null, not a user id.
+   */
+  async operatorApprovals(input: { status: BusinessApprovalStatus; limit: number; cursor?: string }): Promise<{
+    approvals: Array<{
+      businessId: string;
+      amount: string;
+      assetId: string;
+      ageSeconds: number;
+      makerHandle: string | null;
+      makerHandleReason: 'handle_unresolved' | null;
+      rule: string;
+    }>;
+    nextCursor: string | null;
+  }> {
+    const cursor = input.cursor ? decodeOperatorCursor(input.cursor) : null;
+    const stamp = cursor?.at ?? null;
+    const stampId = cursor?.id ?? null;
+    const rows = await this.sql<Array<ApprovalRow & { spend_threshold: string; at_key: string }>>`
+      SELECT a.id, a.account_id, a.maker_user_id, a.checker_user_id, a.from_space_id, a.to_space_id,
+             a.asset_id, a.amount::text AS amount, a.status, a.transfer_id, a.hold_ledger_tx_id, a.ledger_tx_id,
+             a.rejection_code, a.created_at, a.decided_at, b.spend_threshold::text AS spend_threshold,
+             to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') AS at_key
+        FROM bank.business_approvals a
+        JOIN bank.business_accounts b ON b.id = a.account_id
+       WHERE a.status::text = ${input.status}
+         AND (
+           ${stamp}::text IS NULL
+           OR to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') > ${stamp}
+           OR (
+             to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US') = ${stamp}
+             AND a.id > ${stampId}::uuid
+           )
+         )
+       ORDER BY a.created_at ASC, a.id ASC
+       LIMIT ${input.limit}
+    `;
+    const parties = await this.partiesFor(rows.map((row) => row.maker_user_id));
+    const now = Date.now();
+    const approvals = rows.map((row) => {
+      const party = parties.get(row.maker_user_id);
+      return {
+        businessId: row.account_id,
+        amount: formatAmount(parseAmount(row.amount)),
+        assetId: row.asset_id,
+        ageSeconds: Math.max(0, Math.floor((now - row.created_at.getTime()) / 1000)),
+        makerHandle: party?.handle ?? null,
+        makerHandleReason: party?.handleReason ?? 'handle_unresolved',
+        rule: formatAmount(parseAmount(row.spend_threshold)),
+      };
+    });
+    const last = rows.at(-1);
+    return {
+      approvals,
+      nextCursor: last && rows.length === input.limit ? encodeOperatorCursor(last.at_key, last.id) : null,
+    };
+  }
+
+  private async withParties(rows: readonly ApprovalRow[]): Promise<BusinessPendingView[]> {
+    const owners = await this.spaceOwners(rows.map((row) => row.to_space_id));
+    const parties = await this.partiesFor([...rows.map((row) => row.maker_user_id), ...owners.values()]);
+    const missing: BusinessPartyView = { handle: null, handleReason: 'handle_unresolved', displayName: null };
+    return rows.map((row) => {
+      const approval = toApproval(row);
+      const maker = parties.get(approval.makerUserId) ?? missing;
+      const ownerId = owners.get(approval.toSpaceId);
+      const receiver = ownerId ? (parties.get(ownerId) ?? missing) : missing;
+      return {
+        id: approval.id,
+        accountId: approval.accountId,
+        makerHandle: maker.handle,
+        makerHandleReason: maker.handleReason,
+        receiverOwnerHandle: receiver.handle,
+        receiverOwnerHandleReason: receiver.handleReason,
+        receiverOwnerName: receiver.displayName,
+        fromSpaceId: approval.fromSpaceId,
+        toSpaceId: approval.toSpaceId,
+        assetId: approval.assetId,
+        amount: approval.amount,
+        status: approval.status,
+        transferId: approval.transferId,
+        holdLedgerTxId: approval.holdLedgerTxId,
+        ledgerTxId: approval.ledgerTxId,
+        createdAt: approval.createdAt,
+      };
+    });
+  }
+
+  private async spaceOwners(spaceIds: readonly string[]): Promise<Map<string, string>> {
+    const ids = [...new Set(spaceIds)];
+    if (ids.length === 0) return new Map();
+    const rows = await this.sql<Array<{ id: string; user_id: string }>>`
+      SELECT id, user_id FROM bank.spaces WHERE id IN ${this.sql(ids)}
+    `;
+    return new Map(rows.map((row) => [row.id, row.user_id]));
+  }
+
+  private async partiesFor(userIds: readonly string[]): Promise<Map<string, BusinessPartyView>> {
+    const unique = [...new Set(userIds.filter((id) => id.trim() !== ''))];
+    let handles: ReadonlyMap<string, string>;
+    let names: ReadonlyMap<string, string>;
+    try {
+      handles = await this.directory.handlesOf(unique);
+      names = await this.directory.publishedNames(unique);
+    } catch (err) {
+      this.directoryError(err);
+    }
+    const out = new Map<string, BusinessPartyView>();
+    for (const id of unique) {
+      const handle = handles.get(id) ?? null;
+      out.set(id, {
+        handle,
+        handleReason: handle ? null : 'handle_unresolved',
+        displayName: handle ? (names.get(id) ?? null) : null,
+      });
+    }
+    return out;
+  }
+
+  /** Every id must have a public handle. A gap refuses the page rather than showing a raw id. */
+  private async handlesFor(userIds: readonly string[]): Promise<Map<string, string>> {
+    const unique = [...new Set(userIds.filter((id) => id.trim() !== ''))];
+    let found: ReadonlyMap<string, string>;
+    try {
+      found = await this.directory.handlesOf(unique);
+    } catch (err) {
+      this.directoryError(err);
+    }
+    for (const id of unique) {
+      if (!found.get(id)) {
+        throw new BankError(
+          'A person on this account has no public handle in the identity directory, so this list is not shown (bank.business_directory_incomplete)',
+          'bank.business_directory_incomplete',
+        );
+      }
+    }
+    return new Map(unique.map((id) => [id, found.get(id)!]));
+  }
+
+  private async lockMembers(sql: Sql, accountId: string): Promise<MemberRow[]> {
+    return sql<MemberRow[]>`
+      SELECT account_id, user_id, role FROM bank.business_members
+       WHERE account_id = ${accountId}
+       FOR UPDATE
+    `;
+  }
+
+  private assertAdminLocked(members: readonly MemberRow[], actorUserId: string): void {
+    const actor = members.find((row) => row.user_id === actorUserId);
+    if (!actor) throw new BankError('Not a member of this business account', 'bank.business_not_member');
+    if (actor.role !== 'admin') {
+      throw new BankError(`Role ${actor.role} cannot perform this action (need admin)`, 'bank.business_role_forbidden');
+    }
+  }
+
+  private async memberCommand(sql: Sql, id: string, lock: boolean): Promise<MemberCommandRow | null> {
+    const rows = lock
+      ? await sql<MemberCommandRow[]>`
+          SELECT id, account_id, actor_user_id, target_user_id, action, role
+            FROM bank.business_member_commands WHERE id = ${id}::uuid
+           FOR UPDATE
+        `
+      : await sql<MemberCommandRow[]>`
+          SELECT id, account_id, actor_user_id, target_user_id, action, role
+            FROM bank.business_member_commands WHERE id = ${id}::uuid
+        `;
+    return rows[0] ?? null;
+  }
+
+  private assertCommandTerms(
+    existing: MemberCommandRow,
+    input: {
+      accountId: string;
+      actorUserId: string;
+      userId: string;
+      requestId: string;
+      action: 'remove' | 'set_role';
+      role: BusinessMemberRole | null;
+    },
+  ): void {
+    if (
+      existing.account_id !== input.accountId ||
+      existing.actor_user_id !== input.actorUserId ||
+      existing.target_user_id !== input.userId ||
+      existing.action !== input.action ||
+      existing.role !== input.role
+    ) {
+      throw new BankError(
+        `Request ${input.requestId} already exists on different terms — a retry must carry the same instruction`,
+        'bank.business_request_conflict',
+      );
+    }
+  }
+
+  private async control(
+    accountId: string,
+    actorUserId: string,
+    change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
+  ): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
+    await this.assertRole(accountId, actorUserId, ['admin']);
+    const account = await this.account(accountId);
+    return transaction(this.sql, async (tx) => {
+      const existing = await this.controlRow(tx, change.requestId, true);
+      if (existing) {
+        this.assertControlTerms(existing, accountId, change);
+        if (existing.status === 'cancelled') {
+          throw new BankError(
+            `Request ${change.requestId} was withdrawn (bank.business_approval_inactive)`,
+            'bank.business_approval_inactive',
+          );
+        }
+        if (existing.status === 'applied')
+          return { status: 'applied', requestId: change.requestId, account: await this.accountIn(tx, accountId) };
+        if (existing.proposed_by === actorUserId) {
+          return { status: 'pending', requestId: change.requestId, account };
+        }
+        this.assertAdminLocked(await this.lockMembers(tx, accountId), actorUserId);
+        await this.assertNoPendingPayment(tx, accountId, change.kind);
+        await this.applyControl(tx, accountId, actorUserId, change);
+        return { status: 'applied', requestId: change.requestId, account: await this.accountIn(tx, accountId) };
+      }
+      if (account.status !== 'active') throw new BankError('Business account is closed', 'bank.business_closed');
+      await this.assertNoPendingPayment(tx, accountId, change.kind);
+      const pending = await tx<Array<{ id: string }>>`
+        SELECT id FROM bank.business_control_requests
+         WHERE account_id = ${accountId}::uuid AND kind = ${change.kind} AND status = 'pending'
+         FOR UPDATE
+      `;
+      if (pending[0]) {
+        throw new BankError(
+          'A change of this kind is already waiting for a second administrator (bank.business_change_pending)',
+          'bank.business_change_pending',
+        );
+      }
+      const threshold = change.spendThreshold === null ? null : formatAmount(change.spendThreshold);
+      try {
+        await tx`
+          INSERT INTO bank.business_control_requests
+            (id, account_id, kind, spend_threshold, proposed_by, status)
+          VALUES (
+            ${change.requestId}::uuid, ${accountId}::uuid, ${change.kind},
+            ${threshold}::numeric, ${actorUserId}, 'pending'
+          )
+        `;
+      } catch (err) {
+        const name = uniqueViolationName(err);
+        if (name === 'business_control_one_pending') {
+          throw new BankError(
+            'A change of this kind is already waiting for a second administrator (bank.business_change_pending)',
+            'bank.business_change_pending',
+          );
+        }
+        if (name !== null) {
+          const raced = await this.controlRow(tx, change.requestId, true);
+          if (!raced) throw err;
+          this.assertControlTerms(raced, accountId, change);
+          if (raced.status === 'cancelled') {
+            throw new BankError(
+              `Request ${change.requestId} was withdrawn (bank.business_approval_inactive)`,
+              'bank.business_approval_inactive',
+            );
+          }
+          return { status: raced.status, requestId: change.requestId, account };
+        }
+        throw err;
+      }
+      return { status: 'pending', requestId: change.requestId, account };
+    });
+  }
+
+  private async assertNoPendingPayment(sql: Sql, accountId: string, kind: 'set_threshold' | 'close'): Promise<void> {
+    if (kind !== 'close') return;
+    const waiting = await sql<Array<{ id: string }>>`
+      SELECT id FROM bank.business_approvals
+       WHERE account_id = ${accountId}::uuid AND status = 'pending'
+       LIMIT 1
+    `;
+    if (waiting[0]) {
+      throw new BankError(
+        'Payments are still waiting for a decision. Decide those before closing the account (bank.business_close_blocked)',
+        'bank.business_close_blocked',
+      );
+    }
+  }
+
+  private async applyControl(
+    sql: Sql,
+    accountId: string,
+    actorUserId: string,
+    change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
+  ): Promise<void> {
+    if (change.kind === 'set_threshold' && change.spendThreshold !== null) {
+      const updated = await sql<Array<{ id: string }>>`
+        UPDATE bank.business_accounts
+           SET spend_threshold = ${formatAmount(change.spendThreshold)}::numeric, updated_at = now()
+         WHERE id = ${accountId}::uuid AND status = 'active'
+        RETURNING id
+      `;
+      if (!updated[0]) throw new BankError('Business account is closed', 'bank.business_closed');
+    } else {
+      const updated = await sql<Array<{ id: string }>>`
+        UPDATE bank.business_accounts
+           SET status = 'closed', updated_at = now()
+         WHERE id = ${accountId}::uuid AND status = 'active'
+        RETURNING id
+      `;
+      if (!updated[0]) throw new BankError('Business account is closed', 'bank.business_closed');
+    }
+    const recorded = await sql<Array<{ id: string }>>`
+      UPDATE bank.business_control_requests
+         SET status = 'applied', confirmed_by = ${actorUserId}, decided_at = now()
+       WHERE id = ${change.requestId}::uuid AND status = 'pending'
+      RETURNING id
+    `;
+    if (!recorded[0]) throw new BankError('The change is no longer waiting', 'bank.business_approval_inactive');
+  }
+
+  private async controlRow(sql: Sql, id: string, lock: boolean): Promise<ControlRow | null> {
+    const rows = lock
+      ? await sql<ControlRow[]>`
+          SELECT id, account_id, kind, spend_threshold, proposed_by, confirmed_by, status, created_at, decided_at
+            FROM bank.business_control_requests WHERE id = ${id}::uuid
+           FOR UPDATE
+        `
+      : await sql<ControlRow[]>`
+          SELECT id, account_id, kind, spend_threshold, proposed_by, confirmed_by, status, created_at, decided_at
+            FROM bank.business_control_requests WHERE id = ${id}::uuid
+        `;
+    return rows[0] ?? null;
+  }
+
+  private assertControlTerms(
+    existing: ControlRow,
+    accountId: string,
+    change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
+  ): void {
+    const stored = existing.spend_threshold === null ? null : parseAmount(existing.spend_threshold);
+    if (existing.account_id !== accountId || existing.kind !== change.kind || stored !== change.spendThreshold) {
+      throw new BankError(
+        `Request ${change.requestId} already exists on different terms — a retry must carry the same instruction`,
+        'bank.business_request_conflict',
+      );
+    }
+  }
+
+  private async accountIn(sql: Sql, id: string): Promise<BusinessAccount> {
+    const rows = await sql<AccountRow[]>`
+      SELECT id, name, asset_id, spend_threshold, status, created_at
+        FROM bank.business_accounts WHERE id = ${id}
+    `;
+    if (!rows[0]) throw new BankError(`Business account ${id} not found`, 'bank.business_not_found');
+    return toAccount(rows[0]);
   }
 
   private async account(id: string): Promise<BusinessAccount> {

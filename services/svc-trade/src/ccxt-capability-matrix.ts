@@ -97,7 +97,7 @@ export const CCXT_REFUSE_ARMS: readonly CcxtRefuseArm[] = [
     ccxtCode: 'BadRequest',
     intafacedCode: 'trade.leverage_too_high',
     wireShape: 'domain',
-    when: 'requested leverage is above the sealed 10× cap (DIRECTION §1) — refused, never clamped',
+    when: 'requested leverage is above the sealed 10× cap — refused, never clamped',
   },
   {
     id: 'setLeverageWouldLiquidate',
@@ -240,7 +240,7 @@ export const CCXT_REFUSE_ARMS: readonly CcxtRefuseArm[] = [
     ccxtCode: 'PermissionDenied',
     intafacedCode: 'trade.adl_disclosure_required',
     wireShape: 'domain',
-    when: 'futures open without ack of current ADL disclosure version — DIRECTION:34',
+    when: 'futures open without acknowledgement of the current auto-deleveraging disclosure',
   },
   {
     id: 'futuresUnconfiguredOnOpen',
@@ -255,14 +255,25 @@ export const CCXT_REFUSE_ARMS: readonly CcxtRefuseArm[] = [
   },
   {
     id: 'profitSourceUnconfiguredOnClose',
-    routeName: 'closePosition',
-    method: 'DELETE',
-    path: '/api/v1/positions/:id',
+    routeName: 'closePositionQuantity',
+    method: 'POST',
+    path: '/api/v1/positions/:id/close',
     httpStatus: 403,
     ccxtCode: 'NotSupported',
     intafacedCode: 'trade.profit_source_unconfigured',
     wireShape: 'domain',
     when: 'winning close with profitSource unset — 403 NotSupported; losing/flat close still settles; not a 5xx retry',
+  },
+  {
+    id: 'cancelNotClose',
+    routeName: 'closePosition',
+    method: 'DELETE',
+    path: '/api/v1/positions/:id',
+    httpStatus: 400,
+    ccxtCode: 'BadRequest',
+    intafacedCode: 'trade.cancel_not_close',
+    wireShape: 'domain',
+    when: 'DELETE is cancel-shaped — it does not close the position or release margin',
   },
 ] as const;
 
@@ -356,8 +367,19 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     auth: 'private',
     scope: 'trade:write',
     kind: 'supported',
-    refuseArmIds: refuseIds('callerPriceOnClose', 'profitSourceUnconfiguredOnClose'),
-    notes: 'Close at current mark; caller price 400; winning close without named pot 403 NotSupported',
+    refuseArmIds: refuseIds('callerPriceOnClose', 'cancelNotClose'),
+    notes:
+      'Cancel-shaped DELETE. Caller price 400. Otherwise trade.cancel_not_close and the margin pot is unchanged. Close is POST /positions/:id/close.',
+  },
+  {
+    name: 'closePositionQuantity',
+    method: 'POST',
+    path: '/api/v1/positions/:id/close',
+    auth: 'private',
+    scope: 'trade:write',
+    kind: 'supported',
+    refuseArmIds: refuseIds('profitSourceUnconfiguredOnClose'),
+    notes: 'Close route. Runs the atomic close. Winning close without a named pot is 403 NotSupported.',
   },
   {
     name: 'addIsolatedMargin',
@@ -417,7 +439,7 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     scope: 'trade:read',
     kind: 'supported',
     refuseArmIds: [],
-    notes: 'DIRECTION:34 in-product ADL copy + ack state (D26-P1-T1g)',
+    notes: 'In-product auto-deleveraging disclosure and whether this account has acknowledged it',
   },
   {
     name: 'ackAdlDisclosure',

@@ -14,8 +14,22 @@ import {
 import { BankError } from '../errors.js';
 import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-limit.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
+import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
+import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import {
+  createOnramp,
+  listDestinations,
+  quoteOfframp,
+  quoteOnramp,
+  removeDestination,
+  type CustomerOnrampView,
+  type CustomerRampDeps,
+  type DestinationView,
+  type OfframpQuoteView,
+  type OnrampQuoteView,
+} from './customer-ramps.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
   destKindForRamp,
@@ -174,6 +188,21 @@ export interface RampServiceOptions {
    * Never defaulted to 24. Zero is no wait.
    */
   offrampCoolingHours?: string;
+  /**
+   * Rate/fee source for `ramps.onrampQuote`. Unset refuses `bank.onramp_rate_unset`.
+   * The service does not invent a pay amount, fee, or rate.
+   */
+  onrampQuotes?: OnrampQuoteSource | null;
+  /**
+   * Partner that opens a hosted payment or bank-transfer instruction.
+   * Unset refuses `bank.fiat_ramp_socket` and inserts no row.
+   */
+  onrampPayments?: OnrampPaymentPort | null;
+  /**
+   * Fee schedule for `ramps.offrampQuote` on the crypto ledger half.
+   * Unset refuses `bank.offramp_fee_unset`. A zero fee is not assumed.
+   */
+  offrampFees?: OfframpFeeSource | null;
 }
 
 export class RampService {
@@ -181,6 +210,9 @@ export class RampService {
   private readonly payFiat: PayFiatRampPort;
   private readonly destinations: UserWithdrawDestinations;
   private readonly offrampCoolingHours: string | undefined;
+  private readonly onrampQuotes: OnrampQuoteSource | null;
+  private readonly onrampPayments: OnrampPaymentPort | null;
+  private readonly offrampFees: OfframpFeeSource | null;
 
   constructor(
     private readonly sql: Sql,
@@ -191,11 +223,42 @@ export class RampService {
     this.payFiat = options.payFiat ?? emptyPayFiatRampPort;
     this.destinations = options.destinations ?? new UserWithdrawDestinationStore(sql);
     this.offrampCoolingHours = options.offrampCoolingHours;
+    this.onrampQuotes = options.onrampQuotes ?? null;
+    this.onrampPayments = options.onrampPayments ?? null;
+    this.offrampFees = options.offrampFees ?? null;
+  }
+
+  private customerDeps(): CustomerRampDeps {
+    return {
+      sql: this.sql,
+      programme: this.programme,
+      payFiat: this.payFiat,
+      quotes: this.onrampQuotes,
+      payments: this.onrampPayments,
+      fees: this.offrampFees,
+      destinations: this.destinations,
+      coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
+    };
   }
 
   /** What this deployment's ramp programme is — including that it is not one. */
   programmeInfo(): RampProgramme {
     return this.programme;
+  }
+
+  /** On-ramp and off-ramp attempts opened at or after `since`. Health reads this; it invents no probe. */
+  async attemptsSince(since: Date): Promise<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>> {
+    const onramps = await this.sql<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>>`
+      SELECT rail, status::text AS status, created_at, settled_at
+        FROM bank.ramp_onramps
+       WHERE created_at >= ${since}
+    `;
+    const offramps = await this.sql<Array<{ rail: string; status: string; created_at: Date; settled_at: Date | null }>>`
+      SELECT rail, status::text AS status, created_at, settled_at
+        FROM bank.ramp_offramps
+       WHERE created_at >= ${since}
+    `;
+    return [...onramps, ...offramps];
   }
 
   /**
@@ -207,8 +270,39 @@ export class RampService {
   }
 
   /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. */
-  setWithdrawDestination(input: { userId: string; kind: string; ref: string }) {
+  setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
     return this.destinations.persist(input);
+  }
+
+  /** Saved wallets and bank accounts. Cooling end is the owner window, or a named unset. */
+  listDestinations(userId: string): Promise<DestinationView[]> {
+    return listDestinations(this.customerDeps(), userId);
+  }
+
+  /** Remove one saved destination. `idempotencyKey` replays the same removal. */
+  removeDestination(input: { userId: string; destinationId: string; idempotencyKey: string }) {
+    return removeDestination(this.customerDeps(), input);
+  }
+
+  /** Pay amount, fee, and rate from the quote source. Refuses when the PSP or the source is blank. */
+  onrampQuote(input: { userId: string; assetId: string; amount: string; method: OnrampMethod; country: string }): Promise<OnrampQuoteView> {
+    return quoteOnramp(this.customerDeps(), input);
+  }
+
+  /**
+   * Idempotent by `onrampId`. Stores the partner instruction and does not credit the ledger.
+   * A blank partner refuses `bank.fiat_ramp_socket` before any row.
+   */
+  onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
+    return createOnramp(this.customerDeps(), input);
+  }
+
+  /**
+   * Crypto fee quote from the fee source. Kind fiat refuses `bank.fiat_ramp_socket`.
+   * No fee source refuses `bank.offramp_fee_unset` rather than quoting zero.
+   */
+  offrampQuote(input: { assetId: string; amount: string; kind: 'crypto' | 'fiat'; destinationRef: string }): Promise<OfframpQuoteView> {
+    return quoteOfframp(this.customerDeps(), input);
   }
 
   /**
@@ -566,22 +660,12 @@ export class RampService {
    * second caller cannot settle a row this caller rejects.
    *
    * `pg_advisory_lock` is session-scoped. The connection stays reserved so
-   * unlock hits the session that took the lock.
+   * unlock hits the session that took the lock. The key is unchanged, so a
+   * replica on older code takes the same lock. See `session-lock.ts` for how the
+   * reserved connections are kept from starving the pool the body runs on.
    */
   private async withOfframpLock<T>(offrampId: string, body: () => Promise<T>): Promise<T> {
-    const reserved = await this.sql.reserve();
-    let locked = false;
-    try {
-      await reserved`SELECT pg_advisory_lock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
-      locked = true;
-      return await body();
-    } finally {
-      try {
-        if (locked) await reserved`SELECT pg_advisory_unlock(hashtext('bank.ramp.offramp'), hashtext(${offrampId}))`;
-      } finally {
-        reserved.release();
-      }
-    }
+    return withSessionAdvisoryLock(this.sql, 'bank.ramp.offramp', offrampId, body);
   }
 
   private async rejectOfframp(id: string, code: string): Promise<void> {

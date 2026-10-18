@@ -2,8 +2,18 @@ import { payRefusal } from './copy';
 import { z, type ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
+import { createMoneyClient } from '../money/client';
 import { createMerchantRefundApi } from './merchant-refund-api';
 import * as s from './schemas';
+import {
+  isOwnOffer,
+  quoteIsConsistent,
+  sameQuoteFigures,
+  sameTakeTerms,
+  takeRefusalIsDefinite,
+  tradeMatchesTake,
+  type TakeRequest,
+} from './personal/p2p-model';
 import {
   createMinimalOriginalJournal,
   type JournalPorts,
@@ -23,9 +33,15 @@ export type PayBusinessAuthority = {
   userId: string;
   merchantId: string;
   scopes: readonly string[];
+  /**
+   * Money scopes this person may obtain by confirming it's them just before the call (`portal/access/step-up.ts`).
+   * They are not held, so they are never offered to API keys; `access()` admits them because the confirmation comes
+   * first and the service checks the scope on the call itself.
+   */
+  confirmable?: readonly ('pay:refund' | 'pay:payout')[];
 };
 
-type PayOriginal = { status: 'uncertain'; reference?: string };
+type PayOriginal = { status: 'uncertain'; reference?: string; path?: string };
 function decodePayOriginal(raw: string): PayOriginal {
   if (raw === 'pending' || raw === 'uncertain') return { status: 'uncertain' };
   const parsed: unknown = JSON.parse(raw);
@@ -33,7 +49,8 @@ function decodePayOriginal(raw: string): PayOriginal {
   const value = parsed as Record<string, unknown>;
   if (
     value.status !== 'uncertain' ||
-    Object.keys(value).some((key) => !['status', 'reference'].includes(key)) ||
+    Object.keys(value).some((key) => !['status', 'reference', 'path'].includes(key)) ||
+    ('path' in value && !['crypto_invoice', 'card', 'card_mandate'].includes(value.path as string)) ||
     ('reference' in value && (typeof value.reference !== 'string' || !value.reference || value.reference.length > 200))
   )
     throw new Error('Invalid Pay original');
@@ -168,6 +185,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
     reference?: string,
     isCurrent?: () => boolean,
     recoveryCurrent = isCurrent ?? (() => true),
+    recovery?: { path?: string },
   ): Promise<ApiResult<T>> {
     if (isCurrent && !isCurrent()) return sendContextChanged();
     const coordinated = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
@@ -178,7 +196,11 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
       if (original.status === 'unreadable') return unavailable(key, original.reason);
       if (original.status === 'present' || states.has(key))
         return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
-      const record = JSON.stringify({ status: 'uncertain', ...(reference ? { reference } : {}) });
+      const record = JSON.stringify({
+        status: 'uncertain',
+        ...(reference ? { reference } : {}),
+        ...(recovery?.path ? { path: recovery.path } : {}),
+      });
       const saved = lease.writeExact(null, record);
       if (!saved.ok) return unavailable(key, saved.reason);
       if (isCurrent && !isCurrent()) {
@@ -305,6 +327,23 @@ export function payMutationGuard() {
 
 function sendContextChanged() {
   return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.send_context_changed', reason: 'aborted' });
+}
+
+/** Only the service's own "no such order" answer. A bare 404 (a route that is not mounted) proves nothing about the order. */
+const isTradeAbsent = (result: { code?: string }) => result.code === 'p2p.trade_not_found';
+
+const placedUnderHeld = new WeakSet<object>();
+/**
+ * True for an order that a resend placed for the first time under the reference held from the earlier attempt, as
+ * opposed to one the service already had. The screen tells the two apart in words.
+ */
+export function wasPlacedUnderHeldReference(trade: object): boolean {
+  return placedUnderHeld.has(trade);
+}
+
+/** A refusal this module makes itself. The screen picks the words from `code`; this text is only a fallback. */
+function takeRefusal(code: string, reason: Extract<ApiResult<never>, { ok: false }>['reason']): Extract<ApiResult<never>, { ok: false }> {
+  return { ok: false, reason, message: 'The order was not placed.', code };
 }
 
 export function createPersonalPayApi(
@@ -448,6 +487,20 @@ export function createPersonalPayApi(
         return payRefusal('p2pPaymentProjectionMismatch', { code: 'pay.trade_destination_mismatch', reason: 'invalid_response' });
       return result;
     },
+    /**
+     * What the person can use of one asset right now: the `free` quantity from the same balance read Money shows. An
+     * asset the read does not list is held in no quantity, so it is "0". A failed read is returned as the failure.
+     */
+    availableBalance: async (asset: string, signal?: AbortSignal): Promise<ApiResult<string>> => {
+      const denied = signedIn();
+      if (denied) return denied;
+      const result = await createMoneyClient(api).balances(signal);
+      if (!result.ok) return result;
+      // The lock draws from the asset exactly as the order names it; another casing is only a fallback.
+      const names = Object.keys(result.data.balances);
+      const key = names.find((name) => name === asset) ?? names.find((name) => name.toLowerCase() === asset.toLowerCase());
+      return { ok: true, data: key === undefined ? '0' : result.data.balances[key]!.free };
+    },
     reputation: async (counterparty: string, signal?: AbortSignal) => {
       const denied = signedIn();
       if (denied) return denied;
@@ -456,6 +509,58 @@ export function createPersonalPayApi(
       // The contract has no returned subject ID: association belongs to this
       // exact requested UUID and current owner/URL view, never a guessed field.
       return p2pCurrent() ? result : p2pDeparted();
+    },
+    /** The signed-in account id (null when signed out). Lets a screen tell "you" from the other side. */
+    viewer: userId,
+    /**
+     * `chat.messages.list`: messages after `cursor`, oldest first. The service marks the thread read for this account
+     * when a page ends the thread, so only call it for a thread that is on screen.
+     */
+    chatMessages(tradeId: string, page: { cursor: string | null; limit: number }, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query(
+        'p2p',
+        'chat.messages.list',
+        { tradeId, limit: page.limit, ...(page.cursor ? { cursor: page.cursor } : {}) },
+        s.chatPageSchema,
+        { signal },
+      );
+    },
+    /**
+     * `chat.messages.send`. `clientId` is the idempotency key: the service stores one message per (order, sender,
+     * clientId), so sending the same text again under the same clientId can never post twice.
+     */
+    chatSend(tradeId: string, text: string, clientId: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', 'chat.messages.send', { tradeId, text, clientId }, s.chatSentSchema, { signal });
+    },
+    /** `chat.unread`: messages from the other side that this account has not read, for one order. */
+    chatUnread(tradeId: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'chat.unread', { tradeId }, s.chatUnreadSchema, { signal });
+    },
+    /** `contacts.list`: the account ids this account follows and blocks. */
+    contacts(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.query('p2p', 'contacts.list', undefined, s.contactsSchema, { signal });
+    },
+    /**
+     * `contacts.follow | unfollow | block | unblock`. `idempotencyKey` makes a repeat of the same change harmless; the
+     * reply is the whole list as the service now holds it.
+     */
+    setContact(change: 'follow' | 'unfollow' | 'block' | 'unblock', peerId: string, idempotencyKey: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
     },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
@@ -620,6 +725,153 @@ export function createPersonalPayApi(
         () => p2pCurrent() && frameCurrent(),
       );
     },
+    /**
+     * What taking this offer would cost, before anything is reserved: `trades.quote`. A read. The figures are the
+     * service's own; they are shown only when they describe this request and add up, and are never filled in locally.
+     */
+    async quoteTake(offer: s.Offer, request: TakeRequest, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
+      if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query('p2p', 'trades.quote', request, s.takeQuoteSchema, { signal });
+      if (!p2pCurrent()) return p2pDeparted();
+      if (!result.ok) return result;
+      return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
+    },
+    /**
+     * Place the order: `trades.take`, which locks the seller's asset in escrow. Money moves, so:
+     *  - the order id is chosen here, stored on this device before the request leaves, and sent with it;
+     *  - the offer and the quote are read again first and must be what was reviewed;
+     *  - a reply that does not describe the reviewed order is not accepted;
+     *  - a lost, late or unrecognised reply is "unconfirmed": nothing is retried by itself, the stored id is kept, and
+     *    the order can be looked up by that id (`reconcileTake`) or sent again under the same id. A resend looks the
+     *    order up first and again after any refusal, and only an order the service says it does not have clears the
+     *    stored id; the service itself does not return an existing order for a repeated id.
+     */
+    async takeOffer(
+      offer: s.Offer,
+      request: TakeRequest,
+      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean },
+    ) {
+      const denied = signedIn();
+      if (denied) return denied;
+      const me = userId!;
+      const current = () => p2pCurrent() && reviewed.current();
+      if (!current()) return p2pDeparted();
+      if (isOwnOffer(offer, me)) return takeRefusal('pay.take_own_offer', 'forbidden');
+      if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
+      const key = `${me}:take:${offer.id.toLowerCase()}`;
+      const readOrder = async (tradeId: string, against: Pick<TakeRequest, 'amount' | 'method'> | null) => {
+        const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+        if (!latest.ok) return latest;
+        return tradeMatchesTake(latest.data, offer, me, against, tradeId) ? latest : takeRefusal('pay.take_unconfirmed', 'uncertain');
+      };
+      // The same offer, the same figures, still open to this person, right before the money step.
+      const preflight = async () => {
+        const latest = await currentOffer(offer.id);
+        if (!current()) return p2pDeparted();
+        if (!latest.ok) return latest;
+        if (isOwnOffer(latest.data, me)) return takeRefusal('pay.take_own_offer', 'forbidden');
+        if (latest.data.status !== 'active') return takeRefusal('pay.take_offer_unavailable', 'forbidden');
+        if (!sameTakeTerms(latest.data, offer)) return takeRefusal('pay.take_terms_changed', 'invalid_response');
+        const again = await api.query('p2p', 'trades.quote', request, s.takeQuoteSchema);
+        if (!current()) return p2pDeparted();
+        if (!again.ok) return again;
+        if (!quoteIsConsistent(latest.data, request, again.data) || !sameQuoteFigures(again.data, reviewed.quote))
+          return takeRefusal('pay.take_quote_changed', 'invalid_response');
+        return null;
+      };
+      const place = async (tradeId: string): Promise<ApiResult<s.Trade>> => {
+        const sent = await api.mutate(
+          'p2p',
+          'trades.take',
+          { offerId: request.offerId, tradeId, amount: request.amount, method: request.method },
+          s.tradeSchema,
+        );
+        if (sent.ok)
+          return tradeMatchesTake(sent.data, offer, me, request, tradeId) ? sent : takeRefusal('pay.take_unconfirmed', 'uncertain');
+        if (takeRefusalIsDefinite(sent)) return sent;
+        // The order may exist. If the service already has it under this id, that is the answer.
+        const found = await readOrder(tradeId, request);
+        if (found.ok) return found;
+        return { ...sent, reason: 'uncertain', code: sent.code ?? 'pay.take_unconfirmed' };
+      };
+      if (guard.status(key) === 'uncertain') {
+        const held = guard.original(key);
+        const heldId = held?.value.reference;
+        if (!held || !heldId || !s.id.safeParse(heldId).success)
+          return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        // An earlier attempt on this offer was never confirmed. The service does not answer a repeated id with the
+        // order it already holds: it re-checks the offer and its remaining quantity first, and the earlier attempt may
+        // be the very thing that used them up. So a refusal here proves nothing until the order has been looked for
+        // again by its id. The whole resend runs under the journal's lease, so two tabs cannot resend at once.
+        let proven = false;
+        const afterRefusal = async (refusal: Extract<ApiResult<never>, { ok: false }>): Promise<ApiResult<s.Trade>> => {
+          if (refusal.reason === 'aborted') return refusal;
+          const again = await readOrder(heldId, null);
+          if (again.ok) return again;
+          if (isTradeAbsent(again)) {
+            proven = true;
+            return refusal;
+          }
+          return takeRefusal('pay.take_unconfirmed', 'uncertain');
+        };
+        const outcome = await guard.checkOriginal<s.Trade>(
+          key,
+          async () => {
+            const existing = await readOrder(heldId, null);
+            if (existing.ok) return existing;
+            if (!isTradeAbsent(existing)) return takeRefusal('pay.take_unconfirmed', 'uncertain');
+            const refused = await preflight();
+            if (refused) return afterRefusal(refused);
+            const replayed = await place(heldId);
+            if (replayed.ok) {
+              // The look-up just before proved there was no such order, so this one was placed by this resend.
+              placedUnderHeld.add(replayed.data);
+              return replayed;
+            }
+            return takeRefusalIsDefinite(replayed) ? afterRefusal(replayed) : replayed;
+          },
+          current,
+        );
+        if (proven) await guard.resolve(key, held.raw);
+        return outcome;
+      }
+      const refused = await preflight();
+      if (refused) return refused;
+      let tradeId: string;
+      try {
+        tradeId = globalThis.crypto.randomUUID();
+      } catch {
+        return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+          code: 'pay.recovery_journal_unavailable',
+          reason: 'not_supported',
+        });
+      }
+      return guard.run(key, () => place(tradeId), tradeId, current, reviewed.recoveryCurrent ?? p2pCurrent);
+    },
+    /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
+    async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
+      const denied = signedIn();
+      if (denied) return denied;
+      const me = userId!;
+      return guard.checkOriginal(
+        `${me}:take:${offer.id.toLowerCase()}`,
+        async (original) => {
+          const tradeId = original.reference;
+          if (!tradeId || !s.id.safeParse(tradeId).success) return takeRefusal('pay.take_unconfirmed', 'uncertain');
+          const latest = await api.query('p2p', 'trades.get', { tradeId }, s.tradeSchema);
+          if (!latest.ok)
+            return isTradeAbsent(latest)
+              ? takeRefusal('pay.take_not_found', 'uncertain')
+              : takeRefusal('pay.take_unconfirmed', 'uncertain');
+          return tradeMatchesTake(latest.data, offer, me, null, tradeId) ? latest : takeRefusal('pay.take_unconfirmed', 'uncertain');
+        },
+        () => p2pCurrent() && frameCurrent(),
+      );
+    },
     openDispute: (tradeId: string, reason: string) =>
       guard.run(
         `${userId}:dispute:${tradeId}`,
@@ -662,7 +914,7 @@ export function createBusinessPayApi(
   function access(scope: string) {
     if (!authority || !authority.verified || !authority.companyId || !authority.companyName || authority.userId !== userId || !userId)
       return payRefusal('aVerifiedBusinessAccountAndCompanyMembership', { code: 'pay.business_authority_missing' });
-    if (!authority.scopes.includes(scope))
+    if (!authority.scopes.includes(scope) && !(authority.confirmable as readonly string[] | undefined)?.includes(scope))
       return payRefusal('thisBusinessAccountDoesNotHoldPermission', { code: 'pay.business_permission_missing' }, { scope: scope });
     return null;
   }
@@ -691,28 +943,93 @@ export function createBusinessPayApi(
     }
     return result;
   }
+  /**
+   * `subscription.create` and `merchant.createLink` take `idempotencyKey` on the procedure input.
+   * `api.mutate` has no header slot, so this is not an Idempotency-Key header.
+   * The journal lock stays `${userId}:subscription-create:${mandateId}`.
+   * A new create stores a fresh attempt id on that lock and sends
+   * `${lockId}:${attemptId}`. A retry of the same uncertain attempt reuses
+   * the stored id. A confirmed outcome or a definite refusal drops it, so the next create
+   * on that mandate uses a fresh attempt id. An uncertain or aborted replay
+   * keeps the stored id and original path.
+   */
   async function mutate<T>(
     procedure: string,
     input: unknown,
     schema: ZodType<T>,
     scope: 'pay:write' | 'pay:refund' | 'pay:payout',
     operation: string,
+    reference?: string,
   ): Promise<ApiResult<T>> {
     const denied = access(scope);
     if (denied) return denied;
     const checked = await merchant();
     if (!checked.ok) return checked;
-    return guard.run(`${userId}:${operation}`, () =>
-      api.mutate(
+    const lockId = `${userId}:${operation}`;
+    const outcome = schema.refine(
+      (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
+      'The mutation outcome belongs to another merchant.',
+    );
+    // Pause, resume, and cancel store the expected status in the journal.
+    // subscription.create ignores that argument: its reference is the attempt id below.
+    if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
+      return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
+    const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+    const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
+      const result = await api.mutate(
         'pay',
         procedure,
-        input,
-        schema.refine(
-          (data) => !data || typeof data !== 'object' || !('merchantId' in data) || data.merchantId === authority!.merchantId,
-          'The mutation outcome belongs to another merchant.',
-        ),
-      ),
-    );
+        { ...fields, ...(path ? { path } : {}), idempotencyKey: `${lockId}:${attemptId}` },
+        outcome,
+      );
+      if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
+        return {
+          ...result,
+          message:
+            procedure === 'merchant.createLink'
+              ? 'A request to create this link is already recorded with different details. Open Payment links to check it.'
+              : 'A subscription request for this mandate is already recorded. Open Subscriptions to check it.',
+        };
+      return result;
+    };
+    // A lost response leaves the attempt id on the lock. Reuse it. Do not mint
+    // a second id for that same uncertain create: the first request may have
+    // committed, and a new key would not replay it.
+    if (guard.status(lockId) === 'uncertain') {
+      const held = guard.original(lockId);
+      if (held?.status === 'present') {
+        const attemptId = held.value.reference;
+        if (!attemptId) {
+          return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
+        }
+        const replayed = await sendAttempt(attemptId, held.value.path);
+        // Match the first attempt: a known outcome, including a definite
+        // refusal, drops the journal. Uncertain and aborted replies stay held
+        // so the same attempt can be retried.
+        const heldOpen = !replayed.ok && (replayed.reason === 'uncertain' || replayed.reason === 'aborted');
+        if (!heldOpen) await guard.resolve(lockId, held.raw);
+        return replayed;
+      }
+    }
+    let attemptId: string;
+    try {
+      attemptId = globalThis.crypto.randomUUID();
+    } catch {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    // The journal codec rejects a reference longer than 200. Refuse before
+    // writing an attempt the next read could not recover.
+    if (!attemptId || attemptId.length > 200) {
+      return payRefusal('deviceRecoveryStorageIsUnavailableEnableSession', {
+        code: 'pay.recovery_journal_unavailable',
+        reason: 'not_supported',
+      });
+    }
+    const path = 'path' in fields && typeof fields.path === 'string' ? fields.path : undefined;
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path });
   }
   return {
     merchant,

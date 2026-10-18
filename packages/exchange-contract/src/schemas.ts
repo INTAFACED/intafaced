@@ -262,6 +262,8 @@ export const tradeSchema = z.object({
   amount: decimal,
   cost: decimal,
   fee: z.object({ cost: decimal, currency: z.string(), rate: decimal.nullable() }).nullable(),
+  /** Unix ms when this fills read was assembled. Absent on older wires. */
+  serverTime: timestampMs.optional(),
 });
 export type Trade = z.infer<typeof tradeSchema>;
 
@@ -269,7 +271,7 @@ export type Trade = z.infer<typeof tradeSchema>;
 
 export const orderTypeSchema = z.enum(['market', 'limit', 'stop', 'stop_limit', 'take_profit']);
 export const orderSideSchema = z.enum(['buy', 'sell']);
-export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD', 'GTT']);
+export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT']);
 export const orderStatusSchema = z.enum(['open', 'closed', 'canceled', 'expired', 'rejected']);
 
 export const orderSchema = z.object({
@@ -297,6 +299,14 @@ export const orderSchema = z.object({
    */
   cost: decimal.nullable(),
   status: orderStatusSchema,
+  /**
+   * Engine reason when the order ended rejected, expired, or as an unfilled
+   * remainder (`post_only_would_cross`, `fok_unfillable`, `ioc_remainder`, …).
+   * Null when there is no engine reason. Absent on wires from before this field.
+   */
+  rejectCode: z.string().nullable().optional(),
+  /** Unix ms when this read was assembled. Absent on wires from before this field. */
+  serverTime: timestampMs.optional(),
   fee: z.object({ cost: decimal, currency: z.string() }).nullable(),
   trades: z.array(tradeSchema),
 });
@@ -375,6 +385,8 @@ export const balanceEntrySchema = z.object({
 export const balancesSchema = z.object({
   timestamp: timestampMs,
   datetime: isoDatetime,
+  /** Unix ms of this read. Same clock as `GET /api/v1/time`. Absent on older wires. */
+  serverTime: timestampMs.optional(),
   /** Keyed by asset code: { USDT: { free, used, total } } */
   balances: z.record(z.string(), balanceEntrySchema),
 });
@@ -387,6 +399,10 @@ export const positionSchema = z.object({
   symbol: z.string(),
   timestamp: timestampMs,
   datetime: isoDatetime,
+  /** Same instant as `datetime`. Named so a desk can show "opened" without guessing. */
+  openedAt: isoDatetime.optional(),
+  /** Caller open key. Null on a legacy row that predates the column. */
+  clientOpenId: z.string().nullable().optional(),
   side: z.enum(['long', 'short']),
   /**
    * Lifecycle. `closing` = trader asked to exit while no usable mark existed
@@ -402,6 +418,8 @@ export const positionSchema = z.object({
   markPrice: decimal.nullable(),
   notional: decimal,
   leverage: decimal.nullable(),
+  /** Set when `leverage` is null because the row never recorded one. Never inferred. */
+  leverageReason: z.enum(['leverage_not_recorded']).nullable().optional(),
   collateral: decimal.nullable(),
   initialMargin: decimal.nullable(),
   maintenanceMargin: decimal.nullable(),
@@ -409,7 +427,16 @@ export const positionSchema = z.object({
   realizedPnl: decimal.nullable(),
   liquidationPrice: decimal.nullable(),
   marginMode: z.enum(['cross', 'isolated']).nullable(),
+  /** Unrealised PnL over initial margin in percent points (CCXT): '20' means +20%. Null with a reason in fieldReasons. */
   percentage: decimal.nullable(),
+  /** When the position closed. Null on an open row, and on a legacy closed row that never recorded one. */
+  closedAt: isoDatetime.nullable().optional(),
+  /** Row update time. Distinct from `timestamp`, which stays the open time. */
+  updatedAt: isoDatetime.nullable().optional(),
+  /** Set on a repeated close of a position this caller already closed. */
+  replayed: z.boolean().optional(),
+  /** Why a field above is null. Absent when that field has a value. */
+  fieldReasons: z.record(z.string(), z.string()).optional(),
 });
 export type Position = z.infer<typeof positionSchema>;
 
@@ -430,6 +457,11 @@ export const tradingFeeSchema = z.object({
   taker: decimal,
   /** Effective rate after rank perks and IFC discount (§4.1, §4.3). */
   percentage: z.boolean(),
+  /** Owner schedule integer bps. Same numbers preview returns as `feeBps`. */
+  makerBps: z.number().int().nonnegative().optional(),
+  takerBps: z.number().int().nonnegative().optional(),
+  /** Owner `TRADE_FEE_SCHEDULE` version. Names the published schedule. */
+  version: z.string().optional(),
 });
 export type TradingFee = z.infer<typeof tradingFeeSchema>;
 

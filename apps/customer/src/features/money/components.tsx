@@ -2,6 +2,7 @@ import { t as copyText, Text } from './copy';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
+import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
 import { authoredRefusal, type ApiResult } from '../../shared/api';
@@ -16,19 +17,18 @@ import {
   rememberPendingOutcome,
   type PendingReservation,
 } from './pending-outcomes';
+import { settleRefusal } from './money-refusal-copy';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
   value == null ? copyText('components.unavailable') : `${displayAmount(value)} ${asset}`;
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
+/** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
 export function date(value: string | null) {
   if (!value) return copyText('components.none');
   if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  const { language, timeZone } = currentPreferences();
-  return new Date(value).toLocaleString(language, {
-    ...(timeZone === 'device' ? {} : { timeZone: timeZone === 'UTC+8' ? 'Etc/GMT-8' : 'UTC' }),
-  });
+  return stamp(value, currentPreferences().timeZone);
 }
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {
@@ -84,8 +84,7 @@ export function Continuation({ count, limit, onMore }: { count: number; limit: n
     <div className="money-continuation">
       <span>
         {count}
-        <Text k="components.records.returned.requested.limit" />
-        {limit}.{' '}
+        <Text k="components.records.returned.requested.limit" />.{' '}
         {count >= limit
           ? limit < 200
             ? copyText('components.more.records.may.exist')
@@ -120,6 +119,10 @@ export type ActionSpec = {
   fields?: ActionField[];
   initial?: Record<string, string>;
   facts?: [string, string][];
+  /** Rows shown above the fields while filling in the form (balance, pool, APR, term...). */
+  formFacts?: [string, string][];
+  /** Rows worked out from what has been typed so far (estimates). Shown with the form and again in the review. */
+  liveRows?: (values: Record<string, string>) => [string, string][];
   notes: string[];
   input: (values: Record<string, string>, requestId: string) => Record<string, unknown>;
   validate?: (input: Record<string, unknown>) => string | null;
@@ -127,6 +130,8 @@ export type ActionSpec = {
   preflight?: (input: Record<string, unknown>) => Promise<ApiResult<null>>;
   /** Match returned fields to the original review where the wire exposes them. */
   verifyOutcome?: (data: unknown, input: Record<string, unknown>) => boolean;
+  /** Plain-words rows for a confirmed result, in place of the raw field list. Return null to fall back to it. */
+  describeOutcome?: (data: unknown, input: Record<string, unknown>) => [string, string][] | null;
   transferSpaces?: Space[];
   submit?: string;
   unit?: string;
@@ -263,6 +268,10 @@ function Outcome({ data, unit }: { data: unknown; unit?: string }) {
     );
   return <span>{data === null ? copyText('components.none') : String(data)}</span>;
 }
+/** Is a request built after an edit different from the one that was sent? Compared field by field, the reference included. */
+export function editedRequestChanged(sent: Record<string, unknown>, edited: Record<string, unknown>): boolean {
+  return JSON.stringify(sent) !== JSON.stringify(edited);
+}
 export function MutationDialog({
   spec,
   context,
@@ -286,7 +295,9 @@ export function MutationDialog({
   actor.current = { api, userId, token };
   const [clearFailure, setClearFailure] = useState(false);
   const [values, setValues] = useState(spec.initial ?? {});
-  const [requestId] = useState(() => crypto.randomUUID());
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  // The request that was last sent to the bank. A different request after it never reuses its reference.
+  const lastSent = useRef<Record<string, unknown> | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
@@ -353,7 +364,15 @@ export function MutationDialog({
       setErrors(next);
       return;
     }
-    const input = spec.input(values, requestId);
+    let input = spec.input(values, requestId);
+    // After a refusal, an unchanged request may be sent again under the same reference. A changed one is a new request:
+    // the bank may have kept the first one's reference, and would answer the new terms with the old ones.
+    if (lastSent.current && editedRequestChanged(lastSent.current, input)) {
+      const fresh = crypto.randomUUID();
+      input = spec.input(values, fresh);
+      setRequestId(fresh);
+      lastSent.current = null;
+    }
     const error = spec.validate?.(input);
     if (error) {
       setErrors({ form: error });
@@ -432,7 +451,11 @@ export function MutationDialog({
       if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
       // Local transfer validation precedes HTTP dispatch. Auth refusals occur
       // before the Bank handler. Other failures cannot prove non-settlement.
-      const definitive = outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403;
+      // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
+      const settled = settleRefusal(outcome, spec.procedure);
+      outcome = settled.outcome;
+      const definitive =
+        outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
       if (definitive) {
         try {
           await clearPendingOutcome(reservation, currentRun);
@@ -467,10 +490,13 @@ export function MutationDialog({
     if (!currentRun()) return;
     sending.current = null;
     setResult(outcome);
+    lastSent.current = input;
     setStage('outcome');
     if (outcome.ok) onDone();
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
+  const described =
+    result?.ok && staged.current.reviewInput ? (spec.describeOutcome?.(result.data, staged.current.reviewInput) ?? null) : null;
   return (
     <Dialog title={stage === 'review' ? copyText('components.review.3', { value1: spec.title.toLowerCase() }) : spec.title} onClose={close}>
       <div className="money-dialog-body" ref={body}>
@@ -486,6 +512,16 @@ export function MutationDialog({
               review();
             }}
           >
+            {Boolean(spec.formFacts?.length) && (
+              <dl className="detail-list money-form-facts">
+                {spec.formFacts!.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {spec.fields?.map((field) =>
               field.options ? (
                 <label className="field" key={field.name}>
@@ -534,6 +570,16 @@ export function MutationDialog({
                 />
               ),
             )}
+            {spec.liveRows && (
+              <dl className="detail-list money-form-facts" aria-live="polite">
+                {spec.liveRows(values).map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
             {errors.form && (
               <p className="error-text" role="alert">
                 {errors.form}
@@ -561,6 +607,12 @@ export function MutationDialog({
                       values[field.name] ??
                       copyText('components.none')}
                   </dd>
+                </div>
+              ))}
+              {spec.liveRows?.(values).map(([label, value]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
                 </div>
               ))}
             </dl>
@@ -594,10 +646,21 @@ export function MutationDialog({
                 <h3>
                   <Text k="components.confirmed.by.the.service" />
                 </h3>
-                <Outcome
-                  data={result.data}
-                  unit={spec.unit ?? spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit}
-                />
+                {described ? (
+                  <dl className="detail-list">
+                    {described.map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <Outcome
+                    data={result.data}
+                    unit={spec.unit ?? spec.fields?.find((field) => field.name === 'amount' || field.name === 'principal')?.unit}
+                  />
+                )}
               </>
             ) : (
               <Failure result={result} />
