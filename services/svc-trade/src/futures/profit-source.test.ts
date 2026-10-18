@@ -131,17 +131,17 @@ describe('checkProfitBound', () => {
     const ledger = new MemoryLedger();
     if (amount !== '0') {
       // Route value in through a real recipe so the pot's balance is a posted
-      // fact, not a fixture. `futuresRealizeLoss` is how fees legitimately land
-      // in the trade pot.
+      // fact, not a fixture. Trade fees land in houseFees('trade'); a realised
+      // loss debits futuresLossSink and does not (#5016).
       await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `seed-${amount}` }));
       await ledger.post(
-        recipes.futuresRealizeLoss({
-          positionId: 'seed',
+        recipes.feeCharge({
+          chargeId: `seed-${amount}`,
           userId: USER,
+          module: 'trade',
+          mode: 'asset',
           assetId: 'USDT',
-          fromMargin: 0n,
-          fromInsurance: amt(amount),
-          lossId: `seed-${amount}`,
+          amount: amt(amount),
         }),
       );
     }
