@@ -470,11 +470,13 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
       expect(await available()).toBe(amt('60'));
     });
 
-    it('fresh on a new clientRef, replay once sent, recovery once the hold is booked', async () => {
+    it('fresh on a new clientRef, replay once sent, and a requested attempt is not asked again', async () => {
       const flaky = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
       const realPayout = flaky.payout.bind(flaky);
       let fail = true;
+      let calls = 0;
       flaky.payout = async (instruction) => {
+        calls += 1;
         if (fail) {
           fail = false;
           throw new Error('rail connection dropped after the hold');
@@ -486,13 +488,20 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
       const money = moneyService({ beforeUserMoneyWithdrawal: async (ctx) => void seen.push(label(ctx.replay)) }, registry);
       await credit(money);
 
+      // The hold is booked and the attempt stays `requested` because the rail
+      // threw. WAL-0163: that retry must not call the rail again.
       await expect(money.withdraw(request('w-held'))).rejects.toThrow('rail connection dropped');
-      expect((await sql`SELECT status FROM pay.withdrawals`)[0]!.status).toBe('held');
-      const done = await money.withdraw(request('w-held'));
-      expect(done.status).toBe('sent');
-      const again = await money.withdraw(request('w-held'));
+      expect((await sql`SELECT status FROM pay.withdrawals WHERE client_ref = 'w-held'`)[0]!.status).toBe('held');
+      await expect(money.withdraw(request('w-held'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      expect(calls).toBe(1);
+      expect(await available()).toBe(amt('60'));
+
+      const sent = await money.withdraw(request('w-sent'));
+      expect(sent.status).toBe('sent');
+      const again = await money.withdraw(request('w-sent'));
       expect(again.status).toBe('sent');
-      expect(seen).toEqual(['fresh', 'recovery:withdrawal_hold_booked', 'replay:withdrawal_already_sent']);
+      expect(calls).toBe(2);
+      expect(seen).toEqual(['fresh', 'recovery:withdrawal_hold_booked', 'fresh', 'replay:withdrawal_already_sent']);
     });
   });
 });

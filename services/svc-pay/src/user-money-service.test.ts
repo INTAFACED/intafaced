@@ -247,8 +247,10 @@ describe('svc-pay user money PG-hard', () => {
     expect(held).toMatchObject({ status: 'held', attempts: 0, failureCode: null });
     expect(await holdOf(held!.id, 0)).toBe('40');
     expect(await availableOf()).toBe('60');
-    expect((await withdraw()).status).toBe('sent');
-    expect(new Set(keys).size).toBe(1);
+    // WAL-0163: a later retry of the same requested attempt does not ask the rail again.
+    await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+    expect(keys).toHaveLength(1);
+    expect((await money.getWithdrawal(held!.id)).status).toBe('held');
     expect(await availableOf()).toBe('60');
   });
 

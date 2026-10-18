@@ -2162,6 +2162,70 @@ export function createPayRouter(
         .query(({ ctx, input }) =>
           wrap(async () => ({ available: formatAmount(await userMoney.availableBalance(ctx.principal.userId, input.assetId)) })),
         ),
+
+      /**
+       * Support read of one withdrawal for its owner. No recall control.
+       * `support:read` so a customer session cannot relabel another account.
+       */
+      supportRead: scopedProcedure('support:read')
+        .input(z.object({ withdrawalId: z.string().uuid(), ownerUserId: z.string().uuid() }))
+        .output(
+          z.object({
+            withdrawalId: z.string(),
+            userId: z.string(),
+            label: z.enum(['irreversible', 'unknown']),
+            controls: z.array(z.string()),
+            attempts: z.array(z.object({ outcome: z.string(), railRef: z.string().nullable() })),
+            status: z.string(),
+          }),
+        )
+        .query(({ input }) => wrap(async () => userMoney.supportReadWithdrawal(input.withdrawalId, input.ownerUserId))),
+
+      estimateFee: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
+        .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
+        .query(({ input }) => wrap(async () => userMoney.estimateWithdrawalFee(input))),
+
+      cancel: scopedProcedure('trade:withdraw', { module: 'ledger' })
+        .input(z.object({ withdrawalId: z.string().uuid() }))
+        .output(z.object({ withdrawalId: z.string(), status: z.string() }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const row = await userMoney.cancelWithdrawal({ withdrawalId: input.withdrawalId, userId: ctx.principal.userId });
+            return { withdrawalId: row.id, status: row.status };
+          }),
+        ),
+
+      needsInfo: scopedProcedure('support:ops')
+        .input(z.object({ withdrawalId: z.string().uuid(), fields: z.record(z.string()) }))
+        .output(z.object({ withdrawalId: z.string(), status: z.string(), hold: amountSchema }))
+        .mutation(({ input }) =>
+          wrap(async () => {
+            const row = await userMoney.markWithdrawalNeedsInfo({ withdrawalId: input.withdrawalId, fields: input.fields });
+            return { withdrawalId: row.id, status: row.status, hold: formatAmount(row.holdAmount) };
+          }),
+        ),
+
+      /** Admin credit of a sent withdrawal. Refused unless a reason and a chain-return proof are both present. */
+      adminCredit: scopedProcedure('admin:treasury')
+        .input(
+          z.object({
+            withdrawalId: z.string().uuid(),
+            reason: z.string().max(500).nullish(),
+            chainReturnProof: z.string().max(200).nullish(),
+          }),
+        )
+        .output(z.object({ withdrawalId: z.string(), status: z.string() }))
+        .mutation(({ input }) =>
+          wrap(async () => {
+            const row = await userMoney.adminCreditWithdrawal({
+              withdrawalId: input.withdrawalId,
+              reason: input.reason ?? null,
+              chainReturnProof: input.chainReturnProof ?? null,
+            });
+            return { withdrawalId: row.id, status: row.status };
+          }),
+        ),
     }),
   });
 }
@@ -2414,6 +2478,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_not_pending':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_not_found':
+      case 'pay.wallet_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
@@ -2436,6 +2501,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.rail_not_creditable':
       case 'pay.kyb_operator_required':
       case 'pay.kyb_required':
+      case 'pay.wallet_forbidden':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
       case 'pay.kyb_identity_changed':

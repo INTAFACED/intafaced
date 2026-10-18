@@ -23,6 +23,7 @@ import { railBlockingReason, railReasonCode, railRefusalIfBlocking, type RailAda
 import type { RailRegistry } from './rails/registry.js';
 import { assertRailMayMoveValue, type ValueMovementPolicy } from './rails/posture.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
+import { railRetryWhileRequested, supportLabel, type ChainReader, type WalletAttempt, type WalletPay } from './wallet/wallet-pay.js';
 
 /**
  * USER MONEY IN AND OUT (§4.2 `deposit` / `withdraw`).
@@ -155,6 +156,16 @@ export interface UserMoneyOptions {
    * or constructed with no failure count, records nothing.
    */
   readonly haltStore?: PayHaltStore;
+
+  /**
+   * Customer wallet rules (slice S38). Omitted in tests that exercise the rail
+   * state machine on its own. When set, a fresh withdrawal is refused here,
+   * before a hold, while the published withdraw feature is not live.
+   */
+  readonly wallet?: WalletPay;
+
+  /** Used when a support read falls through to `pay.withdrawal_rail_attempts`. Down leaves the label unknown. */
+  readonly chainReader?: ChainReader;
 }
 
 export class UserMoneyService {
@@ -162,6 +173,8 @@ export class UserMoneyService {
   private readonly valueMovement: ValueMovementPolicy;
   private readonly guards: PayGuards;
   private readonly haltStore: PayHaltStore | undefined;
+  private readonly wallet: WalletPay | undefined;
+  private readonly chainReader: ChainReader;
 
   constructor(
     private readonly sql: Sql,
@@ -173,6 +186,8 @@ export class UserMoneyService {
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
     this.guards = options.guards ?? NOOP_GUARDS;
     this.haltStore = options.haltStore;
+    this.wallet = options.wallet;
+    this.chainReader = options.chainReader ?? { confirm: async () => 'down' };
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -375,6 +390,25 @@ export class UserMoneyService {
     keyEnv?: 'sandbox';
   }): Promise<WithdrawalRecord> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
+    if (this.wallet) {
+      const prior = await this.sql<Array<{ status: string }>>`
+        SELECT status FROM pay.withdrawals
+         WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+      `;
+      const status = prior[0]?.status;
+      // A fresh ask is the customer door. A held or sent retry finishes the
+      // original withdrawal and must not be refused by a later feature gate.
+      if (!status || status === 'failed') {
+        await this.wallet.assertCustomerWithdrawal({
+          userId: input.userId,
+          assetId: input.assetId,
+          network: input.rail,
+          amount: input.amount,
+          clientRef: input.clientRef,
+          typedAddress: input.destination.ref,
+        });
+      }
+    }
     if (input.keyEnv === 'sandbox') {
       refuseSandboxLive(
         recipes.withdrawHold({
@@ -509,6 +543,12 @@ export class UserMoneyService {
         SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts
          WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt}
       `;
+          // WAL-0163: a requested attempt may already have been sent. Do not ask again.
+          if (railRetryWhileRequested(prior[0]?.outcome) === 'unknown') {
+            throw new PayError('A withdrawal attempt is already requested; the rail is not asked again', 'pay.rail_outcome_unknown', {
+              withdrawalId: claimed.id,
+            });
+          }
           // Legacy held rows have unknown dispatch history. Never interpret their
           // next refusal as proof that no earlier send committed.
           const firstDispatch = prior.length === 0 && claimed.status !== 'held';
@@ -795,6 +835,79 @@ export class UserMoneyService {
                failure_code = ${failureCode}, updated_at = now()
          WHERE id = ${claimed.id} AND status = 'held'
       `;
+  }
+
+  // ── Wallet slice (S38) ─────────────────────────────────────────────────────
+
+  private requireWallet(): WalletPay {
+    if (!this.wallet) throw new PayError('Wallet rules are not configured', 'pay.wallet_unconfigured');
+    return this.wallet;
+  }
+
+  estimateWithdrawalFee(input: { assetId: string; chain: string; address: string }) {
+    return this.requireWallet().estimateFee(input);
+  }
+
+  cancelWithdrawal(input: { withdrawalId: string; userId: string }) {
+    return this.requireWallet().cancelWithdrawal(input);
+  }
+
+  markWithdrawalNeedsInfo(input: { withdrawalId: string; fields: Record<string, string> }) {
+    return this.requireWallet().markNeedsInfo(input);
+  }
+
+  adminCreditWithdrawal(input: { withdrawalId: string; reason: string | null; chainReturnProof: string | null }) {
+    return this.requireWallet().adminCreditSent(input);
+  }
+
+  deliverWatchedInbound(input: Parameters<WalletPay['deliverInbound']>[0]) {
+    return this.requireWallet().deliverInbound(input);
+  }
+
+  listUncreditedInbounds() {
+    return this.requireWallet().listUncredited();
+  }
+
+  remainingWithdrawalCap(userId: string, assetId: string) {
+    return this.requireWallet().remainingCap(userId, assetId);
+  }
+
+  /**
+   * Support read. Wallet rows win. Otherwise the existing withdrawal and its
+   * rail attempts. Another user's id is forbidden. The read posts nothing.
+   */
+  async supportReadWithdrawal(withdrawalId: string, ownerUserId: string) {
+    if (this.wallet) {
+      try {
+        return await this.wallet.supportRead({ withdrawalId, ownerUserId });
+      } catch (error) {
+        if (!(error instanceof PayError) || error.code !== 'pay.wallet_not_found') throw error;
+      }
+    }
+    const rows = await this.sql<WithdrawalRow[]>`
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        FROM pay.withdrawals WHERE id = ${withdrawalId}
+    `;
+    const row = rows[0];
+    if (!row) throw new PayError(`Withdrawal ${withdrawalId} not found`, 'pay.wallet_not_found');
+    if (row.user_id !== ownerUserId) throw new PayError('This withdrawal belongs to another account', 'pay.wallet_forbidden');
+    const attempts = await this.sql<Array<{ outcome: string; rail_ref: string | null }>>`
+      SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts
+       WHERE withdrawal_id = ${withdrawalId}
+       ORDER BY attempt
+    `;
+    const mapped: WalletAttempt[] = attempts.map((attempt) => ({
+      outcome: attempt.outcome === 'accepted' || attempt.outcome === 'requested' ? attempt.outcome : 'refused',
+      railRef: attempt.rail_ref,
+    }));
+    return {
+      withdrawalId: row.id,
+      userId: row.user_id,
+      label: await supportLabel(mapped, this.chainReader),
+      controls: [] as string[],
+      attempts: mapped,
+      status: row.status,
+    };
   }
 
   // ── Reads ──────────────────────────────────────────────────────────────────

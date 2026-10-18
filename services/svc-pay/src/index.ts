@@ -33,6 +33,8 @@ import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { UserMoneyService } from './user-money-service.js';
+import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
+import { PostgresWalletStore } from './wallet/wallet-store.js';
 import { createLedgerClient } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
@@ -354,11 +356,28 @@ for (const railId of env.PAY_OPERATOR_CREDIT_RAILS) {
   throw new Error(`PAY_OPERATOR_CREDIT_RAILS names "${railId}", which is not a registered rail. Registered: ${rails.ids().join(', ')}`);
 }
 
+const walletChainReader = { confirm: async (): Promise<'down'> => 'down' };
+const walletPay = new WalletPay({
+  ledger,
+  store: new PostgresWalletStore(sql),
+  publish: failClosedWalletPublish(),
+  chainReader: walletChainReader,
+  rail: {
+    async payout() {
+      throw new PayError('A new withdrawal is unavailable', 'pay.wallet_withdraw_unavailable');
+    },
+  },
+  allowlist: { has: () => false },
+  now: () => new Date(),
+});
+
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
   haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
+  wallet: walletPay,
+  chainReader: walletChainReader,
 });
 
 /**
