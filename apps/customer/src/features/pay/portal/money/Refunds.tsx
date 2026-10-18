@@ -117,7 +117,7 @@ export function Refunds({ portal, merchantId }: { portal: PortalApi; merchantId:
             period: t('mnPeriod30'),
             href: '/pay/refunds?date=30d',
             value: n ? (n.nextCursor ? t('mnCountNewest', { n: done.length }) : String(done.length)) : '—',
-            note: reversed > 0 ? t('rfCountReversedNote', { n: reversed }) : undefined,
+            note: reversed > 0 ? t(n?.nextCursor ? 'rfCountReversedNoteMore' : 'rfCountReversedNote', { n: reversed }) : undefined,
           },
           {
             label: t('rfRefunded'),
