@@ -27,6 +27,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.rate_limited': 'error.rateLimited',
   'edge.upstream_unavailable': 'error.network',
   'edge.upstream_unwired': 'error.network',
+  'edge.authority_unavailable': 'error.generic',
   'edge.geo_blocked': 'error.region.blocked',
   'edge.geo_region_unknown': 'error.region.blocked',
   'edge.kill_switch_undecidable': 'error.generic',

@@ -861,6 +861,67 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(matching.amended).toHaveLength(0);
       expect(await heldFor(ALICE, 'USDT', original.id)).toBe('200');
     });
+
+    it('qty-down stores committed fill sum plus the new remaining when filled_qty is stale', async () => {
+      await fund(BOB, 'BTC', '10');
+      await fund(ALICE, 'USDT', '1000');
+      const maker = await rest(BOB, btcusdt, 'sell', '10', '100', 'bob-stale-fill');
+      const taker = await rest(ALICE, btcusdt, 'buy', '10', '100', 'alice-stale-fill');
+
+      // Fill rows committed, tradeFill not posted, filled_qty still the
+      // pre-refresh cache. settleFill rewrites that cache before the post;
+      // a death between the insert and the refresh leaves the column behind.
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.reason === 'trade.fill') throw new Error('died before tradeFill');
+        return post(request);
+      };
+      const fill = {
+        marketId: btcusdt.id,
+        makerOrderId: maker.id,
+        takerOrderId: taker.id,
+        price: '100',
+        qty: '4',
+        sequence: 42,
+      };
+      await expect(trade.settleFillEvent(fill)).rejects.toThrow('died before tradeFill');
+      ledger.post = post;
+      await sql`
+        UPDATE trade.orders
+           SET filled_qty = 0
+         WHERE id IN (${maker.id}, ${taker.id})
+      `;
+
+      const [sumRow] = await sql<Array<{ qty: string }>>`
+        SELECT COALESCE(SUM(qty), 0)::text AS qty
+          FROM trade.fills
+         WHERE order_id = ${taker.id}
+      `;
+      const committedFillQty = amt(sumRow?.qty ?? '0');
+      expect(formatAmount(committedFillQty)).toBe('4');
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+
+      const outcome = await trade.amendOrder(principalFor(ALICE), taker.id, { qty: amt('1') });
+
+      expect(outcome).toMatchObject({ accepted: true, code: 'AMENDED' });
+      expect(formatAmount(outcome.order.qty)).toBe(formatAmount(committedFillQty + amt('1')));
+      const [amendEvent] = await sql<Array<{ quantity: string }>>`
+        SELECT quantity::text AS quantity
+          FROM trade.order_events
+         WHERE order_id = ${taker.id}
+           AND kind = 'amend'
+      `;
+      expect(formatAmount(amt(amendEvent?.quantity ?? '0'))).toBe('5');
+
+      await trade.settleFillEvent(fill);
+
+      const settled = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
+      expect(settled.filledQty <= settled.qty).toBe(true);
+      expect(formatAmount(settled.filledQty)).toBe('4');
+      expect(postsWithReason('trade.fill')).toHaveLength(1);
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ── THE double-release trap ─────────────────────────────────────────
