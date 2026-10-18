@@ -80,7 +80,7 @@
       font-size: 16px;
       line-height: 24px;
     }
-    .p2p-offer-maker .pay-status {
+    .p2p-offer-maker [data-slot='status-tag'] {
       align-self: flex-start;
     }
     .p2p-offer-range {

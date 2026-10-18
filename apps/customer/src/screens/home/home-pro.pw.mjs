@@ -433,12 +433,12 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
   expect(await sizes()).toEqual(beforeSizes);
 });
 
-test('empty account: zero is shown once, with one plain line and only Receive and Buy', async ({ page }) => {
+test('empty account: zero is shown once, with one plain line and only Add money, Receive and Buy', async ({ page }) => {
   await mock(page, { balance: () => emptyBalances(), 'orders/open': () => [] });
   await openPro(page);
   await expectHero(page, '$0.00');
   await expect(page.locator('.hp-total__note')).toHaveText(/Your account is empty/);
-  expect(await texts(page.locator('.hp-actions > *'))).toEqual(['Receive', 'Buy']);
+  expect(await texts(page.locator('.hp-actions > *'))).toEqual(['Add money', 'Receive', 'Buy']);
   await expect(page.locator('.hp-assets')).toHaveCount(0); // nothing to list
   await ready(page); // markets still render
   expect(await page.locator('.if-home-pro').innerText()).not.toMatch(forbidden);

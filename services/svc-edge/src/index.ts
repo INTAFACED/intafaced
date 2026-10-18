@@ -3,6 +3,7 @@ import { AuthError, type Principal } from '@intafaced/auth';
 import { assertNoLocalTestFixtures, assertScreeningConfigured } from '@intafaced/config';
 import { createAdminApi, httpLedgerOperator } from './admin-api.js';
 import { readEdgeAuthority } from './live-authority.js';
+import { authorityTimeoutFor } from './authority-timeout.js';
 import { createHttpEdgeApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
 import { httpMatchingOperator } from './matching-operator-door.js';
@@ -179,14 +180,21 @@ const tokenConfig = {
 /** §14.6 — the operator kill-switch, and the first one in the platform anything can reach. */
 const killSwitches = new KillSwitchState({ statePath: env.EDGE_KILL_STATE_PATH });
 
+/** Under VITEST an unset window is 0 so a shared fixture session cannot leak between cases. */
+const authorityPositiveCacheMs = process.env.VITEST ? 0 : env.EDGE_AUTHORITY_POSITIVE_CACHE_MS;
+
 const sessionLive = async (principal: Principal) => {
   if (
     principal.kid ||
     principal.sub_account ||
-    !(await readEdgeAuthority(principal, {
-      identityUrl: env.IDENTITY_URL,
-      identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
-    }))
+    (
+      await readEdgeAuthority(principal, {
+        identityUrl: env.IDENTITY_URL,
+        identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+        timeoutMs: env.EDGE_AUTHORITY_STRICT_TIMEOUT_MS,
+        positiveCacheMs: authorityPositiveCacheMs,
+      })
+    ).status !== 'eligible'
   )
     throw new AuthError('Operator session is not live', 'token.invalid');
 };
@@ -403,8 +411,22 @@ await app.register(async (api) => {
       // x-forwarded-for — principal-exchange strips those and writes this.
       clientIp: req.ip,
       resolvedProduct: target.upstream.module,
+      authorityTimeoutMs: authorityTimeoutFor(req.method, target.upstream.module, env),
+      authorityPositiveCacheMs,
       request: { method: req.method, path: `${url.pathname}${url.search}`, body: rawBody },
     });
+
+    // Identity could not be asked (slow, down, malformed answer). That is not "signed out": refuse
+    // this request with a retryable 503 and never forward it as anonymous, so the client keeps its
+    // session and retries. Money and security writes stop here too, with nothing executed.
+    if (exchanged.rejected === 'unavailable') {
+      req.log.warn({ path: url.pathname }, 'edge: identity authority unavailable');
+      markAuthOutcome(req, 'refused');
+      return reply
+        .code(503)
+        .header('retry-after', '1')
+        .send({ error: userCopy('edge.authority_unavailable'), code: 'edge.authority_unavailable' });
+    }
 
     // A refused token is logged and the request continues as ANONYMOUS. The
     // service decides — `protectedProcedure` answers UNAUTHORIZED with the right
