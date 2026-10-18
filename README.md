@@ -38,7 +38,7 @@ cp .env.example .env        # read the header: two secrets must match fleet-wide
 pnpm platform:up            # docker compose -f docker-compose.apps.yml up -d --build
 ```
 
-Ports, boot order and what to do when it does not come up: [`docs/RUNNING.md`](docs/RUNNING.md). The customer site is then on http://localhost:8090 and the admin console on http://localhost:3100.
+Services, ports and required settings: [`docs/SERVICES.md`](docs/SERVICES.md); local run steps: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ("Run it locally"). The customer site is then on http://localhost:8090 and the admin console on http://localhost:3100.
 
 **Just the infrastructure, for tests:**
 
