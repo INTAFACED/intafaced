@@ -39,6 +39,20 @@ const mintedSchema = z.object({
   refreshable: z.literal(false),
 });
 
+/** The token's own lifetime in ms (`exp - iat`), or null when it is not a readable token. It is only read, never trusted for more than ten minutes. */
+function lifetimeOf(token: string): number | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const claims: unknown = JSON.parse(atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')));
+    const { exp, iat } = (claims ?? {}) as { exp?: unknown; iat?: unknown };
+    return typeof exp === 'number' && typeof iat === 'number' ? (exp - iat) * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
 export type FactorProof = { totpCode: string } | { webauthn: unknown };
 
 type Held = { token: string; expiresAt: number; timer: ReturnType<typeof setTimeout> | null };
@@ -161,10 +175,12 @@ export function createStepUpStore(clock: () => number = Date.now) {
       const parsed = mintedSchema.safeParse(reply);
       if (!parsed.success || !bound) return false;
       if (!parsed.data.scopes.includes(MONEY_SCOPE[kind])) return false;
-      const said = Date.parse(parsed.data.expiresAt);
-      if (!Number.isFinite(said)) return false;
-      const expiresAt = Math.min(said, clock() + TOKEN_MAX_MS);
-      if (expiresAt - clock() <= 0) return false;
+      // The reply must carry a real expiry, but this device's clock is not trusted to read it: the token is held for its
+      // own lifetime (exp - iat, from the token itself) counted from now, and never more than ten minutes.
+      if (!Number.isFinite(Date.parse(parsed.data.expiresAt))) return false;
+      const lifetime = Math.min(TOKEN_MAX_MS, lifetimeOf(parsed.data.accessToken) ?? TOKEN_MAX_MS);
+      if (lifetime <= 0) return false;
+      const expiresAt = clock() + lifetime;
       forget(kind, false);
       owner = { ...bound };
       const timer = setTimeout(() => forget(kind), Math.max(0, expiresAt - clock()) + 50);
@@ -243,7 +259,7 @@ export async function mintPayStepUp(
     'auth.stepUpPay',
     { merchantId: input.merchantId, scopes: [MONEY_SCOPE[input.kind]], factorProof: input.proof },
     mintedSchema,
-    { signal, keepSession: true },
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
   );
 }
 

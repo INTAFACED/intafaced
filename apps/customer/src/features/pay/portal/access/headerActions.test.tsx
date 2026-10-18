@@ -57,10 +57,16 @@ describe('header actions follow the same scope check as the page buttons', () =>
   });
   it('says who can when the person cannot confirm a payment, in the present tense', () => {
     const pay = payFor(authority(['pay:read', 'pay:write']));
-    for (const room of ['refunds', 'payouts', 'money', 'settlements', 'payout-destinations'] as const)
-      expect(headerActionReason(room, value(ready('admin')), pay), room).toBe(
-        room === 'refunds' ? 'Only the account owner can refund payments.' : 'Only the account owner can send payouts.',
+    // Refunds and sending a payout are the owner's alone.
+    expect(headerActionReason('refunds', value(ready('admin')), pay)).toBe('Only the account owner can refund payments.');
+    expect(headerActionReason('payout-destinations', value(ready('admin')), pay)).toBe('Only the account owner can send payouts.');
+    // The pages that ask for a payout follow the role's permission: admins (and finance) may, a viewer may not.
+    for (const room of ['payouts', 'money', 'settlements'] as const) {
+      expect(headerActionReason(room, value(ready('admin')), pay), room).toBeNull();
+      expect(headerActionReason(room, value(ready('viewer')), pay), room).toBe(
+        'Only the account owner, admins and finance can ask for a payout or take a request back.',
       );
+    }
     // Making a link and the other ordinary writes stay on.
     for (const room of ['links', 'payments', 'dashboard'] as const)
       expect(headerActionReason(room, value(ready('owner')), pay), room).toBeNull();

@@ -254,16 +254,40 @@ test('an owner whose session carries no refund or payout scope sees every money-
   expect(mock.calls.filter((c) => c.procedure === 'auth.stepUpPay')).toHaveLength(0);
 });
 
-test('a teammate who is not the owner sees the controls off, and the words say who can', async ({ page }) => {
+test('a finance teammate sees refunds off with who can, and the payout request on', async ({ page }) => {
   await setup(page, 'active', { role: 'finance', myAccess: 'finance' });
   await signIn(page, '/pay/refunds');
   await expect(page.getByRole('button', { name: 'Issue a refund' }).first()).toBeDisabled();
   await expect(page.getByText(REFUND_OWNER_ONLY).first()).toBeVisible();
   await snap(page, 'su2-refunds-owner-only');
   await go(page, '/pay/payouts');
-  await expect(page.getByRole('button', { name: 'Pay out' }).first()).toBeDisabled();
-  await expect(page.getByText(PAYOUT_OWNER_ONLY).first()).toBeVisible();
+  // asking for a payout follows the role's permission, which finance holds; sending one stays the owner's
+  await expect(page.getByRole('link', { name: 'Pay out' }).first()).toBeVisible();
   await expect(page.locator('main')).not.toContainText(/confirmed sign-in step|does not offer/);
+});
+
+test('a finance teammate asks for a payout approval after confirming it’s them, and still cannot send or refund', async ({ page }) => {
+  const { mock } = await setup(page, 'active', { role: 'finance', myAccess: 'finance' });
+  // A payout over the approval limit that fits today's payout limit, so asking for approval is the path.
+  const ready = mock.world.settlementById(STL_READY);
+  Object.assign(ready, { gross: '1120.00', fees: '20.00', net: '1100.00' });
+  await signIn(page, `/pay/payouts/new?settlement=${STL_READY}`);
+  await page.getByLabel('Destination').selectOption({ index: 1 });
+  // asking is theirs to do: the control is on, and it asks to confirm it's them first
+  await expect(page.getByText(PAYOUT_OWNER_ONLY)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Pay out' }).click();
+  await confirmItsYou(page);
+  await confirm(page, 'Pay out');
+  await expect(page.getByText('Your request is with your team for approval.').first()).toBeVisible();
+  const asked = mock.calls.filter((c) => c.procedure === 'merchantControl.approvals.request');
+  expect(asked).toHaveLength(1);
+  expect(asked[0].bearer).toMatch(STEP_UP_TOKEN);
+  expect(mock.calls.filter((c) => c.procedure === 'settlement.payout')).toHaveLength(0);
+  expect(mock.calls.find((c) => c.procedure === 'auth.stepUpPay').input.scopes).toEqual(['pay:payout']);
+  // refunds stay the owner's
+  await go(page, '/pay/refunds');
+  await expect(page.getByRole('button', { name: 'Issue a refund' }).first()).toBeDisabled();
+  await expect(page.getByText(REFUND_OWNER_ONLY).first()).toBeVisible();
 });
 
 test('a refund asks to confirm it’s you before the review, then sends with the confirmation token and nothing else does', async ({

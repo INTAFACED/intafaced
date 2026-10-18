@@ -17,6 +17,13 @@ export const MONEY_SCOPE: Record<MoneyKind, 'pay:refund' | 'pay:payout'> = { ref
 export const isMoneyScope = (scope: string): scope is 'pay:refund' | 'pay:payout' => scope === 'pay:refund' || scope === 'pay:payout';
 export const moneyKindOf = (scope: 'pay:refund' | 'pay:payout'): MoneyKind => (scope === 'pay:refund' ? 'refund' : 'payout');
 
+/**
+ * Which payout action is being opened. All of them carry `pay:payout`, but the service admits different people:
+ * sending is the owner's alone; asking for approval, taking a request back and converting follow the role's permission
+ * (`payout.request` or `payout.approve`, `payout.approve`), which admins and finance hold.
+ */
+export type PayoutAct = 'send' | 'request' | 'cancel' | 'convert';
+
 /** Who can, in words. Refund and payout are the account owner's: the service admits no one else to either. */
 export const ownerOnlyReason = (kind: MoneyKind): string => chromeCopy.t(kind === 'refund' ? 'moneyStepRefund' : 'moneyStepPayout');
 
@@ -39,9 +46,16 @@ export function moneyReason(kind: MoneyKind, scopes: ReadonlySet<string> | reado
  * Why a refund or a payout cannot be started by the person `access` describes, or null when they may begin (the
  * confirmation comes when they open the action). Anything not yet known is off: nothing guesses that money may move.
  */
-export function moneyReasonFor(kind: MoneyKind, access: Access): string | null {
+export function moneyReasonFor(kind: MoneyKind, access: Access, act: PayoutAct = 'send'): string | null {
   if (access.status !== 'ready') return chromeCopy.t('headerActionWaiting');
-  if (access.role !== 'owner') return ownerOnlyReason(kind);
+  if (kind === 'payout' && act !== 'send') {
+    // Ask, take back, convert: the owner, or a role whose permission covers it.
+    const held = access.capabilities;
+    const mayAct =
+      access.role === 'owner' ||
+      (act === 'convert' ? held.has('payout.approve') : held.has('payout.request') || held.has('payout.approve'));
+    if (!mayAct) return chromeCopy.t(act === 'convert' ? 'moneyStepConvert' : 'moneyStepRequest');
+  } else if (access.role !== 'owner') return ownerOnlyReason(kind);
   if (access.accountStatus !== 'active') return chromeCopy.t('moneyStepInactive');
   if (access.sessionInteractive === false) return chromeCopy.t('moneyStepKeys');
   return null;

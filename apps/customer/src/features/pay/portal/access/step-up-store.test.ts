@@ -49,7 +49,6 @@ describe('the confirmation token', () => {
     expect(store.remember('refund', minted(clock, { scopes: ['pay:read'] }))).toBe(false);
     expect(store.remember('refund', minted(clock, { refreshable: true }))).toBe(false);
     expect(store.remember('refund', { ...minted(clock), expiresAt: 'soon' })).toBe(false);
-    expect(store.remember('refund', { ...minted(clock), expiresAt: new Date(clock.now - 1000).toISOString() })).toBe(false);
     expect(store.remember('refund', { accessToken: '' })).toBe(false);
     expect(store.bearerFor('payment.refund')).toBeUndefined();
   });
@@ -59,6 +58,22 @@ describe('the confirmation token', () => {
     clock.now += TOKEN_MAX_MS + 1;
     expect(store.bearerFor('payment.refund')).toBeUndefined();
     expect(store.minutesLeft('refund')).toBeNull();
+  });
+  it('counts the token’s own lifetime (exp - iat) from now, not from the reply’s clock', () => {
+    const { clock, store } = setup();
+    const part = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
+    // A reply whose clock is hours off (expiresAt in the past) still holds for its own 120 s, counted from now.
+    const jwt = `${part({ alg: 'HS256' })}.${part({ iat: 1_000_000, exp: 1_000_120 })}.sig`;
+    const skewed = { ...minted(clock), accessToken: jwt, expiresAt: new Date(clock.now - 3 * 3_600_000).toISOString() };
+    expect(store.remember('refund', skewed)).toBe(true);
+    expect(store.minutesLeft('refund')).toBe(2);
+    clock.now += 120_001;
+    expect(store.bearerFor('payment.refund')).toBeUndefined();
+    // a lifetime longer than ten minutes is cut to ten
+    const long = `${part({ alg: 'HS256' })}.${part({ iat: 1, exp: 100_000 })}.sig`;
+    store.remember('refund', { ...minted(clock), accessToken: long });
+    clock.now += TOKEN_MAX_MS + 1;
+    expect(store.bearerFor('payment.refund')).toBeUndefined();
   });
   it('is not reused when little is left, so a review that takes a moment never meets an expired token', () => {
     const { clock, store } = setup();

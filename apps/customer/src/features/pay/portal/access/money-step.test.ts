@@ -58,6 +58,35 @@ describe('who may begin a refund or a payout', () => {
       expect(moneyReasonFor('payout', ready({ role }))).toBe('Only the account owner can send payouts.');
     }
   });
+  it('splits the payout actions: sending is the owner’s, asking, taking back and converting follow the role’s permission', () => {
+    const financeCaps = new Set(['payout.request', 'payout.approve'] as const);
+    const finance = ready({ role: 'finance', capabilities: financeCaps });
+    const requestOnly = ready({ role: 'developer', capabilities: new Set(['payout.request'] as const) });
+    const viewer = ready({ role: 'viewer', capabilities: new Set() });
+    expect(moneyReasonFor('payout', finance, 'send')).toBe('Only the account owner can send payouts.');
+    expect(moneyReasonFor('payout', finance, 'request')).toBeNull();
+    expect(moneyReasonFor('payout', finance, 'cancel')).toBeNull();
+    expect(moneyReasonFor('payout', finance, 'convert')).toBeNull();
+    // asking needs payout.request or payout.approve; converting needs payout.approve
+    expect(moneyReasonFor('payout', requestOnly, 'request')).toBeNull();
+    expect(moneyReasonFor('payout', requestOnly, 'convert')).toBe('Only the account owner, admins and finance can convert a settlement.');
+    expect(moneyReasonFor('payout', viewer, 'request')).toBe(
+      'Only the account owner, admins and finance can ask for a payout or take a request back.',
+    );
+    expect(moneyReasonFor('payout', viewer, 'cancel')).toBe(
+      'Only the account owner, admins and finance can ask for a payout or take a request back.',
+    );
+    // the owner can do all of them, and refunds stay the owner's
+    for (const act of ['send', 'request', 'cancel', 'convert'] as const) expect(moneyReasonFor('payout', ready(), act)).toBeNull();
+    expect(moneyReasonFor('refund', finance)).toBe('Only the account owner can refund payments.');
+    // the account and session checks still apply to every action
+    expect(moneyReasonFor('payout', ready({ role: 'finance', capabilities: financeCaps, accountStatus: 'suspended' }), 'request')).toBe(
+      'Refunds and payouts open once your business account is active.',
+    );
+    expect(moneyReasonFor('payout', ready({ role: 'finance', capabilities: financeCaps, sessionInteractive: false }), 'convert')).toBe(
+      'API keys and sub-accounts cannot confirm a payment.',
+    );
+  });
   it('says why an owner cannot: an account that is not active, an API key', () => {
     expect(moneyReasonFor('refund', ready({ accountStatus: 'suspended' }))).toBe(
       'Refunds and payouts open once your business account is active.',

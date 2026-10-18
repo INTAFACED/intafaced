@@ -15,10 +15,10 @@ export type RequestOptions = {
    */
   bearer?: string;
   /**
-   * A 401 on this call is its own answer (a wrong confirmation code), not proof that the session ended, so it does
-   * not sign the person out.
+   * Service codes whose 401 is this call's own answer (a wrong confirmation code), not proof that the session ended.
+   * A 401 with one of these codes does not sign the person out; any other 401 follows the normal path.
    */
-  keepSession?: boolean;
+  keepSessionFor?: readonly string[];
 };
 export type RestOptions = RequestOptions & {
   method?: 'GET' | 'POST' | 'DELETE' | 'PUT' | 'PATCH';
@@ -106,7 +106,7 @@ export function createApiClient(
     const overridden = requestOptions.bearer !== undefined;
     const token = requestOptions.bearer ?? options.token?.();
     // A refusal of an override token, or of a call that owns its 401, never counts as the session ending.
-    const sessionEnds = !overridden && !requestOptions.keepSession;
+    const sessionEnds = (code?: string) => !overridden && !(code !== undefined && requestOptions.keepSessionFor?.includes(code));
     if (token) headers.authorization = `Bearer ${token}`;
     if (requestOptions.idempotencyKey) headers['Idempotency-Key'] = requestOptions.idempotencyKey;
     const controller = new AbortController();
@@ -141,7 +141,7 @@ export function createApiClient(
                         ? 'unreachable'
                         : 'uncertain'
                       : 'error';
-          if (reason === 'unauthorized' && sessionEnds) options.onUnauthorized?.(token);
+          if (reason === 'unauthorized' && sessionEnds()) options.onUnauthorized?.(token);
           return authoredRefusal(
             reason,
             reason === 'unreachable'
@@ -176,7 +176,7 @@ export function createApiClient(
         let reason: RefusalReason = 'error';
         if (response.status === 401) {
           reason = 'unauthorized';
-          if (sessionEnds) options.onUnauthorized?.(token);
+          if (sessionEnds(code)) options.onUnauthorized?.(token);
         } else if (response.status === 403) reason = 'forbidden';
         else if (response.status === 404) reason = 'not_mounted';
         else if (response.status === 501) reason = 'not_supported';

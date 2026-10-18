@@ -189,13 +189,13 @@ const passkeyFailure = (code: string, reason: Failed['reason'] = 'error'): Faile
 /**
  * Asks the person's passkey to confirm a payment. The identity service issues a single-use challenge for this person
  * (`auth.stepUpOptions`); the browser signs it; the answer goes back to `auth.stepUpPay` and nowhere else. Nothing here
- * ends the session if the service refuses: that refusal is its own answer. A failure carries a `portal.passkey_*` code
+ * ends the session on a refusal of the assertion itself (`auth.webauthn_invalid`); any other 401 is the normal sign-out path. A failure carries a `portal.passkey_*` code
  * the caller words itself.
  */
 export async function requestPasskeyAssertion(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<PasskeyAssertion>> {
   if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
     return passkeyFailure('portal.passkey_unavailable', 'not_supported');
-  const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal, keepSession: true });
+  const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal });
   if (!options.ok) return options;
   const json = options.data;
   const canonical = (value: string) => /^[A-Za-z0-9_-]+$/.test(value) && base64url(bytes(value)) === value;

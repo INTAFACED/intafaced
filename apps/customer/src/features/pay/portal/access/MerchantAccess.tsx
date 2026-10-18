@@ -11,7 +11,7 @@ import { allows, canOwnerWrite as ownerMayWrite, resolveAccess, type Access, typ
 import type { MyAccess } from './schemas';
 import { NoBusiness } from './NoBusiness';
 import { publishAccess } from './shared-access';
-import { moneyReasonFor, type MoneyKind } from './money-step';
+import { moneyReasonFor, type MoneyKind, type PayoutAct } from './money-step';
 import { scopesOfAccessToken } from './session-scopes';
 import { StepUpHost } from './step-up';
 
@@ -36,7 +36,7 @@ export type MerchantAccessValue = {
   /** The scopes the signed-in session carries (read from its access token), or null when they cannot be read. */
   sessionScopes: ReadonlySet<string> | null;
   /** Why a refund or a payout cannot be started by this person, in words (who can), or null when they may begin: opening the action asks them to confirm it's them. One answer for every control. */
-  moneyReason: (kind: MoneyKind) => string | null;
+  moneyReason: (kind: MoneyKind, act?: PayoutAct) => string | null;
 };
 
 const Context = createContext<MerchantAccessValue | null>(null);
@@ -67,7 +67,7 @@ export function MerchantAccessProvider({ children }: { children: ReactNode }) {
       can: (need) => allows(access, need),
       canOwnerWrite: ownerMayWrite(access),
       sessionScopes,
-      moneyReason: (kind) => moneyReasonFor(kind, access),
+      moneyReason: (kind, act) => moneyReasonFor(kind, access, act),
     };
   }, [userId, accessToken, myAccess.resource, merchant.resource, team.resource, myAccess.reload, merchant.reload, team.reload]);
   useEffect(() => {

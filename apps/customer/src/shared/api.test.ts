@@ -169,11 +169,23 @@ describe('a call with its own bearer', () => {
     await api.mutate('pay', 'settlement.payout', {}, z.unknown());
     expect(ended).toEqual(['session-token']);
   });
-  it('lets a call keep the session when a 401 is its own answer (a wrong code)', async () => {
+  it('keeps the session only for the codes a call names as its own answer (a wrong code); any other 401 ends it', async () => {
     const ended: Array<string | undefined> = [];
-    const api = createApiClient({ token: () => 'session-token', onUnauthorized: (t) => ended.push(t), fetch: async () => unauthorized() });
-    await api.mutate('identity', 'auth.stepUpPay', {}, z.unknown(), { keepSession: true });
+    const withCode = (code?: string) =>
+      new Response(JSON.stringify({ error: { message: 'no', data: { code: 'UNAUTHORIZED', ...(code ? { cause: { code } } : {}) } } }), {
+        status: 401,
+      });
+    let next = withCode('auth.mfa_invalid');
+    const api = createApiClient({ token: () => 'session-token', onUnauthorized: (t) => ended.push(t), fetch: async () => next.clone() });
+    const own = { keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] };
+    await api.mutate('identity', 'auth.stepUpPay', {}, z.unknown(), own);
     expect(ended).toEqual([]);
+    // the session really ended: a 401 with another code, or none, signs out as usual
+    next = withCode('auth.session_invalid');
+    await api.mutate('identity', 'auth.stepUpPay', {}, z.unknown(), own);
+    next = withCode();
+    await api.mutate('identity', 'auth.stepUpPay', {}, z.unknown(), own);
+    expect(ended).toEqual(['session-token', 'session-token']);
   });
   it('asks the registered resolver for a mutation, by procedure, and for nothing else', async () => {
     const seen: Array<string | undefined> = [];
