@@ -228,7 +228,8 @@ const stubPay = { fiat: pending, methods: pending, offer: pending } as unknown a
 
 it('shows the whole create form with saving off and the reason on screen', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="create" offerId={null} />);
-  expect(out).toContain('Publishing offers is off');
+  expect(out).toContain('Publishing from this form is off');
+  expect(out).toContain('were published outside this form');
   for (const label of [
     'Offer type',
     'Fiat currency',
@@ -370,4 +371,12 @@ it('says a maker has no finished orders yet instead of a 0% record on the board'
     <TraderSummary record={{ ok: true, data: reputation({ tradesTotal: 2, completed: 0, cancelled: 2, completionRate: 0 }) }} />,
   );
   expect(cancelledOnly).toContain('0%');
+});
+
+it('says "1 order", not "1 orders", for a maker with one trade', () => {
+  const one = renderToString(
+    <TraderSummary record={{ ok: true, data: reputation({ tradesTotal: 1, completed: 1, cancelled: 0, completionRate: 1 }) }} />,
+  );
+  expect(one).toContain('1 order · 100% completed');
+  expect(one).not.toContain('1 orders');
 });
