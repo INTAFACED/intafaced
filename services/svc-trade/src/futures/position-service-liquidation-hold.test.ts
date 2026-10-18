@@ -119,18 +119,17 @@ describe('position-service: liquidation hold (Postgres)', () => {
     await ledger.post(
       recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100000'), rail: 'test', railRef: `fund-${Math.random()}` }),
     );
-    // A profit pot, so a flat close is never refused for want of one.
+    // A profit pot filled by a posted trade fee. A loss no longer credits house fees (#5016).
     const seed = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: `pot-${randomUUID()}` }));
-    await ledger.post(recipes.futuresMarginLock({ positionId: seed, userId: BOB, assetId: 'USDT', amount: amt('1000') }));
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: `pot-${seed}` }));
     await ledger.post(
-      recipes.futuresRealizeLoss({
-        positionId: seed,
+      recipes.feeCharge({
+        chargeId: seed,
         userId: BOB,
+        module: 'trade',
+        mode: 'asset',
         assetId: 'USDT',
-        fromMargin: amt('1000'),
-        fromInsurance: 0n,
-        lossId: seed,
+        amount: amt('1000'),
       }),
     );
     feed('50000');
