@@ -1074,12 +1074,19 @@ export function createTradeRouter(
             maxNotionalPerOrder: decimal,
             maxAggregateExposure: decimal,
             maxLoss: decimal.optional(),
+            maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+            maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+            maxDrawdown: decimal.optional(),
+            maxLeverage: z.union([z.string(), z.number()]).optional(),
             expiresAt: z.string().datetime(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
                 permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
                 maxLoss: decimal.optional(),
+                maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+                maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+                maxDrawdown: decimal.optional(),
               })
               .optional(),
           }),
@@ -1243,6 +1250,9 @@ export function createTradeRouter(
                 maxAllocation: decimal.optional(),
                 permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
                 maxLoss: decimal.optional(),
+                maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+                maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+                maxDrawdown: decimal.optional(),
               })
               .optional(),
           }),

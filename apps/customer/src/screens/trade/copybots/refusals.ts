@@ -91,22 +91,6 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'Closing copied positions isn’t available',
     body: 'Nothing was closed and you are still following. Close positions yourself on the spot desk.',
   },
-  'trade.copy_unavailable': {
-    title: 'Copy trading isn’t available',
-    body: 'Nothing was changed. It is not switched on in this environment.',
-  },
-  'trade.copy_disclosure_unpublished': {
-    title: 'The risk disclosure isn’t published',
-    body: 'Copying stays closed until the disclosure is published. Nothing was followed.',
-  },
-  'trade.copy_disclosure_required': {
-    title: 'Accept the risk disclosure first',
-    body: 'Read it and accept the current version before a copy can be placed.',
-  },
-  'trade.copy_disclosure_version_stale': {
-    title: 'That disclosure is out of date',
-    body: 'Accept the current version. The older one was not stored.',
-  },
   'trade.copy_trail_window_unset': {
     title: 'Choose a start and end',
     body: 'The copy history needs both dates. Nothing was exported.',
@@ -126,6 +110,26 @@ const COPY: Readonly<Record<string, Words>> = {
   'trade.copy_divergence_basis_unset': {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
+  },
+  'trade.copy_slippage_exceeded': {
+    title: 'That copy is too far from the leader’s price',
+    body: 'The price difference is above the slippage limit you set, so the order was not placed.',
+  },
+  'trade.copy_concurrency_exceeded': {
+    title: 'Too many copied orders are still open',
+    body: 'This follow already has as many open copied orders as you allowed. Nothing new was placed.',
+  },
+  'trade.copy_drawdown_stop': {
+    title: 'The drawdown limit stopped new copies',
+    body: 'The drop from this follow’s peak result is at the limit you set. New copies were not placed. Existing positions were not closed.',
+  },
+  'trade.copy_limit_unevaluable': {
+    title: 'That limit can’t be checked',
+    body: 'A figure this limit needs is missing, so the copy was not placed. Nothing was invented in its place.',
+  },
+  'trade.copy_leverage_unsupported': {
+    title: 'Leverage isn’t available for copy',
+    body: 'Copy places spot orders only. The follow was not created.',
   },
   'trade.mark_unavailable': {
     title: 'No fresh reference price',
