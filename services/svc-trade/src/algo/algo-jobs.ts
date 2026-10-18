@@ -72,6 +72,8 @@ export function startAlgoJobs(deps: AlgoJobsDeps): AlgoJobsHandle {
   // here would silently strand the orders of anyone trading a market the
   // operator forgot to name.
   host.every('algo.twap', deps.config.intervalMs, async () => {
+    // Beat before and after: a slow tick must not read as a dead loop.
+    await deps.recordHeartbeat?.();
     await deps.trade.tickAllAlgos();
     await deps.recordHeartbeat?.();
   });

@@ -55,6 +55,15 @@ export async function recordSchedulerHeartbeat(sql: Sql, instanceId: string, at:
     VALUES (${instanceId}, ${at})
     ON CONFLICT (instance_id) DO UPDATE SET last_tick_at = EXCLUDED.last_tick_at
   `;
+  // A restart changes the pid. Drop this host's earlier-pid rows so they do
+  // not pile up (the host prefix is everything before the final colon).
+  const host = instanceId.slice(0, instanceId.lastIndexOf(':') + 1);
+  if (host !== '') {
+    await sql`
+      DELETE FROM algo_scheduler_heartbeat
+      WHERE instance_id <> ${instanceId} AND left(instance_id, ${host.length}) = ${host}
+    `;
+  }
 }
 
 /** Read. Does not insert. */

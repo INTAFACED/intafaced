@@ -28,7 +28,7 @@ import {
 import { withMoneySpan } from '../tracing.js';
 import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
 import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
-import { deriveAlgoResult, type AlgoResult } from '../algo/algo-result.js';
+import { deriveAlgoResultFromTotals, loadAlgoChildFillTotals, type AlgoResult } from '../algo/algo-result.js';
 import { newestSchedulerHeartbeat, readSchedulerState, type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
 import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
 import {
@@ -4799,12 +4799,15 @@ export class TradeService {
 
   async algoProgress(principal: Principal, parentId: string): Promise<AlgoProgressView> {
     const parent = await this.getAlgo(principal, parentId);
-    let filled = 0n;
-    for (const child of parent.children) {
-      const fills = await this.fillsForOrder(principal, child.orderId, FILLS_MINE_LIMIT_MAX);
-      for (const f of fills) filled += f.qty;
-    }
-    return presentAlgoProgress(parent, filled, await this.algoScheduler());
+    // Aggregated in SQL over every child fill: no per-child page cap, and a
+    // child whose order row is gone does not fail the read.
+    const totals = await loadAlgoChildFillTotals(
+      this.sql,
+      principal.userId,
+      parent.children.map((child) => child.orderId),
+      '',
+    );
+    return presentAlgoProgress(parent, totals?.filledQty ?? 0n, await this.algoScheduler());
   }
 
   /** Derived child-fill result. Does not write. Does not put money on the parent. */
@@ -4816,29 +4819,16 @@ export class TradeService {
     `;
     const quoteAsset = markets[0]?.quote_asset;
     if (!quoteAsset) throw new TradeError(`market ${parent.marketId} not found`, 'trade.market_not_found');
-    const fills: Array<{
-      price: Amount;
-      qty: Amount;
-      quoteAsset: string;
-      feeAsset: string;
-      feeAmount: Amount;
-    }> = [];
-    for (const child of parent.children) {
-      const rows = await this.fillsForOrder(principal, child.orderId, FILLS_MINE_LIMIT_MAX);
-      for (const fill of rows) {
-        fills.push({
-          price: fill.price,
-          qty: fill.qty,
-          quoteAsset,
-          feeAsset: fill.feeAsset,
-          feeAmount: fill.feeAmount,
-        });
-      }
-    }
-    return deriveAlgoResult({
+    const totals = await loadAlgoChildFillTotals(
+      this.sql,
+      principal.userId,
+      parent.children.map((child) => child.orderId),
+      quoteAsset,
+    );
+    return deriveAlgoResultFromTotals({
       side: parent.side,
       quoteAsset,
-      fills,
+      totals: totals ? [totals] : [],
       arrivalPrice: arrival?.price ?? null,
     });
   }

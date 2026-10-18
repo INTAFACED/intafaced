@@ -8,8 +8,8 @@
  *     60100000000000000000 / 3 = 20033333333333333333 remainder 1
  *     2×1 < 3, so no round up → 20.033333333333333333
  *   arrival 20
- *   buy shortfall  (average − 20) × 3 = 0.099999999999999999
- *   sell shortfall (20 − average) × 3 = −0.099999999999999999
+ *   buy shortfall  notional − 20 × 3 = 0.1 (no double rounding)
+ *   sell shortfall 20 × 3 − notional = −0.1
  *   fees stored 0.01 USDT + 0.02 USDT + 0.001 BTC, fee_bps 1
  *     1 bp of these notionals is not 0.01, so a rate recomputation fails this test
  *   quote_amount is stored as 1, not the notional, so summing that column fails too
@@ -63,8 +63,8 @@ const SECRET = 'algo-result-edge-secret-long-enough-32';
 const READ = ['trade:read'] as const;
 
 const AVERAGE = '20.033333333333333333';
-const BUY_SHORTFALL = '0.099999999999999999';
-const SELL_SHORTFALL = '-0.099999999999999999';
+const BUY_SHORTFALL = '0.1';
+const SELL_SHORTFALL = '-0.1';
 
 describe('deriveAlgoResult (no database)', () => {
   it('a fill without a fee amount makes feesPaid null', () => {
@@ -449,6 +449,59 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
     expect(page.rows.some((row) => row.id === 'algo-wire')).toBe(false);
     const bob = await trade.algoList(principalFor(BOB, [...READ]), { limit: 10 });
     expect(bob.rows).toEqual([]);
+  });
+
+  it('counts every fill of a child past 500, and survives a child whose order row is gone', async () => {
+    const store = new SqlTwapParentStore(sql);
+    const orderId = randomUUID();
+    await sql`
+      INSERT INTO orders (
+        id, user_id, market_id, client_order_id, side, type, price, qty, filled_qty, status, tif, hold_asset, hold_amount
+      ) VALUES (
+        ${orderId}::uuid, ${ALICE}::uuid, ${marketId}::uuid, ${`c-${orderId}`}, 'buy', 'limit',
+        10, 600, 600, 'filled', 'GTC', 'USDT', 1
+      )
+    `;
+    await sql`
+      INSERT INTO fills (
+        id, order_id, counter_order_id, market_id, user_id, side, liquidity,
+        price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence
+      )
+      SELECT gen_random_uuid(), ${orderId}::uuid, gen_random_uuid(), ${marketId}::uuid, ${ALICE}::uuid,
+        'buy', 'maker', 10, 1, 1, 'USDT', 0.01, 1, 1000 + g
+      FROM generate_series(1, 600) AS g
+    `;
+    const children = [
+      { sliceIndex: 0, orderId, clientOrderId: 'algo:algo-big:0', qty: parseAmount('600'), placedAt: new Date('2026-10-18T00:00:00.000Z') },
+      {
+        sliceIndex: 1,
+        orderId: randomUUID(),
+        clientOrderId: 'algo:algo-big:1',
+        qty: parseAmount('1'),
+        placedAt: new Date('2026-10-18T00:00:00.000Z'),
+      },
+    ];
+    await store.save({
+      parent: parent({ id: 'algo-big', side: 'buy', status: 'active', children }),
+      plan: [parseAmount('600'), parseAmount('1')],
+    });
+    const alice = principalFor(ALICE, [...READ]);
+    const result = await trade.algoResult(alice, 'algo-big');
+    expect(result.quotes[0]).toMatchObject({
+      filledQty: '600',
+      notional: '6000',
+      averageFillPrice: '10',
+      feesPaid: [{ asset: 'USDT', amount: '6' }],
+    });
+    expect((await trade.algoProgress(alice, 'algo-big')).filledQty).toBe('600');
+  });
+
+  it('keeps one heartbeat row per host after a restart changes the pid', async () => {
+    await recordSchedulerHeartbeat(sql, 'host-x:100', new Date('2026-10-18T01:00:00.000Z'));
+    await recordSchedulerHeartbeat(sql, 'host-x:200', new Date('2026-10-18T01:00:05.000Z'));
+    await recordSchedulerHeartbeat(sql, 'host-y:100', new Date('2026-10-18T01:00:06.000Z'));
+    const rows = await sql<Array<{ instance_id: string }>>`SELECT instance_id FROM algo_scheduler_heartbeat ORDER BY 1`;
+    expect(rows.map((r) => r.instance_id)).toEqual(['host-x:200', 'host-y:100']);
   });
 
   it('reads a fresh heartbeat as running and a stale one as heartbeat_stale, and the row survives', async () => {
