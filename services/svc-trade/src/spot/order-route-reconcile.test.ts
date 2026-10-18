@@ -6,8 +6,18 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount as amt,
+  recipes,
+  userAvailable,
+  orderHoldAccount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { fillsProveNoFill } from './trade-service.js';
+import { runEngineLedgerReconcileTick } from './engine-ledger-reconcile.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import type { Market } from './types.js';
 import { orderIdFor } from './ids.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
@@ -182,12 +192,85 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
         )
       `;
 
+      await sql`
+        UPDATE trade.orders
+           SET updated_at = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1})
+         WHERE id = ${orderId}
+      `;
+
       const result = await trade.reconcileOrder(orderId);
       expect(result.case).toBe('orphan_pending');
       expect(result.action).toBe('deleted');
       expect(result.holdBefore).toBe('0');
       expect(await trade.findOrder(orderId)).toBeNull();
       expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+    });
+
+    it('keeps a pending row still inside the hold in-flight bound', async () => {
+      const orderId = orderIdFor(ALICE, btcusdt.id, 'orphan-young');
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${btcusdt.id}, 'orphan-young', 'buy', 'limit',
+          ${'100'}::numeric, ${'2'}::numeric, 'pending', 'GTC',
+          'USDT', ${'200'}::numeric, 0
+        )
+      `;
+
+      const result = await trade.reconcileOrder(orderId);
+      expect(result.case).toBe('pending_in_flight');
+      expect(result.action).toBe('none');
+      expect(result.holdBefore).toBe('0');
+      expect(result.engineLive).toBeNull();
+      expect((await trade.findOrder(orderId))?.status).toBe('pending');
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+    });
+
+    it('leaves the row when a hold commits after the balance read', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const orderId = orderIdFor(ALICE, btcusdt.id, 'orphan-late-hold');
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${btcusdt.id}, 'orphan-late-hold', 'buy', 'limit',
+          ${'100'}::numeric, ${'2'}::numeric, 'pending', 'GTC',
+          'USDT', ${'200'}::numeric, 0
+        )
+      `;
+
+      const wrapped: LedgerClient = {
+        post: (req) => ledger.post(req),
+        balance: async (ref) => {
+          const snap = await ledger.balance(ref);
+          if (ref.kind === 'hold' && ref.purpose === `order:${orderId}` && snap.amount === 0n) {
+            await ledger.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USDT', amount: amt('200') }));
+            return snap;
+          }
+          return ledger.balance(ref);
+        },
+        balances: (ownerType, ownerId) => ledger.balances(ownerType, ownerId),
+        getTx: (id) => ledger.getTx(id),
+        getTxByKey: (key) => ledger.getTxByKey(key),
+      };
+      const svc = new TradeService(sql, wrapped, matching, perks, bus, {
+        feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        marketSlippageCapBps: 200,
+      });
+
+      const result = await svc.reconcileOrder(orderId);
+      expect(result.case).toBe('pending_in_flight');
+      expect(result.action).toBe('none');
+      expect(result.holdBefore).toBe('0');
+      expect((await trade.findOrder(orderId))?.status).toBe('pending');
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
 
@@ -327,6 +410,96 @@ describe('svc-trade order-route-reconcile (H8a PG-hard)', () => {
       // Only one order.hold and one order.hold.released for this order.
       expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
       expect(ledger.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(1);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+  });
+
+  describe('scheduled reconcile age floor', () => {
+    async function insertPending(clientOrderId: string): Promise<string> {
+      const orderId = orderIdFor(ALICE, btcusdt.id, clientOrderId);
+      await sql`
+        INSERT INTO trade.orders (
+          id, user_id, market_id, client_order_id, side, type, price, qty, status, tif,
+          hold_asset, hold_amount, fee_discount_bps
+        ) VALUES (
+          ${orderId}, ${ALICE}, ${btcusdt.id}, ${clientOrderId}, 'buy', 'limit',
+          ${'100'}::numeric, ${'2'}::numeric, 'pending', 'GTC',
+          'USDT', ${'200'}::numeric, 0
+        )
+      `;
+      return orderId;
+    }
+
+    function tickMatching(orderId: string, afterPlan?: () => Promise<void>) {
+      return {
+        listMarkets: async () => ({ markets: [btcusdt.id] }),
+        reconcile: async () => {
+          if (afterPlan) await afterPlan();
+          return {
+            checked: 1,
+            agreed: 0,
+            refusals: 0,
+            ok: true,
+            findings: [
+              {
+                orderId,
+                case: 'counterpart_unfunded_engine_missing' as const,
+                verdict: 'auto' as const,
+                engine: 'engine: NOT LIVE',
+                counterpart: 'counterpart: PENDING funded=false',
+                reason: 'intent row the ledger never funded',
+              },
+            ],
+          };
+        },
+      };
+    }
+
+    it('keeps a pending row younger than the floor', async () => {
+      const orderId = await insertPending('tick-young');
+      const result = await runEngineLedgerReconcileTick({
+        sql,
+        ledger,
+        matching: tickMatching(orderId),
+      });
+      expect(result.deleted).toEqual([]);
+      expect(result.plan.deleteUnfundedPendingIds).toEqual([orderId]);
+      expect((await trade.findOrder(orderId))?.status).toBe('pending');
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('0');
+    });
+
+    it('deletes a pending row older than the floor', async () => {
+      const orderId = await insertPending('tick-old');
+      await sql`
+        UPDATE trade.orders
+           SET updated_at = now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS + 1})
+         WHERE id = ${orderId}
+      `;
+      const result = await runEngineLedgerReconcileTick({
+        sql,
+        ledger,
+        matching: tickMatching(orderId),
+      });
+      expect(result.deleted).toEqual([orderId]);
+      expect(await trade.findOrder(orderId)).toBeNull();
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+    });
+
+    it('leaves the row when a hold commits after the plan read', async () => {
+      await fund(ALICE, 'USDT', '1000');
+      const orderId = await insertPending('tick-late-hold');
+      const result = await runEngineLedgerReconcileTick({
+        sql,
+        ledger,
+        matching: tickMatching(orderId, async () => {
+          await ledger.post(recipes.orderHold({ orderId, userId: ALICE, assetId: 'USDT', amount: amt('200') }));
+        }),
+      });
+      expect(result.plan.deleteUnfundedPendingIds).toEqual([orderId]);
+      expect(result.deleted).toEqual([]);
+      expect((await trade.findOrder(orderId))?.status).toBe('pending');
+      expect(await heldFor(ALICE, 'USDT', orderId)).toBe('200');
+      expect(ledger.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
   });
