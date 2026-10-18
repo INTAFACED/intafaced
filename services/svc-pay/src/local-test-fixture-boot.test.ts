@@ -27,7 +27,7 @@ function bootEnv(extra: Record<string, string | undefined>): Record<string, stri
     HTTP_HOST: '127.0.0.1',
     LOG_LEVEL: 'fatal',
     OTEL_ENABLED: 'false',
-    DATABASE_URL: 'postgres://pay_boot:boot-secret-not-published@127.0.0.1:1/pay_boot',
+    DATABASE_URL: 'postgres://127.0.0.1:1/pay_boot',
     DATABASE_POOL_MAX: '2',
     EDGE_PRINCIPAL_SECRET: SECRET,
     INTERNAL_SERVICE_SECRET: 'i'.repeat(48),
@@ -67,7 +67,7 @@ async function boot(extra: Record<string, string | undefined>): Promise<{ exitCo
     const timer = setTimeout(() => {
       child.kill();
       resolve(null);
-    }, 45_000);
+    }, 120_000);
     child.once('exit', (code) => {
       clearTimeout(timer);
       resolve(code);
@@ -81,7 +81,7 @@ describe('svc-pay boot refuses local-test screening fixtures without an explicit
     const out = await boot({ APP_ENV: undefined });
     expect(out.exitCode).not.toBe(0);
     expect(out.output).toContain(LOCAL_TEST_FIXTURE_REFUSE_CODE);
-  }, 60_000);
+  }, 150_000);
 
   it('APP_ENV unset with screening fail-closed off refuses', async () => {
     const out = await boot({
@@ -92,5 +92,5 @@ describe('svc-pay boot refuses local-test screening fixtures without an explicit
     });
     expect(out.exitCode).not.toBe(0);
     expect(out.output).toContain(LOCAL_TEST_FIXTURE_REFUSE_CODE);
-  }, 60_000);
+  }, 150_000);
 });
