@@ -22,7 +22,7 @@
 		<jackson.version>2.8.7</jackson.version>
 		<okhttp.version>3.6.0</okhttp.version>
 		<slf4j.version>1.7.24</slf4j.version>
-		<com.squareup.retrofit2.version>2.3.0</com.squareup.retrofit2.version>
+		<com.squareup.retrofit2.version>2.12.0</com.squareup.retrofit2.version>
 	</properties>
 
 	<packaging>jar</packaging>
@@ -41,7 +41,7 @@
 		<dependency>
 			<groupId>commons-codec</groupId>
 			<artifactId>commons-codec</artifactId>
-			<version>1.10</version>
+			<version>1.23.0</version>
 		</dependency>
 
 		<dependency>
@@ -101,7 +101,7 @@
 		<dependency>
 			<groupId>org.apache.shiro</groupId>
 			<artifactId>shiro-core</artifactId>
-			<version>1.4.0</version>
+			<version>1.13.0</version>
 		</dependency>
 		<dependency>
 			<groupId>com.fasterxml.jackson.core</groupId>
@@ -122,12 +122,12 @@
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
 			<artifactId>bcprov-ext-jdk15on</artifactId>
-			<version>1.59</version>
+			<version>1.70</version>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt</artifactId>
-			<version>0.9.0</version>
+			<version>0.13.0</version>
 		</dependency>
 
 		<!-- eureka相关 -->
