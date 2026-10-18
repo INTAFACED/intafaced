@@ -110,7 +110,13 @@ export interface ReadSpec {
    * same desk that lists the same things with their names (`bank.pools`), matched by id. The id moves to the row's detail. A row
    * whose id that read does not list, or a failed or missing read, says so in words instead of a name; nothing is guessed.
    */
-  readonly namesFrom?: { readonly read: string; readonly idKey: string; readonly nameKey: string; readonly label: string; readonly missing: string };
+  readonly namesFrom?: {
+    readonly read: string;
+    readonly idKey: string;
+    readonly nameKey: string;
+    readonly label: string;
+    readonly missing: string;
+  };
 }
 
 export type RowAction =

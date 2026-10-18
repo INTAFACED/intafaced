@@ -147,40 +147,40 @@ export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewPro
   }
   const head = tableCells(data.rows[0]!);
   const table = (
-      <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
-        <table className="adm-table">
-          <thead>
-            <tr>
-              {head.map((c) => (
-                <th key={c.key}>{c.label}</th>
-              ))}
-              <th>
-                <span className="adm-sr-only">Open</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row) => {
-              const key = `${spec.id}:${row.id}`;
-              const open = openKey === key;
-              return (
-                <RowFragment key={row.id} columns={head.length + 1} open={open} detail={<DetailPanel spec={spec} row={row} ctx={ctx} />}>
-                  {tableCells(row).map((c) => (
-                    <td key={c.key} className={c.kind === 'text' && c.label.toLowerCase().includes('id') ? 'dk-packet' : undefined}>
-                      <CellValueView cell={c} />
-                    </td>
-                  ))}
-                  <td>
-                    <button type="button" className="adm-btn" aria-expanded={open} onClick={() => onOpen(open ? null : key)}>
-                      {open ? 'Close' : 'Open'}
-                    </button>
+    <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
+      <table className="adm-table">
+        <thead>
+          <tr>
+            {head.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+            <th>
+              <span className="adm-sr-only">Open</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((row) => {
+            const key = `${spec.id}:${row.id}`;
+            const open = openKey === key;
+            return (
+              <RowFragment key={row.id} columns={head.length + 1} open={open} detail={<DetailPanel spec={spec} row={row} ctx={ctx} />}>
+                {tableCells(row).map((c) => (
+                  <td key={c.key} className={c.kind === 'text' && c.label.toLowerCase().includes('id') ? 'dk-packet' : undefined}>
+                    <CellValueView cell={c} />
                   </td>
-                </RowFragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                ))}
+                <td>
+                  <button type="button" className="adm-btn" aria-expanded={open} onClick={() => onOpen(open ? null : key)}>
+                    {open ? 'Close' : 'Open'}
+                  </button>
+                </td>
+              </RowFragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
   return (
     <div className="dk-stack" data-testid="list">

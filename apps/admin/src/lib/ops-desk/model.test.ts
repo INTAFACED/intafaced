@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { cellOfRow, displayCell, formatBps, formatCell, formatDuration, inputFor, readData, rowCountText, tableCells, withNames } from './model';
+import {
+  cellOfRow,
+  displayCell,
+  formatBps,
+  formatCell,
+  formatDuration,
+  inputFor,
+  readData,
+  rowCountText,
+  tableCells,
+  withNames,
+} from './model';
 import { DESKS, allReads } from './catalog';
 import { listToCsv } from './csv';
 import type { ReadSpec } from './types';
@@ -265,7 +276,9 @@ describe('pool names from the earn pools read', () => {
     asOf: '2026-10-18T04:00:00.000Z',
     part: {
       kind: 'ok' as const,
-      data: readData(pools, [{ id: POOL_ID, assetId: 'USDT', kind: 'flexible', name: 'Flexible USDT', aprBps: 300, termDays: null, minDeposit: '1.00' }])!,
+      data: readData(pools, [
+        { id: POOL_ID, assetId: 'USDT', kind: 'flexible', name: 'Flexible USDT', aprBps: 300, termDays: null, minDeposit: '1.00' },
+      ])!,
     },
   };
   if (!data || data.shape !== 'list') throw new Error('fixture does not read');
@@ -281,7 +294,11 @@ describe('pool names from the earn pools read', () => {
     expect(cellOfRow(withNames(totals, data, named).rows[1]!, '_name')).toBe('Not in the earn pools list above');
   });
   it('a failed or missing pools read says no name could be read, and keeps every row', () => {
-    const failed = { id: 'bank.pools', asOf: named.asOf, part: { kind: 'failed' as const, message: 'x', code: null, notBuilt: false, forbidden: false } };
+    const failed = {
+      id: 'bank.pools',
+      asOf: named.asOf,
+      part: { kind: 'failed' as const, message: 'x', code: null, notBuilt: false, forbidden: false },
+    };
     for (const source of [failed, undefined]) {
       const out = withNames(totals, data, source);
       expect(out.rows).toHaveLength(2);

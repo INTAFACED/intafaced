@@ -138,7 +138,12 @@ describe('p2p desk', () => {
     expect(html).toContain('Not available: Traded volume, cancel rate and release time over a period');
   });
   it('folds the fiat currency table behind its count and CSV export, with every row still one click away', () => {
-    const fiat = Array.from({ length: 119 }, (_, i) => ({ code: `C${String(i).padStart(2, '0')}`, name: `Currency ${i}`, symbol: '¤', minorUnits: 2 }));
+    const fiat = Array.from({ length: 119 }, (_, i) => ({
+      code: `C${String(i).padStart(2, '0')}`,
+      name: `Currency ${i}`,
+      symbol: '¤',
+      minorUnits: 2,
+    }));
     const html = render(props('p2p', view('p2p', [okOutcome('p2p', 'p2p.fiat', fiat)])));
     const block = html.slice(html.indexOf('data-testid="read-p2p.fiat"'));
     expect(block).toContain('119 rows');

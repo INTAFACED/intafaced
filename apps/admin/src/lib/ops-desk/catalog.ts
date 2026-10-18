@@ -1731,7 +1731,8 @@ const moreSections: readonly DeskSection[] = [
           text('vendorId', 'Vendor id', { detail: true }),
           text('id', 'Listing id', { detail: true }),
         ],
-        emptyText: 'No listings are public. If Commerce programme below says Configured yes, no vendor has published a listing; if it says no, svc-market refuses every listing until the rate is set.',
+        emptyText:
+          'No listings are public. If Commerce programme below says Configured yes, no vendor has published a listing; if it says no, svc-market refuses every listing until the rate is set.',
         forbiddenText: 'svc-market did not answer this read.',
       },
       {
