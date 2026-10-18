@@ -42,6 +42,7 @@ const markerSchema = z.object({
   id: z.string(),
   symbol: z.string(),
   operation: z.string().optional(),
+  clientCloseId: z.string().optional(),
   startedAt: z.number(),
 });
 type Marker = z.infer<typeof markerSchema>;
@@ -110,7 +111,13 @@ function useWriteGuard() {
     }
   }
   async function run<T>(
-    identity: { kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy'; id: string; symbol: string; operation?: string },
+    identity: {
+      kind: 'convert' | 'rfq' | 'position' | 'algo' | 'copy';
+      id: string;
+      symbol: string;
+      operation?: string;
+      clientCloseId?: string;
+    },
     call: () => Promise<ApiResult<T>>,
     done: (data: T) => void,
   ) {
@@ -1091,12 +1098,14 @@ function Futures({
             disabled={simulation || guard.busy || guard.locked}
             onClick={() => {
               if (simulationRef.current || !selected.id) return;
+              const clientCloseId = crypto.randomUUID().replaceAll('-', '').slice(0, 24);
+              const quantity = selected.contracts;
               void guard.run(
-                { kind: 'position', id: selected.id, symbol: selected.symbol },
+                { kind: 'position', id: selected.id, symbol: selected.symbol, clientCloseId },
                 () =>
                   simulationRef.current
                     ? Promise.resolve(tradeRefusal('simulatedModeCannotCloseALivePosition', { reason: 'not_supported' as const }))
-                    : tools.positionClose(selected.id as string),
+                    : tools.positionClose(selected.id as string, { quantity, clientCloseId }),
                 (data) => {
                   guard.setMessage(<CopyText k={'position'} params={{ dataId: String(data.id), dataStatus: String(data.status) }} />);
                   positions.reload();

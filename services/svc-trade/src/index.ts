@@ -82,6 +82,7 @@ import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVen
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
 import { presentInsuranceListingPolicy } from './futures/insurance-listing-gate.js';
 import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
+import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
@@ -822,6 +823,7 @@ registerPrivateRest(app, {
       principal,
     ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
+  marginModeAudit: sqlMarginModeSwitchAudit(sql),
   closePositionQuantity: (principal, positionId, input) =>
     positions.closeQuantity(principal.userId, positionId, {
       quantity: parseAmount(input.quantity),

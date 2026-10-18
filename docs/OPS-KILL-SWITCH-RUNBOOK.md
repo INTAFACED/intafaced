@@ -40,7 +40,7 @@ When a module is killed:
 2. **Users can still get out** — cancels and documented release REST paths still pass:
    - tRPC leaf `cancel` (any module)
    - `DELETE /api/v1/orders/:id` and `DELETE /api/v1/orders` (CCXT cancel)
-   - `DELETE /api/v1/positions/:id` (futures close — must not trap margin under a trade kill)
+   - `POST /api/v1/positions/:id/close` and `POST /api/v1/futures/positions/close-all` (futures close — must not trap margin under a trade kill). `DELETE /api/v1/positions/:id` does not close and does not release margin.
 3. **Reads still pass** — a kill is not a blackout of balances / open orders.
 4. **Control plane stays reachable** — `/admin/*`, `/health`, `/ready` are **outside** the kill guard so the operator can un-kill and the LB can still probe.
 5. **Perimeter-only enforcement** — edge kill only stops modules mapped in `UPSTREAMS` (`trade`, `pay`, `identity`, …). Killing `ws`, `matching`, `ledger`, `edge` is **audit-only** until a real control path exists; the board labels these “Not edge-enforced.”

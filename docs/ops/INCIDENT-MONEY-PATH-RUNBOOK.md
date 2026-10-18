@@ -81,7 +81,7 @@ Use freeze after an **unverifiable book** (§4.2), not as a substitute for killi
 **Enforced** only for modules in `UPSTREAMS` (`services/svc-edge/src/routes.ts`): `trade`, `pay`, `identity`, …  
 Killing `ws`, `matching`, `ledger`, `edge` on this board is **audit-only**. Ledger halt is §2.1. Matching halt is §2.3.
 
-When `trade` is killed: new places → **503** `edge.module_killed` (or `edge.kill_switch_undecidable` fail-closed). Still pass: tRPC `cancel`, `DELETE /api/v1/orders` / `:id`, `DELETE /api/v1/positions/:id` (`ALWAYS_ALLOWED_REST` in `kill-switch.ts`).
+When `trade` is killed: new places → **503** `edge.module_killed` (or `edge.kill_switch_undecidable` fail-closed). Still pass: tRPC `cancel`, `DELETE /api/v1/orders` / `:id`, `POST /api/v1/positions/:id/close`, and `POST /api/v1/futures/positions/close-all` (`ALWAYS_ALLOWED_REST` in `kill-switch.ts`). `DELETE /api/v1/positions/:id` does not close.
 
 ### 2.3 In-service flags already wired (not new policy)
 
