@@ -3,6 +3,7 @@ import type { PortalApi } from './api';
 import type { MerchantAccessValue } from './access/MerchantAccess';
 import type { PortalRoom, PortalRoute } from './routes';
 import type { PayBusinessAuthority } from '../pay-api';
+import type { StarterFee } from './schemas';
 
 /** Everything a room needs to draw itself. A room never reads the signed-in account any other way. */
 export type RoomContext = {
@@ -10,7 +11,8 @@ export type RoomContext = {
   authority: PayBusinessAuthority | null;
   /** Who is signed in to which business, and what they may do. */
   access: MerchantAccessValue;
-  starterFeeBps: number | null;
+  /** The fee INTAFACED has published for new accounts, as the server states it (with its TEST mark), or null until one is published. */
+  starterFee: StarterFee | null;
 };
 export type RoomHeader = { title: string; purpose: string; action?: ReactNode };
 

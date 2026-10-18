@@ -56,6 +56,8 @@ const en = {
   unavailableBody: 'We couldn’t verify the refund. Try the check again.',
   contextChanged: 'The account or review changed. Review the current payment again.',
   failed: 'The original refund has not been confirmed.',
+  stepRequired: "Confirm it's you with a passkey or authenticator code.",
+  stepExpired: 'That confirmation expired. Confirm again.',
 } as const;
 const es: Record<keyof typeof en, string> = {
   title: 'Reembolsar pago',
@@ -117,6 +119,8 @@ const es: Record<keyof typeof en, string> = {
     'No se pudo verificar el reembolso original. Conserva su referencia y reintenta la comprobación protegida del historial.',
   contextChanged: 'La cuenta o la revisión cambió. Revisa de nuevo el pago actual.',
   failed: 'El reembolso original no se ha confirmado.',
+  stepRequired: 'Confirma que eres tú con una clave de acceso o un código del autenticador.',
+  stepExpired: 'Esa confirmación caducó. Vuelve a confirmar.',
 };
 const fr: Record<keyof typeof en, string> = {
   title: 'Rembourser le paiement',
@@ -181,6 +185,8 @@ const fr: Record<keyof typeof en, string> = {
     'Le remboursement original n’a pas pu être vérifié. Conservez sa référence et réessayez la vérification protégée de l’historique.',
   contextChanged: 'Le compte ou la vérification a changé. Vérifiez à nouveau le paiement actuel.',
   failed: 'Le remboursement original n’a pas été confirmé.',
+  stepRequired: 'Confirmez que c’est vous avec une clé d’accès ou un code d’authentificateur.',
+  stepExpired: 'Cette confirmation a expiré. Confirmez à nouveau.',
 };
 /** Window the history read can see: `payment.history` has no cursor, oldest first, 200 rows. */
 export const HISTORY_WINDOW = 200;
@@ -189,6 +195,8 @@ export type RefundFailureKey =
   | 'invalidAmount'
   | 'contextChanged'
   | 'permissionMissing'
+  | 'stepRequired'
+  | 'stepExpired'
   | 'merchantInactive'
   | 'unavailableBody'
   | 'notConfirmed'
@@ -204,6 +212,8 @@ export function refundFailureKey(input: { code?: string; busy: boolean; referenc
   if (code === 'pay.refund_context_changed') return 'contextChanged';
   if (code === 'pay.business_permission_missing' || code === 'pay.business_authority_missing') return 'permissionMissing';
   if (code === 'pay.business_merchant_inactive' || code === 'pay.business_merchant_mismatch') return 'merchantInactive';
+  if (code === 'pay.refund_step_up_required') return 'stepRequired';
+  if (code === 'pay.refund_step_up_expired') return 'stepExpired';
   if (code?.startsWith('pay.refund_')) return 'unavailableBody';
   return referenceHeld ? 'notConfirmed' : 'readFailed';
 }

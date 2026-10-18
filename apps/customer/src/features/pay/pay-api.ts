@@ -33,6 +33,12 @@ export type PayBusinessAuthority = {
   userId: string;
   merchantId: string;
   scopes: readonly string[];
+  /**
+   * Money scopes this person may obtain by confirming it's them just before the call (`portal/access/step-up.ts`).
+   * They are not held, so they are never offered to API keys; `access()` admits them because the confirmation comes
+   * first and the service checks the scope on the call itself.
+   */
+  confirmable?: readonly ('pay:refund' | 'pay:payout')[];
 };
 
 type PayOriginal = { status: 'uncertain'; reference?: string; path?: string };
@@ -908,7 +914,7 @@ export function createBusinessPayApi(
   function access(scope: string) {
     if (!authority || !authority.verified || !authority.companyId || !authority.companyName || authority.userId !== userId || !userId)
       return payRefusal('aVerifiedBusinessAccountAndCompanyMembership', { code: 'pay.business_authority_missing' });
-    if (!authority.scopes.includes(scope))
+    if (!authority.scopes.includes(scope) && !(authority.confirmable as readonly string[] | undefined)?.includes(scope))
       return payRefusal('thisBusinessAccountDoesNotHoldPermission', { code: 'pay.business_permission_missing' }, { scope: scope });
     return null;
   }

@@ -5,7 +5,8 @@ import { canOwnerWrite, type Access } from './resolve';
  * The older Business Pay tools and a few pages still take a `PayBusinessAuthority`. It is made here from the
  * resolved access and nowhere else, and only for the account owner: team members use the portal's own reads.
  * An owner whose session cannot change things (an API key, no MFA) is given read scope only. `pay:refund` and `pay:payout`
- * come from the session's own scopes (`session-scopes.ts`), never from the role.
+ * are never in `scopes` unless the session itself carries them (`session-scopes.ts`): the owner of an active account
+ * may instead CONFIRM them (`confirmable`), which opens a short confirmation step before the money call (`step-up.ts`).
  */
 export function authorityFromAccess(
   access: Access,
@@ -25,9 +26,9 @@ export function authorityFromAccess(
       : [
           'pay:read',
           'pay:write',
-          // Refund and payout are held only when the signed-in session carries them. Identity does not mint them today.
           ...(sessionScopes?.has('pay:refund') ? ['pay:refund'] : []),
           ...(sessionScopes?.has('pay:payout') ? ['pay:payout'] : []),
         ],
+    confirmable: canOwnerWrite(access) ? ['pay:refund', 'pay:payout'] : [],
   };
 }

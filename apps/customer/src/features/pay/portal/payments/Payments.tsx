@@ -36,11 +36,16 @@ import { countOf, paymentSteps, refundable, successRate } from './model';
 import type { ActivityItem, PaymentRefundRow } from './schemas';
 
 /**
- * Why a payment shows no fee. The per-payment fee record is written when the payment is captured; the fee actually taken
- * comes off at settlement and is shown on the settlement. A payment that never completed has no fee at all.
+ * Why a payment shows no fee. The fee comes off when the payment settles and is then shown on the settlement, so a
+ * payment that is captured but not settled says only when it is taken, and never points at a settlement that does not
+ * exist. A payment that never completed has no fee at all.
  */
-export function feeNoneText(t: (key: 'pay_feeAtSettlement' | 'pay_feeFailed' | 'pay_feeOnSettlement') => string, status: string): string {
+export function feeNoneText(
+  t: (key: 'pay_feeAtSettlement' | 'pay_feeFailed' | 'pay_feeOnSettlement' | 'pay_feeWhenSettles') => string,
+  status: string,
+): string {
   if (status === 'failed') return t('pay_feeFailed');
+  if (status === 'captured') return t('pay_feeWhenSettles');
   return status === 'created' || status === 'authorized' ? t('pay_feeAtSettlement') : t('pay_feeOnSettlement');
 }
 

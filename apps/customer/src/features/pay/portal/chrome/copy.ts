@@ -24,9 +24,13 @@ const en = {
   // A header action the signed-in person's role does not allow, or that waits on their account details.
   headerActionNoRole: 'Your role doesn’t allow this. Ask the account owner.',
   headerActionWaiting: 'Available once your account details load.',
-  // Money that leaves the account needs a sign-in step the session has to carry. Where it does not, the control is off and says so.
-  moneyStepRefund: 'Refunding needs a confirmed sign-in step that this deployment does not offer.',
-  moneyStepPayout: 'Paying out needs a confirmed sign-in step that this deployment does not offer.',
+  // Refunds and payouts ask "Confirm it's you" when they are opened. Where the person cannot do them, the control is off and says who can.
+  moneyStepRefund: 'Only the account owner can refund payments.',
+  moneyStepPayout: 'Only the account owner can send payouts.',
+  moneyStepRequest: 'Only the account owner, admins and finance can ask for a payout or take a request back.',
+  moneyStepConvert: 'Only the account owner, admins and finance can convert a settlement.',
+  moneyStepInactive: 'Refunds and payouts open once your business account is active.',
+  moneyStepKeys: 'API keys and sub-accounts cannot confirm a payment.',
   switchAccount: 'Switch account',
   yourBusiness: 'Your business',
   yourAccounts: 'Your accounts',

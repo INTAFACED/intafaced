@@ -370,7 +370,7 @@ export function CancelRequest({
   const destination = useApprovalDestination();
   const [reason, setReason] = useState('');
   // Taking a request back carries the payout scope, like making it.
-  const stepReason = useMoneyReason('payout');
+  const stepReason = useMoneyReason('payout', 'cancel');
   const mine = me !== null && approval.makerUserId === me;
   if (approval.status !== 'pending') return null;
   const why = !mine ? t('cancelOnlyMaker') : stepReason ? stepReason : !minReasonOk(reason) ? t('reasonNeeded') : undefined;
@@ -382,6 +382,7 @@ export function CancelRequest({
         <small>{t('hDecisionReason')}</small>
       </label>
       <PortalReview
+        stepUp="payout"
         title={t('cancelRequest')}
         description={t('cancelRequestBody')}
         review={

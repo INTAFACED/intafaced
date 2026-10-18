@@ -40,7 +40,7 @@ const base: OnboardingViewProps = {
   history: null,
   loadMoreHistory: noop,
   rails: ready([{ id: 'crypto-native', capabilities: ['payout'], mode: 'sandbox' as const, usable: true, healthy: true }]),
-  starterFeeBps: 150,
+  starterFee: { bps: 150, source: 'local_test' as const },
   saved: null,
   onCreated: noop,
   onKybSubmitted: noop,
@@ -114,7 +114,7 @@ describe('business step', () => {
     expect(out).not.toContain('Pricing is not set for this account');
   });
   it('names the starting fee as the blocker and keeps account creation off', () => {
-    const out = html({ step: 'business', starterFeeBps: null });
+    const out = html({ step: 'business', starterFee: null });
     expect(out).toContain('Pricing is not set for this account');
     expect(out).toContain('Opening new accounts isn’t possible here.');
     expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Create my account<\/button>/);
