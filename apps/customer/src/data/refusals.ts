@@ -104,7 +104,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   walletCancel: {
     title: 'This withdrawal cannot be cancelled',
-    body: 'It has already been sent, or the network result is not known yet. The hold was left as it is.',
+    body: 'It has already been sent, or the network result is still unknown. The hold was left as it is.',
   },
   walletReturn: {
     title: 'Sent funds were not credited back',
