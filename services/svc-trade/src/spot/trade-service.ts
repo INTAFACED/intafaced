@@ -139,6 +139,8 @@ import {
   type TwapParentStore,
 } from '../algo/index.js';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
+import { gateAlgoCreate } from '../algo/create-gate.js';
+import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
 import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../algo/volume-plan.js';
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
@@ -258,6 +260,12 @@ export interface TradeServiceOptions {
    * Unset / non-integer → market-buy hold refuses. Never invent 200.
    */
   marketSlippageCapBps?: number | null;
+  /**
+   * Slice mark policy. Omitted uses `DEFAULT_ALGO_MARK_POLICY` (the existing
+   * supply). A passed policy with a blank `maxAgeSeconds` is kept and the
+   * creation gate refuses it — this field does not invent a replacement.
+   */
+  algoMarkPolicy?: AlgoMarkPolicy;
   /**
    * PTX-M21 owner fee/rebate schedule (`TRADE_FEE_SCHEDULE`).
    * Default unpublished — place/fill refuse; never listing-row 10/20.
@@ -689,6 +697,7 @@ export class TradeService {
   private readonly futuresSettlementFixing: string;
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
+  private readonly algoMarkPolicy: AlgoMarkPolicy;
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
@@ -739,6 +748,7 @@ export class TradeService {
     this.futuresSettlementFixing = options.futuresSettlementFixing ?? '';
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
+    this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
@@ -842,6 +852,7 @@ export class TradeService {
       },
       {
         onChange: (parent, plan) => this.algoStore.save({ parent, plan }),
+        markPolicy: this.algoMarkPolicy,
       },
     );
   }
@@ -4673,6 +4684,11 @@ export class TradeService {
       );
     }
 
+    // Replay returns the stored parent and does not re-run the creation gate,
+    // so a later balance change cannot turn the same clientAlgoId into a refusal.
+    const replay = await this.replayStoredAlgo(principal.userId, input.clientAlgoId);
+    if (replay) return replay;
+
     const market = await this.requireMarket(input);
     // TWAP is spot-only by name (see `assertSpotSurface`), not because
     // `assertTradable` happens to refuse the kind.
@@ -4735,6 +4751,21 @@ export class TradeService {
     if (kind === 'pov') {
       createInput = { ...createInput, participationBps: input.participationBps };
     }
+
+    await gateAlgoCreate({
+      sql: this.sql,
+      ledger: this.ledger,
+      perks: this.perks,
+      feeSchedule: this.feeSchedule,
+      slippageCapBps: this.slippageCapBps,
+      markPolicy: this.algoMarkPolicy,
+      now: this.now(),
+      userId: principal.userId,
+      market,
+      input: createInput,
+      bid,
+      ask,
+    });
 
     // A preview must not emit the store callback or expose an active parent
     // before its durable owner admission. Children are separate decisions.
@@ -4864,6 +4895,21 @@ export class TradeService {
       const live = this.algo.get(rec.parent.id);
       if (live) await persistAlgoMutation(this.algo, this.algoStore, live);
     }
+  }
+
+  /**
+   * Same id formula as `TwapEngine.prepare`. Returns the caller's stored parent
+   * when this clientAlgoId was already admitted. A foreign row is not returned.
+   */
+  private async replayStoredAlgo(userId: string, clientAlgoId: string | undefined): Promise<TwapParent | null> {
+    const trimmed = clientAlgoId?.trim();
+    if (!trimmed) return null;
+    const id = `algo-${userId.slice(0, 8)}-${trimmed}`;
+    const live = this.algo.get(id);
+    if (live) return live.userId === userId ? live : null;
+    const stored = await this.algoStore.load(id);
+    if (!stored || stored.parent.userId !== userId) return null;
+    return stored.parent;
   }
 
   /**

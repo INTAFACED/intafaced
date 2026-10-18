@@ -71,6 +71,41 @@ describe('Merchant original refund recovery', () => {
   });
 });
 
+describe('A refund whose confirmation ran out before the send', () => {
+  it('clears the saved original on a 401, so the same review and the same refund reference go out once more', async () => {
+    const env = device();
+    const bodies: string[] = [];
+    let answer401 = true;
+    const history = [event()];
+    const api = createApiClient({
+      fetch: async (url, options) => {
+        const text = String(url);
+        if (options?.method === 'POST') {
+          bodies.push(String(options.body));
+          if (answer401) return new Response(JSON.stringify({ error: { message: 'no', data: { code: 'UNAUTHORIZED' } } }), { status: 401 });
+          return response(payment);
+        }
+        return response(text.includes('merchant.me') ? merchant : text.includes('payment.history') ? (answer401 ? [] : history) : payment);
+      },
+    });
+    const pay = createBusinessPayApi(api, userId, authority, createPayMutationGuard(env.storage), env.ports);
+    const input = { paymentId, amount: '25', refundId };
+    const yes = () => true;
+    const first = await pay.refund.submit(input, yes, yes);
+    // Nothing was refunded: the gateway turned the token away before the refund service saw it. No unresolved original is kept.
+    expect(first).toMatchObject({ ok: false, code: 'pay.refund_step_up_expired' });
+    expect(env.values.get(operationKey)).toBeUndefined();
+    expect(refundFailureKey({ code: 'pay.refund_step_up_expired', busy: false, referenceHeld: false })).toBe('stepExpired');
+    // The person confirms again: the same input, with the same refund reference, is sent again and is recorded.
+    answer401 = false;
+    const second = await pay.refund.submit(input, yes, yes);
+    expect(second).toMatchObject({ ok: true });
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0]!)).toEqual(JSON.parse(bodies[1]!));
+    expect(JSON.parse(bodies[1]!).refundId).toBe(refundId);
+  });
+});
+
 function device() {
   const values = new Map<string, string>(),
     legacy = new Map<string, string>(),

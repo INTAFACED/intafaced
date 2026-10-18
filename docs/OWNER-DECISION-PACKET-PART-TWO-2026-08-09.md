@@ -1,5 +1,7 @@
 # Owner decision packet, part two — P0-04…17 + completeness home
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Remaining **Denon** P0 product rulings sealed 2026-08-14 (`adr/2026-08-14-remaining-p0-money-law.md`). Class X / F10 / GitHub admin / token **magnitudes** stay Nitro.  
 **Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` **D26-P0-04…17** (P0-18 = this packet family).  
 **Companion (part one):** [`OWNER-DECISION-PACKET-2026-08-09.md`](OWNER-DECISION-PACKET-2026-08-09.md) — P0-01…03 plus money-path / dark-feed / token magnitudes / F10.  

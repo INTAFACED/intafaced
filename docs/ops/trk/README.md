@@ -1,5 +1,7 @@
 # Tracker research pack — TRK specs
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Night-engine research** (no implement swarm). One short spec per free tracker
 row so ship later is planned, not invented mid-PR.
 

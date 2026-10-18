@@ -229,3 +229,184 @@ test('a move into archive passes even with diff.renames=false; archive README is
     env,
   );
 });
+
+test('a markdown link in AGENTS.md or docs/ARCHITECTURE.md to a missing repo path fails; real links, anchors, urls and code samples pass', () => {
+  withRoot(agentsLine('See [the tool doc](docs/tooling/evidence-merge-check.md).'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /dead link in AGENTS.md \(line \d+\): docs\/tooling\/evidence-merge-check.md/);
+  });
+  withRoot(
+    (root) => {
+      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\nSee [ops](../tooling/missing.md#part).\n');
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /dead link in docs\/ARCHITECTURE.md \(line 3\): \.\.\/tooling\/missing.md/);
+    },
+  );
+  withRoot(
+    (root) => {
+      writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\n[Docs](README.md#top) and [Agents](../AGENTS.md).\n');
+      writeFileSync(
+        join(root, 'AGENTS.md'),
+        `${CLEAN_AGENTS}\n[site](https://example.com/x.md) [mail](mailto:a@example.com) [here](#top)\n\`[no](docs/none.md)\`\n\`\`\`\n[no](docs/none.md)\n\`\`\`\n`,
+      );
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+  );
+});
+
+test('an unbannered doc under docs/ with a stale rule fails; a bannered one, adr, runbooks, refs and archive pass', () => {
+  const stale = '# Old law\n\nMerge when done. Run pnpm wt:rm.\n';
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/OLD-LAW.md'), stale),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md: Merge when done/);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md: pnpm wt:rm \(line 3\)/);
+    },
+  );
+  withRoot(
+    (root) => {
+      mkdirSync(join(root, 'docs/ops'), { recursive: true });
+      writeFileSync(join(root, 'docs/ops/NESTED.md'), '# Nested\n\nThe front end is Vue.\n');
+    },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/ops\/NESTED.md: Vue as the current front end/);
+    },
+  );
+  withRoot(
+    (root) => {
+      const banner = '> **Not current rules (2026-10-17).** Current rules: [`AGENTS.md`](../AGENTS.md).\n\n';
+      writeFileSync(join(root, 'docs/OLD-LAW.md'), `# Old law\n\n${banner}Merge when done.\n`);
+      for (const dir of ['adr', 'runbooks', 'refs/x', 'archive']) {
+        mkdirSync(join(root, 'docs', dir), { recursive: true });
+        writeFileSync(join(root, 'docs', dir, 'DOC.md'), stale);
+      }
+    },
+    (result) => assert.equal(result.status, 0, result.stderr),
+  );
+});
+
+test('docs/ARCHITECTURE.md is current truth: a stale rule in it fails even though it has no banner', () => {
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/ARCHITECTURE.md'), '# arch\n\nRun pnpm wt:gc:apply.\n'),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in docs\/ARCHITECTURE.md: wt:gc:apply \(line 3\)/);
+    },
+  );
+});
+
+test('paraphrases of "merge your own PR" fail; the same words after a negation pass', () => {
+  for (const line of ['You can merge your own PR.', 'Agents may merge when green.', 'Authors merge their own work.']) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /stale agent rule in AGENTS.md: (merge your own PR|may merge)/, line);
+    });
+    withRoot(
+      (root) => writeFileSync(join(root, 'docs/OLD-LAW.md'), `# Old\n\n${line}\n`),
+      (result) => {
+        assert.equal(result.status, 1, line);
+        assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD-LAW.md/, line);
+      },
+    );
+  }
+  for (const line of ['Never merge your own PR.', 'Nobody does this: do not merge their own work.', 'No one may merge without review.']) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('a newly listed live doc that calls Vue the front end fails; a bannered or honest one passes', () => {
+  const topic =
+    (body, banner = '') =>
+    (root) => {
+      git(root, ['checkout', '-b', 'topic']);
+      writeFileSync(join(root, 'docs/NEW-LIVE.md'), `# New live doc\n\n${banner}${body}\n`);
+      writeFileSync(join(root, 'docs/README.md'), '# docs\n- [Move me](MOVE-ME.md)\n- [New](NEW-LIVE.md)\n');
+      git(root, ['add', '.']);
+      git(root, ['commit', '-m', 'add listed doc']);
+    };
+  withRoot(topic('The product front end is Vue.'), (result) => {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /stale rule in unbannered doc docs\/NEW-LIVE.md: Vue as the current front end/);
+  });
+  withRoot(topic('The front end is Vue.', '> **Not current rules (2026-10-17).** AGENTS.md wins.\n\n'), (result) => {
+    assert.equal(result.status, 0, result.stderr);
+  });
+  withRoot(topic('Vue was retired; the front end is React.'), (result) => assert.equal(result.status, 0, result.stderr));
+});
+
+test('a negation elsewhere on the line does not excuse an instruction; only the words just before it do', () => {
+  const loopholes = [
+    'No review needed: you may merge your own PR once CI is green.',
+    'Not sure who merges? Merge your own PR.',
+    'Do not wait for review; merge your own PR.',
+    'If no one objects within an hour, run pnpm wt:gc:apply.',
+  ];
+  for (const line of loopholes) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, /stale agent rule in AGENTS.md: (merge your own PR|wt:gc:apply)/, line);
+    });
+  }
+  const legitimate = [
+    'Forbidden: `pnpm wt:rm`, `wt:gc:apply`',
+    'Never: pnpm wt:rm',
+    'Do not run pnpm wt:rm or git worktree remove --force',
+    'Never run pnpm wt:rm, pnpm wt:gc:apply or orca worktree rm.',
+    'Nobody does this: do not merge their own work.',
+  ];
+  for (const line of legitimate) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('"merge on green", "self-merge" and "merge it yourself" fail unless negated just before', () => {
+  const plants = [
+    ['Agents can merge on green.', 'merge on green'],
+    ['Self-merge is fine.', 'self-merge'],
+    ['Merge it yourself.', 'merge it yourself'],
+  ];
+  for (const [line, label] of plants) {
+    withRoot(agentsLine(line), (result) => {
+      assert.equal(result.status, 1, line);
+      assert.match(result.stderr, new RegExp(`stale agent rule in AGENTS.md: ${label}`), line);
+    });
+  }
+  for (const line of ['Never merge on green alone.', 'Do not self-merge.', 'Never merge it yourself.']) {
+    withRoot(agentsLine(line), (result) => assert.equal(result.status, 0, `${line}: ${result.stderr}`));
+  }
+});
+
+test('a banner must open the quote: a blockquote that only mentions history does not count', () => {
+  const body = 'The front end is Vue.\n';
+  withRoot(
+    (root) => writeFileSync(join(root, 'docs/OLD.md'), `# Old\n\n> **Status: BINDING.** This replaces the history file.\n\n${body}`),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /stale rule in unbannered doc docs\/OLD.md: Vue as the current front end/);
+    },
+  );
+  withRoot(
+    (root) =>
+      writeFileSync(
+        join(root, 'docs/OLD.md'),
+        `# Old\n\n> **Supersession (2026-08-09):** thrift is void. Historical text below may mention it.\n\n${body}`,
+      ),
+    (result) => assert.equal(result.status, 1, result.stderr),
+  );
+  for (const opener of [
+    '> **Not current rules (2026-10-18).** Kept as history.',
+    '> **SUPERSEDED 2026-08-07.**',
+    '> Historical record only.',
+    '> **Stale snapshot.**',
+    '> Retired.',
+  ]) {
+    withRoot(
+      (root) => writeFileSync(join(root, 'docs/OLD.md'), `${opener}\n\n# Old\n\n${body}`),
+      (result) => assert.equal(result.status, 0, `${opener}: ${result.stderr}`),
+    );
+  }
+});

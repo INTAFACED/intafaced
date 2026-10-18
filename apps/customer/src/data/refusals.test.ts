@@ -168,6 +168,19 @@ describe('spend-sized convert refusals', () => {
   });
 });
 
+describe('scheduled order refusals', () => {
+  it('says the scheduler is off and that nothing was saved', () => {
+    expect(refusalCopy('trade.algo_jobs_disabled')).toEqual({
+      title: 'Scheduled orders are off',
+      body: 'Nothing was saved. A schedule placed now would stay open and send no orders.',
+    });
+    expect(refusalCopy('trade.algo_jobs_unknown')).toMatchObject({
+      title: 'Something went wrong on our side',
+      body: 'Nothing was changed. Try again in a moment.',
+    });
+  });
+});
+
 describe('customer words', () => {
   it('no banned word appears in refusals.ts (checked as the E2E run does)', () => {
     const source = readFileSync(new URL('./refusals.ts', import.meta.url), 'utf8');

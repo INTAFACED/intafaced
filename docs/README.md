@@ -1,6 +1,6 @@
 # docs/
 
-Current rules for agents and people: [`../AGENTS.md`](../AGENTS.md). How the code is laid out: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+Current rules for agents and people: [`../AGENTS.md`](../AGENTS.md). How the code is laid out: [`ARCHITECTURE.md`](ARCHITECTURE.md). Services, ports and required env (generated): [`SERVICES.md`](SERVICES.md).
 
 `archive/` is history, not instructions. Everything below is kept in place because code, tests, CI or the rules above read it by path. Its content can still be dated: when it disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 

@@ -92,13 +92,65 @@ export interface MarkPolicy {
   readonly liquidationQualities: readonly MarkQuality[];
 }
 
-export const DEFAULT_FUTURES_MARK_POLICY: MarkPolicy = {
+/**
+ * Compiled stand-ins. They are not an owner publication. `judgeLiquidationMark`
+ * refuses when no limits were published rather than filling these in.
+ */
+export const COMPILED_FUTURES_MARK_FIGURES = {
   maxAgeSeconds: 300,
   liquidationMaxAgeSeconds: 60,
   maxDeviationBps: 2_000,
+} as const;
+
+export const DEFAULT_FUTURES_MARK_POLICY: MarkPolicy = {
+  maxAgeSeconds: COMPILED_FUTURES_MARK_FIGURES.maxAgeSeconds,
+  liquidationMaxAgeSeconds: COMPILED_FUTURES_MARK_FIGURES.liquidationMaxAgeSeconds,
+  maxDeviationBps: COMPILED_FUTURES_MARK_FIGURES.maxDeviationBps,
   // `last` is deliberately absent — see the file header.
   liquidationQualities: ['index', 'mid'],
 };
+
+/**
+ * Limits an owner actually published. Null means none of them were published.
+ * Passing the compiled 300 / 60 / 2000 figures is a publication only when the
+ * caller built this object from an owner source — the judge never substitutes
+ * {@link COMPILED_FUTURES_MARK_FIGURES} for a missing one.
+ */
+export interface PublishedLiquidationLimits {
+  readonly maxAgeSeconds: number;
+  readonly liquidationMaxAgeSeconds: number;
+  readonly maxDeviationBps: number;
+  readonly liquidationQualities?: readonly MarkQuality[];
+}
+
+export const LIQUIDATION_LIMIT_UNPUBLISHED =
+  'liquidation mark-age or deviation limit is unpublished — compiled maxAgeSeconds 300, liquidationMaxAgeSeconds 60 and maxDeviationBps 2000 are not an owner publication';
+
+/**
+ * Judge a mark for liquidation. No published max age (or no published policy
+ * at all) refuses. The compiled figures are named in the reason so a reader
+ * can see they were not applied.
+ */
+export function judgeLiquidationMark(
+  mark: FuturesQuotedMark,
+  previous: Amount | null,
+  now: Date,
+  published: PublishedLiquidationLimits | null,
+): MarkCheck {
+  if (published == null) {
+    return {
+      ok: false,
+      code: MARK_UNUSABLE,
+      reason: `${mark.marketId}: ${LIQUIDATION_LIMIT_UNPUBLISHED}`,
+    };
+  }
+  return acceptableForLiquidation(mark, previous, now, {
+    maxAgeSeconds: published.maxAgeSeconds,
+    liquidationMaxAgeSeconds: published.liquidationMaxAgeSeconds,
+    maxDeviationBps: published.maxDeviationBps,
+    liquidationQualities: published.liquidationQualities ?? ['index', 'mid'],
+  });
+}
 
 /**
  * Futures' half of `prices.ts`'s refusal vocabulary. Same shape, same meanings,

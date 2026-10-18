@@ -1,5 +1,7 @@
 # Local test stack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 One command starts a private copy of the INTAFACED backend and the Customer app on your Mac, without Docker. Everything binds to `127.0.0.1`. Balances and market prices in it are **test funds and test prices, not real money or a live market feed**; the Customer shows a fixed banner saying so.
 
 ## Commands

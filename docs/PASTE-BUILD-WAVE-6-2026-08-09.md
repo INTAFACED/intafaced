@@ -1,5 +1,7 @@
 # BUILD WAVE 6 · 2026-08-09
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tip:** `8da2c561` · **Open:** ~60 open — babysit first: stop PRs #1384 PAY #1395 TRADE #1396 INDEXER #1352 WS #1361 LEDGER #1373 P2P · market #1189/#1387 commerce · identity cluster · shell/ws/notify tests · #1177 Shehzad · dependabot holds — re-derive  
 **N=16:** W5 largely banked with long parked lists + ~60 open PRs to babysit; residual still feeds all walls.  
 **Parallel OK** with risks: monorepo Tests red cascades (fix only your suites) · market commerce · identity SAFE no · L11/L16 · Shehzad #1177 · features.mjs discipline.

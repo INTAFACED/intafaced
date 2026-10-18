@@ -1,5 +1,7 @@
 # Remaining product UI — source of truth
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** Living frontend inventory and closure specification · **north-star UI map added 2026-08-31**<br>
 **Shipped chrome PRs on `origin/main` [RAN-IT]:** desk `#3313` · money `#3358` · bank `#3371` · pay `#3375` · p2p `#3379` · platform OS `#3380` · public `#3384` · route close `#3385` · ticket TIF `#3388`  
 **Finish implementation:** `#3406` + residual `#3419`; graph refresh `#3408/#3445`; P0s `#3453/#3459/#3460/#3461/#3462/#3463`; route matrix `#3456/#3457`.<br>

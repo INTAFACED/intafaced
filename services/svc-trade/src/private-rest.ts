@@ -44,7 +44,13 @@ import {
 import { FuturesError } from './futures/position-service.js';
 import { isRolledBackMarkRefusal, presentFuturesErrorWire, presentRolledBackRefusal } from './futures/futures-error-wire.js';
 import { resolveOpenPositionMode } from './futures/account-mode.js';
-import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './futures/margin-mode.js';
+import {
+  attemptMarginModeSwitch,
+  checkCollateralClassForMargin,
+  checkMarginModeForFuturesOpen,
+  type MarginModeSwitchAudit,
+} from './futures/margin-mode.js';
+import { CANCEL_NOT_CLOSE } from './futures/cancel-not-close.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
@@ -82,7 +88,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
  *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
  *   POST   /api/v1/positions       scope: trade:write (open funded position — F3)
- *   DELETE /api/v1/positions/:id   scope: trade:write (close + release margin — F3)
+ *   DELETE /api/v1/positions/:id   scope: trade:write (cancel-not-close — does not release margin)
  *
  * Auth is the mount boundary: edge terminates the bearer (JWT or API key) and
  * forwards a signed principal on every `/api/*` hop. This service never parses
@@ -226,6 +232,11 @@ export interface PrivateRestDeps {
     principal: Principal,
     input: { symbol: string; leverage: string; positionId?: string; clientAdjustmentId: string },
   ): Promise<Position>;
+  /**
+   * Append-only record of a refused margin-mode switch. The door never updates
+   * `margin_mode`. Production wires the SQL audit; tests may pass memory.
+   */
+  marginModeAudit?: MarginModeSwitchAudit;
   /**
    * Isolated extra collateral via futuresMarginAdd. Does not change leverage or
    * margin mode. Amount is a decimal string; JSON numbers refused.
@@ -1518,11 +1529,14 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         return reply.code(400).send(priceNotAcceptedBody(supplied));
       }
 
-      const pos = await deps.closePosition(principal, req.params.id);
-      return reply.code(200).send(pos);
+      // Cancel and close are different calls. DELETE does not run closeAtomically
+      // and does not release margin. The close routes do.
+      return reply.code(400).send({
+        error: CANCEL_NOT_CLOSE,
+        message: 'DELETE /api/v1/positions/:id does not close a position or release margin. Close on POST /api/v1/positions/:id/close.',
+      });
     } catch (err) {
       if (err instanceof FuturesError) {
-        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
         return reply.code(err.status).send(presentFuturesErrorWire(err));
       }
       const sent = sendDomainError(reply, err);
@@ -1586,7 +1600,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const result = await deps.closeAllPositions(principal, { clientBatchId: body.clientBatchId, ...(market ? { market } : {}) });
       return reply.code(200).send(result);
     } catch (err) {
-      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      if (err instanceof FuturesError) {
+        if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
+        return reply.code(err.status).send(presentFuturesErrorWire(err));
+      }
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -1656,28 +1673,12 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
    * POST leverage: isolated live re-leverage within the named cap (ledger delta).
    * POST margin-mode stays 501: isolated-at-open only — never a live mode flip.
    */
-  const derivativesNotSupported = (what: string, intafacedCode: string) =>
-    async function handler(req: FastifyRequest, reply: FastifyReply) {
-      const principal = requirePrincipal(req, reply);
-      if (!principal) return;
-
-      try {
-        requireScope(principal, 'trade:write');
-      } catch (err) {
-        const sent = sendDomainError(reply, err);
-        if (sent) return sent;
-        throw err;
-      }
-
-      return sendCcxt(reply, notSupported(`${what} is not available: set margin mode at open`, intafacedCode));
-    };
-
   const setMarginModeArm = refuseArmById('setMarginMode');
   if (!setMarginModeArm || setMarginModeArm.httpStatus !== 501 || setMarginModeArm.ccxtCode !== 'NotSupported') {
     throw new Error('ccxt matrix setMarginMode must stay 501 NotSupported — isolated-at-open only');
   }
 
-  const leverageHandler = (canonicalFuturesDoor: boolean) => async (req: FastifyRequest, reply: FastifyReply) => {
+  const leverageHandler = async (req: FastifyRequest, reply: FastifyReply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -1720,18 +1721,19 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       }
       const positionIdRaw = typeof body.id === 'string' ? body.id : typeof body.positionId === 'string' ? body.positionId : '';
       const positionId = positionIdRaw.trim() || undefined;
-      if (!positionId && !canonicalFuturesDoor) {
+      if (!positionId) {
         return reply.code(400).send({
           ...badRequest('positionId is required for a retry-safe margin mutation', 'trade.position_id_required').body,
         });
       }
-      const suppliedAdjustmentId = typeof body.clientAdjustmentId === 'string' ? body.clientAdjustmentId.trim() : '';
-      if (!suppliedAdjustmentId && !canonicalFuturesDoor) {
+      // Both doors. Inventing `leverage:${raw}` replayed a stored adjustment
+      // when a later set used the same leverage (salvage F0337 / c8246a4b).
+      const clientAdjustmentId = typeof body.clientAdjustmentId === 'string' ? body.clientAdjustmentId.trim() : '';
+      if (!clientAdjustmentId) {
         return reply.code(400).send({
           ...badRequest('clientAdjustmentId is required for retry-safe margin mutation', 'trade.idempotency_key_required').body,
         });
       }
-      const clientAdjustmentId = suppliedAdjustmentId || `leverage:${leverageRaw}`;
 
       const pos = await deps.setLeverage(principal, { symbol, leverage: leverageRaw, positionId, clientAdjustmentId });
       return reply.code(200).send(pos);
@@ -1745,8 +1747,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   };
 
-  app.post('/api/v1/positions/leverage', async (req, reply) => leverageHandler(false)(req, reply));
-  app.post('/api/v1/futures/leverage', leverageHandler(true));
+  app.post('/api/v1/positions/leverage', async (req, reply) => leverageHandler(req, reply));
+  app.post('/api/v1/futures/leverage', async (req, reply) => leverageHandler(req, reply));
 
   app.post('/api/v1/positions/margin', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
@@ -1877,7 +1879,39 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
   });
-  app.post('/api/v1/positions/margin-mode', derivativesNotSupported('setMarginMode', setMarginModeArm.intafacedCode));
+  const derivativesNotSupported = (_arm: 'setMarginMode') => {
+    return async (req: FastifyRequest, reply: FastifyReply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      try {
+        requireScope(principal, 'trade:write');
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const to = typeof body.marginMode === 'string' ? body.marginMode.trim() : body.marginMode;
+      if (deps.marginModeAudit) {
+        // Eligible plus a named preview lets the audit record the product refusal
+        // (cross / portfolio). The preview is not applied. The response stays 501.
+        await attemptMarginModeSwitch(
+          {
+            from: 'isolated',
+            to,
+            hasOpenRisk: true,
+            eligible: true,
+            migrationPreviewId: 'live-switch-not-offered',
+            positionId: typeof body.positionId === 'string' ? body.positionId : null,
+            userId: principal.userId,
+          },
+          deps.marginModeAudit,
+        );
+      }
+      return sendCcxt(reply, notSupported('setMarginMode is not available: set margin mode at open', setMarginModeArm.intafacedCode));
+    };
+  };
+  app.post('/api/v1/positions/margin-mode', derivativesNotSupported('setMarginMode'));
 
   // ── Create (money path) ───────────────────────────────────────────────────
 

@@ -1,5 +1,7 @@
 # Claim trade.mm-bot (seed health)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `trade.mm-bot` (stays **ready** — jobs default OFF; no invented markets/mids)
 **branch:** `feat/mm-seed-health-surface`
