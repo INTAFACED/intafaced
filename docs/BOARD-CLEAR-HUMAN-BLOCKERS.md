@@ -1,5 +1,7 @@
 # Board Clear — Human blockers (deferred queue)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Rule:** Append only while agent residual remains. This file **is** the Nitro inbox — do not create `docs/ops/NITRO-INBOX.md`.  
 **Flush:** After AGENT-COMPLETE (all agent-owned rows Done/Cut), orchestrator finalizes this file and reports once.
 

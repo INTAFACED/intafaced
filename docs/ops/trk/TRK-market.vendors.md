@@ -1,5 +1,7 @@
 # TRK-market.vendors — research / spec pack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker id:** `market.vendors`  
 **Title:** Vendor lifecycle — apply, vet, list, stake-gated slots  
 **Module / phase:** `market` · phase 5 · plane F  

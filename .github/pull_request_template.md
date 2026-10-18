@@ -32,7 +32,7 @@ two PRs.
 - [ ] Cross-service calls go through `packages/contracts` or `packages/events`
 - [ ] Migrations have a `.down.sql` reversal
 - [ ] Nothing "temporary", and nothing faked to look live: a blank setting refuses with a typed error and an honest empty state
-- [ ] Merge: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on this head, and the independent Claude Opus review passed this head (required for every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE`)
+- [ ] Merge: `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on this head and passed, or failed only on checks AGENTS.md item 3 accepts; an independent review passed this head (every PR needs one)
 
 ## Money paths
 

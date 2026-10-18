@@ -38,7 +38,7 @@ One service per PR. If describing it needs the word "and", it is two PRs. A cros
 
 Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
-Review: the author checks their own change, and an independent reviewer checks the exact head. Every PR except one touching only `packages/ui`, `packages/i18n`, `README.md`, `LICENSE` or `NOTICE` needs an independent Claude Opus transcript review of the exact head, whose report quotes the gate's canonical patch hash and file list. When you review, look in this order:
+Review: the author checks their own change, and an independent reviewer checks the exact head. Every PR gets an independent review of the exact head commit. When you review, look in this order:
 
 1. Does it touch money? Read every line, and check the tests cover the failure branches.
 2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.
@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` passes on the exact head (run it from a clean, up-to-date `origin/main` checkout, not the PR's branch) and the required independent review passed that same head; the rules are in AGENTS.md ("Check, then merge") and the evidence format is in [`docs/tooling/evidence-merge-check.md`](docs/tooling/evidence-merge-check.md). The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
+Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and passed, or failed only on checks that AGENTS.md ("Check, then merge", items 2 and 3) accepts, and the independent review passed that same head. The gate never merges: run the merge command it prints as its own step. GitHub itself still requires Gitleaks, Dependency audit and Doctrine gates.
 
 ---
 

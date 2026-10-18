@@ -143,8 +143,8 @@ Invent-money scan · PR risk rank · branch-ahead audit · design critique → *
 
 While Nitro agents swarm residual, **Denon’s invent-risk / product-complete / integrity mountains** are tracked here — agents babysit only, do not dual-edit, do not take those engines:
 
-→ **Live:** [`docs/LAST-MVP-BOARDS-2026-08-23.md`](LAST-MVP-BOARDS-2026-08-23.md) · historical 120-ID [`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md)  
-→ Factory done: [`docs/SPEC-FACTORY-INDEX-2026-08-04.md`](SPEC-FACTORY-INDEX-2026-08-04.md)  
+→ **Live:** [`docs/LAST-MVP-BOARDS-2026-08-23.md`](archive/LAST-MVP-BOARDS-2026-08-23.md) · historical 120-ID [`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md)  
+→ Factory done: [`docs/SPEC-FACTORY-INDEX-2026-08-04.md`](archive/SPEC-FACTORY-INDEX-2026-08-04.md)  
 → Historical: [`docs/DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md)
 
 ## 3 · Swarm anti-negatives (accounted for)

@@ -1,5 +1,7 @@
 # Claim trade.ccxt-api (N4 rate-limit honesty)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** LIVE this session
 **tracker:** `trade.ccxt-api` (already **done** — this is the N4 residual)
 **branch:** `feat/ccxt-n4-rate-limit-honest`

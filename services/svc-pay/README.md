@@ -90,6 +90,8 @@ Everything above is **merchant** money — a third party pays a merchant. These 
 | `withdrawal.mine`    | `trade:read`     | `{ limit? }`                                          | `Withdrawal[]`  |
 | `withdrawal.balance` | `ledger:read`    | `{ assetId }`                                         | `{ available }` |
 
+**Withdrawal limits.** There is no per-customer withdrawal cap yet (planned). The only limits on `withdrawal.create` are the treasury exposure cap (platform-wide per asset, enforced only with `PAY_TREASURY_LIMITS=required`) and, for a user who owns a merchant with a legacy settlement of that asset, that merchant's payout policy: daily payout cap, beneficiary cap and approval threshold (enforced only with `PAY_MERCHANT_CONTROLS=required`).
+
 **Why these live here.** Value entering the book must come from a rail and value leaving goes out through one; the `RailAdapter` interface, the registry and both v1 adapters are in this service. The alternative was a second service learning about rails, or a money path with no rail behind it — which is a money path reconciliation has nothing to check against.
 
 **Why the withdrawal is not in svc-trade.** `services/svc-trade/src/router.ts` says `trade:withdraw` "appears nowhere here, deliberately: it is an INTERACTIVE_ONLY scope that no API key may hold, which is what protects a leaked bot key from moving value off the platform." That reasoning is about the **surface**, not about where the scope lives — svc-trade is the exchange API that bots hit with long-lived keys. It is respected rather than worked around: the withdrawal lives where the rails live, and svc-trade stays a pure exchange API.
