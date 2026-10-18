@@ -1,5 +1,7 @@
 # Money data backup / restore drill (D26-P3-09)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-08-15 · **Lane:** `denon-d26-p3-09-backup-restore` · **Branch:** `feat/d26-p3-09-money-backup-restore`  
 **Done bar:** one exercised restore path documented — dump contents, restore order, post-restore hash-chain / reconciliation proof, and what this machine did **not** run.  
 **Leverage (Phase A IN):** compose Postgres 16 (`docker-compose.yml` `postgres`) + `svc-ledger` hash-chain / `runReconciliation` (`services/svc-ledger/src/ledger/reconcile.ts`). No second book. No new backup product.

@@ -1,5 +1,7 @@
 # Security — when to do what (plain language)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **For Nitro + every agent.** Full tool detail lives in [`BULLETPROOF-ARSENAL-2026-07-29.md`](./BULLETPROOF-ARSENAL-2026-07-29.md). Strix only: [`STRIX-ASSESSMENT-2026-07-29.md`](./STRIX-ASSESSMENT-2026-07-29.md).  
 **Post-audit status (Track A partial / product doors closed):** [`SECURITY-FLOOR-AFTER-AUDIT-2026-07-29.md`](./SECURITY-FLOOR-AFTER-AUDIT-2026-07-29.md) · product scoreboard: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](./PEACE-OF-MIND-AUDIT-CURRENT.md).  
 **Current threat model (D26-P3-02 — judgment, not pentest):** [`THREAT-MODEL-CURRENT.md`](./THREAT-MODEL-CURRENT.md). July 29 `audit/2026-07-29/05-THREAT-MODEL.md` is archive.

@@ -1,5 +1,7 @@
 # Last MVP boards — Nitro · Phantom · Shehzad
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING overlay for this last wave · **2026-08-23**  
 **Audience:** `@Phantom-X-007` (Denon / Phantom) · `@shehzad002` (Shehzad / Shizu) · Nitro agents  
 **Replaces as live queue:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](DENON-HARD-PARALLEL-BOARD-2026-08-09.md) (~120 IDs — historical)  

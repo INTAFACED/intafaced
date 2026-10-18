@@ -1,5 +1,7 @@
 # Finish ontology — when a session is done
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING · in-repo home · 2026-08-07
 **Scope:** what "finished" means for a **session or a run**. Per-module Done is a different
 question, owned by [`AGENT_PROTOCOL.md`](../../tooling/agent-protocol/AGENT_PROTOCOL.md) §8.

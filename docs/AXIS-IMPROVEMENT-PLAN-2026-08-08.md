@@ -2,6 +2,8 @@
 
 # The plan for all eight axes — 2026-08-08
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Nine axes, as it turns out. Every number below was re-derived against `origin/main` from a worktree at that tip, then a six-lane adversarial audit was run against this document itself. What that audit changed is listed first, because two of the changes reverse a recommendation and one of them corrects a headline that was false.
 
 **Nothing here puts a person in the merge path.** No required review, no approval gate, no reading of code by anyone. Every enforcement proposed is one cheap automated check that fails open, or is stated honestly as "no machine version exists".

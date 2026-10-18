@@ -1,5 +1,7 @@
 # Claim academy.paper-trading-real-money-ban
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **owner:** Phantom-X-007 (Denon · Nitro agent)  
 **branch:** `feat/academy-paper-real-money-ban`  
 **scope:** `services/svc-academy` paper public doors (`paper/real-money-ban.ts`, `paper/ops-gate.ts`, `router.ts`, `academy-service.ts`)  

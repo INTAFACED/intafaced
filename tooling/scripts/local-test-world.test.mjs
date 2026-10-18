@@ -57,8 +57,27 @@ import {
   planMerchantPopulate,
   MERCHANT_DISPUTE,
   MERCHANT_PAYOUT_FALLBACK_RAIL,
+  MERCHANT_CHECKER_ROLE,
+  MERCHANT_PAYOUT_DESTINATION,
+  MERCHANT_PAYOUT_PAYMENT_N,
+  MERCHANT_TIERS,
+  assignTierTarget,
+  defineTierTarget,
+  planTierAssignment,
+  planTierDefinition,
+  tierAssignRequestId,
+  tierChangeHash,
+  tierDefineRequestId,
+  MERCHANT_REFUND,
   MERCHANT_SETTLEMENT_ASSET,
   OPEN_DISPUTE_ACTION,
+  describeMoneyRefusal,
+  merchantRefundId,
+  planMerchantPayoutStage,
+  planMerchantRefund,
+  merchantRefundAttemptId,
+  planPayoutChecker,
+  planPayoutDestination,
   merchantDisputeId,
   merchantSettlementWindows,
   openDisputeApprovalFields,
@@ -394,7 +413,7 @@ try {
   assert.equal(isPayScopeRefusal('starter fee is not configured'), false);
   assert.equal(merchantPaymentId(userId, 1), merchantPaymentId(userId, 1));
   assert.notEqual(merchantPaymentId(userId, 1), merchantPaymentId(userId, 2));
-  assert.equal(MERCHANT_PAYMENTS.length, 8);
+  assert.equal(MERCHANT_PAYMENTS.length, 10);
   assert.equal(MERCHANT_LINKS.length, 2);
   assert.equal(MERCHANT_INVOICES.length, 2);
   assert.ok(MERCHANT_PAYMENTS.every((p) => typeof p.amount === 'string'));
@@ -414,7 +433,7 @@ try {
   assert.equal(create.feeBps, 150);
   assert.equal(create.legalName, MERCHANT_LEGAL_NAME);
   assert.equal(create.displayName, MERCHANT_DISPLAY_NAME);
-  assert.equal(opened.actions.filter((a) => a.kind === 'create-payment').length, 8);
+  assert.equal(opened.actions.filter((a) => a.kind === 'create-payment').length, 10);
   assert.equal(
     opened.actions.some((a) => a.kind === 'authorize-payment'),
     false,
@@ -510,6 +529,188 @@ try {
     null,
   );
   assert.equal(MERCHANT_PAYOUT_FALLBACK_RAIL, 'crypto-native');
+
+  // Refund: 3.00 of the 18.00 payment 10, once. A recorded refund of that size is EXISTS on the rerun.
+  assert.equal(MERCHANT_REFUND.amount, '3.00');
+  assert.equal(MERCHANT_REFUND.n, 10);
+  const rfPay = (status, refundedAmount = '0') => ({ id: merchantPaymentId(userId, 10), status, refundedAmount });
+  const rfFirst = planMerchantRefund({ userId, payments: [rfPay('settled')] });
+  assert.equal(rfFirst.kind, 'refund');
+  assert.equal(rfFirst.amount, '3.00');
+  assert.equal(rfFirst.refundId, merchantRefundId(userId, 10), 'the retry key is fixed, so a rerun cannot book a second refund');
+  assert.notEqual(rfFirst.refundId, merchantRefundId(userId, 5), 'not the id of the fully refunded seed payment');
+  assert.equal(planMerchantRefund({ userId, payments: [rfPay('captured')] }).kind, 'refund');
+  // A refund the rail refused is reversed and its id is spent: only the next attempt gets a new, stable id.
+  assert.equal(merchantRefundAttemptId(userId, 10, 1), merchantRefundId(userId, 10));
+  assert.equal(merchantRefundAttemptId(userId, 10, 2), `${merchantRefundId(userId, 10)}-r2`);
+  assert.equal(planMerchantRefund({ userId, payments: [rfPay('settled')], attempt: 2 }).refundId, merchantRefundAttemptId(userId, 10, 2));
+  assert.equal(planMerchantRefund({ userId, payments: [rfPay('settled', '3.000000000000000000')] }).kind, 'exists');
+  assert.equal(planMerchantRefund({ userId, payments: [rfPay('created')] }).kind, 'skip');
+  assert.equal(planMerchantRefund({ userId, payments: [] }).kind, 'skip');
+
+  // Saved destination: a well-formed 0x + 40 hex ref on the crypto rail; any saved row on that rail is EXISTS.
+  assert.equal(MERCHANT_PAYOUT_DESTINATION.railId, MERCHANT_PAYOUT_FALLBACK_RAIL);
+  assert.equal(MERCHANT_PAYOUT_DESTINATION.kind, 'crypto');
+  assert.match(MERCHANT_PAYOUT_DESTINATION.ref, /^0x[0-9a-f]{40}$/);
+  assert.equal(planPayoutDestination({ destinations: [] }).kind, 'set');
+  assert.equal(planPayoutDestination({ destinations: [{ railId: 'card-sandbox', kind: 'bank' }] }).kind, 'set');
+  assert.equal(
+    planPayoutDestination({ destinations: [{ railId: 'crypto-native', kind: 'crypto', destinationMasked: '0x..' }] }).kind,
+    'exists',
+  );
+
+  // Payout stage: request, then the second person decides, then the owner sends; a sent payout is never redone.
+  // Only the settlement of the payout window is paid; an older posted window (held down by the dispute) is left alone.
+  const stSettled = [dsPosted];
+  const stWin = { window: '2026-10-17' };
+  assert.equal(MERCHANT_PAYOUT_PAYMENT_N, 9);
+  assert.equal(planMerchantPayoutStage({ settlements: [], approvals: [], ...stWin }).stage, 'none');
+  assert.equal(planMerchantPayoutStage({ settlements: stSettled, approvals: [], window: null }).stage, 'none');
+  assert.equal(
+    planMerchantPayoutStage({ settlements: stSettled, approvals: [], window: '2026-10-18' }).stage,
+    'none',
+    'another day is another window',
+  );
+  assert.equal(planMerchantPayoutStage({ settlements: [{ ...dsPosted, net: '0' }], approvals: [], ...stWin }).stage, 'none');
+  assert.equal(planMerchantPayoutStage({ settlements: stSettled, approvals: [], ...stWin }).stage, 'request');
+  assert.equal(planMerchantPayoutStage({ settlements: [{ ...dsPosted, status: 'paid_out' }], approvals: [], ...stWin }).stage, 'sent');
+  const stPending = { approvalId: 'a1', settlementId: 's1', status: 'pending', checkerUserId: null };
+  const stage = (approvals) => planMerchantPayoutStage({ settlements: stSettled, approvals, ...stWin }).stage;
+  assert.equal(stage([stPending]), 'decide');
+  assert.equal(stage([{ ...stPending, checkerUserId: 'u2' }]), 'founders');
+  assert.equal(stage([{ ...stPending, status: 'approved' }]), 'send');
+  // An approval the payout already consumed (admitted, then refused by a later guard) resumes the send; it never files a new request.
+  assert.equal(stage([{ ...stPending, status: 'consumed' }]), 'send');
+  assert.equal(
+    stage([
+      { ...stPending, status: 'consumed' },
+      { ...stPending, approvalId: 'a2', status: 'pending' },
+    ]),
+    'send',
+  );
+  assert.equal(planMerchantPayoutStage({ settlements: [{ ...dsPosted, status: 'failed' }], approvals: [], ...stWin }).stage, 'failed');
+  assert.equal(stage([{ ...stPending, status: 'expired' }]), 'request');
+  assert.equal(stage([{ ...stPending, settlementId: 'other' }]), 'request');
+
+  // The second person: invited, then accepted, then only a role that can approve payouts decides. Roles are never changed.
+  assert.equal(MERCHANT_CHECKER_ROLE, 'finance');
+  assert.equal(planPayoutChecker({ members: [], checkerUserId: 'op-b' }).kind, 'invite');
+  assert.equal(
+    planPayoutChecker({ members: [{ userId: 'op-b', status: 'invited', memberId: 'm1' }], checkerUserId: 'op-b' }).memberId,
+    'm1',
+  );
+  assert.equal(
+    planPayoutChecker({ members: [{ userId: 'op-b', status: 'active', role: 'finance' }], checkerUserId: 'op-b' }).kind,
+    'ready',
+  );
+  assert.equal(
+    planPayoutChecker({ members: [{ userId: 'op-b', status: 'active', role: 'viewer' }], checkerUserId: 'op-b' }).kind,
+    'wrong-role',
+  );
+  assert.equal(
+    planPayoutChecker({ members: [{ userId: 'op-b', status: 'removed', role: 'finance' }], checkerUserId: 'op-b' }).kind,
+    'unavailable',
+  );
+
+  // LOCAL TEST tiers: agreed values, defined by id and name, assigned once, never rewritten.
+  assert.deepEqual(
+    MERCHANT_TIERS.map((t) => [t.tier.id, t.tier.name, t.assign]),
+    [
+      ['local-test-tier', 'LOCAL TEST tier', true],
+      ['local-test-tier-2', 'LOCAL TEST tier 2', false],
+    ],
+  );
+  assert.ok(
+    MERCHANT_TIERS.every((t) => /^LOCAL TEST tier/.test(t.tier.name) && t.tier.approvalTtlSeconds === 86_400 && t.tier.reserve === null),
+  );
+  const [tier1, tier2] = MERCHANT_TIERS.map((t) => t.tier);
+  assert.deepEqual(
+    [tier1.approvalThresholds[0].amount, tier1.founderThresholds[0].amount, tier1.caps[0].limit, tier1.caps[1].limit],
+    ['10', '1000', '500', 500],
+  );
+  assert.deepEqual(
+    [tier2.approvalThresholds[0].amount, tier2.founderThresholds[0].amount, tier2.caps[0].limit, tier2.caps[1].limit],
+    ['100', '5000', '5000', 5000],
+  );
+  assert.ok(
+    Number(tier1.founderThresholds[0].amount) >= Number(tier1.approvalThresholds[0].amount),
+    'svc-pay refuses a founder bar under the approval bar',
+  );
+  assert.equal(planTierDefinition({ listed: [], tier: tier1 }).kind, 'define');
+  assert.equal(planTierDefinition({ listed: [], tier: tier1 }).expectedVersion, '0');
+  const tierSeen = {
+    id: tier1.id,
+    name: tier1.name,
+    archetype: 'standard',
+    caps: tier1.caps.map((c) => ({ ...c })),
+    reserve: null,
+    version: '1',
+  };
+  assert.equal(planTierDefinition({ listed: [tierSeen], tier: tier1 }).kind, 'exists');
+  assert.equal(
+    planTierDefinition({
+      listed: [{ ...tierSeen, caps: [{ kind: 'daily_payout', assetCode: 'USDT', limit: '501.000000000000000000' }, tier1.caps[1]] }],
+      tier: tier1,
+    }).kind,
+    'differs',
+  );
+  assert.equal(
+    planTierDefinition({
+      listed: [
+        { ...tierSeen, caps: tierSeen.caps.map((c) => (c.kind === 'daily_payout' ? { ...c, limit: '500.000000000000000000' } : c)) },
+      ],
+      tier: tier1,
+    }).kind,
+    'exists',
+    'stored decimals compare as numbers',
+  );
+  assert.equal(planTierDefinition({ listed: [{ ...tierSeen, id: 'other-id' }], tier: tier1 }).kind, 'differs', 'looked up by name too');
+  assert.equal(planTierAssignment({ profile: { tierId: null, version: '0' }, tierId: tier1.id, tierDefined: true }).kind, 'assign');
+  assert.equal(planTierAssignment({ profile: { tierId: null, version: '3' }, tierId: tier1.id, tierDefined: true }).expectedVersion, '3');
+  assert.equal(planTierAssignment({ profile: { tierId: tier1.id, version: '1' }, tierId: tier1.id, tierDefined: true }).kind, 'exists');
+  assert.equal(planTierAssignment({ profile: { tierId: 'something', version: '1' }, tierId: tier1.id, tierDefined: true }).kind, 'other');
+  assert.equal(planTierAssignment({ profile: { tierId: null, version: '0' }, tierId: tier1.id, tierDefined: false }).kind, 'skip');
+  assert.equal(tierDefineRequestId(tier1.id, '0'), tierDefineRequestId(tier1.id, '0'));
+  assert.notEqual(tierDefineRequestId(tier1.id, '0'), tierDefineRequestId(tier2.id, '0'));
+  assert.notEqual(
+    tierAssignRequestId('44444444-4444-4444-8444-444444444444', tier1.id, '0'),
+    tierAssignRequestId('44444444-4444-4444-8444-444444444444', tier1.id, '1'),
+  );
+  assert.match(tierChangeHash(defineTierTarget(tier1), '0'), /^sha256:[0-9a-f]{64}$/);
+  assert.equal(tierChangeHash(defineTierTarget(tier1), '0'), tierChangeHash(JSON.parse(JSON.stringify(defineTierTarget(tier1))), '0'));
+  assert.notEqual(tierChangeHash(defineTierTarget(tier1), '0'), tierChangeHash(defineTierTarget(tier1), '1'));
+  assert.deepEqual(assignTierTarget('44444444-4444-4444-8444-444444444444', tier1.id).change, {
+    kind: 'set_tier',
+    tierId: tier1.id,
+    archetypeId: 'standard',
+  });
+
+  // Refusals keep the service's words and name the cause for the step-up codes.
+  assert.match(describeMoneyRefusal('A fresh confirmation is required. Confirm again. [FORBIDDEN]'), /^auth\.step_up_required/);
+  assert.match(describeMoneyRefusal('This confirmation timed out. Confirm again. [FORBIDDEN]'), /^auth\.step_up_expired/);
+  assert.match(describeMoneyRefusal('Your role on this merchant does not allow payout.send [FORBIDDEN]'), /^pay\.role_not_allowed/);
+  assert.match(describeMoneyRefusal('No procedure found on path "auth.stepUpPay" [NOT_FOUND]'), /predates #5011/);
+  assert.match(describeMoneyRefusal('pay.tier_unassigned'), /no risk tier/);
+  assert.match(describeMoneyRefusal('pay.guard_screening_unavailable [SERVICE_UNAVAILABLE]'), /no supplier connected/);
+  assert.match(describeMoneyRefusal('pay.rail_failed: No charge with reference ch_1 [BAD_REQUEST]'), /card sandbox no longer holds/);
+  assert.equal(
+    describeMoneyRefusal('something else [BAD_REQUEST]'),
+    'something else [BAD_REQUEST]',
+    'an unknown refusal comes back as received',
+  );
+  assert.match(describeMoneyRefusal('A fresh confirmation is required. Confirm again. [FORBIDDEN]'), /Service said: A fresh/);
+
+  // The step-up token is only ever a one-request bearer; no log line, record or file carries it.
+  {
+    const src = readFileSync(new URL('./local-test-world.mjs', import.meta.url), 'utf8');
+    const flow = src.slice(src.indexOf('async function ensurePayStepUp'), src.indexOf('function trpcData'));
+    assert.ok(flow.indexOf("'No procedure found") < flow.indexOf('nextCode()'), 'a missing procedure is found before a TOTP step is spent');
+    assert.doesNotMatch(flow, /(?:log|record)\([^)]*(?:tok\.token|accessToken|payStepUp\.token)/, 'the token is never logged or recorded');
+    assert.doesNotMatch(flow, /(?:writePrivate\w*|writeFileSync)\([^)]*(?:token|accessToken)/i, 'the token is never written down');
+    for (const proc of ['payment.refund', 'merchantControl.approvals.request', 'settlement.payout']) {
+      assert.match(flow, new RegExp(`'${proc.replace('.', '\\.')}'[\\s\\S]{0,160}tok\\.token`), `${proc} carries the step-up token`);
+    }
+  }
 
   const dsMId = '44444444-4444-4444-8444-444444444444';
   const disputeFields = {
@@ -809,31 +1010,91 @@ try {
   const actionFn = worldSrc.slice(worldSrc.indexOf('async function runMerchantAction'), worldSrc.indexOf('const STEP_FNS'));
   assert.equal(actionFn.split('resignInForMerchantScopes').length, 3);
 
-  // ── populate: the new merchant block never sends a payout, never refunds, reads before it writes ──
-  const moneyFn = worldSrc.slice(worldSrc.indexOf('async function populateMerchantMoneyBlock'), worldSrc.indexOf('function trpcData'));
+  // ── populate: the merchant money block reads before it writes; refund and payout go only through the step-up flow ──
+  const moneyFn = worldSrc.slice(
+    worldSrc.indexOf('async function populateMerchantMoneyBlock'),
+    worldSrc.indexOf('const OPERATORS_MISSING'),
+  );
+  const payFlowFn = worldSrc.slice(worldSrc.indexOf('const OPERATORS_MISSING'), worldSrc.indexOf('function trpcData'));
   assert.ok(moneyFn.length > 500);
-  assert.equal(/settlement\.payout|payment\.refund|refund-payment/.test(moneyFn), false, 'no payout send and no refund here');
-  assert.equal(/'settlement\.payout'/.test(worldSrc), false, 'populate never calls settlement.payout');
+  assert.equal(
+    /settlement\.payout|payment\.refund|refund-payment/.test(moneyFn),
+    false,
+    'the money block itself neither sends nor refunds',
+  );
+  assert.match(moneyFn, /populateMerchantStepUpMoney\(ctx, merchantId/);
+  assert.equal(worldSrc.split("'settlement.payout'").length, 2, 'settlement.payout is called in exactly one place');
+  // The other payment.refund call is the older seed refund of spec payment 5 (runMerchantAction), which has no step-up token.
+  assert.equal(worldSrc.split("'payment.refund'").length, 3, 'payment.refund is called in two places');
+  assert.ok(payFlowFn.includes("'settlement.payout'") && payFlowFn.includes("'payment.refund'"), 'both sit in the step-up flow');
   assert.match(moneyFn, /'settlement\.list'/);
-  assert.match(moneyFn, /'merchantControl\.approvals\.list'/);
+  assert.match(payFlowFn, /'merchantControl\.approvals\.list'/);
   assert.match(moneyFn, /'fraud\.getDispute'/);
   assert.ok(moneyFn.indexOf("'settlement.list'") < moneyFn.indexOf("'settlement.run'"), 'settlement is read before it is run');
   assert.ok(
-    moneyFn.indexOf("'merchantControl.approvals.list'") < moneyFn.indexOf("'merchantControl.approvals.request'"),
+    payFlowFn.indexOf("'merchantControl.approvals.list'") < payFlowFn.indexOf("'merchantControl.approvals.request'"),
     'approvals are read before a request',
+  );
+  assert.ok(
+    payFlowFn.indexOf("'merchant.payoutDestinations.list'") < payFlowFn.indexOf('await savePayoutDestination(ctx'),
+    'the saved destination is read before one is saved',
+  );
+  assert.ok(
+    payFlowFn.indexOf('planMerchantRefund(') < payFlowFn.indexOf("'payment.refund'"),
+    'the refund is planned from what exists before it is made',
+  );
+  assert.ok(
+    payFlowFn.indexOf("'merchantControl.approvals.request'") < payFlowFn.indexOf("'merchantControl.approvals.decide'"),
+    'the request comes before the approval',
+  );
+  assert.ok(
+    payFlowFn.indexOf("'merchantControl.approvals.decide'") < payFlowFn.indexOf("'settlement.payout'"),
+    'the send comes after the approval',
+  );
+  assert.ok(
+    payFlowFn.indexOf('populateMerchantTiers') < 0 ||
+      moneyFn.indexOf('populateMerchantTiers(ctx') < moneyFn.indexOf('populateMerchantStepUpMoney(ctx'),
+    'tiers are in place before the payout request',
   );
   assert.ok(
     moneyFn.indexOf("'fraud.getDispute'") < moneyFn.indexOf('openDisputeByApprovalPair('),
     'a dispute is read before the approvers sign in',
   );
   assert.match(moneyFn, /'exists'/);
-  assert.match(moneyFn, /'refused'/);
+  assert.match(payFlowFn, /'refused'/);
   assert.ok(moneyFn.indexOf('planMerchantSettlement') < moneyFn.indexOf("'settlement.run'"));
-  assert.ok(moneyFn.indexOf("'settlement.run'") < moneyFn.indexOf("'merchantControl.approvals.request'"));
   assert.ok(
-    moneyFn.indexOf("'merchantControl.approvals.request'") < moneyFn.indexOf('openDisputeByApprovalPair('),
-    'dispute comes after settlement and request',
+    moneyFn.indexOf("'settlement.run'") < moneyFn.indexOf('populateMerchantStepUpMoney(ctx'),
+    'settlement comes before refund and payout',
   );
+  assert.ok(
+    moneyFn.indexOf('populateMerchantStepUpMoney(ctx') < moneyFn.indexOf('openDisputeByApprovalPair('),
+    'dispute comes after settlement and payout',
+  );
+  // The checker approves only what populate asked for, and the step-up token is re-minted when it is about to expire.
+  assert.match(payFlowFn, /approval\.makerUserId !== pair\.b\.userId/);
+  assert.match(payFlowFn, /Date\.parse\(held\.expiresAt\) - Date\.now\(\) >= 30_000/);
+  assert.ok(payFlowFn.indexOf('approval.makerUserId !== pair.b.userId') < payFlowFn.indexOf("'merchantControl.approvals.decide'"));
+  // The teammate is a real MFA session: only the invite accept borrows a pay:write token, and the owner approves unaided.
+  const mateFn = payFlowFn.slice(
+    payFlowFn.indexOf('async function ensurePayoutTeammate'),
+    payFlowFn.indexOf('async function teammateStepUp'),
+  );
+  assert.equal(mateFn.split('approverScopedToken(').length, 2, 'one stand-in token, for the accept');
+  assert.match(mateFn, /acceptInvite/);
+  assert.equal(/local_nitro|local_phantom/.test(payFlowFn), false, "never the founders' real accounts");
+  const decideCall = payFlowFn.slice(
+    payFlowFn.indexOf("'merchantControl.approvals.decide'"),
+    payFlowFn.indexOf("'merchantControl.approvals.decide'") + 260,
+  );
+  assert.equal(/tok\b|approverScopedToken|pay:write/.test(decideCall), false, 'the owner decides on their own session');
+  const tierFn = payFlowFn.slice(
+    payFlowFn.indexOf('async function founderChange'),
+    payFlowFn.indexOf('async function ensurePayoutTeammate'),
+  );
+  assert.ok(tierFn.includes('a.loginToken') && tierFn.includes('b.loginToken'), 'the founders act on their plain MFA sessions');
+  assert.equal(/approverScopedToken|approvalToken/.test(tierFn), false, 'no scope stand-in for tier changes');
+  assert.ok(tierFn.indexOf('tierChangeHash(') < tierFn.indexOf('expectedChangeHash'), 'the confirm carries the hash of the change');
   const disputeFn = worldSrc.slice(
     worldSrc.indexOf('async function openDisputeByApprovalPair'),
     worldSrc.indexOf('async function populateMerchantMoneyBlock'),
