@@ -1,5 +1,7 @@
 # Owner decision packet — Denon product law (not a Nitro waiting room)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Written by:** Denon, 2026-08-09. **Law correction 2026-08-14:** this file does **not** park engines on a Nitro click. Durable ownership already gives **Denon** direction on rates, house desk, venue set, and futures/OTC/copy/algo product law. **Nitro is Class X only** (secrets, prod go-live, licence, sanctions **list content**). Recommendations in this packet are **taken by Denon** unless the JSON row is `class_x`. Q1 remains **external-only for v1**.  
 **Tip at last completeness pass:** `93f6c777` (2026-08-12).  
 **Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` **D26-P0-01…18**.  

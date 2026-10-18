@@ -1,5 +1,7 @@
 # Threat model one-pager — residual money (V2)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 > **ARCHIVE — not live.** Current home: [`../../THREAT-MODEL-CURRENT.md`](../../THREAT-MODEL-CURRENT.md) (D26-P3-02, 2026-08-15). Do not cite this file as the platform threat model.
 
 **Claim tags:** `[JUDGMENT 2026-07-29]` for residual focus after wave-1

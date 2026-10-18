@@ -1,5 +1,7 @@
 # Claim pay.gateway (KYB money-gate IN slice)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **status:** claimed
 **tracker:** `pay.gateway` (stays **ready** — card acquiring / `socket.psp-partners` is still the socket; not mountain-done)
 **branch:** `feat/pay-gateway-kyb-money-gate`
