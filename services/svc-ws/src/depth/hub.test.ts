@@ -211,7 +211,9 @@ describe('DepthHub — a client can always rebuild the server’s exact book', (
     for (let tick = 0; tick < 200; tick += 1) {
       const roll = next();
       const side = roll < 0.5 ? bids : asks;
-      const price = String(90 + Math.floor(next() * 20));
+      // Bids stay below the opening ask and asks stay above the opening bid,
+      // so this stream is never a crossed copy. A crossed copy is withheld.
+      const price = side === bids ? String(80 + Math.floor(next() * 20)) : String(101 + Math.floor(next() * 20));
 
       if (roll < 0.15) side.delete(price);
       else if (roll < 0.85) side.set(price, `${(1 + Math.floor(next() * 9)).toString()}.${Math.floor(next() * 1e6)}`);
