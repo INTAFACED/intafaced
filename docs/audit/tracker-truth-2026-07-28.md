@@ -1,5 +1,7 @@
 # Audit: does the tracker tell the truth?
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Date:** 2026-07-28 · **Scope:** every feature in `tooling/tracker/features.mjs` marked `done` · **Type:** docs + registry only. No service code changed.
 
 **Trigger:** the tracker is about to be shared with the team as a plan. A feature marked `done` that nobody can actually use is worse than one marked `ready`, because `ready` invites someone to build it and `done` tells them not to bother.

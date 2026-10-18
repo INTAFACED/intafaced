@@ -1,5 +1,7 @@
 # TRK-blueprint.card — research / spec pack
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../../../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Tracker id:** `blueprint.card`  
 **Title:** Share card render (1080×1350, 1200×630)  
 **Module / phase:** `blueprint` · phase **4** · plane **F**  

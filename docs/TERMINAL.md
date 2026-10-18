@@ -1,5 +1,7 @@
 # THE INTAFACED TERMINAL
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **[STALE-as-architecture 2026-08-31]** Product UI is Bazaar `vendor/upstream-exchange/05_Web_Front` `:8090`, not `apps/web`. Chart **end-state** is TradingView **Advanced Charts** pending approval (`docs/LICENCE-POSITION.md` §1.1a). Lightweight Charts on this page is the **interim** host. Living execution map: `docs/FRONTEND-REMAINING-SOT-2026-08-25.md`. Keep this file as product-ambition history; do not code from the `apps/web` diagram.
 
 **Our terminal. Our book. Every other venue too.**

@@ -1,5 +1,7 @@
 # Paste skeleton (frozen quality template)
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 Coordinator copies this structure into every builder paste.  
 **Do not thin.** Fill walls, sealed, read-first, Engine A/B/C, Nitro-only for the lane.  
 **Do not pad.** Prefer fewer real units + deep Engine B over inventing L7 rows to hit 8 (substance OS).  

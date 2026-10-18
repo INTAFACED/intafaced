@@ -1,5 +1,7 @@
 # Frontend master methodology — pro workbench program
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **[HISTORY 2026-09-01]** Dimensions/gates still useful. “Code none until go implement” and P21/LWC-forever lines are **superseded**. Live: [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md).
 
 **Status:** **LOCKED v3.1** · Nitro approved decisions 1–7 (2026-07-31) · agent may open Wave A on **go implement**  

@@ -1,5 +1,7 @@
 # Three-way distribution — Denon · Shehzad (chain) · Nitro agents
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Status:** BINDING law · 2026-08-04  
 **Tip at land:** re-derive `origin/main`  
 **Doctrine home:** `INTAFACED_DEFINITIVE_BUILD.md` §16–§25 (two planes, INTACHAIN §17)  

@@ -1,5 +1,7 @@
 # Agent-ready packages for Stream A — 30 July 2026
 
+> **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+
 **Author:** Denon (Stream B / spine). **Audience:** Nitro's agents, cold-start safe.
 **Board SoT:** `docs/DENON-NITRO-PARALLEL-BOARD-2026-07-30.md`. **If this file
 disagrees with live git, the tracker or a live endpoint: live wins.**
