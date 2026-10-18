@@ -19,10 +19,11 @@ export const TRADE_CANDLES_FILL_LIMIT_UNSET = 'trade.candles_fill_limit_unset' a
 export const CANDLES_FILL_LIMIT_MAX = 1000;
 
 /**
- * Coinbase rejects a start/end/granularity selection of more than 300 points.
- * A legal limit (1..1000) does not shrink that window into a partial series.
+ * A request is answered in full for the window it asked for, or refused.
+ * The cap is the request's own limit. TradeService also refuses a limit above
+ * {@link OHLC_RECENT_ROW_CAP} before SQL. A legal limit does not shrink the
+ * window into a partial series.
  */
-export const CANDLE_RANGE_POINT_CAP = 300;
 export const TRADE_CANDLES_RANGE_POINT_CAP = 'trade.candles_range_point_cap' as const;
 
 /** Kraken returns at most the 720 most recent OHLC rows. Older rows are absent, never invented. */
@@ -58,14 +59,11 @@ export function candleRangePointCount(timeframe: Timeframe, sinceMs: number, end
   return Math.floor((delta + span - 1) / span);
 }
 
-/** Refuse the whole request when the selection is over the published point cap. */
-export function assertCandleRangeWithinCap(timeframe: Timeframe, sinceMs: number, endMs: number): void {
+/** Refuse the whole request when the selection is over the request's own limit. */
+export function assertCandleRangeWithinCap(timeframe: Timeframe, sinceMs: number, endMs: number, cap: number): void {
   const points = candleRangePointCount(timeframe, sinceMs, endMs);
-  if (points > CANDLE_RANGE_POINT_CAP) {
-    throw new TradeError(
-      `candle selection would return ${points} points, over the published cap of ${CANDLE_RANGE_POINT_CAP}`,
-      TRADE_CANDLES_RANGE_POINT_CAP,
-    );
+  if (points > cap) {
+    throw new TradeError(`candle selection would return ${points} points, over the published cap of ${cap}`, TRADE_CANDLES_RANGE_POINT_CAP);
   }
 }
 
@@ -76,7 +74,8 @@ export interface ExportedCandle extends Candle {
 
 /**
  * OHLC export. The last row may be the current open bucket (`committed: false`).
- * Rows older than the 720 most recent are omitted. Missing buckets stay missing.
+ * The 720-row slice is a defensive guard. TradeService.candles refuses a limit
+ * over that cap before this can run. Missing buckets stay missing.
  */
 export function exportOhlcv(candles: readonly Candle[], timeframe: Timeframe, nowMs: number): ExportedCandle[] {
   const span = TIMEFRAME_MS[timeframe];

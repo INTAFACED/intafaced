@@ -905,6 +905,13 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
 
       expect(outcome).toMatchObject({ accepted: true, code: 'AMENDED' });
       expect(formatAmount(outcome.order.qty)).toBe(formatAmount(committedFillQty + amt('1')));
+      const [amendEvent] = await sql<Array<{ quantity: string }>>`
+        SELECT quantity::text AS quantity
+          FROM trade.order_events
+         WHERE order_id = ${taker.id}
+           AND kind = 'amend'
+      `;
+      expect(formatAmount(amt(amendEvent?.quantity ?? '0'))).toBe('5');
 
       await trade.settleFillEvent(fill);
 

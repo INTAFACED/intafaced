@@ -420,8 +420,9 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.auth_attribution_missing': { ccxt: 'AuthenticationError', status: 403 },
   /**
-   * Chart window would be more than 300 points. Not retryable: the same
-   * selection fails again, and a 5xx would make a client repeat it.
+   * Chart window is longer than the request's own limit, or that limit is over
+   * 720. Not retryable: the same selection fails again, and a 5xx would make a
+   * client repeat it.
    */
   'trade.candles_range_point_cap': { ccxt: 'BadRequest', status: 400 },
 

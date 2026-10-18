@@ -26,7 +26,13 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
-import { queryCandlesFromFills, queryTakerVolumeFromFills, assertCandleRangeWithinCap, exportOhlcv } from './candles.js';
+import {
+  queryCandlesFromFills,
+  queryTakerVolumeFromFills,
+  assertCandleRangeWithinCap,
+  exportOhlcv,
+  OHLC_RECENT_ROW_CAP,
+} from './candles.js';
 import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
 import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
 import {
@@ -4593,12 +4599,17 @@ export class TradeService {
    *
    * Limit is required — same inner door as HTTP OHLCV. Missing / non-integer /
    * out of 1..1000 refuses via `queryCandlesFromFills` (never invent 500).
-   * A declared since→now window over 300 points refuses before SQL (no partial series).
-   * The export flags the open bucket and keeps at most the 720 newest rows.
+   * A request is answered in full for the window it asked for, or refused
+   * before SQL. Refuse when since→now covers more points than `limit`, or when
+   * `limit` is over 720. No shortened series.
+   * The export flags the open bucket. Its 720-row slice is only a defensive guard.
    */
   async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number) {
     const endMs = this.now().getTime();
-    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs);
+    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs, limit);
+    if (limit > OHLC_RECENT_ROW_CAP) {
+      throw new TradeError(`candle limit ${limit} is over the published cap of ${OHLC_RECENT_ROW_CAP}`, 'trade.candles_range_point_cap');
+    }
     const rows = await queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
     return exportOhlcv(rows, timeframe, endMs);
   }
