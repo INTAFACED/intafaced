@@ -14,6 +14,7 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import {
   MemoryLedger,
   formatAmount,
+  futuresLossSink,
   houseFees,
   insuranceFund,
   parseAmount,
@@ -449,7 +450,7 @@ describe('TRD-0295 maker loss is booked, house fees are not insurance', () => {
     expect(await bal(ledger, houseFees('trade', ASSET))).toBe('0');
   });
 
-  it('a funded shortfall posts what the pot holds plus insurance, and fees receive the loss', async () => {
+  it('a funded shortfall posts what the pot holds plus insurance into the loss sink, and house fees stay put', async () => {
     const ledger = new MemoryLedger();
     await seedMargin(ledger, '5000');
     await seedInsurance(ledger, '5000', 'ins-0295');
@@ -466,7 +467,8 @@ describe('TRD-0295 maker loss is booked, house fees are not insurance', () => {
     await ledger.post(plan.recipes[0]!);
     expect(await bal(ledger, positionCollateralAccount(USER, ASSET, POSITION))).toBe('0');
     expect(await bal(ledger, insuranceFund(ASSET))).toBe('0');
-    expect(await bal(ledger, houseFees('trade', ASSET))).toBe('10000');
+    expect(await bal(ledger, futuresLossSink(ASSET))).toBe('10000');
+    expect(await bal(ledger, houseFees('trade', ASSET))).toBe('0');
   });
 
   it('a recipe that draws house fees is refused and the fee pot is unchanged', async () => {
