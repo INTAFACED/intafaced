@@ -19,6 +19,16 @@ export function assertLocalTestBuildAllowed(mode: string, env: Record<string, st
   );
 }
 
+const FONT_FILE = /\.(woff2?|ttf|otf)$/i;
+
+/**
+ * Keep font files as real files instead of data: URIs. The Docker image's nginx CSP sets `font-src 'self'`, which blocks
+ * data: fonts. Returning undefined keeps Vite's default inline limit for every other asset.
+ */
+export function assetsInlineLimit(filePath: string): boolean | undefined {
+  return FONT_FILE.test(filePath) ? false : undefined;
+}
+
 export default defineConfig(({ mode }) => {
   assertLocalTestBuildAllowed(mode, { ...loadEnv(mode, process.cwd(), ['VITE_', 'INTAFACED_']), ...process.env });
   return {
@@ -30,6 +40,6 @@ export default defineConfig(({ mode }) => {
         '/ws': { target: process.env.CUSTOMER_WS_URL ?? 'ws://127.0.0.1:4014', ws: true, rewrite: (path) => path.replace(/^\/ws/, '') },
       },
     },
-    build: { target: 'es2022', sourcemap: false },
+    build: { target: 'es2022', sourcemap: false, assetsInlineLimit },
   };
 });

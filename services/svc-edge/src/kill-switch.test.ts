@@ -146,9 +146,20 @@ describe('a killed market still lets users out through the REST contract', () =>
     expect(state().decide('/api/v1/orders', 'DELETE')).toMatchObject({ refused: false, reason: 'lets-the-user-out' });
   });
 
-  it('allows DELETE /api/v1/positions/:id — close futures so kill does not trap margin', () => {
+  it('allows DELETE /api/v1/positions/:id — the request reaches trade, which refuses it as cancel-not-close', () => {
     expect(state().decide('/api/v1/positions/8f3c1d2e-0000-4000-8000-000000000099', 'DELETE')).toMatchObject({
       module: 'trade',
+      refused: false,
+      reason: 'lets-the-user-out',
+    });
+  });
+
+  it('allows the futures close routes so a kill does not trap margin', () => {
+    expect(state().decide('/api/v1/positions/8f3c1d2e-0000-4000-8000-000000000099/close', 'POST')).toMatchObject({
+      refused: false,
+      reason: 'lets-the-user-out',
+    });
+    expect(state().decide('/api/v1/futures/positions/close-all', 'POST')).toMatchObject({
       refused: false,
       reason: 'lets-the-user-out',
     });

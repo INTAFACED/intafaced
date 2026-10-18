@@ -3,6 +3,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import type { OrderSide } from '../spot/types.js';
 import type { AlgoPlaceGrant } from './durable-principal.js';
 import { parseAlgoPlaceGrant } from './durable-principal.js';
+import { prepareAlgoParentWrite, readTradeAlgoJobsEnabled } from './jobs-gate.js';
 import type { AlgoChildRef, AlgoMiss, AlgoScheduleStretchReason, AlgoStatus, TwapParent } from './types.js';
 
 /**
@@ -103,9 +104,30 @@ function stretchFromRow(raw: unknown): AlgoScheduleStretchReason | null {
 }
 
 export class SqlTwapParentStore implements TwapParentStore {
-  constructor(private readonly sql: Sql) {}
+  constructor(
+    private readonly sql: Sql,
+    private readonly readJobs: () => boolean = readTradeAlgoJobsEnabled,
+  ) {}
 
   async save(record: TwapParentRecord, onlyIfMissing = false): Promise<void> {
+    const existing = await this.load(record.parent.id);
+    const decision = await prepareAlgoParentWrite({
+      existing,
+      record,
+      onlyIfMissing,
+      readJobs: this.readJobs,
+      isActive: async () => (await this.load(record.parent.id))?.parent.status === 'active',
+      persist: () => this.upsert(record),
+      abandon: () => this.remove(record.parent.id),
+    });
+    if (decision === 'write') await this.upsert(record);
+  }
+
+  private async remove(id: string): Promise<void> {
+    await this.sql`DELETE FROM algo_parents WHERE id = ${id}`;
+  }
+
+  private async upsert(record: TwapParentRecord, onlyIfMissing = false): Promise<void> {
     const p = record.parent;
     const existing = record.grant === undefined ? (await this.load(p.id))?.grant : record.grant;
     const grantJson = existing
@@ -243,8 +265,27 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
 export class MemoryTwapParentStore implements TwapParentStore {
   private readonly byId = new Map<string, TwapParentRecord>();
 
+  constructor(private readonly readJobs: () => boolean = readTradeAlgoJobsEnabled) {}
+
   async save(record: TwapParentRecord, onlyIfMissing = false): Promise<void> {
-    if (onlyIfMissing && this.byId.has(record.parent.id)) return;
+    const existing = this.byId.get(record.parent.id) ?? null;
+    const decision = await prepareAlgoParentWrite({
+      existing,
+      record,
+      onlyIfMissing,
+      readJobs: this.readJobs,
+      isActive: async () => this.byId.get(record.parent.id)?.parent.status === 'active',
+      persist: async () => {
+        this.put(record);
+      },
+      abandon: async () => {
+        this.byId.delete(record.parent.id);
+      },
+    });
+    if (decision === 'write') this.put(record);
+  }
+
+  private put(record: TwapParentRecord): void {
     const prev = this.byId.get(record.parent.id);
     const grant = record.grant !== undefined ? record.grant : (prev?.grant ?? null);
     this.byId.set(record.parent.id, {

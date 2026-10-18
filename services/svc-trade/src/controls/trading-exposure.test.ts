@@ -71,7 +71,9 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     price: amt('100'),
     clientOrderId,
   });
+  const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
   beforeAll(async () => {
+    process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
     const directory = new URL('../../drizzle/', import.meta.url);
     const migrations = readdirSync(directory)
       .filter((name) => name.endsWith('.sql') && !name.endsWith('.down.sql'))
@@ -80,6 +82,8 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     db = await createTestDatabase({ service: 'trade', migrations });
   }, 30_000);
   afterAll(async () => {
+    if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+    else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
     await db?.drop();
   }, 30_000);
   beforeEach(async () => {

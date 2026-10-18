@@ -9,6 +9,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { CopyService } from '../controls/test-admission.js';
 import { principalFor } from '../spot/testing.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { SqlCopyFollowStore } from './follow-store.js';
 import { sqlLeaderDirectory, type LeaderDirectory } from './leader-directory.js';
 import { LEADER_DIRECTORY_PAGE_KEYS, LEADER_DIRECTORY_ROW_KEYS } from './leader-listing.js';
@@ -68,7 +69,8 @@ describe('copy leader directory and events', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db!.truncateAll();
+    // order_events refuses TRUNCATE. Same reset as the other copy SQL suites.
+    await truncateTradeExceptOrderEvents(db!.sql);
   });
 
   function harness(law: CopyFeeShareLaw = publishedFee) {

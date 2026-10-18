@@ -10,6 +10,7 @@ import { t as copyText, Text } from './copy';
 import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
+import { useSession } from '../session/session';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -452,11 +453,31 @@ function CardRead({
         <>
           <CardConfiguration card={card} expanded />
           <CardActions card={card} programme={programme} open={open} />
-          <CardControlPanels card={card} orderBlock={orderBlocked} />
+          <CardControlPanels card={card} orderBlock={orderBlocked} open={open} />
         </>
       )}
     </>
   );
+}
+
+const SELECTED_KEY = 'intafaced.customer.bank.card-selected.v1:';
+/** The card the customer was looking at, kept for this tab so a confirmed change does not close its card. */
+function readSelected(userId: string | null): string | null {
+  try {
+    const id = userId ? sessionStorage.getItem(SELECTED_KEY + userId) : null;
+    return id && currentOwnerRecord([{ id }], id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+function keepSelected(userId: string | null, id: string | null) {
+  try {
+    if (!userId) return;
+    if (id) sessionStorage.setItem(SELECTED_KEY + userId, id);
+    else sessionStorage.removeItem(SELECTED_KEY + userId);
+  } catch {
+    // The card simply is not remembered.
+  }
 }
 
 export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
@@ -474,8 +495,16 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
         : null;
   const orderAssets = held.resource.status === 'ready' ? held.resource.data.assets : held.resource.status === 'failed' ? [] : undefined;
   const ordering = orderBlock(orderProgramme, orderAssets?.length);
-  const [selected, setSelected] = useState<{ id: string; serial: number } | null>(null);
-  const serial = useRef(0);
+  const { userId } = useSession();
+  const [selected, choose] = useState<{ id: string; serial: number } | null>(() => {
+    const id = readSelected(userId);
+    return id ? { id, serial: 1 } : null;
+  });
+  const setSelected = (next: { id: string; serial: number } | null) => {
+    keepSelected(userId, next?.id ?? null);
+    choose(next);
+  };
+  const serial = useRef(selected ? 1 : 0);
   const heading = useRef<HTMLHeadingElement>(null);
   const listHeading = useRef<HTMLSpanElement>(null);
   const rows = query.resource.status === 'ready' ? query.resource.data : [];

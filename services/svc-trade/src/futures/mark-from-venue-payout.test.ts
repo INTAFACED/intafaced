@@ -370,7 +370,7 @@ describe('D-S-07: the venue mid is not size-blind', () => {
           adapter: { snapshotBook: async () => venue },
           resolveSymbol: () => 'BTC/USDT',
         }),
-        markSourceFromDepth(async () => depth),
+        markSourceFromDepth(async () => ({ ...depth, observedAt: NOW })),
       ),
       profitSource: profitSourceFromConfig(PROFIT_SOURCE),
       maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,

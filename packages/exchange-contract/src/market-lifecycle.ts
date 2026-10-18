@@ -44,7 +44,6 @@ const NO_ACTION_STATES = new Set<MarketLifecycleState>([
   'DRAFT',
   'REVIEW',
   'APPROVED',
-  'PRELAUNCH',
   /**
    * Auction is not a live book. Ordinary PLACE would silently match as if OPEN.
    * Uncross is an evidenced transition off AUCTION, never a permitted PLACE.
@@ -58,6 +57,8 @@ const NO_ACTION_STATES = new Set<MarketLifecycleState>([
 ]);
 const RISK_REDUCTION_ACTIONS = new Set<MarketAction>(['CANCEL', 'REDUCE', 'CLOSE']);
 const CANCEL_ONLY_ACTIONS = new Set<MarketAction>(['CANCEL']);
+/** A pending listing is not a live book. Cancel frees a resting order. Place stays refused. */
+const PRELAUNCH_ACTIONS = new Set<MarketAction>(['CANCEL']);
 const POST_ONLY_ACTIONS = new Set<MarketAction>(['PLACE_POST_ONLY', 'AMEND', 'CANCEL', 'REDUCE', 'CLOSE', 'QUOTE']);
 
 /**
@@ -88,13 +89,15 @@ export const marketStateSnapshotSchema = z
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['allowedActions'], message: `${snapshot.state} permits no trading action` });
     }
     const permitted =
-      snapshot.state === 'HALTED' || snapshot.state === 'REDUCE_ONLY' || snapshot.state === 'EXPIRING' || snapshot.state === 'DELISTING'
-        ? RISK_REDUCTION_ACTIONS
-        : snapshot.state === 'CANCEL_ONLY'
-          ? CANCEL_ONLY_ACTIONS
-          : snapshot.state === 'POST_ONLY'
-            ? POST_ONLY_ACTIONS
-            : null;
+      snapshot.state === 'PRELAUNCH'
+        ? PRELAUNCH_ACTIONS
+        : snapshot.state === 'HALTED' || snapshot.state === 'REDUCE_ONLY' || snapshot.state === 'EXPIRING' || snapshot.state === 'DELISTING'
+          ? RISK_REDUCTION_ACTIONS
+          : snapshot.state === 'CANCEL_ONLY'
+            ? CANCEL_ONLY_ACTIONS
+            : snapshot.state === 'POST_ONLY'
+              ? POST_ONLY_ACTIONS
+              : null;
     if (permitted !== null) {
       for (const [index, action] of snapshot.allowedActions.entries()) {
         if (!permitted.has(action)) {

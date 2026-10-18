@@ -2,6 +2,8 @@ import { t as copyText } from './copy';
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { decimalSchema, parseAmount } from '../../shared/money';
+import { transferDepthCopy } from './transfer-depth-copy';
+import { cleanText, messageEchoed, noteProblem, referenceProblem } from './transfer-message';
 
 export const spaceSchema = z
   .object({
@@ -32,7 +34,17 @@ const balancesSchema = z.object({
   balances: z.record(balanceEntry),
 });
 const unnamedSchema = z.array(z.object({ assetId: z.string(), balance: decimalSchema }));
-export type TransferDraft = { transferId: string; fromSpaceId: string; toSpaceId?: string; toUserId?: string; amount: string };
+export type TransferDraft = {
+  transferId: string;
+  fromSpaceId: string;
+  toSpaceId?: string;
+  toUserId?: string;
+  amount: string;
+  /** Plain text the recipient can read. Left out when the customer wrote none. */
+  note?: string;
+  /** A printable payment reference. Left out when the customer wrote none. */
+  reference?: string;
+};
 export function validateTransfer(spaces: Space[], input: TransferDraft): string | null {
   const from = spaces.find((space) => space.id === input.fromSpaceId);
   if (!from) return copyText('client.choose.one.of.your.available.spaces');
@@ -46,6 +58,10 @@ export function validateTransfer(spaces: Space[], input: TransferDraft): string 
     if (destination && destination.assetId !== from.assetId) return copyText('client.both.spaces.must.use.the.same.asset');
     if (!z.string().uuid().safeParse(input.toSpaceId).success) return copyText('client.enter.a.valid.destination.space.id');
   } else if (!input.toUserId?.trim()) return copyText('client.enter.the.recipient.user.id');
+  const note = noteProblem(input.note);
+  if (note) return transferDepthCopy.t(note === 'tooLong' ? 'noteTooLong' : 'noteControl');
+  const reference = referenceProblem(input.reference);
+  if (reference) return transferDepthCopy.t(reference === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters');
   if (!z.string().uuid().safeParse(input.fromSpaceId).success) return copyText('client.choose.a.valid.source.space');
   return null;
 }
@@ -95,17 +111,32 @@ export function createMoneyClient(api: ApiClient) {
     transfer(spaces: Space[], input: TransferDraft): Promise<ApiResult<{ ledgerTxId: string; amount: string }>> {
       const message = validateTransfer(spaces, input);
       if (message) return Promise.resolve({ ok: false, reason: 'error', code: 'money.invalid_transfer', message });
+      // Only a field the customer wrote goes on the wire, trimmed exactly as the service trims it.
+      const { note, reference, ...rest } = input;
+      const body = {
+        ...rest,
+        ...(cleanText(note) ? { note: cleanText(note) } : {}),
+        ...(cleanText(reference) ? { reference: cleanText(reference) } : {}),
+      };
+      const toPerson = !input.toSpaceId;
       return api.mutate(
         'bank',
-        input.toSpaceId ? 'transfers.create' : 'transfers.toUser',
-        input,
-        z.object({
-          ledgerTxId: z.string().min(1),
-          amount: decimalSchema.refine(
-            (amount) => parseAmount(amount) === parseAmount(input.amount),
-            copyText('client.the.settled.amount.must.match.the.review'),
-          ),
-        }),
+        toPerson ? 'transfers.toUser' : 'transfers.create',
+        body,
+        z
+          .object({
+            ledgerTxId: z.string().min(1),
+            amount: decimalSchema.refine(
+              (amount) => parseAmount(amount) === parseAmount(input.amount),
+              copyText('client.the.settled.amount.must.match.the.review'),
+            ),
+            note: z.string().nullable().optional(),
+            reference: z.string().nullable().optional(),
+          })
+          // A send to a person echoes what it stored. The reply must be the note and reference that were reviewed.
+          .refine((data) => !toPerson || (data.note !== undefined && data.reference !== undefined && messageEchoed(data, body)), {
+            message: transferDepthCopy.t('echoMismatch'),
+          }),
       );
     },
   };
