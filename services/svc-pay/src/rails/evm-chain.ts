@@ -166,6 +166,14 @@ export class EvmLiveChain implements CryptoChainPort {
     return this.hotAccount.address;
   }
 
+  /** Chain id only. Not `refresh()` — that scans blocks. */
+  async ping(): Promise<void> {
+    const id = await this.public.getChainId();
+    if (id !== this.options.chainId) {
+      throw new Error(`chain id ${id} does not match configured ${this.options.chainId}`);
+    }
+  }
+
   async acceptanceAddress(paymentId: string, assetId: string): Promise<string> {
     requireAsset(this.assets, assetId);
     const key = `${paymentId}\0${assetId}`;

@@ -22,4 +22,8 @@ describe('roomWords: a write that may have gone through is never called unchange
     expect(words.title.length).toBeGreaterThan(0);
     expect(words.body.length).toBeGreaterThan(0);
   });
+  it('names a refused scale ladder and an unfinished rollback in plain words', () => {
+    expect(roomWords({ code: 'trade.scale_child_refused' }).title).toBe('The ladder was not placed');
+    expect(roomWords({ code: 'trade.scale_rollback_incomplete' }).body).toContain('still open');
+  });
 });

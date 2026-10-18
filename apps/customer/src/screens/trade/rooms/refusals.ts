@@ -107,6 +107,14 @@ const KNOWN: Readonly<Record<string, { title: string; body: string }>> = {
     title: 'That does not close the position',
     body: 'Deleting a position does not close it or release its margin. Use close. Nothing was changed.',
   },
+  'trade.scale_child_refused': {
+    title: 'The ladder was not placed',
+    body: 'One level was refused, so the levels already placed in this request were cancelled. No order from this ladder is still open.',
+  },
+  'trade.scale_rollback_incomplete': {
+    title: 'The ladder cancel did not finish',
+    body: 'One level was refused and a cancel of an earlier level failed. The message names the order ids that are still open.',
+  },
 };
 
 export interface RefusalInput {
