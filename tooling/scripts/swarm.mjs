@@ -1012,7 +1012,7 @@ function renderFreezeMd(m) {
   lines.push(`- **Stranded branches (P1):** ${m.strandedCount ?? (m.strandedBranches || []).length}`);
   // Recommend the DRY RUN, never the destructive form. A cap warning is a
   // count, not a diagnosis: it cannot tell an abandoned checkout from four
-  // live agents. Pointing an operator straight at `wt:gc:apply` is how
+  // live agents. Pointing an operator straight at a bulk-removal mode is how
   // "Another lane's worktree-gc --apply deleted two of this lane's worktrees
   // mid-edit" happened (docs/LANE-CLOSEOUT-OPS-2026-08-08.md).
   lines.push(
