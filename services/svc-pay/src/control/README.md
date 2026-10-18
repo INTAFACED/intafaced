@@ -6,13 +6,13 @@ Tiers, caps, layered pricing, reserves and payout maker-checker. Behind `PAY_MER
 
 ## How each control is enforced
 
-| Control                                               | Where                                                                                                                                  | Notes                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Intake caps (daily, monthly)                          | Create refuses read-only when the headroom is already used. Counted at capture, in `afterPaymentCaptureBooked`, after the ledger post. | A created payment is not volume: public checkout lets anyone create one. |
-| Per-payment cap                                       | Create (single-payment bound, no counter).                                                                                             | At capture it only flags.                                                |
-| Pricing band volume                                   | Captured volume. The pricing snapshot is written at capture.                                                                           |                                                                          |
-| Daily payout cap, beneficiary cap, approval threshold | `beforePayoutAdmit` on a proceeds payout, and `beforeUserMoneyWithdrawal` while the owner still has a legacy settlement of that asset. | Counted once per settlement (or withdrawal) per UTC day.                 |
-| Maker-checker                                         | `ApprovalService` plus `requirePayoutApproval`. Approver is `payout.approve` on the merchant team (owner, admin, finance).             |                                                                          |
+| Control                                               | Where                                                                                                                                  | Notes                                                                          |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Intake caps (daily, monthly)                          | Create refuses read-only when the headroom is already used. Counted at capture, in `afterPaymentCaptureBooked`, after the ledger post. | A created payment is not volume: public checkout lets anyone create one.       |
+| Per-payment cap                                       | Create (single-payment bound, no counter).                                                                                             | At capture it only flags.                                                      |
+| Pricing band volume                                   | Captured volume. The pricing snapshot is written at capture.                                                                           |                                                                                |
+| Daily payout cap, beneficiary cap, approval threshold | `beforePayoutAdmit` on a proceeds payout, and `beforeUserMoneyWithdrawal` while the owner still has a legacy settlement of that asset. | Merchant owners only. Counted once per settlement (or withdrawal) per UTC day. |
+| Maker-checker                                         | `ApprovalService` plus `requirePayoutApproval`. Approver is `payout.approve` on the merchant team (owner, admin, finance).             |                                                                                |
 
 ### A capture is never refused by a cap
 
@@ -43,8 +43,9 @@ Card spend, bank transfer, trading, P2P, stake, earn, sub-account moves, and pay
 `userAvailable` (or a hold funded from it). They do not name `pay:proceeds:`. Windows settled before this
 account existed stay on the personal balance; this change does not split that history.
 
-`beforeUserMoneyWithdrawal` remains on the seam for treasury exposure. It applies merchant payout policy only
-for a merchant that still has a legacy settlement of the asset being withdrawn. A global payout halt still
+`beforeUserMoneyWithdrawal` remains on the seam for treasury exposure. It applies merchant payout policy (the daily
+payout cap included) only to a user who owns a merchant that still has a legacy settlement of the asset being
+withdrawn. Any other user's withdrawal meets no per-customer cap. A global payout halt still
 refuses every personal withdrawal, including a recovery that would call the rail.
 
 ## Pre-enable checklist (before setting `PAY_MERCHANT_CONTROLS=required`)
