@@ -26,7 +26,7 @@ import { AUTH_ATTRIBUTION_MISSING } from './auth-attribution.js';
 import { DROP_COPY_SOURCE_REST, type DropCopyFillWire } from './drop-copy-ingest.js';
 
 import { TradeError, type Market } from './types.js';
-import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS, type HoldUnknownAlert } from './hold-outcome.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS, classifyHoldPostError, type HoldUnknownAlert } from './hold-outcome.js';
 import { fakeOrder, presentCcxtOrder } from '../private-rest.js';
 import { HOUSE_MM_USER_UUID, mmSeedOrderIdFor, orderIdFor } from './ids.js';
 import { MM_MATCHING_ACCOUNT_ID } from '../mm/seed-market.js';
@@ -1351,6 +1351,49 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(await sql`SELECT id FROM trade.orders WHERE status = 'hold_unknown'`).toHaveLength(0);
       expect(matching.submitted).toHaveLength(0);
       expect(alerts).toEqual([]);
+    });
+
+    it('a ledger timeout leaves hold_unknown and the same clientOrderId posts the hold once', async () => {
+      const inner = new MemoryLedger();
+      await fundInner(inner);
+      let attempts = 0;
+      const alerts: HoldUnknownAlert[] = [];
+      const svc = serviceFor(
+        holdLedger(inner, {
+          onHoldPost: async (book) => {
+            attempts += 1;
+            if (attempts === 1) throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+            return book();
+          },
+        }),
+        alerts,
+      );
+      matching.script1((req, next) => restsInFull(req, next()));
+
+      await expect(svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'))).rejects.toMatchObject({
+        code: 'trade.hold_unknown',
+      });
+
+      const stuck = await sql<Array<{ id: string; status: string }>>`
+        SELECT id, status::text FROM trade.orders WHERE client_order_id = 'ledger-timeout'
+      `;
+      expect(stuck).toEqual([{ id: stuck[0]!.id, status: 'hold_unknown' }]);
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(0);
+      expect(classifyHoldPostError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('unknown');
+
+      const retried = await svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'));
+      expect(retried.id).toBe(stuck[0]!.id);
+      expect(retried.status).toBe('open');
+      expect(formatAmount((await inner.balance(orderHoldAccount(ALICE, 'USDT', retried.id))).amount)).toBe('10');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(matching.submitted).toHaveLength(1);
+
+      const again = await svc.placeOrder(principalFor(ALICE), limitBuy('ledger-timeout'));
+      expect(again.id).toBe(retried.id);
+      expect(again.status).toBe('open');
+      expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
+      expect(attempts).toBe(2);
+      expect(alerts.some((alert) => alert.orderId === retried.id && alert.resolution === 'still_unknown')).toBe(true);
     });
 
     it('retries the same clientOrderId once the hold key can be read', async () => {

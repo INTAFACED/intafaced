@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
 
+describe('edge.authority_unavailable', () => {
+  it('is a retry, not a sign-out', () => {
+    expect(classifyRefusal('edge.authority_unavailable')).toBe('tryAgain');
+  });
+});
+
 describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('screening refusals', () => {
     for (const code of ['denied.screening_fixture', 'denied.screening_unconfigured', 'denied.network_dark', 'denied.module_blocked']) {
