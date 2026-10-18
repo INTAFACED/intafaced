@@ -63,6 +63,12 @@ export interface Context {
   serviceAuth?: 'dedicated' | 'shared';
   /** Resolved at the edge from IP / account region. Drives the matrix. */
   region: string;
+  /**
+   * The exact principal header, signature and region the edge signed for this request. Set only
+   * when `principal` was verified. Services pass it on unchanged (`forwardedPrincipalHeaders`);
+   * they cannot produce or alter one.
+   */
+  forwardedPrincipal?: { readonly raw: string; readonly signature: string; readonly region: string };
   /** W3C traceparent so a call keeps its trace across services (§9). */
   traceparent?: string;
   requestId: string;

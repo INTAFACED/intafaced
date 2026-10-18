@@ -7,7 +7,12 @@ import {
   verifyForwardedPrincipal,
   EdgeTrustError,
   EDGE_PRINCIPAL_HEADER,
+  EDGE_PRINCIPAL_MAX_TTL_SECONDS,
   EDGE_SIGNATURE_HEADER,
+  encodeForwardedPrincipal,
+  forwardedPrincipalHeaders,
+  generateEdgePrincipalKeyPair,
+  signPrincipalHeaderEd25519,
   type EdgeRequest,
 } from './edge.js';
 import { retainRawBody, type RawBodyHost } from './raw-body.js';
@@ -425,5 +430,121 @@ describe('createEdgeContext — S2S body bind (tRPC HMAC)', () => {
       const headers = serviceAuthHeadersForBody('svc-edge', OTHER_SECRET, '');
       expect(ctx()(adapterRequest(headers, undefined)).service).toBe('svc-edge');
     });
+  });
+});
+
+describe('edge principal — only svc-edge can sign (Ed25519)', () => {
+  const edge = generateEdgePrincipalKeyPair();
+  const founder = principal({ scopes: ['admin:write', 'admin:treasury', 'trade:write'], tier: 'institutional', mfa: true });
+  const signed = (p: Principal = principal(), now = new Date(), region = 'DE') => {
+    const raw = encodeForwardedPrincipal(p, now);
+    return { raw, sig: signPrincipalHeaderEd25519(raw, edge.privateKey, region) };
+  };
+
+  it('publishes the public key as raw 32 bytes, base64url', () => {
+    expect(Buffer.from(edge.publicKey, 'base64url')).toHaveLength(32);
+  });
+
+  it('a verify-only service accepts what the edge signed, and the claims survive', () => {
+    const { raw, sig } = signed(principal({ scopes: ['trade:read'], tier: 'full' }));
+    const got = verifyForwardedPrincipal(raw, sig, { publicKey: edge.publicKey }, new Date(), 'DE');
+    expect(got.rejected).toBeNull();
+    expect(got.principal?.scopes).toEqual(['trade:read']);
+    expect(got.principal?.tier).toBe('full');
+  });
+
+  it('REPRODUCTION: a service holding the old shared secret can mint a founder principal that a verifier accepts', () => {
+    // This is the hole. With the shared secret, any holder forges any user with any scope.
+    const forged = forward(founder, SECRET, 'DE');
+    expect(verifyForwardedPrincipal(forged.raw, forged.sig, SECRET, new Date(), 'DE').principal?.scopes).toContain('admin:treasury');
+  });
+
+  it('a public-key-only verifier refuses a principal minted with the old shared secret', () => {
+    const forged = forward(founder, SECRET, 'DE');
+    const got = verifyForwardedPrincipal(forged.raw, forged.sig, { publicKey: edge.publicKey }, new Date(), 'DE');
+    expect(got).toEqual({ principal: null, rejected: 'bad-signature' });
+  });
+
+  it('a different key pair (any non-edge service) cannot sign for the edge', () => {
+    const rogue = generateEdgePrincipalKeyPair();
+    const raw = encodeForwardedPrincipal(founder);
+    const sig = signPrincipalHeaderEd25519(raw, rogue.privateKey, 'DE');
+    expect(verifyForwardedPrincipal(raw, sig, { publicKey: edge.publicKey }, new Date(), 'DE').rejected).toBe('bad-signature');
+  });
+
+  it('scopes cannot be widened in transit: any change to the header bytes breaks the signature', () => {
+    const { raw, sig } = signed(principal({ scopes: ['trade:read'] }));
+    const widened = JSON.stringify({ ...(JSON.parse(raw) as object), scopes: ['trade:read', 'admin:treasury'] });
+    expect(verifyForwardedPrincipal(widened, sig, { publicKey: edge.publicKey }, new Date(), 'DE').rejected).toBe('bad-signature');
+  });
+
+  it('binds the region: a different region header refuses', () => {
+    const { raw, sig } = signed(principal(), new Date(), 'DE');
+    expect(verifyForwardedPrincipal(raw, sig, { publicKey: edge.publicKey }, new Date(), 'US').rejected).toBe('bad-signature');
+  });
+
+  it('is short-lived: expiry is clamped to the maximum, and a longer one is refused even when validly signed', () => {
+    const now = new Date();
+    const long = principal({ expiresAt: new Date(now.getTime() + 15 * 60_000) });
+    const clamped = JSON.parse(encodeForwardedPrincipal(long, now)) as { expiresAt: string; iat: number };
+    expect(Date.parse(clamped.expiresAt) - clamped.iat * 1000).toBeLessThanOrEqual(EDGE_PRINCIPAL_MAX_TTL_SECONDS * 1000);
+    const raw = encodePrincipal(long);
+    const stretched = JSON.stringify({ ...(JSON.parse(raw) as object), iat: Math.floor(now.getTime() / 1000) });
+    const sig = signPrincipalHeaderEd25519(stretched, edge.privateKey, 'DE');
+    expect(verifyForwardedPrincipal(stretched, sig, { publicKey: edge.publicKey }, now, 'DE').principal).toBeNull();
+  });
+
+  it('refuses a signed principal with no iat, and one issued in the future', () => {
+    const raw = encodePrincipal(principal());
+    const noIat = signPrincipalHeaderEd25519(raw, edge.privateKey, 'DE');
+    expect(verifyForwardedPrincipal(raw, noIat, { publicKey: edge.publicKey }, new Date(), 'DE').rejected).toBe('malformed');
+    const future = encodeForwardedPrincipal(principal(), new Date(Date.now() + 120_000));
+    const sig = signPrincipalHeaderEd25519(future, edge.privateKey, 'DE');
+    expect(verifyForwardedPrincipal(future, sig, { publicKey: edge.publicKey }, new Date(), 'DE').rejected).toBe('malformed');
+  });
+
+  it('refuses an Ed25519 signature when the verifier has no public key', () => {
+    const { raw, sig } = signed();
+    expect(verifyForwardedPrincipal(raw, sig, SECRET, new Date(), 'DE').rejected).toBe('bad-signature');
+  });
+
+  it('createEdgeContext boots with only the public key, and hands back the exact edge bytes to forward', () => {
+    const ctx = createEdgeContext({ edgePublicKey: edge.publicKey, serviceName: 'svc-test' });
+    const { raw, sig } = signed(principal({ scopes: ['trade:read'] }));
+    const out = ctx({ headers: { [EDGE_PRINCIPAL_HEADER]: raw, [EDGE_SIGNATURE_HEADER]: sig, 'x-intafaced-region': 'DE' } });
+    expect(out.principal?.scopes).toEqual(['trade:read']);
+    expect(forwardedPrincipalHeaders(out)).toEqual({
+      [EDGE_PRINCIPAL_HEADER]: raw,
+      [EDGE_SIGNATURE_HEADER]: sig,
+      'x-intafaced-region': 'DE',
+    });
+  });
+
+  it('createEdgeContext with only the public key treats a shared-secret principal as anonymous and forwards nothing', () => {
+    const ctx = createEdgeContext({ edgePublicKey: edge.publicKey, serviceName: 'svc-test' });
+    const forged = forward(founder, SECRET, 'DE');
+    const out = ctx({ headers: { [EDGE_PRINCIPAL_HEADER]: forged.raw, [EDGE_SIGNATURE_HEADER]: forged.sig, 'x-intafaced-region': 'DE' } });
+    expect(out.principal).toBeNull();
+    expect(forwardedPrincipalHeaders(out)).toEqual({});
+  });
+
+  it('createEdgeContext refuses to boot with neither a public key nor a secret, or with a malformed key', () => {
+    expect(() => createEdgeContext({ serviceName: 'svc-test' })).toThrow(EdgeTrustError);
+    expect(() => createEdgeContext({ edgePublicKey: 'not-a-key', serviceName: 'svc-test' })).toThrow(EdgeTrustError);
+    expect(() => createEdgeContext({ edgePublicKey: Buffer.alloc(31).toString('base64url'), serviceName: 'svc-test' })).toThrow(
+      EdgeTrustError,
+    );
+  });
+
+  it('during migration a service holding both accepts either form', () => {
+    const ctx = createEdgeContext({ secret: SECRET, edgePublicKey: edge.publicKey, serviceName: 'svc-test' });
+    const legacy = forward(principal({ scopes: ['trade:read'] }), SECRET, 'DE');
+    expect(
+      ctx({ headers: { [EDGE_PRINCIPAL_HEADER]: legacy.raw, [EDGE_SIGNATURE_HEADER]: legacy.sig, 'x-intafaced-region': 'DE' } }).principal,
+    ).not.toBeNull();
+    const modern = signed();
+    expect(
+      ctx({ headers: { [EDGE_PRINCIPAL_HEADER]: modern.raw, [EDGE_SIGNATURE_HEADER]: modern.sig, 'x-intafaced-region': 'DE' } }).principal,
+    ).not.toBeNull();
   });
 });
