@@ -692,7 +692,7 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult> {
     const id = canonicalizeCopyFillId(fillId);
-    return this.exclusive(`place:${mirrorKey(followId, id)}`, async () => {
+    return this.exclusive(`place:${followId}`, async () => {
       const key = mirrorKey(followId, id);
       const existing = this.placed.get(key);
       if (existing) {
@@ -1528,7 +1528,9 @@ export class SqlCopyFollowStore implements CopyFollowStore {
       }
       return { status: 'claimed' as const, record };
     };
-    return this.withAdvisoryLock(`copy-place:${followId}:${id}`, placeOnce);
+    // One lock per follow, not per fill: the concurrency cap counts open mirrors,
+    // so two different fills of one follow must not both read the same count.
+    return this.withAdvisoryLock(`copy-place:${followId}`, placeOnce);
   }
 
   async getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null> {

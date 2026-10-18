@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryLedger, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { CopyService } from '../controls/test-admission.js';
+import { truncateTradeExceptOrderEvents } from '../orders/order-events.js';
 import { SqlCopyFollowStore } from './follow-store.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 
@@ -59,7 +60,7 @@ describe('copy follower limits are durable', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await db!.truncateAll();
+    await truncateTradeExceptOrderEvents(db!.sql);
   });
 
   function leaderFill() {

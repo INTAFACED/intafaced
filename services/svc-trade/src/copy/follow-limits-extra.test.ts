@@ -263,6 +263,30 @@ describe('concurrency cap', () => {
     expect(places.n).toBe(before + 1);
   });
 
+  it('places exactly one of two concurrent fills of one follow when the cap is 1', async () => {
+    const store = new MemoryCopyFollowStore();
+    const places = { n: 0 };
+    const copy = service({ store, places, rows: rowsFor(['p1', 'p2']) });
+    const followed = await copy.follow(principal, { ...baseFollow(), maxConcurrent: 1 });
+    for (const fillId of ['p1', 'p2']) {
+      await copy.planMirrorForFollow(principal, {
+        followId: followed.followId,
+        fillId,
+        marketId: 'BTC-USDT',
+        side: 'buy',
+        qty: '0.01',
+        notional: '10',
+      });
+    }
+    await copy.grantSessionKey(principal, { followId: followed.followId });
+    const results = await Promise.allSettled(
+      ['p1', 'p2'].map((fillId) => copy.placeMirrorForFollow(principal, { followId: followed.followId, fillId, leaderPaper: false })),
+    );
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+    expect(places.n).toBe(1);
+  });
+
   it('counts an unreadable order state as open and refuses', async () => {
     const store = new MemoryCopyFollowStore();
     const copy = service({ store, rows: rowsFor(['u1', 'u2']) });
@@ -455,6 +479,8 @@ describe('presented follow keys', () => {
       'followId',
       'followerId',
       'leaderId',
+      'leaderRef',
+      'leaderStatus',
       'permittedMarkets',
       'maxNotionalPerOrder',
       'maxAggregateExposure',
