@@ -671,7 +671,7 @@ const en = {
   // ---- pricing and limits
   priceTiles: 'Pricing at a glance',
   priceRate: 'Fee rate',
-  priceRateNote: 'Your lowest-volume rate, {asset}',
+  priceFeeUnavailable: 'Can’t be shown right now',
   priceAssets: 'Assets priced',
   priceSince: 'In effect since',
   priceHistoryTitle: 'Pricing history',

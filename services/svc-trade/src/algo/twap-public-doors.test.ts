@@ -12,7 +12,7 @@
  * Leverage: createTradeRouter + createEdgeContext (Phase A shell doors) +
  * real TwapEngine (no second scheduler). Path: services/svc-trade/src/algo/**.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import type { Principal } from '@intafaced/auth';
@@ -26,6 +26,15 @@ import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, p
 import { presentAlgoProgress, FORBIDDEN_PARENT_MONEY_KEYS } from './present.js';
 import { TwapEngine, type TwapEnginePorts } from './twap-engine.js';
 import type { AlgoQuotedMark, CreateTwapInput, TwapParent } from './types.js';
+
+const previousJobs = process.env.TRADE_ALGO_JOBS_ENABLED;
+beforeEach(() => {
+  process.env.TRADE_ALGO_JOBS_ENABLED = 'true';
+});
+afterEach(() => {
+  if (previousJobs === undefined) delete process.env.TRADE_ALGO_JOBS_ENABLED;
+  else process.env.TRADE_ALGO_JOBS_ENABLED = previousJobs;
+});
 
 const EDGE_SECRET = 'a-trade-twap-public-door-edge-secret-32b';
 const USER = '11111111-1111-4111-8111-111111111111';

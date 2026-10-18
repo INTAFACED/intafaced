@@ -8,6 +8,7 @@ import {
 } from './channel.js';
 import { InAppChannel, UnconfiguredChannel } from './gateway.js';
 import { EmailChannel, PushChannel, SmsChannel } from './adapters.js';
+import { TestMerchantEmlChannel } from '../merchant-email/merchant-email.js';
 import { socketIdForChannel, type NotifyChannelSocketId } from './mountain-vs-sockets.js';
 
 /**
@@ -59,6 +60,13 @@ export interface ChannelEnv {
    * predates the switch. URL+token still never means reachable.
    */
   readonly NOTIFY_OUT_OF_APP_ENABLED?: boolean | undefined;
+  /**
+   * TEST file transport for email. Used only when this is exactly `1`, a
+   * directory is set, and the email gateway URL and token are both blank.
+   * Off when either is absent. Never a stand-in for a live gateway.
+   */
+  readonly NOTIFY_MERCHANT_EMAIL_TEST?: string | undefined;
+  readonly NOTIFY_MERCHANT_EMAIL_TEST_DIR?: string | undefined;
 }
 
 /** Env var names per channel. Reported to operators verbatim, so they are data. */
@@ -260,6 +268,14 @@ export function channelsFromEnv(env: ChannelEnv, fetchImpl: typeof fetch = fetch
     const names = GATEWAY_ENV[id];
     const url = env[names.url as keyof ChannelEnv] as string | undefined;
     const token = env[names.token as keyof ChannelEnv] as string | undefined;
+
+    if (id === 'email' && !url && !token && env.NOTIFY_MERCHANT_EMAIL_TEST === '1') {
+      const dir = env.NOTIFY_MERCHANT_EMAIL_TEST_DIR?.trim();
+      if (dir) {
+        channels.push(new TestMerchantEmlChannel(dir));
+        continue;
+      }
+    }
 
     if (!url || !token) {
       channels.push(new UnconfiguredChannel(id, [names.url, names.token]));

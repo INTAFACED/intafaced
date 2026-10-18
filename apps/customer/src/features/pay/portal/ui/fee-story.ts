@@ -1,4 +1,4 @@
-import type { MerchantRecord } from '../schemas';
+import type { MerchantRecord, StarterFee } from '../schemas';
 import { uiCopy } from './copy';
 
 /** A rate in basis points as the percent a person says: 250 is "2.50%". Whole numbers only; nothing is rounded. */
@@ -15,6 +15,13 @@ export function feeStory(merchant: Pick<MerchantRecord, 'feeBps' | 'starterFee'>
   const test = merchant.starterFee?.source === 'local_test' && merchant.starterFee.bps === merchant.feeBps;
   return uiCopy.t(test ? 'feeStoryTest' : 'feeStory', { pct });
 }
+
+/**
+ * The fee a new account would start with, in the same sentence, from exactly what the service published. The TEST mark
+ * is the service's own (`source`); nothing here decides it, and a missing starter fee gives no sentence at all.
+ */
+export const starterFeeStory = (starterFee: StarterFee | null): string | null =>
+  starterFee ? feeStory({ feeBps: starterFee.bps, starterFee }) : null;
 
 /** True when the account has a fee rate to talk about. */
 export const hasAccountFee = (merchant: Pick<MerchantRecord, 'feeBps'> | null | undefined): boolean =>

@@ -174,3 +174,72 @@ export async function enrollPasskey(api: ApiClient): Promise<ApiResult<{ credent
     });
   }
 }
+
+/** A passkey answer in the shape `auth.stepUpPay` takes. */
+export type PasskeyAssertion = {
+  id: string;
+  rawId: string;
+  type: 'public-key';
+  response: { clientDataJSON: string; authenticatorData: string; signature: string; userHandle: string | null };
+  clientExtensionResults: Record<string, unknown>;
+};
+type Failed = Extract<ApiResult<never>, { ok: false }>;
+const passkeyFailure = (code: string, reason: Failed['reason'] = 'error'): Failed => ({ ok: false, reason, message: code, code });
+
+/**
+ * Asks the person's passkey to confirm a payment. The identity service issues a single-use challenge for this person
+ * (`auth.stepUpOptions`); the browser signs it; the answer goes back to `auth.stepUpPay` and nowhere else. Nothing here
+ * ends the session on a refusal of the assertion itself (`auth.webauthn_invalid`); any other 401 is the normal sign-out path. A failure carries a `portal.passkey_*` code
+ * the caller words itself.
+ */
+export async function requestPasskeyAssertion(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<PasskeyAssertion>> {
+  if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
+    return passkeyFailure('portal.passkey_unavailable', 'not_supported');
+  const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal });
+  if (!options.ok) return options;
+  const json = options.data;
+  const canonical = (value: string) => /^[A-Za-z0-9_-]+$/.test(value) && base64url(bytes(value)) === value;
+  try {
+    if (!canonical(json.challenge) || json.allowCredentials?.some((item) => !canonical(item.id)))
+      return passkeyFailure('portal.passkey_unreadable', 'invalid_response');
+    const credential = await navigator.credentials.get({
+      signal,
+      publicKey: {
+        ...json,
+        challenge: bytes(json.challenge),
+        allowCredentials: json.allowCredentials?.map((item) => ({
+          id: bytes(item.id),
+          type: 'public-key' as const,
+          transports: item.transports as AuthenticatorTransport[] | undefined,
+        })),
+      },
+    });
+    if (
+      !(credential instanceof PublicKeyCredential) ||
+      !(credential.response instanceof AuthenticatorAssertionResponse) ||
+      !canonical(credential.id) ||
+      credential.id !== base64url(credential.rawId)
+    )
+      return passkeyFailure('portal.passkey_unreadable');
+    const response = credential.response;
+    return {
+      ok: true,
+      data: {
+        id: credential.id,
+        rawId: base64url(credential.rawId),
+        type: 'public-key',
+        response: {
+          clientDataJSON: base64url(response.clientDataJSON),
+          authenticatorData: base64url(response.authenticatorData),
+          signature: base64url(response.signature),
+          userHandle: response.userHandle ? base64url(response.userHandle) : null,
+        },
+        clientExtensionResults: credential.getClientExtensionResults() as Record<string, unknown>,
+      },
+    };
+  } catch (error) {
+    return passkeyFailure(
+      error instanceof DOMException && error.name === 'NotAllowedError' ? 'portal.passkey_stopped' : 'portal.passkey_failed',
+    );
+  }
+}
