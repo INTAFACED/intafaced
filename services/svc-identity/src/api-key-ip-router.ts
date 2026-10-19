@@ -4,13 +4,18 @@ import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { ApiKeyIpError, bindApiKeyIpAllowlist } from './auth/auth-service-ip.js';
 import { unbindApiKeyIpAllowlist } from './auth/unbind-api-key-ip.js';
-import { narrowsAllowlist, optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import {
+  narrowOrGuardedAllowlistChange,
+  optionalFactorProof,
+  guardedApiKeyAction,
+  type ApiKeyFactorGate,
+} from './auth/api-key-fresh-factor.js';
 import { normalizeIp } from './auth/api-key-ip.js';
 import { mintApiKeyWithIpAllowlist, type ApiKeyMinter } from './auth/mint-api-key-ip.js';
 
 async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ ip_allowlist: string[] | null }>>`
-    SELECT ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+    SELECT ip_allowlist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false FOR UPDATE
   `;
   return rows[0]?.ip_allowlist ?? [];
 }
@@ -27,16 +32,17 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const next = input.ips.map((ip) => normalizeIp(ip) ?? ip);
-          if (narrowsAllowlist(current, next)) return await bindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ips);
-          return await guardedApiKeyAction(
+          return await narrowOrGuardedAllowlistChange({
+            sql,
             gate,
-            ctx.principal,
-            input.factorProof,
-            { action: 'ip_allowlist_widen', keyId: input.keyId },
-            (scope) => bindApiKeyIpAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.ips),
-          );
+            caller: ctx.principal,
+            proof: input.factorProof,
+            action: { action: 'ip_allowlist_widen', keyId: input.keyId },
+            readLocked: (tx) => currentList(tx, ctx.principal.userId, input.keyId),
+            nextFrom: (current) => next,
+            write: (tx) => bindApiKeyIpAllowlist(tx, ctx.principal.userId, input.keyId, input.ips),
+          });
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -56,17 +62,17 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const ip = normalizeIp(input.ip);
-          const next = current.filter((entry) => normalizeIp(entry) !== ip);
-          if (narrowsAllowlist(current, next)) return await unbindApiKeyIpAllowlist(sql, ctx.principal.userId, input.keyId, input.ip);
-          return await guardedApiKeyAction(
+          return await narrowOrGuardedAllowlistChange({
+            sql,
             gate,
-            ctx.principal,
-            input.factorProof,
-            { action: 'ip_allowlist_widen', keyId: input.keyId },
-            (scope) => unbindApiKeyIpAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.ip),
-          );
+            caller: ctx.principal,
+            proof: input.factorProof,
+            action: { action: 'ip_allowlist_widen', keyId: input.keyId },
+            readLocked: (tx) => currentList(tx, ctx.principal.userId, input.keyId),
+            nextFrom: (current) => current.filter((entry) => normalizeIp(entry) !== ip),
+            write: (tx) => unbindApiKeyIpAllowlist(tx, ctx.principal.userId, input.keyId, input.ip),
+          });
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
