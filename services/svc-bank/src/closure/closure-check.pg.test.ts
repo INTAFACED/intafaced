@@ -269,3 +269,65 @@ it('answers 503 when the ledger or the database fails, never an empty list', asy
   expect(dbDown.json()).not.toMatchObject({ blockers: [] });
   await dbApp.close();
 });
+
+const SUB_UNLISTED = '55555555-5555-4555-8555-555555555555';
+
+function uuidN(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
+it('refuses a request from a signed service that is not identity with 403', async () => {
+  const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/internal/closure-check',
+    payload: raw,
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', SECRET, raw) },
+  });
+  expect(response.statusCode).toBe(403);
+  expect(response.json()).not.toHaveProperty('blockers');
+});
+
+it('accepts 100 sub-account ids and refuses 101 with 400', async () => {
+  const hundred = Array.from({ length: 100 }, (_, i) => uuidN(i + 1));
+  expect((await post({ userId: USER, subAccountIds: hundred })).statusCode).toBe(200);
+  const tooMany = await post({ userId: USER, subAccountIds: [...hundred, uuidN(101)] });
+  expect(tooMany.statusCode).toBe(400);
+  expect(tooMany.json()).toMatchObject({ code: 'bank.closure_check_input' });
+});
+
+it('refuses a malformed body with 400 and never an empty blocker list', async () => {
+  const bad: unknown[] = [
+    null,
+    [],
+    {},
+    { userId: USER },
+    { subAccountIds: [] },
+    { userId: 'not-a-uuid', subAccountIds: [] },
+    { userId: USER, subAccountIds: 'nope' },
+    { userId: USER, subAccountIds: ['not-a-uuid'] },
+    { userId: USER, subAccountIds: [42] },
+    { userId: 42, subAccountIds: [] },
+  ];
+  for (const body of bad) {
+    const response = await post(body);
+    expect(response.statusCode, JSON.stringify(body)).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'bank.closure_check_input' });
+    expect(response.json()).not.toHaveProperty('blockers');
+  }
+});
+
+it('counts rows on a listed sub-account and ignores an unlisted one', async () => {
+  const card = (owner: string, ref: string) => db.sql`
+    INSERT INTO bank.cards (user_id, asset_id, settlement_asset_id, issuer, issuer_ref, pan_tail, per_authorization_limit)
+    VALUES (${owner}, 'USDT', 'USDT', 'card-sim', ${ref}, '4242', '10')
+  `;
+  // Only an unlisted sub-account has an open card: nothing may appear.
+  await card(SUB_UNLISTED, 'ref-unlisted');
+  expect((await codes(USER, [SUB])).blockers).toEqual([]);
+  // The listed sub-account's card blocks; the unlisted one still does not add to the count.
+  await card(SUB, 'ref-listed');
+  expect((await codes(USER, [SUB])).blockers).toEqual([{ code: 'active_card', count: 1 }]);
+  // Not listed: neither card is seen.
+  expect((await codes(USER, [])).blockers).toEqual([]);
+});

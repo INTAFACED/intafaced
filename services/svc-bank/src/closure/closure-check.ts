@@ -23,12 +23,13 @@ export type ClosureCheckBody = {
 
 type Owner = { ownerType: 'user' | 'subaccount'; ownerId: string };
 
-function authorized(req: FastifyRequest, secret: string): boolean {
-  if (typeof secret !== 'string' || secret.length === 0) return false;
+/** The verified calling service, or null when the credentials are missing or bad. */
+function callerOf(req: FastifyRequest, secret: string): string | null {
+  if (typeof secret !== 'string' || secret.length === 0) return null;
   try {
-    return verifyServiceHeaders(req.headers, secret, { rawBody: rawBodyOf(req), mode: 'require' }).service !== null;
+    return verifyServiceHeaders(req.headers, secret, { rawBody: rawBodyOf(req), mode: 'require' }).service;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -159,8 +160,13 @@ export function registerClosureCheck(
   deps: { sql: Sql; ledger: Pick<LedgerClient, 'balances'>; secret: string },
 ): void {
   app.post('/internal/closure-check', async (req, reply) => {
-    if (!authorized(req, deps.secret)) {
+    const caller = callerOf(req, deps.secret);
+    if (caller === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+    }
+    // Only the identity service asks this question; any other signed service is refused.
+    if (caller !== 'svc-identity') {
+      return reply.code(403).send({ error: 'closure check is for the identity service only', code: 'bank.closure_check_forbidden' });
     }
     const input = parseClosureCheckBody(req.body);
     if (!input) {
