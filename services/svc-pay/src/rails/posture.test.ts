@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TestnetDepositAddresses } from './deposit-source.js';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { CardSandboxAdapter } from './card-sandbox.js';
 import { CryptoNativeAdapter } from './crypto-native.js';
@@ -331,12 +332,12 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       APP_ENV: 'prod',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     };
-    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral());
+    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral(), TestnetDepositAddresses.default());
     expect(chain).toBeInstanceOf(EvmLiveChain);
     expect(chain.posture).toBe('live');
     expect(new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 1, toleranceSeconds: 300 }).mode).toBe('live');
@@ -347,7 +348,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       APP_ENV: 'prod',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
@@ -362,7 +363,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       APP_ENV: 'dev',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
@@ -385,7 +386,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       APP_ENV: 'dev',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
     };
@@ -399,7 +400,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       APP_ENV: 'dev',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
@@ -427,12 +428,12 @@ describe('shouldRegisterCardSandbox', () => {
       APP_ENV: 'prod',
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+      PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
       PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     };
-    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral());
+    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral(), TestnetDepositAddresses.default());
     const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 1, toleranceSeconds: 300 })]);
     expect(rails.list()[0]!.mode).toBe('live');
     expect(() => assertRailPosture(rails, { APP_ENV: 'prod' })).not.toThrow();

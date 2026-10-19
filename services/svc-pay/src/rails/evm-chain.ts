@@ -13,10 +13,10 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { mnemonicToAccount } from 'viem/accounts';
 import type { Amount } from '@intafaced/ledger-client';
 import type { BroadcastStore } from './broadcast-store.js';
 import { SignerChainRefusedError, type EvmSigner } from './evm-signer.js';
+import { DepositSourceChainRefusedError, type DepositAddressSource } from './deposit-source.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
 import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
@@ -31,7 +31,7 @@ import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainP
  * The code does not invent a production network decision; the operator does, by
  * supplying `PAY_CRYPTO_RPC_URL` + `PAY_CRYPTO_CHAIN_ID`.
  *
- * Acceptance addresses are HD-derived from `PAY_CRYPTO_DEPOSIT_MNEMONIC` at
+ * Acceptance addresses come from an injected `DepositAddressSource` (no seed phrase in settings). The testnet source derives at
  * path `m/44'/60'/0'/<high>/<low>`, where `high` and `low` are the two 31-bit
  * halves (bits 31-61 and 0-30) of keccak256(`${paymentId}:${assetId}`). The
  * address is a pure function of the payment, so a restart gives the same one.
@@ -60,8 +60,8 @@ export interface EvmLiveChainOptions {
   readonly rpcUrl: string;
   readonly chainId: number;
   readonly chainName?: string;
-  /** BIP-39 mnemonic that derives per-payment acceptance addresses. */
-  readonly depositMnemonic: string;
+  /** Hands out per-payment acceptance addresses. The seed phrase lives behind this interface, never in settings. */
+  readonly deposits: DepositAddressSource;
   /** Signs outbound payouts/refunds. The key lives behind this interface, never in settings. */
   readonly signer: EvmSigner;
   readonly assets: ReadonlyMap<string, EvmAsset>;
@@ -120,7 +120,7 @@ export class EvmLiveChain implements CryptoChainPort {
   private readonly public: PublicClient;
   private readonly wallet: WalletClient;
   private readonly signer: EvmSigner;
-  private readonly depositMnemonic: string;
+  private readonly deposits: DepositAddressSource;
   private readonly assets: ReadonlyMap<string, EvmAsset>;
   private readonly broadcasts: BroadcastStore;
   private readonly minConfirmations: number;
@@ -155,9 +155,10 @@ export class EvmLiveChain implements CryptoChainPort {
     this.signer = options.signer;
     this.wallet = createWalletClient({ account: options.signer.account(), chain, transport });
 
-    // Validate mnemonic early — a typo here must fail boot, not the first payment.
-    mnemonicToAccount(options.depositMnemonic);
-    this.depositMnemonic = options.depositMnemonic;
+    if (!options.deposits.supportsChain(options.chainId)) {
+      throw new DepositSourceChainRefusedError(options.deposits.kind, options.chainId);
+    }
+    this.deposits = options.deposits;
 
     this.assets = options.assets;
     this.broadcasts = options.broadcasts;
@@ -188,7 +189,7 @@ export class EvmLiveChain implements CryptoChainPort {
     // The address is a pure function of the payment, so a restart (or another replica) hands out the same one. There is no
     // collision walk: a walk depends on which payments this process has already seen, and that order differs after a restart.
     const index = stableDepositIndex(paymentId, assetId);
-    const address = deriveDepositAddress(this.depositMnemonic, paymentId, assetId);
+    const address = this.deposits.addressFor(paymentId, assetId);
     const taken = this.byAddress.get(address.toLowerCase());
     if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) {
       throw new Error('Deposit address collision between two payments — refusing to hand one address to both');
@@ -552,17 +553,6 @@ function toTransfer(observed: ObservedInbound): ConfirmedTransfer {
 export function stableDepositIndex(paymentId: string, assetId: string): number {
   const digest = keccak256(toBytes(`${paymentId}:${assetId}`));
   return Number(BigInt(digest) & 0x7fff_ffffn);
-}
-
-/**
- * Two 31-bit path levels from one keccak digest (62 bits), so two payments sharing an address is about 2^-62 per pair
- * rather than the 2^-31 of a single index. `stableDepositIndex` stays as the low level and the display index.
- */
-function deriveDepositAddress(mnemonic: string, paymentId: string, assetId: string): Address {
-  const digest = BigInt(keccak256(toBytes(`${paymentId}:${assetId}`)));
-  const high = Number((digest >> 31n) & 0x7fff_ffffn);
-  const low = Number(digest & 0x7fff_ffffn);
-  return mnemonicToAccount(mnemonic, { path: `m/44'/60'/0'/${high}/${low}` }).address;
 }
 
 /**

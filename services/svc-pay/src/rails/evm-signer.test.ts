@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { TestnetDepositAddresses } from './deposit-source.js';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
@@ -8,7 +9,7 @@ import { tryLiveChainFromEnv } from './posture.js';
 const ENV = {
   PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
   PAY_CRYPTO_CHAIN_ID: '31337',
-  PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+  PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
   PAY_CRYPTO_ASSETS: 'ETH:native',
   PAY_MIN_CONFIRMATIONS: '6',
 };
@@ -32,7 +33,7 @@ describe('TestnetSigner', () => {
         new EvmLiveChain({
           rpcUrl: 'http://127.0.0.1:9',
           chainId: 1,
-          depositMnemonic: ENV.PAY_CRYPTO_DEPOSIT_MNEMONIC,
+          deposits: TestnetDepositAddresses.default(),
           signer: TestnetSigner.ephemeral(),
           assets: parseEvmAssets('ETH:native'),
           broadcasts: new MemoryBroadcastStore(),
@@ -61,7 +62,7 @@ describe('signer choice from settings', () => {
 
   it('accepts an injected provider signer in prod', () => {
     const signer = TestnetSigner.ephemeral();
-    const chain = tryLiveChainFromEnv({ APP_ENV: 'prod', ...ENV }, new MemoryBroadcastStore(), signer);
+    const chain = tryLiveChainFromEnv({ APP_ENV: 'prod', ...ENV }, new MemoryBroadcastStore(), signer, TestnetDepositAddresses.default());
     expect(chain!.hotWalletAddress()).toBe(signer.address);
   });
 });

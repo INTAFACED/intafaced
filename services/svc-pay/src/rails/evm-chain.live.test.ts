@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { TestnetDepositAddresses } from './deposit-source.js';
 import { TestnetSigner } from './evm-signer.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createPublicClient, createWalletClient, defineChain, http, parseEther, toHex, type Address, type Hex } from 'viem';
@@ -152,7 +153,7 @@ describeLive('EvmLiveChain against a real node', () => {
     port = new EvmLiveChain({
       rpcUrl: RPC,
       chainId: CHAIN_ID,
-      depositMnemonic: DEPOSIT_MNEMONIC,
+      deposits: TestnetDepositAddresses.fromFixturePhrase(DEPOSIT_MNEMONIC),
       signer: TestnetSigner.fromFixtureKey(HOT_KEY),
       assets: parseEvmAssets('ETH:native'),
       broadcasts: new MemoryBroadcastStore(),

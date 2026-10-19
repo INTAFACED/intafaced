@@ -3,6 +3,7 @@ import { MemoryChain, UnconfiguredChain, type CryptoChainPort } from './chain-po
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
 import { SignerUnsetError, TestnetSigner, type EvmSigner } from './evm-signer.js';
+import { DepositSourceUnsetError, TestnetDepositAddresses, type DepositAddressSource } from './deposit-source.js';
 import { VALUE_LEAVING_CAPABILITIES, isUsable, type RailAdapter, type RailCapability } from './rail-adapter.js';
 import type { RailRegistry } from './registry.js';
 
@@ -537,7 +538,7 @@ export function selectPublicCheckoutRailDetailed(
  *
  * THREE STATES, still — but the live one is no longer missing from the tree:
  *
- *   1. `PAY_CRYPTO_RPC_URL` (+ chain id, mnemonic, assets, signer) set →
+ *   1. `PAY_CRYPTO_RPC_URL` (+ chain id, assets, signer, deposit source) set →
  *      `EvmLiveChain` with `posture: 'live'`. crypto-native becomes a live rail.
  *   2. Enforced env (`staging`/`prod`) with nothing set → `UnconfiguredChain`
  *      (refuses every call — never a quiet MemoryChain in production).
@@ -557,8 +558,9 @@ export function defaultChainFor(
   env: Record<string, string | undefined> = process.env,
   broadcasts?: BroadcastStore,
   signer?: EvmSigner,
+  deposits?: DepositAddressSource,
 ): CryptoChainPort {
-  const live = tryLiveChainFromEnv(env, broadcasts, signer);
+  const live = tryLiveChainFromEnv(env, broadcasts, signer, deposits);
   if (live) return live;
 
   const appEnv = env.APP_ENV ?? 'dev';
@@ -603,21 +605,43 @@ function signerFromEnv(env: Record<string, string | undefined>, appEnv: string):
   return TestnetSigner.ephemeral();
 }
 
+/**
+ * The deposit address source for the live rail when boot code did not inject
+ * one. Only the testnet source can be chosen by setting; a seed phrase is never
+ * read from settings. A provider source is injected by boot code once one is bought.
+ */
+function depositSourceFromEnv(env: Record<string, string | undefined>, appEnv: string): DepositAddressSource {
+  const choice = env.PAY_CRYPTO_DEPOSIT_SOURCE?.trim();
+  if (!choice) {
+    throw new DepositSourceUnsetError(
+      'no deposit source is chosen. Set PAY_CRYPTO_DEPOSIT_SOURCE=testnet on a test chain, or inject a provider source at boot.',
+    );
+  }
+  if (choice !== 'testnet') {
+    throw new DepositSourceUnsetError(
+      `PAY_CRYPTO_DEPOSIT_SOURCE "${choice}" is not a source this build ships. Only "testnet" is available.`,
+    );
+  }
+  if ((RAIL_POSTURE_ENFORCED_ENVS as readonly string[]).includes(appEnv)) {
+    throw new DepositSourceUnsetError(`the testnet deposit source is refused in ${appEnv}. Inject a provider source at boot.`);
+  }
+  return TestnetDepositAddresses.default();
+}
+
 export function tryLiveChainFromEnv(
   env: Record<string, string | undefined> = process.env,
   broadcasts?: BroadcastStore,
   injectedSigner?: EvmSigner,
+  injectedDeposits?: DepositAddressSource,
 ): EvmLiveChain | null {
   const rpcUrl = env.PAY_CRYPTO_RPC_URL?.trim();
   if (!rpcUrl) return null;
 
   const missing: string[] = [];
   const chainIdRaw = env.PAY_CRYPTO_CHAIN_ID?.trim();
-  const mnemonic = env.PAY_CRYPTO_DEPOSIT_MNEMONIC?.trim();
   const assetsRaw = env.PAY_CRYPTO_ASSETS?.trim();
 
   if (!chainIdRaw) missing.push('PAY_CRYPTO_CHAIN_ID');
-  if (!mnemonic) missing.push('PAY_CRYPTO_DEPOSIT_MNEMONIC');
   if (!assetsRaw) missing.push('PAY_CRYPTO_ASSETS');
 
   if (missing.length > 0) {
@@ -658,11 +682,12 @@ export function tryLiveChainFromEnv(
   }
 
   const signer = injectedSigner ?? signerFromEnv(env, appEnv);
+  const deposits = injectedDeposits ?? depositSourceFromEnv(env, appEnv);
 
   return new EvmLiveChain({
     rpcUrl,
     chainId,
-    depositMnemonic: mnemonic!,
+    deposits,
     signer,
     assets: parseEvmAssets(assetsRaw!),
     broadcasts: broadcasts ?? new MemoryBroadcastStore(),

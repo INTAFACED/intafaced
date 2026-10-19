@@ -969,7 +969,7 @@ services:
       # Key-no-value forwards a host `.env` pin and omits when unset.
       PAY_CRYPTO_RPC_URL:
       PAY_CRYPTO_CHAIN_ID:
-      PAY_CRYPTO_DEPOSIT_MNEMONIC:
+      PAY_CRYPTO_DEPOSIT_SOURCE:
       PAY_CRYPTO_SIGNER:
       PAY_CRYPTO_ASSETS:
     # L5-7: S2S — not published on host (compose network only)

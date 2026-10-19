@@ -1,4 +1,5 @@
 import { TestnetSigner } from './evm-signer.js';
+import { TestnetDepositAddresses } from './deposit-source.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
@@ -10,7 +11,7 @@ const mk = () =>
   new EvmLiveChain({
     rpcUrl: 'http://127.0.0.1:1',
     chainId: 31337,
-    depositMnemonic: MNEMONIC,
+    deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
     signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),
