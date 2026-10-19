@@ -93,6 +93,7 @@ const bankSections: readonly DeskSection[] = [
         shape: 'list',
         rowsKey: 'pools',
         idKey: 'poolId',
+        namesFrom: { read: 'bank.pools', idKey: 'id', nameKey: 'name', label: 'Pool', missing: 'the earn pools list above' },
         columns: [
           text('poolId', 'Pool id'),
           text('assetId', 'Asset'),
@@ -1000,6 +1001,7 @@ const p2pSections: readonly DeskSection[] = [
         shape: 'list',
         idKey: 'code',
         columns: [text('code', 'Code'), text('name', 'Name'), text('symbol', 'Symbol'), int('minorUnits', 'Minor units')],
+        collapsed: true,
         emptyText: 'No fiat currencies are enabled.',
         forbiddenText: 'svc-p2p did not answer this read.',
       },
@@ -1417,7 +1419,7 @@ const academySections: readonly DeskSection[] = [
 // ─── More ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const FORBID_TOKEN_READ =
-  'Your console session does not have token read permission yet: svc-token did not accept your founder session for this read (it needs token:read).';
+  'Your console session does not have token read permission: svc-token did not accept your founder session for this read (it needs token:read).';
 const FORBID_MARKET_OPS = 'svc-market did not accept your founder session for this read (it needs market:ops).';
 const FORBID_MINING = 'svc-mining-pool did not accept your founder session for this read (it needs admin:read).';
 const FORBID_MINING_TERMS =
@@ -1583,7 +1585,7 @@ const moreSections: readonly DeskSection[] = [
       {
         id: 'mining.workers',
         title: 'Workers',
-        note: 'Registered workers across accounts, newest first. Registration is refused for now, so this list is expected to be empty until a write permission is chosen.',
+        note: 'Registered workers across accounts, newest first. Registration is refused because no write permission is chosen for it, so this list is expected to be empty.',
         module: 'mining',
         plainName: 'mining workers',
         procedure: 'ops.workers',
@@ -1628,7 +1630,7 @@ const moreSections: readonly DeskSection[] = [
       un(
         'launch.predict',
         'Predict markets',
-        'Predict stays on Protocol. The P1 GO is recorded, but INTACORE and svc-predict do not run yet. Nothing here reads a chain.',
+        'Predict stays on Protocol. The P1 GO is recorded, but no INTACORE or svc-predict service runs on this stack, and whether they run is an owner decision. Nothing here reads a chain.',
         null,
       ),
     ],
@@ -1709,7 +1711,7 @@ const moreSections: readonly DeskSection[] = [
       {
         id: 'market.listings',
         title: 'Public listings',
-        note: 'What a shopper can see today. Empty when no house commission is configured: svc-market will not invent a rate.',
+        note: 'What a shopper can see today. svc-market refuses to publish a listing while the house commission is blank (see Commerce programme on this desk), so a blank rate also means an empty list.',
         module: 'market',
         procedure: 'listings',
         input: { limit: 50 },
@@ -1729,7 +1731,8 @@ const moreSections: readonly DeskSection[] = [
           text('vendorId', 'Vendor id', { detail: true }),
           text('id', 'Listing id', { detail: true }),
         ],
-        emptyText: 'No listings are public. That is expected when no house commission is configured.',
+        emptyText:
+          'No listings are public. If Commerce programme below says Configured yes, no vendor has published a listing; if it says no, svc-market refuses every listing until the rate is set.',
         forbiddenText: 'svc-market did not answer this read.',
       },
       {
@@ -1785,7 +1788,7 @@ const moreSections: readonly DeskSection[] = [
       un(
         'market.subscriptions',
         'Subscriptions and refunds per vendor',
-        'Subscribing and recurring purchases refuse by design for now, and svc-market has no refund path, so there is nothing to read.',
+        'Subscribing and recurring purchases refuse by design, and svc-market has no refund path, so there is nothing to read.',
         null,
       ),
     ],
@@ -1801,7 +1804,7 @@ const moreSections: readonly DeskSection[] = [
       {
         id: 'token.proposals',
         title: 'Governance proposals',
-        note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make yet, so neither is shown.',
+        note: 'Proposals as svc-token lists them, with their window. The free-form proposal body and each proposal’s vote tally are separate reads (getProposal, one proposal at a time) that this desk does not make, so neither is shown.',
         module: 'token',
         plainName: 'governance proposals',
         procedure: 'listProposals',
