@@ -76,6 +76,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch    scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch-amend scope: trade:write + jurisdiction(module=trade)  (sequential native amend)
+ *   POST   /api/v1/orders/cancel-all-after scope: trade:write + jurisdiction(module=trade)  (dead-man switch; timeout 0 disarms)
  *   POST   /api/v1/orders/:id/replace scope: trade:write + jurisdiction(module=trade)
  *   PATCH  /api/v1/orders/:id      scope: trade:write + jurisdiction(module=trade)  (native amend)
  *   DELETE /api/v1/orders/:id      scope: trade:write + jurisdiction(module=trade)
@@ -158,6 +159,8 @@ export interface PrivateRestDeps {
   amendOrder?(principal: Principal, orderId: string, input: AmendOrderInput): Promise<AmendOrderOutcome>;
   /** Cancel every open/pending order (optional market). Sequential money path. */
   cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]>;
+  /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
+  armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
   massCancelOrders(principal: Principal, marketId: string): Promise<OrderRecord[]>;
   /**
@@ -2390,6 +2393,41 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         accountId: principal.userId,
         cancellations: wire,
         rejected: null,
+      });
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // ── Cancel-all-after (dead-man switch) ────────────────────────────────────
+
+  /**
+   * POST /api/v1/orders/cancel-all-after { timeout: <whole seconds> }.
+   *
+   * Arms the caller's countdown; calling again before the deadline pushes it out, and `timeout: 0` disarms it.
+   * When the deadline passes the sweep cancels every open order of the caller. The allowed timeouts are the
+   * owner's published set (blank = typed refusal); the credential must outlive the deadline.
+   */
+  app.post('/api/v1/orders/cancel-all-after', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.armCancelAllAfter) {
+      return sendCcxt(reply, badRequest('cancel-all-after is not available on this venue', 'trade.cancel_all_after_unset'));
+    }
+    const body = req.body as { timeout?: unknown } | null;
+    const timeout = body?.timeout;
+    if (typeof timeout !== 'number' || !Number.isSafeInteger(timeout)) {
+      return reply.code(400).send(invalidOrder('timeout must be a whole number of seconds', 'trade.cancel_all_after_rejected').body);
+    }
+    try {
+      const out = await deps.armCancelAllAfter(principal, timeout);
+      return reply.code(200).send({
+        armed: out.armed,
+        timeout: out.timeoutSec,
+        triggerTime: out.deadline ? out.deadline.toISOString() : null,
       });
     } catch (err) {
       const sent = sendDomainError(reply, err);

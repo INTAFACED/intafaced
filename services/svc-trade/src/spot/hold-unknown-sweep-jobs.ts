@@ -14,6 +14,8 @@ export interface HoldUnknownSweepJobsConfig {
   enabled: boolean;
   /** Tick interval when enabled. */
   intervalMs: number;
+  /** Dead-man switch tick, much shorter than the recovery sweeps because a deadline is a promise. */
+  cancelAllAfterIntervalMs?: number;
 }
 
 export interface HoldUnknownSweepJobsDeps {
@@ -21,11 +23,14 @@ export interface HoldUnknownSweepJobsDeps {
     sweepHoldUnknown(limit?: number): Promise<HoldUnknownSweepResult>;
     /** Resting bracket entries: place exits for filled ones, cancel entries before their grant lapses. */
     sweepBracketExits?(graceMs: number, limit?: number): Promise<{ unavailable: number; failed: number }>;
+    /** Countdowns past their deadline: cancel every open order of the user who armed them. */
+    sweepCancelAllAfter?(): Promise<{ unavailable: number; failed: number }>;
   };
   config: HoldUnknownSweepJobsConfig;
   onError?: (name: string, err: unknown) => void;
   onResult?: (result: HoldUnknownSweepResult) => void;
   onBracketAlert?: (result: { unavailable: number; failed: number }) => void;
+  onCancelAllAfterAlert?: (result: { unavailable: number; failed: number }) => void;
 }
 
 export interface HoldUnknownSweepJobsHandle {
@@ -52,6 +57,14 @@ export function startHoldUnknownSweepJobs(deps: HoldUnknownSweepJobsDeps): HoldU
     host.every('trade.bracket_exit_sweep', deps.config.intervalMs, async () => {
       const result = await sweep(deps.config.intervalMs * 2);
       if (result.unavailable > 0 || result.failed > 0) deps.onBracketAlert?.(result);
+    });
+  }
+
+  if (deps.trade.sweepCancelAllAfter) {
+    const sweepCaa = deps.trade.sweepCancelAllAfter.bind(deps.trade);
+    host.every('trade.cancel_all_after_sweep', deps.config.cancelAllAfterIntervalMs ?? deps.config.intervalMs, async () => {
+      const result = await sweepCaa();
+      if (result.unavailable > 0 || result.failed > 0) deps.onCancelAllAfterAlert?.(result);
     });
   }
 

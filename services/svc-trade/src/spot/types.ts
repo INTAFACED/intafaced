@@ -554,6 +554,10 @@ export type TradeErrorCode =
   | 'trade.missing_oco_trigger'
   | 'trade.oco_stop_limit_required'
   | 'trade.oco_price_order'
+  /** Cancel-all-after: timeout not one the owner published, or the credential would lapse before the deadline. */
+  | 'trade.cancel_all_after_rejected'
+  /** Cancel-all-after: the owner has published no timeouts. Trade does not invent one. */
+  | 'trade.cancel_all_after_unset'
   /** Matching refused: an OCO sibling is already terminal. Trade does not invent a trigger. */
   | 'trade.oco_sibling_terminal'
   /** Matching refused: account is flat on this book. Trade does not invent a mark. */

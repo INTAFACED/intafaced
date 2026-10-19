@@ -488,6 +488,17 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
       'Bounded sequential native amend (same PATCH path per item). Per-item APPLIED/REFUSED/OUTCOME_UNKNOWN. Non-atomic. Never silent cancel/replace.',
   },
   {
+    name: 'cancelAllOrdersAfter',
+    method: 'POST',
+    path: '/api/v1/orders/cancel-all-after',
+    auth: 'private',
+    scope: 'trade:write',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes:
+      'Dead-man switch. Body {timeout: seconds}; timeout 0 disarms. Allowed timeouts are the owner-published set (blank = refuse); the credential must outlive the deadline.',
+  },
+  {
     name: 'massCancelOrders',
     method: 'POST',
     path: '/api/v1/markets/:marketId/orders/mass-cancel',

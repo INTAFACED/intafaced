@@ -376,6 +376,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.missing_oco_trigger': { ccxt: 'InvalidOrder', status: 400 },
   'trade.oco_stop_limit_required': { ccxt: 'InvalidOrder', status: 400 },
   'trade.oco_price_order': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.cancel_all_after_rejected': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.cancel_all_after_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.oco_sibling_terminal': { ccxt: 'InvalidOrder', status: 400 },
   'trade.position_flat': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_tif': { ccxt: 'InvalidOrder', status: 400 },
