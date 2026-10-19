@@ -204,6 +204,21 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     expect(await avail(ALICE, 'USDT')).toBe('1000');
   });
 
+  it.each([
+    ['a stop-limit entry', { type: 'stop_limit', stopPx: amt('90'), tif: 'IOC' }],
+    ['an entry with a stop trigger', { stopPx: amt('90'), tif: 'IOC' }],
+    ['an iceberg entry', { icebergQty: amt('0.1'), tif: 'IOC' }],
+    ['a post-only entry', { postOnly: true, tif: 'IOC' }],
+    ['a trailing-stop entry', { type: 'trailing_stop', tif: 'IOC' }],
+  ])('refuses %s: it can sit dormant or rest, so its exit could not be placed on the fill', async (_name, extra) => {
+    await fund(ALICE, 'USDT', '1000');
+    await expect(trade.placeOrder(principalFor(ALICE), bracketReq(extra as Record<string, unknown>))).rejects.toMatchObject({
+      code: 'trade.order_type_unsupported',
+    });
+    expect(matching.submitted).toHaveLength(0);
+    expect(await avail(ALICE, 'USDT')).toBe('1000');
+  });
+
   it('refuses a sell-side entry', async () => {
     await fund(ALICE, 'BTC', '1');
     await expect(trade.placeOrder(principalFor(ALICE), bracketReq({ side: 'sell' }))).rejects.toMatchObject({

@@ -152,6 +152,35 @@ async function writeIntent(host: BracketHost, entryId: string, userId: string, t
   }
 }
 
+// The only fields a plain entry carries. Anything else with a value (stopPx, trailing, peg, iceberg, AON, GTD
+// expiry, auction, post-only, ...) can leave the entry resting or dormant, so no exit could be placed on its fill.
+const PLAIN_ENTRY_FIELDS = new Set([
+  'symbol',
+  'marketId',
+  'side',
+  'type',
+  'qty',
+  'price',
+  'tif',
+  'clientOrderId',
+  'subAccountId',
+  'maxProtectionPrice',
+  'minProtectionPrice',
+  'bracket',
+  'takeProfit',
+  'stopLoss',
+]);
+
+export function deferredEntryField(input: PlaceOrderInput): string | null {
+  if (input.type !== 'market' && input.type !== 'limit') return `type ${String(input.type)}`;
+  for (const [key, value] of Object.entries(input)) {
+    if (PLAIN_ENTRY_FIELDS.has(key)) continue;
+    if (value === undefined || value === null || value === false) continue;
+    return key;
+  }
+  return null;
+}
+
 export function installBracketPlace(ctor: typeof TradeService): void {
   const proto = ctor.prototype as unknown as {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string }>;
@@ -174,6 +203,13 @@ export function installBracketPlace(ctor: typeof TradeService): void {
     if (missingSl) throw missingSl;
     if (bound.side !== 'buy') {
       throw new TradeError('a bracket entry must be a buy for now', 'trade.order_type_unsupported');
+    }
+    const deferred = deferredEntryField(bound);
+    if (deferred !== null) {
+      throw new TradeError(
+        `a bracket entry must resolve inside the request: ${deferred} defers or conditions execution`,
+        'trade.order_type_unsupported',
+      );
     }
     if (bound.type !== 'market' && bound.tif !== 'IOC' && bound.tif !== 'FOK') {
       throw new TradeError(
