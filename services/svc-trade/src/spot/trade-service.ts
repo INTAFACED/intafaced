@@ -2772,7 +2772,8 @@ export class TradeService {
     // same thing with all three: the order is done, release what is left.
     for (const cancellation of cancellations) {
       await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
-      touched.delete(settlementOrderId(cancellation.orderId));
+      // A leg cancellation may leave the parent open (fail closed), so only an ordinary order leaves `touched`.
+      if (ocoLegParent(cancellation.orderId) === null) touched.delete(cancellation.orderId);
     }
 
     // A maker that filled completely leaves the book without a cancellation —
