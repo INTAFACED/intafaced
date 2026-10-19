@@ -10,6 +10,7 @@ import {
   EXCHANGE_ERROR_CODES,
   exchangeErrorSchema,
   marketSchema,
+  orderSchema,
 } from './schemas.js';
 import { REST_ROUTES, WS_CHANNELS, RATE_LIMITS } from './api.js';
 
@@ -379,5 +380,54 @@ describe('market precision', () => {
 
   it('refuses a decimal-places integer where a tick size belongs', () => {
     expect(marketSchema.safeParse(market({ amount: 4, price: 2 })).success).toBe(false);
+  });
+});
+
+describe('order exit marker', () => {
+  const order = {
+    id: 'o-1',
+    clientOrderId: 'oco-1',
+    timestamp: 1_760_000_000_000,
+    datetime: '2025-10-09T08:53:20.000Z',
+    lastTradeTimestamp: null,
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'sell',
+    timeInForce: 'GTC',
+    postOnly: false,
+    reduceOnly: false,
+    price: '110',
+    stopPrice: null,
+    average: null,
+    amount: '1',
+    filled: '0',
+    remaining: '1',
+    cost: '0',
+    status: 'open',
+    fee: null,
+    trades: [],
+  };
+
+  it('carries the take-profit and stop-loss of an OCO parent, and the buy side stop-loss limit', () => {
+    const parsed = orderSchema.parse({ ...order, exit: { kind: 'oco', takeProfit: '110', stopLoss: '90', stopLossLimit: null } });
+    expect(parsed.exit).toEqual({ kind: 'oco', takeProfit: '110', stopLoss: '90', stopLossLimit: null });
+    const buy = orderSchema.parse({
+      ...order,
+      side: 'buy',
+      exit: { kind: 'bracket_exit', takeProfit: '90', stopLoss: '120', stopLossLimit: '125' },
+    });
+    expect(buy.exit?.stopLossLimit).toBe('125');
+  });
+
+  it('is absent on a plain order and on wires from before the field', () => {
+    expect(orderSchema.parse(order).exit).toBeUndefined();
+    expect(orderSchema.parse({ ...order, exit: null }).exit).toBeNull();
+  });
+
+  it('refuses a JSON-number price in the marker', () => {
+    expect(() => orderSchema.parse({ ...order, exit: { kind: 'oco', takeProfit: 110, stopLoss: '90', stopLossLimit: null } })).toThrow();
+    expect(() =>
+      orderSchema.parse({ ...order, exit: { kind: 'trailing', takeProfit: '110', stopLoss: '90', stopLossLimit: null } }),
+    ).toThrow();
   });
 });

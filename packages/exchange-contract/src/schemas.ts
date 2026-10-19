@@ -297,6 +297,20 @@ export const orderSideSchema = z.enum(['buy', 'sell']);
 export const timeInForceSchema = z.enum(['GTC', 'IOC', 'FOK', 'PO', 'MOC', 'GTD', 'GTT']);
 export const orderStatusSchema = z.enum(['open', 'closed', 'canceled', 'expired', 'rejected']);
 
+/**
+ * Marks the parent of a linked take-profit / stop-loss pair: an OCO, or the exit OCO a bracket places. The engine
+ * rests two legs under this one order and one hold; a plain limit read would hide that. `stopLossLimit` is the worst
+ * price the stop leg may pay and is set only on a buy OCO. Absent on a plain order and on wires from before this field;
+ * an OCO placed before its legs were stored carries no marker (unknown, not "not an OCO").
+ */
+export const orderExitSchema = z.object({
+  kind: z.enum(['oco', 'bracket_exit']),
+  takeProfit: decimal,
+  stopLoss: decimal,
+  stopLossLimit: decimal.nullable(),
+});
+export type OrderExit = z.infer<typeof orderExitSchema>;
+
 export const orderSchema = z.object({
   id: z.string(),
   clientOrderId: z.string().nullable(),
@@ -332,6 +346,8 @@ export const orderSchema = z.object({
   serverTime: timestampMs.optional(),
   fee: z.object({ cost: decimal, currency: z.string() }).nullable(),
   trades: z.array(tradeSchema),
+  /** The linked exit legs when this order is an OCO parent or a bracket's exit. Absent otherwise. */
+  exit: orderExitSchema.nullable().optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 
