@@ -151,6 +151,11 @@ export const ENFORCED = {
     must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
     note: 'refuses by name when services/ or the compose file is absent, instead of mapping nothing and calling it current.',
   },
+  'truth-check': {
+    kind: 'guard',
+    must: /AGENTS\.md lost a core rule: file missing/,
+    note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
+  },
   coverage: {
     kind: 'guard',
     must: /coverage-check: tooling\/coverage\.yaml does not exist/,

@@ -70,6 +70,15 @@ export const GATES = [
     why: 'a tracker that drifts from the code is worse than no tracker',
   },
   {
+    id: 'truth-check',
+    script: 'tooling/scripts/truth-check.mjs',
+    doctrine: 'agent map honesty',
+    why:
+      'the agent entry files (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md) must not teach a retired rule (self-merge, forced ' +
+      'worktree removal, the Vue front end) and their links must resolve. It only ran in .githooks/pre-push, which a cloud push ' +
+      'never runs, so a stale rule could reach main unchecked. It reads only those entry files, so it cannot block product work.',
+  },
+  {
     id: 'services-map',
     script: 'tooling/scripts/services-map.mjs',
     args: ['--check'],
