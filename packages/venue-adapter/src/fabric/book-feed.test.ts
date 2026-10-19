@@ -157,7 +157,10 @@ describe('MaintainedBook.run — a failed seed completes on a quiet stream', () 
 
   it('stays live after a seed and keeps reading until the stream ends', async () => {
     const { queue, subscription } = quietStream('end');
-    const book = new MaintainedBook(fakeAdapter(async () => absentSnapshot(4), subscription), SYMBOL);
+    const book = new MaintainedBook(
+      fakeAdapter(async () => absentSnapshot(4), subscription),
+      SYMBOL,
+    );
 
     let settled = false;
     const running = book.run().then((status) => {
@@ -184,7 +187,10 @@ describe('MaintainedBook.run — a failed seed completes on a quiet stream', () 
 
   it('stays live after a seed until close() is called', async () => {
     const { subscription } = quietStream('end');
-    const book = new MaintainedBook(fakeAdapter(async () => absentSnapshot(4), subscription), SYMBOL);
+    const book = new MaintainedBook(
+      fakeAdapter(async () => absentSnapshot(4), subscription),
+      SYMBOL,
+    );
 
     let settled = false;
     const running = book.run().then((status) => {

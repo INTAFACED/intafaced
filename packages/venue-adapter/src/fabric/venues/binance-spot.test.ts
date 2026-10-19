@@ -169,11 +169,7 @@ describe('BinanceSpotMarketData — public data, no credentials', () => {
   });
 
   it('refuses a symbol missing PRICE_FILTER, LOT_SIZE, or NOTIONAL/MIN_NOTIONAL instead of inventing a tick or a zero minimum', async () => {
-    const trading = (
-      symbol: string,
-      base: string,
-      filters: Record<string, unknown>[],
-    ): Record<string, unknown> => ({
+    const trading = (symbol: string, base: string, filters: Record<string, unknown>[]): Record<string, unknown> => ({
       symbol,
       status: 'TRADING',
       baseAsset: base,

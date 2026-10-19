@@ -299,8 +299,7 @@ export class SequencedBookTracker {
       return {
         kind: 'snapshot-stale',
         state: this.#state,
-        detail:
-          `snapshot at ${snapshot.sequence} is behind the book already held at ${held} — fetch a newer snapshot`,
+        detail: `snapshot at ${snapshot.sequence} is behind the book already held at ${held} — fetch a newer snapshot`,
       };
     }
 

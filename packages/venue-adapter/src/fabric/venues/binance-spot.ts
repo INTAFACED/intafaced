@@ -395,11 +395,9 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
     const lotSize = filterOf('LOT_SIZE');
     const notional = filterOf('NOTIONAL') ?? filterOf('MIN_NOTIONAL');
     if (!priceFilter || !lotSize || !notional) {
-      const missing = [
-        priceFilter ? null : 'PRICE_FILTER',
-        lotSize ? null : 'LOT_SIZE',
-        notional ? null : 'NOTIONAL/MIN_NOTIONAL',
-      ].filter((name): name is string => name !== null);
+      const missing = [priceFilter ? null : 'PRICE_FILTER', lotSize ? null : 'LOT_SIZE', notional ? null : 'NOTIONAL/MIN_NOTIONAL'].filter(
+        (name): name is string => name !== null,
+      );
       const venueSymbol = String(raw.symbol ?? '');
       throw new VenueUnavailableError(
         VENUE.id,
