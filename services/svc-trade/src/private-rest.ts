@@ -691,14 +691,17 @@ export function parsePrivateRestLimit(raw: unknown, max: number): number | undef
   return n;
 }
 
+const MAX_DATE_MS = 8_640_000_000_000_000;
+
 /**
  * Optional CCXT `since` (unix ms). Absent/empty → no filter.
- * NaN or negative → invalid (caller returns 400). Zero is valid (epoch).
+ * NaN, negative or past the last representable Date → invalid (caller returns 400). Zero is valid (epoch).
  */
 export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok: false; message: string } {
   if (raw === undefined || raw === null || raw === '') return { ok: true, sinceMs: undefined };
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) {
+  // 8.64e15 ms is the last instant a Date holds; past it the value would reach the database as an Invalid Date.
+  if (!Number.isFinite(n) || n < 0 || n > MAX_DATE_MS) {
     return { ok: false, message: 'since must be a non-negative unix timestamp in milliseconds' };
   }
   return { ok: true, sinceMs: Math.floor(n) };
