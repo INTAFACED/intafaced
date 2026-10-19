@@ -43,6 +43,7 @@ import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
 import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
+import { restoreOpenDepositWatches } from './rails/watch-restore.js';
 import { PostgresBroadcastStore } from './rails/broadcast-store.js';
 import { PostgresRestIdempotencyStore } from './rest-idempotency.js';
 import { MerchantWebhookService, PostgresMerchantWebhookStore } from './merchant-webhooks.js';
@@ -854,6 +855,19 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
     onAlive: () => cryptoRail.noteAlive(),
   });
+  // The watch set is in memory: put every payment still waiting for a deposit back before the first poll.
+  const restored = await restoreOpenDepositWatches(
+    chain,
+    async () =>
+      (
+        await sql<Array<{ id: string; currency: string }>>`
+          SELECT id, currency FROM pay.payments
+           WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
+        `
+      ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+    (msg, extra) => app.log.warn(extra ?? {}, msg),
+  );
+  app.log.info({ restored }, 'crypto deposit watches restored');
   watcher.start();
   app.log.info({ intervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS }, 'crypto chain watcher started');
 }
