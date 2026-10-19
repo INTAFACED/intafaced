@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
 
 /**
@@ -28,6 +28,7 @@ import { marketHouseCommissionBpsSchema } from './house-commission-bps.js';
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-market'),

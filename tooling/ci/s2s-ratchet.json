@@ -188,10 +188,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-market/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-market/src/stake-source.ts": {
       "sign": 1,
       "caller": 0
