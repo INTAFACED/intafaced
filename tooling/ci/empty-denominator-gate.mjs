@@ -171,6 +171,11 @@ export const ENFORCED = {
     must: /BRAND SCAN FAILED — 0 files were read\. NOTHING WAS SCANNED\./,
     note: 'the canonical implementation of this law (brand-scan.mjs `scanned === 0`) and the reason the rule is worth generalising.',
   },
+  boundary: {
+    kind: 'guard',
+    must: /BOUNDARY SCAN FAILED — scope is EMPTY/,
+    note: 'refuses when it reads no source file or finds no service schemas, instead of reporting no violation over nothing.',
+  },
   custody: {
     kind: 'guard',
     must: /CUSTODY SCAN FAILED — cannot read the module registry/,

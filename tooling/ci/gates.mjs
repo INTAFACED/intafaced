@@ -198,6 +198,16 @@ export const GATES = [
       'be declared in tooling/ci/test-read-edges.json.',
   },
   {
+    id: 'boundary',
+    script: 'tooling/ci/boundary-scan.mjs',
+    doctrine: 'architecture refactor W7 (2026-10-19)',
+    why:
+      'services never reach into each other and money moves only through the ledger. Fails on an @intafaced/svc-* dependency ' +
+      'between workspace packages, an import that climbs into another service, SQL against another service’s schema, inline ' +
+      'ledger entries outside ledger-client and svc-ledger, a balance column in a service migration, and a randomUUID or ' +
+      'Date.now idempotency key. Green on main when added; exceptions are named with a reason in tooling/ci/boundary-allow.json.',
+  },
+  {
     id: 'workspace',
     script: 'tooling/ci/workspace-sync.mjs',
     doctrine: 'fleet sync',
