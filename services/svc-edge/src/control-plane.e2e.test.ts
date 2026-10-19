@@ -2,13 +2,17 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { createAdminApi, type LedgerOperatorCall } from './admin-api.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerKillSwitchGuard } from './control-plane.js';
 import { KillSwitchState } from './kill-switch.js';
 import { describeQuantHonestyDoorStatus } from './quant-honesty-status.js';
+
+// These suites read the live process env for the sanctions-screening posture. An
+// unset APP_ENV is production-like and refuses by design, so they declare the test env.
+vi.stubEnv('APP_ENV', 'test');
 
 /**
  * PULLING THE SWITCH, END TO END (§14.6).

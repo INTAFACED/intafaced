@@ -5,6 +5,10 @@ import { createAdminApi, type LedgerOperatorCall } from './admin-api.js';
 import { stubApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { KillSwitchState } from './kill-switch.js';
 
+// These suites read the live process env for the sanctions-screening posture. An
+// unset APP_ENV is production-like and refuses by design, so they declare the test env.
+vi.stubEnv('APP_ENV', 'test');
+
 const tokens: TokenConfig = {
   secret: 'test-only-signing-secret-at-least-32-characters-long',
   issuer: 'intafaced',
