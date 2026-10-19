@@ -7,7 +7,6 @@ import {
   matchingActionPayloadHash,
   readApprovalIds,
   unwiredApprovalConsumer,
-  unwrapTrpcJson,
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 
@@ -42,10 +41,43 @@ describe('matching action-approval consume', () => {
     expect(() => readApprovalIds({ approvalId: 'appr-1', operationId: '' })).toThrow(/typed-in second name/);
   });
 
-  it('unwraps tRPC result.data.json', () => {
-    const inner = { approvalId: 'appr-1', status: 'CONSUMED' };
-    expect(unwrapTrpcJson({ result: { data: { json: inner } } })).toEqual(inner);
-    expect(unwrapTrpcJson(inner)).toEqual(inner);
+  it('the identity client rejects a reply that is not CONSUMED or does not echo the request', async () => {
+    const request = {
+      approvalId: 'appr-1',
+      operationId: 'op-1',
+      payloadHash: matchingActionPayloadHash('matching.halt', { marketId: 'BTC-USDT' }),
+      targetService: 'svc-matching',
+      targetId: 'halt:BTC-USDT',
+      expectedVersion: '1',
+    };
+    const reply = (over: Record<string, unknown>) => ({
+      ok: true,
+      json: async () => ({
+        result: {
+          data: {
+            json: {
+              ...request,
+              actionType: 'matching.halt',
+              requesterId: 'requester',
+              approverId: 'ops-confirm',
+              policyVersion: 'v1',
+              createdAt: '2026-09-09T12:00:00.000Z',
+              expiresAt: '2026-09-09T12:10:00.000Z',
+              status: 'CONSUMED',
+              ...over,
+            },
+          },
+        },
+      }),
+    });
+    const client = createIdentityApprovalClient('http://identity.test', 's'.repeat(32));
+    for (const over of [{ status: 'APPROVED' }, { targetId: 'halt:ETH-USDT' }, { payloadHash: 'sha256:other' }, { approvalId: 'appr-2' }]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => reply(over)),
+      );
+      await expect(client.consume(request)).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+    }
   });
 
   it('HMAC consume posts to identity actionApproval.consume as svc-matching', async () => {
@@ -121,12 +153,13 @@ describe('founder attestation at matching consume', () => {
         'matching.open',
         { marketId: 'BTC-USDT' },
         'open:BTC-USDT',
+        'founder-a',
       ),
     ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
   });
 
   it('refuses a forged or mismatched founder attestation', async () => {
-    const refuse = (mutate: (row: Record<string, unknown>) => void) =>
+    const refuse = (mutate: (row: Record<string, unknown>) => void, operator = 'founder-a') =>
       expect(
         consumeMatchingApproval(
           echoingApproval('matching.resume', mutate),
@@ -134,6 +167,7 @@ describe('founder attestation at matching consume', () => {
           'matching.resume',
           { marketId: 'BTC-USDT' },
           'resume:BTC-USDT',
+          operator,
         ),
       ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
     await refuse((row) => {
@@ -143,7 +177,7 @@ describe('founder attestation at matching consume', () => {
     await refuse((row) => {
       row.approverId = ' REQUESTER ';
       row.requesterId = 'requester';
-    });
+    }, 'requester');
     await refuse((row) => {
       row.targetId = 'halt:BTC-USDT';
     });
@@ -160,14 +194,46 @@ describe('founder attestation at matching consume', () => {
         'matching.halt',
         { marketId: 'BTC-USDT' },
         'open:BTC-USDT',
+        'founder-a',
       ),
     ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
   });
 
   it('accepts a distinct founder pair for opening a market', async () => {
     await expect(
-      consumeMatchingApproval(echoingApproval('matching.open'), approvalCmd, 'matching.open', { marketId: 'BTC-USDT' }, 'open:BTC-USDT'),
+      consumeMatchingApproval(
+        echoingApproval('matching.open'),
+        approvalCmd,
+        'matching.open',
+        { marketId: 'BTC-USDT' },
+        'open:BTC-USDT',
+        'founder-a',
+      ),
     ).resolves.toMatchObject({ approverId: 'founder-b' });
+  });
+
+  it('refuses an approval another person proposed: the acting operator must be the recorded requester', async () => {
+    await expect(
+      consumeMatchingApproval(
+        echoingApproval('matching.open'),
+        approvalCmd,
+        'matching.open',
+        { marketId: 'BTC-USDT' },
+        'open:BTC-USDT',
+        'founder-x',
+      ),
+    ).rejects.toMatchObject({ code: 'action_approval.operator_not_requester' });
+    // Case and spacing are not a different person.
+    await expect(
+      consumeMatchingApproval(
+        echoingApproval('matching.open'),
+        approvalCmd,
+        'matching.open',
+        { marketId: 'BTC-USDT' },
+        'open:BTC-USDT',
+        ' FOUNDER-A ',
+      ),
+    ).resolves.toMatchObject({ requesterId: 'founder-a' });
   });
 
   it('leaves halt, halt_all, reduce_only, and post_only working without an attestation', async () => {
@@ -187,6 +253,7 @@ describe('founder attestation at matching consume', () => {
         actionType,
         {},
         targetId,
+        'founder-a',
       );
       expect(consumed.approverId).toBe('founder-b');
       expect(consumed.approverIsFounder).toBeUndefined();
