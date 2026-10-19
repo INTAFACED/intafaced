@@ -47,6 +47,13 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 1. Work on a branch in a worktree or your own clone, not a shared checkout; one PR per concern. Never push `main`. Never delete a branch. Never force-push someone else's branch.
 2. When your task is merged or handed off, stop any service you started. If you used a git worktree, remove only your own with `git worktree remove <path>`, never `--force`. Leave other agents' work alone.
 
+## Standing scope for agents
+
+The owner's standing green light (2026-10-19): agents need no one's go-ahead for the work below, and should not stop to ask for it.
+
+1. Allowed: push branches (`claude/*` or your task's branch) and open PRs; delete files and folders through a reviewed PR; merge a PR once the checks in items 2 and 3 of "Check, then merge" pass and the review comment from item 8 of "Check, then merge" is posted for the exact head.
+2. Never, with or without a green light: force-push or delete `main`, touch secrets or keys, move real money, deploy money paths to production, or weaken a test or safeguard. These stay with the owner.
+
 ## Skills and status files
 
 1. This file wins over a skill that says to wait for a person.
