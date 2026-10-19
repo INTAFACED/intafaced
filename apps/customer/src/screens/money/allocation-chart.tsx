@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { groupSlices, useAllocation, type AllocationGrouping } from './allocation-source';
 import { moneyCopy } from './copy';
 import { dec, fmtPct, SCALE, times, toFixedString } from './deps';
 import type { MoneyRow } from './portfolio-source';
@@ -39,45 +41,95 @@ function pctText(share: string): string {
   return parsed > 0n && text === '0.00%' ? '<0.01%' : text;
 }
 
+type Grouping = 'coin' | AllocationGrouping;
+const GROUPINGS: readonly Grouping[] = ['coin', 'class', 'type'];
+
 /**
- * Allocation bar (UI-SPEC 5.3): 8 px, one segment per coin by share, a legend under it, and the same numbers as a
- * table for screen readers. Widths come from the decimal share strings; nothing is turned into a float.
+ * Allocation bar (UI-SPEC 5.3): 8 px, one segment per group by share, a legend under it, and the same numbers as a table for
+ * screen readers. By coin comes from the rows on screen; by class and by type come from the bank's own grouping
+ * (`bank.portfolio.allocation`), so they add up to the same total. Widths come from the decimal share strings; nothing is
+ * turned into a float. When the bank cannot give a grouping the switch stays and the screen says why.
  */
 export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
   const { t } = moneyCopy.useCopy();
-  const slices = slicesOf(rows, t('Other'));
-  if (slices.length === 0) return null;
+  const [grouping, setGrouping] = useState<Grouping>('coin');
+  const server = useAllocation(grouping !== 'coin');
+  const coinSlices = slicesOf(rows, t('Other'));
+  if (coinSlices.length === 0) return null;
+
+  let slices: Array<{ key: string; label: string; share: string }> = coinSlices;
+  let note: string | null = null;
+  if (grouping !== 'coin') {
+    if (server.status === 'ready') {
+      const grouped = groupSlices(server.data, grouping);
+      if (grouped === null) note = t('Grouping invalid');
+      else slices = grouped.map((slice) => ({ key: slice.key, label: t(slice.labelKey), share: slice.share }));
+    } else if (server.status === 'loading') {
+      note = t('Grouping loading');
+    } else {
+      note = t('Grouping unavailable');
+    }
+  }
+  const shown = note === null ? slices : [];
+  const caption =
+    grouping === 'coin'
+      ? t('Share of your total')
+      : grouping === 'class'
+        ? t('Share of your total by kind')
+        : t('Share of your total by place');
+
   return (
     <section className="money-alloc" aria-label={t('Where your money is')}>
-      <div className="money-alloc__bar" aria-hidden="true">
-        {slices.map((slice, index) => (
-          <span
-            key={slice.key}
-            className="money-alloc__seg"
-            style={{ flexGrow: weight(slice.share), background: `var(--if-alloc-${index + 1})` }}
-          />
+      <div className="money-alloc__switch" role="group" aria-label={t('Group by')}>
+        {GROUPINGS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            className="money-alloc__opt"
+            aria-pressed={grouping === option}
+            onClick={() => setGrouping(option)}
+          >
+            {option === 'coin' ? t('Coin') : option === 'class' ? t('Kind') : t('Place')}
+          </button>
         ))}
       </div>
-      <ul className="money-alloc__legend" aria-hidden="true">
-        {slices.map((slice, index) => (
-          <li key={slice.key}>
-            <span className="money-alloc__dot" style={{ background: `var(--if-alloc-${index + 1})` }} />
-            <span>{slice.label}</span>
-            <span className="money-alloc__pct">{pctText(slice.share)}</span>
-          </li>
-        ))}
-      </ul>
-      <table className="if-sr">
-        <caption>{t('Share of your total')}</caption>
-        <tbody>
-          {slices.map((slice) => (
-            <tr key={slice.key}>
-              <th scope="row">{slice.label}</th>
-              <td>{pctText(slice.share)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {note !== null ? (
+        <p className="money-alloc__note" role="status">
+          {note}
+        </p>
+      ) : (
+        <>
+          <div className="money-alloc__bar" aria-hidden="true">
+            {shown.map((slice, index) => (
+              <span
+                key={slice.key}
+                className="money-alloc__seg"
+                style={{ flexGrow: weight(slice.share), background: `var(--if-alloc-${index + 1})` }}
+              />
+            ))}
+          </div>
+          <ul className="money-alloc__legend" aria-hidden="true">
+            {shown.map((slice, index) => (
+              <li key={slice.key}>
+                <span className="money-alloc__dot" style={{ background: `var(--if-alloc-${index + 1})` }} />
+                <span>{slice.label}</span>
+                <span className="money-alloc__pct">{pctText(slice.share)}</span>
+              </li>
+            ))}
+          </ul>
+          <table className="if-sr">
+            <caption>{caption}</caption>
+            <tbody>
+              {shown.map((slice) => (
+                <tr key={slice.key}>
+                  <th scope="row">{slice.label}</th>
+                  <td>{pctText(slice.share)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </section>
   );
 }
