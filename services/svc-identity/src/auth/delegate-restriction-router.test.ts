@@ -4,6 +4,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { createApiKeyIpRouter } from '../api-key-ip-router.js';
 import { createApiKeyOriginRouter } from '../api-key-origin-router.js';
 import type { ApiKeyMinter } from './mint-api-key-ip.js';
+import type { ApiKeyFactorGate } from './api-key-fresh-factor.js';
 
 const userId = '11111111-1111-4111-8111-111111111111';
 const keyId = '22222222-2222-4222-8222-222222222222';
@@ -29,8 +30,12 @@ describe('delegated keys cannot remove their access restrictions', () => {
     const context = { principal: await verifyAccessToken(token, tokenConfig), service: null, region: 'DE', requestId: 'delegate-fixture' };
     const result =
       kind === 'ip'
-        ? createApiKeyIpRouter(sql, minter).createCaller(context).unbindApiKeyIpAllowlist({ keyId, ip: '127.0.0.1' })
-        : createApiKeyOriginRouter(sql, minter).createCaller(context).unbindApiKeyOriginAllowlist({ keyId, origin: 'app.example.com' });
+        ? createApiKeyIpRouter(sql, minter, {} as ApiKeyFactorGate)
+            .createCaller(context)
+            .unbindApiKeyIpAllowlist({ keyId, ip: '127.0.0.1' })
+        : createApiKeyOriginRouter(sql, minter, {} as ApiKeyFactorGate)
+            .createCaller(context)
+            .unbindApiKeyOriginAllowlist({ keyId, origin: 'app.example.com' });
     await expect(result).rejects.toMatchObject({ code: 'FORBIDDEN', cause: { code: 'auth.delegate_cannot_grant' } });
     expect(reads).toBe(0);
   });

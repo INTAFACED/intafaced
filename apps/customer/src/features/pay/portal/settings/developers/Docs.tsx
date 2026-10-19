@@ -59,7 +59,7 @@ export function Docs() {
         </a>
       </PaySection>
       <PaySection title={t('docsSdkTitle')}>
-        <NotLiveCard reason={reason('reasonDocs')} title={t('docsSdkCardTitle')} needs="SDK publishing decision">
+        <NotLiveCard reason={reason('reasonDocs')} title={t('docsSdkCardTitle')} needs="SDK publishing decision" code="owner.decision">
           {t('docsSdkBody')}
         </NotLiveCard>
       </PaySection>
