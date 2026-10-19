@@ -89,6 +89,8 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
           <SigningSettings
             api={api}
             keyId={apiKey.id}
+            requireSignature={apiKey.requireSignature}
+            requireNonEmptyIpAllowlist={apiKey.requireNonEmptyIpAllowlist}
             onSecret={(secret) => setRevealed({ title: t('signingSecretTitle'), secret, what: t('signingSecretWhat') })}
           />
           <RotateSecret
@@ -96,15 +98,15 @@ function KeyPanel({ api, apiKey, reload }: { api: SettingsBApi; apiKey: ApiKey; 
             keyId={apiKey.id}
             onSecret={(secret) => setRevealed({ title: t('signingSecretNewTitle'), secret, what: t('signingSecretWhat') })}
           />
-          <AllowedIps api={api} keyId={apiKey.id} />
+          <AllowedIps api={api} keyId={apiKey.id} ipAllowlist={apiKey.ipAllowlist} requireSignature={apiKey.requireSignature} />
         </>
       )}
     </>
   );
 }
 
-/** On, off, or not chosen yet. The saved setting cannot be read, so there is no default: the person chooses each one. */
-type Choice = boolean | null;
+/** On or off, taken from the key list. The list never includes a signing secret. */
+type Choice = boolean;
 
 function OnOff({
   name,
@@ -143,24 +145,26 @@ function OnOff({
 export function SigningSettings({
   api,
   keyId,
+  requireSignature,
+  requireNonEmptyIpAllowlist,
   onSecret,
 }: {
   api: Pick<SettingsBApi, 'signingSet'>;
   keyId: string;
+  requireSignature: boolean;
+  requireNonEmptyIpAllowlist: boolean;
   onSecret: (secret: string) => void;
 }) {
   const { t } = c.useCopy();
-  // Neither setting has a default: Save opens only when both are chosen.
-  const [sign, setSign] = useState<Choice>(null);
-  const [needIp, setNeedIp] = useState<Choice>(null);
+  const [sign, setSign] = useState<Choice>(requireSignature);
+  const [needIp, setNeedIp] = useState<Choice>(requireNonEmptyIpAllowlist);
   const [saved, setSaved] = useState<{ sign: boolean; needIp: boolean; secretKept: boolean } | null>(null);
-  const chosen = sign !== null && needIp !== null;
-  const signLine = sign === null ? t('effectNotChosen') : sign ? t('effectSignedOn') : t('effectSignedOff');
-  const ipLine = needIp === null ? t('effectNotChosen') : needIp ? t('effectIpOn') : t('effectIpOff');
+  const signLine = sign ? t('effectSignedOn') : t('effectSignedOff');
+  const ipLine = needIp ? t('effectIpOn') : t('effectIpOff');
   return (
     <PaySection title={t('signedTitle')} description={t('signedBody')}>
       <p className="pp-callout" role="status">
-        {t('settingNotReadable')}
+        {t('postureSigning', { signed: requireSignature ? t('yes') : t('no'), ip: requireNonEmptyIpAllowlist ? t('yes') : t('no') })}
       </p>
       <div className="form-stack pp-form">
         <OnOff name={`sign-${keyId}`} legend={t('requireSigned')} hint={t('requireSignedHint')} value={sign} onChange={setSign} />
@@ -176,8 +180,6 @@ export function SigningSettings({
           title={t('saveSigning')}
           variant="primary"
           description={t('saveSigningBody')}
-          disabled={!chosen}
-          disabledReason={t('chooseBoth')}
           review={
             <ul>
               <li>{signLine}</li>
@@ -231,9 +233,19 @@ export function RotateSecret({
   );
 }
 
-export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' | 'ipsUnbind'>; keyId: string }) {
+export function AllowedIps({
+  api,
+  keyId,
+  ipAllowlist = [],
+  requireSignature = false,
+}: {
+  api: Pick<SettingsBApi, 'ipsBind' | 'ipsUnbind'>;
+  keyId: string;
+  ipAllowlist?: string[];
+  requireSignature?: boolean;
+}) {
   const { t } = c.useCopy();
-  const [text, setText] = useState('');
+  const [text, setText] = useState(ipAllowlist.join('\n'));
   const [one, setOne] = useState('');
   const [saved, setSaved] = useState<string[] | null>(null);
   const list = splitIps(text);
@@ -242,8 +254,10 @@ export function AllowedIps({ api, keyId }: { api: Pick<SettingsBApi, 'ipsBind' |
   return (
     <PaySection title={t('ipsTitle')} description={t('ipsBody')}>
       <p className="pp-callout" role="status">
-        {t('settingNotReadable')}
+        {ipAllowlist.length === 0 ? t('ipsCurrentEmpty') : ipAllowlist.join(', ')}
       </p>
+      <p className="muted">{requireSignature ? t('effectSignedOn') : t('effectSignedOff')}</p>
+      <p className="muted">{t('ipsSigningWarning')}</p>
       <div className="form-stack pp-form">
         <label className="field">
           <span>{t('ipsLabel')}</span>

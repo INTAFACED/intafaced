@@ -21,9 +21,12 @@ import org.junit.jupiter.api.Timeout;
 import quickfix.FixVersions;
 import quickfix.Message;
 import quickfix.field.AvgPx;
+import quickfix.field.CumQty;
 import quickfix.field.ExecID;
+import quickfix.field.ExecType;
 import quickfix.field.LastPx;
 import quickfix.field.LastQty;
+import quickfix.field.OrdStatus;
 
 class FixDropCopyIngestTest {
     private static final String SECRET = "a".repeat(32);
@@ -38,24 +41,18 @@ class FixDropCopyIngestTest {
         assertEquals("fill-7", er.getString(ExecID.FIELD));
         assertFalse(er.getString(ExecID.FIELD).matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"));
         assertEquals("100.25", er.getString(LastPx.FIELD));
-        assertEquals("100.25", er.getString(AvgPx.FIELD));
         assertEquals("1.50", er.getString(LastQty.FIELD));
+        assertFalse(er.isSetField(AvgPx.FIELD));
+        assertFalse(er.isSetField(CumQty.FIELD));
         assertFalse(er.toString().toLowerCase().contains("ledger"));
 
-        DropCopyFill.ParseResult noLast = DropCopyFill.parse(
-                "{\"fillId\":\"fill-8\",\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"sequence\":12,\"source\":\"ws\"}");
-        assertTrue(noLast.ok, noLast.errorMessage);
-        Message without = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, noLast.fill);
-        assertEquals("fill-8", without.getString(ExecID.FIELD));
-        assertFalse(without.isSetField(LastPx.FIELD));
-        assertFalse(without.isSetField(LastQty.FIELD));
-        assertFalse(without.isSetField(AvgPx.FIELD));
-
         DropCopyFill.ParseResult seqOnly = DropCopyFill.parse(
-                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"sequence\":44,\"source\":\"algo\"}");
+                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"price\":\"100.25\",\"qty\":\"1.50\",\"sequence\":44,\"source\":\"algo\"}");
         assertTrue(seqOnly.ok, seqOnly.errorMessage);
         assertEquals("44", ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, seqOnly.fill)
                 .getString(ExecID.FIELD));
+        assertEquals("100.25", seqOnly.fill.price);
+        assertEquals("1.50", seqOnly.fill.qty);
 
         DropCopyFill.ParseResult missing = DropCopyFill.parse(
                 "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"source\":\"rest\"}");
@@ -67,6 +64,75 @@ class FixDropCopyIngestTest {
         assertFalse(ieee.ok);
         assertEquals("invalid_decimal", ieee.errorCode);
         assertNull(ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, null));
+    }
+
+    @Test
+    void partialFillIsNotACompleteFillAndThisPrintIsNotCumulative() throws Exception {
+        DropCopyFill.ParseResult parsed = DropCopyFill.parse(FILL);
+        assertTrue(parsed.ok, parsed.errorMessage);
+
+        Message fix42 = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX42, parsed.fill);
+        assertEquals(OrdStatus.PARTIALLY_FILLED, fix42.getChar(OrdStatus.FIELD));
+        assertEquals(ExecType.PARTIAL_FILL, fix42.getChar(ExecType.FIELD));
+        assertEquals("100.25", fix42.getString(LastPx.FIELD));
+        assertEquals("1.50", fix42.getString(LastQty.FIELD));
+        assertFalse(fix42.isSetField(CumQty.FIELD));
+        assertFalse(fix42.isSetField(AvgPx.FIELD));
+
+        Message fix44 = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, parsed.fill);
+        assertEquals(OrdStatus.PARTIALLY_FILLED, fix44.getChar(OrdStatus.FIELD));
+        assertEquals(ExecType.TRADE, fix44.getChar(ExecType.FIELD));
+        assertEquals("100.25", fix44.getString(LastPx.FIELD));
+        assertEquals("1.50", fix44.getString(LastQty.FIELD));
+        assertFalse(fix44.isSetField(CumQty.FIELD));
+        assertFalse(fix44.isSetField(AvgPx.FIELD));
+
+        assertNull(ExecutionReportFactory.fromFill(
+                FixVersions.BEGINSTRING_FIX42,
+                fill("fill-7", null, "1.50")));
+        assertNull(ExecutionReportFactory.fromFill(
+                FixVersions.BEGINSTRING_FIX44,
+                fill("fill-7", "100.25", null)));
+    }
+
+    @Test
+    void fillWithMissingNullOrNonStringPriceOrQtyIsRefused() {
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"qty\":\"1.50\",\"source\":\"rest\"}", "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"source\":\"rest\"}", "dropcopy_qty_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":null,\"qty\":\"1.50\",\"source\":\"rest\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":null,\"source\":\"rest\"}",
+                "dropcopy_qty_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-8\",\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"sequence\":12,\"source\":\"ws\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"sequence\":44,\"source\":\"algo\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":true,\"qty\":\"1.50\",\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":{},\"qty\":\"1.50\",\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":false,\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":[],\"source\":\"rest\"}", "invalid_decimal");
+    }
+
+    private static DropCopyFill fill(String fillId, String price, String qty) {
+        return new DropCopyFill(
+                fillId, "ord-1", "user-1", "BTC/USDT", "buy", price, qty, null, null, null, 11L, null, "rest");
+    }
+
+    private static void assertFillRefused(String raw, String code) {
+        DropCopyFill.ParseResult parsed = DropCopyFill.parse(raw);
+        assertFalse(parsed.ok, raw);
+        assertNull(parsed.fill, raw);
+        assertEquals(code, parsed.errorCode, raw);
     }
 
     @Test

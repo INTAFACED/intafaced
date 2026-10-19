@@ -1,8 +1,8 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place auction / benchmark through the matching door that landed in #3321.
@@ -16,16 +16,9 @@ type PlaceWithAuction = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.auctionPlace');
-const stash = new Map<string, { auction: boolean | null; benchmark: boolean | null }>();
 
 export const AUCTION_UNSUPPORTED = 'auction_unsupported' as const;
 export const BENCHMARK_UNSUPPORTED = 'benchmark_unsupported' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__auction:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsAuctionIntent(rec: Record<string, unknown>): boolean {
   return rec.auction !== undefined || rec.benchmark !== undefined;
@@ -61,20 +54,13 @@ export function auctionIntentRefuse(order: { readonly auction?: boolean | null; 
   return auctionRefuse(readAuction(order)) ?? benchmarkRefuse(readBenchmark(order));
 }
 
-export function attachAuctionStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsAuctionIntent(rec)) {
-        stash.set(stashKey(rec), {
-          auction: rec.auction === undefined ? null : flagFromRaw(rec.auction),
-          benchmark: rec.benchmark === undefined ? null : flagFromRaw(rec.benchmark),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { auction: boolean | null; benchmark: boolean | null } | null {
+  if (!body || !wantsAuctionIntent(body)) return null;
+  return {
+    auction: body.auction === undefined ? null : flagFromRaw(body.auction),
+    benchmark: body.benchmark === undefined ? null : flagFromRaw(body.benchmark),
+  };
 }
 
 export function bindAuction(input: PlaceOrderInput): PlaceWithAuction {
@@ -86,19 +72,8 @@ export function bindAuction(input: PlaceOrderInput): PlaceWithAuction {
       benchmark: extra.benchmark ?? null,
     };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return { ...extra, auction: hit.auction, benchmark: hit.benchmark };
 }
 

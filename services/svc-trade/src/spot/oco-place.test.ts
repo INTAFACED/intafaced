@@ -8,7 +8,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import { type PlaceOrderInput } from './trade-service.js';
-import { bindOco, installOcoPlace, stashOcoFromBody } from './oco-place.js';
+import { bindOco, installOcoPlace, readOcoFromBody } from './oco-place.js';
+import { carryPlacementBody } from './placement-extras.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import { TradeError, type Market } from './types.js';
 
@@ -26,14 +27,14 @@ function thrownTrade(fn: () => void): TradeError {
 
 describe('oco stash — IEEE and clientOrderId', () => {
   it('refuses a JSON number stopPrice — IEEE 0.1 is not a decimal string', () => {
-    const err = thrownTrade(() => stashOcoFromBody({ oco: true, takeProfit: 0.1, stopLoss: '90', clientOrderId: 'oco-ieee' }));
+    const err = thrownTrade(() => readOcoFromBody({ oco: true, takeProfit: 0.1, stopLoss: '90', clientOrderId: 'oco-ieee' }));
     expect(err.code).toBe('trade.ieee_money');
     expect(err.message).toMatch(/JSON number/);
   });
 
   it('refuses a JSON number nested stopPrice', () => {
     const err = thrownTrade(() =>
-      stashOcoFromBody({
+      readOcoFromBody({
         oco: true,
         takeProfit: { stopPrice: 0.1 },
         stopLoss: { stopPrice: '90' },
@@ -45,7 +46,7 @@ describe('oco stash — IEEE and clientOrderId', () => {
 
   it('refuses OCO when clientOrderId is missing — does not strip-and-place', () => {
     const rec: Record<string, unknown> = { oco: true, takeProfit: '110', stopLoss: '90' };
-    const err = thrownTrade(() => stashOcoFromBody(rec));
+    const err = thrownTrade(() => readOcoFromBody(rec));
     expect(err.code).toBe('trade.client_order_id_required');
     expect(rec.oco).toBe(true);
     expect(rec.takeProfit).toBe('110');
@@ -58,14 +59,15 @@ describe('oco stash — IEEE and clientOrderId', () => {
     expect(src).not.toMatch(/String\(raw\)/);
   });
 
-  it('stashes a decimal-string 0.1 and bindOco restores it', () => {
-    stashOcoFromBody({ oco: true, takeProfit: '0.1', stopLoss: '90', clientOrderId: 'oco-str-01' });
-    const bound = bindOco({
-      clientOrderId: 'oco-str-01',
-      side: 'sell',
-      type: 'limit',
-      qty: amt('1'),
-    } as PlaceOrderInput);
+  it('carries a decimal-string 0.1 and bindOco restores it', () => {
+    const bound = bindOco(
+      carryPlacementBody({ clientOrderId: 'oco-str-01', side: 'sell', type: 'limit', qty: amt('1') } as PlaceOrderInput, {
+        oco: true,
+        takeProfit: '0.1',
+        stopLoss: '90',
+        clientOrderId: 'oco-str-01',
+      }),
+    );
     expect(bound.oco).toBe(true);
     expect(bound.takeProfit).toEqual({ stopPrice: '0.1' });
     expect(bound.stopLoss).toEqual({ stopPrice: '90' });

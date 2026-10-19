@@ -370,6 +370,21 @@ export type PayErrorCode =
   /** A rail reference already credited something else. Never resolved by retrying. */
   | 'pay.deposit_conflict'
   | 'pay.withdrawal_not_found'
+  | 'pay.wallet_withdraw_unavailable'
+  | 'pay.wallet_withdraw_disabled'
+  | 'pay.wallet_typed_address'
+  | 'pay.wallet_cooling'
+  | 'pay.wallet_fee_unset'
+  | 'pay.wallet_fee_differs'
+  | 'pay.wallet_cap_unset'
+  | 'pay.wallet_over_cap'
+  | 'pay.wallet_travel_rule'
+  | 'pay.wallet_allowlist'
+  | 'pay.wallet_destination_rejected'
+  | 'pay.wallet_share_timeout'
+  | 'pay.wallet_forbidden'
+  | 'pay.wallet_not_found'
+  | 'pay.wallet_unconfigured'
   /** withdrawal.mine page size unpublished. Blank is not 50. */
   | 'pay.withdrawal_list_limit_unset'
   /** A client reference already names a different withdrawal. */
@@ -5348,6 +5363,11 @@ export class PayService {
           fromMerchantBalance: 0n,
         }),
       );
+    }
+    // A payment that never captured holds no funds to take back. Clearing is pooled per merchant, so charging it
+    // back would debit other payments' money.
+    if (payment.status === 'created' || payment.status === 'authorized' || payment.status === 'failed') {
+      throw new PayError('Payment has no captured funds to charge back', 'pay.invalid_amount');
     }
     // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery

@@ -37,11 +37,6 @@ case "$GH_FIXTURE_MODE:$count" in
   setup-fail403:2) printf '%s\\n' 'HTTP 403: forbidden' >&2; exit 1 ;;
   sync-fail429:1) printf '%s\\n' '[]'; exit 0 ;;
   sync-fail429:2) printf '%s\\n' 'HTTP 429: rate limit exceeded' >&2; exit 1 ;;
-  swarm-first403:1) printf '%s\\n' 'HTTP 403: forbidden' >&2; exit 1 ;;
-  swarm-second429:1|swarm-third403:1) printf '%s\\n' '[]'; exit 0 ;;
-  swarm-second429:2) printf '%s\\n' 'HTTP 429: rate limit exceeded' >&2; exit 1 ;;
-  swarm-third403:2) printf '%s\\n' '[]'; exit 0 ;;
-  swarm-third403:3) printf '%s\\n' 'HTTP 403: forbidden' >&2; exit 1 ;;
 esac
 printf '%s\\n' '{}'
 `;
@@ -107,16 +102,4 @@ function run(script, args, mode) {
   assert.match(t.result.stderr, /429/);
 }
 
-// Exercise all three swarm gh catches independently and prove no later gh call occurs.
-for (const [mode, expectedCalls, status] of [
-  ['swarm-first403', 1, '403'],
-  ['swarm-second429', 2, '429'],
-  ['swarm-third403', 3, '403'],
-]) {
-  const t = run(join(root, 'tooling/scripts/swarm.mjs'), ['lanes'], mode);
-  assert.equal(t.result.status, 1, `${mode}: ${t.result.stderr}`);
-  assert.equal(t.calls.length, expectedCalls, `${mode}: stopped after refusal`);
-  assert.match(t.result.stderr, new RegExp(status));
-}
-
-console.log('5 refusal-stop paths, stubbed setup policy, and 10 classifier cases passed; PATH contained only temporary gh/git stubs.');
+console.log('2 refusal-stop paths, stubbed setup policy, and 10 classifier cases passed; PATH contained only temporary gh/git stubs.');

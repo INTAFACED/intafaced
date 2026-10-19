@@ -151,6 +151,14 @@ export class TwapEngine {
       throw new TradeError(`algo sliceIntervalMs below min ${this.minSliceIntervalMs}ms`, 'trade.algo_invalid_schedule');
     }
 
+    const clientAlgoId = typeof input.clientAlgoId === 'string' ? input.clientAlgoId.trim() : '';
+    if (!clientAlgoId) {
+      throw new TradeError('clientAlgoId is required so a retried create cannot start a second parent', 'trade.client_order_id_required');
+    }
+    if (input.limitPrice !== null && input.limitPrice <= 0n) {
+      throw new TradeError('algo limitPrice must be strictly positive when set', 'trade.algo_price_band');
+    }
+
     const kind = input.kind ?? 'twap';
     let slices: readonly Amount[];
     let participationBps: number | null = null;
@@ -187,7 +195,7 @@ export class TwapEngine {
     }
 
     const now = this.ports.now();
-    const id = input.clientAlgoId?.trim() ? `algo-${userId.slice(0, 8)}-${input.clientAlgoId.trim()}` : this.ports.randomId();
+    const id = `algo-${userId.slice(0, 8)}-${clientAlgoId}`;
 
     if (this.parents.has(id)) {
       throw new TradeError(`algo id ${id} already exists`, 'trade.algo_duplicate_id');
@@ -388,7 +396,7 @@ export class TwapEngine {
 
     // Liquidity probe — empty book = miss, not invent fill.
     const opposing = await this.ports.bestOpposingPrice(working.marketId, working.side);
-    if (opposing === null) {
+    if (opposing === null || opposing <= 0n) {
       return this.recordMiss(working, {
         sliceIndex: working.nextSliceIndex,
         code: 'trade.algo_no_liquidity',

@@ -158,15 +158,9 @@ export const FEATURES = [
     module: 'core-ops',
     phase: '0',
     status: 'done',
-    requires: [
-      'packages/i18n',
-      'vendor/upstream-exchange/05_Web_Front/src/App.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/lang/es.js',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/lang/fr.js',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/i18n-switcher.golden.js',
-    ],
+    requires: ['packages/i18n'],
     dependsOn: ['infra.ui-tokens'],
-    note: 'Vendor shell keyed: 100+ locale codes in @intafaced/i18n (empty catalogs fall back to en so $t never shows raw keys). Header switcher on App.vue offers en/es/fr with distinct /bank titles; persist via localStorage; missing/broken catalogue stays en (no footer.gsmc). apps/web is gone — the surface is vendor/upstream-exchange/05_Web_Front.',
+    note: 'Vendor shell keyed: 100+ locale codes in @intafaced/i18n (empty catalogs fall back to en so $t never shows raw keys). The apps/customer Settings switcher offers en/es/fr with distinct /bank titles; persist via localStorage; missing/broken catalogue stays en (no footer.gsmc). apps/web and the Vue shell (vendor/upstream-exchange/05_Web_Front) are gone — the surface is apps/customer.',
   }),
 
   // ── PHASE 1 · THE CORE ───────────────────────────────────────────────────
@@ -268,12 +262,7 @@ export const FEATURES = [
     phase: '1',
     status: 'done',
     dependsOn: ['token.staking'],
-    requires: [
-      'services/svc-token',
-      'services/svc-token/src/governance-close.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/Token.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/token-governance-tally.golden.js',
-    ],
+    requires: ['services/svc-token', 'services/svc-token/src/governance-close.ts'],
     note: 'PR feat/token-governance-tally: closeProposal writes passed|rejected from the snapshotted tally vs TOKEN_GOVERNANCE_QUORUM_BPS + TOKEN_GOVERNANCE_THRESHOLD_BPS (eligible = SUM active stakes; pass = for/(for+against)). Blank/missing env → TokenError token.governance_quorum_unset — never invent a bar. Grant/listing close does not execute: execute=token.governance_execute_unwired, no ledger post. Token.vue card: close → passed|rejected or named refuse. executed/cancelled still unwired. Ballot (createProposal/castVote) unchanged.',
   }),
 
@@ -379,7 +368,6 @@ export const FEATURES = [
       'services/svc-trade/src/spot/options-compose-wiring.ts',
       'services/svc-trade/src/spot/options-compose-wiring.test.ts',
       'services/svc-trade/src/spot/options-tracker-status-pin.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/exchange-options.golden.js',
     ],
     note:
       '**Done 2026-08-23:** European paper engine — paper kind=options placeOrder rests on the matching book; live still refuse-closed if settlement law empty (never invent settlement asset). ' +
@@ -604,7 +592,6 @@ export const FEATURES = [
       'packages/execution-arb/src/mount-vs-tracker.ts',
       'packages/execution-arb/src/mount-vs-tracker.test.ts',
       'packages/execution-arb/src/arb-policy.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/arb-classes.golden.js',
     ],
     note:
       '**Done 2026-08-23:** triangular/basis/funding class scanners on SOR cost model; empty books refuse; never fake bps. ' +
@@ -655,15 +642,9 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['trade.spot', 'infra.ui-tokens', 'ws.depth'],
-    requires: [
-      'vendor/upstream-exchange/05_Web_Front/src/terminal-mount-vs-tracker.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/terminal-mount-vs-tracker.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/terminal-tracker-status-pin.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/exchange/Exchange.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/ix-depth-feed.js',
-    ],
+    requires: ['apps/customer/src/screens/trade/desk/OrderBook.tsx', 'apps/customer/src/screens/trade/desk/book-math.ts'],
     note:
-      '**Done 2026-08-22:** vendored Vue desk + live ix-depth-feed wired; feedLive only after snapshot; ix-wire refuses float decimals. ' +
+      '**Done 2026-08-22:** depth feed wired in the customer desk. Evidence here covers depth only. ' +
       'Residuals: brand drain / depth number refuse / snapshot provenance (Nitro craft L11).',
   }),
   f('web.shell', 'Product shell — the served customer surface', {
@@ -680,7 +661,7 @@ export const FEATURES = [
     status: 'done',
     dependsOn: ['matching.engine'],
     requires: ['services/svc-ws', 'packages/market-data'],
-    note: 'D26-P4-06 (2026-08-15) product SLO for the shell: empty book stays empty — `docs/ops/DEPTH-TAPE-PRODUCT-SLO.md`. No fake depth, no invent mid, no seed fills as live tape; no measured latency SLO (honesty, not a p99). Status stays `done` (backend doors); Vue craft remains HUMAN. CORRECTED 2026-08-15 D26-P4-09: `apps/web` is deleted (ADR retire-apps-web). services/svc-ws polls svc-matching’s public depth endpoint, diffs it with `@intafaced/market-data`’s `diffDepth`, and fans snapshot+delta out over a websocket; the vendored shell (`vendor/upstream-exchange/05_Web_Front/src/assets/js/ix-depth-feed.js`) applies them with `applyDelta` and resnapshots on a gap. Reachable (mounted routes + a real socket, wired into the terminal), tested (47 service tests, incl. a 200-tick stream rebuilt client-side through `applyDelta`, both backpressure stages, and an end-to-end socket suite), and unpropped (no stub upstream — it reads the real engine). Split out of `ws.gateway`: that entry names four streams and this is one of them.',
+    note: 'D26-P4-06 (2026-08-15) product SLO for the shell: empty book stays empty — `DEPTH-TAPE-PRODUCT-SLO.md` (removed). No fake depth, no invent mid, no seed fills as live tape; no measured latency SLO (honesty, not a p99). Status stays `done` (backend doors); Vue craft remains HUMAN. CORRECTED 2026-08-15 D26-P4-09: `apps/web` is deleted (ADR retire-apps-web). services/svc-ws polls svc-matching’s public depth endpoint, diffs it with `@intafaced/market-data`’s `diffDepth`, and fans snapshot+delta out over a websocket; the vendored shell (`vendor/upstream-exchange/05_Web_Front/src/assets/js/ix-depth-feed.js`) applies them with `applyDelta` and resnapshots on a gap. Reachable (mounted routes + a real socket, wired into the terminal), tested (47 service tests, incl. a 200-tick stream rebuilt client-side through `applyDelta`, both backpressure stages, and an end-to-end socket suite), and unpropped (no stub upstream — it reads the real engine). Split out of `ws.gateway`: that entry names four streams and this is one of them.',
   }),
   f('ws.gateway', 'WebSocket fan-out: depth, trades, orders, positions', {
     module: 'trade',
@@ -709,14 +690,7 @@ export const FEATURES = [
     plane: 'B',
     status: 'done',
     dependsOn: ['web.terminal'],
-    requires: [
-      'apps/mobile',
-      'apps/mobile/capacitor.config.json',
-      'apps/mobile/ios',
-      'apps/mobile/android',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/uc/AppDownload.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/app-download.golden.js',
-    ],
+    requires: ['apps/mobile', 'apps/mobile/capacitor.config.json', 'apps/mobile/ios', 'apps/mobile/android'],
     note:
       '**Done:** Capacitor wrap of the vendored Vue shell in `apps/mobile` (bundle id `app.intafaced.mobile`). ' +
       '`/app` tells the truth: sideload / WebView from this repo; no vendor APK/QR; no store listing. ' +
@@ -987,11 +961,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['pay.public-api', 'trade.ccxt-api'],
-    requires: [
-      'services/svc-edge/src/gateway-plane.ts',
-      'services/svc-edge/src/gateway-plane.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/platform-api-keys.golden.js',
-    ],
+    requires: ['services/svc-edge/src/gateway-plane.ts', 'services/svc-edge/src/gateway-plane.test.ts'],
     note: '**DONE 2026-08-23:** One key/scope/quota/sandbox plane at svc-edge (`gateway-plane.ts`). Keys stay identity.apikeys — no second table. API-key callers on /api/v1 and /api/trade need trade:*; /api/pay needs pay:*. Quota is per-key using the existing edge.rate_limited code. Sandbox is principal.key_env, visible on /platform. Residual: dialects stay two (ADR 2026-08-07-pay-public-api-law) — trade CCXT, pay tRPC; no third error taxonomy. No data door. Pin: gateway-plane.test.ts. Click: /platform mint key → probe both doors.',
   }),
 
@@ -1088,7 +1058,6 @@ export const FEATURES = [
       'services/svc-indexer/src/d26-p1-i3-done-bar.test.ts',
       'services/svc-indexer/src/stream.ts',
       'services/svc-ws/src/indexer-stream.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/indexer-stream.golden.js',
     ],
     note:
       '**D26-P1-I3 Done 2026-08-21:** chain→Postgres read models mounted (`readmodels-mount-vs-tracker.ts`). ' +
@@ -1404,10 +1373,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['academy.lobbies'],
-    requires: [
-      'services/svc-academy/src/spatial/canvas.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/academy/Canvas.vue',
-    ],
+    requires: ['services/svc-academy/src/spatial/canvas.ts'],
     note:
       'Done 2026-08-23: navigable shell is Canvas.vue on /academy (hub sessionIdFromHub, host click updateScene, empty session empty). ' +
       'sceneIsNavigableProductShell true. VR client residual (`socket.vr-client`) — do not invent VR.',
@@ -1614,12 +1580,7 @@ export const FEATURES = [
     phase: '5',
     status: 'socket',
     dependsOn: ['launch.token-factory'],
-    requires: [
-      'services/svc-ops/src/ops-service.ts',
-      'services/svc-ops/src/router.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/Ops.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/ops-fundraising.golden.js',
-    ],
+    requires: ['services/svc-ops/src/ops-service.ts', 'services/svc-ops/src/router.ts'],
     note:
       'Product half shipped 2026-08-23: svc-ops createRaise + listRaises + listMilestones on /ops (records only — name, milestone labels, optional targetAmount decimal string, no default price). ' +
       'Money movement refuses ops.fundraising_chain_unwired. Chain residual: milestone escrow / vesting release stay Shehzad under launch.trust-layer (S-G2).',
@@ -1720,11 +1681,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['ledger.double-entry'],
-    requires: [
-      'services/svc-ops/src/ops-service.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/Ops.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/ops-custody.golden.js',
-    ],
+    requires: ['services/svc-ops/src/ops-service.ts'],
     note:
       '**Done 2026-08-23:** /ops custody console — cold/warm/hot tiers, approval list, wrap/execute refuse-closed. ' +
       'Blank OPS_CUSTODY_WRAP → ops.custody_wrap_unset. Keys stay empty — never invented (ops.custody_keys_forbidden). ' +
@@ -1839,7 +1796,6 @@ export const FEATURES = [
       'services/svc-notify/src/alerts-tracker-status-pin.test.ts',
       'services/svc-notify/src/alerts/sweep-mounted-pin.test.ts',
       'services/svc-notify/src/alerts/evaluate.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/notice-alerts.golden.js',
     ],
     note:
       '**Done 2026-08-23:** price + funding + liquidation_proximity + whale watches; dark/unpublished mark refuses never fire; whale evaluates or refuses `alerts.whale_mark_dark` (no invented flow). Vue /notice create mutate. Intelligence stays unpublished. ' +
@@ -1911,10 +1867,6 @@ export const FEATURES = [
       'services/svc-bank/src/business/business-service.ts',
       'services/svc-bank/src/business/business.test.ts',
       'packages/ledger-client/src/recipes/bank.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/bank/Business.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/bank-expense-cards.golden.js',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/bank-business.golden.js',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/bank-business-invoice.golden.js',
     ],
     dependsOn: ['bank.accounts', 'bank.cards', 'pay.gateway'],
     note:
@@ -1950,8 +1902,6 @@ export const FEATURES = [
       'packages/quant-honesty/src/quant-studio-tracker-status-pin.test.ts',
       'services/svc-quant/src/studio/save.ts',
       'services/svc-quant/src/studio/store.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/quant/Studio.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/quant-studio.golden.js',
     ],
     note:
       '**Done 2026-08-23:** no-code studio.save in svc-quant — mandatory risk block (maxDrawdown / maxNotional / kill decimal strings); missing block refuses quant.studio_risk_block_required. ' +
@@ -1971,8 +1921,6 @@ export const FEATURES = [
       'packages/quant-honesty/src/quant-backtest-mount-vs-tracker.test.ts',
       'packages/quant-honesty/src/quant-backtest-tracker-status-pin.test.ts',
       'services/svc-quant/src/backtest/run.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/quant/Backtest.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/quant-backtest.golden.js',
     ],
     note:
       '**Done 2026-08-23:** event-level backtest.run in svc-quant — walk-forward + out-of-sample required; metrics from lake fills (decimal-string notional); missing lake refuses quant.backtest_lake_missing (no invented candles). ' +
@@ -1996,12 +1944,7 @@ export const FEATURES = [
     status: 'done',
     owner: 'Phantom-X-007',
     dependsOn: ['quant.studio', 'market.commerce'],
-    requires: [
-      'services/svc-market/src/strategy/strategy-listing.ts',
-      'services/svc-market/src/strategy/strategy-listing.test.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/market/StrategyListing.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/strategy-listing.golden.js',
-    ],
+    requires: ['services/svc-market/src/strategy/strategy-listing.ts', 'services/svc-market/src/strategy/strategy-listing.test.ts'],
     note:
       '**Done 2026-08-23:** createStrategyListing glue on market.commerce — subscription listing with periodSeconds, same shop as createListing (no second catalogue). ' +
       'Token-gated via existing vendor stake; unstaked → market.stake_required. Copy-law: no P&L/profit-share fee (market.strategy_profit_share_forbidden). ' +
@@ -2107,7 +2050,6 @@ export const FEATURES = [
       'services/svc-academy/src/video/mount-vs-tracker.ts',
       'services/svc-academy/src/video/mount-vs-tracker.test.ts',
       'services/svc-academy/src/video/library.ts',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/academy-videos.golden.js',
     ],
     note:
       '**Done 2026-08-23:** stored VOD mounted (`videos` + `videoPlayback`); MinIO compose default off. ' +
@@ -2151,10 +2093,7 @@ export const FEATURES = [
     plane: 'F',
     status: 'done',
     dependsOn: ['ops.analytics', 'ops.affiliates', 'agents.growth'],
-    requires: [
-      'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/Agents.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/campaign-draft.golden.js',
-    ],
+    requires: ['apps/customer/src/features/more/Campaigns.tsx', 'apps/customer/src/features/more/campaign-proposal.ts'],
     note:
       'Done 2026-08-23: /agents campaign draft via existing `mutate(agents, growth.propose)`. ' +
       'Outbound email/push/SMS query notify.channels and paint `channel.not_configured` when unset. ' +
@@ -2189,8 +2128,6 @@ export const FEATURES = [
       'services/svc-identity/src/affiliates/share-service.ts',
       'services/svc-identity/src/affiliates/share-service.test.ts',
       'services/svc-identity/drizzle/0017_affiliate_share_tokens.sql',
-      'vendor/upstream-exchange/05_Web_Front/src/pages/invite/Invite.vue',
-      'vendor/upstream-exchange/05_Web_Front/src/assets/js/invite-share.golden.js',
     ],
     note:
       'Done 2026-08-23: /invite one-tap share via identity affiliates.createShare / revokeShare / shareHits. ' +

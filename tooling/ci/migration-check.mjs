@@ -8,7 +8,10 @@
  *   3. No migration silently drops a column or table without a marker comment —
  *      destructive changes are allowed, but they must be declared, because on a
  *      ledger a dropped column is a lost audit trail.
+ *   4. A migration this change ADDS is numbered above main's highest for that
+ *      service, so two PRs cannot both claim the next number.
  */
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -91,6 +94,29 @@ function stripSqlComments(sql) {
 }
 const ACKNOWLEDGEMENT = /--\s*intafaced:destructive\b/i;
 
+/** Migration file names under a service's drizzle dir on origin/main, or null when main is not fetched. */
+function mainMigrations(service) {
+  try {
+    const out = execFileSync('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', `services/${service}/drizzle/`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return new Set(
+      out
+        .split('\n')
+        .map((l) => l.split('/').pop())
+        .filter((f) => f && f.endsWith('.sql')),
+    );
+  } catch {
+    return null;
+  }
+}
+
+const migrationNumber = (file) => {
+  const m = /^(\d+)_/.exec(file);
+  return m ? Number(m[1]) : null;
+};
+
 const problems = [];
 let migrationsChecked = 0;
 let servicesChecked = 0;
@@ -145,6 +171,21 @@ for (const service of readdirSync(SERVICES)) {
         file: relative(ROOT, join(drizzleDir, up)),
         problem:
           'destructive statement without acknowledgement — add "-- intafaced:destructive <reason>" ' + 'at the top if this is intended',
+      });
+    }
+  }
+
+  // Numbering: a migration absent from origin/main must sit above main's highest.
+  const onMain = mainMigrations(service);
+  if (onMain && onMain.size > 0) {
+    const mainHighest = Math.max(...[...onMain].map(migrationNumber).filter((n) => n !== null));
+    for (const up of ups) {
+      const n = migrationNumber(up);
+      if (onMain.has(up) || n === null || n > mainHighest) continue;
+      problems.push({
+        service,
+        file: relative(ROOT, join(drizzleDir, up)),
+        problem: `number ${String(n).padStart(4, '0')} is not above main's highest (${String(mainHighest).padStart(4, '0')}) — renumber and rebase`,
       });
     }
   }

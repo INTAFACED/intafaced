@@ -57,6 +57,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Read-only by default; a job that needs more declares its own block.
+permissions:
+  contents: read
+
 env:
   TURBO_TELEMETRY_DISABLED: 1
 
@@ -97,7 +101,7 @@ jobs:
       # `tooling/ci/gates.mjs` is that list. It fails if this workflow stops
       # calling it, and it fails if a scan appears in tooling/ci/ that neither
       # the gate list nor the documented exclusions claim — which is how
-      # i18n-scan.mjs sat wired to nothing for weeks. Individual scans keep
+      # a scan once sat wired to nothing for weeks. Individual scans keep
       # their `pnpm scan:*` scripts for running one at a time.
       #
       # It also de-duplicates: six of these scans used to run twice per CI run,
@@ -110,8 +114,20 @@ jobs:
       - name: Doctrine gates (the same list `pnpm verify` runs)
         run: pnpm gates
 
-      - name: worktree-gc self-test
-        run: node tooling/scripts/worktree-gc.mjs --self-test
+      # Runs main's copy of the guard, never the PR's, so a PR cannot loosen
+      # the rules it is judged by. Falls back to the PR copy only while main
+      # has none (the PR that introduces it).
+      - name: Test-diff guard (rules from main)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if git cat-file -e origin/main:tooling/ci/test-diff-guard.mjs 2>/dev/null; then
+            git show origin/main:tooling/ci/test-diff-guard.mjs > "$RUNNER_TEMP/test-diff-guard.mjs"
+          else
+            cp tooling/ci/test-diff-guard.mjs "$RUNNER_TEMP/test-diff-guard.mjs"
+          fi
+          node "$RUNNER_TEMP/test-diff-guard.mjs"
 
       # The per-service Definition of Done (`pnpm gate`) used to be its own
       # `dod` job: a second runner and a second install for a two-second
@@ -132,7 +148,6 @@ jobs:
       money: ${{ steps.cls.outputs.money }}
       trade: ${{ steps.cls.outputs.trade }}
       paybank: ${{ steps.cls.outputs.paybank }}
-      rest: ${{ steps.cls.outputs.rest }}
       full: ${{ steps.cls.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -251,6 +266,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 — the diff-based steps read origin/main history.
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -391,10 +409,14 @@ jobs:
         run: pnpm build
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
+      # --concurrency=3: turbo's default is 10 packages at once, each with its own vitest worker pool, on a 4-core
+      # runner sharing one Postgres, Redis, NATS and anvil. Under that load a different package timed out at vitest's
+      # 5 s default on each run (svc-p2p, svc-ws, svc-pay, the svc-protocol lending test), none of them touched by the
+      # PRs that went red. Fewer packages at a time removes the contention; no timeout is raised.
       - name: Run pnpm test --continue
         run: |
           set -o pipefail
-          pnpm test --continue 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          pnpm test --continue --concurrency=3 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
@@ -420,8 +442,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           short=$(tr '\n' ';' < "$RUNNER_TEMP/failures.txt" | cut -c1-900)
           echo "FAILED_SHORT=$short" >> "$GITHUB_ENV"
+          # The first error line vitest printed (assertion, timeout, revert), so the reason is readable too.
+          err=$(awk '/(^|[: ]) FAIL  /{f=1} f && /^ *(AssertionError|[A-Za-z]*Error): /{print; exit}' "$out.clean" | sed -E 's/^ +//' | cut -c1-100)
+          echo "FAILED_ERR=$err" >> "$GITHUB_ENV"
       - name: 'Failing: ${{ env.FAILED_SHORT }}'
         if: failure() && env.FAILED_SHORT != ''
+        run: 'true'
+      - name: 'Why: ${{ env.FAILED_ERR }}'
+        if: failure() && env.FAILED_ERR != ''
         run: 'true'
 
       # The backstop. REQUIRE_POSTGRES / REQUIRE_EVM_CHAIN make the shared probes
@@ -613,6 +641,9 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 — the diff-based steps read origin/main history.
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -891,7 +922,6 @@ jobs:
           MONEY: ${{ needs.changes.outputs.money }}
           TRADE: ${{ needs.changes.outputs.trade }}
           PAYBANK: ${{ needs.changes.outputs.paybank }}
-          REST: ${{ needs.changes.outputs.rest }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}

@@ -54,7 +54,7 @@ function pnpm(args, env = {}) {
 /** The last commit that touched anything the three builds read, so tooling-only commits skip a rebuild. */
 function head() {
   try {
-    const inputs = ['apps/invitation', 'apps/admin', 'packages', 'vendor/upstream-exchange/05_Web_Front/src', 'pnpm-lock.yaml'];
+    const inputs = ['apps/invitation', 'apps/admin', 'packages', 'pnpm-lock.yaml'];
     return execFileSync('git', ['log', '-1', '--format=%H', '--', ...inputs], { cwd: repo, encoding: 'utf8' }).trim() || 'unknown';
   } catch {
     return 'unknown';

@@ -112,7 +112,7 @@ P1 **code** starts only when **all** are true:
 
 1. Nitro writes **GO** on the 2026-09-03 rails ADR (or a successor).
 2. **This S-D2 file exists** (it does, as of this commit).
-3. Any chain binary / public RPC is labelled **not mainnet** until Stage 3 of `docs/ops/trk/chain.mainnet.md`.
+3. Any chain binary / public RPC is labelled **not mainnet** until Stage 3 of `docs/ops/trk/chain.mainnet.md` (removed).
 
 First engineering PR after GO: `svc-chain` skeleton + **testnet** genesis with that label (S-D4). Not a tracker `done`. Not HIP-3. Not Base Appchain.
 

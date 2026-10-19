@@ -154,7 +154,7 @@ A mismatch is frozen when the proof **finishes**, not while it reads: posts cont
 
 **Staleness reporting.** If no `ok` proof is newer than `LEDGER_RECONCILE_MAX_STALE_HOURS` (default 24), each tick emits a fatal stale log. Staleness alone never freezes posting. Repeated incomplete runs do: after the configured consecutive limit the tick freezes as `reconcile_unproven`. `GET /health` reports `lastVerifiedAt` and `lastVerifiedSeq` (the highest proved prefix; null before the first), and `/metrics` carries `ledger_reconcile_last_verified_timestamp_seconds` and `ledger_reconcile_last_verified_seq`. The incomplete-run event has no subscriber wired here.
 
-See the runbook for what to do on `incomplete` and `stale`: [`docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md`](../../docs/ops/INCIDENT-MONEY-PATH-RUNBOOK.md) §"Reconcile incomplete or stale".
+See the runbook for what to do on `incomplete` and `stale`: [`docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md`](../../docs/runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md) §"Reconcile incomplete or stale".
 
 ### The one denormalisation
 

@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
-**Active work and owners are the open GitHub PRs and issues** (`gh pr list`, `gh issue list`). `docs/TRACKER.md`, `docs/LIVE-LANES.md` and `docs/ops/claims` are history and show stale "live" rows.
+**Active work and owners are the open GitHub PRs and issues** (`gh pr list`, `gh issue list`). `docs/TRACKER.md` and `docs/LIVE-LANES.md` are history and show stale "live" rows; `docs/ops/claims` was removed.
 
 ## Conventions
 

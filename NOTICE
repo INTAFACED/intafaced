@@ -248,6 +248,9 @@ have no published counterpart: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6.
 §3 · BROWSER ASSETS REDISTRIBUTED IN THE TRADING FRONT END
 ================================================================================
 Path: vendor/upstream-exchange/05_Web_Front/
+STATUS: the whole directory was deleted from the tree on 2026-10-19 (the Vue front
+end was replaced by apps/customer). Every record in §3 stays for history: the
+files remain in git history, and the facts below describe what was redistributed.
 
 The front end itself carries `vendor/upstream-exchange/05_Web_Front/LICENSE`: MIT,
 "Copyright (c) 2018", holder recorded as a pseudonymous account name. The
@@ -503,6 +506,9 @@ Not redistributed by us — fetched from a third party's server when the page
 runs. Recorded because it executes in a user's browser under our origin, and
 because two of the three sources are outside anyone's control but the upstream
 operator's.
+
+STATUS: the page that loaded these (05_Web_Front) was deleted from the tree on
+2026-10-19; §6 stays as the record of what the removed front end did.
 
 6.1 · Tencent captcha — https://ssl.captcha.qq.com/TCaptcha.js
       Declared in 05_Web_Front/index.html as an unconditional <script src>.
@@ -764,6 +770,7 @@ that nothing in this repository entitles anyone to assume one.
     Copyright (c) 2023 TradingView, Inc.
     License: Apache-2.0
     Path: vendor/upstream-exchange/05_Web_Front/src/assets/js/market-chart/
+    Status: removed from the tree 2026-10-19 with 05_Web_Front; the record stays for history.
     Source: https://github.com/tradingview/lightweight-charts
 
 

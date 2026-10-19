@@ -85,6 +85,14 @@ public final class DropCopyFill {
                 return ParseResult.refuse(
                         "invalid_decimal", money + " must be an explicit decimal string; svc-fix does not treat IEEE as money");
             }
+            if (("price".equals(money) || "qty".equals(money))
+                    && field != null
+                    && field.kind != Field.Kind.NULL
+                    && field.kind != Field.Kind.STRING) {
+                return ParseResult.refuse(
+                        "invalid_decimal",
+                        money + " must be an explicit decimal string; svc-fix does not treat IEEE as money");
+            }
         }
         String fillId = readString(json, "fillId");
         String orderId = readString(json, "orderId");
@@ -131,6 +139,14 @@ public final class DropCopyFill {
             return ParseResult.refuse(
                     "dropcopy_execution_missing",
                     "fillId and sequence are missing; svc-fix does not invent ExecID");
+        }
+        if (price == null) {
+            return ParseResult.refuse(
+                    "dropcopy_price_missing", "price is missing; svc-fix does not invent a fill price");
+        }
+        if (qty == null) {
+            return ParseResult.refuse(
+                    "dropcopy_qty_missing", "qty is missing; svc-fix does not invent a fill quantity");
         }
         return ParseResult.ok(fill);
     }

@@ -117,13 +117,6 @@ const FORBIDDEN = [
   },
 ];
 
-/**
- * The legacy Vue customer site (retired 2026-10-13, see its RETIRED.md) is NOT
- * walked as a project root. The modules `apps/invitation` bundles from it live in
- * `apps/invitation/src/vendored` since D-140 and are covered by the repo-wide walk.
- */
-const RETIRED_VUE_ROOT_NAME = '05_Web_Front';
-
 /** Directories never scanned. */
 const SKIP_DIRS = new Set([
   'node_modules',
@@ -147,8 +140,8 @@ const SKIP_DIRS = new Set([
   // measured, a blind walk of `vendor/` takes the repo-wide result from 0
   // findings to thousands, almost all load-bearing Java package/groupId lines
   // that are not user-facing copy. The product surfaces inside vendor ARE
-  // scanned: see `collectVendorProductFiles()` below (Vue project roots other than
-  // the retired customer site, its six invitation-imported files, and Java
+  // scanned: see `collectVendorProductFiles()` below (Vue project roots,
+  // its six invitation-imported files, and Java
   // `src/main/resources`).
   // `tooling/ci/shell-brand-scan.mjs` remains the relaxed-boundary ratchet over
   // the vendored Java CORS surface so welded identifiers cannot hide behind `\b`.
@@ -205,11 +198,6 @@ const ALLOWLIST = [
   // Wave paste dirs (docs/paste-wN, PASTE-BUILD-WAVE-N*, PASTE-W*) and
   // docs/paste/** are covered by isInternalPastePath() — do not re-list each
   // wave here (that is how WAVE-7 re-redded main after #1471).
-  {
-    path: join('docs', 'ops'),
-    reason:
-      'internal swarm FREEZE/report board; must list real shell paths so agents can claim work without paraphrasing territory. Not user-facing product copy. Remove once the vendor directory is renamed.',
-  },
   // REMOVED 2026-08-05, both on the terms their own reasons set:
   //
   //   `tooling/scripts/swarm.mjs`      — existed because that file assembled the
@@ -312,7 +300,7 @@ function selfTest() {
   assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
-  // The retired Vue customer site is not walked; the modules apps/invitation bundles live in
+  // The old Vue customer site was deleted 2026-10-19; the modules apps/invitation bundles live in
   // apps/invitation/src/vendored and must be reached by the repo-wide walk.
   const vendorRoot = join(ROOT, 'vendor');
   {
@@ -329,10 +317,6 @@ function selfTest() {
     const productFiles = collectVendorProductFiles();
     assert(productFiles.length > 0, 'vendor product-surface walk returned 0 files');
     const posixPath = (f) => f.split(sep).join('/');
-    assert(
-      !productFiles.some((f) => posixPath(f).includes('/' + RETIRED_VUE_ROOT_NAME + '/')),
-      'retired Vue site must not be walked as a vendor product surface',
-    );
     if (existsSync(join(vendorRoot, 'upstream-exchange', '04_Web_Admin'))) {
       assert(
         productFiles.some((f) => f.endsWith('.vue') && posixPath(f).includes('/04_Web_Admin/')),
@@ -348,7 +332,7 @@ function selfTest() {
   }
   console.log('brand-scan --self-test OK');
   console.log('  fixture paste-wN / PASTE-BUILD-WAVE-N / docs/paste/** allowed; product surfaces not');
-  console.log('  vendor Java resources discoverable; apps/invitation/src/vendored walked; retired Vue site not walked');
+  console.log('  vendor Java resources discoverable; apps/invitation/src/vendored walked');
   process.exit(0);
 }
 
@@ -362,8 +346,7 @@ if (isDirectRun && process.argv.includes('--self-test')) selfTest();
  * A root is any directory holding a Vue entry pair: `App.vue`/`app.vue` beside
  * `main.js`. The scanned unit is the PROJECT root (parent of that directory),
  * matching `shell-brand-scan.mjs`, so package.json / README / config stay in
- * scope with the SFCs. The retired customer site's root is skipped (see
- * RETIRED_VUE_ROOT_NAME); other roots such as the staff console are still walked.
+ * scope with the SFCs. Any Vue root found under vendor/ is walked.
  */
 function findVendorShellProjectRoots(dir, out = [], depth = 0) {
   if (depth > 6 || !existsSync(dir)) return out;
@@ -376,7 +359,7 @@ function findVendorShellProjectRoots(dir, out = [], depth = 0) {
   const names = new Set(entries.map((n) => n.toLowerCase()));
   if (names.has('app.vue') && names.has('main.js')) {
     const projectRoot = resolve(dir, '..');
-    if (basename(projectRoot) !== RETIRED_VUE_ROOT_NAME) out.push(projectRoot);
+    out.push(projectRoot);
     return out;
   }
   for (const name of entries) {
@@ -399,9 +382,8 @@ function findVendorShellProjectRoots(dir, out = [], depth = 0) {
 
 /**
  * Files inside vendor that can reach a user without walking every Java
- * package line: Vue project trees (the staff console; not the retired customer
- * site), the six invitation-imported modules, and `src/main/resources`
- * catalogues.
+ * package line: Vue project trees (any root under vendor/), the six
+ * invitation-imported modules, and `src/main/resources` catalogues.
  */
 function collectVendorProductFiles() {
   const vendorRoot = join(ROOT, 'vendor');

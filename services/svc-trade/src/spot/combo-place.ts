@@ -1,10 +1,10 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineComboLeg, EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Combo take/fill as one instrument (mega H4 trade half).
@@ -34,7 +34,6 @@ type PlaceWithCombo = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.comboPlace');
-const stash = new Map<string, { combo: boolean | null; legs: readonly Record<string, unknown>[] | null }>();
 
 export const COMBO_LEGS_MISSING = 'missing_combo_legs' as const;
 export const RATIO_MISSING = 'missing_ratio' as const;
@@ -50,12 +49,6 @@ const UNSUPPORTED_MESSAGE = 'a combo is not independent option legs; trade does 
 const DOUBLE_HOLD_MESSAGE = 'combo legs would each take a hold; trade posts one hold for the combo, not per-leg invented money';
 
 const LEG_MONEY_KEYS = ['qty', 'amount', 'hold', 'side', 'price', 'notional', 'holdAmount'] as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__cmb:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsCombo(rec: { readonly combo?: boolean | null; readonly legs?: unknown }): boolean {
   return rec.combo === true || rec.legs !== undefined;
@@ -252,20 +245,15 @@ function wireLegs(legs: readonly ComboLegInput[]): EngineComboLeg[] {
   }));
 }
 
-export function attachComboStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsCombo(rec)) {
-        stash.set(stashKey(rec), {
-          combo: rec.combo === undefined ? null : flagFromRaw(rec.combo),
-          legs: rec.legs === undefined ? null : asLegRecords(rec.legs),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(
+  body: Readonly<Record<string, unknown>> | null,
+): { combo: boolean | null; legs: readonly Record<string, unknown>[] | null } | null {
+  if (!body || !wantsCombo(body)) return null;
+  return {
+    combo: body.combo === undefined ? null : flagFromRaw(body.combo),
+    legs: body.legs === undefined ? null : asLegRecords(body.legs),
+  };
 }
 
 export function bindCombo(input: PlaceOrderInput): PlaceWithCombo {
@@ -278,19 +266,8 @@ export function bindCombo(input: PlaceOrderInput): PlaceWithCombo {
       legs: recs === null ? (extra.legs ?? null) : recs.map(parseLeg),
     };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     combo: hit.combo,
@@ -337,6 +314,8 @@ export function installComboPlace(ctor: typeof TradeService): void {
     const req = origToEngine.apply(this, args);
     const input = args[2] as PlaceWithCombo | undefined;
     if (!input || !wantsCombo(input)) return req;
+    // An explicit combo:false is the caller's no; legs alone must not turn it into a combo order.
+    if (input.combo === false) return req;
     const legs = readLegs(input);
     return {
       ...req,

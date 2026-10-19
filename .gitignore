@@ -29,20 +29,10 @@ services/svc-protocol/cache/
 # The failure only shows on a FRESH CLONE. The artefact sits happily in the
 # worktree that compiled it, so local runs — and the authoring agent — both saw
 # green, while svc-indexer's three live-chain tests fail for everyone else with
-# MissingArtifactError. Same shape as the vendor `build/` bug below: correct on
+# MissingArtifactError. The shape of the bug: correct on
 # the machine that made it, broken everywhere it lands.
 !services/svc-indexer/contracts/out/
 !services/svc-indexer/contracts/out/**
-
-# The vendored exchange front-ends keep their webpack CONFIG in build/, not
-# build output. The blanket `build/` rule above silently dropped all 13 files
-# when the vendor tree was committed, so the app could not be started from a
-# clean clone at all — `npm run dev` died on a missing webpack.dev.conf.js and
-# nothing in CI noticed, because nothing in CI builds them.
-!vendor/*/05_Web_Front/build/
-!vendor/*/05_Web_Front/build/**
-!vendor/*/04_Web_Admin/build/
-!vendor/*/04_Web_Admin/build/**
 
 .env
 .env.local
@@ -80,9 +70,6 @@ packages/greeks-adapter/native/*.node
 # Local agent worktrees + pnpm store (never commit)
 .worktrees/
 .pnpm-store/
-docs/ops/FREEZE-LIVE.json
-docs/ops/RUN-LEDGER.json
-docs/ops/RUN-LEDGER.json.tmp
 
 # Infra journal — one record per external-dependency probe, written by
 # packages/db/src/infra-journal.ts and read by tooling/ci/infra-verdict.mjs so

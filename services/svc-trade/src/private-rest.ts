@@ -56,6 +56,11 @@ import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
 import { AdlDisclosureError } from './futures/adl-disclosure.js';
 import { refuseArmById } from './ccxt-capability-matrix.js';
+import { assertStopTrigger, SPOT_ORDER_TYPES, TRADE_STOP_TRIGGER_INVALID, type StopTriggerStore } from './spot/stop-trigger-door.js';
+import { orderIdFor } from './spot/ids.js';
+import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
+import { readBracketFromBody } from './spot/bracket-place.js';
+import { readOcoFromBody } from './spot/oco-place.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
 /**
@@ -113,9 +118,9 @@ export const TRADE_ADL_EVENTS_LIMIT_UNSET = 'trade.adl_events_limit_unset' as co
 /** Batch size is deliberately finite: each item owns its own retry fence and money path. */
 export const MAX_BATCH_ORDERS = 100;
 
-/** Spot-supported order types only (TradeService rejects stop/take-profit). */
-function isSpotOrderType(type: string): type is 'market' | 'limit' {
-  return type === 'market' || type === 'limit';
+/** Spot-supported order types only (TradeService rejects stop-market and take-profit). */
+function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number] {
+  return (SPOT_ORDER_TYPES as readonly string[]).includes(type);
 }
 
 export interface PrivateRestDeps {
@@ -126,6 +131,8 @@ export interface PrivateRestDeps {
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
+  /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
+  stopTriggers?: StopTriggerStore;
   /**
    * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
    * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
@@ -451,6 +458,20 @@ export function presentCcxtOrderCost(order: OrderRecord, fills?: readonly Pick<F
  * the fill set is loaded elsewhere — bots re-fetch fills via account/trades.
  * Pass `fills` when loaded so `cost` is Σ quote (true notional), not null.
  */
+/** A bare `stopPx` on a limit body would reach the engine with no stored trigger; the one door is `type: stop_limit`. */
+function hasRawStopPx(body: unknown): boolean {
+  return !!body && typeof body === 'object' && !Array.isArray(body) && (body as { stopPx?: unknown }).stopPx !== undefined;
+}
+
+/** A stop-limit rests as a limit; its stored trigger turns the wire order back into the stop-limit the caller placed. */
+async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
+  const triggers = deps.stopTriggers && orders.length > 0 ? await deps.stopTriggers.readMany(orders.map((o) => o.id)) : null;
+  return <W extends { type: string; stopPrice: string | null }>(order: OrderRecord, wire: W): W => {
+    const trigger = triggers?.get(order.id);
+    return trigger ? { ...wire, type: 'stop_limit', stopPrice: trigger } : wire;
+  };
+}
+
 export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fills?: readonly Pick<FillRecord, 'quoteAmount'>[] }) {
   const ts = order.createdAt.getTime();
   const amount = formatAmount(order.qty);
@@ -654,8 +675,8 @@ export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok:
  * Map CCXT create body → PlaceOrderInput (decimal strings → Amount).
  * Only market/limit; postOnly becomes tif PO when no other tif is set.
  */
-export function mapCreateOrderBody(body: CreateOrderRequest): PlaceOrderInput {
-  if (!isSpotOrderType(body.type)) {
+export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLimit?: boolean } = {}): PlaceOrderInput {
+  if (!isSpotOrderType(body.type) || (body.type === 'stop_limit' && opts.allowStopLimit !== true)) {
     throw new TradeError(
       `order type "${body.type}" is not supported on this venue (spot supports market and limit)`,
       'trade.order_type_unsupported',
@@ -676,16 +697,43 @@ export function mapCreateOrderBody(body: CreateOrderRequest): PlaceOrderInput {
     tif = 'PO';
   }
 
+  const stopLimit = body.type === 'stop_limit';
   return {
     symbol: body.symbol,
     side: body.side,
-    type: body.type,
+    // A stop-limit is placed (and held) as the limit it becomes; the trigger rides as stopPx.
+    type: stopLimit ? 'limit' : body.type,
     qty: parseAmount(body.amount),
     price: body.price === undefined ? null : parseAmount(body.price),
     tif,
     clientOrderId: body.clientOrderId,
     subAccountId: body.subAccountId,
-  };
+    ...(stopLimit ? { stopPx: parseAmount(body.stopPrice as string) } : {}),
+  } as PlaceOrderInput;
+}
+
+/**
+ * Attach the request's own placement options to its order input. Refuses a bracket or OCO the body cannot carry
+ * here, before any hold. Called only once the caller is signed in and the body has passed the typed schema.
+ */
+/**
+ * Parked with a named blocker: svc-matching's order intake does not carry bracket / OCO exit legs,
+ * so an accepted request would rest a bare entry and silently drop the stop-loss and take-profit.
+ */
+function refuseExitLegs(body: unknown): void {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
+  const rec = body as Record<string, unknown>;
+  if (readBracketFromBody(rec) !== null || readOcoFromBody(rec) !== null) {
+    throw new TradeError(
+      'bracket and OCO orders are not available yet: the matching service does not accept exit legs, so the stop-loss and take-profit would be dropped',
+      'trade.order_type_unsupported',
+    );
+  }
+}
+
+function carryPlacement(input: PlaceOrderInput, body: unknown): PlaceOrderInput {
+  refuseExitLegs(body);
+  return carryPlacementBody(input, body);
 }
 
 export type AmendBodyParse = { ok: true; input: AmendOrderInput } | { ok: false; message: string };
@@ -714,6 +762,9 @@ export function parseAmendOrderBody(body: unknown): AmendBodyParse {
   }
 
   let price: Amount | undefined;
+  if (rec.price !== undefined && rec.price !== null && typeof rec.price !== 'string') {
+    return { ok: false, message: 'price must be a positive decimal string' };
+  }
   if (typeof rec.price === 'string') {
     try {
       price = parseAmount(rec.price);
@@ -1009,9 +1060,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const serverTime = stampServerTime(reply, deps);
       const symbolByMarket = new Map<string, string>();
       const wire = [];
+      const withStop = await withStopTriggers(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push({ ...presentCcxtOrder(order, symbol), serverTime });
+        wire.push({ ...withStop(order, presentCcxtOrder(order, symbol)), serverTime });
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1053,9 +1105,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
+      const withStop = await withStopTriggers(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push(presentCcxtOrder(order, symbol));
+        wire.push(withStop(order, presentCcxtOrder(order, symbol)));
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1980,6 +2033,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
       let input: PlaceOrderInput;
       try {
+        refuseExitLegs(rawItem);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
@@ -2157,7 +2211,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
 
-    const parsed = createOrderRequestSchema.safeParse(req.body);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
@@ -2170,11 +2224,45 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     let displayQty: string | null = null;
+    let stopTrigger: string | null = null;
     try {
-      input = mapCreateOrderBody(parsed.data);
+      input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
       displayQty = attached.displayQty;
+      if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(req.body)) {
+        throw new TradeError('a stop is placed as type stop_limit with a stopPrice', TRADE_STOP_TRIGGER_INVALID);
+      }
+      if (deps.stopTriggers && parsed.data.type !== 'stop_limit') {
+        // An id that already carries a trigger belongs to a stop; a plain order must not reuse it.
+        const market = await deps.marketBySymbol(parsed.data.symbol);
+        if (market && (await deps.stopTriggers.read(orderIdFor(principal.userId, market.id, parsed.data.clientOrderId)))) {
+          throw new TradeError('this clientOrderId was already used for a stop-limit', TRADE_STOP_TRIGGER_INVALID);
+        }
+      }
+      if (parsed.data.type === 'stop_limit' && deps.stopTriggers) {
+        if (displayQty) throw new TradeError('a stop-limit cannot be an iceberg', TRADE_STOP_TRIGGER_INVALID);
+        const market = await deps.marketBySymbol(parsed.data.symbol);
+        if (!market) throw new TradeError(`market ${parsed.data.symbol} not found`, 'trade.market_not_found');
+        const trigger = (input as PlaceOrderInput & { stopPx: Amount }).stopPx;
+        assertStopTrigger(trigger, market.tickSize);
+        // Written before the hold: a crash after the hold must never leave a live
+        // order without its trigger. A replay keeps the first trigger.
+        const orderId = orderIdFor(principal.userId, market.id, input.clientOrderId as string);
+        // An order already placed under this id without a trigger is not a stop; do not relabel it.
+        if (deps.findClientOrder && !(await deps.stopTriggers.read(orderId))) {
+          const existing = await deps.findClientOrder(principal, {
+            symbol: input.symbol,
+            marketId: market.id,
+            clientOrderId: input.clientOrderId,
+          });
+          if (existing) throw new TradeError('this clientOrderId was already used for a non-stop order', TRADE_STOP_TRIGGER_INVALID);
+        }
+        stopTrigger = await deps.stopTriggers.remember(orderId, principal.userId, formatAmount(trigger));
+        if (stopTrigger !== formatAmount(trigger)) {
+          throw new TradeError('this clientOrderId was already used with a different stopPrice', TRADE_STOP_TRIGGER_INVALID);
+        }
+      }
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2221,6 +2309,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? parsed.data.symbol;
       const wire = presentCcxtOrder(order, symbol);
+      if (stopTrigger) return reply.code(201).send({ ...wire, type: 'stop_limit', stopPrice: stopTrigger });
       return reply.code(201).send(stored ? { ...wire, displayQty: stored } : wire);
     } catch (err) {
       const sent = sendDomainError(reply, err);
@@ -2342,7 +2431,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(503).send({ error: 'order replacement is not configured', code: 'trade.replace_unconfigured' });
     }
 
-    const parsed = createOrderRequestSchema.safeParse(req.body);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
     if (!parsed.success) {
       return reply.code(400).send({
         ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid replacement order body').body,
@@ -2352,7 +2441,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
-      input = mapCreateOrderBody(parsed.data);
+      // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
+      if (hasRawStopPx(req.body)) {
+        throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
+      }
+      input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2419,7 +2512,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const order = await deps.getOrder(principal, req.params.id);
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? order.marketId;
-      return reply.code(200).send(presentCcxtOrder(order, symbol));
+      const withStop = await withStopTriggers(deps, [order]);
+      return reply.code(200).send(withStop(order, presentCcxtOrder(order, symbol)));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2436,7 +2530,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const order = await deps.cancelOrder(principal, req.params.id);
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? order.marketId;
-      return reply.code(200).send(presentCcxtOrder(order, symbol));
+      const withStop = await withStopTriggers(deps, [order]);
+      return reply.code(200).send(withStop(order, presentCcxtOrder(order, symbol)));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

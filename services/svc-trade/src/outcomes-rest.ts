@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
+import { checkAccess } from '@intafaced/config';
 import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders, type EdgeRequest } from '@intafaced/contracts';
 import { createOrderRequestSchema } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -66,16 +67,19 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
   const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
   const now = deps.now ?? Date.now;
 
-  function principalFrom(req: FastifyRequest): Principal | null {
+  function contextFrom(req: FastifyRequest) {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
-    return edgeContext(edgeReq).principal;
+    return edgeContext(edgeReq);
   }
 
   app.get('/api/v1/outcomes/markets', async (_req, reply) => reply.send(deps.catalogue.list()));
 
   app.post('/api/v1/outcomes/orders', async (req, reply) => {
-    const principal = principalFrom(req);
+    const { principal, region } = contextFrom(req);
     if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
+    // Same gate as every other trade write: a region or tier that may not trade may not place an outcome order.
+    const access = checkAccess({ module: 'trade', plane: 'fiat', region, kycTier: principal.tier });
+    if (!access.allowed) return sendError(reply, 403, access.code ?? 'trade.permission_denied', access.reason);
     try {
       requireScope(principal, 'trade:write');
     } catch (error) {
@@ -94,6 +98,19 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
     }
     if (!deps.placeOutcomeOrder) {
       return sendError(reply, 503, 'trade.outcome_order_path_unconfigured', 'ledger-backed outcome order path is not configured');
+    }
+
+    // Outcome contracts settle at 0 or 1, so a limit price must lie strictly inside (0, 1); market orders have no price.
+    const priceRaw = parsed.data.price;
+    if (priceRaw == null || parsed.data.type !== 'limit') {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome orders must be limit orders with a price between 0 and 1');
+    }
+    const priceUnits = parseAmount(priceRaw);
+    if (priceUnits <= 0n || priceUnits >= parseAmount('1')) {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome limit price must be strictly between 0 and 1');
+    }
+    if (parsed.data.stopPrice != null || parsed.data.expireAt != null) {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome orders do not support stopPrice or expireAt');
     }
 
     const collateralAmount = collateralForBinaryBuy(parsed.data.amount);

@@ -405,6 +405,10 @@ services:
       # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
       # and undefaulted — unset is still a legible refuse, not a localhost invent).
       LEDGER_URL: http://svc-ledger:4001
+      # Claim merchant email invites once the mailbox is confirmed. Unset leaves
+      # them pending. No depends_on svc-pay: pay already waits for identity, and
+      # a down pay must not block sign-in. The next confirmed session retries.
+      PAY_URL: http://svc-pay:4006
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4002']
     healthcheck: *healthcheck
@@ -1853,9 +1857,6 @@ services:
   # The customer surface is `vendor-shell` below, on :8090. The public
   # questionnaire uses the independent React/Vite app at apps/invitation;
   # current UI replacement is allowed by the 2026-10-02 redesign ADR.
-  #
-  # no-deploy: 05_Web_Front — retained legacy Vue source, replaced by
-  # apps/customer in the existing vendor-shell slot. Not served.
   #
   # no-deploy: invitation — the separate Vercel join project is configured to
   # build apps/invitation and serve its Vite dist. App-owned vercel.json supplies SPA rewrites;

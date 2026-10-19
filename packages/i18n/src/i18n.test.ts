@@ -77,7 +77,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Merchant email (dispute deadline, payout failure, refund, team invite, unset provider) adds ten title/body keys.
     // Agents session-list refusals (cursor_invalid, fee_asset_unset) add two.
     // Halt notice and deposit-credit notice add four title/body keys (S26).
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(233);
+    // Agents place-key conflict refusal adds one.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(234);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

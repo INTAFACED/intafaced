@@ -95,9 +95,9 @@ if (!adr || !/Consume the existing Docker unit/.test(adr)) {
   fail('staging ADR must keep “Consume the existing Docker unit” — D26-P2-04 does not invent a second image strategy.');
 }
 
-const runbook = read('docs/ops/FLEET-TIP-IMAGES.md');
+const runbook = read('docs/runbooks/FLEET-TIP-IMAGES.md');
 if (!runbook || !/D26-P2-04/.test(runbook) || !/pnpm platform:up/.test(runbook)) {
-  fail('docs/ops/FLEET-TIP-IMAGES.md must exist and name D26-P2-04 + platform:up.');
+  fail('docs/runbooks/FLEET-TIP-IMAGES.md must exist and name D26-P2-04 + platform:up.');
 }
 
 if (process.exitCode) {

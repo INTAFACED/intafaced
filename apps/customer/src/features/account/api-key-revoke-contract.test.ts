@@ -27,6 +27,9 @@ const record = {
   lastUsedAt: null,
   revoked: false,
   mode: 'live' as const,
+  requireSignature: false,
+  requireNonEmptyIpAllowlist: false,
+  ipAllowlist: [] as string[],
 };
 
 describe('API-key revoke target and original boundaries', () => {

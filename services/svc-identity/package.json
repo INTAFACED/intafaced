@@ -28,7 +28,7 @@
     "@simplewebauthn/server": "13.3.3",
     "@trpc/server": "^11.19.0",
     "drizzle-orm": "^0.45.4",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.7",
     "postgres": "^3.4.5",
     "zod": "^3.24.1"
   },

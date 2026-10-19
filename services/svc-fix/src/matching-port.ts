@@ -34,6 +34,8 @@ export const matchingPortErrorSchema = z.object({
     'invalid_decimal',
     'invalid_message',
     'tif_missing',
+    'gtd_expiry_missing',
+    'unmapped_economic_tag',
     'matching_account_unmapped',
     'matching_unconfigured',
     'matching_service_auth_unconfigured',
@@ -66,7 +68,7 @@ export type MatchingPortOptions = {
   internalServiceSecret?: string;
 };
 
-/** Matching submit JSON. Qty/price stay decimal strings. Price null on market — not last. */
+/** Matching submit JSON. Qty/price stay decimal strings. A market price is the protection price when set, otherwise null — never a last. */
 export type MatchingSubmitBody = {
   orderId: string;
   accountId: string;
@@ -281,7 +283,8 @@ export async function postMatchingSubmit(command: unknown, options: MatchingPort
       body: payload,
       signal: controller.signal,
     });
-    const text = await response.text().catch(() => '');
+    // A body that stalls or breaks after 2xx headers must reach the catch below: matching may already hold the order, so it is a timeout, never a clean rejection.
+    const text = await response.text();
     if (!response.ok) {
       return classifyHttpStatus(response.status, text.slice(0, 500));
     }

@@ -1,9 +1,9 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a stop-limit through the matching door that landed in #3288.
@@ -18,15 +18,8 @@ type PlaceWithStopLimit = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.stopLimitPlace');
-const stash = new Map<string, { stopPx: string | null }>();
 
 export const STOP_PX_MISSING = 'missing_stop_price' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__sl:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsStopLimit(rec: Record<string, unknown>): boolean {
   return rec.type === 'stop_limit' || rec.stopPx !== undefined;
@@ -45,20 +38,11 @@ export function stopPxRefuse(stopPx: Amount | null): TradeError | null {
   return null;
 }
 
-export function attachStopLimitStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsStopLimit(rec)) {
-        const raw = rec.stopPx ?? rec.stopPrice;
-        stash.set(stashKey(rec), {
-          stopPx: raw == null || raw === '' ? null : String(raw),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { stopPx: string | null } | null {
+  if (!body || !wantsStopLimit(body)) return null;
+  const raw = body.stopPx ?? body.stopPrice;
+  return { stopPx: raw == null || raw === '' ? null : String(raw) };
 }
 
 export function bindStopLimit(input: PlaceOrderInput): PlaceWithStopLimit {
@@ -67,19 +51,8 @@ export function bindStopLimit(input: PlaceOrderInput): PlaceWithStopLimit {
     const placeType = extra.type === 'stop_limit' ? 'limit' : extra.type;
     return { ...extra, type: placeType, stopPx: readStopPx(extra) };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     type: extra.type === 'stop_limit' ? 'limit' : extra.type,

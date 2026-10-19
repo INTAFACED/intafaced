@@ -46,7 +46,8 @@ export const requestSignAls = new AsyncLocalStorage<RequestSignMaterial | undefi
 export class ApiKeyRequestSignError extends Error {
   constructor(
     message: string,
-    readonly reason: RequestSignReason | 'auth.not_found' | 'auth.not_configured' | 'auth.signature_not_required',
+    readonly reason:
+      RequestSignReason | 'auth.not_found' | 'auth.not_configured' | 'auth.signature_not_required' | 'auth.signing_change_unset',
   ) {
     super(message);
     this.name = 'ApiKeyRequestSignError';
@@ -227,7 +228,7 @@ export async function setApiKeyRequestSigning(
   sql: Sql,
   userId: string,
   keyId: string,
-  input: { requireSignature: boolean; requireNonEmptyIpAllowlist: boolean },
+  input: { requireSignature?: boolean; requireNonEmptyIpAllowlist?: boolean },
   encKey: Buffer | null,
 ): Promise<{
   id: string;
@@ -235,17 +236,32 @@ export async function setApiKeyRequestSigning(
   requireNonEmptyIpAllowlist: boolean;
   signingSecret: string | null;
 }> {
+  if (input.requireSignature === undefined && input.requireNonEmptyIpAllowlist === undefined) {
+    throw new ApiKeyRequestSignError('API key signing change is unset', 'auth.signing_change_unset');
+  }
   return inTransaction(sql, async (tx) => {
-    const current = await tx<Array<{ id: string; request_signing_secret: string | null }>>`
-      SELECT id, request_signing_secret FROM api_keys
+    const current = await tx<
+      Array<{
+        id: string;
+        request_signing_secret: string | null;
+        require_signature: boolean;
+        require_non_empty_ip_allowlist: boolean;
+      }>
+    >`
+      SELECT id, request_signing_secret, require_signature, require_non_empty_ip_allowlist FROM api_keys
       WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
       FOR UPDATE
     `;
     const row = current[0];
     if (!row) throw new ApiKeyRequestSignError('API key not found', 'auth.not_found');
+    // Omitted means keep the stored flag. An IP-only write must not turn signing off or wipe the secret.
+    const requireSignature = input.requireSignature ?? row.require_signature;
+    const requireNonEmptyIpAllowlist = input.requireNonEmptyIpAllowlist ?? row.require_non_empty_ip_allowlist;
     let secret = row.request_signing_secret;
     let issued: string | null = null;
-    if (input.requireSignature) {
+    if (input.requireSignature === undefined) {
+      // Leave the stored secret alone, including when signing stays on.
+    } else if (requireSignature) {
       if (!openSigningSecret(encKey, secret)) {
         issued = issueSigningSecret();
         secret = sealSigningSecret(encKey, issued);
@@ -255,8 +271,8 @@ export async function setApiKeyRequestSigning(
     }
     const updated = await tx<Array<{ id: string; require_signature: boolean; require_non_empty_ip_allowlist: boolean }>>`
       UPDATE api_keys
-      SET require_signature = ${input.requireSignature},
-          require_non_empty_ip_allowlist = ${input.requireNonEmptyIpAllowlist},
+      SET require_signature = ${requireSignature},
+          require_non_empty_ip_allowlist = ${requireNonEmptyIpAllowlist},
           request_signing_secret = ${secret}
       WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
       RETURNING id, require_signature, require_non_empty_ip_allowlist

@@ -43,6 +43,11 @@ export type RefusalKind =
   | 'notFound'
   | 'duplicate'
   | 'notSetUp'
+  | 'walletPaused'
+  | 'walletFee'
+  | 'walletCap'
+  | 'walletFields'
+  | 'walletAddress'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -141,6 +146,22 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+
+  'pay.wallet_withdraw_unavailable': 'walletPaused',
+  'pay.wallet_withdraw_disabled': 'walletPaused',
+  'pay.wallet_cooling': 'walletPaused',
+  'pay.wallet_fee_unset': 'walletFee',
+  'pay.wallet_fee_differs': 'walletFee',
+  'pay.wallet_cap_unset': 'walletCap',
+  'pay.wallet_over_cap': 'walletCap',
+  'pay.wallet_travel_rule': 'walletFields',
+  'pay.wallet_share_timeout': 'walletFields',
+  'pay.wallet_typed_address': 'walletAddress',
+  'pay.wallet_allowlist': 'walletAddress',
+  'pay.wallet_destination_rejected': 'walletAddress',
+  'pay.wallet_forbidden': 'noPermission',
+  'pay.wallet_not_found': 'notFound',
+  'pay.wallet_unconfigured': 'tryAgain',
   'trade.candles_range_point_cap': 'chartRange',
 };
 

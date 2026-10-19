@@ -31,7 +31,8 @@ export function parseCopyRelationshipState(raw: unknown): CopyRelationshipState 
   if ((COPY_RELATIONSHIP_STATES as readonly string[]).includes(value)) {
     return value as CopyRelationshipState;
   }
-  return 'ACTIVE';
+  // Unrecognized (corrupt) state fails closed: fence new intents rather than resume copying.
+  return 'PAUSED';
 }
 
 export function followRelationshipState(follow: CopyFollow): CopyRelationshipState {

@@ -32,6 +32,13 @@ describe('matching order command — decimal strings, no book', () => {
     expect(r.success).toBe(false);
   });
 
+  it('refuses a limit new_order_single when price is null, blank, or whitespace', () => {
+    for (const price of [null, '', ' ', '\t', '\n']) {
+      const r = matchingOrderCommandSchema.safeParse({ ...valid, ordType: 'limit', price });
+      expect(r.success, `price ${JSON.stringify(price)}`).toBe(false);
+    }
+  });
+
   it('refuses IEEE-looking exponent qty', () => {
     const r = matchingOrderCommandSchema.safeParse({ ...valid, qty: '1e-2' });
     expect(r.success).toBe(false);
@@ -41,6 +48,19 @@ describe('matching order command — decimal strings, no book', () => {
     const cmd = parseMatchingOrderCommand({ ...valid, ordType: 'market', price: null });
     expect(cmd.price).toBeNull();
     expect(typeof cmd.qty).toBe('string');
+  });
+
+  it('market command forwards an explicit protection price decimal string', () => {
+    const cmd = parseMatchingOrderCommand({ ...valid, ordType: 'market', price: '101.50' });
+    expect(cmd.price).toBe('101.50');
+    expect(cmd.ordType).toBe('market');
+  });
+
+  it('refuses a blank or non-decimal price on a market command', () => {
+    for (const price of ['', ' ', 'abc', '1e-2', '-1']) {
+      const r = matchingOrderCommandSchema.safeParse({ ...valid, ordType: 'market', price });
+      expect(r.success, JSON.stringify(price)).toBe(false);
+    }
   });
 
   it('accepts optional senderCompId and tif without inventing them', () => {

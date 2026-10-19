@@ -53,67 +53,6 @@ const CI_DIR = join(ROOT, 'tooling', 'ci');
  */
 export const GATES = [
   {
-    id: 'worktree-gc-selftest',
-    script: 'tooling/scripts/worktree-gc.mjs',
-    args: ['--self-test'],
-    doctrine: 'multi-dev law, §0 (destructive tooling)',
-    why:
-      'the only tool in this repo that deletes another agent’s working state, and until this entry nothing ran its ' +
-      'proof. #1151 fixed three ways it did exactly that — it read no claim board, so a worktree named **live** in ' +
-      'docs/LIVE-LANES.md was garbage on its first clean minute (docs/LANE-CLOSEOUT-OPS-2026-08-08.md (removed):333 records ' +
-      'another lane losing two worktrees mid-edit and an unpushed branch to that); it had no mtime signal; and it ' +
-      'found MAIN via `rev-parse --show-toplevel`, so run from a linked worktree the real main checkout was just ' +
-      'another cherry-empty row and `git branch -D main` was in the plan (MEGA-AUDIT-2026-08-07-FINDINGS.md (removed):887, ' +
-      'severity high, recorded and unfixed for a day). #1151 also shipped 15 classifier fixtures that go red if any ' +
-      'of the three is reverted — and wired them to nothing, so a revert broke no check that verify or CI ran. That ' +
-      'is the shape of the six guards this repo has already built correct and left unreachable. Cheap enough to sit ' +
-      'second: --self-test returns before the script touches git or the disk, so it costs no fetch and no worktree ' +
-      'walk. Lives in tooling/scripts/, so the manifest check below does not cover it — this entry is the only thing ' +
-      'holding it, which is precisely why deleting the entry has to be a visible act rather than a silent one.',
-  },
-  {
-    id: 'worktree-selftest',
-    script: 'tooling/scripts/worktree.mjs',
-    args: ['--self-test'],
-    doctrine: 'multi-dev law, CONTRIBUTING.md §2',
-    why:
-      'every branch in this repo starts at whatever `pnpm wt` cut it from, so this script silently decides the base of ' +
-      'all work. It used to hand `git worktree add` a REF NAME (`origin/main`), which git resolves at the moment of the ' +
-      'add rather than at the moment we chose it — and it ran the fetch with stdio ignored and never read the exit ' +
-      'status, so an offline laptop or a credential expiry printed `· fetching main` and cut from whatever the last ' +
-      'successful fetch left behind. Neither showed on stdout: it printed the path and nothing about the base, so a ' +
-      'worktree cut 38 commits stale looked identical to a fresh one and was found by hand (2026-08-09) rather than by ' +
-      'a check. The cost is not theoretical — a branch abandoned the same day was 182 commits behind with 1,303 ' +
-      'insertions and 812 passing tests, because rebasing a money-path branch that far is how a subtle regression ' +
-      'lands with a green diff. The fix pins the start point to a 40-char object id once, after the fetch, and reports ' +
-      'it. These fixtures hold that: pass a ref name to the add again, resolve the ref twice, drop the fetch-status ' +
-      'check, drop the ancestry warning, or flatten the branch-name convention, and a named case goes red. Four of ' +
-      'them read this file’s own text above the self-test marker, because a revert can leave both pure functions ' +
-      'correct and re-resolve the ref at the call site instead. Pure fixtures — no git, no network, no disk — so it ' +
-      'sits next to worktree-gc-selftest. Lives in tooling/scripts/, so the manifest check below does not cover it and ' +
-      'this entry is the only thing holding it.',
-  },
-  {
-    id: 'path-collide-selftest',
-    script: 'tooling/scripts/path-collide.mjs',
-    args: ['--self-test'],
-    doctrine: 'multi-dev law / claim-check honesty',
-    why:
-      'claim-check + swarm share touches() — a trailing-slash wall prefix used to false-clear ' +
-      'open PR collisions (L15 #1245). --self-test is pure fixtures, no gh/git. Pins the regression.',
-  },
-  {
-    id: 'claim-check-selftest',
-    script: 'tooling/ci/claim-check.mjs',
-    args: ['--self-test'],
-    doctrine: 'multi-dev law / claim-check honesty',
-    why:
-      'the interactive claim-check still needs gh + network and stays advisory, but the sealed honesty pack ' +
-      '(blank argv refuse, rename porcelain, PR list/files caps — #1414) lived only in prose until #1489 added ' +
-      'hermetic fixtures. Without this entry a quiet revert of those fixtures greens CI while agents get false ' +
-      'clears again — the same shape as path-collide before its self-test gate. --self-test exits before gh.',
-  },
-  {
     id: 'gate-tools-tests',
     script: 'tooling/scripts/gate-tools.test.mjs',
     doctrine: 'merge condition (2026-10-13)',
@@ -190,8 +129,8 @@ export const GATES = [
     why:
       'relaxed-boundary ratchet over the vendored Java CORS surface (same FORBIDDEN list parsed from brand-scan.mjs): ' +
       'CorsConfig / CorsAllowlist / CORS ApplicationConfig, where `\\b` cannot see a name welded into an identifier. ' +
-      'NARROWED 2026-10-13: the retired legacy Vue customer site (vendor 05_Web_Front, replaced by apps/customer, ' +
-      'see its RETIRED.md) is no longer walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
+      'NARROWED 2026-10-13, DELETED 2026-10-19: the legacy Vue customer site (vendor 05_Web_Front, replaced by ' +
+      'apps/customer) is gone from the tree, so only the Java CORS surface is walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
   },
   {
     id: 'custody',
@@ -336,6 +275,16 @@ export const GATES = [
     why: 'every migration reversible, destructive statements declared',
   },
   {
+    id: 'cross-package-reads',
+    script: 'tooling/ci/cross-package-reads.mjs',
+    doctrine: 'CI redesign 2026-10-19 (MAINRED3)',
+    why:
+      'affected-test selection follows the workspace graph, and a test that reads another package’s files without ' +
+      'declaring it is invisible to that graph: change the other package and the test is not selected. MAINRED3 was ' +
+      'exactly that — a svc-trade change broke an apps/customer test that reads svc-trade. Every cross-package read must ' +
+      'be declared in tooling/ci/test-read-edges.json.',
+  },
+  {
     id: 'workspace',
     script: 'tooling/ci/workspace-sync.mjs',
     doctrine: 'fleet sync',
@@ -416,15 +365,6 @@ export const GATES = [
       'SMALLEST remainders all survived eighteen green properties. 6 planted defects, all must die.',
   },
   {
-    id: 'i18n-bypass',
-    script: 'tooling/ci/i18n-bypass-scan.mjs',
-    doctrine: '§9, §14.4',
-    why:
-      'landed on main AFTER this branch was written, and was in `verify` there but not in this list. ' +
-      'A rebase that took this side wholesale would have silently dropped a gate main already runs — ' +
-      'which is precisely the drift this file exists to make impossible, arriving through its own merge.',
-  },
-  {
     id: 'empty-denominator',
     script: 'tooling/ci/empty-denominator-gate.mjs',
     doctrine: '§14 / empty-denominator law',
@@ -446,16 +386,6 @@ export const GATES = [
       '--self-test and RULE_PROBES precedent, and it is not optional here — a meta-gate about empty denominators is the ' +
       'most obvious candidate in this repo to BE one.',
   },
-  {
-    id: 'i18n',
-    script: 'tooling/ci/i18n-scan.mjs',
-    doctrine: '§9, §14.4',
-    advisory: true,
-    why:
-      'runs in report mode, which is its default and its designed behaviour. Flipping it to --strict is a real decision, ' +
-      'not a wiring change: the tree currently has hardcoded user-facing strings and strict mode would fail verify today. ' +
-      'It is listed here rather than omitted so its findings are visible on every run instead of invisible for weeks.',
-  },
 ];
 
 /**
@@ -466,13 +396,13 @@ export const GATES = [
 export const NOT_GATES = {
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
+  'test-diff-guard.mjs':
+    'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'review-marker.mjs':
     'merge-seal step: needs a `Independent review: PASS <head sha>` comment on the PR. Needs a GitHub token and PR number, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the matcher.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
-  // claim-check.mjs is in GATES as claim-check-selftest (--self-test only). The
-  // interactive full run still needs gh + network: `pnpm claim:check` by hand.
 
   'verify.mjs':
     'the verify runner itself — it CALLS this list. Listing it as a gate would make it invoke itself. It exists so the infrastructure verdict prints even when turbo halts early, which a `&&` chain cannot do.',
@@ -490,8 +420,6 @@ export const NOT_GATES = {
     'stamp-mill detector for near-duplicate commits — the docs-only rule (Board-Delta trailer) AND, since 2026-08-06, the code rule (near-duplicate subject SERIES whose new symbols nothing outside them calls; Serial-Work trailer). Wired as an explicit STRICT step in BOTH workflows and in neither gate list: docs-format.yml, because ci.yml excludes docs/** and **/*.md so coordinator docs PRs never hit GATES; and the `gates` job of ci.yml, because docs-format only fires on markdown, so a code PR without a slice doc never met the gate at all — half of how #832–#876 landed. (ci.yml writes that exclusion as negated `paths:` rather than `paths-ignore`, because INTAFACED_DEFINITIVE_BUILD.md is law and coverage-check has to see it; the set of excluded docs is unchanged.) Still NOT a GATES entry: it needs a current `origin/main` plus >=11 ancestors, which a laptop `pnpm verify` cannot promise, and reddening a local verify over a stale fetch is how a gate gets deleted. Both checkouts now pin fetch-depth: 0 — under the actions/checkout default of 1 it compared an empty ancestor list against an empty ancestor list and printed OK. Local pre-flight: `pnpm value-gate:self-test` (20 fixtures).',
   'checkout-staleness.mjs':
     'reports how far behind origin/main a checkout is, so any board that prints numbers can declare its own staleness (#958). A library, not a check — it asserts nothing and cannot fail. Extracted from thrift-preflight when thrift was deleted 2026-08-07; the staleness half never had anything to do with spend.',
-  'claim-staleness.mjs':
-    'reports `TRK-*` claims still HIDING a mountain from the free board (`claimed`/`pr-open`/`wip`) whose branch is already on main or deleted — i.e. the lock outlived the session that took it. Measured 2026-08-07: sixteen slices merged in one day, not one claim closed, twelve mountains hidden by sessions that no longer existed; SWARM-MANDATE reads freeProduct=0 as "mint Stage-N slices", so an emptied board manufactures rather than stalls — the same make-work #953 deleted 151 modules for, arrived at from the opposite direction. NOT a gate, on purpose: it cannot distinguish a dead claim from one whose owner is thirty seconds from writing it back, and reddening main on that guess would block the sessions it protects — a guard that stops work when it is wrong is worse than no guard. Exits 0 always; `--strict` exits 1 for anyone who wants it in their own pre-merge routine. Run by hand: `node tooling/ci/claim-staleness.mjs`.',
   'test-typecheck.mjs':
     'runs under the turbo `typecheck` task, not here. Every package script is now `tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs`, because type-checking a test file needs the workspace deps BUILT for their `.d.ts` — which `typecheck` already declares via `dependsOn: ["^build"]` and which a doctrine gate, by design, cannot: gates run first and take ~2s, before any build exists. Wiring it there would either make the fast pre-flight slow or make it wrong. So `pnpm typecheck`, `pnpm verify` and CI all run it, in parallel and turbo-cached (the script is a globalDependency, so editing the pinned list busts that cache). It is a ratchet in the same shape as the since-deleted fabricated-money-scan: 70 pre-existing test type errors frozen by exact text AND count, a new one is red, and a FIXED one is red too until its row is deleted — so the list can only shrink. Run it repo-wide by hand with `node tooling/ci/test-typecheck.mjs --all`.',
 };

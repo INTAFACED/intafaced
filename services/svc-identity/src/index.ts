@@ -5,6 +5,7 @@ import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contra
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
+import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -279,6 +280,9 @@ const mail = openIdentityMail({
 });
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+if (env.PAY_URL) {
+  auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET));
+}
 auth.useEmailConfirmation({
   mail,
   ttlSeconds: env.IDENTITY_EMAIL_CONFIRM_TTL_SECONDS,
@@ -390,6 +394,7 @@ const closure = new AccountClosureService({
   p2p: httpClosureChecker({ url: env.IDENTITY_CLOSURE_P2P_URL, secret: closureSecret }),
   now: () => new Date(),
 });
+account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
