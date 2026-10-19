@@ -282,8 +282,11 @@ export class UsageMeter {
     const chargeKey = chargeKeyFor(input.sessionId, input.windowId);
 
     // ── Step 1 · seal ───────────────────────────────────────────────────────
-    // Freezes the amount. The row lock also blocks concurrent usage inserts,
-    // because the FK from usage_records takes a KEY SHARE lock on this row.
+    // Freezes the amount under FOR UPDATE. usage_records_reject_sealed takes
+    // that same lock before it trusts sealed_at, and holds it until the insert
+    // commits. A seal therefore cannot commit over a usage row that has already
+    // passed the check, and an insert that acquires the lock after this commit
+    // reads the sealed row and is refused.
     const sealed = await transaction(
       this.sql,
       async (tx) => {
