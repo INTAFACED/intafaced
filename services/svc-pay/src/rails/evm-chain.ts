@@ -31,11 +31,12 @@ import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainP
  * supplying `PAY_CRYPTO_RPC_URL` + `PAY_CRYPTO_CHAIN_ID`.
  *
  * Acceptance addresses are HD-derived from `PAY_CRYPTO_DEPOSIT_MNEMONIC` at
- * account index `n` (viem `addressIndex`) where `n` is a stable function of
- * (paymentId, assetId). Occupancy remains process-local. Two colliding
- * payments walk forward until this process has a free address. Historical
- * assignments require a separately proven durable migration before this can
- * claim restart-safe allocation.
+ * path `m/44'/60'/0'/<high>/<low>`, where `high` and `low` are the two 31-bit
+ * halves (bits 31-61 and 0-30) of keccak256(`${paymentId}:${assetId}`). The
+ * address is a pure function of the payment, so a restart gives the same one.
+ * To recover funds by hand, recompute that path from the payment id and asset.
+ * Occupancy is still process-local, so a clash between two payments in one
+ * process (about 2^-62 per pair) refuses rather than walking to another index.
  *
  * Outbound sends go through a hot wallet (`PAY_CRYPTO_HOT_WALLET_KEY`) and the
  * `BroadcastStore`, so a retried business key never broadcasts twice.
