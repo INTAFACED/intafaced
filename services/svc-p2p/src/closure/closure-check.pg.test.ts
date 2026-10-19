@@ -162,3 +162,91 @@ it('answers 503 when the database fails', async () => {
   expect(response.json()).not.toMatchObject({ blockers: [] });
   await down.close();
 });
+
+const SUB_LISTED = '44444444-4444-4444-8444-444444444444';
+const SUB_UNLISTED = '55555555-5555-4555-8555-555555555555';
+
+function uuidN(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
+it('refuses a request from a signed service that is not identity with 403', async () => {
+  const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/internal/closure-check',
+    payload: raw,
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', SECRET, raw) },
+  });
+  expect(response.statusCode).toBe(403);
+  expect(response.json()).not.toHaveProperty('blockers');
+});
+
+it('accepts 100 sub-account ids and refuses 101 with 400', async () => {
+  const hundred = Array.from({ length: 100 }, (_, i) => uuidN(i + 1));
+  expect((await post({ userId: USER, subAccountIds: hundred })).statusCode).toBe(200);
+  const tooMany = await post({ userId: USER, subAccountIds: [...hundred, uuidN(101)] });
+  expect(tooMany.statusCode).toBe(400);
+  expect(tooMany.json()).toMatchObject({ code: 'p2p.closure_check_input' });
+});
+
+it('refuses a malformed body with 400 and never an empty blocker list', async () => {
+  const bad: unknown[] = [
+    null,
+    [],
+    {},
+    { userId: USER },
+    { subAccountIds: [] },
+    { userId: 'not-a-uuid', subAccountIds: [] },
+    { userId: USER, subAccountIds: 'nope' },
+    { userId: USER, subAccountIds: ['not-a-uuid'] },
+    { userId: USER, subAccountIds: [42] },
+    { userId: 42, subAccountIds: [] },
+  ];
+  for (const body of bad) {
+    const response = await post(body);
+    expect(response.statusCode, JSON.stringify(body)).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'p2p.closure_check_input' });
+    expect(response.json()).not.toHaveProperty('blockers');
+  }
+});
+
+it('counts rows on a listed sub-account and ignores an unlisted one', async () => {
+  // Only unlisted sub-account activity exists: nothing may appear.
+  const unlistedOffer = await offer(SUB_UNLISTED);
+  await db.sql`
+    INSERT INTO p2p.p2p_trades (
+      offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency, amount, price, fiat_amount, method, status, deadline_at
+    ) VALUES (
+      ${unlistedOffer}, ${OTHER}, ${SUB_UNLISTED}, ${SUB_UNLISTED}, ${OTHER}, 'USDT', 'USD', '1', '1', '1', 'sepa', 'created', now() + interval '1 hour'
+    )
+  `;
+  const none = await post({ userId: USER, subAccountIds: [SUB_LISTED] });
+  expect(none.statusCode).toBe(200);
+  expect(none.json()).toMatchObject({ blockers: [] });
+
+  // A listed sub-account as maker of an offer, as buyer of a trade, and as opener of a dispute.
+  const listedOffer = await offer(SUB_LISTED);
+  const trade = await db.sql<{ id: string }[]>`
+    INSERT INTO p2p.p2p_trades (
+      offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency, amount, price, fiat_amount, method, status, deadline_at
+    ) VALUES (
+      ${listedOffer}, ${SUB_LISTED}, ${OTHER}, ${OTHER}, ${SUB_LISTED}, 'USDT', 'USD', '1', '1', '1', 'sepa', 'created', now() + interval '1 hour'
+    ) RETURNING id
+  `;
+  await db.sql`
+    INSERT INTO p2p.p2p_disputes (trade_id, opened_by, reason, deadline_at)
+    VALUES (${trade[0]!.id}, ${SUB_LISTED}, 'closure', now() + interval '1 hour')
+  `;
+  const listed = await post({ userId: USER, subAccountIds: [SUB_LISTED] });
+  expect(listed.json()).toMatchObject({
+    blockers: [
+      { code: 'open_offer', count: 1 },
+      { code: 'open_trade', count: 1 },
+      { code: 'open_dispute', count: 1 },
+    ],
+  });
+  // The same rows do not show when the sub-account is not listed.
+  const unlisted = await post({ userId: USER, subAccountIds: [] });
+  expect(unlisted.json()).toMatchObject({ blockers: [] });
+});
