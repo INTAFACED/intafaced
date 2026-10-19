@@ -269,6 +269,8 @@ authentication. `/ready.operationAdmission` reports these read-key configuration
 flags separately from the owner admission keys; configuration is not a live probe.
 
 Apply `drizzle/0026_operation_identity_decisions.sql` for owner operation decisions.
+
+A standing customer instruction (a scheduled spot order, `authority.kind: standing_instruction`) has no session or API key. Identity grants it only for an active, unfrozen user, only to the authenticated trade owner, and only for one `order.place`. It does not see the instruction itself: svc-bank proves it is active, and svc-trade must accept the call only from an authenticated svc-bank. The `ownerService` field is a label, not proof.
 Set independent `IDENTITY_TRADE_ADMISSION_SECRET` and
 `IDENTITY_PAY_ADMISSION_SECRET` keys, each at least 32 characters and distinct from
 the generic service-signing key and each other. The generic identity read key
