@@ -799,6 +799,16 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     // Session locks must be acquired and released on the SAME physical
     // connection. `sql.reserve()` pins one; issuing lock/unlock through the pool
     // can unlock a different session and silently leave the first lock behind.
+    // A store built on an already-reserved connection (runFollowExclusive) has
+    // no pool to reserve from. Take the second lock on that same session.
+    if (typeof this.sql.reserve !== 'function') {
+      await this.sql`SELECT pg_advisory_lock(hashtext(${key}))`;
+      try {
+        return await run();
+      } finally {
+        await this.sql`SELECT pg_advisory_unlock(hashtext(${key}))`;
+      }
+    }
     const connection = await this.sql.reserve();
     let locked = false;
     try {
