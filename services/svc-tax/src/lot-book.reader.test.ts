@@ -179,4 +179,56 @@ describe('tax.lotBook', () => {
         .lotBook(),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
+
+  it('reads fills against a house quote (trade.fill.mm_maker) like any other fill', async () => {
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      let result: unknown = [];
+      if (path === '/trpc/balances') result = [{ accountId: 'a2', assetId: 'BTC', kind: 'available', purpose: '', amount: '1' }];
+      else if (body.kind === 'available')
+        result = {
+          entries: [entry({ txId: 'cv', reason: 'trade.fill.mm_maker', direction: 'debit', amount: '1', assetId: 'BTC', orderId: 'o9' })],
+          nextCursor: null,
+        };
+      else if (body.kind === 'hold')
+        result = {
+          entries: [entry({ txId: 'cv', reason: 'trade.fill.mm_maker', direction: 'credit', amount: '250', assetId: 'USDT' })],
+          nextCursor: null,
+        };
+      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const book = await createTaxRouter(service())
+      .createCaller(await signed())
+      .lotBook();
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '1', openCostUsd: '250', held: '1' });
+  });
+
+  it('a self-trade joins each received leg to its own order, not to the other order in the same transaction', async () => {
+    // One transaction moves two of this user\'s orders: o1 receives 1 BTC for 100 USDT, o2 receives 100 USDT for 1 BTC.
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      let result: unknown = [];
+      if (path === '/trpc/balances') result = [{ accountId: 'a3', assetId: 'BTC', kind: 'available', purpose: '', amount: '1' }];
+      else if (body.kind === 'available')
+        result = {
+          entries: [
+            entry({ txId: 'self', direction: 'debit', amount: '1', assetId: 'BTC', orderId: 'o1' }),
+            entry({ txId: 'self', direction: 'debit', amount: '100', assetId: 'USDT', orderId: 'o2' }),
+          ],
+          nextCursor: null,
+        };
+      else if (body.kind === 'hold' && body.purpose === 'order:o1')
+        result = { entries: [entry({ txId: 'self', direction: 'credit', amount: '100', assetId: 'USDT' })], nextCursor: null };
+      else if (body.kind === 'hold' && body.purpose === 'order:o2')
+        result = { entries: [entry({ txId: 'self', direction: 'credit', amount: '1', assetId: 'BTC' })], nextCursor: null };
+      return new Response(JSON.stringify(result), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const reads = createTaxLedgerReads('http://ledger.test', 'test-internal-service-secret-32-chars');
+    const { fills } = await reads.tradeFills!(USER);
+    const byOrder = new Map(fills.map((f) => [f.received.assetId, f.paid?.assetId]));
+    expect(byOrder.get('BTC')).toBe('USDT');
+    expect(byOrder.get('USDT')).toBe('BTC');
+  });
 });

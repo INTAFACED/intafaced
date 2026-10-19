@@ -130,22 +130,28 @@ export function createTaxLedgerReads(
 
       try {
         const received = (await walk({ ownerType: 'user', ownerId: userId, kind: 'available' })).filter(
-          (e) => e.reason === 'trade.fill' && e.direction === 'debit',
+          (e) => FILL_REASONS.has(e.reason) && e.direction === 'debit',
         );
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
-        const paidByTx = new Map<string, { assetId: string; amount: Amount }>();
-        for (const orderId of orderIds) {
-          const holds = await walk({ ownerType: 'user', ownerId: userId, kind: 'hold', purpose: `order:${orderId}` });
-          for (const e of holds) {
-            if (e.reason === 'trade.fill' && e.direction === 'credit')
-              paidByTx.set(e.txId, { assetId: e.assetId, amount: parseAmount(e.amount) });
-          }
+        // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
+        const paidByLeg = new Map<string, { assetId: string; amount: Amount }>();
+        for (let i = 0; i < orderIds.length; i += HOLD_WALK_PARALLEL) {
+          await Promise.all(
+            orderIds.slice(i, i + HOLD_WALK_PARALLEL).map(async (orderId) => {
+              const holds = await walk({ ownerType: 'user', ownerId: userId, kind: 'hold', purpose: `order:${orderId}` });
+              for (const e of holds) {
+                if (FILL_REASONS.has(e.reason) && e.direction === 'credit') {
+                  paidByLeg.set(`${orderId}|${e.txId}`, { assetId: e.assetId, amount: parseAmount(e.amount) });
+                }
+              }
+            }),
+          );
         }
         const fills: Fill[] = received.map((e) => ({
           txId: e.txId,
           postedAt: new Date(e.postedAt),
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
-          paid: paidByTx.get(e.txId) ?? null,
+          paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
         }));
         return { fills, truncated };
       } catch (err) {
@@ -177,6 +183,10 @@ export function createTaxLedgerReads(
 
 /** Entries per ledger page (the door's maximum). */
 const PAGE_LIMIT = 200;
+/** Ledger reasons for a customer's side of a spot, convert or OTC fill (the second is a fill against a house quote). */
+const FILL_REASONS: ReadonlySet<string> = new Set(['trade.fill', 'trade.fill.mm_maker']);
+/** Order hold reads run this many at a time. */
+const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */
 const TRADE_FILL_PAGE_CEILING = 200;
 

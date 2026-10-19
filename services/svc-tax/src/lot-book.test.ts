@@ -122,4 +122,31 @@ describe('buildLotBook', () => {
       residuals: [],
     });
   });
+
+  it('coins held beyond what fills account for make the result unknown: a deposit may have been sold first', () => {
+    // 1 BTC deposited (no lot), bought 1 at 100, sold 1 at 300: under FIFO the deposited coin could have gone first.
+    const book = buildLotBook({
+      fills: [buy('b1', 1, 'BTC', '1', '100'), sell('s1', 2, 'BTC', '1', '300')],
+      held: held({ BTC: '1' }),
+      method: 'FIFO',
+      truncated: false,
+    });
+    expect(book.sales[0]).toMatchObject({ costUsd: null, realizedUsd: null, proceedsUsd: '300' });
+    expect(book.realizedUsd).toBeNull();
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '0', openCostUsd: null, held: '1' });
+    expect(book.residuals).toContain(TAX_LOT_BOOK_UNRECONCILED);
+  });
+
+  it('a cut-short read shows no result and no cost, only the named incompleteness', () => {
+    const book = buildLotBook({ fills, held: held({ BTC: '1' }), method: 'FIFO', truncated: true });
+    expect(book.realizedUsd).toBeNull();
+    expect(book.sales[0]).toMatchObject({ realizedUsd: null, costUsd: null });
+    expect(book.assets.find((a) => a.assetId === 'BTC')?.openCostUsd).toBeNull();
+    expect(book.residuals).toContain(TAX_LOT_BOOK_INCOMPLETE);
+  });
+
+  it('dollar coins held with no lots do not count as unreconciled', () => {
+    const book = buildLotBook({ fills, held: held({ BTC: '1', USDT: '300' }), method: 'FIFO', truncated: false });
+    expect(book.residuals).toEqual([]);
+  });
 });

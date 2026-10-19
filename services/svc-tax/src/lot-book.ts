@@ -1,5 +1,5 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_LOT_UNDERFLOW } from './codes.js';
+import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED } from './codes.js';
 import { runLots, type LotMethod, type LotMovement } from './lots.js';
 
 /**
@@ -48,7 +48,7 @@ export interface BookSale {
   readonly txId: string;
   readonly disposedAt: string;
   readonly qty: string;
-  /** Part of the sale that reached no lot (coins that arrived by deposit or transfer). */
+  /** Part of the sale that reached no lot with a known cost (coins that arrived by deposit or transfer, or whose cost is unknown). */
   readonly unmatchedQty: string;
   readonly proceedsUsd: string | null;
   readonly costUsd: string | null;
@@ -149,7 +149,6 @@ export function buildLotBook(input: {
     const costUsd = unmatched > 0n ? null : known((c) => c.costBasis);
     const proceedsUsd = m.proceeds;
     const realized = unmatched > 0n || closed.length === 0 ? null : known((c) => c.realized);
-    if (unmatched > 0n) residuals.add(TAX_LOT_UNDERFLOW);
     sales.push({
       assetId: m.assetId,
       txId: m.txId,
@@ -163,15 +162,6 @@ export function buildLotBook(input: {
   }
   sales.sort((a, b) => (a.disposedAt === b.disposedAt ? a.txId.localeCompare(b.txId) : a.disposedAt < b.disposedAt ? 1 : -1));
 
-  let realizedUsd: Amount | null = 0n;
-  for (const sale of sales) {
-    if (sale.realizedUsd === null) {
-      realizedUsd = null;
-      break;
-    }
-    realizedUsd += toAmount(sale.realizedUsd);
-  }
-
   // Open lots per asset. If more is open than the customer holds, coins left some other way (a withdrawal, a transfer) and
   // there is no way to say which lot they were: the cost of that asset is unknown, not a guess.
   const openByAsset = new Map<string, { qty: Amount; cost: Amount | null }>();
@@ -183,27 +173,44 @@ export function buildLotBook(input: {
   }
   const assetIds = [...new Set([...openByAsset.keys(), ...input.held.keys()])].sort();
   const assets: BookAsset[] = [];
+  const outside = new Set<string>();
   for (const assetId of assetIds) {
     const open = openByAsset.get(assetId);
     const held = input.held.get(assetId) ?? 0n;
     if (open === undefined && held === 0n) continue;
-    const reconciled = open === undefined || open.qty <= held;
-    if (!reconciled) residuals.add(TAX_LOT_BOOK_UNRECONCILED);
+    // The book only knows coins that came from fills. Held more (a deposit, a transfer in, interest) and a sale may have
+    // used those coins first; held less and some left another way. Either way which lot is open is not known.
+    const reconciled = (open?.qty ?? 0n) === held || PAR_ASSETS.has(assetId.toUpperCase());
+    if (!reconciled) {
+      residuals.add(TAX_LOT_BOOK_UNRECONCILED);
+      outside.add(assetId);
+    }
     if (open?.cost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     assets.push({
       assetId,
       openQty: formatAmount(open?.qty ?? 0n),
-      openCostUsd: open === undefined || !reconciled || open.cost === null ? null : formatAmount(open.cost),
+      openCostUsd: open === undefined || !reconciled || input.truncated || open.cost === null ? null : formatAmount(open.cost),
       held: formatAmount(held),
     });
+  }
+  const unknownSale = (sale: BookSale): BookSale =>
+    input.truncated || outside.has(sale.assetId) ? { ...sale, costUsd: null, realizedUsd: null } : sale;
+  const finalSales = sales.map(unknownSale);
+  let realizedTotal: Amount | null = 0n;
+  for (const sale of finalSales) {
+    if (sale.realizedUsd === null) {
+      realizedTotal = null;
+      break;
+    }
+    realizedTotal += toAmount(sale.realizedUsd);
   }
 
   return {
     method: input.method,
     indicator: INDICATOR_LABEL,
     assets,
-    sales,
-    realizedUsd: sales.length === 0 ? null : realizedUsd === null ? null : formatAmount(realizedUsd),
+    sales: finalSales,
+    realizedUsd: finalSales.length === 0 ? null : realizedTotal === null ? null : formatAmount(realizedTotal),
     residuals: [...residuals].sort(),
   };
 }
