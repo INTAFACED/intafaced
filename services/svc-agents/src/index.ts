@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext } from '@intafaced/contracts';
+import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
@@ -183,12 +183,7 @@ const appRouter = createAgentsRouter({
 
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous.
-const internalSecret = env.INTERNAL_SERVICE_SECRET;
-const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
-  serviceName: env.SERVICE_NAME,
-  ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
-});
+const edgeContext = buildEdgeContext(env);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
