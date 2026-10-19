@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
@@ -234,6 +235,7 @@ export type AppRouter = typeof appRouter;
 const internalSecret = env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
 });
