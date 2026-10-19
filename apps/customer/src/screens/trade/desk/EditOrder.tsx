@@ -19,18 +19,13 @@ import type { DeskMarket } from './market';
 import { checkOrder, padDecimals, scaled } from './order-math';
 import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
 import { problemText } from './problem-text';
+import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
 
-/** Only a plain resting limit order can be changed here: GTC or post-only, still open, nothing waiting on a check. */
-export function canEdit(order: Order): boolean {
-  const tag = orderTag(order);
-  return (
-    order.type === 'limit' && order.status === 'open' && !order.recoveryRequired && order.price !== null && (tag === null || tag === 'PO')
-  );
-}
+export { canEdit };
 
 /**
  * Change an open limit order. A smaller (or larger) amount at the same price goes through the service's native amend,

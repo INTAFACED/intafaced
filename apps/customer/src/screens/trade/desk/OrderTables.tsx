@@ -11,6 +11,7 @@ import type { DeskMarket } from './market';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
 import { canEdit } from './EditOrder';
+import { exitKindKey } from './order-kind';
 import { orderTag } from './tif';
 
 /**
@@ -57,6 +58,22 @@ export function OrderTag({ order }: { order: Pick<Order, 'timeInForce' | 'postOn
   const tag = orderTag(order);
   if (tag === null) return null;
   return <span className="dk-tag">{tag === 'PO' ? t('Tag post only') : tag}</span>;
+}
+
+/** The linked take-profit and stop-loss of an OCO, or of the exit a bracket placed, under the order kind. Nothing on a plain order. */
+export function ExitLegs({ order, tick }: { order: Pick<Order, 'exit'>; tick: string | undefined }) {
+  const { t } = deskCopy.useCopy();
+  const exit = order.exit;
+  if (!exit) return null;
+  const takeProfit = fmtPrice(exit.takeProfit, tick);
+  const stopLoss = fmtPrice(exit.stopLoss, tick);
+  return (
+    <span className="dk-tag dk-exit-legs if-num">
+      {exit.stopLossLimit
+        ? t('Exit legs limit', { takeProfit, stopLoss, limit: fmtPrice(exit.stopLossLimit, tick) })
+        : t('Exit legs', { takeProfit, stopLoss })}
+    </span>
+  );
 }
 
 export function orderStatus(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t']) {
@@ -205,14 +222,17 @@ export function OrdersTable({
               <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
               <td>{order.symbol}</td>
               <td>
-                {order.type === 'limit'
-                  ? t('Order type limit')
-                  : order.type === 'market'
-                    ? t('Order type market')
-                    : order.type === 'stop_limit'
-                      ? `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`
-                      : order.type}
+                {order.exit
+                  ? t(exitKindKey(order.exit.kind))
+                  : order.type === 'limit'
+                    ? t('Order type limit')
+                    : order.type === 'market'
+                      ? t('Order type market')
+                      : order.type === 'stop_limit'
+                        ? `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`
+                        : order.type}
                 <OrderTag order={order} />
+                <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
               </td>
               <td>
                 <Side side={order.side} />

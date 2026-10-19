@@ -4,6 +4,7 @@ import { draftOf } from '../../src/screens/trade/desk/draft-of';
 import { checkOrder, type OrderType, type Side } from '../../src/screens/trade/desk/order-math';
 import type { Tif } from '../../src/screens/trade/desk/tif';
 import { BASE, QUOTE, SYMBOL, balance, orderOf, reviewAndPlace } from './desk';
+import { canEdit, exitKindKey } from '../../src/screens/trade/desk/order-kind';
 import { failureOf } from '../../src/screens/trade/desk/preview';
 import { orderSchema, placeBody } from '../../src/features/trade/trade-api';
 import { fund, ledgerAvailable, newCustomer, until, type Customer } from './stack';
@@ -55,6 +56,15 @@ const restingBid = async (c: Customer, price: string) => {
   return book.ok ? book.data.bids.filter(([p]) => p === price).map(([, amount]) => amount) : [];
 };
 
+/** The order as the desk's open-orders table reads it, with what the table shows for its kind and whether it can be edited. */
+const openRow = async (c: Customer, id: string) => {
+  const open = await c.trade.orders('open', SYMBOL);
+  expect(open.ok, 'the open orders read').toBe(true);
+  const row = open.ok ? open.data.find((o) => o.id === id) : undefined;
+  expect(row, 'the order is in the open list').toBeDefined();
+  return row!;
+};
+
 const restingAt = async (c: Customer, price: string) => {
   const book = await c.trade.book(SYMBOL);
   expect(book.ok, 'the order book read').toBe(true);
@@ -72,6 +82,11 @@ describe('pro trader: OCO tab', () => {
     expect(order).toMatchObject({ side: 'sell', status: 'open', amount: '0.1', price: '131' });
     expect(await balance(seller.trade, BASE)).toMatchObject({ free: '0.9', used: '0.1' });
     expect(await restingAt(seller, '131')).toEqual(['0.1']);
+    // The table names it an OCO with its legs, and does not offer a plain-limit edit (a replace would drop the stop loss).
+    const row = await openRow(seller, order.id);
+    expect(row.exit).toEqual({ kind: 'oco', takeProfit: '131', stopLoss: '91', stopLossLimit: null });
+    expect(exitKindKey(row.exit!.kind)).toBe('Order type oco');
+    expect(canEdit(row)).toBe(false);
     expect(await restingAt(seller, '91')).toEqual([]);
 
     expect((await seller.trade.cancel(order)).ok).toBe(true);
@@ -95,6 +110,9 @@ describe('pro trader: OCO tab', () => {
     expect(order).toMatchObject({ side: 'buy', status: 'open', amount: '0.1' });
     expect(await balance(trader.trade, QUOTE)).toMatchObject({ free: '987.9', used: '12.1' });
     expect(await restingBid(trader, '90')).toEqual(['0.1']);
+    const row = await openRow(trader, order.id);
+    expect(row.exit).toEqual({ kind: 'oco', takeProfit: '90', stopLoss: '120', stopLossLimit: '121' });
+    expect(canEdit(row)).toBe(false);
 
     expect((await trader.trade.cancel(order)).ok).toBe(true);
     await until('hold released', async () => ((await balance(trader.trade, QUOTE)).used === '0' ? true : undefined));
@@ -164,6 +182,10 @@ describe('pro trader: Bracket tab', () => {
       return open.ok ? open.data.find((o) => o.side === 'sell' && o.price === '140') : undefined;
     });
     expect(exit.clientOrderId).toMatch(/^bracket:.+:exit$/);
+    // Not a plain limit sell: the table shows it as a bracket exit with its legs, and it cannot be edited.
+    expect(exit.exit).toMatchObject({ kind: 'bracket_exit', takeProfit: '140', stopLoss: '95' });
+    expect(exitKindKey(exit.exit!.kind)).toBe('Order type bracket exit');
+    expect(canEdit(exit)).toBe(false);
     // One base hold behind the exit pair: exactly what the buyer received, never more than was filled.
     const held = (await balance(buyer.trade, BASE)).used;
     expect(held).toBe(exit.amount);
