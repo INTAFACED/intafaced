@@ -152,7 +152,13 @@ export class OkxSpotMarketData implements MarketDataAdapter {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'instruments carried no data array');
     }
     const observedAt = new Date(this.#clock());
-    return data.map((raw) => this.#market(raw as Record<string, unknown>, observedAt));
+    // An instrument with blank limits is left out, not published and not allowed to hide the rest of the list.
+    const out: VenueMarket[] = [];
+    for (const raw of data) {
+      const market = this.#market(raw as Record<string, unknown>, observedAt);
+      if (market !== null) out.push(market);
+    }
+    return out;
   }
 
   /**
@@ -401,18 +407,14 @@ export class OkxSpotMarketData implements MarketDataAdapter {
     return body.data;
   }
 
-  #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket {
+  #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket | null {
     // A blank tick, lot or minimum size is never replaced with an invented value:
     // publishing made-up limits would let an order pass checks the venue never set.
     const tickSz = readOptionalDecimal(raw.tickSz, VENUE.id, 'tickSz');
     const lotSz = readOptionalDecimal(raw.lotSz, VENUE.id, 'lotSz');
     const minSz = readOptionalDecimal(raw.minSz, VENUE.id, 'minSz');
     if (tickSz === null || tickSz === undefined || lotSz === null || lotSz === undefined || minSz === null || minSz === undefined) {
-      throw new VenueUnavailableError(
-        VENUE.id,
-        'malformed',
-        `instrument ${String(raw.instId ?? '(no instId)')} has a blank tickSz, lotSz or minSz — limits are not invented`,
-      );
+      return null;
     }
     const base = String(raw.baseCcy ?? '');
     const quote = String(raw.quoteCcy ?? '');
