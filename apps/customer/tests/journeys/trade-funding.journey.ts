@@ -49,6 +49,7 @@ describe('pro trader: funding and withdrawal', () => {
     const refused = await payCall('withdrawal.create', withdrawal('journey-nostepup'), plain);
     expect(refused.status).toBeGreaterThanOrEqual(400);
     expect(refused.status).toBeLessThan(500);
+    expect(refused.body).not.toContain('Sanctions screening');
     expect(await ledgerAvailable(person.userId, QUOTE)).toBe('300');
   });
 
@@ -58,6 +59,7 @@ describe('pro trader: funding and withdrawal', () => {
     const elevated = await person.account.stepUp();
     expect(elevated.scopes).toContain('trade:withdraw');
 
+    // The same client reference twice: the refusal is repeatable and the second ask opens nothing.
     for (const clientRef of ['journey-w1', 'journey-w1']) {
       const refused = await payCall('withdrawal.create', withdrawal(clientRef), elevated);
       expect(refused.status).toBe(403);
