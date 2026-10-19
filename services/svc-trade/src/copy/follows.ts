@@ -22,6 +22,12 @@ export interface CopyEnvelope {
   readonly maxAggregateExposure: Amount;
   /** Independent session loss cap — leader settings cannot raise this. */
   readonly maxLoss?: Amount;
+  /** Max |follower limit − leader fill| in whole basis points. Unset means the axis is off. */
+  readonly maxSlippageBps?: number;
+  /** Max placed mirrors of this follow that are not yet terminal. */
+  readonly maxConcurrent?: number;
+  /** Max drop from the follow's peak result. Does not close existing positions. */
+  readonly maxDrawdown?: Amount;
   /** Envelope expiry — unilateral revoke is always allowed before this. */
   readonly expiresAt: Date;
 }
@@ -42,6 +48,8 @@ export interface CopyFollow {
   readonly sessionKeyRevoked?: boolean;
   /** PTX-M26-R05 — ACTIVE ↔ PAUSED → STOPPING → DETACHED. Missing = ACTIVE. */
   readonly relationshipState?: CopyRelationshipState;
+  /** High-water mark of the result figure. Written when a mirror is planned. */
+  readonly peakResult?: Amount;
 }
 
 export interface PresentCopyFollow {
@@ -55,6 +63,10 @@ export interface PresentCopyFollow {
   readonly maxNotionalPerOrder: string;
   readonly maxAggregateExposure: string;
   readonly maxLoss: string | null;
+  readonly maxSlippageBps: number | null;
+  readonly maxConcurrent: number | null;
+  readonly maxDrawdown: string | null;
+  readonly peakResult: string | null;
   /** Cumulative session budget spent — mirrors durable store exposure, not net position. */
   readonly currentExposure: string;
   /** Headroom under maxAggregateExposure; zero when exhausted. */
@@ -171,6 +183,10 @@ export function presentCopyFollow(
     maxNotionalPerOrder: formatAmount(follow.envelope.maxNotionalPerOrder),
     maxAggregateExposure: formatAmount(follow.envelope.maxAggregateExposure),
     maxLoss: follow.envelope.maxLoss !== undefined ? formatAmount(follow.envelope.maxLoss) : null,
+    maxSlippageBps: follow.envelope.maxSlippageBps ?? null,
+    maxConcurrent: follow.envelope.maxConcurrent ?? null,
+    maxDrawdown: follow.envelope.maxDrawdown !== undefined ? formatAmount(follow.envelope.maxDrawdown) : null,
+    peakResult: follow.peakResult !== undefined ? formatAmount(follow.peakResult) : null,
     currentExposure: formatAmount(currentExposure),
     remainingExposure: formatAmount(remaining),
     expiresAt: follow.envelope.expiresAt.toISOString(),

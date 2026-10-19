@@ -302,7 +302,7 @@ describe('the desks cover what the product order asks for', () => {
     for (const read of token.reads) {
       expect(read.module).toBe('token');
       expect(read.plainName, read.id).toBeTruthy();
-      expect(read.forbiddenText, read.id).toMatch(/^Your console session does not have .* permission yet/);
+      expect(read.forbiddenText, read.id).toMatch(/^Your console session does not have .* permission/);
     }
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });

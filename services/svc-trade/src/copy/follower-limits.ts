@@ -9,24 +9,34 @@
 
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { CopyError } from './errors.js';
+import { parseOptionalConcurrent, parseOptionalDrawdown, parseOptionalSlippageBps } from './follow-limits-extra.js';
 import type { CopyEnvelope } from './follows.js';
 
 export type CopyLeaderLimitSettings = {
   readonly maxAllocation?: string | null;
   readonly permittedInstruments?: readonly string[] | null;
   readonly maxLoss?: string | null;
+  readonly maxSlippageBps?: number | null;
+  readonly maxConcurrent?: number | null;
+  readonly maxDrawdown?: string | null;
 };
 
 export type CopyFollowerLimitInput = {
   readonly maxAllocation?: string | null;
   readonly permittedInstruments?: readonly string[] | null;
   readonly maxLoss?: string | null;
+  readonly maxSlippageBps?: number | null;
+  readonly maxConcurrent?: number | null;
+  readonly maxDrawdown?: string | null;
 };
 
 export type BoundCopyFollowerLimits = {
   readonly maxAllocation: Amount;
   readonly permittedInstruments: readonly string[];
   readonly maxLoss: Amount | null;
+  readonly maxSlippageBps: number | null;
+  readonly maxConcurrent: number | null;
+  readonly maxDrawdown: Amount | null;
 };
 
 function present(raw: string | null | undefined): string | undefined {
@@ -77,8 +87,9 @@ function parseOptionalLeaderInstruments(raw: readonly string[] | null | undefine
 
 /**
  * Compose independent follower caps with optional leader recommendations.
- * Missing follower allocation/instruments always refuse. Follower maxLoss
- * refuses when the loss axis is in play (follower or leader supplied it).
+ * Missing follower allocation/instruments always refuse. Follower maxLoss,
+ * slippage, concurrency and drawdown refuse when that axis is in play
+ * (follower or leader supplied it). A leader value can only tighten.
  */
 export function bindCopyFollowerLimits(input: {
   follower: CopyFollowerLimitInput;
@@ -123,10 +134,46 @@ export function bindCopyFollowerLimits(input: {
     maxLoss = leaderLoss;
   }
 
+  const leaderSlippage = leader ? parseOptionalSlippageBps(leader.maxSlippageBps, 'leader') : undefined;
+  const followerSlippage = parseOptionalSlippageBps(input.follower.maxSlippageBps, 'follower');
+  let maxSlippageBps: number | null = null;
+  if (followerSlippage !== undefined || leaderSlippage !== undefined) {
+    if (followerSlippage === undefined) {
+      throw new CopyError('Follower slippage limit is required — refuse rather than inherit a leader cap', 'trade.copy_limit_missing');
+    }
+    maxSlippageBps = followerSlippage;
+    if (leaderSlippage !== undefined && leaderSlippage < maxSlippageBps) maxSlippageBps = leaderSlippage;
+  }
+
+  const leaderConcurrent = leader ? parseOptionalConcurrent(leader.maxConcurrent, 'leader') : undefined;
+  const followerConcurrent = parseOptionalConcurrent(input.follower.maxConcurrent, 'follower');
+  let maxConcurrent: number | null = null;
+  if (followerConcurrent !== undefined || leaderConcurrent !== undefined) {
+    if (followerConcurrent === undefined) {
+      throw new CopyError('Follower concurrency limit is required — refuse rather than inherit a leader cap', 'trade.copy_limit_missing');
+    }
+    maxConcurrent = followerConcurrent;
+    if (leaderConcurrent !== undefined && leaderConcurrent < maxConcurrent) maxConcurrent = leaderConcurrent;
+  }
+
+  const leaderDrawdown = leader ? parseOptionalDrawdown(leader.maxDrawdown, 'leader') : undefined;
+  const followerDrawdown = parseOptionalDrawdown(input.follower.maxDrawdown, 'follower');
+  let maxDrawdown: Amount | null = null;
+  if (followerDrawdown !== undefined || leaderDrawdown !== undefined) {
+    if (followerDrawdown === undefined) {
+      throw new CopyError('Follower drawdown limit is required — refuse rather than inherit a leader cap', 'trade.copy_limit_missing');
+    }
+    maxDrawdown = followerDrawdown;
+    if (leaderDrawdown !== undefined && leaderDrawdown < maxDrawdown) maxDrawdown = leaderDrawdown;
+  }
+
   return {
     maxAllocation: allocation,
     permittedInstruments: instruments,
     maxLoss,
+    maxSlippageBps,
+    maxConcurrent,
+    maxDrawdown,
   };
 }
 
@@ -135,6 +182,9 @@ export function followerLimitsFromEnvelope(envelope: CopyEnvelope): CopyFollower
     maxAllocation: formatAmount(envelope.maxAggregateExposure),
     permittedInstruments: envelope.permittedMarkets,
     maxLoss: envelope.maxLoss !== undefined ? formatAmount(envelope.maxLoss) : undefined,
+    maxSlippageBps: envelope.maxSlippageBps,
+    maxConcurrent: envelope.maxConcurrent,
+    maxDrawdown: envelope.maxDrawdown !== undefined ? formatAmount(envelope.maxDrawdown) : undefined,
   };
 }
 
@@ -146,6 +196,9 @@ export function envelopeWithBoundLimits(envelope: CopyEnvelope, bound: BoundCopy
     maxAggregateExposure: bound.maxAllocation,
     maxNotionalPerOrder,
     ...(bound.maxLoss !== null ? { maxLoss: bound.maxLoss } : {}),
+    ...(bound.maxSlippageBps !== null ? { maxSlippageBps: bound.maxSlippageBps } : {}),
+    ...(bound.maxConcurrent !== null ? { maxConcurrent: bound.maxConcurrent } : {}),
+    ...(bound.maxDrawdown !== null ? { maxDrawdown: bound.maxDrawdown } : {}),
   };
 }
 

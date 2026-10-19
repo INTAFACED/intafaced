@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { cellOfRow, displayCell, formatBps, formatCell, formatDuration, inputFor, readData, rowCountText, tableCells } from './model';
+import {
+  cellOfRow,
+  displayCell,
+  formatBps,
+  formatCell,
+  formatDuration,
+  inputFor,
+  readData,
+  rowCountText,
+  tableCells,
+  withNames,
+} from './model';
+import { DESKS, allReads } from './catalog';
+import { listToCsv } from './csv';
 import type { ReadSpec } from './types';
 
 const base = {
@@ -241,5 +254,62 @@ describe('a list whose service gives a page marker', () => {
     expect(rowCountText(2, true, 2, true)).toContain('more rows exist');
     expect(rowCountText(2, false, 2, true)).toBe('2 rows (that is all of them)');
     expect(rowCountText(2, true, 2)).toContain('more may exist');
+  });
+});
+
+describe('pool names from the earn pools read', () => {
+  const totals = allReads(DESKS.bank).find((r) => r.id === 'bank.pool-totals')!;
+  const pools = allReads(DESKS.bank).find((r) => r.id === 'bank.pools')!;
+  const POOL_ID = '0b5f6a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const OTHER_ID = '9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a';
+  const total = (poolId: string) => ({
+    poolId,
+    assetId: 'USDT',
+    amountHeld: '260.00',
+    amountReason: null,
+    depositorCount: 1,
+    utilisationReason: 'svc-bank does not record utilisation',
+  });
+  const data = readData(totals, { asOf: '2026-10-18T04:00:00.000Z', pools: [total(POOL_ID), total(OTHER_ID)] });
+  const named = {
+    id: 'bank.pools',
+    asOf: '2026-10-18T04:00:00.000Z',
+    part: {
+      kind: 'ok' as const,
+      data: readData(pools, [
+        { id: POOL_ID, assetId: 'USDT', kind: 'flexible', name: 'Flexible USDT', aprBps: 300, termDays: null, minDeposit: '1.00' },
+      ])!,
+    },
+  };
+  if (!data || data.shape !== 'list') throw new Error('fixture does not read');
+
+  it('puts the pool name first and moves the UUID into the detail', () => {
+    const out = withNames(totals, data, named);
+    const first = tableCells(out.rows[0]!);
+    expect(first[0]).toMatchObject({ label: 'Pool', value: 'Flexible USDT' });
+    expect(first.some((c) => c.value === POOL_ID)).toBe(false);
+    expect(out.rows[0]!.cells.find((c) => c.key === 'poolId')).toMatchObject({ detail: true, value: POOL_ID });
+  });
+  it('a pool the pools list does not name says so instead of guessing', () => {
+    expect(cellOfRow(withNames(totals, data, named).rows[1]!, '_name')).toBe('Not in the earn pools list above');
+  });
+  it('a failed or missing pools read says no name could be read, and keeps every row', () => {
+    const failed = {
+      id: 'bank.pools',
+      asOf: named.asOf,
+      part: { kind: 'failed' as const, message: 'x', code: null, notBuilt: false, forbidden: false },
+    };
+    for (const source of [failed, undefined]) {
+      const out = withNames(totals, data, source);
+      expect(out.rows).toHaveLength(2);
+      expect(cellOfRow(out.rows[0]!, '_name')).toBe('No name: the earn pools list above was not read');
+    }
+  });
+  it('the CSV header follows the cells, so the name column lines up', () => {
+    const csv = listToCsv(totals, withNames(totals, data, named));
+    const [header, row] = csv.split('\r\n');
+    expect(header!.split(',')[0]).toBe('Pool');
+    expect(row!.split(',')[0]).toBe('Flexible USDT');
+    expect(header!.split(',')).toHaveLength(row!.split(',').length);
   });
 });

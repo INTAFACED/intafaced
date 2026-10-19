@@ -2,7 +2,7 @@
 
 **Status:** **Accepted — 2026-08-15.** Language seal only. Does not re-open D-S-17.
 **Decision owner:** repo owner. **Written by:** Denon.
-**Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P4-07**.
+**Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P4-07**.
 **Depends on (unchanged):** [`2026-08-02-adopt-vendored-product-keep-our-ledger.md`](2026-08-02-adopt-vendored-product-keep-our-ledger.md) (“Yes for the product. No for the book.”) · [`2026-08-04-java-dual-book-residual.md`](2026-08-04-java-dual-book-residual.md) (D-S-17 residual grades, jars, scans).
 **Not this ADR:** the door-by-door inventory — sibling **D26-P2-02** owns that map. Do not treat this file as that map.
 

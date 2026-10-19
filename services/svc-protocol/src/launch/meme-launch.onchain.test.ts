@@ -43,6 +43,20 @@ describeOnChain('MemeLaunch on chain (S-G1)', () => {
     return clients.publicClient.waitForTransactionReceipt({ hash });
   }
 
+  async function warp(seconds: number) {
+    await clients.publicClient.request({ method: 'evm_increaseTime' as never, params: [seconds] as never });
+    await clients.publicClient.request({ method: 'evm_mine' as never, params: [] as never });
+  }
+
+  async function tokenBalance(token: Address, account: Address) {
+    return (await clients.publicClient.readContract({
+      address: token,
+      abi: tokenAbi,
+      functionName: 'balanceOf',
+      args: [account],
+    })) as bigint;
+  }
+
   beforeAll(async () => {
     if (!chainUp && devChainMod.devChainRequired()) {
       throw new Error('REQUIRE_EVM_CHAIN=1 but no RPC at ' + devChainMod.devRpcUrl());
@@ -207,6 +221,135 @@ describeOnChain('MemeLaunch on chain (S-G1)', () => {
         chain: clients.walletClient.chain,
       }),
     ).rejects.toThrow();
+  }, 120_000);
+
+  it('after unlockTime, claim burns the lock LP and returns the deposited token and quote', async () => {
+    const mock = loadArtifact('MockERC20');
+    const deployMock = async () => {
+      const tx = await clients.walletClient.deployContract({
+        abi: mock.abi,
+        bytecode: mock.bytecode,
+        account: clients.walletClient.account!,
+        chain: clients.walletClient.chain,
+      });
+      return (await clients.publicClient.waitForTransactionReceipt({ hash: tx })).contractAddress!;
+    };
+    const token = await deployMock();
+    const quote = await deployMock();
+    // Same seed and deposit the launch test above already passes. Not a new amount.
+    const seed = 100_000n * WAD;
+    const deposit = 10_000n * WAD;
+    for (const erc20 of [token, quote]) {
+      await write(() =>
+        clients.walletClient.writeContract({
+          address: erc20,
+          abi: tokenAbi,
+          functionName: 'mint',
+          args: [clients.deployer, seed],
+          account: clients.walletClient.account!,
+          chain: clients.walletClient.chain,
+        }),
+      );
+      await write(() =>
+        clients.walletClient.writeContract({
+          address: erc20,
+          abi: tokenAbi,
+          functionName: 'approve',
+          args: [meme, seed],
+          account: clients.walletClient.account!,
+          chain: clients.walletClient.chain,
+        }),
+      );
+    }
+
+    const latest = await clients.publicClient.getBlock();
+    const unlockTime = latest.timestamp + 30n;
+    const receipt = await write(() =>
+      clients.walletClient.writeContract({
+        address: meme,
+        abi: memeAbi,
+        functionName: 'launch',
+        args: [
+          launchArgs({
+            existingToken: token,
+            quoteToken: quote,
+            tokenAmount: deposit,
+            quoteAmount: deposit,
+            unlockTime,
+          }),
+        ],
+        account: clients.walletClient.account!,
+        chain: clients.walletClient.chain,
+      }),
+    );
+    expect(receipt.status).toBe('success');
+
+    let pool: Address = ZERO;
+    let lpLock: Address = ZERO;
+    for (const log of receipt.logs) {
+      try {
+        const decoded = decodeEventLog({ abi: memeAbi, data: log.data, topics: log.topics }) as {
+          eventName: string;
+          args?: { pool?: Address; lpLock?: Address };
+        };
+        if (decoded.eventName === 'Launched' && decoded.args) {
+          pool = decoded.args.pool ?? ZERO;
+          lpLock = decoded.args.lpLock ?? ZERO;
+        }
+      } catch {
+        // logs from the pool / lock / tokens
+      }
+    }
+    expect(pool).not.toBe(ZERO);
+    expect(lpLock).not.toBe(ZERO);
+
+    await expect(
+      clients.walletClient.writeContract({
+        address: lpLock,
+        abi: lockAbi,
+        functionName: 'claim',
+        account: clients.walletClient.account!,
+        chain: clients.walletClient.chain,
+      }),
+    ).rejects.toThrow();
+
+    await warp(31);
+    try {
+      await write(() =>
+        clients.walletClient.writeContract({
+          address: lpLock,
+          abi: lockAbi,
+          functionName: 'claim',
+          account: clients.walletClient.account!,
+          chain: clients.walletClient.chain,
+        }),
+      );
+    } catch {
+      // Score the deposit that is still sitting in the pool.
+    }
+
+    // First mint assigns MINIMUM_LIQUIDITY (1_000) to address(0). Burning the
+    // lock's shares returns the deposit minus that dust.
+    const minimumLiquidity = 1_000n;
+    expect(await tokenBalance(token, pool)).toBe(minimumLiquidity);
+    expect(await tokenBalance(quote, pool)).toBe(minimumLiquidity);
+    expect(await tokenBalance(token, clients.deployer)).toBe(seed - minimumLiquidity);
+    expect(await tokenBalance(quote, clients.deployer)).toBe(seed - minimumLiquidity);
+
+    const lpAtLock = (await clients.publicClient.readContract({
+      address: pool,
+      abi: poolAbi,
+      functionName: 'balanceOf',
+      args: [lpLock],
+    })) as bigint;
+    const lpAtZero = (await clients.publicClient.readContract({
+      address: pool,
+      abi: poolAbi,
+      functionName: 'balanceOf',
+      args: [ZERO],
+    })) as bigint;
+    expect(lpAtLock).toBe(0n);
+    expect(lpAtZero).toBe(minimumLiquidity);
   }, 120_000);
 
   it('reverts on zero amounts, identical tokens, and unlockTime <= now', async () => {

@@ -47,8 +47,7 @@ const CLAIM_KINDS = new Set([
 const UNSET_LAW = new Set(['false', '0', 'off', 'unset', 'invented']);
 
 function setText(raw: string | boolean | null | undefined): string | null {
-  if (raw === undefined || raw === null || raw === false) return null;
-  if (raw === true) return 'named';
+  if (raw === undefined || raw === null || raw === false || raw === true) return null;
   const text = raw.trim();
   return text.length === 0 ? null : text;
 }

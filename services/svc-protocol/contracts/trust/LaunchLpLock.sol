@@ -4,6 +4,14 @@ pragma solidity ^0.8.24;
 import {IERC20Minimal} from "../amm/IERC20Minimal.sol";
 
 /**
+ * Pool LP is internal accounting, not an ERC-20. `burn` redeems the caller's
+ * shares and pushes token0 and token1. There is no share transfer.
+ */
+interface ILpSharePool {
+    function burn(address to, uint256 liquidity) external returns (uint256 amount0, uint256 amount1);
+}
+
+/**
  * LAUNCH LP LOCK — Protocol Plane (board S-L4 / §35 trust layer, LP leg).
  *
  * LP tokens locked until unlockTime. Early withdraw is impossible.
@@ -40,10 +48,14 @@ contract LaunchLpLock {
 
     function claim() external {
         if (block.timestamp < unlockTime) revert LockedStill();
-        uint256 amount = locked;
-        if (amount == 0) revert BadAmount();
+        // Launch mints shares to this lock and never calls `lock`, so `locked`
+        // stays 0. The shares are not transferable. Burn what the pool already
+        // credited here; the pool pushes the deposited token and quote to the
+        // beneficiary. address(0)'s MINIMUM_LIQUIDITY is not this balance.
+        uint256 liquidity = IERC20Minimal(lpToken).balanceOf(address(this));
+        if (liquidity == 0) revert BadAmount();
         locked = 0;
-        if (!IERC20Minimal(lpToken).transfer(beneficiary, amount)) revert TransferFailed();
-        emit Claimed(amount);
+        ILpSharePool(lpToken).burn(beneficiary, liquidity);
+        emit Claimed(liquidity);
     }
 }

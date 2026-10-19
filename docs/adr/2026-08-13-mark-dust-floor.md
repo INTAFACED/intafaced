@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-13 (D26-P0-14 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-14 — `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` + mark dust floor.  
-**Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §4 · part two §P0-14.  
+**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §4 · part two §P0-14.  
 **Builds on:** P0-01 Q3 hard mark exclusion ([`2026-08-08-house-desk-and-market-making-fairness.md`](2026-08-08-house-desk-and-market-making-fairness.md)); `mark-from-depth.ts` dual floor.  
 **Does not invent:** a third percentage, a raised absolute floor “to be safer,” or a cap that lets internal quotes into the mark.
 

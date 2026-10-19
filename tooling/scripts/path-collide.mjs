@@ -1,5 +1,5 @@
 /**
- * Shared path collision helpers for swarm.mjs + claim-check.mjs.
+ * Shared path collision helpers for claim-check.mjs.
  * One algorithm — two call sites must not disagree about who owns a path.
  *
  * Paths are normalised (trailing slashes stripped) so `tooling/` and `tooling`

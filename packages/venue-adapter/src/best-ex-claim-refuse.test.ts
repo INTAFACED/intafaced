@@ -42,6 +42,15 @@ describe('refuseBestExClaim — Q/R named refuse', () => {
     },
   );
 
+  it('boolean true is not a named owner law and does not seal the claim', () => {
+    expect(refuseBestExClaim({ claim: true, ownerBestExLaw: true })).toEqual({
+      ok: false,
+      reason: 'best_ex_unset',
+      code: BEST_EX_CLAIM_UNSET,
+      detail: UNSET_DETAIL,
+    });
+  });
+
   it('named owner law allows the claim through this gate only', () => {
     const sealed = refuseBestExClaim({
       claim: true,

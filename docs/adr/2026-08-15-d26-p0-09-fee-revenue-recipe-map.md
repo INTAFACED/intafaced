@@ -3,8 +3,8 @@
 **Status:** **Accepted — 2026-08-15 (D26-P0-09 law seal).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-09 — fee + revenue recipe map.  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-09.  
-**Index:** [`docs/ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json) `D26-P0-09`.  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-09.  
+**Index:** `docs/ops/owner-ruling-packet.json` (removed) `D26-P0-09`.  
 **Does not invent:** a new ledger recipe, a fee magnitude, a compose default for `TRADE_FUTURES_PROFIT_SOURCE`, or a second money book.
 
 ---
