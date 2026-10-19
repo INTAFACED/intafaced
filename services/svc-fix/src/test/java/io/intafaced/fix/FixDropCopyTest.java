@@ -298,6 +298,30 @@ class FixDropCopyTest {
     }
 
     @Test
+    void publishWithoutAListenerDoesNotReportStreamedSuccess() throws Exception {
+        DropCopyHub hub = new DropCopyHub();
+        Message er = ExecutionReportFactory.fromAck(
+                new MatchingOrderCommand(
+                        "clid", FixVersions.BEGINSTRING_FIX44, null, "BTC/USDT", "buy", "limit", "1.50", "100.25", "CLIENT", "GTC"),
+                new MatchingAck(true, 11L));
+        DropCopyPublishResult silent = hub.publish(DropCopyCatalog.FIX, er);
+        assertFalse(silent.ok, silent.errorMessage);
+        assertEquals(0, silent.delivered);
+        assertEquals("dropcopy_not_delivered", silent.errorCode);
+        assertEquals(List.of(), hub.included());
+        assertFalse(hub.claimComplete().included.contains(DropCopyCatalog.FIX));
+
+        FixDropCopyApplication listener = new FixDropCopyApplication(hub);
+        DropCopyPublishResult streamed = hub.publish(DropCopyCatalog.FIX, er);
+        assertTrue(streamed.ok, streamed.errorMessage);
+        assertEquals(1, streamed.delivered);
+        assertNull(streamed.errorCode);
+        assertEquals(1, listener.outbound().size());
+        assertEquals("11", listener.outbound().get(0).getString(ExecID.FIELD));
+        assertEquals(List.of(DropCopyCatalog.FIX), hub.included());
+    }
+
+    @Test
     void orderEntryExecutionReportIsTheIncludedFixSource() throws Exception {
         DropCopyHub hub = new DropCopyHub();
         FixDropCopyApplication drop = new FixDropCopyApplication(hub);
