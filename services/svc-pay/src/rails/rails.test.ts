@@ -248,6 +248,25 @@ describe('crypto-native — finality is the whole rail', () => {
     expect(localChain.totalSent('USDT')).toBe('70');
   });
 
+  it('answers a replayed full refund with its first result, not refund.exceeds_captured', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.credit({ address, assetId: 'USDT', amount: amt('100'), from: '0xbuyer', confirmations: 12 });
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    const first = await adapter.refund(auth.railRef, amt('100'), { refundId: 'pay-1:1' });
+    expect(first.ok).toBe(true);
+
+    // A lost reply makes the core retry the same refund id. The refunded total
+    // is already 100, so the refundable check must not run before the replay
+    // lookup: the rail would report a failure for a refund it already sent.
+    const replay = await adapter.refund(auth.railRef, amt('100'), { refundId: 'pay-1:1' });
+    expect(replay.ok).toBe(true);
+    expect(replay.raw).toMatchObject({ idempotencyKey: `pay.refund:${auth.railRef}:pay-1:1` });
+    expect(localChain.outboundTransfers()).toHaveLength(1);
+    expect(localChain.totalSent('USDT')).toBe('100');
+  });
+
   it('never broadcasts a payout twice for one settlement', async () => {
     const instruction = {
       settlementId: 's-1',
