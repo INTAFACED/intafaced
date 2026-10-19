@@ -124,7 +124,8 @@ describe('escrowView', () => {
     const seller = escrowView(trade({ status: 'fiat_sent' }), SELLER);
     expect(states(seller)).toBe('done,done,done,current');
     expect(seller.waitingOn).toBe('you');
-    expect(seller.actions).toEqual(['release', 'cancel', 'dispute']);
+    // Once the buyer has marked paid the seller cannot cancel (svc-p2p refuses it); release or dispute only.
+    expect(seller.actions).toEqual(['release', 'dispute']);
     const buyer = escrowView(trade({ status: 'fiat_sent' }), BUYER);
     expect(buyer.waitingOn).toBe('counterparty');
     expect(buyer.actions).toEqual(['dispute']);

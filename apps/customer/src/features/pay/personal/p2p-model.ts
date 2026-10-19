@@ -74,11 +74,8 @@ export function escrowView(trade: TradeFacts, userId: string | null): EscrowView
   const actions: OrderAction[] = [];
   if (role === 'buyer' && trade.status === 'escrowed') actions.push('markPaid');
   if (role === 'seller' && trade.status === 'fiat_sent') actions.push('release');
-  if (
-    role !== 'observer' &&
-    (trade.status === 'created' || trade.status === 'escrowed' || (trade.status === 'fiat_sent' && role === 'seller'))
-  )
-    actions.push('cancel');
+  // No cancel once the buyer has marked paid: the way out for either side is release or a dispute.
+  if (role !== 'observer' && (trade.status === 'created' || trade.status === 'escrowed')) actions.push('cancel');
   if (role !== 'observer' && (trade.status === 'escrowed' || trade.status === 'fiat_sent')) actions.push('dispute');
   switch (trade.status) {
     case 'created':

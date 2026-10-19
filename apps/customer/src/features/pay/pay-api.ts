@@ -639,10 +639,7 @@ export function createPersonalPayApi(
         return payRefusal('onlyTheBuyerOfAnEscrowedOrder', { code: 'pay.trade_action_invalid' });
       if (action === 'confirmReceived' && (trade.sellerId !== userId || trade.status !== 'fiat_sent'))
         return payRefusal('releaseRequiresTheSellerToConfirmAn', { code: 'pay.trade_action_invalid' });
-      if (
-        action === 'cancel' &&
-        !(['created', 'escrowed'].includes(trade.status) || (trade.status === 'fiat_sent' && trade.sellerId === userId))
-      )
+      if (action === 'cancel' && !['created', 'escrowed'].includes(trade.status))
         return payRefusal('thisOrderCannotBeCancelledInIts', { code: 'pay.trade_action_invalid' });
       return guard.run(
         `${userId}:trade:${tradeId}`,
