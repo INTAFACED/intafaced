@@ -103,8 +103,8 @@ export function failureRefusal(service: string, module: DeskModule, failure: Fou
           ? base
           : {
               ...base,
-              title: `Your console session does not have ${PERMISSION_NAME[module] ?? 'operator'} permission yet`,
-              body: `${service} did not accept your founder session for this. It needs ${NEEDS[module] ?? 'an operator permission'}, and founder sign-in does not carry that yet. Nothing was changed.`,
+              title: `Your console session does not have ${PERMISSION_NAME[module] ?? 'operator'} permission`,
+              body: `${service} did not accept your founder session for this. It needs ${NEEDS[module] ?? 'an operator permission'}, and founder sign-in does not carry it. Nothing was changed.`,
               next: 'See the back-end needs note for the permission to grant.',
             },
       };

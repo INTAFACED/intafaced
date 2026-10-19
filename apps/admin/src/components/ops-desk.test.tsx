@@ -137,6 +137,24 @@ describe('p2p desk', () => {
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Release or refund escrow<\/button>/);
     expect(html).toContain('Not available: Traded volume, cancel rate and release time over a period');
   });
+  it('folds the fiat currency table behind its count and CSV export, with every row still one click away', () => {
+    const fiat = Array.from({ length: 119 }, (_, i) => ({
+      code: `C${String(i).padStart(2, '0')}`,
+      name: `Currency ${i}`,
+      symbol: '¤',
+      minorUnits: 2,
+    }));
+    const html = render(props('p2p', view('p2p', [okOutcome('p2p', 'p2p.fiat', fiat)])));
+    const block = html.slice(html.indexOf('data-testid="read-p2p.fiat"'));
+    expect(block).toContain('119 rows');
+    expect(block).toContain('data-testid="export-csv"');
+    expect(block).toMatch(/<details data-testid="list-collapsed"><summary>Show all 119 rows<\/summary>/);
+    expect(block.indexOf('export-csv')).toBeLessThan(block.indexOf('<table'));
+    expect(block).toContain('Currency 118');
+  });
+  it('leaves work lists such as disputes and offers open', () => {
+    for (const spec of allReads(DESKS.p2p)) if (spec.id !== 'p2p.fiat') expect(spec.collapsed, spec.id).toBeUndefined();
+  });
 });
 
 describe('academy and more desks', () => {
@@ -326,14 +344,14 @@ describe('token section', () => {
           failed('token.burned', {
             forbidden: true,
             message:
-              'Your console session does not have token read permission yet: svc-token did not accept your founder session for this read (it needs token:read).',
+              'Your console session does not have token read permission: svc-token did not accept your founder session for this read (it needs token:read).',
           }),
           okOutcome('more', 'token.epoch', { epoch: 3 }),
         ]),
       ),
     );
     expect(html).toContain('Could not load burned supply');
-    expect(html).toContain('Your console session does not have token read permission yet');
+    expect(html).toContain('Your console session does not have token read permission');
     expect(html).toMatch(/<dt>Next epoch<\/dt><dd>3<\/dd>/);
   });
 });

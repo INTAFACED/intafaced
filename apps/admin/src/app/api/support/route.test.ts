@@ -168,7 +168,7 @@ describe('POST claim', () => {
       vi.fn(async () => trpcErr(403, 'Missing scope')),
     );
     const json = await (await post({ action: 'claim', ticketId: T1 })).json();
-    expect(json.refusal.title).toBe('Your console session does not have support operations permission yet');
+    expect(json.refusal.title).toBe('Your console session does not have support operations permission');
   });
   it('a dropped connection is "not known"', async () => {
     vi.stubGlobal(
@@ -235,7 +235,7 @@ describe('GET extras and articles', () => {
     const json = await (await get(`?view=extras&id=${T1}`)).json();
     for (const part of [json.caseFile, json.rating]) {
       expect(part).toMatchObject({ kind: 'failed', forbidden: true });
-      expect(part.message).toContain('Your console session does not have support operations permission yet');
+      expect(part.message).toContain('Your console session does not have support operations permission');
       expect(part).not.toHaveProperty('data');
     }
   });
@@ -395,7 +395,7 @@ describe('POST desk writes', () => {
     const json = await res.json();
     expect(json).toMatchObject({
       ok: false,
-      refusal: { title: 'Your console session does not have support operations permission yet', changed: 'no' },
+      refusal: { title: 'Your console session does not have support operations permission', changed: 'no' },
     });
     expect(json).not.toHaveProperty('summary');
   });

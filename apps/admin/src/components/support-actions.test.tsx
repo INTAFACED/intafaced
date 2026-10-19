@@ -19,7 +19,7 @@ const U = '33333333-3333-4333-8333-333333333333';
 const FORBIDDEN: ActionReply = {
   ok: false,
   refusal: {
-    title: 'Your console session does not have support operations permission yet',
+    title: 'Your console session does not have support operations permission',
     body: 'b',
     next: 'Nothing was changed.',
     code: 'scope.denied',
@@ -67,7 +67,7 @@ describe('ticket actions render for every founder', () => {
 
   it('never hides a control because of permission: nothing on the page mentions support:ops until the service answers', () => {
     expect(html()).not.toContain('support:ops');
-    expect(html()).not.toContain('permission yet');
+    expect(html()).not.toContain('operations permission');
   });
 
   it('on a closed ticket the status select offers nothing and every button says why it is off', () => {
@@ -119,7 +119,7 @@ describe('the second click', () => {
 describe('what the service answered', () => {
   it('a forbidden reply shows the support-operations message beside the control that was used, and no "Done"', () => {
     const markup = html({ outcome: { kind: 'reply', reply: FORBIDDEN } });
-    expect(markup).toContain('Your console session does not have support operations permission yet');
+    expect(markup).toContain('Your console session does not have support operations permission');
     expect(markup).toContain('data-testid="reply-outcome"');
     expect(markup).not.toContain('Done');
     expect(markup).not.toContain('status-outcome');
@@ -217,7 +217,7 @@ describe('case file and rating', () => {
   it('a forbidden part is the support-operations message, not "none"', () => {
     const forbidden = {
       kind: 'failed',
-      message: 'Your console session does not have support operations permission yet. More.',
+      message: 'Your console session does not have support operations permission. More.',
       code: null,
       notBuilt: false,
       forbidden: true,
@@ -225,7 +225,7 @@ describe('case file and rating', () => {
     const m = markup(extras({ caseFile: forbidden, rating: forbidden }));
     expect(m).toContain('Case file unavailable');
     expect(m).toContain('Rating unavailable');
-    expect(m).toContain('support operations permission yet');
+    expect(m).toContain('support operations permission');
     expect(m).not.toContain('never escalated');
     expect(m).not.toContain('has not rated');
   });
@@ -323,7 +323,7 @@ describe('help articles panel', () => {
   });
   it('a forbidden founder sees the reply beside the form, and the controls stay', () => {
     const m = panel({ outcome: FORBIDDEN });
-    expect(m).toContain('support operations permission yet');
+    expect(m).toContain('support operations permission');
     expect(m).toContain('Review publish');
     expect(m).toContain('Unpublish');
   });
