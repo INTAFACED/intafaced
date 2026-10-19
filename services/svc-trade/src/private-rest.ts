@@ -714,6 +714,9 @@ export function parseAmendOrderBody(body: unknown): AmendBodyParse {
   }
 
   let price: Amount | undefined;
+  if (rec.price !== undefined && rec.price !== null && typeof rec.price !== 'string') {
+    return { ok: false, message: 'price must be a positive decimal string' };
+  }
   if (typeof rec.price === 'string') {
     try {
       price = parseAmount(rec.price);
