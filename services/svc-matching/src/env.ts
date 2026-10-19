@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { parseOperatorIds } from './action-approval-consume.js';
 import {
   baseEnvSchema,
+  edgeEnvSchema,
   httpEnvSchema,
   internalServiceEnvSchema,
   loadEnv,
@@ -110,6 +111,11 @@ const schema = baseEnvSchema
         (value) => (typeof value !== 'string' || value.trim() === '' ? undefined : value.trim()),
         z.string().min(32).optional(),
       ),
+
+      /** The edge's Ed25519 public key; with it the founder door also accepts public-key signatures. */
+      EDGE_PRINCIPAL_PUBLIC_KEY: edgeEnvSchema.shape.EDGE_PRINCIPAL_PUBLIC_KEY,
+      EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: edgeEnvSchema.shape.EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS,
+      EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: edgeEnvSchema.shape.EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS,
 
       MATCHING_OPERATOR_IDS: z
         .string()

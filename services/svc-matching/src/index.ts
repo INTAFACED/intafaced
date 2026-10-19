@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { JetStreamEventBus } from '@intafaced/events';
 import { createHttpLedgerClient } from '@intafaced/ledger-client';
 import { env } from './env.js';
@@ -132,6 +133,7 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   approvals: actionApprovals,
   operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
   ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
+  ...edgeTrustFromEnv(env),
 });
 
 const holds = env.LEDGER_URL
