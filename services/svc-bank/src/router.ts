@@ -31,6 +31,7 @@ import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js'
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
+import { ALLOCATION_CLASSES, ALLOCATION_TYPES } from './portfolio/allocation.js';
 import {
   addMemberBinding,
   removeMemberBinding,
@@ -108,6 +109,21 @@ const balanceBreakdownOutput = z.object({
       ),
     }),
   ),
+});
+
+const allocationOutput = z.object({
+  totalValueUsd: signedAmountString,
+  classes: z.array(
+    z.object({
+      class: z.enum(ALLOCATION_CLASSES),
+      valueUsd: signedAmountString,
+      share: signedAmountString,
+      assets: z.array(z.object({ asset: z.string(), valueUsd: signedAmountString, share: signedAmountString })),
+    }),
+  ),
+  types: z.array(z.object({ type: z.enum(ALLOCATION_TYPES), valueUsd: signedAmountString, share: signedAmountString })),
+  unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
+  asOf: z.number().int(),
 });
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
@@ -1498,6 +1514,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     summary: scopedProcedure('bank:read', { module: 'bank' })
       .output(portfolioSummaryOutput)
       .query(async ({ ctx }) => guard(async () => bank.portfolio.summary(ctx.principal.userId))),
+    /** The priced holdings by asset class and by available / locked (PF-balances-02). Same prices and refusals as `summary`. */
+    allocation: scopedProcedure('bank:read', { module: 'bank' })
+      .output(allocationOutput)
+      .query(async ({ ctx }) => guard(async () => bank.portfolio.allocation(ctx.principal.userId))),
     /**
      * Each asset split into spendable and every lock kind with the claim behind it (PF-balances-01). Read-only, self-only,
      * ledger reads only; the parts add up to the total exactly.
