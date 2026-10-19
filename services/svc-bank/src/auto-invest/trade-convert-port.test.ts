@@ -446,6 +446,11 @@ describe('tradeConvertPort.convert — after execute is sent, a bad answer is an
     await expect(run(async () => Promise.reject(new Error('socket hang up')))).rejects.toMatchObject(unknown);
     await expect(run(async () => jsonResponse(502, { error: { message: 'bad gateway' } }))).rejects.toMatchObject(unknown);
     await expect(run(async () => jsonResponse(400, { error: { message: 'nope' } }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => new Response('<html>bad gateway</html>', { status: 200 }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => new Response('{"result":', { status: 200 }))).rejects.toMatchObject(unknown);
+    await expect(
+      run(async () => jsonResponse(200, { error: { message: 'x', data: { intafacedCode: 'trade.convert_quote_expired' } } })),
+    ).rejects.toMatchObject(unknown);
     await expect(
       run(async () => jsonResponse(409, { error: { message: 'x', data: { intafacedCode: 'trade.convert_quote_expired' } } })),
     ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });

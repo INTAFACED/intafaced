@@ -178,13 +178,19 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       });
       const text = await res.text().catch(() => '');
       let parsed: unknown = text;
+      let unreadable = false;
       try {
         parsed = text ? JSON.parse(text) : null;
       } catch {
+        unreadable = true;
         parsed = { error: { message: text || `http ${res.status}` } };
       }
+      if (input.settles && res.ok && (unreadable || (parsed !== null && typeof parsed === 'object' && 'error' in parsed))) {
+        // A 2xx that is not a clean answer: the settle may have committed.
+        throw new ConvertOutcomeUnknown('convert execute answered 2xx with an unreadable or error body');
+      }
       if (!res.ok) {
-        const rec = parsed as { error?: { message?: string; data?: { intafacedCode?: string } }; intafacedCode?: string };
+        const rec = (parsed ?? {}) as { error?: { message?: string; data?: { intafacedCode?: string } }; intafacedCode?: string };
         const code = rec.error?.data?.intafacedCode ?? rec.intafacedCode;
         if (input.settles && (code === undefined || res.status >= 500)) {
           throw new ConvertOutcomeUnknown(`convert execute answered http ${res.status} without a typed refusal`);
