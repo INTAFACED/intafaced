@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
-import { s2sFromEnv } from '@intafaced/contracts';
+import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
@@ -195,6 +195,9 @@ const edgeContext = buildEdgeContext(
 );
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
+
+// A key-signed call binds its body bytes; /trpc reads them from here.
+retainRawBody(app);
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 
