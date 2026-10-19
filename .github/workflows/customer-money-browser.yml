@@ -1,0 +1,46 @@
+# Money screen browser checks (Playwright, mocked API, no services). Runs only when the customer app, or what it is built from,
+# changes: a screen and its browser check drifted apart once and nothing noticed because no job ran this suite.
+name: Customer Money browser checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/customer/**'
+      - 'packages/ui/**'
+      - 'packages/i18n/**'
+      - 'packages/exchange-contract/**'
+      - 'packages/contracts/**'
+      - '.github/workflows/customer-money-browser.yml'
+
+concurrency:
+  group: customer-money-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  money:
+    name: Money browser checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the packages the customer app imports
+        run: pnpm exec turbo run build --filter=@intafaced/customer^...
+
+      - name: Install the browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Money screen in the harness
+        run: pnpm exec playwright test --config apps/customer/src/screens/money/money.playwright.config.mjs
