@@ -63,7 +63,7 @@ import {
   usePendingOrder,
   type Pending,
 } from './pending';
-import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
@@ -894,6 +894,14 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           {rate ? ` (${t('Review fee rate', { rate })})` : ''}
         </dd>
       </div>
+      {exitFeeLines(preview).map((line) => (
+        <div key={line.leg}>
+          <dt>{line.leg === 'takeProfit' ? t('Review take profit fee') : t('Review stop loss fee')}</dt>
+          <dd className="if-num">
+            {fmtAmount(line.fee, { places: 8 })} {line.asset} ({t('Review fee rate', { rate: fmtPct(line.ratio, { signed: false }) })})
+          </dd>
+        </div>
+      ))}
       {preview.protectionPrice ? (
         <div>
           <dt>{t('Review protection')}</dt>

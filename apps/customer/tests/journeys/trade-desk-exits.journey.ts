@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatAmount, mul, mulBps, parseAmount } from '@intafaced/ledger-client';
 import type { Draft } from '../../src/features/trade/trade-api';
 import { draftOf } from '../../src/screens/trade/desk/draft-of';
 import { checkOrder, type OrderType, type Side } from '../../src/screens/trade/desk/order-math';
@@ -92,6 +93,31 @@ describe('pro trader: OCO tab', () => {
     expect((await seller.trade.cancel(order)).ok).toBe(true);
     await until('hold released', async () => ((await balance(seller.trade, BASE)).used === '0' ? true : undefined));
     expect(await ledgerAvailable(seller.userId, BASE)).toBe('1');
+  });
+
+  it('the review prices both exit legs: take-profit as maker, stop-loss as taker, from the published schedule', async () => {
+    const seller = await newCustomer();
+    await fund(seller.userId, BASE, '1');
+    const d = formDraft({ side: 'sell', type: 'oco', tif: 'GTC', price: '131', stopPrice: '91', amount: '0.1' });
+    const review = await seller.trade.preview(d);
+    expect(review.ok, 'the preview read').toBe(true);
+    if (!review.ok) return;
+    expect(review.data.refusals).toEqual([]);
+    const exit = review.data.exitFees;
+    expect(exit, 'the service priced the exit legs').toBeTruthy();
+    if (!exit) return;
+    // A sell OCO's legs sell: the fee is a share of the quote value, in the quote asset, rounded up.
+    const fee = (price: string, bps: number) => formatAmount(mulBps(mul(parseAmount(price), parseAmount('0.1'), 'floor'), bps, 'ceil'));
+    expect(exit).toMatchObject({
+      side: 'sell',
+      takeProfit: { price: '131', feeRole: 'maker', feeAsset: QUOTE },
+      stopLoss: { price: '91', feeRole: 'taker', feeAsset: QUOTE },
+    });
+    expect(exit.takeProfit.estimatedFee).toBe(fee('131', exit.takeProfit.feeBps));
+    expect(exit.stopLoss.estimatedFee).toBe(fee('91', exit.stopLoss.feeBps));
+    // A plain order of the same shape is previewed without exit fees.
+    const plain = await seller.trade.preview({ ...d, exit: undefined });
+    expect(plain.ok && (plain.data.exitFees ?? null)).toBeNull();
   });
 
   it('buy side: holds quote once at the stop-loss limit, rests the take-profit buy, and a cancel releases it', async () => {

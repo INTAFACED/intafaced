@@ -341,6 +341,8 @@ const messages = {
   'Review hold': 'We’ll set aside',
   'Review fee': 'Estimated fee',
   'Review fee rate': 'up to {rate}',
+  'Review take profit fee': 'Take-profit fee',
+  'Review stop loss fee': 'Stop-loss fee',
   'Review protection': 'Price protection',
   'Review protection buy': 'You won’t pay more than {price} {asset} per {base}.',
   'Review protection sell': 'You won’t sell for less than {price} {asset} per {base}.',
