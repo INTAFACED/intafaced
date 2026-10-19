@@ -9,9 +9,12 @@
  * the PR (MAINRED3: a svc-trade change broke an apps/customer test that reads
  * svc-trade's files).
  *
- * Fails any test file that names another workspace package's directory, by
- * literal path or by `..` hops, unless the read is declared. Declare it in
- * `tooling/ci/test-read-edges.json` ("<reader dir>": ["<read dir>", ...]); the
+ * Finds every test file that names another workspace package's directory, by
+ * literal path or by `..` hops. The affected-test selection (ci-affected.mjs)
+ * adds each detected read as an edge itself, so an undeclared read is only
+ * printed as a notice. What still fails: an edge-list entry naming a directory
+ * that is not a workspace package. An edge can also be declared in
+ * `tooling/ci/test-read-edges.json` for a read the scan cannot see ("<reader dir>": ["<read dir>", ...]); the
  * affected-test selection treats each edge as "the reader depends on the read
  * package". The edge list, not a package.json devDependency, because a
  * devDependency would make a cycle for 18 of today's 38 edges (contracts and
@@ -99,7 +102,7 @@ export function loadEdges(root = ROOT) {
   return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')).edges ?? {}) : {};
 }
 
-export function scan(root = ROOT) {
+export function scan(root = ROOT, { ignoreDeclared = false } = {}) {
   const pkgs = loadPackages(root);
   const dirs = new Set(pkgs.keys());
   const edges = loadEdges(root);
@@ -118,12 +121,23 @@ export function scan(root = ROOT) {
       const text = stripComments(readFileSync(file, 'utf8'));
       for (const d of referencedDirs(text, dirname(rel), pkg.dir, dirs)) {
         const other = pkgs.get(d);
-        if (pkg.deps.has(other.name) || (edges[pkg.dir] ?? []).includes(d)) continue;
+        if (pkg.deps.has(other.name) || (!ignoreDeclared && (edges[pkg.dir] ?? []).includes(d))) continue;
         problems.push({ file: rel, owner: pkg.name, reads: other.name, dir: d });
       }
     }
   }
   return { problems, files, packages: pkgs.size };
+}
+
+/** Reads the scan found, as the edge-list shape: { "<reader dir>": ["<read dir>", ...] }. */
+export function detectedEdges(root = ROOT) {
+  const out = {};
+  for (const p of scan(root, { ignoreDeclared: true }).problems) {
+    if (p.stale) continue;
+    const reader = p.file.split('/').slice(0, 2).join('/');
+    (out[reader] ??= []).includes(p.dir) || out[reader].push(p.dir);
+  }
+  return out;
 }
 
 function selfTest() {
@@ -141,12 +155,11 @@ function selfTest() {
   console.log('✓ cross-package-reads --self-test OK (6 fixtures)');
 }
 
-if (process.argv.includes('--self-test')) {
-  selfTest();
-  process.exit(0);
-}
-
 if (import.meta.url === `file://${process.argv[1]}`) {
+  if (process.argv.includes('--self-test')) {
+    selfTest();
+    process.exit(0);
+  }
   const { problems, files, packages } = scan();
   if (files === 0) {
     console.error(
@@ -154,18 +167,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     );
     process.exit(1);
   }
-  if (problems.length) {
-    console.error(`\n✖ CROSS-PACKAGE READ SCAN FAILED — ${problems.length} undeclared read(s)\n`);
-    console.error("  A test reads another package's files without declaring it, so the affected-test");
-    console.error('  selection would not run the test when that package changes. Add the read to');
-    console.error(`  ${EDGES_FILE} under the reader's directory.\n`);
-    for (const p of problems) {
-      console.error(
-        p.stale
-          ? `  ${p.file}\n    → names ${p.dir}, which is not a workspace package\n`
-          : `  ${p.file}\n    → reads ${p.reads} (${p.dir}); ${p.owner} does not declare it\n`,
-      );
-    }
+  const stale = problems.filter((p) => p.stale);
+  const undeclared = problems.filter((p) => !p.stale);
+  if (undeclared.length) {
+    console.log(
+      `ℹ cross-package-reads — ${undeclared.length} read(s) not in ${EDGES_FILE}; the selection adds them itself, no action needed:`,
+    );
+    for (const p of undeclared) console.log(`  ${p.file} reads ${p.reads} (${p.dir})`);
+  }
+  if (stale.length) {
+    console.error(`\n✖ CROSS-PACKAGE READ SCAN FAILED — ${stale.length} stale edge(s) in ${EDGES_FILE}\n`);
+    for (const p of stale) console.error(`  ${p.file}\n    → names ${p.dir}, which is not a workspace package\n`);
     process.exit(1);
   }
   console.log(`✓ cross-package-reads clean — ${files} test file(s) across ${packages} package(s)`);

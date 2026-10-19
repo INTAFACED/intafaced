@@ -19,6 +19,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { detectedEdges } from './cross-package-reads.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -66,11 +67,21 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
  */
 export function readEdges() {
+  let declared = {};
   try {
-    return JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
+    declared = JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
   } catch {
-    return {};
+    /* no declared edges */
   }
+  // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected.
+  return mergeEdges(declared, detectedEdges());
+}
+
+export function mergeEdges(a, b) {
+  const out = {};
+  for (const src of [a, b])
+    for (const [reader, reads] of Object.entries(src)) out[reader] = [...new Set([...(out[reader] ?? []), ...reads])];
+  return out;
 }
 
 /**
@@ -206,6 +217,18 @@ function selfTest() {
     'every reader of every changed package is selected',
   );
   assert(!affectedFilters(['services/svc-trade-extra/a.ts'], edges).includes('./apps/customer'), 'a prefix sibling is not a match');
+  assert(
+    same(Object.entries(mergeEdges({ 'apps/a': ['x', 'y'] }, { 'apps/a': ['y', 'z'], 'apps/b': ['x'] })).flat(2), [
+      'apps/a',
+      'x',
+      'y',
+      'z',
+      'apps/b',
+      'x',
+    ]),
+    'declared and detected edges merge without duplicates',
+  );
+  assert(detectedEdges()['apps/customer']?.includes('services/svc-trade'), 'a read the scan finds becomes an edge with no declaration');
 
   const ok = { changes: 'success', gates: 'success', format: 'success', build: 'success' };
   assert(sealNeeded(none, ok).length === 0, 'docs only needs no test job');
@@ -218,7 +241,7 @@ function selfTest() {
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
   assert(same(shardMatrix({ full: true }), ['1/4', '2/4', '3/4', '4/4']), 'a full run is split four ways');
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
-  console.log('✓ ci-affected --self-test OK (' + (cases.length + 12) + ' fixtures)');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 14) + ' fixtures)');
 }
 
 function githubOutput(flags) {
