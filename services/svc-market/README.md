@@ -251,6 +251,10 @@ lifecycle or market purchases yet. Declaring a subject with no publisher is an
 orphan the wiring gate correctly refuses. Unstake has no bus subject either —
 eligibility re-reads svc-token live instead.
 
+## Service keys (S2S v3)
+
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-market's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The calls to identity and token still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
 ## Ledger
 
 **Vendors half moves no value.** Slot capacity is not money. **Commerce half**

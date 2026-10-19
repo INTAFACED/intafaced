@@ -1,5 +1,5 @@
 import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
  * Budgets for svc-ledger calls.
@@ -38,10 +38,15 @@ const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const
  * `CommerceService.requireMatchingReceipt` compare real legs instead of being skipped for an empty list (its
  * `tx.entries.length > 0` guard used to be false for every HTTP receipt).
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
+export function createLedgerClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): LedgerClient {
   const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
     baseUrl,
-    sign: (payload) => serviceAuthHeadersForBody('svc-market', internalSecret, payload),
+    // With a signing key the ledger names this caller from the key; without one the call is signed as it always was.
+    sign: serviceCallSigner({ service: 'svc-market', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
     // client is built (telemetry, a test door) still sees every ledger call.
     fetch: (input, init) => globalThis.fetch(input, init),
