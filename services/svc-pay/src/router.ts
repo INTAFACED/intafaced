@@ -2164,11 +2164,12 @@ export function createPayRouter(
         ),
 
       /**
-       * Support read of one withdrawal for its owner. No recall control.
-       * `support:read` so a customer session cannot relabel another account.
+       * Read of one of the caller's own withdrawals (status and attempts). No
+       * recall control. The owner is always the signed-in caller, never a value
+       * from the request, so a withdrawal id alone reads nothing of another account.
        */
       supportRead: scopedProcedure('support:read')
-        .input(z.object({ withdrawalId: z.string().uuid(), ownerUserId: z.string().uuid() }))
+        .input(z.object({ withdrawalId: z.string().uuid() }))
         .output(
           z.object({
             withdrawalId: z.string(),
@@ -2179,7 +2180,7 @@ export function createPayRouter(
             status: z.string(),
           }),
         )
-        .query(({ input }) => wrap(async () => userMoney.supportReadWithdrawal(input.withdrawalId, input.ownerUserId))),
+        .query(({ ctx, input }) => wrap(async () => userMoney.supportReadWithdrawal(input.withdrawalId, ctx.principal.userId))),
 
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
