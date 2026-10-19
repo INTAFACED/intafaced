@@ -27,8 +27,36 @@ export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 export interface SpotOrderPreviewRefusal {
   code: string;
   field:
-    'symbol' | 'type' | 'side' | 'amount' | 'price' | 'timeInForce' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region' | 'stopPrice';
+    | 'symbol'
+    | 'type'
+    | 'side'
+    | 'amount'
+    | 'price'
+    | 'timeInForce'
+    | 'holdAmount'
+    | 'fee'
+    | 'protectionPrice'
+    | 'region'
+    | 'stopPrice'
+    | 'exit';
   message: string;
+}
+
+/** The fee a linked exit leg would post if it filled: the take-profit rests (maker), the stop-loss takes. */
+export interface SpotOrderPreviewExitLegFee {
+  /** Price the estimate is figured at: the take-profit price, or the stop trigger (its limit for a buy). */
+  price: string;
+  feeRole: 'maker' | 'taker';
+  feeBps: number;
+  estimatedFee: string;
+  feeAsset: string;
+}
+
+export interface SpotOrderPreviewExitFees {
+  /** Side the exit legs trade: the order's side for an OCO, the opposite for a bracket's exit. */
+  side: 'buy' | 'sell';
+  takeProfit: SpotOrderPreviewExitLegFee;
+  stopLoss: SpotOrderPreviewExitLegFee;
 }
 
 export interface SpotOrderPreviewWire {
@@ -56,6 +84,8 @@ export interface SpotOrderPreviewWire {
   makerFeeBps: number | null;
   /** Discounted taker bps the fill would post if this order takes. */
   takerFeeBps: number | null;
+  /** Fees of the linked exit legs when the request carries `exit`; null otherwise or when a leg cannot be figured. */
+  exitFees: SpotOrderPreviewExitFees | null;
   orderable: boolean;
   refusals: SpotOrderPreviewRefusal[];
 }
@@ -98,6 +128,7 @@ const ALLOWED_FIELDS = new Set([
   'amount',
   'price',
   'stopPrice',
+  'exit',
   'timeInForce',
   'postOnly',
   'reduceOnly',
@@ -453,6 +484,51 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
+    let exitFees: SpotOrderPreviewExitFees | null = null;
+    if (body.exit !== undefined && body.exit !== null) {
+      const exit = body.exit as Record<string, unknown>;
+      const kind = exit !== null && typeof exit === 'object' ? exit.kind : undefined;
+      const takeProfit = typeof exit.takeProfit === 'string' ? parsePositive(exit.takeProfit.trim()) : null;
+      const stopLoss = typeof exit.stopLoss === 'string' ? parsePositive(exit.stopLoss.trim()) : null;
+      const stopLimit = typeof exit.stopLossLimit === 'string' ? parsePositive(exit.stopLossLimit.trim()) : null;
+      if (
+        (kind !== 'oco' && kind !== 'bracket_exit') ||
+        takeProfit === null ||
+        stopLoss === null ||
+        (exit.stopLossLimit != null && stopLimit === null)
+      ) {
+        refusals.push({
+          code: 'trade.order_preview_invalid',
+          field: 'exit',
+          message: 'exit needs kind (oco or bracket_exit) and positive decimal-string takeProfit and stopLoss (stopLossLimit optional)',
+        });
+      } else if (discountKnown && makerFeeBps !== null && takerFeeBps !== null) {
+        const legSide: 'buy' | 'sell' = kind === 'oco' ? side : side === 'buy' ? 'sell' : 'buy';
+        const leg = (role: 'maker' | 'taker', bps: number, price: Amount): SpotOrderPreviewExitLegFee => {
+          // Same formulas as the order's own fee: a buy pays in base, a sell in quote.
+          const fee = legSide === 'buy' ? mulBps(qty, bps, 'ceil') : mulBps(mul(price, qty, 'floor'), bps, 'ceil');
+          return {
+            price: formatAmount(price),
+            feeRole: role,
+            feeBps: bps,
+            estimatedFee: formatAmount(fee),
+            feeAsset: legSide === 'buy' ? market.baseAsset : market.quoteAsset,
+          };
+        };
+        exitFees = {
+          side: legSide,
+          takeProfit: leg('maker', makerFeeBps, takeProfit),
+          stopLoss: leg('taker', takerFeeBps, legSide === 'buy' ? (stopLimit ?? stopLoss) : stopLoss),
+        };
+      } else {
+        refusals.push({
+          code: 'trade.order_preview_fee_unavailable',
+          field: 'fee',
+          message: 'published fee schedule is unavailable',
+        });
+      }
+    }
+
     // Same trade checkAccess gate as POST /api/v1/orders. A blank list is a refusal, not a
     // clearance: the shared switch fails closed unless INTAFACED_SCREENING_FAIL_CLOSED is
     // explicitly off AND APP_ENV is dev/test. Read it from the shared config (as the other
@@ -488,6 +564,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       feeScheduleVersion,
       makerFeeBps,
       takerFeeBps,
+      exitFees,
       orderable: uniqueRefusals.length === 0,
       refusals: uniqueRefusals,
     };

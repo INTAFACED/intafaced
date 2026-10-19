@@ -657,3 +657,73 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 });
+
+describe('POST /api/v1/orders/preview: exit-leg fees', () => {
+  const ocoSell = { symbol: MARKET.symbol, side: 'sell', type: 'limit', amount: '2', price: '110' };
+
+  it('figures the fee of each linked leg: take-profit as maker, stop-loss as taker, in the leg side asset', async () => {
+    const { app } = appWith({
+      feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v', makerBps: '10', takerBps: '20' })),
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...ocoSell, exit: { kind: 'oco', takeProfit: '110', stopLoss: '90' } },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().exitFees).toEqual({
+      side: 'sell',
+      takeProfit: { price: '110', feeRole: 'maker', feeBps: 10, estimatedFee: '0.22', feeAsset: 'fixture-quote' },
+      stopLoss: { price: '90', feeRole: 'taker', feeBps: 20, estimatedFee: '0.36', feeAsset: 'fixture-quote' },
+    });
+  });
+
+  it('a bracket entry on the buy side previews its exit as a sell, and a buy OCO pays its leg fees in base', async () => {
+    const { app } = appWith({
+      feeSchedule: parseFeeScheduleJson(JSON.stringify({ published: true, version: 'v', makerBps: '10', takerBps: '20' })),
+    });
+    const bracket = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, exit: { kind: 'bracket_exit', takeProfit: '110', stopLoss: '90' } },
+    });
+    expect(bracket.json().exitFees.side).toBe('sell');
+    const buyOco = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, price: '91', exit: { kind: 'oco', takeProfit: '80', stopLoss: '90', stopLossLimit: '91' } },
+    });
+    expect(buyOco.json().exitFees).toEqual({
+      side: 'buy',
+      takeProfit: { price: '80', feeRole: 'maker', feeBps: 10, estimatedFee: '0.002', feeAsset: 'fixture-base' },
+      stopLoss: { price: '91', feeRole: 'taker', feeBps: 20, estimatedFee: '0.004', feeAsset: 'fixture-base' },
+    });
+  });
+
+  it('refuses a malformed exit and an unpublished schedule instead of inventing a fee, and omits exitFees without exit', async () => {
+    const { app } = appWith({});
+    const bad = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...ocoSell, exit: { kind: 'oco', takeProfit: 110, stopLoss: '90' } },
+    });
+    expect(bad.json().orderable).toBe(false);
+    expect(bad.json().exitFees).toBeNull();
+    expect(bad.json().refusals).toContainEqual(expect.objectContaining({ field: 'exit' }));
+    const { app: unpublished } = appWith({ feeSchedule: UNPUBLISHED_FEE_SCHEDULE });
+    const blank = await unpublished.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...ocoSell, exit: { kind: 'oco', takeProfit: '110', stopLoss: '90' } },
+    });
+    expect(blank.json().exitFees).toBeNull();
+    expect(blank.json().orderable).toBe(false);
+    const plain = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(plain.json().exitFees).toBeNull();
+  });
+});
