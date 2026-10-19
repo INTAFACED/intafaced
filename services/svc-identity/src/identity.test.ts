@@ -1019,8 +1019,8 @@ if (!available) {
       const minted = await auth.createApiKey({
         userId: session.userId,
         name: 'sandbox-bot',
-        scopes: ['trade:read'],
-        grantorScopes: SESSION_SCOPES,
+        scopes: ['pay:read'],
+        grantorScopes: [...SESSION_SCOPES, 'pay:read', 'pay:write'],
         mode: 'sandbox',
       });
 
@@ -1036,6 +1036,31 @@ if (!available) {
       expect(exchanged.mode).toBe('sandbox');
       const principal = await verifyAccessToken(exchanged.accessToken, tokenConfig);
       expect(principal.key_env).toBe('sandbox');
+    });
+
+    it('a sandbox key is limited to pay scopes: only svc-pay honours sandbox mode', async () => {
+      const session = await register();
+      for (const scopes of [['trade:read'], ['pay:read', 'trade:write'], ['p2p:read']]) {
+        const grantorScopes = [...SESSION_SCOPES, 'pay:read', 'pay:write'];
+        await expect(
+          auth.createApiKey({ userId: session.userId, name: 'sandbox-wide', scopes, grantorScopes, mode: 'sandbox' }),
+        ).rejects.toMatchObject({ code: 'auth.sandbox_scope_not_pay' });
+      }
+      const rows = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM api_keys WHERE user_id = ${session.userId}`;
+      expect(rows[0]!.n).toBe(0);
+      await expect(
+        auth.createApiKey({
+          userId: session.userId,
+          name: 'sandbox-pay',
+          scopes: ['pay:read', 'pay:write'],
+          grantorScopes: [...SESSION_SCOPES, 'pay:read', 'pay:write'],
+          mode: 'sandbox',
+        }),
+      ).resolves.toMatchObject({ mode: 'sandbox' });
+      // Live keys are unaffected.
+      await expect(
+        auth.createApiKey({ userId: session.userId, name: 'live-wide', scopes: ['trade:read'], grantorScopes: SESSION_SCOPES }),
+      ).resolves.toMatchObject({ mode: 'live' });
     });
   });
 
