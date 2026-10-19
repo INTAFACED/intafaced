@@ -22,9 +22,8 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isGateFile } from './ci-affected.mjs';
-import { MARKER } from './review-marker.mjs';
+import { MARKER, STATUS_CONTEXT } from './review-marker.mjs';
 
-export const STATUS_CONTEXT = 'Independent review';
 const PATCH_RE = /patch ([0-9a-f]{12})/;
 
 export function readConfig(path = new URL('./reviewers.json', import.meta.url)) {
