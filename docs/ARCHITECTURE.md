@@ -15,7 +15,7 @@ Count check: `ls apps` (4), `ls services` (26 directories), `ls packages` (24). 
 
 The customer container is nginx over the built files. It sends unknown paths to `index.html` (`apps/customer/nginx.conf`), proxies `/api/` to `svc-edge:4000` and `/ws/` to `svc-ws:4014`. Rooms are declared in `apps/customer/src/app/navigation.ts` and `screens.ts`; `apps/customer/src/app/feature-registry.ts` lists `blocked` rooms: reachable, with the reason and unlock shown; no row is `hidden`. `/chain`, `/dex` and `/protocol` are reachable rooms with named blockers (`apps/customer/src/app/navigation.ts`, `apps/customer/src/features/protocol/ParkedProtocolRoom.tsx`).
 
-`vendor/upstream-exchange` is imported third-party source. Its Vue front end `05_Web_Front` is retained and not served (`docker-compose.apps.yml`). Do not build on it. Its Java wallet service cannot credit a balance: `MemberWalletService.increaseBalance` throws (line 310 of `MemberWalletService.java` under `vendor/upstream-exchange/00_framework/core/src/main/java/`).
+`vendor/upstream-exchange` is imported third-party source. Its old Vue front end was deleted (git history keeps it). Its Java wallet service cannot credit a balance: `MemberWalletService.increaseBalance` throws (line 310 of `MemberWalletService.java` under `vendor/upstream-exchange/00_framework/core/src/main/java/`).
 
 ## Services
 

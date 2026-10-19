@@ -45,8 +45,7 @@ export function quantBacktestRefusalBoundaryInSource(): boolean {
 
 export function quantBacktestEventEnginePresent(): boolean {
   return (
-    existsSync(join(ROOT, 'services/svc-quant/src/backtest/run.ts')) &&
-    existsSync(join(ROOT, 'apps/customer/src/features/more/QuantLibrary.tsx'))
+    existsSync(join(ROOT, 'services/svc-quant/src/backtest/run.ts')) && existsSync(join(ROOT, 'apps/customer/src/features/more/Quant.tsx'))
   );
 }
 
