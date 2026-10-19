@@ -134,7 +134,7 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
    * Bob's buy trades `qty` against one of Alice's legs. The engine's answer carries the fill and the cancellation
    * of the other leg (it cancels the sibling on ANY first fill). `liveAfter` are the legs still resting.
    */
-  async function bobTakes(oco: { id: string }, leg: 'tp' | 'sl', qty: string, liveAfter: Array<'tp' | 'sl'>) {
+  async function bobTakes(oco: { id: string }, leg: 'tp' | 'sl', qty: string, liveAfter: Array<'tp' | 'sl'>, siblingCancelled = true) {
     const legId = leg === 'tp' ? tpOf(oco.id) : slOf(oco.id);
     const other = leg === 'tp' ? slOf(oco.id) : tpOf(oco.id);
     matching.script1((request, next) => {
@@ -156,7 +156,9 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
         ],
         resting: null,
         rejected: null,
-        cancellations: [{ orderId: other, accountId: ALICE, remainingQty: '1', sequence: next(), reason: 'oco_sibling_filled' }],
+        cancellations: siblingCancelled
+          ? [{ orderId: other, accountId: ALICE, remainingQty: '1', sequence: next(), reason: 'oco_sibling_filled' }]
+          : [],
         triggered: [],
       };
     });
@@ -245,6 +247,21 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
     expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0');
     expect(await avail(ALICE, 'BTC')).toBe('0.6');
     expect((await trade.findOrder(oco.id))?.status).toBe('cancelled');
+  });
+
+  it("TWO TAKERS, ONE LEG: the first settlement must not release the hold the second taker's unsettled fill spends", async () => {
+    const { oco } = await setup();
+    // Carol takes the last 0.6 of the take-profit leg after the engine matched Bob's 0.4 but before Bob's settlement
+    // runs, so when Bob's settlement asks the book, no leg is left: the leg is gone because it FILLED, not cancelled.
+    await bobTakes(oco, 'tp', '0.4', []);
+    expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0.6');
+    expect((await trade.findOrder(oco.id))?.status).toBe('open');
+    // Carol's fill settles afterwards and finds its hold, then the order closes as filled.
+    await bobTakes(oco, 'tp', '0.6', [], false);
+    expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0');
+    expect((await trade.findOrder(oco.id))?.status).toBe('filled');
+    expect(await avail(ALICE, 'BTC')).toBe('0');
+    expect(await avail(ALICE, 'USDT')).toBe('109.89');
   });
 
   it('a bare cancel event for a leg never releases the shared hold', async () => {
@@ -340,6 +357,15 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
     expect(cancelled.status).toBe('cancelled');
     expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0');
     expect(await avail(ALICE, 'BTC')).toBe('0.6');
+  });
+
+  it('a user cancel does not release over a leg fill the engine printed but this service has not settled', async () => {
+    const { oco } = await setup();
+    // The engine took 0.4 off the take-profit leg after the book was read; Bob's settlement has not run yet.
+    matching.scriptLive(tpOf(oco.id), btcusdt.id, '0.6', 1, ALICE);
+    await expect(trade.cancelOrder(principalFor(ALICE), oco.id)).rejects.toMatchObject({ code: 'trade.matching_unavailable' });
+    expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('1');
+    expect((await trade.findOrder(oco.id))?.status).toBe('open');
   });
 
   it('reconcile of a live OCO pulls both legs from the engine before it releases the hold', async () => {

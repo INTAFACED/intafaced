@@ -296,6 +296,8 @@ export class StubMatching implements MatchingClient {
       return scripted;
     }
 
+    // The engine reports what was still unexecuted when it cancelled.
+    const remainingQty = this.liveRemaining.get(orderId) ?? '0';
     this.liveById.delete(orderId);
     this.liveRemaining.delete(orderId);
     this.liveVersion.delete(orderId);
@@ -305,7 +307,7 @@ export class StubMatching implements MatchingClient {
       cancelled: true,
       orderId,
       sequence,
-      cancellation: { orderId, accountId: '', remainingQty: '0', sequence, reason: 'requested' },
+      cancellation: { orderId, accountId: '', remainingQty, sequence, reason: 'requested' },
     };
   }
 
