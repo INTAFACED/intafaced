@@ -48,6 +48,18 @@ class ServiceAuthTest {
         assertEquals("svc-fix", ok.service);
         assertEquals("v2", ok.scheme);
 
+        String wrongSig = "2831db1a110350f0122e18ff3e8ac028eb7e158d6fa058b7cf454466d89955f0";
+        ServiceAuth.VerifyResult badSig = ServiceAuth.verifyServiceCall(
+                v2.get(ServiceAuth.SERVICE_HEADER),
+                v2.get(ServiceAuth.SERVICE_TIMESTAMP_HEADER),
+                wrongSig,
+                v2.get(ServiceAuth.SERVICE_BODY_DIGEST_HEADER),
+                SECRET,
+                BODY,
+                now);
+        assertFalse(badSig.ok());
+        assertEquals("bad-signature", badSig.rejected);
+
         ServiceAuth.VerifyResult v1 = ServiceAuth.verifyServiceCall(
                 "svc-fix", Long.toString(TS), ServiceAuth.hmacSha256Hex(SECRET, "svc-fix\n" + TS), null, SECRET, BODY, now);
         assertFalse(v1.ok());
