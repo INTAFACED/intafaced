@@ -33,6 +33,35 @@ function harness(responses: Array<Response | Error>, over: Partial<Parameters<ty
   return { client: createHttpLedgerClient(options), transport: createLedgerTransport(options), calls, sleeps, queue };
 }
 
+describe('the signer is told what is being sent', () => {
+  it('passes the method, the full URL and the content type, so a key-signed call covers them', async () => {
+    const seen: Array<{ payload: string; method: string; url: string; contentType: string }> = [];
+    const h = harness([json(ack())], {
+      sign: (payload: string, req?: { method: string; url: URL; contentType: string }) => {
+        seen.push({ payload, method: req!.method, url: req!.url.href, contentType: req!.contentType });
+        return { 'x-sig': 'k' };
+      },
+    });
+    await h.client.post(request);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: 'POST', url: 'http://ledger.internal:4001/trpc/post', contentType: 'application/json' });
+    expect(seen[0]!.url).toBe(h.calls[0]!.url);
+    expect(seen[0]!.payload).toBe(h.calls[0]!.body);
+  });
+
+  it('signs each retry with its own request info', async () => {
+    const urls: string[] = [];
+    const h = harness([new Error('connection reset'), json(ack())], {
+      sign: (_payload: string, req?: { method: string; url: URL; contentType: string }) => {
+        urls.push(req!.url.pathname);
+        return { 'x-sig': 'k' };
+      },
+    });
+    await h.client.post(request);
+    expect(urls).toEqual(['/trpc/post', '/trpc/post']);
+  });
+});
+
 describe('createHttpLedgerClient.post', () => {
   it('signs the exact bytes it sends, with a timeout armed', async () => {
     const h = harness([json(ack())]);
