@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { missingLake } from './backtest/lake.js';
 import { env } from './env.js';
@@ -46,7 +47,7 @@ export type AppRouter = typeof appRouter;
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 const ready = quantReadyHonesty({ isolateWired, lakeWired: lake.wired, venueVaultSet });
 
