@@ -2412,6 +2412,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_desynced':
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
+      case 'pay.settlement_released':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_not_found':
         return 'NOT_FOUND' as const;
