@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { EnvError, loadEnv, redactEnv, serviceEnvSchema, authEnvSchema, edgeEnvSchema, internalServiceEnvSchema } from './env.js';
+import {
+  EnvError,
+  loadEnv,
+  redactEnv,
+  serviceEnvSchema,
+  authEnvSchema,
+  edgeEnvSchema,
+  edgeTrustFromEnv,
+  internalServiceEnvSchema,
+} from './env.js';
 
 const validServiceEnv = {
   SERVICE_NAME: 'svc-ledger',
@@ -59,6 +68,26 @@ describe('loadEnv', () => {
       }
     }
     expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: 'a'.repeat(32) })).not.toThrow();
+  });
+
+  it('reads the edge public key and limits, and leaves a missing limit unset', () => {
+    const key = 'A'.repeat(43);
+    const secret = 'a'.repeat(32);
+    expect(edgeTrustFromEnv(loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: secret }))).toEqual({});
+    expect(
+      edgeTrustFromEnv(
+        loadEnv(edgeEnvSchema, {
+          EDGE_PRINCIPAL_SECRET: secret,
+          EDGE_PRINCIPAL_PUBLIC_KEY: key,
+          EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: '60',
+          EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: '5',
+        }),
+      ),
+    ).toEqual({ edgePublicKey: key, principalLimits: { maxLifetimeSeconds: 60, clockSkewSeconds: 5 } });
+    expect(edgeTrustFromEnv(loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: secret, EDGE_PRINCIPAL_PUBLIC_KEY: key }))).toEqual({
+      edgePublicKey: key,
+    });
+    expect(() => loadEnv(edgeEnvSchema, { EDGE_PRINCIPAL_SECRET: secret, EDGE_PRINCIPAL_PUBLIC_KEY: 'short' })).toThrow(EnvError);
   });
 
   it('refuses a missing or short INTERNAL_SERVICE_SECRET', () => {

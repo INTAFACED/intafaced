@@ -73,7 +73,40 @@ export const httpEnvSchema = z.object({
  */
 export const edgeEnvSchema = z.object({
   EDGE_PRINCIPAL_SECRET: z.string().min(32),
+  /**
+   * The edge's raw 32-byte Ed25519 public key, base64url. Verify-only: a service holding just this key cannot mint a
+   * principal. Optional while the shared secret is still accepted; setting it makes the service verify the edge's
+   * asymmetric signatures too. Needs both limits below, which `createEdgeContext` enforces at boot.
+   */
+  EDGE_PRINCIPAL_PUBLIC_KEY: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/, 'must be a raw 32-byte Ed25519 public key, base64url')
+    .optional(),
+  /** Longest allowed gap between a principal's `iat` and its expiry. No default: an unset value refuses at boot. */
+  EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: z.coerce.number().int().min(1).max(300).optional(),
+  /** How far in the future an `iat` may be. No default: an unset value refuses at boot. */
+  EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: z.coerce.number().int().min(1).max(60).optional(),
 });
+
+/**
+ * What a receiver passes to `createEdgeContext` so it also verifies the edge's public-key signatures.
+ * Empty when `EDGE_PRINCIPAL_PUBLIC_KEY` is unset. With a key and a missing limit, the limit is left out so
+ * `createEdgeContext` refuses the boot with its typed error instead of this helper inventing a value.
+ */
+export function edgeTrustFromEnv(env: {
+  EDGE_PRINCIPAL_PUBLIC_KEY?: string | undefined;
+  EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS?: number | undefined;
+  EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS?: number | undefined;
+}): { edgePublicKey?: string; principalLimits?: { maxLifetimeSeconds: number; clockSkewSeconds: number } } {
+  if (env.EDGE_PRINCIPAL_PUBLIC_KEY === undefined) return {};
+  const { EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: maxLifetimeSeconds, EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS: clockSkewSeconds } = env;
+  return {
+    edgePublicKey: env.EDGE_PRINCIPAL_PUBLIC_KEY,
+    ...(maxLifetimeSeconds !== undefined && clockSkewSeconds !== undefined
+      ? { principalLimits: { maxLifetimeSeconds, clockSkewSeconds } }
+      : {}),
+  };
+}
 
 /**
  * Shared secret for service-to-service calls (§2).
