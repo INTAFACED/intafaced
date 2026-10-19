@@ -263,4 +263,27 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       controls.admit({ ...principal, sub_account: other }, 'order.place', 'different-sub', {}, undefined, sub),
     ).rejects.toMatchObject({ code: 'auth.credential_denied' });
   });
+  it('admits a standing instruction as an authority-only order.place with no session or key', async () => {
+    const instructionId = 'f1111111-1111-4111-8111-111111111111';
+    const payload = { qty: '1' };
+    const admission = await controls.admitStanding(user, instructionId, 'convert:q1', payload);
+    expect(admission).toMatchObject({ operation: { service: 'svc-trade', kind: 'order.place', userId: user }, businessId: 'convert:q1' });
+    expect(identity.rows.get(user + ':convert:q1')).toMatchObject({
+      intent: { authority: { kind: 'standing_instruction', instructionId, ownerService: 'svc-bank' } },
+    });
+    // Same business id and payload replays the original; a changed payload conflicts.
+    expect(await controls.admitStanding(user, instructionId, 'convert:q1', payload)).toEqual(admission);
+    await expect(controls.admitStanding(user, instructionId, 'convert:q1', { qty: '2' })).rejects.toMatchObject({
+      code: 'operation.conflict',
+    });
+  });
+  it('refuses a standing instruction for a restricted account and a malformed instruction id', async () => {
+    const instructionId = 'f1111111-1111-4111-8111-111111111111';
+    await controls.change(actor(), command());
+    await expect(controls.admitStanding(user, instructionId, 'convert:q2', {})).rejects.toMatchObject({
+      code: 'trade.account_restricted',
+    });
+    await expect(controls.admitStanding(other, 'not-a-uuid', 'convert:q3', {})).rejects.toThrow();
+    expect(identity.rows.size).toBe(0);
+  });
 });

@@ -32,6 +32,9 @@ export function readyTestAdmission(): TradingAdmissionPort {
         parents.set(principal.userId + ':' + businessId, { payload, admission, grantId: admission.admissionId });
       return admission;
     },
+    async admitStanding(userId, _instructionId, businessId, payload) {
+      return this.admit(principalFor(userId), 'order.place', businessId, payload);
+    },
     async original(userId, businessId) {
       return parents.get(userId + ':' + businessId) ?? null;
     },

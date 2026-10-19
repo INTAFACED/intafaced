@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { JurisdictionError, router, publicProcedure, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import {
+  JurisdictionError,
+  router,
+  publicProcedure,
+  scopedProcedure,
+  serviceProcedure,
+  TRPCError,
+  type Context,
+} from '@intafaced/contracts';
 import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
@@ -184,6 +192,15 @@ const convertAcceptInput = z.object({
   qty: decimal.optional(),
   maxAvgPrice: decimal.optional(),
 });
+
+const standingCaller = z.object({ userId: z.string().uuid(), instructionId: z.string().uuid() });
+
+/** Only svc-bank may act for a standing instruction; the user id is the signed body's. */
+function requireBankCaller(service: string | null): void {
+  if (service !== 'svc-bank') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'standing-instruction convert is callable only by svc-bank' });
+  }
+}
 
 /** Shared TWAP parent presentation (create/get/pause/resume/cancel). */
 const algoParentOutputSchema = z.object({
@@ -886,6 +903,52 @@ export function createTradeRouter(
             (await trade.fillsForOrder(ctx.principal, input.orderId, publishedFillsMineLimit(input.limit))).map(presentFill),
           ),
         ),
+    }),
+
+    /**
+     * Convert for a svc-bank auto-invest schedule. No principal: the signed
+     * service call names the user and the instruction. Identity decides the
+     * `standing_instruction` authority; this door only proves the caller.
+     */
+    standing: router({
+      quote: serviceProcedure
+        .input(
+          standingCaller.extend({
+            symbol: z.string().min(3),
+            side: orderSideSchema,
+            qty: decimal.optional(),
+            quoteQty: decimal.optional(),
+          }),
+        )
+        .output(convertQuoteOutput)
+        .mutation(({ ctx, input }) => {
+          requireBankCaller(ctx.service);
+          return guard(async () => {
+            return trade.standingConvertQuote(input.userId, input.instructionId, {
+              symbol: input.symbol,
+              side: input.side,
+              qty: input.qty === undefined ? undefined : parseAmount(input.qty),
+              quoteQty: input.quoteQty === undefined ? undefined : parseAmount(input.quoteQty),
+            });
+          });
+        }),
+
+      execute: serviceProcedure
+        .input(standingCaller.extend(convertAcceptInput.shape))
+        .output(convertTradeOutput)
+        .mutation(({ ctx, input }) => {
+          requireBankCaller(ctx.service);
+          return guard(async () => {
+            return trade.standingConvertExecute(input.userId, input.instructionId, {
+              quoteId: input.quoteId,
+              clientConvertId: input.clientConvertId,
+              symbol: input.symbol,
+              side: input.side,
+              qty: input.qty === undefined ? undefined : parseAmount(input.qty),
+              maxAvgPrice: input.maxAvgPrice === undefined ? null : parseAmount(input.maxAvgPrice),
+            });
+          });
+        }),
     }),
 
     /**

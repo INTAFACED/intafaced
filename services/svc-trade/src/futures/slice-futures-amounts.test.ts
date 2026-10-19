@@ -170,6 +170,9 @@ function recordingAdmission(): TradingAdmissionPort {
       parents.set(`${principal.userId}:${businessId}`, { payload, admission, grantId: admission.admissionId });
       return admission;
     },
+    async admitStanding() {
+      throw new Error('this fixture admits no standing instruction');
+    },
     async original(userId, businessId) {
       return parents.get(`${userId}:${businessId}`) ?? null;
     },

@@ -677,6 +677,7 @@ services:
       # Convert RFQ kill + house spread + quote TTL (trade.convert). Spread/TTL
       # empty = refuse quote/execute. Never invent 10 bps or 15000 ms.
       TRADE_CONVERT_ENABLED: ${TRADE_CONVERT_ENABLED:-true}
+      TRADE_STANDING_INSTRUCTION_ENABLED: ${TRADE_STANDING_INSTRUCTION_ENABLED:-false}
       TRADE_CONVERT_SPREAD_BPS: ${TRADE_CONVERT_SPREAD_BPS:-}
       TRADE_CONVERT_QUOTE_TTL_MS: ${TRADE_CONVERT_QUOTE_TTL_MS:-}
       # Absolute max |period funding rate| — empty refuses publish/settle.

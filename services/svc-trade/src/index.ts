@@ -199,6 +199,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
+  standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
   convertQuoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
   algoEnabled: env.TRADE_ALGO_ENABLED,
@@ -365,7 +366,13 @@ export const appRouter = createTradeRouter(
   }),
 );
 export type AppRouter = typeof appRouter;
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBindMode: 'require',
+});
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);

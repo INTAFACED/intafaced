@@ -53,6 +53,12 @@ export interface TradingAdmissionPort {
     delegation?: { parentBusinessId: string; parentGrantId: string },
     subAccountId?: string,
   ): Promise<CommittedOperationAdmission>;
+  /**
+   * An unattended schedule (svc-bank auto-invest) has no session or key. The
+   * caller proves its own instruction is active; identity still checks the user.
+   * Only ever a spot `order.place`.
+   */
+  admitStanding(userId: string, instructionId: string, businessId: string, payload: unknown): Promise<CommittedOperationAdmission>;
   original(
     userId: string,
     businessId: string,
@@ -273,7 +279,55 @@ export class TradingControls implements TradingAdmissionPort {
     delegation?: { parentBusinessId: string; parentGrantId: string },
     subAccountId?: string,
   ): Promise<CommittedOperationAdmission> {
-    const userId = principal.userId.toLowerCase();
+    return this.admitWith(principal.userId, kind, businessId, payload, async (tx, userId) => {
+      if (delegation) {
+        const [parent] = await tx<IntentRow[]>`SELECT intent, payload, decision, admission FROM trade.operation_intents
+            WHERE user_id = ${userId} AND business_id = ${delegation.parentBusinessId}`;
+        if (
+          !parent?.admission ||
+          parent.decision?.status !== 'granted' ||
+          parent.decision.grantId !== delegation.parentGrantId ||
+          parent.intent.operation.kind !== 'strategy.start'
+        )
+          throw new TradingControlError('auth.credential_denied');
+        return { kind: 'delegation', parentGrantId: delegation.parentGrantId };
+      }
+      if (principal.expiresAt.getTime() <= Date.now() || !principal.scopes.includes('trade:write'))
+        throw new TradingControlError('auth.credential_denied');
+      if (principal.sub_account && subAccountId && principal.sub_account.toLowerCase() !== subAccountId.toLowerCase())
+        throw new TradingControlError('auth.credential_denied');
+      const sub = subAccountId ?? principal.sub_account;
+      return {
+        kind: 'credential',
+        subject: currentAuthorityInputSchema.parse({
+          userId,
+          credential: principal.kid
+            ? { kind: 'api_key', apiKeyId: principal.kid.toLowerCase() }
+            : { kind: 'session', sessionId: principal.sid.toLowerCase() },
+          ...(sub ? { subAccountId: sub.toLowerCase() } : {}),
+        }),
+      };
+    });
+  }
+
+  async admitStanding(userId: string, instructionId: string, businessId: string, payload: unknown): Promise<CommittedOperationAdmission> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(instructionId))
+      throw new TradingControlError('auth.credential_denied');
+    return this.admitWith(userId, 'order.place', businessId, payload, async () => ({
+      kind: 'standing_instruction',
+      instructionId: instructionId.toLowerCase(),
+      ownerService: 'svc-bank',
+    }));
+  }
+
+  private async admitWith(
+    rawUserId: string,
+    kind: TradingOperationKind,
+    businessId: string,
+    payload: unknown,
+    buildAuthority: (tx: Parameters<Parameters<typeof transaction>[1]>[0], userId: string) => Promise<IdentityOperationIntent['authority']>,
+  ): Promise<CommittedOperationAdmission> {
+    const userId = rawUserId.toLowerCase();
     const wire = canonicalPayload(payload);
     const payloadHash = hash(payload);
     const operation = { service: 'svc-trade' as const, kind, userId };
@@ -292,35 +346,7 @@ export class TradingControls implements TradingAdmissionPort {
           }
           if (!this.identity) throw new TradingControlError('authority.unavailable');
           if ((await this.loadState(tx, userId)).restricted) throw new TradingControlError('trade.account_restricted');
-          let authority: IdentityOperationIntent['authority'];
-          if (delegation) {
-            const [parent] = await tx<IntentRow[]>`SELECT intent, payload, decision, admission FROM trade.operation_intents
-            WHERE user_id = ${userId} AND business_id = ${delegation.parentBusinessId}`;
-            if (
-              !parent?.admission ||
-              parent.decision?.status !== 'granted' ||
-              parent.decision.grantId !== delegation.parentGrantId ||
-              parent.intent.operation.kind !== 'strategy.start'
-            )
-              throw new TradingControlError('auth.credential_denied');
-            authority = { kind: 'delegation', parentGrantId: delegation.parentGrantId };
-          } else {
-            if (principal.expiresAt.getTime() <= Date.now() || !principal.scopes.includes('trade:write'))
-              throw new TradingControlError('auth.credential_denied');
-            if (principal.sub_account && subAccountId && principal.sub_account.toLowerCase() !== subAccountId.toLowerCase())
-              throw new TradingControlError('auth.credential_denied');
-            const sub = subAccountId ?? principal.sub_account;
-            authority = {
-              kind: 'credential',
-              subject: currentAuthorityInputSchema.parse({
-                userId,
-                credential: principal.kid
-                  ? { kind: 'api_key', apiKeyId: principal.kid.toLowerCase() }
-                  : { kind: 'session', sessionId: principal.sid.toLowerCase() },
-                ...(sub ? { subAccountId: sub.toLowerCase() } : {}),
-              }),
-            };
-          }
+          const authority = await buildAuthority(tx, userId);
           const intent = identityOperationIntentSchema.parse({ operation, businessId, payloadHash, authority });
           await tx`INSERT INTO trade.operation_intents(user_id, business_id, intent, payload, identity_requested)
           VALUES (${userId}, ${businessId}, ${tx.json(intent)}::jsonb, ${tx.json(JSON.parse(wire))}::jsonb, true)`;
