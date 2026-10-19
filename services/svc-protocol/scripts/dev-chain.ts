@@ -1,5 +1,6 @@
 import { createHash, pbkdf2Sync } from 'node:crypto';
 import { createPublicClient, createWalletClient, defineChain, getContract, http, toHex } from 'viem';
+import type { Transport } from 'viem';
 import { HDKey, hdKeyToAccount } from 'viem/accounts';
 import type { Address, Hex, HDAccount, PublicClient, WalletClient } from 'viem';
 import { loadArtifact } from '../src/chain/artifacts.js';
@@ -107,6 +108,33 @@ export function devAccount(index = 0): HDAccount {
   return accountAt(0, index);
 }
 
+/**
+ * Receipt polling for the dev chain. anvil mines each transaction the moment it arrives, but viem polls for a
+ * receipt every 4 s by default (about a second per write in practice), which put long on-chain tests at their
+ * 30 s timeout.
+ */
+export const DEV_RECEIPT_POLL_MS = 50;
+
+/**
+ * Wrap a transport so `eth_estimateGas` returns twice the estimate.
+ *
+ * The node estimates against a block stamped with the wall clock, but instant mining then stamps the real block a
+ * second later whenever the clock ticks in between. Contracts that do more work once the timestamp has moved (the
+ * lending market's `accrue()` runs only when the timestamp changed) then need more gas than the estimate, and
+ * viem sends exactly the estimate, so the transaction runs out of gas and is mined as reverted. Headroom is
+ * refunded, so it costs nothing on a disposable chain.
+ */
+export function withGasHeadroom(base: Transport): Transport {
+  return (params) => {
+    const transport = base(params);
+    const request = (async (args: { method: string; params?: unknown }) => {
+      const result = await transport.request(args as never);
+      return args.method === 'eth_estimateGas' ? toHex(BigInt(result as string) * 2n) : result;
+    }) as typeof transport.request;
+    return { ...transport, request };
+  };
+}
+
 export const devChain = (rpcUrl: string, chainId: number = DEV_CHAIN_ID) =>
   defineChain({
     id: chainId,
@@ -158,8 +186,8 @@ export function devChainClients(rpcUrl = devRpcUrl(), chainId = DEV_CHAIN_ID, ac
   const chain = devChain(rpcUrl, chainId);
   const account = devAccount(accountIndex);
   return {
-    publicClient: createPublicClient({ chain, transport: http(rpcUrl) }) as PublicClient,
-    walletClient: createWalletClient({ account, chain, transport: http(rpcUrl) }),
+    publicClient: createPublicClient({ chain, transport: http(rpcUrl), pollingInterval: DEV_RECEIPT_POLL_MS }) as PublicClient,
+    walletClient: createWalletClient({ account, chain, transport: withGasHeadroom(http(rpcUrl)) }),
     deployer: account.address,
     rpcUrl,
   };
@@ -290,14 +318,14 @@ export async function devSuiteClients(
 ): Promise<DevChainClients> {
   const chain = devChain(rpcUrl, chainId);
   const account = suiteAccount(suiteFileUrl);
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) }) as PublicClient;
+  const publicClient = createPublicClient({ chain, transport: http(rpcUrl), pollingInterval: DEV_RECEIPT_POLL_MS }) as PublicClient;
 
   await assertDisposableChain(publicClient, chainId);
   await fundDevAccount(publicClient, account.address);
 
   return {
     publicClient,
-    walletClient: createWalletClient({ account, chain, transport: http(rpcUrl) }),
+    walletClient: createWalletClient({ account, chain, transport: withGasHeadroom(http(rpcUrl)) }),
     deployer: account.address,
     rpcUrl,
   };
