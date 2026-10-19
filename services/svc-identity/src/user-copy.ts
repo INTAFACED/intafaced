@@ -69,6 +69,18 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.profile_missing': 'Your profile is not available.',
   'identity.profile_unwired': 'Profile edits are not available yet.',
   'identity.account_unwired': 'Contact changes are not available yet.',
+  'identity.close_disabled': 'Closing an account is not available yet.',
+  'identity.close_cooling_off_unset': 'Closing an account is not available yet. The cooling-off period is not published.',
+  'identity.close_account_not_active': 'This account cannot be closed while it is not active.',
+  'identity.close_founder_forbidden': 'This account cannot be closed.',
+  'identity.close_restricted': 'This account is restricted. Clear the restriction, then try again.',
+  'identity.close_delegated': 'Sign in on this device. An API key or a sub-account cannot close this account.',
+  'identity.close_blocked': 'Something on this account is still open. Clear it, then try again.',
+  'identity.close_check_unavailable': 'We could not confirm that nothing is still open. Try again later.',
+  'identity.close_nothing_open': 'There is no open closure request to cancel.',
+  'identity.close_finalize_limit_unset': 'The finalize limit is not set.',
+  'identity.closure_list_limit_unset': 'The list limit is not set.',
+  'identity.closure_list_cursor_invalid': 'That page cursor is not valid.',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

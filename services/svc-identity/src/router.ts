@@ -79,6 +79,8 @@ import type { ProfileService } from './profile/profile-service.js';
 import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
+import { createAccountClosureRouter } from './closure/closure-router.js';
+import type { AccountClosureService } from './closure/closure-service.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -504,6 +506,8 @@ export function createIdentityRouter(
     profile?: ProfileService;
     /** Email and phone change. Absent → those doors refuse closed. */
     account?: AccountChange;
+    /** Account closure. Absent → the door refuses `identity.close_disabled`. */
+    closure?: AccountClosureService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -643,6 +647,7 @@ export function createIdentityRouter(
 
     profile: createProfileRouter(options.profile),
     account: createAccountRouter(options.account),
+    accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({
       /**

@@ -291,6 +291,46 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+      /**
+       * Account closure. Unset, blank, false, off, or 0 stays off.
+       * Do not set this in compose or in a local env file. The lead turns it on.
+       */
+      IDENTITY_ACCOUNT_CLOSE_ENABLED: z.preprocess((v) => {
+        if (v === undefined || v === null) return false;
+        if (typeof v === 'boolean') return v;
+        if (typeof v === 'string') {
+          const text = v.trim().toLowerCase();
+          if (text === '' || text === '0' || text === 'false' || text === 'off' || text === 'no') return false;
+          if (text === '1' || text === 'true' || text === 'on' || text === 'yes') return true;
+        }
+        return v;
+      }, z.boolean().default(false)),
+      /**
+       * Owner-published cooling-off, in days, from 1 to 90.
+       * Blank or unset refuses `identity.close_cooling_off_unset`. Never a default.
+       * Do not set this in compose or in any env file.
+       */
+      IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(90).optional()),
+      /** Owning-service closure checks. Blank refuses the check as unavailable. Do not invent a host. */
+      IDENTITY_CLOSURE_BANK_URL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      IDENTITY_CLOSURE_TRADE_URL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
+      IDENTITY_CLOSURE_P2P_URL: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return typeof v === 'string' ? v.trim() : v;
+      }, z.string().optional()),
       IDENTITY_TRADING_RESTRICT_REQUIRES_APPROVAL: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v !== 'string') return v;
