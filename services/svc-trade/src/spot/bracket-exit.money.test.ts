@@ -12,6 +12,7 @@ import './bracket-place.js';
 import './oco-cancel.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import { type Market } from './types.js';
+import { carryPlacementBody } from './placement-extras.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -213,6 +214,22 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
   ])('refuses %s: it can sit dormant or rest, so its exit could not be placed on the fill', async (_name, extra) => {
     await fund(ALICE, 'USDT', '1000');
     await expect(trade.placeOrder(principalFor(ALICE), bracketReq(extra as Record<string, unknown>))).rejects.toMatchObject({
+      code: 'trade.order_type_unsupported',
+    });
+    expect(matching.submitted).toHaveLength(0);
+    expect(await avail(ALICE, 'USDT')).toBe('1000');
+  });
+
+  it.each([
+    ['a stop trigger', { stopPx: '90' }],
+    ['an iceberg', { iceberg: true, displayQty: '0.1' }],
+    ['reduce-only', { reduceOnly: true }],
+    ['a post-only flag', { postOnly: true }],
+    ['an expiry', { expireAt: '2099-01-01T00:00:00Z' }],
+  ])('refuses %s that only the request body carries: the inner installers would re-read it', async (_name, carried) => {
+    await fund(ALICE, 'USDT', '1000');
+    const input = carryPlacementBody(bracketReq() as never, { ...bracketReq(), ...carried }) as never;
+    await expect(trade.placeOrder(principalFor(ALICE), input)).rejects.toMatchObject({
       code: 'trade.order_type_unsupported',
     });
     expect(matching.submitted).toHaveLength(0);

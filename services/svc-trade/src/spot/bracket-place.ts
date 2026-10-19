@@ -171,14 +171,45 @@ const PLAIN_ENTRY_FIELDS = new Set([
   'stopLoss',
 ]);
 
-export function deferredEntryField(input: PlaceOrderInput): string | null {
-  if (input.type !== 'market' && input.type !== 'limit') return `type ${String(input.type)}`;
-  for (const [key, value] of Object.entries(input)) {
-    if (PLAIN_ENTRY_FIELDS.has(key)) continue;
+// The same allow-list over the request's own body, which travels on the input under a symbol: the inner installers
+// (stop-limit, iceberg, post-only, ...) re-read their options from it, so a field only the body carries would still
+// reach the engine even though the input itself looks plain.
+const PLAIN_BODY_FIELDS = new Set([
+  'symbol',
+  'marketId',
+  'side',
+  'type',
+  'amount',
+  'qty',
+  'price',
+  'timeInForce',
+  'tif',
+  'clientOrderId',
+  'subAccountId',
+  'maxProtectionPrice',
+  'minProtectionPrice',
+  'bracket',
+  'takeProfit',
+  'stopLoss',
+]);
+
+function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet<string>): string | null {
+  for (const [key, value] of Object.entries(rec)) {
+    if (allowed.has(key)) continue;
     if (value === undefined || value === null || value === false) continue;
     return key;
   }
   return null;
+}
+
+export function deferredEntryField(input: PlaceOrderInput): string | null {
+  if (input.type !== 'market' && input.type !== 'limit') return `type ${String(input.type)}`;
+  const own = firstExtra(input as unknown as Record<string, unknown>, PLAIN_ENTRY_FIELDS);
+  if (own !== null) return own;
+  const body = carriedPlacementBody(input);
+  if (body === null) return null;
+  if (body.type !== undefined && body.type !== 'market' && body.type !== 'limit') return `type ${String(body.type)}`;
+  return firstExtra(body, PLAIN_BODY_FIELDS);
 }
 
 export function installBracketPlace(ctor: typeof TradeService): void {
