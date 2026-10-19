@@ -46,9 +46,10 @@ export function isTerminalOrder(order: Order) {
 export const previewSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
-  type: z.enum(['market', 'limit']),
+  type: z.enum(['market', 'limit', 'stop_limit']),
   amount: positive,
   price: positive.nullable(),
+  stopPrice: positive.nullable().optional(),
   timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
   holdAsset: z.string().nullable(),
   holdAmount: decimalSchema.nullable(),
@@ -65,18 +66,23 @@ export const draftSchema = z
   .object({
     symbol: z.string().min(3),
     side: z.enum(['buy', 'sell']),
-    type: z.enum(['market', 'limit']),
+    type: z.enum(['market', 'limit', 'stop_limit']),
     amount: positive,
     price: positive.optional(),
+    stopPrice: positive.optional(),
     timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
     postOnly: z.boolean(),
     clientOrderId: z.string().min(1).max(64),
   })
   .superRefine((draft, ctx) => {
-    if (draft.type === 'limit' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
+    if (draft.type === 'stop_limit' && !draft.stopPrice)
+      ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
+    if (draft.type !== 'stop_limit' && draft.stopPrice !== undefined)
+      ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
+    if (draft.type !== 'market' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
     if (draft.type === 'market' && draft.price !== undefined)
       ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
-    if (draft.postOnly && (draft.type !== 'limit' || !['GTC', 'PO'].includes(draft.timeInForce)))
+    if (draft.postOnly && (draft.type === 'market' || !['GTC', 'PO'].includes(draft.timeInForce)))
       ctx.addIssue({ code: 'custom', path: ['postOnly'], message: copy.t('postOnlyRequiresALimitOrderWithGtc') });
   });
 export type Draft = z.infer<typeof draftSchema>;
@@ -139,6 +145,9 @@ function matchesPreview(draft: Draft, preview: Preview) {
     preview.symbol === draft.symbol &&
     preview.side === draft.side &&
     preview.type === draft.type &&
+    (draft.stopPrice
+      ? preview.stopPrice != null && parseAmount(draft.stopPrice) === parseAmount(preview.stopPrice)
+      : preview.stopPrice == null) &&
     parseAmount(preview.amount) === parseAmount(draft.amount) &&
     (draft.price ? preview.price !== null && parseAmount(draft.price) === parseAmount(preview.price) : preview.price === null) &&
     preview.timeInForce === (draft.postOnly ? 'PO' : draft.timeInForce)

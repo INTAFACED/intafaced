@@ -5,7 +5,6 @@ import type { OrderType } from './order-math';
 import { tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey, type UnsupportedType } from './tif';
 
 const TYPE_KEY = {
-  stopLimit: 'Order type stopLimit',
   takeProfitStopLoss: 'Order type takeProfitStopLoss',
   oco: 'Order type oco',
   trailingStop: 'Order type trailingStop',

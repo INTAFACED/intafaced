@@ -43,6 +43,7 @@ import {
   probeAmount,
   protectionNow,
   scaled,
+  isPriced,
   type OrderType,
   type Reference,
   type Side,
@@ -153,6 +154,7 @@ function SideForm({
   const { t } = deskCopy.useCopy();
   const env = useDataEnv();
   const [price, setPrice] = useState('');
+  const [stopPrice, setStopPrice] = useState('');
   const [amount, setAmount] = useState('');
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -229,7 +231,8 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
-  const input = { side, type, price, amount };
+  const input = { side, type, price, amount, stopPrice };
+  const priced = isPriced(type);
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
   const sellOff = marketSellOff(side, type);
@@ -244,11 +247,24 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
+      ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
       ...tifFields(tif),
       clientOrderId: 'desk-preview',
     };
-  }, [tradable, checked.ok, checked.ok ? checked.amount : '', checked.ok ? checked.price : '', market.symbol, side, type, tif]); // eslint-disable-line react-hooks/exhaustive-deps
-  const key = draft ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${tif}` : 'none';
+  }, [
+    tradable,
+    checked.ok,
+    checked.ok ? checked.amount : '',
+    checked.ok ? checked.price : '',
+    checked.ok ? (checked.stopPrice ?? '') : '',
+    market.symbol,
+    side,
+    type,
+    tif,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = draft
+    ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}`
+    : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
@@ -310,6 +326,7 @@ function SideForm({
       type,
       amount: checked.amount,
       ...(checked.price ? { price: checked.price } : {}),
+      ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
       ...tifFields(tif),
       clientOrderId: `desk:${crypto.randomUUID()}`,
     };
@@ -473,7 +490,21 @@ function SideForm({
         }
       }}
     >
-      {type === 'limit' ? (
+      {type === 'stop_limit' ? (
+        <AmountInput
+          label={t('Stop price')}
+          value={stopPrice}
+          onValueChange={(next) => edit(() => setStopPrice(next))}
+          precision={pricePlaces}
+          placeholder={fmtPrice('0', market.tickSize)}
+          tick={market.tickSize}
+          min={market.tickSize}
+          unit={market.quote}
+          stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
+          aria-label={t('Stop price')}
+        />
+      ) : null}
+      {priced ? (
         <AmountInput
           label={t('Price')}
           value={price}
@@ -527,11 +558,11 @@ function SideForm({
         ))}
       </div>
       <AmountInput
-        label={type === 'limit' ? t('Total') : t('Total estimate')}
+        label={priced ? t('Total') : t('Total estimate')}
         value={total}
         onValueChange={(next) =>
           edit(() => {
-            if (type !== 'limit') return;
+            if (!priced) return;
             if (scaled(price) === null) {
               setHint(t('Enter a price first'));
               return;
@@ -542,7 +573,7 @@ function SideForm({
         }
         precision={8}
         unit={market.quote}
-        readOnly={type !== 'limit'}
+        readOnly={!priced}
         placeholder="0"
         aria-label={t('Total')}
       />
@@ -565,7 +596,7 @@ function SideForm({
             : live.state === 'ok' && feeRate(live.preview) !== null
               ? live.preview.feeRole === 'maker'
                 ? t('Fee maker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
-                : type === 'limit' && tif === 'GTC'
+                : priced && tif === 'GTC'
                   ? t('Fee up to', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
                   : t('Fee taker', { rate: fmtPct(feeRate(live.preview)!, { signed: false }) })
               : t('Fee unknown')}
@@ -644,7 +675,8 @@ function SideForm({
 function ReviewRows({ market, review, side }: { market: DeskMarket; review: { draft: Draft; preview: Preview }; side: Side }) {
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
-  const limit = draft.type === 'limit';
+  const limit = draft.type !== 'market';
+  const stop = draft.type === 'stop_limit';
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
   return (
@@ -655,12 +687,20 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
       </div>
       <div>
         <dt>{t('Review type')}</dt>
-        <dd>{limit ? t('Order type limit') : t('Order type market')}</dd>
+        <dd>{stop ? t('Order type stopLimit') : limit ? t('Order type limit') : t('Order type market')}</dd>
       </div>
       <div>
         <dt>{t('Review time in force')}</dt>
         <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
       </div>
+      {stop && draft.stopPrice ? (
+        <div>
+          <dt>{t('Review stop price')}</dt>
+          <dd className="if-num">
+            {fmtPrice(draft.stopPrice, market.tickSize)} {market.quote}
+          </dd>
+        </div>
+      ) : null}
       <div>
         <dt>{t('Review price')}</dt>
         <dd className="if-num">
@@ -876,6 +916,7 @@ export const OrderPanel = memo(function OrderPanel({
       <div className="dk-order-head">
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
+          <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
           <TabsTab value="market">{t('Market')}</TabsTab>
         </TabsList>
         <MoreOrderTypes />

@@ -173,4 +173,16 @@ describe('helpers', () => {
     expect(scaleStep('0.01', 2)).toBe('1');
     expect(scaleStep('0.0001', 3)).toBe('0.1');
   });
+
+  it('a stop-limit needs a price and a stop price on the tick grid, and carries both', () => {
+    const base = { side: 'sell' as const, type: 'stop_limit' as const, price: '70000.10', amount: '0.0002' };
+    expect(checkOrder({ ...base, stopPrice: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopEmpty' } });
+    expect(checkOrder({ ...base, price: '', stopPrice: '70100' }, market, ref)).toEqual({ ok: false, problem: { kind: 'priceEmpty' } });
+    expect(checkOrder({ ...base, stopPrice: '70100.10' }, market, ref)).toEqual({
+      ok: true,
+      amount: '0.0002',
+      price: '70000.1',
+      stopPrice: '70100.1',
+    });
+  });
 });
