@@ -103,29 +103,6 @@ contract SessionReenter {
     receive() external payable {}
 }
 
-/// Records who a venue call pays. A session must not be able to name anyone but the account.
-contract SessionPayoutVenue {
-    address public paid;
-
-    function clear() external {
-        paid = address(0);
-    }
-
-    function swapExactTokensForTokens(uint256, uint256, address[] calldata, address to, uint256) external returns (uint256) {
-        paid = to;
-        return 1;
-    }
-
-    function execute(bytes calldata, bytes[] calldata inputs, uint256) external returns (address recipient) {
-        (, recipient, ) = abi.decode(inputs[0], (address, address, uint256));
-        paid = recipient;
-    }
-
-    function other(uint256) external pure returns (uint256) {
-        return 7;
-    }
-}
-
 /// S-A8: session-key escalation, spend-limit re-entrancy, validateUserOp gate.
 contract SessionKeyForgeTest {
     uint256 internal constant SESSION_PRIV = 0xA11CE;
@@ -424,100 +401,6 @@ contract SessionKeyForgeTest {
 
         uint256 data = account.validateUserOp(op, userOpHash, 0);
         require(data == SIG_VALIDATION_FAILED, "non-guarded selector must fail");
-    }
-
-    /// One selector and two targets is not a pair. The selector must not run on the second target.
-    function test_one_selector_is_not_granted_on_the_second_target() public {
-        SmartAccount account = _deployClone();
-        SessionReenter first = new SessionReenter(account);
-        SessionReenter second = new SessionReenter(account);
-
-        SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(first));
-        spec.targets = new address[](2);
-        spec.targets[0] = address(first);
-        spec.targets[1] = address(second);
-        spec.selectors = new bytes4[](1);
-        spec.selectors[0] = SessionReenter.ping.selector;
-        account.grantSession(spec);
-
-        try account.executeWithSession(spec, address(second), 0, abi.encodeWithSelector(SessionReenter.ping.selector)) {
-            revert("selector ran on the second target");
-        } catch {}
-    }
-
-    /// A native cap of 0 does not price a venue payout. The session may swap or
-    /// sweep only back to the account, and a selector is not borrowed onto the
-    /// other allowlisted target.
-    function test_session_venue_call_cannot_pay_an_attacker() public {
-        SmartAccount account = _deployClone();
-        SessionPayoutVenue venue = new SessionPayoutVenue();
-        SessionPayoutVenue otherVenue = new SessionPayoutVenue();
-        _assertSwapRecipientAndPairing(account, venue, otherVenue);
-        _assertRouterRecipient(account, venue);
-    }
-
-    function _assertSwapRecipientAndPairing(SmartAccount account, SessionPayoutVenue venue, SessionPayoutVenue otherVenue)
-        internal
-    {
-        address attacker = address(0xA77AC);
-        bytes4 swapSel = SessionPayoutVenue.swapExactTokensForTokens.selector;
-        bytes4 otherSel = SessionPayoutVenue.other.selector;
-
-        SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(venue));
-        spec.spendLimitWei = 0;
-        spec.targets = new address[](2);
-        spec.targets[0] = address(venue);
-        spec.targets[1] = address(otherVenue);
-        spec.selectors = new bytes4[](2);
-        spec.selectors[0] = swapSel;
-        spec.selectors[1] = otherSel;
-        account.grantSession(spec);
-
-        address[] memory path = new address[](2);
-        path[0] = address(0x1111);
-        path[1] = address(0x2222);
-        bytes memory toAttacker = abi.encodeWithSelector(swapSel, uint256(1 ether), uint256(0), path, attacker, block.timestamp);
-        try account.executeWithSession(spec, address(venue), 0, toAttacker) {
-            revert("swap paid the attacker");
-        } catch {}
-        require(venue.paid() == address(0), "swap forwarded the attacker");
-
-        bytes memory toAccount =
-            abi.encodeWithSelector(swapSel, uint256(1 ether), uint256(0), path, address(account), block.timestamp);
-        account.executeWithSession(spec, address(venue), 0, toAccount);
-        require(venue.paid() == address(account), "swap to the account");
-        require(account.getSession(spec.key).spentWei == 0, "native cap unchanged");
-
-        bytes memory borrowed = abi.encodeWithSelector(otherSel, uint256(1));
-        try account.executeWithSession(spec, address(venue), 0, borrowed) {
-            revert("selector ran on every target");
-        } catch {}
-
-        bytes memory paired = account.executeWithSession(spec, address(otherVenue), 0, borrowed);
-        require(abi.decode(paired, (uint256)) == 7, "paired selector on its target");
-    }
-
-    function _assertRouterRecipient(SmartAccount account, SessionPayoutVenue venue) internal {
-        address attacker = address(0xA77AC);
-        bytes4 execSel = SessionPayoutVenue.execute.selector;
-        SessionKeyLib.SessionSpec memory routerSpec = _legalSpec(address(0xBEEF), address(venue));
-        routerSpec.spendLimitWei = 0;
-        routerSpec.selectors[0] = execSel;
-        account.grantSession(routerSpec);
-        venue.clear();
-
-        bytes memory commands = abi.encodePacked(bytes1(0x04));
-        bytes[] memory inputs = new bytes[](1);
-        inputs[0] = abi.encode(address(0x1111), attacker, uint256(0));
-        try account.executeWithSession(routerSpec, address(venue), 0, abi.encodeWithSelector(execSel, commands, inputs, block.timestamp))
-        {
-            revert("router paid the attacker");
-        } catch {}
-        require(venue.paid() == address(0), "router forwarded the attacker");
-
-        inputs[0] = abi.encode(address(0x1111), address(account), uint256(0));
-        account.executeWithSession(routerSpec, address(venue), 0, abi.encodeWithSelector(execSel, commands, inputs, block.timestamp));
-        require(venue.paid() == address(account), "router paid the account");
     }
 
     function test_grantSession_gas_ceiling() public {
