@@ -1,0 +1,16 @@
+{
+  "allow": [
+    {
+      "rule": "B-deps",
+      "file": "services/svc-indexer/package.json",
+      "detail": "@intafaced/svc-protocol",
+      "reason": "devDependency used by a script only, not imported by service code (architecture refactor map B1)"
+    },
+    {
+      "rule": "M-balance",
+      "file": "services/svc-trade/drizzle/0000_trade_init.sql",
+      "detail": "hold_amount",
+      "reason": "immutable order state: the amount the ledger hold was opened for, never a spendable balance (architecture refactor map)"
+    }
+  ]
+}
