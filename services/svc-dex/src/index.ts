@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext } from '@intafaced/contracts';
+import { buildEdgeContext } from './edge-context.js';
 import { env } from './env.js';
 import { createDexRouter } from './router.js';
 import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
@@ -70,7 +70,7 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 // though every procedure is permissionless: a signed principal may arrive (a
 // user who also holds a Fiat Plane account), and if one does, it must be
 // verified rather than believed.
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = buildEdgeContext(env);
 
 app.get('/health', async () =>
   dexHealthHonesty({
