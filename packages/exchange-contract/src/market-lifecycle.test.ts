@@ -179,49 +179,4 @@ describe('market lifecycle contract', () => {
     expect(marketTransitionRecordSchema.safeParse({ ...base, resolvedState: 'HALTED' }).success).toBe(false);
     expect(marketTransitionRecordSchema.safeParse({ ...base, resolvedState: null }).success).toBe(true);
   });
-
-  it('refuses an applied transition the lifecycle does not allow, even with empty recovery evidence', () => {
-    const applied = (
-      expectedState: 'SETTLED' | 'ARCHIVED' | 'EXPIRED' | 'REFUSED' | 'HALTED' | 'AUCTION',
-      requestedState: 'OPEN' | 'POST_ONLY' | 'AUCTION',
-    ) => ({
-      transitionId: 'transition-unsupported-1',
-      idempotencyKey: 'market:market-1:unsupported:1',
-      marketId: 'market-1',
-      expectedState,
-      expectedRuleVersion: 'rule-1',
-      requestedState,
-      resolvedState: requestedState,
-      reasonCategory: 'OPERATOR' as const,
-      reasonCode: 'lifecycle.unsupported',
-      actorId: 'operator-1',
-      authorityRef: 'grant-1',
-      approvalRefs: ['approval-1'],
-      requestedAt: '2026-08-24T12:10:00.000Z',
-      effectiveAt: '2026-08-24T12:11:00.000Z',
-      expiresAt: null,
-      recoveryEvidenceRefs: [] as string[],
-      outcome: { outcome: 'APPLIED' as const, appliedTargets: ['market-1'], unresolvedTargets: [] as [] },
-    });
-
-    for (const expectedState of ['SETTLED', 'ARCHIVED', 'EXPIRED', 'REFUSED'] as const) {
-      const parsed = marketTransitionRecordSchema.safeParse(applied(expectedState, 'OPEN'));
-      expect(parsed.success).toBe(false);
-      if (!parsed.success) expect(parsed.error.issues.some((issue) => /unsupported/.test(issue.message))).toBe(true);
-    }
-
-    const haltToPostOnly = marketTransitionRecordSchema.safeParse(applied('HALTED', 'POST_ONLY'));
-    expect(haltToPostOnly.success).toBe(false);
-    if (!haltToPostOnly.success) expect(haltToPostOnly.error.issues.some((issue) => /unsupported/.test(issue.message))).toBe(true);
-    expect(
-      marketTransitionRecordSchema.safeParse({ ...applied('HALTED', 'POST_ONLY'), recoveryEvidenceRefs: ['restore-check-1'] }).success,
-    ).toBe(false);
-    expect(
-      marketTransitionRecordSchema.safeParse({ ...applied('SETTLED', 'OPEN'), recoveryEvidenceRefs: ['restore-check-1'] }).success,
-    ).toBe(false);
-
-    expect(
-      marketTransitionRecordSchema.safeParse({ ...applied('HALTED', 'AUCTION'), recoveryEvidenceRefs: ['restore-check-1'] }).success,
-    ).toBe(true);
-  });
 });

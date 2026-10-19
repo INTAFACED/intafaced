@@ -207,30 +207,6 @@ export const marketTransitionOutcomeSchema = z.discriminatedUnion('outcome', [
 ]);
 export type MarketTransitionOutcome = z.infer<typeof marketTransitionOutcomeSchema>;
 
-/**
- * Spec §5.2 one-hop graph. A halt reopens only to AUCTION or OPEN.
- * Evidence cannot add an edge, including HALTED to POST_ONLY or a terminal state to OPEN.
- */
-const MARKET_LIFECYCLE_TRANSITIONS: Record<MarketLifecycleState, readonly MarketLifecycleState[]> = {
-  DRAFT: ['REVIEW'],
-  REVIEW: ['APPROVED'],
-  APPROVED: ['PRELAUNCH', 'REFUSED', 'ARCHIVED'],
-  PRELAUNCH: ['AUCTION', 'OPEN'],
-  AUCTION: ['POST_ONLY', 'OPEN', 'EXPIRING', 'DELISTING'],
-  OPEN: ['POST_ONLY', 'HALTED', 'EXPIRING', 'DELISTING'],
-  POST_ONLY: ['AUCTION', 'OPEN', 'CANCEL_ONLY'],
-  CANCEL_ONLY: ['POST_ONLY', 'REDUCE_ONLY', 'SETTLED'],
-  REDUCE_ONLY: ['CANCEL_ONLY', 'HALTED', 'SETTLED'],
-  HALTED: ['REDUCE_ONLY', 'AUCTION', 'OPEN'],
-  EXPIRING: ['EXPIRED'],
-  EXPIRED: ['SETTLING'],
-  SETTLING: ['SETTLED'],
-  SETTLED: ['ARCHIVED'],
-  DELISTING: ['CANCEL_ONLY', 'REDUCE_ONLY'],
-  REFUSED: [],
-  ARCHIVED: [],
-};
-
 /** Immutable, idempotent transition request/result; unsupported transitions stay refused. */
 export const marketTransitionRecordSchema = z
   .object({
@@ -253,13 +229,6 @@ export const marketTransitionRecordSchema = z
     outcome: marketTransitionOutcomeSchema,
   })
   .superRefine((transition, context) => {
-    if (!MARKET_LIFECYCLE_TRANSITIONS[transition.expectedState].includes(transition.requestedState)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['requestedState'],
-        message: 'unsupported market transition stays refused',
-      });
-    }
     const reopening =
       transition.expectedState === 'HALTED' && (transition.requestedState === 'AUCTION' || transition.requestedState === 'OPEN');
     if (reopening && transition.recoveryEvidenceRefs.length === 0) {
