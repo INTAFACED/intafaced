@@ -1,5 +1,8 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { placeInstruction } from '../../src/screens/trade/desk/ticket/scale-flow';
+import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { orderSchema } from '../../src/features/trade/trade-api';
 import { BASE, QUOTE, SYMBOL, balance, draft, orderOf, reviewAndPlace } from './desk';
 import { newCustomer, fund, ledgerAvailable, until, type Customer } from './stack';
 
@@ -21,6 +24,33 @@ describe('pro trader: change an open order', () => {
     await fund(trader.userId, QUOTE, '1000');
   });
 
+  it('lowers the quantity in place: same order, smaller hold, same price', async () => {
+    const order = await placed(trader, { price: '70', amount: '0.2' });
+    const heldBefore = (await balance(trader.trade, QUOTE)).used;
+
+    const amended = await trader.trade.amend(order, '0.1');
+    expect(amended.ok, amended.ok ? '' : amended.message).toBe(true);
+    if (!amended.ok) return;
+    expect(amended.data).toMatchObject({ accepted: true, orderId: order.id });
+    expect(amended.data.order).toMatchObject({ id: order.id, amount: '0.1', price: '70', status: 'open' });
+
+    await until('hold shrinks', async () => ((await balance(trader.trade, QUOTE)).used !== heldBefore ? true : undefined));
+    expect((await balance(trader.trade, QUOTE)).used).toBe('7');
+    await trader.trade.cancel(order);
+  });
+
+  it('refuses to raise the quantity of an open order, with a typed reason, and leaves the order and hold untouched', async () => {
+    const order = await placed(trader, { price: '69', amount: '0.1' });
+    const held = (await balance(trader.trade, QUOTE)).used;
+    const raised = await trader.api.rest(`/orders/${order.id}`, z.any(), { method: 'PATCH', body: { qty: '0.2' } });
+    expect(raised.ok).toBe(true);
+    if (raised.ok) expect(raised.data).toMatchObject({ accepted: false, reconciliationRequired: false });
+    const after = await trader.trade.order(order);
+    expect(after.ok && after.data).toMatchObject({ amount: '0.1', status: 'open', recoveryRequired: false });
+    expect((await balance(trader.trade, QUOTE)).used).toBe(held);
+    await trader.trade.cancel(order);
+  });
+
   it('replaces an order at a new price: the original is cancelled, the replacement rests under its own client id', async () => {
     const original = await placed(trader, { price: '71' });
     const next = draft({ price: '72' });
@@ -28,7 +58,8 @@ describe('pro trader: change an open order', () => {
     if (!review.ok) throw new Error(review.message);
     const replaced = await trader.trade.replace(original, next, review.data);
     expect(replaced.ok, replaced.ok ? '' : replaced.message).toBe(true);
-    if (!replaced.ok || !('data' in replaced)) return;
+    if (!replaced.ok) return;
+    if (!('data' in replaced)) throw new Error('replace came back as a changed review');
     expect(replaced.data.accepted).toBe(true);
     expect(replaced.data.original).toMatchObject({ id: original.id, status: 'canceled' });
     expect(replaced.data.replacement).toMatchObject({ price: '72', status: 'open', clientOrderId: next.clientOrderId });
@@ -59,6 +90,10 @@ describe('pro trader: change an open order', () => {
 describe('pro trader: order types', () => {
   let taker: Customer;
   let maker: Customer;
+  afterEach(async () => {
+    await taker.trade.cancelAll(SYMBOL);
+    await maker.trade.cancelAll(SYMBOL);
+  });
   beforeAll(async () => {
     taker = await newCustomer();
     maker = await newCustomer();
@@ -117,6 +152,8 @@ describe('pro trader: order types', () => {
     const review = await taker.trade.preview(crossing);
     if (!review.ok) throw new Error(review.message);
     const result = await taker.trade.place(crossing, review.data);
+    // Fills settle through the bus after the order is accepted: give a would-be fill time to show before checking none did.
+    await new Promise((done) => setTimeout(done, 1500));
     // Either the service refuses outright or accepts and ends the order unfilled; it never fills as a taker.
     const fills = await taker.trade.fills(SYMBOL);
     expect(fills.ok && fills.data.some((f) => f.price === '130')).toBe(false);
@@ -133,7 +170,7 @@ describe('pro trader: order types', () => {
 });
 
 describe('pro trader: history', () => {
-  it('closed orders and fills come back newest first, limited, and filtered by market', async () => {
+  it('closed orders respect the page size, a large page returns them all, and a customer with no trades has no fills', async () => {
     const trader = await newCustomer();
     await fund(trader.userId, QUOTE, '1000');
     const ids: string[] = [];
@@ -151,5 +188,59 @@ describe('pro trader: history', () => {
     expect(all.ok && all.data.map((o) => o.id).sort()).toEqual([...ids].sort());
     const none = await trader.trade.fills(SYMBOL);
     expect(none.ok && none.data).toEqual([]);
+  });
+});
+
+describe('pro trader: stop-limit', () => {
+  let trader: Customer;
+  beforeAll(async () => {
+    trader = await newCustomer();
+    await fund(trader.userId, QUOTE, '1000');
+  });
+
+  // The desk does not offer stop-limit yet (UNSUPPORTED_TYPES in screens/trade/desk/tif.ts), so this goes through the app's
+  // ApiClient directly with the body the service documents.
+  const stopBody = (extra: Record<string, unknown> = {}) => ({
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'stop_limit',
+    amount: '0.1',
+    price: '150',
+    stopPrice: '149',
+    timeInForce: 'GTC',
+    clientOrderId: `journey:${randomUUID()}`,
+    ...extra,
+  });
+
+  it('stores the trigger, holds the funds, does not rest on the book, and cancels cleanly', async () => {
+    const body = stopBody();
+    const result = await trader.api.rest('/orders', orderSchema, { method: 'POST', body });
+    expect(result.ok, result.ok ? '' : `${result.code} ${result.message}`).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toMatchObject({
+      type: 'stop_limit',
+      stopPrice: '149',
+      price: '150',
+      status: 'open',
+      clientOrderId: body.clientOrderId,
+    });
+    expect((await balance(trader.trade, QUOTE)).used).toBe('15');
+
+    const book = await trader.trade.book(SYMBOL);
+    expect(book.ok && book.data.bids.some(([price]) => price === '150')).toBe(false);
+
+    const again = await trader.api.rest('/orders', orderSchema, { method: 'POST', body });
+    expect(again.ok && again.data.id).toBe(result.data.id);
+
+    const cancelled = await trader.trade.cancel(result.data);
+    expect(cancelled.ok && cancelled.data.status).toBe('canceled');
+    await until('hold released', async () => ((await balance(trader.trade, QUOTE)).used === '0' ? true : undefined));
+  });
+
+  it('refuses a stop-limit with no trigger price, with a typed reason, and holds nothing', async () => {
+    const result = await trader.api.rest('/orders', orderSchema, { method: 'POST', body: stopBody({ stopPrice: undefined }) });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('trade.validation_failed');
+    expect((await balance(trader.trade, QUOTE)).used).toBe('0');
   });
 });
