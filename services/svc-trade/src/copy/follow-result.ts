@@ -116,6 +116,41 @@ const EMPTY_MONEY = {
   unrealisedPnlReason: PNL_NO_POSITION,
 };
 
+export interface FollowResultFigure {
+  /** Realised plus unrealised inside the one quote asset, or `0` when there is no position. */
+  readonly figure: string | null;
+  /** The input that is missing when `figure` is null. Never a guessed number. */
+  readonly missing: string | null;
+}
+
+/**
+ * One result figure for the drawdown stop.
+ *
+ * No mirrors: `0` (there is no P&L yet, and that is not a missing method).
+ * One quote asset with both realised and unrealised: their exact sum.
+ * A null leg (no fresh mark, unwired fee, more than one quote asset) stays
+ * null and names the reason. Assets are not added together.
+ */
+export function followResultFigure(result: FollowResult): FollowResultFigure {
+  if (result.assets.length === 0) {
+    return { figure: '0', missing: null };
+  }
+  if (result.assets.length !== 1) {
+    return { figure: null, missing: result.realisedPnlReason ?? PNL_PER_QUOTE_ASSET };
+  }
+  const asset = result.assets[0]!;
+  if (asset.realisedPnl === null) {
+    return { figure: null, missing: asset.realisedPnlReason ?? 'realisedPnl' };
+  }
+  if (asset.unrealisedPnl === null) {
+    return { figure: null, missing: asset.unrealisedPnlReason ?? TRADE_MARK_UNAVAILABLE };
+  }
+  return {
+    figure: formatAmount(add(parseAmount(asset.realisedPnl), parseAmount(asset.unrealisedPnl))),
+    missing: null,
+  };
+}
+
 export async function readFollowResult(sql: Sql, follow: CopyFollow, ports: FollowResultPorts): Promise<FollowResult> {
   const followId = follow.followId;
   const plans = await sql<PlanRow[]>`

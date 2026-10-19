@@ -314,7 +314,8 @@ function collectExcludes() {
  * it has no business deleting anything. Read from the MAIN checkout — that is
  * the canonical copy — and union in the running checkout's copy plus any
  * docs/ops/claims/*.md, which LIVE-LANES itself names as the alternative place
- * a lane may be recorded.
+ * a lane may be recorded. docs/ops was removed from main on 2026-10-19; the read
+ * stays so an older checkout that still has claim files keeps over-keeping.
  *
  * Returns null if no board file could be read at all. Callers treat null as
  * fail-closed: no worktree is SAFE.

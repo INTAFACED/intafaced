@@ -595,5 +595,5 @@
     "standing_order": "drain afk_safe until empty; never wait for continue",
     "doc": "docs/FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02.md (removed)"
   },
-  "closure_rule": "docs/ops/claims/<id>.md is spawn authority; residual-register advisory, synced on residual-own/merge"
+  "closure_rule": "open GitHub PRs and issues are spawn authority (docs/ops/claims removed 2026-10-19); residual-register advisory, synced on residual-own/merge"
 }

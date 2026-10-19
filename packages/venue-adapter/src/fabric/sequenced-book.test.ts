@@ -64,6 +64,43 @@ describe('SequencedBookTracker — the book withholds itself rather than lie', (
     expect(formatAmount(top.mid!)).toBe('30001');
   });
 
+  it('refuses a sequenced snapshot that is behind the book already held', () => {
+    const tracker = new SequencedBookTracker(VENUE, SYMBOL);
+    expect(
+      tracker.onSnapshot(
+        snapshot(200, {
+          bids: [[parseAmount('31000'), parseAmount('1')]],
+        }),
+      ).kind,
+    ).toBe('applied');
+    expect(tracker.state).toBe('live');
+    expect(tracker.sequence).toBe(200);
+
+    const outcome = tracker.onSnapshot(snapshot(100));
+
+    expect(outcome.kind).toBe('snapshot-stale');
+    expect(tracker.state).toBe('live');
+    expect(tracker.servable).toBe(true);
+    expect(tracker.book()).not.toBeNull();
+    expect(tracker.sequence).toBe(200);
+    expect(formatAmount(tracker.top()!.bestBid!)).toBe('31000');
+  });
+
+  it('re-seeds when a sequenced snapshot matches the sequence already held', () => {
+    const tracker = new SequencedBookTracker(VENUE, SYMBOL);
+    tracker.onSnapshot(snapshot(100));
+
+    const outcome = tracker.onSnapshot(
+      snapshot(100, {
+        bids: [[parseAmount('31000'), parseAmount('1')]],
+      }),
+    );
+
+    expect(outcome.kind).toBe('applied');
+    expect(tracker.sequence).toBe(100);
+    expect(formatAmount(tracker.top()!.bestBid!)).toBe('31000');
+  });
+
   it('applies a contiguous delta and advances the sequence', () => {
     const tracker = new SequencedBookTracker(VENUE, SYMBOL);
     tracker.onSnapshot(snapshot(100));
@@ -212,6 +249,41 @@ describe('SequencedBookTracker — the book withholds itself rather than lie', (
       tracker.onDelta(delta(101, 101));
       expect(tracker.onSnapshot(snapshot(200)).kind).toBe('applied');
       expect(tracker.sequence).toBe(200);
+    });
+
+    it('keeps later buffered deltas when one desyncs during the snapshot drain', () => {
+      const tracker = new SequencedBookTracker(VENUE, SYMBOL);
+      tracker.onDelta(delta(101, 101, { bids: [['30001', '1']] }));
+      tracker.onDelta(delta(103, 103, { bids: [['30001', '8']] }));
+      tracker.onDelta(delta(104, 104, { bids: [['30001', '4']] }));
+
+      const outcome = tracker.onSnapshot(snapshot(100));
+
+      expect(outcome.kind).toBe('desynced');
+      expect(tracker.servable).toBe(false);
+      expect(tracker.book()).toBeNull();
+      // 103 desynced the drain. 104 was already pending and must still be buffered.
+      expect(tracker.bufferedCount).toBe(2);
+
+      expect(tracker.onSnapshot(snapshot(102)).kind).toBe('applied');
+      expect(tracker.sequence).toBe(104);
+      expect(formatAmount(tracker.levels('bids')[0]![1])).toBe('4');
+    });
+
+    it('does not stay live when the snapshot drain throws, and keeps the rest of pending', () => {
+      const tracker = new SequencedBookTracker(VENUE, SYMBOL);
+      tracker.onDelta(delta(101, 101, { bids: [['0', '1']] }));
+      tracker.onDelta(delta(102, 102, { bids: [['30001', '9']] }));
+
+      expect(() => tracker.onSnapshot(snapshot(100))).toThrow(/non-positive price/);
+      expect(tracker.servable).toBe(false);
+      expect(tracker.state).not.toBe('live');
+      expect(tracker.book()).toBeNull();
+      expect(tracker.bufferedCount).toBe(1);
+
+      expect(tracker.onSnapshot(snapshot(101)).kind).toBe('applied');
+      expect(tracker.sequence).toBe(102);
+      expect(formatAmount(tracker.levels('bids')[0]![1])).toBe('9');
     });
   });
 

@@ -1,4 +1,4 @@
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -190,7 +190,25 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'exchangeInfo carried no symbols array');
     }
     const observedAt = new Date(this.#clock());
-    return symbols.map((raw) => this.#market(raw as Record<string, unknown>, observedAt));
+    const published: VenueMarket[] = [];
+    let refused: VenueUnavailableError | undefined;
+    for (const raw of symbols) {
+      try {
+        published.push(this.#market(raw as Record<string, unknown>, observedAt));
+      } catch (error) {
+        // A blank filter is refused for that symbol. Leaving it out keeps the
+        // symbols that published real filters. Throw only when publishing the
+        // rest would mean inventing a tick or a zero minimum — here, when
+        // nothing left is publishable.
+        if (error instanceof VenueUnavailableError) {
+          refused = error;
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (published.length === 0 && refused) throw refused;
+    return published;
   }
 
   /**
@@ -376,6 +394,17 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
     const priceFilter = filterOf('PRICE_FILTER');
     const lotSize = filterOf('LOT_SIZE');
     const notional = filterOf('NOTIONAL') ?? filterOf('MIN_NOTIONAL');
+    if (!priceFilter || !lotSize || !notional) {
+      const missing = [priceFilter ? null : 'PRICE_FILTER', lotSize ? null : 'LOT_SIZE', notional ? null : 'NOTIONAL/MIN_NOTIONAL'].filter(
+        (name): name is string => name !== null,
+      );
+      const venueSymbol = String(raw.symbol ?? '');
+      throw new VenueUnavailableError(
+        VENUE.id,
+        'malformed',
+        `${venueSymbol || 'symbol'} is missing ${missing.join(', ')} (status ${String(raw.status ?? '')}). Refusing the symbol rather than inventing a tick, a step, or a zero minimum.`,
+      );
+    }
 
     return {
       venueId: VENUE.id,
@@ -392,13 +421,13 @@ export class BinanceSpotMarketData implements MarketDataAdapter {
         // A TICK, not a decimal count — see `market.ts`. Binance publishes the
         // tick directly, which is the only reason a count model ever looked
         // adequate: it happens to be a power of ten here and is not elsewhere.
-        price: priceFilter ? readDecimal(priceFilter.tickSize, VENUE.id, 'tickSize') : parseAmount('0.00000001'),
-        amount: lotSize ? readDecimal(lotSize.stepSize, VENUE.id, 'stepSize') : parseAmount('0.00000001'),
+        price: readDecimal(priceFilter.tickSize, VENUE.id, 'tickSize'),
+        amount: readDecimal(lotSize.stepSize, VENUE.id, 'stepSize'),
       },
       limits: {
-        minAmount: lotSize ? readDecimal(lotSize.minQty, VENUE.id, 'minQty') : 0n,
-        maxAmount: lotSize ? readDecimal(lotSize.maxQty, VENUE.id, 'maxQty') : null,
-        minCost: notional ? readDecimal(notional.minNotional, VENUE.id, 'minNotional') : 0n,
+        minAmount: readDecimal(lotSize.minQty, VENUE.id, 'minQty'),
+        maxAmount: readDecimal(lotSize.maxQty, VENUE.id, 'maxQty'),
+        minCost: readDecimal(notional.minNotional, VENUE.id, 'minNotional'),
         maxLeverageBps: null,
       },
       fees: { makerBps: DEFAULT_FEE_BPS.maker, takerBps: DEFAULT_FEE_BPS.taker, indicative: true },

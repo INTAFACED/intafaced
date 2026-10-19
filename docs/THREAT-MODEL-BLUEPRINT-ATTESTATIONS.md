@@ -3,7 +3,7 @@
 > **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 **Board:** D26-P0-12 (packet law on this page) · D26-P1-I4 (Fiat refuse surface) · tracker `blueprint.attestations`  
-**Packet:** [`ops/owner-ruling-packet.json`](ops/owner-ruling-packet.json) `D26-P0-12`. Predecessor subsection in [`adr/2026-08-14-remaining-p0-money-law.md`](adr/2026-08-14-remaining-p0-money-law.md) was not edited.  
+**Packet:** `docs/ops/owner-ruling-packet.json` (removed) `D26-P0-12`. Predecessor subsection in [`adr/2026-08-14-remaining-p0-money-law.md`](adr/2026-08-14-remaining-p0-money-law.md) was not edited.  
 **Bar status (helper):** **UNMET** — product Done stays refused until Denon adds the helper's P0-12 seal line after the on-chain half is specified with Shehzad. This page is the working bar, not that helper token.  
 **Class:** N on the Fiat refuse; on-chain issuance is **Shehzad** (babysit only).  
 **Not this page:** `THREAT-MODEL-CURRENT.md` (removed) (D26-P3-02 fiat/wallet_rpc/Java) · [`THREAT-MODEL-STAGING-DEPLOY.md`](THREAT-MODEL-STAGING-DEPLOY.md) (one workflow).

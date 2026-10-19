@@ -292,15 +292,45 @@ export class SequencedBookTracker {
       };
     }
 
+    // While the tracker is live the buffer is empty, so the check above never
+    // sees the book already held. Equal sequence is a re-seed, not a rewind.
+    const held = this.#book?.sequence ?? -1;
+    if (snapshot.sequence < held) {
+      return {
+        kind: 'snapshot-stale',
+        state: this.#state,
+        detail: `snapshot at ${snapshot.sequence} is behind the book already held at ${held} — fetch a newer snapshot`,
+      };
+    }
+
     this.#book = seeded;
     this.#state = 'live';
     this.#buffer = [];
 
     // Drain what was held during the fetch, through the ordinary path so the
-    // contiguity rules are applied exactly once, in one place.
-    for (const delta of pending) {
-      const outcome = this.onDelta(delta);
-      if (outcome.kind === 'desynced') return outcome;
+    // contiguity rules are applied exactly once, in one place. The tail of
+    // `pending` already arrived: a desync or a throw must not discard it, and
+    // a throw must not leave this tracker servable on a drain that did not finish.
+    const keepPendingFrom = (from: number): void => {
+      for (const later of pending.slice(from)) this.#bufferDelta(later);
+    };
+
+    for (let index = 0; index < pending.length; index += 1) {
+      const delta = pending[index]!;
+      let outcome: TrackerOutcome;
+      try {
+        outcome = this.onDelta(delta);
+      } catch (error) {
+        this.#state = 'desynced';
+        this.#buffer = [];
+        keepPendingFrom(index + 1);
+        throw error;
+      }
+      if (outcome.kind === 'desynced') {
+        // `#desync` kept only the delta that failed. Append every later one.
+        keepPendingFrom(index + 1);
+        return outcome;
+      }
     }
 
     return { kind: 'applied', state: 'live', sequence: this.sequence };

@@ -35,7 +35,6 @@ const OWNERSHIP_SURFACES = [
   ['tooling/tracker/features.mjs', 'feature owner + status'],
   ['.github/CODEOWNERS', 'path ownership GitHub enforces'],
   ['tooling/frontend/residual-register.json', 'non-tracker residual status'],
-  ['docs/ops/claims', 'per-claim lock/completion files'],
   ['docs/LIVE-LANES.md', 'session lanes'],
 ];
 
@@ -53,9 +52,7 @@ const MANDATED_READ = [
   'INTAFACED_DEFINITIVE_BUILD.md',
   'tooling/agent-protocol/AGENT_PROTOCOL.md',
   'CONTRIBUTING.md',
-  'docs/ops/README.md',
   'docs/LIVE-LANES.md',
-  'docs/ops/SWARM-MANDATE.md',
 ];
 
 const words = (p) => {

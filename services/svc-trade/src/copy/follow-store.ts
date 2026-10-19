@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { CopyError } from './errors.js';
+import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import { followRelationshipState, parseCopyRelationshipState } from './copy-lifecycle.js';
 import type { CopyFollow } from './follows.js';
@@ -129,11 +130,13 @@ export interface StoredMirrorPlan {
  * - `duplicate` — fillId already claimed; exposure untouched; return prior plan.
  * - `claimed` — first time; exposure advanced; plan persisted.
  * - `cap_exceeded` — would breach maxAggregate; nothing recorded.
+ * - `drawdown_stop` — peak minus the current result is at the cap; nothing recorded.
  */
 export type ClaimMirrorFillResult =
   | { readonly status: 'duplicate'; readonly plan: StoredMirrorPlan }
   | { readonly status: 'claimed'; readonly plan: StoredMirrorPlan }
-  | { readonly status: 'cap_exceeded'; readonly current: Amount };
+  | { readonly status: 'cap_exceeded'; readonly current: Amount }
+  | { readonly status: 'drawdown_stop'; readonly peak: Amount };
 
 /**
  * Prior fee-share settle under a claimed (follow, fill). Enough to re-present
@@ -291,7 +294,18 @@ export interface CopyFollowStore {
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    /**
+     * When set, the peak result is raised under the same transaction as the
+     * plan insert. A stop writes nothing.
+     */
+    drawdown?: { readonly current: Amount; readonly cap: Amount };
   }): Promise<ClaimMirrorFillResult>;
+  /**
+   * Placed mirrors of this follow whose order is not terminal.
+   * A missing row or unreadable status counts as open. Another follow's
+   * orders are not included.
+   */
+  countOpenMirrors(followId: string): Promise<number>;
   /**
    * Look up a previously claimed fee-share settle for (follow, fill).
    * Null when this fill has never been settled under this follow.
@@ -400,6 +414,8 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   private readonly settledByFill = new Map<string, StoredSettledFeeShare>();
   /** Keyed `${followId}\0${fillId}` — one follower place per leader fill. */
   private readonly placed = new Map<string, StoredPlacedMirror>();
+  /** Order id → status. Missing and null both count as open. */
+  private readonly orderState = new Map<string, string | null>();
   /** Keyed `${followerId}\0${version}` — one acceptance per follower and version. */
   private readonly disclosures = new Map<string, CopyDisclosureAcceptance>();
   private readonly exclusive = createExclusiveQueue();
@@ -574,6 +590,7 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    drawdown?: { readonly current: Amount; readonly cap: Amount };
   }): Promise<ClaimMirrorFillResult> {
     // Same exclusive domain as addExposureIfUnderCap (`exp:${followId}`).
     const fillId = canonicalizeCopyFillId(input.fillId);
@@ -593,11 +610,38 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
         return { status: 'cap_exceeded' as const, current };
       }
 
+      const follow = this.follows.get(input.followId);
+      let nextPeak: Amount | null = null;
+      if (input.drawdown && follow) {
+        const decision = drawdownDecision(follow.peakResult ?? null, input.drawdown.current, input.drawdown.cap);
+        if (decision.stop) {
+          return { status: 'drawdown_stop' as const, peak: follow.peakResult ?? decision.peak };
+        }
+        nextPeak = decision.peak;
+      }
+
       const plan: StoredMirrorPlan = { ...input.plan, fillId, nextExposure };
       this.exposure.set(input.followId, nextExposure);
       this.mirrored.set(key, plan);
+      if (follow && nextPeak !== null) {
+        this.follows.set(input.followId, { ...follow, peakResult: nextPeak });
+      }
       return { status: 'claimed' as const, plan };
     });
+  }
+
+  noteMirrorOrderState(orderId: string, status: string | null): void {
+    this.orderState.set(orderId, status);
+  }
+
+  async countOpenMirrors(followId: string): Promise<number> {
+    let open = 0;
+    for (const [key, placed] of this.placed) {
+      if (!key.startsWith(`${followId}\0`)) continue;
+      const status = this.orderState.has(placed.orderId) ? this.orderState.get(placed.orderId) : undefined;
+      if (mirrorOccupiesConcurrencySlot(status)) open += 1;
+    }
+    return open;
   }
 
   async getSettledFeeShare(followId: string, fillId: string): Promise<StoredSettledFeeShare | null> {
@@ -648,7 +692,7 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
 
   async runPlaceMirrorOnce(followId: string, fillId: string, run: () => Promise<StoredPlacedMirror>): Promise<RunPlaceMirrorOnceResult> {
     const id = canonicalizeCopyFillId(fillId);
-    return this.exclusive(`place:${mirrorKey(followId, id)}`, async () => {
+    return this.exclusive(`place:${followId}`, async () => {
       const key = mirrorKey(followId, id);
       const existing = this.placed.get(key);
       if (existing) {
@@ -682,6 +726,10 @@ type FollowRow = {
   max_notional_per_order: string;
   max_aggregate_exposure: string;
   max_loss: string | null;
+  max_slippage_bps: number | string | null;
+  max_concurrent: number | string | null;
+  max_drawdown: string | null;
+  peak_result: string | null;
   expires_at: Date;
   fee_share_killed: boolean;
   relationship_state?: string | null;
@@ -731,10 +779,14 @@ function rowToFollow(row: FollowRow): CopyFollow {
       maxAggregateExposure: parseAmount(String(row.max_aggregate_exposure)),
       expiresAt: row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at),
       ...(row.max_loss ? { maxLoss: parseAmount(String(row.max_loss)) } : {}),
+      ...(row.max_slippage_bps != null && row.max_slippage_bps !== '' ? { maxSlippageBps: Number(row.max_slippage_bps) } : {}),
+      ...(row.max_concurrent != null && row.max_concurrent !== '' ? { maxConcurrent: Number(row.max_concurrent) } : {}),
+      ...(row.max_drawdown ? { maxDrawdown: parseAmount(String(row.max_drawdown)) } : {}),
     },
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     feeShareKilled: row.fee_share_killed,
     relationshipState: parseCopyRelationshipState(row.relationship_state),
+    ...(row.peak_result != null && row.peak_result !== '' ? { peakResult: parseAmount(String(row.peak_result)) } : {}),
   };
 }
 
@@ -854,7 +906,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
       await this.sql`
       INSERT INTO copy_follows (
         follow_id, follower_id, leader_id, region, permitted_markets,
-        max_notional_per_order, max_aggregate_exposure, max_loss, expires_at,
+        max_notional_per_order, max_aggregate_exposure, max_loss,
+        max_slippage_bps, max_concurrent, max_drawdown, expires_at,
         fee_share_killed, relationship_state, exposure, created_at, updated_at
       ) VALUES (
         ${follow.followId},
@@ -865,6 +918,9 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${formatAmount(follow.envelope.maxNotionalPerOrder)},
         ${formatAmount(follow.envelope.maxAggregateExposure)},
         ${follow.envelope.maxLoss !== undefined ? formatAmount(follow.envelope.maxLoss) : null},
+        ${follow.envelope.maxSlippageBps ?? null},
+        ${follow.envelope.maxConcurrent ?? null},
+        ${follow.envelope.maxDrawdown !== undefined ? formatAmount(follow.envelope.maxDrawdown) : null},
         ${follow.envelope.expiresAt},
         ${follow.feeShareKilled},
         ${followRelationshipState(follow)},
@@ -879,6 +935,9 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         max_notional_per_order = EXCLUDED.max_notional_per_order,
         max_aggregate_exposure = EXCLUDED.max_aggregate_exposure,
         max_loss = EXCLUDED.max_loss,
+        max_slippage_bps = EXCLUDED.max_slippage_bps,
+        max_concurrent = EXCLUDED.max_concurrent,
+        max_drawdown = EXCLUDED.max_drawdown,
         expires_at = EXCLUDED.expires_at,
         region = EXCLUDED.region,
         updated_at = now()
@@ -893,7 +952,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     const rows = await this.sql<FollowRow[]>`
       SELECT follow_id, follower_id, leader_id, region, permitted_markets,
              max_notional_per_order::text, max_aggregate_exposure::text,
-             max_loss::text, expires_at, fee_share_killed, relationship_state,
+             max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
+             peak_result::text, expires_at, fee_share_killed, relationship_state,
              exposure::text, created_at
         FROM copy_follows
        WHERE follow_id = ${followId}
@@ -916,7 +976,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     const rows = await this.sql<FollowRow[]>`
       SELECT follow_id, follower_id, leader_id, region, permitted_markets,
              max_notional_per_order::text, max_aggregate_exposure::text,
-             max_loss::text, expires_at, fee_share_killed, relationship_state,
+             max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
+             peak_result::text, expires_at, fee_share_killed, relationship_state,
              exposure::text, created_at
         FROM copy_follows
     `;
@@ -929,7 +990,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ? await this.sql<FollowRow[]>`
             SELECT follow_id, follower_id, leader_id, region, permitted_markets,
                    max_notional_per_order::text, max_aggregate_exposure::text,
-                   max_loss::text, expires_at, fee_share_killed, relationship_state,
+                   max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
+                   peak_result::text, expires_at, fee_share_killed, relationship_state,
                    exposure::text, created_at
               FROM copy_follows
              WHERE follower_id = ${followerId}
@@ -937,7 +999,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         : await this.sql<FollowRow[]>`
             SELECT follow_id, follower_id, leader_id, region, permitted_markets,
                    max_notional_per_order::text, max_aggregate_exposure::text,
-                   max_loss::text, expires_at, fee_share_killed, relationship_state,
+                   max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
+                   peak_result::text, expires_at, fee_share_killed, relationship_state,
                    exposure::text, created_at
               FROM copy_follows
              WHERE follower_id = ${followerId}
@@ -1187,6 +1250,7 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     fillId: string;
     maxAggregate: Amount;
     plan: Omit<StoredMirrorPlan, 'nextExposure'>;
+    drawdown?: { readonly current: Amount; readonly cap: Amount };
   }): Promise<ClaimMirrorFillResult> {
     if (input.plan.notional < 0n) {
       return { status: 'cap_exceeded', current: await this.getExposure(input.followId) };
@@ -1195,11 +1259,11 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     const notionalStr = formatAmount(input.plan.notional);
     const maxStr = formatAmount(input.maxAggregate);
 
-    // Transaction: lock follow row → check fill claim → bump exposure under
-    // cap → insert mirrored plan. Concurrent same fillId serialises here.
+    // Transaction: lock follow row → check fill claim → drawdown peak →
+    // bump exposure under cap → insert mirrored plan. A stop writes nothing.
     return await this.withSessionTxn(async (tx) => {
-      const followRows = await tx<Array<{ exposure: string }>>`
-        SELECT exposure::text
+      const followRows = await tx<Array<{ exposure: string; peak_result: string | null }>>`
+        SELECT exposure::text, peak_result::text AS peak_result
           FROM copy_follows
          WHERE follow_id = ${input.followId}
          FOR UPDATE
@@ -1222,6 +1286,16 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         return { status: 'duplicate' as const, plan: rowToMirrored(existing) };
       }
 
+      const storedPeak = followRow.peak_result != null && followRow.peak_result !== '' ? parseAmount(String(followRow.peak_result)) : null;
+      let nextPeak: Amount | null = null;
+      if (input.drawdown) {
+        const decision = drawdownDecision(storedPeak, input.drawdown.current, input.drawdown.cap);
+        if (decision.stop) {
+          return { status: 'drawdown_stop' as const, peak: storedPeak ?? decision.peak };
+        }
+        nextPeak = decision.peak;
+      }
+
       const current = parseAmount(String(followRow.exposure));
       const nextExposure = current + input.plan.notional;
       if (nextExposure > input.maxAggregate) {
@@ -1230,7 +1304,9 @@ export class SqlCopyFollowStore implements CopyFollowStore {
 
       await tx`
         UPDATE copy_follows
-           SET exposure = ${formatAmount(nextExposure)}, updated_at = now()
+           SET exposure = ${formatAmount(nextExposure)},
+               peak_result = CASE WHEN ${nextPeak === null} THEN peak_result ELSE ${nextPeak === null ? null : formatAmount(nextPeak)}::numeric END,
+               updated_at = now()
          WHERE follow_id = ${input.followId}
            AND exposure + ${notionalStr}::numeric <= ${maxStr}::numeric
       `;
@@ -1255,6 +1331,20 @@ export class SqlCopyFollowStore implements CopyFollowStore {
       `;
       return { status: 'claimed' as const, plan };
     });
+  }
+
+  async countOpenMirrors(followId: string): Promise<number> {
+    const rows = await this.sql<Array<{ status: string | null }>>`
+      SELECT o.status::text AS status
+        FROM copy_placed_mirrors p
+        LEFT JOIN trade.orders o ON o.id::text = p.order_id
+       WHERE p.follow_id = ${followId}
+    `;
+    let open = 0;
+    for (const row of rows) {
+      if (mirrorOccupiesConcurrencySlot(row.status)) open += 1;
+    }
+    return open;
   }
 
   async getSettledFeeShare(followId: string, fillId: string): Promise<StoredSettledFeeShare | null> {
@@ -1438,7 +1528,9 @@ export class SqlCopyFollowStore implements CopyFollowStore {
       }
       return { status: 'claimed' as const, record };
     };
-    return this.withAdvisoryLock(`copy-place:${followId}:${id}`, placeOnce);
+    // One lock per follow, not per fill: the concurrency cap counts open mirrors,
+    // so two different fills of one follow must not both read the same count.
+    return this.withAdvisoryLock(`copy-place:${followId}`, placeOnce);
   }
 
   async getDisclosureAcceptance(followerId: string, version: string): Promise<CopyDisclosureAcceptance | null> {

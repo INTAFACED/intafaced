@@ -70,7 +70,9 @@ export function parseSymbol(symbol: string): ParsedSymbol {
   }
 
   const suffix = rest[0] ?? '';
-  const [settle, expiry, strike, option] = suffix.split('-') as [string, string?, string?, string?];
+  const fields = suffix.split('-');
+  if (fields.length > 4) throw new SymbolError(symbol, 'unexpected extra segment');
+  const [settle, expiry, strike, option] = fields as [string, string?, string?, string?];
 
   if (!isAssetCode(settle)) throw new SymbolError(symbol, `settle "${settle}" is not a valid asset code`);
 
