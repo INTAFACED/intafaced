@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bpsToRatio, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
+import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, marketSellOff, sizeFor } from './form-logic';
 
 const ready = {
   signedIn: true,
@@ -97,5 +97,29 @@ describe('sizeFor (percent chips and Max)', () => {
 
   it('a sell is the balance, cut by percent and down to the lot', () => {
     expect(sizeFor({ ...base, side: 'sell', price: '', available: '0.25', percent: 25 }).amount).toBe('0.0625');
+  });
+});
+
+describe('exitFeeLines', () => {
+  const leg = (feeRole: 'maker' | 'taker', feeBps: number, estimatedFee: string) => ({
+    price: '100',
+    feeRole,
+    feeBps,
+    estimatedFee,
+    feeAsset: 'USDT',
+  });
+
+  it('is empty without exit-leg fees, so a plain order shows no exit rows', () => {
+    expect(exitFeeLines({ exitFees: null })).toEqual([]);
+    expect(exitFeeLines({})).toEqual([]);
+  });
+
+  it('lists the take-profit as maker and the stop-loss as taker, with the service’s own figures', () => {
+    expect(
+      exitFeeLines({ exitFees: { side: 'sell', takeProfit: leg('maker', 1, '0.0011'), stopLoss: leg('taker', 2, '0.0018') } }),
+    ).toEqual([
+      { leg: 'takeProfit', fee: '0.0011', asset: 'USDT', ratio: bpsToRatio(1) },
+      { leg: 'stopLoss', fee: '0.0018', asset: 'USDT', ratio: bpsToRatio(2) },
+    ]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { draftSchema, placeBody, previewBody } from './trade-api';
+import { draftSchema, placeBody, previewBody, previewSchema } from './trade-api';
 
 const oco = {
   symbol: 'BTC/USDT',
@@ -69,7 +69,7 @@ describe('OCO and bracket drafts', () => {
   });
 
   it('previews the plain order and places it with the documented body', () => {
-    expect(previewBody(oco)).not.toHaveProperty('exit');
+    expect(previewBody(oco)).toMatchObject({ exit: { kind: 'oco', takeProfit: '110', stopLoss: '90' } });
     expect(placeBody(oco)).toEqual({
       symbol: 'BTC/USDT',
       side: 'sell',
@@ -90,5 +90,48 @@ describe('OCO and bracket drafts', () => {
       stopLoss: { stopPrice: '90' },
     });
     expect(placeBody(bracket)).not.toHaveProperty('exit');
+  });
+
+  it('asks the service to price the exit legs: an OCO as oco, a bracket as bracket_exit, a buy OCO with its stop-loss limit', () => {
+    expect(previewBody(oco).exit).toEqual({ kind: 'oco', takeProfit: '110', stopLoss: '90' });
+    expect(previewBody(bracket).exit).toEqual({ kind: 'bracket_exit', takeProfit: '110', stopLoss: '90' });
+    const buyOco = {
+      ...oco,
+      side: 'buy',
+      price: '91',
+      exit: { kind: 'oco', takeProfit: '80', stopLoss: '90', stopLossLimit: '91' },
+    } as const;
+    expect(previewBody(buyOco).exit).toEqual({ kind: 'oco', takeProfit: '80', stopLoss: '90', stopLossLimit: '91' });
+    const plain = { ...oco, exit: undefined };
+    expect(previewBody(plain)).not.toHaveProperty('exit');
+  });
+
+  it('reads the exit-leg fees the service returns, and tolerates a preview without them', () => {
+    const base = {
+      symbol: 'BTC/USDT',
+      side: 'sell',
+      type: 'limit',
+      amount: '0.1',
+      price: '110',
+      stopPrice: null,
+      timeInForce: 'GTC',
+      holdAsset: 'BTC',
+      holdAmount: '0.1',
+      protectionPrice: null,
+      estimatedFee: '0.0022',
+      feeAsset: 'USDT',
+      feeBps: 2,
+      feeRole: 'maker',
+      orderable: true,
+      refusals: [],
+    };
+    expect(previewSchema.parse(base).exitFees ?? null).toBeNull();
+    const exitFees = {
+      side: 'sell',
+      takeProfit: { price: '110', feeRole: 'maker', feeBps: 1, estimatedFee: '0.0011', feeAsset: 'USDT' },
+      stopLoss: { price: '90', feeRole: 'taker', feeBps: 2, estimatedFee: '0.0018', feeAsset: 'USDT' },
+    };
+    expect(previewSchema.parse({ ...base, exitFees }).exitFees).toEqual(exitFees);
+    expect(previewSchema.safeParse({ ...base, exitFees: { ...exitFees, side: 'up' } }).success).toBe(false);
   });
 });

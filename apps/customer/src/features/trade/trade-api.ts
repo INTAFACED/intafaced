@@ -43,6 +43,13 @@ export type ReviewedOrder = Pick<Order, 'id' | 'symbol'>;
 export function isTerminalOrder(order: Order) {
   return !order.recoveryRequired && ['closed', 'canceled', 'expired', 'rejected'].includes(order.status);
 }
+const exitLegFeeSchema = z.object({
+  price: positive,
+  feeRole: z.enum(['maker', 'taker']),
+  feeBps: z.number().int().nonnegative(),
+  estimatedFee: decimalSchema,
+  feeAsset: z.string(),
+});
 export const previewSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
@@ -60,6 +67,15 @@ export const previewSchema = z.object({
   feeRole: z.enum(['maker', 'taker']).nullable(),
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
+  /** The fee each linked exit leg would post if it filled. Absent or null when the draft has no exit legs. */
+  exitFees: z
+    .object({
+      side: z.enum(['buy', 'sell']),
+      takeProfit: exitLegFeeSchema,
+      stopLoss: exitLegFeeSchema,
+    })
+    .nullable()
+    .optional(),
 });
 export type Preview = z.infer<typeof previewSchema>;
 export const draftSchema = z
@@ -118,10 +134,18 @@ export const draftSchema = z
   });
 export type Draft = z.infer<typeof draftSchema>;
 
-/** The advisory preview is of the order itself: the service has no preview for exit legs, so they are not sent to it. */
-export function previewBody(draft: Draft): Omit<Draft, 'exit'> {
-  const { exit: _exit, ...order } = draft;
-  return order;
+/**
+ * The advisory preview: the order itself, plus its exit legs so the service can price their fees. The service
+ * names a bracket's exit `bracket_exit`; the prices ride as the decimal strings the person entered.
+ */
+export function previewBody(draft: Draft): Omit<Draft, 'exit'> & { exit?: Record<string, string> } {
+  const { exit, ...order } = draft;
+  if (!exit) return order;
+  const { kind, takeProfit, stopLoss, stopLossLimit } = exit;
+  return {
+    ...order,
+    exit: { kind: kind === 'bracket' ? 'bracket_exit' : 'oco', takeProfit, stopLoss, ...(stopLossLimit ? { stopLossLimit } : {}) },
+  };
 }
 
 /**

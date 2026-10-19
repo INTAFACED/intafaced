@@ -75,6 +75,20 @@ export function feeRate(preview: Pick<Preview, 'feeBps'> | null): string | null 
   return preview && preview.feeBps !== null ? bpsToRatio(preview.feeBps) : null;
 }
 
+/** The fee line of each exit leg the service priced (take-profit as maker, stop-loss as taker); empty for a plain order. */
+export function exitFeeLines(
+  preview: Pick<Preview, 'exitFees'>,
+): Array<{ leg: 'takeProfit' | 'stopLoss'; fee: string; asset: string; ratio: string }> {
+  const exit = preview.exitFees;
+  if (!exit) return [];
+  return (['takeProfit', 'stopLoss'] as const).map((leg) => ({
+    leg,
+    fee: exit[leg].estimatedFee,
+    asset: exit[leg].feeAsset,
+    ratio: bpsToRatio(exit[leg].feeBps),
+  }));
+}
+
 /**
  * What a percent chip or Max puts in the Amount field. Null when the balance or (for a buy) the price is unknown,
  * or when the portion would be under one lot. `needsPrice` tells the form to ask for a price first.
