@@ -56,6 +56,9 @@ function matchesPrefix(file, prefix) {
   return f === p || f.startsWith(`${p}/`);
 }
 
+/** True for a gate file: the agent rules, the CI and tooling directories, the workflows. */
+export const isGateFile = (file) => GATE_FILES.some((g) => matchesPrefix(file, g)) || GATE_BASENAMES.has(posix(file).split('/').pop());
+
 const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
 
 /**
@@ -80,7 +83,7 @@ export function classify(files, { forceFull = false } = {}) {
   const list = (files || []).map(posix).filter(Boolean);
   let affected = false;
   for (const file of list) {
-    if (GATE_FILES.some((g) => matchesPrefix(file, g)) || GATE_BASENAMES.has(file.split('/').pop())) return { full: true, affected: false };
+    if (isGateFile(file)) return { full: true, affected: false };
     if (isDoc(file)) continue;
     if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
     if (PRODUCT_DIRS.test(file)) affected = true;
@@ -252,25 +255,27 @@ function runSeal() {
   console.log('✓ CI merge seal: required jobs succeeded');
 }
 
-const args = process.argv.slice(2);
-if (args.includes('--self-test')) {
-  selfTest();
-  process.exit(0);
-}
-if (args.includes('--seal')) {
-  runSeal();
-  process.exit(0);
-}
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = process.argv.slice(2);
+  if (args.includes('--self-test')) {
+    selfTest();
+    process.exit(0);
+  }
+  if (args.includes('--seal')) {
+    runSeal();
+    process.exit(0);
+  }
 
-const filesIdx = args.indexOf('--files');
-let files;
-let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
-if (filesIdx >= 0) files = args.slice(filesIdx + 1);
-else files = gitChangedFiles();
-if (args.includes('--filters')) {
-  for (const f of affectedFilters(files)) console.log(f);
-  process.exit(0);
+  const filesIdx = args.indexOf('--files');
+  let files;
+  let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
+  if (filesIdx >= 0) files = args.slice(filesIdx + 1);
+  else files = gitChangedFiles();
+  if (args.includes('--filters')) {
+    for (const f of affectedFilters(files)) console.log(f);
+    process.exit(0);
+  }
+  const flags = classify(files, { forceFull });
+  if (args.includes('--github-output')) githubOutput(flags);
+  else console.log(JSON.stringify({ files, flags }, null, 2));
 }
-const flags = classify(files, { forceFull });
-if (args.includes('--github-output')) githubOutput(flags);
-else console.log(JSON.stringify({ files, flags }, null, 2));

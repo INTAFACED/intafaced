@@ -11,7 +11,7 @@
  * habit, not identity. A new push needs a new review and a new comment. After
  * posting it, re-run the failed "CI merge seal" job.
  */
-const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
+export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 
 /** True when any comment carries the marker for exactly `sha`. */
 export function hasReviewMarker(comments, sha) {
@@ -74,4 +74,4 @@ async function main() {
   console.log(`review marker found for ${HEAD_SHA}`);
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) main();
