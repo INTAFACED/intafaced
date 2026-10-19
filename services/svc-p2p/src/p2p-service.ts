@@ -1655,7 +1655,7 @@ export class P2pService {
       const actor: Actor = current.sellerId === actorId ? 'seller' : 'buyer';
       // The reason string carries the actor, so the refund event and the audit
       // trail both say who unwound the trade without a second column.
-      return this.unwind(tradeId, `${actor}.${reason}`);
+      return this.unwind(tradeId, `${actor}.${reason}`, current.status);
     });
   }
 
