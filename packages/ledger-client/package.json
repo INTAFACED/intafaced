@@ -25,6 +25,10 @@
     "./testing/ledger-door": {
       "types": "./dist/testing/ledger-door.d.ts",
       "default": "./dist/testing/ledger-door.js"
+    },
+    "./testing/saga": {
+      "types": "./dist/testing/saga.d.ts",
+      "default": "./dist/testing/saga.js"
     }
   },
   "scripts": {
