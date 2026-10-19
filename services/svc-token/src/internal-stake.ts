@@ -44,9 +44,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import { formatAmount, type Amount, type AmountString } from '@intafaced/ledger-client';
@@ -68,6 +69,8 @@ export interface StakeAccessBody {
 
 export interface InternalStakeDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly accessOf: (userId: string) => Promise<StakeAccess>;
   /** Defaults to `accept-both` — do not flip compose from here. */
   readonly bodyBind?: ServiceBodyBindMode;
@@ -91,7 +94,14 @@ export function registerInternalStake(app: FastifyInstance, deps: InternalStakeD
   if (deps.installRawBody !== false) retainRawBody(app);
   const mode = deps.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
   app.get<{ Params: { userId: string } }>('/internal/stake/:userId', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: mode,
+      }).service === null
+    ) {
       return reply.code(401).send({ error: 'service credentials required', code: 'token.unauthenticated' });
     }
     return toStakeAccessBody(await deps.accessOf(req.params.userId));

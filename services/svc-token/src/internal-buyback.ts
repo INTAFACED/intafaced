@@ -14,9 +14,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
@@ -24,6 +25,8 @@ import { authorizeTokenJobHttp } from './job-hmac.js';
 
 export interface InternalBuybackDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly buybackJobEnabled: boolean;
   readonly runWindow: (input: { runId: string; revenueWindow: { from: Date; to: Date } }) => Promise<{
     runId: string;
@@ -48,7 +51,14 @@ export function registerInternalBuyback(app: FastifyInstance, deps: InternalBuyb
   if (deps.installRawBody !== false) retainRawBody(app);
   const mode = deps.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
   app.post('/internal/buyback/run-window', async (req, reply) => {
-    const auth = authorizeTokenJobHttp(verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode }).service);
+    const auth = authorizeTokenJobHttp(
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: mode,
+      }).service,
+    );
     if (!auth.ok) {
       return reply.code(auth.status).send({ error: auth.error, code: auth.code });
     }
