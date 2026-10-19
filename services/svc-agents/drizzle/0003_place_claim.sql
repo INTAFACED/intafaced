@@ -1,3 +1,4 @@
+-- intafaced:destructive relaxes NOT NULL on action_id and result_json so a claim row can exist before the place tool executes; drops no rows and no columns
 -- svc-agents · place intent claimed before execute
 -- Reversal: 0003_place_claim.down.sql
 --
