@@ -3,6 +3,8 @@ import {
   amountForValue,
   bboPrice,
   checkOrder,
+  exitSideOff,
+  serviceType,
   maxAmount,
   orderValue,
   padDecimals,
@@ -184,5 +186,67 @@ describe('helpers', () => {
       price: '70000.1',
       stopPrice: '70100.1',
     });
+  });
+});
+
+describe('exit orders (OCO and bracket)', () => {
+  const oco = { side: 'sell', type: 'oco', price: '70000', stopPrice: '60000', amount: '0.001' } as const;
+  const bracket = { side: 'buy', type: 'bracket', price: '', stopPrice: '60000', takeProfit: '70000', amount: '0.001' } as const;
+
+  it('an OCO is a limit priced at its take-profit with both exits carried', () => {
+    expect(checkOrder(oco, market, ref)).toEqual({
+      ok: true,
+      amount: '0.001',
+      price: '70000',
+      exit: { takeProfit: '70000', stopLoss: '60000' },
+    });
+  });
+
+  it('a bracket without an entry price is a market entry, with one it is a limit entry', () => {
+    expect(checkOrder(bracket, market, ref)).toEqual({
+      ok: true,
+      amount: '0.001',
+      price: null,
+      exit: { takeProfit: '70000', stopLoss: '60000' },
+    });
+    expect(serviceType('bracket', '')).toBe('market');
+    expect(serviceType('bracket', '65000')).toBe('limit');
+    expect(serviceType('oco', '70000')).toBe('limit');
+    expect(checkOrder({ ...bracket, price: '65000' }, market, ref)).toMatchObject({ ok: true, price: '65000' });
+  });
+
+  it('refuses a missing or off-step exit, in the exit words', () => {
+    expect(checkOrder({ ...oco, price: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'takeProfitEmpty' } });
+    expect(checkOrder({ ...oco, stopPrice: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopLossEmpty' } });
+    expect(checkOrder({ ...oco, price: '70000.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'takeProfitTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...oco, stopPrice: '60000.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'stopLossTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...bracket, takeProfit: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'takeProfitEmpty' } });
+  });
+
+  it('refuses a take-profit at or under the stop-loss, and an entry outside the exits', () => {
+    expect(checkOrder({ ...oco, price: '60000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'exitOrder' } });
+    expect(checkOrder({ ...oco, price: '59000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'exitOrder' } });
+    expect(checkOrder({ ...bracket, price: '70000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'entryBetween' } });
+    expect(checkOrder({ ...bracket, price: '59000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'entryBetween' } });
+  });
+
+  it('OCO is sell-only and a bracket buy-only', () => {
+    expect(exitSideOff('buy', 'oco')).toBe(true);
+    expect(exitSideOff('sell', 'oco')).toBe(false);
+    expect(exitSideOff('sell', 'bracket')).toBe(true);
+    expect(exitSideOff('buy', 'bracket')).toBe(false);
+    expect(exitSideOff('buy', 'limit')).toBe(false);
+  });
+
+  it('a market-entry bracket is sized from the price protection, a limit entry from its own price', () => {
+    const args = { side: 'buy', available: '1000', market: { lotSize: '0.001' }, protectionPrice: '100' } as const;
+    expect(maxAmount({ ...args, type: 'bracket', price: '' })).toBe('10');
+    expect(maxAmount({ ...args, type: 'bracket', price: '50' })).toBe('20');
   });
 });

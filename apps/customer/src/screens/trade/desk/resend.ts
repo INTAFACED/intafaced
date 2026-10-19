@@ -1,5 +1,5 @@
 import type { ApiClient } from '../../../shared/api';
-import { isTerminalOrder, orderSchema, type Draft, type Order } from '../../../features/trade/trade-api';
+import { isTerminalOrder, orderSchema, placeBody, type Draft, type Order } from '../../../features/trade/trade-api';
 import type { ScaleOutcome } from './ticket/scale-flow';
 
 export type ResendResult =
@@ -27,7 +27,7 @@ export const CONFLICT_CODE = 'trade.client_order_id_conflict';
  * the draft is stored exactly as it was first sent. No fresh preview is asked: the order is the one already reviewed.
  */
 export async function resendOrder(client: ApiClient, draft: Draft): Promise<ResendResult> {
-  const result = await client.rest('/orders', orderSchema, { method: 'POST', body: draft });
+  const result = await client.rest('/orders', orderSchema, { method: 'POST', body: placeBody(draft) });
   if (!result.ok) {
     if (result.reason === 'uncertain') return { ok: false, reason: 'unsure' };
     if (result.reason === 'unauthorized') return { ok: false, reason: 'unauthorized' };

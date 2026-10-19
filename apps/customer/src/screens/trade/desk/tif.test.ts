@@ -18,6 +18,14 @@ describe('time in force on the ticket', () => {
     expect(tifsFor('limit')).toEqual(['GTC', 'PO', 'IOC', 'FOK']);
     expect(tifsFor('market')).toEqual(['GTC', 'FOK']);
   });
+  it('a sell OCO is good till cancelled only and a bracket entry is IOC or FOK, never resting', () => {
+    expect(tifsFor('oco')).toEqual(['GTC']);
+    expect(tifsFor('bracket')).toEqual(['IOC', 'FOK']);
+    expect(tifFor('bracket', 'GTC')).toBe('IOC');
+    expect(tifFor('bracket', 'PO')).toBe('IOC');
+    expect(tifFor('bracket', 'FOK')).toBe('FOK');
+    expect(tifFor('oco', 'IOC')).toBe('GTC');
+  });
   it('falls back to standard when the new order type cannot use the pick', () => {
     expect(tifFor('market', 'PO')).toBe('GTC');
     expect(tifFor('market', 'IOC')).toBe('GTC');
@@ -43,7 +51,7 @@ describe('time in force on the ticket', () => {
     expect(tifLabelKey('limit', 'PO')).toBe('Tif PO');
   });
   it('lists every order kind the market refuses, none of them as working', () => {
-    expect(UNSUPPORTED_TYPES).toEqual(['takeProfitStopLoss', 'oco', 'trailingStop']);
+    expect(UNSUPPORTED_TYPES).toEqual(['trailingStop']);
   });
 });
 

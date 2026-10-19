@@ -728,14 +728,14 @@ test('fill or kill that the book cannot fill, and immediate or cancel with no ma
   await expect(page.getByText('No open orders.')).toBeVisible();
 });
 
-test('stop-limit and take profit / stop loss are listed, disabled, with one reason; nothing is sent', async ({ page }) => {
+test('trailing stop is listed, disabled, with one reason; nothing is sent', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
   await page.getByRole('button', { name: 'Other order types (not available)' }).click();
   const menu = page.getByRole('menu');
-  await expect(menu).toContainText('Not available on spot. This market takes limit and market orders only.');
+  await expect(menu).toContainText('The service does not take this order type.');
   const items = menu.getByRole('menuitem');
-  await expect(items).toHaveText(['Stop-limit', 'Take profit / stop loss', 'OCO (one cancels the other)', 'Trailing stop']);
+  await expect(items).toHaveText(['Trailing stop']);
   for (const item of await items.all()) await expect(item).toHaveAttribute('aria-disabled', 'true');
   await shotBoth(page, 'desk-order-kinds-disabled');
   await page.keyboard.press('Escape');
