@@ -64,6 +64,7 @@ const migrations = readdirSync(drizzle)
   .map((f) => readFileSync(join(drizzle, f), 'utf8'));
 
 const USER_A = '11111111-1111-4111-8111-111111111111';
+const USER_B = '22222222-2222-4222-8222-222222222222';
 
 const H8A_IMAGE = 'postgres:16-alpine';
 
@@ -559,6 +560,43 @@ describe('auto-invest PG-hard', () => {
       expect(runs[0]?.status).toBe('pending');
       expect(runs[0]?.clientRunId).toBe(clientRunId);
       expect(formatAmount(runs[0]!.amount!)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a rule stuck pending does not starve a due rule created after it', async () => {
+      const calls = { n: 0 };
+      bankWithConvert(fillingConvert(amt('0.002'), calls));
+      await fund(USER_A, 'USDT', '500');
+      await fund(USER_B, 'USDT', '500');
+      const startsAt = new Date('2026-08-09T11:00:00.000Z');
+      const stuck = await bank.autoInvest.createDca({
+        userId: USER_A,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt,
+      });
+      await sql`
+        INSERT INTO bank.auto_invest_runs (rule_id, client_run_id, status, amount)
+        VALUES (${stuck.id}::uuid, ${`dca:${stuck.id}:${stuck.nextRunAt!.toISOString()}`}, 'pending', '100'::numeric)
+      `;
+      const fresh = await bank.autoInvest.createDca({
+        userId: USER_B,
+        spendAssetId: 'USDT',
+        buyAssetId: 'BTC',
+        amount: amt('100'),
+        cadence: 'daily',
+        startsAt,
+      });
+
+      // A batch of one: the stuck rule is older, so it used to take the only slot on every run.
+      const report = await bank.autoInvest.runDue({ now: startsAt, limit: 1 });
+
+      expect(report.settled).toBe(1);
+      expect(calls.n).toBe(1);
+      expect((await bank.autoInvest.runsOf(fresh.id))[0]?.status).toBe('settled');
+      expect((await bank.autoInvest.runsOf(stuck.id))[0]?.status).toBe('pending');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 

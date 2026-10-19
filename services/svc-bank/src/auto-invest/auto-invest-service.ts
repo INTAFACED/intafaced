@@ -565,7 +565,12 @@ export class AutoInvestService {
            kind = 'threshold_sweep'
            OR (kind = 'dca' AND next_run_at IS NOT NULL AND next_run_at <= ${now})
          )
-       ORDER BY created_at ASC
+       -- A rule stuck on an unknown outcome sorts last: it is not re-driven, so it must not take a batch slot from a due rule.
+       ORDER BY EXISTS (
+                  SELECT 1 FROM bank.auto_invest_runs r
+                   WHERE r.rule_id = bank.auto_invest_rules.id AND r.status = 'pending'
+                ) ASC,
+                created_at ASC
        LIMIT ${limit}
     `;
 
