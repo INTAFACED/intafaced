@@ -314,6 +314,8 @@ export function installComboPlace(ctor: typeof TradeService): void {
     const req = origToEngine.apply(this, args);
     const input = args[2] as PlaceWithCombo | undefined;
     if (!input || !wantsCombo(input)) return req;
+    // An explicit combo:false is the caller's no; legs alone must not turn it into a combo order.
+    if (input.combo === false) return req;
     const legs = readLegs(input);
     return {
       ...req,

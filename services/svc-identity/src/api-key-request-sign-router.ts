@@ -20,6 +20,9 @@ function mapSignError(err: unknown): never {
   if (err instanceof ApiKeyRequestSignError && (err.reason === 'auth.not_configured' || err.reason === 'auth.signature_not_required')) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
+  if (err instanceof ApiKeyRequestSignError && err.reason === 'auth.signing_change_unset') {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
   throw err;
 }
 
@@ -27,12 +30,14 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
   return router({
     setApiKeyRequestSigning: scopedProcedure('identity:write')
       .input(
-        z.object({
-          keyId: z.string().uuid(),
-          requireSignature: z.boolean(),
-          requireNonEmptyIpAllowlist: z.boolean(),
-          factorProof: optionalFactorProof,
-        }),
+        z
+          .object({
+            keyId: z.string().uuid(),
+            requireSignature: z.boolean().optional(),
+            requireNonEmptyIpAllowlist: z.boolean().optional(),
+            factorProof: optionalFactorProof,
+          })
+          .refine((value) => value.requireSignature !== undefined || value.requireNonEmptyIpAllowlist !== undefined),
       )
       .output(
         z.object({
@@ -56,9 +61,10 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
               },
               encKey,
             );
-          // Turning signing on can reveal a secret: that needs a fresh factor. Turning it off or
-          // leaving it off reveals nothing and stays one click.
-          if (!input.requireSignature) return await set(sql);
+          // Turning signing on can reveal a secret: that needs a fresh factor. Turning it off, or leaving the
+          // flag out, reveals nothing and stays one click: an omitted flag keeps the stored flag and secret
+          // (see setApiKeyRequestSigning), so it can never issue a secret or enable signing.
+          if (input.requireSignature !== true) return await set(sql);
           return await guardedApiKeyAction(
             gate,
             ctx.principal,

@@ -19,6 +19,9 @@ const record = z
     lastUsedAt: lastUsed.nullable(),
     revoked: z.boolean(),
     mode: z.enum(['live', 'sandbox']),
+    requireSignature: z.boolean(),
+    requireNonEmptyIpAllowlist: z.boolean(),
+    ipAllowlist: z.array(z.string()),
   })
   .strict();
 export type ApiKeyRecord = z.infer<typeof record>;

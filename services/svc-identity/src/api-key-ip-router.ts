@@ -28,7 +28,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
   return router({
     bindApiKeyIpAllowlist: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), ips: z.array(z.string()), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ipAllowlist: z.array(z.string()),
+          requireSignature: z.boolean(),
+          requireNonEmptyIpAllowlist: z.boolean(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -58,7 +65,14 @@ export function createApiKeyIpRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKe
       }),
     unbindApiKeyIpAllowlist: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), ip: z.string(), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), ipAllowlist: z.array(z.string()) }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          ipAllowlist: z.array(z.string()),
+          requireSignature: z.boolean(),
+          requireNonEmptyIpAllowlist: z.boolean(),
+        }),
+      )
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);

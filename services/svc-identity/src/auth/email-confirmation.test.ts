@@ -169,7 +169,18 @@ if (!available) {
       expect(stored[0]!.code_hash).not.toBe(sent[0]!.code);
       expect(JSON.stringify(stored)).not.toContain(sent[0]!.code);
 
-      await api.auth.confirmEmail({ token: sent[0]!.code });
+      const claimed: Array<{ userId: string; email: string }> = [];
+      auth.useMerchantEmailInviteClaimer({
+        async claim(input) {
+          claimed.push(input);
+        },
+      });
+      try {
+        await api.auth.confirmEmail({ token: sent[0]!.code });
+        expect(claimed).toEqual([{ userId: user.userId, email: user.email }]);
+      } finally {
+        auth.useMerchantEmailInviteClaimer(undefined);
+      }
       expect(await verifiedAt(user.userId)).not.toBeNull();
       expect(await api.me()).toMatchObject({ emailVerified: true });
       const audit = await db.sql<Array<{ event: string; reason: string }>>`

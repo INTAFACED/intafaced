@@ -19,6 +19,9 @@ export function createDevelopersMock(ctx) {
             lastUsedAt: iso(now - 3600_000),
             revoked: false,
             mode: 'sandbox',
+            requireSignature: true,
+            requireNonEmptyIpAllowlist: true,
+            ipAllowlist: ['203.0.113.10'],
           },
           {
             id: 'TEST-key-2',
@@ -28,6 +31,9 @@ export function createDevelopersMock(ctx) {
             lastUsedAt: null,
             revoked: false,
             mode: 'sandbox',
+            requireSignature: false,
+            requireNonEmptyIpAllowlist: false,
+            ipAllowlist: [],
           },
           {
             id: 'TEST-key-3',
@@ -37,6 +43,9 @@ export function createDevelopersMock(ctx) {
             lastUsedAt: iso(now - 40 * DAY),
             revoked: true,
             mode: 'sandbox',
+            requireSignature: false,
+            requireNonEmptyIpAllowlist: false,
+            ipAllowlist: [],
           },
         ],
     ips: new Map(),
@@ -97,7 +106,17 @@ export function createDevelopersMock(ctx) {
     async handle(procedure, input, route) {
       switch (procedure) {
         case 'apiKeys.list':
-          return ok(route, dev.keys);
+          return ok(
+            route,
+            dev.keys.map((k) => ({
+              requireSignature: false,
+              requireNonEmptyIpAllowlist: false,
+              ipAllowlist: [],
+              ...k,
+              ...(dev.signing.get(k.id) ?? {}),
+              ipAllowlist: dev.ips.get(k.id) ?? k.ipAllowlist ?? [],
+            })),
+          );
         case 'apiKeys.create': {
           const id = `TEST-key-${dev.keys.length + 1}`;
           // The list shows the start of the very key that was handed out, as the real service does.
@@ -111,6 +130,9 @@ export function createDevelopersMock(ctx) {
             lastUsedAt: null,
             revoked: false,
             mode: 'sandbox',
+            requireSignature: false,
+            requireNonEmptyIpAllowlist: false,
+            ipAllowlist: [],
           });
           return ok(route, { id, key: handedOut, prefix, mode: 'sandbox' });
         }

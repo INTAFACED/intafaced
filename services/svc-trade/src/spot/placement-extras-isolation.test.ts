@@ -15,6 +15,13 @@ import { bindAon } from './aon-place.js';
 import { bindPeg } from './peg-place.js';
 import { bindAuction } from './auction-place.js';
 import { bindCollar } from './collar-place.js';
+import { bindIceberg } from './iceberg-place.js';
+import { bindTrailingStop } from './trailing-stop-place.js';
+import { bindOption } from './option-place.js';
+import { bindCombo } from './combo-place.js';
+import { bindBracket } from './bracket-place.js';
+import { bindOco } from './oco-place.js';
+import { carryPlacementBody } from './placement-extras.js';
 import type { PlaceOrderInput } from './trade-service.js';
 
 /**
@@ -215,5 +222,38 @@ describe('placement options stay with the request that carried them', () => {
     expect(bob.statusCode).toBe(201);
     expect(seen[0]).toEqual(clean);
     await app.close();
+  });
+});
+
+describe('an input that did not come from a request body carries no options', () => {
+  const plain = { clientOrderId: 'bot-7', side: 'buy', type: 'limit', price: 100n, qty: 1n } as PlaceOrderInput;
+  const ALL = [
+    bindExpireAt,
+    bindReduceOnly,
+    bindPostOnly,
+    bindIoc,
+    bindFok,
+    bindStopLimit,
+    bindMinQty,
+    bindAon,
+    bindPeg,
+    bindAuction,
+    bindCollar,
+    bindIceberg,
+    bindTrailingStop,
+    bindOption,
+    bindCombo,
+    bindBracket,
+    bindOco,
+  ];
+  it('every binder returns it unchanged, so nothing is ever read from shared state', () => {
+    for (const bind of ALL) expect(bind(plain)).toEqual(plain);
+  });
+
+  it('a JSON-number trail is not a decimal distance', () => {
+    const bound = bindTrailingStop(carryPlacementBody(plain, { clientOrderId: 'bot-7', trail: 0.1, mark: '10' })) as {
+      trail?: bigint | null;
+    };
+    expect(bound.trail ?? null).toBeNull();
   });
 });

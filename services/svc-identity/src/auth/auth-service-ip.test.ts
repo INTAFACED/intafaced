@@ -19,6 +19,8 @@ describe('bindApiKeyIpAllowlist', () => {
     await expect(bindApiKeyIpAllowlist(ok, 'u', 'k', ['  203.0.113.10  '])).resolves.toEqual({
       id: 'k',
       ipAllowlist: ['203.0.113.10'],
+      requireSignature: false,
+      requireNonEmptyIpAllowlist: false,
     });
     await expect(bindApiKeyIpAllowlist(fakeSql([]), 'u', 'k', ['203.0.113.10'])).rejects.toMatchObject({
       code: 'auth.not_found',

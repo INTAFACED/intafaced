@@ -56,8 +56,9 @@ export function markRefuse(mark: Amount | null): TradeError | null {
 function stashedFor(body: Readonly<Record<string, unknown>> | null): { trail: string | null; mark: string | null } | null {
   if (!body || !wantsTrailing(body)) return null;
   return {
-    trail: body.trail == null || body.trail === '' ? null : String(body.trail),
-    mark: body.mark == null || body.mark === '' ? null : String(body.mark),
+    // A JSON number is float-derived; only a decimal string is a distance. Anything else stays missing and refuses.
+    trail: typeof body.trail === 'string' && body.trail !== '' ? body.trail : null,
+    mark: typeof body.mark === 'string' && body.mark !== '' ? body.mark : null,
   };
 }
 

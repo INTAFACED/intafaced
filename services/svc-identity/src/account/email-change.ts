@@ -42,7 +42,14 @@ const SCOPE = 'identity.step_up.email_change';
 const FIELD = 'newEmail';
 
 export class EmailChange {
+  /** Runs after the new address is confirmed. A throw does not undo the change. */
+  private onConfirmed: ((userId: string) => Promise<void>) | undefined;
+
   constructor(private readonly deps: ContactDeps) {}
+
+  useOnConfirmed(hook: (userId: string) => Promise<void>): void {
+    this.onConfirmed = hook;
+  }
 
   async begin(input: { userId: string; sessionId: string; newEmail: string; stepUpApprovalId: string }): Promise<{ accepted: true }> {
     const email = normaliseContactEmail(input.newEmail);
@@ -126,6 +133,16 @@ export class EmailChange {
       throw err;
     }
     for (const id of revoked) await syncNavigatorSessionClosed(this.deps.sql, id);
+    if (this.onConfirmed) {
+      try {
+        await this.onConfirmed(input.userId);
+      } catch (err) {
+        this.deps.log.warn(
+          { userId: input.userId, reason: err instanceof Error ? err.name : 'error' },
+          'merchant email invite claim failed',
+        );
+      }
+    }
     const notice = await this.notice(input.userId, oldEmail);
     await markNotice(this.deps.sql, auditId, notice);
     return { ok: true };
