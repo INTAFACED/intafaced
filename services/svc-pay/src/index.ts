@@ -21,6 +21,7 @@ import { ConversionService } from './conversion/service.js';
 import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
+import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { buildPayGuards } from './seams/registry.js';
 import { resolveMerchantControlsMode } from './control/mode.js';
 import { assertNoLocalTestFixtures, isExplicitDevOrTestEnv } from '@intafaced/config';
@@ -240,7 +241,15 @@ const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPer
 // Refuses boot when the merchant controls would be silently off outside dev or test.
 // buildPayGuards resolves the same value again from the raw env, so it cannot fall back to off either.
 resolveMerchantControlsMode(process.env.PAY_MERCHANT_CONTROLS, process.env.APP_ENV);
-const payGuards = buildPayGuards({ sql, ledger });
+// The withdrawal limit (D-148) reads the customer's KYC tier from identity. Without IDENTITY_URL the
+// tier source is unwired and PAY_WITHDRAWAL_LIMITS=required refuses every withdrawal (typed), never guesses.
+const payGuards = buildPayGuards({
+  sql,
+  ledger,
+  kycTierOf: env.IDENTITY_URL
+    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+    : undefined,
+});
 const conversion = new ConversionService({
   sql,
   ledger,
