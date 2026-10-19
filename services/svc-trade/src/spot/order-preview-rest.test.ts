@@ -127,6 +127,7 @@ function appWith(input: {
   feeSchedule?: OwnerFeeSchedule;
   slippageCapBps?: number | null;
   feeDiscountBps?: (userId: string) => Promise<number>;
+  stopLimitEnabled?: boolean;
 }) {
   const app = Fastify();
   const bestAsk = input.bestAsk;
@@ -151,6 +152,7 @@ function appWith(input: {
       return symbol === market.symbol ? market : null;
     },
     marketLifecycle: input.lifecycle === undefined ? READY_MARKET_LIFECYCLE : input.lifecycle,
+    stopLimitEnabled: input.stopLimitEnabled,
     bestAsk: async () => {
       if (typeof bestAsk === 'function') return bestAsk();
       return bestAsk === undefined ? parseAmount('100') : bestAsk;
@@ -320,6 +322,48 @@ describe('POST /api/v1/orders/preview', () => {
       });
       expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.order_type_unsupported');
     }
+    await app.close();
+  });
+
+  it('previews a stop-limit when the trigger store is wired: hold sized to the limit price, trigger echoed', async () => {
+    const { app } = appWith({ stopLimitEnabled: true });
+    const stopLimit = { symbol: MARKET.symbol, side: 'sell', type: 'stop_limit', amount: '2', price: '95', stopPrice: '96' };
+    const ok = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: stopLimit });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({
+      type: 'stop_limit',
+      price: '95',
+      stopPrice: '96',
+      holdAsset: 'fixture-base',
+      holdAmount: '2',
+      orderable: true,
+      feeRole: 'taker',
+    });
+    const buy = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...stopLimit, side: 'buy', price: '105', stopPrice: '104' },
+    });
+    expect(buy.json()).toMatchObject({ holdAsset: 'fixture-quote', holdAmount: '210', orderable: true });
+    for (const bad of [
+      { ...stopLimit, stopPrice: undefined },
+      { ...stopLimit, stopPrice: '96.005' },
+      { ...stopLimit, stopPrice: '0' },
+      { ...stopLimit, price: undefined },
+    ]) {
+      const refused = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: bad });
+      expect(refused.statusCode, refused.body).toBe(200);
+      expect(refused.json().orderable).toBe(false);
+    }
+    const stray = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { symbol: MARKET.symbol, side: 'buy', type: 'limit', amount: '2', price: '100', stopPrice: '90' },
+    });
+    expect(stray.json().orderable).toBe(false);
+    expect(stray.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.stop_trigger_invalid');
     await app.close();
   });
 

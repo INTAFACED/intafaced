@@ -705,6 +705,7 @@ registerSpotOrderPreviewRest(app, {
   now: () => new Date(),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
+  stopLimitEnabled: true,
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];

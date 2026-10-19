@@ -8,6 +8,7 @@ export default defineConfig({
   esbuild: { jsx: 'automatic' },
   test: {
     environment: 'node',
+    globalSetup: ['tests/journeys/global-setup.ts'],
     include: ['tests/journeys/**/*.journey.ts'],
     testTimeout: 60_000,
     hookTimeout: 60_000,

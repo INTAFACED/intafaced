@@ -194,6 +194,9 @@ function startIdentity(founderPair = null) {
           IDENTITY_FOUNDER_INVITE_HASHES: FOUNDER_INVITE_HASHES.join(','),
           IDENTITY_FOUNDER_INVITE_EXPIRES_AT: FOUNDER_INVITE_EXPIRES_AT,
         }),
+    // Operator desk scope for the two smoke founders' MFA sessions, so the customer journeys can review a KYC request
+    // through identity's own two-person path. SMOKE RIG ONLY — a throwaway founder pair, fresh each run
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:compliance',
     REGISTRATION_OPEN: 'true',
     WEBAUTHN_ENABLED: 'false',
     WEBAUTHN_RP_ID: 'localhost',
@@ -398,6 +401,7 @@ async function main() {
       MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
       LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
       IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+      CX8_FOUNDERS_JSON: JSON.stringify(founders),
       EDGE_PRINCIPAL_SECRET: EDGE,
       INTERNAL_SERVICE_SECRET: SECRET,
       TRADE_SMOKE_SYMBOL: 'BTC/USDT',
