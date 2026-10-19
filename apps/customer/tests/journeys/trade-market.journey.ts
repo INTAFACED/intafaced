@@ -17,8 +17,8 @@ describe('pro trader: market data after a trade', () => {
     expect(markets.ok, markets.ok ? '' : markets.message).toBe(true);
     if (markets.ok) expect(markets.data.map((m) => m.symbol)).toContain(SYMBOL);
 
-    orderOf((await reviewAndPlace(maker.trade, draft({ side: 'sell', price: '97', amount: '0.1' }))).placed);
-    const bought = orderOf((await reviewAndPlace(taker.trade, draft({ side: 'buy', price: '97', amount: '0.1' }))).placed);
+    orderOf((await reviewAndPlace(maker.trade, draft({ side: 'sell', price: '93', amount: '0.1' }))).placed);
+    const bought = orderOf((await reviewAndPlace(taker.trade, draft({ side: 'buy', price: '93', amount: '0.1' }))).placed);
     await until('fill', async () => {
       const got = await taker.trade.order(bought);
       return got.ok && got.data.status === 'closed' ? got.data : undefined;
@@ -26,13 +26,13 @@ describe('pro trader: market data after a trade', () => {
 
     const tape = await until('tape row', async () => {
       const got = await taker.trade.tape(SYMBOL);
-      return got.ok && got.data.some((t) => t.price === '97' && t.amount === '0.1') ? got.data : undefined;
+      return got.ok && got.data.some((t) => t.price === '93' && t.amount === '0.1') ? got.data : undefined;
     });
     expect(tape.every((t) => t.symbol === SYMBOL)).toBe(true);
 
     const ticker = await until('ticker last price', async () => {
       const got = await taker.trade.ticker(SYMBOL);
-      return got.ok && got.data.last === '97' ? got.data : undefined;
+      return got.ok && got.data.last === '93' ? got.data : undefined;
     });
     expect(ticker.symbol).toBe(SYMBOL);
 
@@ -60,9 +60,17 @@ describe('pro trader: one customer cannot see or touch another customer', () => 
     const order = orderOf((await reviewAndPlace(owner.trade, draft({ price: '70', amount: '0.1' }))).placed);
 
     const read = await other.trade.order(order);
-    expect(read.ok).toBe(false);
     const cancel = await other.trade.cancel(order);
-    expect(cancel.ok).toBe(false);
+    // The service answers "not found" to someone else's order, the same as for an order that does not exist: no existence leak.
+    for (const result of [read, cancel]) {
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.status).toBe(404);
+        expect(result.code).toBe('trade.order_not_found');
+      }
+    }
+    const refused = other.calls.filter((c) => c.path === `/api/v1/orders/${order.id}`);
+    expect(refused.map((c) => `${c.method} ${c.status}`)).toEqual(['GET 404', 'DELETE 404']);
     const theirs = await other.trade.orders('open', SYMBOL);
     expect(theirs.ok && theirs.data).toEqual([]);
     expect((await balance(other.trade, QUOTE)).used).toBe('0');
