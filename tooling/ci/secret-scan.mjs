@@ -274,6 +274,8 @@ const INLINE_URL_CREDENTIAL = /\b[a-z][a-z0-9+.-]*:\/\/([^\s:/@]+):([^\s@/]+)@/g
  */
 const NOT_ACTUALLY_SECRET = [
   /(?:^|[._-])(?:keys?[._-]to[._-]sanitize)$/i,
+  /** GitHub Actions checkout option (`persist-credentials: false`): a boolean switch, never a credential. Exact key only. */
+  /^persist-credentials$/i,
   /**
    * BUSINESS KEYS, not credentials.
    *
