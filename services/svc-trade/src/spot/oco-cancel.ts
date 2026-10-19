@@ -13,6 +13,11 @@ export const OCO_SIBLING_TERMINAL = 'oco_sibling_terminal' as const;
 
 const FLAG = Symbol.for('intafaced.trade.ocoCancel');
 
+// Parents whose first leg this process already pulled. A retry after a refused second pull finds one leg gone and no
+// fill, which is otherwise indistinguishable from an unexplained terminal sibling; this is what explains it. It is
+// in memory on purpose: after a restart the retry fails closed (hold kept) rather than guessing.
+const halfCancelled = new Set<string>();
+
 export function ocoSiblingIds(parentId: string): readonly [string, string] {
   return [`${parentId}:tp`, `${parentId}:sl`];
 }
@@ -65,7 +70,7 @@ export function installOcoCancel(ctor: typeof TradeService): void {
         const legs = ocoSiblingIds(orderId).filter((id) => listed.orders.some((row) => row.orderId === id));
         // One leg gone with no fill recorded is unexplained: refuse and keep the hold. After a partial fill the
         // engine has cancelled the sibling itself, and the remainder is what the user is cancelling.
-        if (legs.length < 2 && peek.filledQty <= 0n) {
+        if (legs.length < 2 && peek.filledQty <= 0n && !halfCancelled.has(orderId)) {
           throw new TradeError('an OCO sibling is already terminal; trade does not invent a trigger', 'trade.oco_sibling_terminal');
         }
         for (const leg of legs) {
@@ -74,7 +79,9 @@ export function installOcoCancel(ctor: typeof TradeService): void {
           if (!pulled.cancelled) {
             throw new TradeError('an OCO leg changed while cancelling; retry', 'trade.matching_unavailable');
           }
+          halfCancelled.add(orderId);
         }
+        halfCancelled.delete(orderId);
         await host.finalize(orderId, 'cancelled');
         const settled = await host.findOrder(orderId);
         if (!settled) throw new TradeError(`order ${orderId} vanished during OCO cancel`, 'trade.order_not_found');

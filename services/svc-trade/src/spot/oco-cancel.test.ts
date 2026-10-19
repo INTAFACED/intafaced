@@ -171,6 +171,31 @@ describe('svc-trade oco-cancel (H8a PG-hard)', () => {
       expect(await avail(ALICE, 'BTC')).toBe('2');
     });
 
+    it('a retry after the second leg pull failed finishes the cancel and releases the hold', async () => {
+      const placed = await placeLinked();
+      const [tp, sl] = ocoSiblingIds(placed.id);
+      matching.scriptLive(tp, btcusdt.id);
+      matching.scriptLive(sl, btcusdt.id);
+      const realCancel = matching.cancel.bind(matching);
+      let failSl = true;
+      matching.cancel = async (marketId: string, orderId: string) => {
+        if (orderId === sl && failSl) {
+          failSl = false;
+          throw new Error('matching down');
+        }
+        return realCancel(marketId, orderId);
+      };
+
+      await expect(trade.cancelOrder(principalFor(ALICE), placed.id)).rejects.toThrow();
+      // The tp leg is off the book; the hold is still whole because the sl leg may yet fill.
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('1');
+
+      const cancelled = await trade.cancelOrder(principalFor(ALICE), placed.id);
+      expect(cancelled.status).toBe('cancelled');
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).toBe('2');
+    });
+
     it('refuses when either sibling is already terminal — remaining hold stays', async () => {
       const placed = await placeLinked();
       const [tp] = ocoSiblingIds(placed.id);
