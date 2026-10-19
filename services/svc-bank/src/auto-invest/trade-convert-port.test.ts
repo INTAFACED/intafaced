@@ -18,11 +18,13 @@
  * 7. Collision: #2194 compose / #2202 index affiliate — this file is new
  */
 import { describe, expect, it } from 'vitest';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertConvertMarketsListLimit, tradeConvertPort, usableTradeConvertUrl } from './trade-convert-port.js';
 
-const EDGE = 'a-bank-auto-invest-convert-edge-secret-32ch';
+const SERVICE = 'a-bank-auto-invest-convert-service-secret-32';
+const INSTRUCTION = '99999999-9999-4999-8999-999999999999';
 const USER = '11111111-1111-4111-8111-111111111111';
 /** Explicit owner-published window — 50 is allowed when passed, never as a silent default. */
 const MARKETS_LIMIT = 50;
@@ -69,7 +71,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     const seen: string[] = [];
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       marketsLimit: MARKETS_LIMIT,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -86,10 +88,11 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
             },
           ]);
         }
-        if (url.includes('/trpc/convert.quote')) {
+        if (url.includes('/trpc/standing.quote')) {
           return jsonResponse(200, {
             result: {
               data: {
+                quoteId: 'q-1',
                 symbol: 'BTC/USDT',
                 side: 'buy',
                 requestedQty: '0.002',
@@ -103,14 +106,14 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
             },
           });
         }
-        if (url.includes('/trpc/convert.execute')) {
+        if (url.includes('/trpc/standing.execute')) {
           return jsonResponse(200, {
             result: {
               data: {
-                id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-                filled: '0.002',
-                remaining: '0',
-                status: 'filled',
+                quoteId: 'q-1',
+                fillId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                inAmount: '100',
+                outAmount: '0.002',
               },
             },
           });
@@ -121,6 +124,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
 
     const result = await port.convert({
       userId: USER,
+      instructionId: INSTRUCTION,
       fromAsset: 'USDT',
       toAsset: 'BTC',
       fromAmount: parseAmount('100'),
@@ -130,14 +134,14 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     expect(formatAmount(result.toAmount)).toBe('0.002');
     expect(result.ledgerTxId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     expect(seen).toContain(`http://svc-trade:4004/api/v1/markets?limit=${MARKETS_LIMIT}`);
-    expect(seen.some((u) => u.includes('/trpc/convert.quote'))).toBe(true);
-    expect(seen.some((u) => u.includes('/trpc/convert.execute'))).toBe(true);
+    expect(seen.some((u) => u.includes('/trpc/standing.quote'))).toBe(true);
+    expect(seen.some((u) => u.includes('/trpc/standing.execute'))).toBe(true);
   });
 
   it('refuses by name when convert.quote fails — does not invent a price', async () => {
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       marketsLimit: MARKETS_LIMIT,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -155,6 +159,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     await expect(
       port.convert({
         userId: USER,
+        instructionId: INSTRUCTION,
         fromAsset: 'USDT',
         toAsset: 'BTC',
         fromAmount: parseAmount('100'),
@@ -166,7 +171,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
   it('refuses when execute fills nothing rather than substituting a ticker mid', async () => {
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       marketsLimit: MARKETS_LIMIT,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -175,10 +180,11 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
             { symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', spot: true, active: true, limits: { amount: { min: '0.001' } } },
           ]);
         }
-        if (url.includes('/trpc/convert.quote')) {
+        if (url.includes('/trpc/standing.quote')) {
           return jsonResponse(200, {
             result: {
               data: {
+                quoteId: 'q-1',
                 symbol: 'BTC/USDT',
                 side: 'buy',
                 requestedQty: '0.002',
@@ -191,7 +197,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
           });
         }
         return jsonResponse(200, {
-          result: { data: { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', filled: '0', remaining: '0.002', status: 'cancelled' } },
+          result: { data: { quoteId: 'q-1', fillId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', inAmount: '0', outAmount: '0' } },
         });
       },
     });
@@ -199,19 +205,20 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     await expect(
       port.convert({
         userId: USER,
+        instructionId: INSTRUCTION,
         fromAsset: 'USDT',
         toAsset: 'BTC',
         fromAmount: parseAmount('100'),
         clientConvertId: 'dca-empty-fill',
       }),
-    ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    ).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('omit marketsLimit refuses bank.convert_markets_limit_unset — never calls trade, never invents 50', async () => {
     let fetches = 0;
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       fetchImpl: async () => {
         fetches += 1;
         return jsonResponse(200, [{ symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', spot: true, active: true }]);
@@ -221,6 +228,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     await expect(
       port.convert({
         userId: USER,
+        instructionId: INSTRUCTION,
         fromAsset: 'USDT',
         toAsset: 'BTC',
         fromAmount: parseAmount('100'),
@@ -233,7 +241,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
   it('empty markets listing refuses rate_unset — does not fabricate a pair', async () => {
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       marketsLimit: MARKETS_LIMIT,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -245,6 +253,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     await expect(
       port.convert({
         userId: USER,
+        instructionId: INSTRUCTION,
         fromAsset: 'USDT',
         toAsset: 'BTC',
         fromAmount: parseAmount('100'),
@@ -256,7 +265,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
   it('listed pair missing refuses rate_unset — does not invent a convert market', async () => {
     const port = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: SERVICE,
       marketsLimit: MARKETS_LIMIT,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -272,6 +281,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
     await expect(
       port.convert({
         userId: USER,
+        instructionId: INSTRUCTION,
         fromAsset: 'USDT',
         toAsset: 'BTC',
         fromAmount: parseAmount('100'),
@@ -283,6 +293,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
 
 const BUY = {
   userId: USER,
+  instructionId: INSTRUCTION,
   fromAsset: 'USDT',
   toAsset: 'BTC',
   fromAmount: parseAmount('100'),
@@ -291,6 +302,7 @@ const BUY = {
 
 const SELL = {
   userId: USER,
+  instructionId: INSTRUCTION,
   fromAsset: 'BTC',
   toAsset: 'USDT',
   fromAmount: parseAmount('0.002'),
@@ -308,6 +320,7 @@ const LISTED_SPOT = {
 
 function quoteWire(overrides: Record<string, unknown> = {}, omit: readonly string[] = []): Record<string, unknown> {
   const quote: Record<string, unknown> = {
+    quoteId: 'q-1',
     symbol: 'BTC/USDT',
     side: 'buy',
     requestedQty: '0.002',
@@ -323,10 +336,10 @@ function quoteWire(overrides: Record<string, unknown> = {}, omit: readonly strin
 
 function executeWire(overrides: Record<string, unknown> = {}, omit: readonly string[] = []): Record<string, unknown> {
   const order: Record<string, unknown> = {
-    id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-    filled: '0.002',
-    remaining: '0',
-    status: 'filled',
+    quoteId: 'q-1',
+    fillId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    inAmount: '100',
+    outAmount: '0.002',
     ...overrides,
   };
   for (const key of omit) delete order[key];
@@ -337,13 +350,13 @@ function executeWire(overrides: Record<string, unknown> = {}, omit: readonly str
 function portFrom(markets: unknown, quote: unknown, execute: unknown) {
   return tradeConvertPort({
     baseUrl: 'http://svc-trade:4004',
-    edgeSecret: EDGE,
+    serviceSecret: SERVICE,
     marketsLimit: MARKETS_LIMIT,
     fetchImpl: async (input) => {
       const url = String(input);
       if (url.includes('/api/v1/markets')) return jsonResponse(200, markets);
-      if (url.includes('/trpc/convert.quote')) return jsonResponse(200, { result: { data: quote } });
-      if (url.includes('/trpc/convert.execute')) return jsonResponse(200, { result: { data: execute } });
+      if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quote } });
+      if (url.includes('/trpc/standing.execute')) return jsonResponse(200, { result: { data: execute } });
       return jsonResponse(404, { error: { message: 'unexpected' } });
     },
   });
@@ -391,38 +404,78 @@ describe('tradeConvertPort.convert — quote proceeds only when fullyFilled is t
   });
 });
 
-describe('tradeConvertPort.convert — execute books only a complete fill', () => {
-  it('refuses when filled is above zero and remaining is above zero', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ filled: '0.002', remaining: '0.001', status: 'filled' }));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+describe('tradeConvertPort.convert — after execute is sent, a bad answer is an unknown outcome, never a refusal', () => {
+  const unknown = { name: 'ConvertOutcomeUnknown' };
+
+  it('a missing fillId, unreadable or non-positive amount, or overspend is unknown (run stays pending)', async () => {
+    const bad: Array<[Record<string, unknown>, string[]]> = [
+      [{}, ['fillId']],
+      [{}, ['outAmount']],
+      [{}, ['inAmount']],
+      [{ outAmount: '' }, []],
+      [{ outAmount: '0' }, []],
+      [{ outAmount: '-1' }, []],
+      [{ inAmount: '100.01' }, []],
+    ];
+    for (const [over, omit] of bad) {
+      const port = portFrom([LISTED_SPOT], quoteWire(), executeWire(over, omit));
+      const err = await port.convert(BUY).catch((e: unknown) => e);
+      expect(err).toMatchObject(unknown);
+      expect(err).not.toBeInstanceOf(BankError);
+    }
   });
 
-  it('refuses when status is not filled', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ filled: '0.002', remaining: '0', status: 'partial' }));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('a sell that settled more than fromAmount is unknown', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell' }), executeWire({ inAmount: '0.003', outAmount: '99.5' }));
+    await expect(port.convert(SELL)).rejects.toMatchObject(unknown);
   });
 
-  it('refuses when status is omitted', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['status']));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('a timeout, network error, 5xx or untyped 4xx on execute is unknown; a typed refusal is definite', async () => {
+    const run = (execute: () => Promise<Response>) =>
+      tradeConvertPort({
+        baseUrl: 'http://svc-trade:4004',
+        serviceSecret: SERVICE,
+        marketsLimit: MARKETS_LIMIT,
+        fetchImpl: async (input) => {
+          const url = String(input);
+          if (url.includes('/api/v1/markets')) return jsonResponse(200, [LISTED_SPOT]);
+          if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quoteWire() } });
+          return execute();
+        },
+      }).convert(BUY);
+    await expect(run(async () => Promise.reject(new Error('socket hang up')))).rejects.toMatchObject(unknown);
+    await expect(run(async () => jsonResponse(502, { error: { message: 'bad gateway' } }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => jsonResponse(400, { error: { message: 'nope' } }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => new Response('<html>bad gateway</html>', { status: 200 }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => new Response('{"result":', { status: 200 }))).rejects.toMatchObject(unknown);
+    await expect(
+      run(async () => jsonResponse(200, { error: { message: 'x', data: { intafacedCode: 'trade.convert_quote_expired' } } })),
+    ).rejects.toMatchObject(unknown);
+    await expect(
+      run(async () => jsonResponse(409, { error: { message: 'x', data: { intafacedCode: 'trade.convert_quote_expired' } } })),
+    ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
   });
 
-  it('refuses when remaining is omitted', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['remaining']));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('sends maxAvgPrice equal to the live quote avgPrice', async () => {
+    let body: Record<string, unknown> = {};
+    const port = tradeConvertPort({
+      baseUrl: 'http://svc-trade:4004',
+      serviceSecret: SERVICE,
+      marketsLimit: MARKETS_LIMIT,
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.includes('/api/v1/markets')) return jsonResponse(200, [LISTED_SPOT]);
+        if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quoteWire() } });
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(200, { result: { data: executeWire() } });
+      },
+    });
+    await port.convert(BUY);
+    expect(body.maxAvgPrice).toBe('50000');
   });
 
-  it('refuses when remaining is blank', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ remaining: '' }));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
-  });
-
-  it('a buy that is spot, active, fully filled, status filled, remaining 0 returns the execute filled base qty', async () => {
-    const port = portFrom(
-      [LISTED_SPOT],
-      quoteWire({ fullyFilled: true }),
-      executeWire({ filled: '0.002', remaining: '0.0', status: 'filled', outAmount: '250' }),
-    );
+  it('a buy returns the settled base qty and the fill id', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire({ fullyFilled: true }), executeWire({ outAmount: '0.002' }));
     const result = await port.convert(BUY);
     expect(formatAmount(result.toAmount)).toBe('0.002');
     expect(result.ledgerTxId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
@@ -434,7 +487,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
     const port = portFrom(
       [LISTED_SPOT],
       quoteWire({ side: 'sell', userNotional: '100', fullyFilled: true }),
-      executeWire({ filled: '0.002', remaining: '0', status: 'filled', outAmount: '99.5' }),
+      executeWire({ inAmount: '0.002', outAmount: '99.5' }),
     );
     const result = await port.convert(SELL);
     expect(formatAmount(result.toAmount)).toBe('99.5');
@@ -442,39 +495,49 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
   });
 
   it('refuses when outAmount is missing', async () => {
-    const port = portFrom(
-      [LISTED_SPOT],
-      quoteWire({ side: 'sell', userNotional: '100' }),
-      executeWire({ filled: '0.002', remaining: '0', status: 'filled' }),
-    );
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({}, ['outAmount']));
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is blank', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({ outAmount: '' }));
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ inAmount: '0.002', outAmount: '' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is whitespace', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({ outAmount: '   ' }));
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ inAmount: '0.002', outAmount: '   ' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is zero', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({ outAmount: '0' }));
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ inAmount: '0.002', outAmount: '0' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is negative', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({ outAmount: '-1' }));
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    const port = portFrom(
+      [LISTED_SPOT],
+      quoteWire({ side: 'sell', userNotional: '100' }),
+      executeWire({ inAmount: '0.002', outAmount: '-1' }),
+    );
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 });
 
-function quoteQtyFromUrl(url: string): string {
-  const raw = new URL(url).searchParams.get('input');
-  if (!raw) return '';
-  const body = JSON.parse(raw) as { qty?: unknown };
+function quoteQtyFromBody(init: RequestInit | undefined): string {
+  const body = JSON.parse(String(init?.body ?? '{}')) as { qty?: unknown };
   return typeof body.qty === 'string' ? body.qty : '';
 }
 
@@ -484,16 +547,16 @@ function watchingPort(markets: unknown, quoteFor: (call: number) => unknown) {
   const executes: string[] = [];
   const port = tradeConvertPort({
     baseUrl: 'http://svc-trade:4004',
-    edgeSecret: EDGE,
+    serviceSecret: SERVICE,
     marketsLimit: MARKETS_LIMIT,
-    fetchImpl: async (input) => {
+    fetchImpl: async (input, init) => {
       const url = String(input);
       if (url.includes('/api/v1/markets')) return jsonResponse(200, markets);
-      if (url.includes('/trpc/convert.quote')) {
-        quotes.push(quoteQtyFromUrl(url));
+      if (url.includes('/trpc/standing.quote')) {
+        quotes.push(quoteQtyFromBody(init));
         return jsonResponse(200, { result: { data: quoteFor(quotes.length) } });
       }
-      if (url.includes('/trpc/convert.execute')) {
+      if (url.includes('/trpc/standing.execute')) {
         executes.push(url);
         return jsonResponse(200, { result: { data: executeWire() } });
       }
@@ -606,5 +669,55 @@ describe('tradeConvertPort.convert — buy execute requires the live quote notio
     const result = await seen.port.convert(BUY);
     expect(formatAmount(result.toAmount)).toBe('0.002');
     expect(seen.executes).toHaveLength(1);
+  });
+});
+
+describe('tradeConvertPort.convert — a standing instruction, not an interactive customer', () => {
+  it('posts the body-bound service call for svc-bank with the user and instruction in the body and no principal', async () => {
+    const calls: Array<{ url: string; method: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+    const port = tradeConvertPort({
+      baseUrl: 'http://svc-trade:4004',
+      serviceSecret: SERVICE,
+      marketsLimit: MARKETS_LIMIT,
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.includes('/api/v1/markets')) return jsonResponse(200, [LISTED_SPOT]);
+        calls.push({
+          url,
+          method: String(init?.method),
+          headers: init?.headers as Record<string, string>,
+          body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        });
+        if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quoteWire() } });
+        return jsonResponse(200, { result: { data: executeWire() } });
+      },
+    });
+    await port.convert(BUY);
+    const paths = calls.map((c) => new URL(c.url).pathname);
+    expect(paths).toEqual(['/trpc/standing.quote', '/trpc/standing.quote', '/trpc/standing.execute']);
+    for (const call of calls) {
+      expect(call.method).toBe('POST');
+      expect(call.body).toMatchObject({ userId: USER, instructionId: INSTRUCTION });
+      expect(call.headers['x-intafaced-service']).toBe('svc-bank');
+      expect(Object.keys(call.headers).filter((h) => /principal|edge-sig/i.test(h))).toEqual([]);
+      const expected = serviceAuthHeadersForBody('svc-bank', SERVICE, JSON.stringify(call.body), {
+        now: new Date(Number(call.headers['x-intafaced-service-ts']) * 1000),
+      });
+      expect(call.headers['x-intafaced-service-sig']).toBe(expected['x-intafaced-service-sig']);
+    }
+    expect(calls[2]!.body).toMatchObject({ quoteId: 'q-1', symbol: 'BTC/USDT', side: 'buy', clientConvertId: 'dca-l154-buy' });
+  });
+
+  it('refuses a trade door that is off (trade.standing_instruction_disabled) as rate unset', async () => {
+    const off = tradeConvertPort({
+      baseUrl: 'http://svc-trade:4004',
+      serviceSecret: SERVICE,
+      marketsLimit: MARKETS_LIMIT,
+      fetchImpl: async (input) =>
+        String(input).includes('/api/v1/markets')
+          ? jsonResponse(200, [LISTED_SPOT])
+          : jsonResponse(403, { error: { message: 'off', data: { intafacedCode: 'trade.standing_instruction_disabled' } } }),
+    });
+    await expect(off.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
   });
 });

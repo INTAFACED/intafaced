@@ -52,6 +52,8 @@ export interface ConvertPort {
    */
   convert(input: {
     userId: string;
+    /** The standing instruction (the rule) this spend runs under. */
+    instructionId: string;
     fromAsset: string;
     toAsset: string;
     fromAmount: Amount;
@@ -711,6 +713,7 @@ export class AutoInvestService {
     try {
       const result = await this.convert.convert({
         userId: rule.userId,
+        instructionId: rule.id,
         fromAsset: rule.assetId,
         toAsset: buyAssetId,
         fromAmount: amount,
