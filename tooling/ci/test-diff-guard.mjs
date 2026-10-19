@@ -107,6 +107,11 @@ function selfTest() {
   eq(t({ added: ["  describe.only('x', () => {"] }).length, 1, 'only added');
   eq(t({ added: ["  xit('x', () => {})"] }).length, 1, 'xit added');
   eq(t({ added: ["  describe.skip('account closure (Postgres unavailable)', () => {"] }).length, 0, 'journalled no-database skip is fine');
+  eq(
+    t({ added: ["  describe.skip('a (Postgres unavailable)', () => { it.skip('x', () => {}); });"] }).length,
+    1,
+    'second skip on the same line still flagged',
+  );
   eq(t({ added: ["  describe.skip('account closure', () => {"] }).length, 1, 'other describe.skip still flagged');
   eq(t({ added: ["  it.skip('x (Postgres unavailable)', () => {})"] }).length, 1, 'it.skip still flagged');
   eq(t({ added: ["  it('skips the empty case', () => {"] }).length, 0, 'word skip in a title is fine');
@@ -118,7 +123,7 @@ function selfTest() {
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
-  console.log('✓ test-diff-guard --self-test OK (15 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (16 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
