@@ -42,6 +42,7 @@ import { bindIoc, installIocPlace } from './spot/ioc-place.js';
 import { bindFok, installFokPlace } from './spot/fok-place.js';
 import { bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
 import { sqlIcebergDisplay } from './spot/iceberg-door.js';
+import { sqlStopTrigger } from './spot/stop-trigger-door.js';
 import { bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
 import { bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
 import { bindOption, installOptionPlace } from './spot/option-place.js';
@@ -888,6 +889,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
+  stopTriggers: sqlStopTrigger(sql),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),

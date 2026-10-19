@@ -100,7 +100,7 @@ describe('svc-trade stop-limit-place (H8a PG-hard)', () => {
     const postsWithReason = (reason: string) => ledger.journal().filter((tx) => tx.reason === reason);
 
     beforeEach(async () => {
-      await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+      await sql`TRUNCATE trade.order_stop_trigger, trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
       ledger = new MemoryLedger();
       matching = new StubMatching();
       trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
@@ -139,6 +139,31 @@ describe('svc-trade stop-limit-place (H8a PG-hard)', () => {
       expect(matching.submitted[0]?.request.stopPx).toBe('105');
       expect(matching.submitted[0]?.request.stopPrice).toBe('105');
       expect(matching.submitted[0]?.request.price).toBe('100');
+      expect(await heldFor(ALICE, 'USDT', order.id)).toBe('1000');
+    });
+
+    it('a stop-limit resubmitted from a booked hold_unknown row keeps its stored trigger', async () => {
+      await fund(ALICE, 'USDT', '2000');
+      const order = await trade.placeOrder(principalFor(ALICE), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('10'),
+        price: amt('100'),
+        clientOrderId: 'sl-resume',
+        stopPx: amt('105'),
+      } as Parameters<TradeService['placeOrder']>[1] & { stopPx: ReturnType<typeof amt> });
+      // The REST door stores the trigger before the hold; the row is then left booked-but-unsubmitted.
+      await sql`INSERT INTO trade.order_stop_trigger (order_id, user_id, stop_price) VALUES (${order.id}, ${ALICE}, 105)`;
+      await sql`UPDATE trade.orders SET status = 'hold_unknown' WHERE id = ${order.id}`;
+      matching.submitted.length = 0;
+
+      const swept = await trade.sweepHoldUnknown();
+
+      expect(swept.booked).toEqual([order.id]);
+      expect(matching.submitted).toHaveLength(1);
+      expect(matching.submitted[0]?.request.type).toBe('stop_limit');
+      expect(matching.submitted[0]?.request.stopPx).toBe('105');
       expect(await heldFor(ALICE, 'USDT', order.id)).toBe('1000');
     });
 
