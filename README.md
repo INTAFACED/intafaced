@@ -70,7 +70,6 @@ services/    svc-ledger · svc-identity · svc-trade · svc-pay · svc-bank · .
 packages/    ledger-client · contracts · events · config · auth · db · ui · ...
 tooling/     agent-protocol · ci · infra · scripts
 docs/        README.md (index of live docs) · ARCHITECTURE.md · adr/ · runbooks/ · archive/ (history)
-vendor/      imported third-party source, not ours to build on
 ```
 
 Money moves only through `packages/ledger-client`. Pro trading shapes served to outside software live in `packages/exchange-contract`; routing to outside venues is `packages/venue-adapter`.
