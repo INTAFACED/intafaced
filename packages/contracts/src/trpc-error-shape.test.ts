@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
-import { algoRefusalDetails, publicProcedure, retryAfterSecondsOf, conflictProfile, router, type Context } from './trpc.js';
+import {
+  algoRefusalDetails,
+  withdrawalAllowanceOf,
+  publicProcedure,
+  retryAfterSecondsOf,
+  conflictProfile,
+  router,
+  type Context,
+} from './trpc.js';
 
 /** Stand-in with the same shape as svc-identity's AuthError (a different class from @intafaced/auth's). */
 class FakeAuthError extends Error {
@@ -141,5 +149,41 @@ describe('errorFormatter algo creation amounts', () => {
     ).toBeUndefined();
     expect(algoRefusalDetails({ code: 'trade.algo_price_band', data: { asset: 'USDT', required: '1' } })).toBeUndefined();
     expect(algoRefusalDetails(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter withdrawal allowance', () => {
+  const exceeded = (remaining: unknown) =>
+    Object.assign(new Error('pay.guard_withdrawal_limit_exceeded'), {
+      code: 'pay.guard_withdrawal_limit_exceeded',
+      kind: 'refused',
+      remaining,
+    });
+
+  it('copies the allowance of a limit refusal onto the error data and keeps the code', async () => {
+    const cause = exceeded({ perTx: '10', rolling24h: '5.5' });
+    const refused = router({
+      withdraw: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'FORBIDDEN', message: cause.message, cause });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/withdraw'),
+      router: refused,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: 'pay.guard_withdrawal_limit_exceeded' });
+    expect(data.allowance).toEqual({ perTx: '10', rolling24h: '5.5' });
+  });
+
+  it('drops anything that is not a decimal string, extra keys, and every other code', () => {
+    expect(withdrawalAllowanceOf(exceeded({ perTx: '10', rolling24h: 'lots' }))).toBeUndefined();
+    expect(withdrawalAllowanceOf(exceeded({ perTx: 10, rolling24h: '5' }))).toBeUndefined();
+    expect(withdrawalAllowanceOf(exceeded({ perTx: '10', rolling24h: '5', note: 'internal' }))).toEqual({ perTx: '10', rolling24h: '5' });
+    expect(withdrawalAllowanceOf(exceeded(undefined))).toBeUndefined();
+    expect(withdrawalAllowanceOf({ code: 'pay.guard_withdrawal_limit_unset', remaining: { perTx: '1', rolling24h: '1' } })).toBeUndefined();
+    expect(withdrawalAllowanceOf(undefined)).toBeUndefined();
   });
 });
