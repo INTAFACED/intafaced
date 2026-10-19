@@ -379,5 +379,109 @@ if (!available) {
         setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: true, requireNonEmptyIpAllowlist: false }, null),
       ).rejects.toMatchObject({ reason: 'auth.not_configured' });
     });
+
+    it('lists signing posture and the IP allowlist and never the secret', async () => {
+      const owner = await register();
+      const created = await mint(owner.userId);
+      const enabled = await setApiKeyRequestSigning(
+        db.sql,
+        owner.userId,
+        created.id,
+        { requireSignature: true, requireNonEmptyIpAllowlist: true },
+        encKey,
+      );
+      await bindApiKeyIpAllowlist(db.sql, owner.userId, created.id, ['203.0.113.10']);
+      const listed = await auth.listApiKeys(owner.userId, 20);
+      const row = listed.find((key) => key.id === created.id);
+      expect(row).toMatchObject({
+        require_signature: true,
+        require_non_empty_ip_allowlist: true,
+        ip_allowlist: ['203.0.113.10'],
+      });
+      const text = JSON.stringify(row);
+      expect(text).not.toContain('request_signing_secret');
+      expect(text).not.toContain(enabled.signingSecret);
+      expect(text).not.toContain('enc:v1:');
+      expect(text).not.toContain(created.key);
+    });
+
+    it('an IP-only signing write and an IP bind keep the secret and the signing flag', async () => {
+      const owner = await register();
+      const created = await mint(owner.userId);
+      const enabled = await setApiKeyRequestSigning(
+        db.sql,
+        owner.userId,
+        created.id,
+        { requireSignature: true, requireNonEmptyIpAllowlist: false },
+        encKey,
+      );
+      const before = await db.sql<Array<{ request_signing_secret: string; require_signature: boolean }>>`
+        SELECT request_signing_secret, require_signature FROM api_keys WHERE id = ${created.id}
+      `;
+      const ipOnly = await setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireNonEmptyIpAllowlist: true }, encKey);
+      expect(ipOnly).toMatchObject({ requireSignature: true, requireNonEmptyIpAllowlist: true, signingSecret: null });
+      const bound = await bindApiKeyIpAllowlist(db.sql, owner.userId, created.id, ['203.0.113.10']);
+      expect(bound).toMatchObject({
+        requireSignature: true,
+        requireNonEmptyIpAllowlist: true,
+        ipAllowlist: ['203.0.113.10'],
+      });
+      const after = await db.sql<Array<{ request_signing_secret: string; require_signature: boolean }>>`
+        SELECT request_signing_secret, require_signature FROM api_keys WHERE id = ${created.id}
+      `;
+      expect(after[0]?.require_signature).toBe(true);
+      expect(after[0]?.request_signing_secret).toBe(before[0]?.request_signing_secret);
+      expect(after[0]?.request_signing_secret).not.toContain(enabled.signingSecret);
+      const cleared = await setApiKeyRequestSigning(db.sql, owner.userId, created.id, { requireSignature: false }, encKey);
+      expect(cleared.requireSignature).toBe(false);
+      const wiped = await db.sql<Array<{ request_signing_secret: string | null; require_non_empty_ip_allowlist: boolean }>>`
+        SELECT request_signing_secret, require_non_empty_ip_allowlist FROM api_keys WHERE id = ${created.id}
+      `;
+      expect(wiped[0]?.request_signing_secret).toBeNull();
+      expect(wiped[0]?.require_non_empty_ip_allowlist).toBe(true);
+    });
+
+    it('claims only a confirmed stored mailbox, and sign-in does not wait on pay', async () => {
+      const seen: Array<{ userId: string; email: string }> = [];
+      let releaseClaim: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        releaseClaim = resolve;
+      });
+      let claimFinished: () => void = () => undefined;
+      const finished = new Promise<void>((resolve) => {
+        claimFinished = resolve;
+      });
+      auth.useMerchantEmailInviteClaimer({
+        async claim(input) {
+          seen.push(input);
+          await gate;
+          claimFinished();
+          throw new Error('pay down');
+        },
+      });
+      try {
+        const handle = unique();
+        const email = `${handle}@Example.com`;
+        const session = await auth.register({ handle, email, password: 'correct horse battery staple', region: 'DE' });
+        await expect(auth.login({ identifier: handle, password: 'correct horse battery staple' })).resolves.toMatchObject({
+          userId: session.userId,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(seen).toEqual([]);
+        await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
+        const started = Date.now();
+        await expect(auth.login({ identifier: email, password: 'correct horse battery staple' })).resolves.toMatchObject({
+          userId: session.userId,
+        });
+        expect(Date.now() - started).toBeLessThan(1_000);
+        releaseClaim();
+        await finished;
+        expect(seen).toEqual([{ userId: session.userId, email }]);
+        expect(seen[0]?.email).not.toBe(handle);
+      } finally {
+        releaseClaim();
+        auth.useMerchantEmailInviteClaimer(undefined);
+      }
+    });
   });
 }

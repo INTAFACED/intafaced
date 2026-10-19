@@ -41,6 +41,9 @@ const key = (patch: Partial<ApiKey> = {}): ApiKey => ({
   lastUsedAt: null,
   revoked: false,
   mode: 'sandbox',
+  requireSignature: false,
+  requireNonEmptyIpAllowlist: false,
+  ipAllowlist: [],
   ...patch,
 });
 const endpoint = (patch: Partial<Endpoint> = {}): Endpoint => ({
@@ -119,9 +122,11 @@ describe('allowed addresses', () => {
   it('splits a pasted list and drops repeats', () => {
     expect(splitIps('1.1.1.1, 2.2.2.2\n1.1.1.1  3.3.3.3')).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3']);
   });
-  it('warns that saving replaces the list and that the saved one cannot be read', () => {
-    const out = renderToString(<AllowedIps api={api} keyId="TEST-key-1" />);
-    expect(out).toContain('We cannot show what is saved for this key');
+  it('shows the saved address list and that saving it does not change signing', () => {
+    const out = renderToString(<AllowedIps api={api} keyId="TEST-key-1" ipAllowlist={['203.0.113.10']} requireSignature />);
+    expect(out).toContain('203.0.113.10');
+    expect(out).toContain('Saving addresses does not change whether this key requires signed requests.');
+    expect(out).toContain('Requests with this key need a valid signature');
     expect(out).toContain('Replace allowed addresses');
   });
   it('never saves an empty list as a plain Save: emptying it is its own "Remove all addresses" choice', () => {
@@ -176,7 +181,9 @@ describe('one-time secrets', () => {
   it('shows no secret on the pages before one is made', () => {
     for (const html of [
       keysView([key()]),
-      renderToString(<SigningSettings api={api} keyId="TEST-key-1" onSecret={() => {}} />),
+      renderToString(
+        <SigningSettings api={api} keyId="TEST-key-1" requireSignature={false} requireNonEmptyIpAllowlist={false} onSecret={() => {}} />,
+      ),
       renderToString(<EndpointView api={api} endpoint={endpoint()} health={health()} canManage reload={() => {}} />),
       renderToString(<Docs />),
     ])
@@ -185,19 +192,23 @@ describe('one-time secrets', () => {
 });
 
 describe('signing', () => {
-  it('starts with neither setting chosen: no default, and the effects say "Not chosen yet"', () => {
-    const out = renderToString(<SigningSettings api={api} keyId="TEST-key-1" onSecret={() => {}} />);
-    expect(out).toContain('What will happen');
-    expect((out.match(/Not chosen yet\./g) ?? []).length).toBe(2);
-    expect(out).not.toContain('Requests with this key do not need a signature.');
-    // Four radio buttons (on and off for each of the two settings), none checked.
+  it('shows the saved signing posture and selects those choices', () => {
+    const out = renderToString(
+      <SigningSettings api={api} keyId="TEST-key-1" requireSignature requireNonEmptyIpAllowlist={false} onSecret={() => {}} />,
+    );
+    expect(out).toContain('Signed requests required: yes. Allowed address required: no.');
+    expect(out).toContain('Requests with this key need a valid signature, or they are refused.');
+    expect(out).toContain('The key does not need an allowed IP address.');
+    expect(out).not.toContain('ifs_');
     expect((out.match(/type="radio"/g) ?? []).length).toBe(4);
-    expect(out).not.toMatch(/checked/);
+    expect((out.match(/checked=""/g) ?? []).length).toBe(2);
   });
-  it('holds Save back until both settings are chosen, and says why', () => {
-    const out = renderToString(<SigningSettings api={api} keyId="TEST-key-1" onSecret={() => {}} />);
-    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Save signing settings/);
-    expect(out).toContain('Choose on or off for both settings first.');
+  it('offers Save for the saved choice, because both settings are already known', () => {
+    const out = renderToString(
+      <SigningSettings api={api} keyId="TEST-key-1" requireSignature={false} requireNonEmptyIpAllowlist={false} onSecret={() => {}} />,
+    );
+    expect(out).not.toMatch(/<button[^>]*disabled=""[^>]*>Save signing settings/);
+    expect(out).toContain('Save signing settings');
   });
   it('words turning signing off as deleting the secret, and turning it on later as issuing a new one', () => {
     expect(c.t('effectSecretDeleted')).toBe('This deletes the current signing secret; turning it on later issues a new one.');

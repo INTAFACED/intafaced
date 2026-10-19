@@ -26,22 +26,30 @@ export async function bindApiKeyIpAllowlist(
   userId: string,
   keyId: string,
   ips: string[],
-): Promise<{ id: string; ipAllowlist: string[] }> {
+): Promise<{ id: string; ipAllowlist: string[]; requireSignature: boolean; requireNonEmptyIpAllowlist: boolean }> {
   const next: string[] = [];
   for (const raw of ips) {
     const ip = normalizeIp(raw);
     if (!ip) throw new ApiKeyIpError('Invalid IP in allowlist', 'auth.ip_invalid');
     next.push(ip);
   }
-  const rows = await sql<Array<{ id: string; ip_allowlist: string[] }>>`
+  // SET lists only ip_allowlist. Signing and its secret stay as they are.
+  const rows = await sql<
+    Array<{ id: string; ip_allowlist: string[]; require_signature: boolean | null; require_non_empty_ip_allowlist: boolean | null }>
+  >`
     UPDATE api_keys
     SET ip_allowlist = ${next}
     WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
-    RETURNING id, ip_allowlist
+    RETURNING id, ip_allowlist, require_signature, require_non_empty_ip_allowlist
   `;
   const row = rows[0];
   if (!row) throw new ApiKeyIpError('API key not found', 'auth.not_found');
-  return { id: row.id, ipAllowlist: row.ip_allowlist ?? [] };
+  return {
+    id: row.id,
+    ipAllowlist: row.ip_allowlist ?? [],
+    requireSignature: row.require_signature === true,
+    requireNonEmptyIpAllowlist: row.require_non_empty_ip_allowlist === true,
+  };
 }
 
 /** Wrap exchange so a bound key cannot mint a JWT from a foreign / missing IP. */

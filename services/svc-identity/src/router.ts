@@ -1799,6 +1799,9 @@ export function createIdentityRouter(
               lastUsedAt: z.string().nullable(),
               revoked: z.boolean(),
               mode: z.enum(['live', 'sandbox']),
+              requireSignature: z.boolean(),
+              requireNonEmptyIpAllowlist: z.boolean(),
+              ipAllowlist: z.array(z.string()),
             }),
           ),
         )
@@ -1813,6 +1816,9 @@ export function createIdentityRouter(
               lastUsedAt: k.last_used_at?.toISOString() ?? null,
               revoked: k.revoked,
               mode: k.mode === 'sandbox' ? ('sandbox' as const) : ('live' as const),
+              requireSignature: k.require_signature === true,
+              requireNonEmptyIpAllowlist: k.require_non_empty_ip_allowlist === true,
+              ipAllowlist: k.ip_allowlist ?? [],
             }));
           } catch (err) {
             throw toTrpcError(err);

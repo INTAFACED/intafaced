@@ -162,10 +162,10 @@ const schema = serviceEnvSchema
        */
       LEDGER_URL: z.string().url().optional(),
       /**
-       * svc-pay base URL for the owner pay-scope grant lookup at session issue.
-       * Unset → sessions stay on ordinary scopes (the grant is not consulted).
-       * Set → identity asks pay and attaches pay:read, pay:write, and pay:onboard
-       * when the published law allows them.
+       * svc-pay base URL. Used for the owner pay-scope grant at session issue,
+       * and for claiming a merchant email invite once this account's email is
+       * confirmed. Unset → sessions stay on ordinary scopes and invites stay
+       * pending. No localhost default.
        */
       PAY_URL: z.string().url().optional(),
       /**

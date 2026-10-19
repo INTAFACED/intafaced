@@ -10,6 +10,9 @@ const record = {
   lastUsedAt: '2026-10-10T08:00:00.000Z',
   revoked: false,
   mode: 'live',
+  requireSignature: false,
+  requireNonEmptyIpAllowlist: false,
+  ipAllowlist: [],
 };
 describe('owner API-key metadata wire boundary', () => {
   it('preserves arbitrary published strings and recorded metadata without authority or invented fields', () => {
@@ -29,6 +32,7 @@ describe('owner API-key metadata wire boundary', () => {
       [record, record],
       [record, { ...record, id: 'other', revoked: 'false' }],
       [record, { ...record, id: 'other', secret: 'not metadata' }],
+      [record, { ...record, id: 'other', signingSecret: 'ifs_secret' }],
       Array.from({ length: 51 }, (_, i) => ({ ...record, id: String(i) })),
     ])
       expect(apiKeyRecordsFor(50).safeParse(rows).success).toBe(false);

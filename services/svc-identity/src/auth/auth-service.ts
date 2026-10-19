@@ -30,6 +30,7 @@ import {
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
+import type { MerchantEmailInviteClaimer } from './merchant-email-invite-claim.js';
 
 export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
@@ -414,6 +415,8 @@ export class AuthService {
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
   private passwordResetNow: () => Date = () => new Date();
+  /** Unset: confirmation does not call pay. Email invites stay pending. */
+  private merchantEmailInviteClaimer: MerchantEmailInviteClaimer | undefined;
   /**
    * Optional lookup of the published owner pay grant. Unset means sessions
    * stay on SESSION_SCOPES. A throw omits pay scopes and still issues the
@@ -479,6 +482,11 @@ export class AuthService {
   /** Install the mail handoff. Unset refuses every reset request the same way. */
   usePasswordResetMail(mail: PasswordResetMail | undefined): void {
     this.passwordResetMail = mail;
+  }
+
+  /** Install the pay claim. Unset leaves email invites pending and does not call pay. */
+  useMerchantEmailInviteClaimer(claimer: MerchantEmailInviteClaimer | undefined): void {
+    this.merchantEmailInviteClaimer = claimer;
   }
 
   /** Owner-published lifetime in seconds. Unset, 0, or out of range stays unpublished. */
@@ -861,6 +869,10 @@ export class AuthService {
     );
     const sessionId = inserted[0]!.id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
+    // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
+    void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
+      this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
+    });
     const tier = await this.kycTier(userId);
     const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
@@ -1292,7 +1304,9 @@ export class AuthService {
 
   /** Public link. Sets `email_verified_at` once for the account the token was issued to. */
   async confirmEmail(input: { token: string }): Promise<{ userId: string }> {
-    return confirmEmail(this.emailConfirmDeps(), input);
+    const confirmed = await confirmEmail(this.emailConfirmDeps(), input);
+    await this.claimConfirmedEmailInvites(confirmed.userId);
+    return confirmed;
   }
 
   /**
@@ -1725,8 +1739,43 @@ export class AuthService {
   async listApiKeys(userId: string, limit: number) {
     const published = publishedApiKeysListLimit(limit);
     return this.sql<
-      Array<{ id: string; name: string; key_prefix: string; scopes: string[]; last_used_at: Date | null; revoked: boolean; mode: string }>
-    >`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+      Array<{
+        id: string;
+        name: string;
+        key_prefix: string;
+        scopes: string[];
+        last_used_at: Date | null;
+        revoked: boolean;
+        mode: string;
+        require_signature: boolean;
+        require_non_empty_ip_allowlist: boolean;
+        ip_allowlist: string[] | null;
+      }>
+    >`SELECT id, name, key_prefix, scopes, last_used_at, revoked, mode, require_signature, require_non_empty_ip_allowlist, ip_allowlist FROM api_keys WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+  }
+
+  /**
+   * Bind pending merchant email invites to this account.
+   *
+   * Sign-in alone does not qualify. The stored mailbox must already be
+   * confirmed (`email_verified_at` is a real instant). The address sent to
+   * pay is that stored mailbox, not the identifier the person typed.
+   * A pay failure is logged and does not undo the session or the confirmation.
+   * Sign-in does not wait for the pay call. Confirmation and an email change still do.
+   */
+  async claimConfirmedEmailInvites(userId: string): Promise<void> {
+    const claimer = this.merchantEmailInviteClaimer;
+    if (!claimer) return;
+    try {
+      const rows = await this.sql<Array<{ email: string; email_verified_at: Date | string | null }>>`
+        SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row?.email || !isEmailConfirmed(row)) return;
+      await claimer.claim({ userId, email: row.email });
+    } catch (err) {
+      this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
+    }
   }
 
   async kycTier(userId: string, sql: Sql = this.sql): Promise<'none' | 'basic' | 'full' | 'institutional'> {

@@ -356,6 +356,50 @@ if (!available) {
       expect(await keyCount(session.userId)).toBe('1');
     });
 
+    it('omitting requireSignature never issues or changes a signing secret and cannot enable signing without a factor', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const created = await c.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof: await freshProof(session) });
+      const state = async () =>
+        (
+          await db.sql<Array<{ s: boolean; i: boolean; secret: string | null }>>`
+            SELECT require_signature AS s, require_non_empty_ip_allowlist AS i, request_signing_secret AS secret
+              FROM api_keys WHERE id = ${created.id}`
+        )[0]!;
+      const audits = await auditCount(session.userId);
+
+      // Signing off: an IP-only write needs no factor, reveals no secret and leaves signing off.
+      const ipOnly = await c.setApiKeyRequestSigning({ keyId: created.id, requireNonEmptyIpAllowlist: true });
+      expect(ipOnly).toMatchObject({ requireSignature: false, requireNonEmptyIpAllowlist: true, signingSecret: null });
+      expect(await state()).toEqual({ s: false, i: true, secret: null });
+
+      // A call that sets neither flag is refused and writes nothing.
+      await expect(c.setApiKeyRequestSigning({ keyId: created.id })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(await state()).toEqual({ s: false, i: true, secret: null });
+
+      // The only way to turn signing on is the explicit flag, and that still needs the fresh factor.
+      await expect(c.setApiKeyRequestSigning({ keyId: created.id, requireSignature: true })).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+      });
+      expect(await state()).toEqual({ s: false, i: true, secret: null });
+      expect(await auditCount(session.userId)).toBe(audits);
+
+      // Signing on with a factor, then an IP-only write: the stored secret and flag are untouched, no new secret is shown.
+      const on = await c.setApiKeyRequestSigning({
+        keyId: created.id,
+        requireSignature: true,
+        factorProof: await freshProof(session, 'signing_secret', { keyId: created.id }),
+      });
+      expect(on.signingSecret).toBeTruthy();
+      const before = await state();
+      expect(before.s).toBe(true);
+      expect(before.secret).toBeTruthy();
+      const again = await c.setApiKeyRequestSigning({ keyId: created.id, requireNonEmptyIpAllowlist: false });
+      expect(again).toMatchObject({ requireSignature: true, requireNonEmptyIpAllowlist: false, signingSecret: null });
+      expect(await state()).toEqual({ s: true, i: false, secret: before.secret });
+    });
+
     it('a proof is single-use: the second create with the same proof is refused and mints nothing', async () => {
       const session = await register();
       await enrolTotp(session.userId);

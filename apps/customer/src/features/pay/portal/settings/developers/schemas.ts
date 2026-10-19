@@ -12,6 +12,9 @@ export const keySchema = z.object({
   lastUsedAt: z.string().nullable(),
   revoked: z.boolean(),
   mode: z.enum(['live', 'sandbox']),
+  requireSignature: z.boolean(),
+  requireNonEmptyIpAllowlist: z.boolean(),
+  ipAllowlist: z.array(z.string()),
 });
 export type ApiKey = z.infer<typeof keySchema>;
 export const createdKeySchema = z.object({ id: z.string(), key: z.string(), prefix: z.string(), mode: z.enum(['live', 'sandbox']) });
