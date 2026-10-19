@@ -4230,7 +4230,10 @@ export class PayService {
         // gross would take someone else's clearing.
         let liveGross = 0n;
         for (const { payment_id } of included) {
-          await lockPayment(tx, payment_id);
+          const locked = await lockPayment(tx, payment_id);
+          // A dispute opened after the freeze took this payment's clearing back through the opening post. Its captured
+          // amount no longer sits in the pool, so counting it would post other payments' money to the merchant.
+          if (locked.status === 'disputed') continue;
           const totals = await totalsFor(tx, payment_id);
           const net = totals.captured - totals.refunded;
           if (net > 0n) liveGross += net;
