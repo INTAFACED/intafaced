@@ -1686,7 +1686,10 @@ describe('withdrawal reads', () => {
 
   it('serve the owner their own withdrawal through the support read', async () => {
     const api = await caller(['support:read'], { tier: 'basic' });
-    await expect(api.withdrawal.supportRead({ withdrawalId: WITHDRAWAL })).resolves.toMatchObject({ withdrawalId: WITHDRAWAL, userId: USER });
+    await expect(api.withdrawal.supportRead({ withdrawalId: WITHDRAWAL })).resolves.toMatchObject({
+      withdrawalId: WITHDRAWAL,
+      userId: USER,
+    });
   });
 
   it('REFUSE ANOTHER ACCOUNT’S WITHDRAWAL on the support read, and never take the owner from the request', async () => {
