@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { registerInternalCurriculumRoute } from './curriculum/internal-curriculum.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
@@ -187,7 +187,14 @@ app.get('/ready', async () => ({
   xp: { id: certXp.id, usable: certXp.usable, publishes: 'intafaced.identity.xp.earned' },
 }));
 
-registerInternalCurriculumRoute(app, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves this door on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-academy');
+registerInternalCurriculumRoute(
+  app,
+  env.INTERNAL_SERVICE_SECRET,
+  env.INTERNAL_SERVICE_BODY_BIND,
+  s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+);
 
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
