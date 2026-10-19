@@ -58,6 +58,7 @@ export const GATE_PATHS = [
   ['.gitleaksignore', 'the secret-scan (gitleaks) ignore list'],
   ['AGENTS.md', 'the rules every agent loads, including the merge rule'],
   ['CLAUDE.md', 'the rules every agent loads'],
+  ['**/CLAUDE.md', 'the short rules a service, app or package loads for its own directory'],
   ['tooling/agent-protocol/**', 'the agent protocol every agent loads'],
   ['.agents/**', 'agent skills and rules'],
   ['.cursor/rules/**', 'agent rules'],
