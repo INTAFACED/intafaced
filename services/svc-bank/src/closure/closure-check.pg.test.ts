@@ -66,7 +66,7 @@ async function codes(userId = USER, subAccountIds: string[] = []) {
 
 it('mounts the signed route from svc-bank index', () => {
   const index = readFileSync(join(here, '..', 'index.ts'), 'utf8');
-  expect(index).toMatch(/registerClosureCheck\(app, \{ sql, ledger, secret: env\.INTERNAL_SERVICE_SECRET \}\)/);
+  expect(index).toMatch(/registerClosureCheck\(app, \{ sql, ledger, secret: env\.INTERNAL_SERVICE_SECRET, s2s: doorS2s \}\)/);
 });
 
 it('refuses a missing or bad signature with 401', async () => {

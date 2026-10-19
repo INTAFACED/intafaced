@@ -54,7 +54,7 @@ describe('svc-bank HTTP job HMAC require', () => {
     const ctxStart = index.indexOf('createContext: ({ req })');
     expect(ctxStart).toBeGreaterThan(-1);
     const ctx = index.slice(ctxStart, ctxStart + 800);
-    expect(ctx).toMatch(/mode:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
+    expect(ctx).toMatch(/bodyBindMode:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
   });
 
   it('v1 HMAC is rejected even when bytes are retained — require does not fall back to accept-both', () => {
