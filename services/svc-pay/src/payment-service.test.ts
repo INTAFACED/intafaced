@@ -2515,11 +2515,13 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
     });
 
     it('refuses a fee that consumes the whole window', async () => {
-      const m = await merchant(10_000); // 100%
-      const payment = await cardPayment(m.id, '100');
+      // 100% can no longer be set (MAX_FEE_BPS is 9999), so the settlement guard is proved on the
+      // largest rate a merchant can hold, with a gross small enough that the ceiling eats all of it.
+      const m = await merchant(9_999);
+      const payment = await cardPayment(m.id, '0.000000000000000001');
       await pay.capture(payment.id);
       await expect(settle(m.id, 'w-allfee')).rejects.toMatchObject({ code: 'pay.fee_exceeds_gross' });
-      expect(await clearingOf(m.id)).toBe('100');
+      expect(await clearingOf(m.id)).toBe('0.000000000000000001');
     });
 
     /**

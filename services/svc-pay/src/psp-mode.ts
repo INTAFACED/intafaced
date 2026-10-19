@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transaction } from '@intafaced/db';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 
 /**
  * PSP MODE — OWN THE MERCHANT, WITHOUT A THIRD-PARTY MONEY LIBRARY.
@@ -118,8 +119,8 @@ function toPricingEvent(row: PricingEventRow): PricingEventRecord {
 }
 
 function assertFeeBps(feeBps: number): void {
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000) {
-    throw new PspModeError('feeBps must be an integer between 0 and 10000', 'pay.merchant_pricing_invalid');
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
+    throw new PspModeError(`feeBps must be an integer between 0 and ${MAX_FEE_BPS}`, 'pay.merchant_pricing_invalid');
   }
 }
 

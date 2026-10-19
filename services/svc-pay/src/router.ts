@@ -107,6 +107,7 @@ import {
   UNWIRED_CMS_PLUGIN_FAMILIES,
 } from './plugins/cms-unwired.js';
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 
 /**
  * svc-pay's internal tRPC surface (§2 — cross-service calls go through
@@ -536,7 +537,7 @@ export function createPayRouter(
         .input(
           z.object({
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
-            pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
+            pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
             settlementPrefs: z.record(z.unknown()).optional(),
             /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
             displayName: merchantNameInputSchema.optional(),

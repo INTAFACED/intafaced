@@ -124,6 +124,7 @@ import {
 import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
 import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
 import { listMerchantStatement } from './portal-reads/statement.js';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -540,8 +541,8 @@ export function publishedDefaultFeeBps(feeBps: number | null | undefined): numbe
   if (feeBps == null) {
     throw new PayError('PAY_DEFAULT_FEE_BPS is unset — refusing rather than settling at 0 bps', 'pay.fee_bps_unset');
   }
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000) {
-    throw new PayError(`Fee must be an integer between 0 and 10000 bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
+    throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
   }
   return feeBps;
 }
@@ -6607,8 +6608,8 @@ function toSettlement(row: SettlementRow): SettlementRecord {
 }
 
 function assertFeeBps(feeBps: number): void {
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000) {
-    throw new PayError(`Fee must be an integer between 0 and 10000 bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
+  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
+    throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
   }
 }
 
