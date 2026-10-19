@@ -54,7 +54,7 @@ describe('every door that forwards a principal signs with the edge key when one 
   it('the matching operator door', async () => {
     const operator = await founder();
     const calls = captureFetch(() => new Response('{}', { status: 200 }));
-    await httpMatchingOperator('http://matching.test', 1000, EDGE_SECRET, signing)('/admin/halt', 'POST', operator, {}, 'GB');
+    await httpMatchingOperator('http://matching.test', 1000, EDGE_SECRET, signing)('/operator/halt', 'POST', operator, {}, 'GB');
     const headers = calls[0]!;
     expect(headers[EDGE_SIGNATURE_HEADER]).toMatch(/^ed25519:/);
     const verified = verifyForwardedPrincipal(
@@ -75,7 +75,7 @@ describe('every door that forwards a principal signs with the edge key when one 
   it('the matching operator door still signs with the shared secret when no key is set', async () => {
     const operator = await founder();
     const calls = captureFetch(() => new Response('{}', { status: 200 }));
-    await httpMatchingOperator('http://matching.test', 1000, EDGE_SECRET)('/admin/halt', 'POST', operator, {}, 'GB');
+    await httpMatchingOperator('http://matching.test', 1000, EDGE_SECRET)('/operator/halt', 'POST', operator, {}, 'GB');
     const headers = calls[0]!;
     expect(headers[EDGE_SIGNATURE_HEADER]).not.toMatch(/^ed25519:/);
     expect(
