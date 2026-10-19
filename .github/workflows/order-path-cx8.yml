@@ -92,7 +92,7 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay
+        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay --filter=@intafaced/ui --filter=@intafaced/i18n
 
       # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys).
       - name: CX-8 boot + STRICT smoke + trade journeys
