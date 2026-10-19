@@ -152,7 +152,9 @@ describe('order validation at the boundary', () => {
       const result = createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice });
       expect(result.success, `stopPrice ${stopPrice}`).toBe(false);
       if (!result.success) {
-        expect(result.error.issues.some((issue) => issue.path[0] === 'stopPrice' && /requires a stopPrice/.test(issue.message))).toBe(false);
+        expect(result.error.issues.some((issue) => issue.path[0] === 'stopPrice' && /requires a stopPrice/.test(issue.message))).toBe(
+          false,
+        );
       }
     }
 
