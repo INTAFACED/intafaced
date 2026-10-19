@@ -396,6 +396,8 @@ export const GATES = [
 export const NOT_GATES = {
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
+  'main-trust.mjs':
+    'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/main-trust.mjs --self-test` checks the decision table and parser.',
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'review-marker.mjs':

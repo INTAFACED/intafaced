@@ -1,0 +1,44 @@
+name: Main trust
+
+# Runs after a CI run on main finishes. Reads results and acts on them; it never
+# checks out or runs code from a pull request (the workflow_run event runs the
+# copy of this file on the default branch, against the default branch checkout).
+#
+#   red, first attempt   re-run the failed jobs once
+#   red, second attempt  open one "Main is red" issue
+#   green after re-run   open one "Flaky on main: <test file>" issue per test that failed first
+#   green                move the `last-green` branch forward
+#
+# No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: main-trust-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  trust:
+    name: Main trust
+    if: github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: write # move the last-green branch
+      actions: write # re-run failed jobs, read job steps
+      issues: write # red / flaky issues
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Act on the finished main run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node tooling/ci/main-trust.mjs
