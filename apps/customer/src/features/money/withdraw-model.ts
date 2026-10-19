@@ -33,11 +33,15 @@ export function shortenAddress(address: string): string {
   return clean.length <= 14 ? clean : `${clean.slice(0, 6)}…${clean.slice(-4)}`;
 }
 
-/** One saved address as the address book would return it. No read for it exists yet, so the page passes none. */
-export interface SavedAddress {
-  id: string;
-  label: string;
-  asset: string;
-  network: string;
-  address: string;
+/** What a saved address says about its cooling-off, from the two fields the bank returns. Nothing is worked out from a default. */
+export type Cooling = { state: 'ends' | 'ended'; at: string } | { state: 'unset' };
+
+/**
+ * `coolingOffEndsAt` is the bank's own time. When it is null the bank has not published a cooling-off window
+ * (`coolingBlocker` is set), so no end is shown and none is guessed. `now` is passed in so the answer is testable.
+ */
+export function coolingOf(row: { coolingOffEndsAt: string | null }, now: number): Cooling {
+  const end = row.coolingOffEndsAt === null ? Number.NaN : Date.parse(row.coolingOffEndsAt);
+  if (row.coolingOffEndsAt === null || !Number.isFinite(end)) return { state: 'unset' };
+  return { state: end > now ? 'ends' : 'ended', at: row.coolingOffEndsAt };
 }
