@@ -277,6 +277,21 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     expect(exitSubmits()).toHaveLength(1);
   });
 
+  it('many resting entries far from their lapse never crowd out a later entry that filled', async () => {
+    await fund(ALICE, 'USDT', '100000');
+    for (let i = 0; i < 3; i += 1) {
+      await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC', clientOrderId: `br-rest-${i}`, qty: amt('0.1') }));
+    }
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC', clientOrderId: 'br-filled' }));
+    await bobSellsInto(entry.id, '1', 'bob-into-entry');
+    // A window of 2 rows: the three resting entries must not occupy it.
+    const swept = await (
+      trade as unknown as { sweepBracketExits: (g: number, l: number) => Promise<Record<string, number>> }
+    ).sweepBracketExits(1_000, 2);
+    expect(swept).toMatchObject({ placed: 1, cancelledEntries: 0 });
+    expect(exitSubmits()).toHaveLength(1);
+  });
+
   it('cancels a resting entry before its grant lapses and protects only the part that filled', async () => {
     await fund(ALICE, 'USDT', '1000');
     const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));

@@ -301,70 +301,81 @@ async function closeGrant(host: BracketHost, entryId: string): Promise<void> {
  */
 async function sweepBracketExits(service: TradeService, graceMs: number, limit = 50): Promise<BracketSweepResult> {
   const host = service as unknown as BracketHost;
-  const rows = await host.sql<
-    Array<{
-      order_id: string;
-      user_id: string;
-      market_id: string;
-      status: string;
-      take_profit: string;
-      stop_loss: string;
-      grant_claims: unknown;
-      grant_expires_at: Date;
-    }>
-  >`
-    SELECT i.order_id, i.user_id, o.market_id, o.status, i.take_profit::text, i.stop_loss::text, i.grant_claims, i.grant_expires_at
-      FROM trade.order_bracket_intent i
-      JOIN trade.orders o ON o.id = i.order_id
-     WHERE i.exit_order_id IS NULL AND i.grant_claims IS NOT NULL
-     ORDER BY i.created_at
-     LIMIT ${limit}
-  `;
+  let examined = 0;
   let placed = 0;
   let cancelledEntries = 0;
   let unavailable = 0;
   let failed = 0;
-  for (const row of rows) {
-    const now = host.now();
-    const grant = parseAlgoPlaceGrant(row.grant_claims);
-    let principal: Principal | null = null;
-    if (grant) {
-      try {
-        principal = principalFromAlgoGrant({ userId: row.user_id, grant, expiresAt: new Date(row.grant_expires_at), now });
-      } catch {
-        principal = null;
+  let cursor = '00000000-0000-0000-0000-000000000000';
+  const horizon = new Date(host.now().getTime() + graceMs);
+  for (;;) {
+    // Only rows with something to do: a terminal entry, or a resting one whose grant lapses within the grace
+    // window (or already has). A resting entry far from its lapse stays out of the window, so it can never crowd
+    // out a later entry that has filled. Paged by order id so no row is starved by the ones before it.
+    const rows = await host.sql<
+      Array<{
+        order_id: string;
+        user_id: string;
+        market_id: string;
+        status: string;
+        take_profit: string;
+        stop_loss: string;
+        grant_claims: unknown;
+        grant_expires_at: Date;
+      }>
+    >`
+      SELECT i.order_id, i.user_id, o.market_id, o.status, i.take_profit::text, i.stop_loss::text, i.grant_claims, i.grant_expires_at
+        FROM trade.order_bracket_intent i
+        JOIN trade.orders o ON o.id = i.order_id
+       WHERE i.exit_order_id IS NULL AND i.grant_claims IS NOT NULL
+         AND i.order_id > ${cursor}
+         AND o.status NOT IN ('recovery_required', 'hold_unknown')
+         AND (o.status NOT IN ('open', 'pending') OR i.grant_expires_at <= ${horizon})
+       ORDER BY i.order_id
+       LIMIT ${limit}
+    `;
+    for (const row of rows) {
+      cursor = row.order_id;
+      examined += 1;
+      const now = host.now();
+      const grant = parseAlgoPlaceGrant(row.grant_claims);
+      let principal: Principal | null = null;
+      if (grant) {
+        try {
+          principal = principalFromAlgoGrant({ userId: row.user_id, grant, expiresAt: new Date(row.grant_expires_at), now });
+        } catch {
+          principal = null;
+        }
       }
-    }
-    const resting = row.status === 'open' || row.status === 'pending';
-    if (principal === null) {
-      // Nothing to place with. Only worth an alert when the entry actually bought something.
-      if (!resting) {
+      if (principal === null) {
+        // Nothing to place with: counted once, then no longer swept. A resting entry past its grant can still fill
+        // later with no exit, so it is surfaced too.
         unavailable += 1;
         await closeGrant(host, row.order_id);
-      }
-      continue;
-    }
-    try {
-      if (resting) {
-        if (new Date(row.grant_expires_at).getTime() - now.getTime() > graceMs) continue;
-        await host.cancelOrder(principal, row.order_id);
-        cancelledEntries += 1;
-      } else if (row.status === 'recovery_required' || row.status === 'hold_unknown') {
         continue;
       }
-      const market = await host.marketById(row.market_id);
-      if (!market) continue;
-      if (await placeBracketExit(service, principal, row.order_id, market, parseAmount(row.take_profit), parseAmount(row.stop_loss))) {
-        placed += 1;
-      } else if (!resting) {
-        // Terminal with nothing received: nothing to protect, stop sweeping it.
-        await closeGrant(host, row.order_id);
+      try {
+        let terminal = row.status !== 'open' && row.status !== 'pending';
+        if (!terminal) {
+          await host.cancelOrder(principal, row.order_id);
+          cancelledEntries += 1;
+          terminal = true;
+        }
+        const market = await host.marketById(row.market_id);
+        if (!market) continue;
+        if (await placeBracketExit(service, principal, row.order_id, market, parseAmount(row.take_profit), parseAmount(row.stop_loss))) {
+          placed += 1;
+        } else {
+          // Terminal with nothing received: nothing to protect, stop sweeping it.
+          await closeGrant(host, row.order_id);
+        }
+      } catch {
+        failed += 1;
       }
-    } catch {
-      failed += 1;
     }
+    if (rows.length < limit) break;
   }
-  return { examined: rows.length, placed, cancelledEntries, unavailable, failed };
+  return { examined, placed, cancelledEntries, unavailable, failed };
 }
 
 export function installBracketPlace(ctor: typeof TradeService): void {
@@ -406,6 +417,8 @@ export function installBracketPlace(ctor: typeof TradeService): void {
     // It is accepted only with a stored place grant (the caller's own claims, expiring with the caller's credential),
     // and the sweep cancels the entry before that grant lapses so no entry can fill into a position whose exit
     // could not be placed.
+    // Only `bound.tif` can matter: the entry is placed with the carried request body dropped, so no alias in it
+    // reaches the engine.
     const resting = bound.type === 'limit' && bound.tif !== 'IOC' && bound.tif !== 'FOK';
     if (resting) {
       if (!principal.scopes.includes('trade:write')) {
@@ -443,6 +456,9 @@ export function installBracketPlace(ctor: typeof TradeService): void {
 
     // An entry still resting is not sized yet: its exit is placed by the sweep once the entry is terminal.
     if (entry.status === 'open' || entry.status === 'pending') return entry;
+    // An unresolved entry (no verdict yet) may still fill: sizing an exit now would leave later fills unprotected.
+    // The caller retries the same request once it resolves.
+    if (entry.status === 'recovery_required' || entry.status === 'hold_unknown') return entry;
     await placeBracketExit(this, principal, entryId, market, takeProfit as Amount, stopLoss as Amount);
     return entry;
   };
