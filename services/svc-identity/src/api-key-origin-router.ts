@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
-import { narrowsAllowlist, optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
+import {
+  narrowOrGuardedAllowlistChange,
+  optionalFactorProof,
+  guardedApiKeyAction,
+  type ApiKeyFactorGate,
+} from './auth/api-key-fresh-factor.js';
 import { ApiKeyOriginError, bindApiKeyOriginAllowlist, normalizeOrigin } from './auth/auth-service-origin.js';
 import { unbindApiKeyOriginAllowlist } from './auth/unbind-api-key-origin.js';
 import { mintApiKeyWithOriginAllowlist } from './auth/mint-api-key-origin.js';
@@ -10,7 +15,7 @@ import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
 
 async function currentList(sql: Sql, userId: string, keyId: string): Promise<string[]> {
   const rows = await sql<Array<{ domain_whitelist: string[] | null }>>`
-    SELECT domain_whitelist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
+    SELECT domain_whitelist FROM api_keys WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false FOR UPDATE
   `;
   return rows[0]?.domain_whitelist ?? [];
 }
@@ -27,20 +32,17 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const next = input.origins.map((o) => normalizeOrigin(o) ?? o);
-          if (narrowsAllowlist(current, next))
-            return await bindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origins);
-          return await guardedApiKeyAction(
+          return await narrowOrGuardedAllowlistChange({
+            sql,
             gate,
-            ctx.principal,
-            input.factorProof,
-            {
-              action: 'origin_allowlist_widen',
-              keyId: input.keyId,
-            },
-            (scope) => bindApiKeyOriginAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.origins),
-          );
+            caller: ctx.principal,
+            proof: input.factorProof,
+            action: { action: 'origin_allowlist_widen', keyId: input.keyId },
+            readLocked: (tx) => currentList(tx, ctx.principal.userId, input.keyId),
+            nextFrom: (current) => next,
+            write: (tx) => bindApiKeyOriginAllowlist(tx, ctx.principal.userId, input.keyId, input.origins),
+          });
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -60,21 +62,17 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          const current = await currentList(sql, ctx.principal.userId, input.keyId);
           const origin = normalizeOrigin(input.origin);
-          const next = current.filter((entry) => normalizeOrigin(entry) !== origin);
-          if (narrowsAllowlist(current, next))
-            return await unbindApiKeyOriginAllowlist(sql, ctx.principal.userId, input.keyId, input.origin);
-          return await guardedApiKeyAction(
+          return await narrowOrGuardedAllowlistChange({
+            sql,
             gate,
-            ctx.principal,
-            input.factorProof,
-            {
-              action: 'origin_allowlist_widen',
-              keyId: input.keyId,
-            },
-            (scope) => unbindApiKeyOriginAllowlist(scope.tx, ctx.principal.userId, input.keyId, input.origin),
-          );
+            caller: ctx.principal,
+            proof: input.factorProof,
+            action: { action: 'origin_allowlist_widen', keyId: input.keyId },
+            readLocked: (tx) => currentList(tx, ctx.principal.userId, input.keyId),
+            nextFrom: (current) => current.filter((entry) => normalizeOrigin(entry) !== origin),
+            write: (tx) => unbindApiKeyOriginAllowlist(tx, ctx.principal.userId, input.keyId, input.origin),
+          });
         } catch (err) {
           if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
             throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });

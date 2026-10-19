@@ -62,6 +62,9 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.email_change',
   'identity.step_up.phone_change',
   'identity.step_up.phone_remove',
+  // Close the caller's own account. Identity mints and consumes it.
+  // Closing does not erase ledger, trade, or p2p history.
+  'identity.step_up.close_account',
 ] as const;
 
 /**

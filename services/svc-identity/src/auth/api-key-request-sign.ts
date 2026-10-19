@@ -218,7 +218,7 @@ export function assertEdgeSignedRequest(service: string | null, request: unknown
  * Run `fn` in a transaction. When `sql` is already a transaction (a guarded API-key action hands one in)
  * it has no `begin`, so `fn` runs on it directly and commits or rolls back with the caller.
  */
-async function inTransaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> {
+export async function inTransaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> {
   if (typeof (sql as { begin?: unknown }).begin === 'function') return (await sql.begin((tx) => fn(tx as unknown as Sql))) as T;
   return fn(sql);
 }
