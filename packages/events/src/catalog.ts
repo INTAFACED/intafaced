@@ -54,6 +54,17 @@ export const userIdSchema = z.string().uuid();
  */
 export const engineFillIdSchema = z.string().uuid();
 
+/**
+ * An order id as the matching engine names it on the bus: a trade order uuid, or one leg of a linked OCO,
+ * `<uuid>:tp` / `<uuid>:sl`. svc-trade settles a leg against its parent order (one hold, two legs); every
+ * other consumer treats the id as opaque.
+ */
+export const engineOrderIdSchema = z
+  .string()
+  .regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(:(tp|sl))?$/, {
+    message: 'must be an order uuid, optionally suffixed :tp or :sl',
+  });
+
 // ── identity (§4.1) ──────────────────────────────────────────────────────────
 
 export const xpEarned = defineEvent(
@@ -344,7 +355,7 @@ export const orderAccepted = defineEvent(
   'order',
   'accepted',
   1,
-  z.object({ orderId: z.string().uuid(), marketId: z.string(), sequence: z.number().int() }),
+  z.object({ orderId: engineOrderIdSchema, marketId: z.string(), sequence: z.number().int() }),
   'Engine admitted an order to the book.',
 );
 
@@ -355,8 +366,8 @@ export const orderFilled = defineEvent(
   1,
   z.object({
     marketId: z.string(),
-    makerOrderId: z.string().uuid(),
-    takerOrderId: z.string().uuid(),
+    makerOrderId: engineOrderIdSchema,
+    takerOrderId: engineOrderIdSchema,
     price: amountSchema,
     qty: amountSchema,
     /**
@@ -381,7 +392,7 @@ export const orderCancelled = defineEvent(
   'order',
   'cancelled',
   1,
-  z.object({ orderId: z.string().uuid(), marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
+  z.object({ orderId: engineOrderIdSchema, marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
   'Order left the book — svc-trade releases the ledger hold.',
 );
 
