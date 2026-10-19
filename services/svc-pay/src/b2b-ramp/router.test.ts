@@ -33,9 +33,10 @@ const ctxOf = (principal: Principal | null): Context => ({
   service: null,
   region: 'DE',
   requestId: id(),
+  forwardedPrincipal: principal ? { raw: 'test-principal', signature: 'test-signature', region: 'DE' } : undefined,
 });
 
-const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
+const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) };
 const entitlement = (status: string, forUser = userId) =>
   new Response(JSON.stringify({ result: { data: { status, userId: forUser, version: '1', changedAt: '2026-10-10T00:00:00Z' } } }), {
     status: 200,

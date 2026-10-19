@@ -41,7 +41,7 @@ const id = () => randomUUID();
 const founderA = id();
 const founderB = id();
 const OPERATOR_REASON = 'secret-operator-note: venue X is being investigated';
-const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
+const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) };
 const principalFor = (userId: string, over: Partial<Principal> = {}): Principal => ({
   userId,
   sub: userId,
@@ -57,6 +57,7 @@ const ctxOf = (principal: Principal | null, service: string | null = null): Cont
   service,
   region: 'DE',
   requestId: id(),
+  forwardedPrincipal: principal ? { raw: 'test-principal', signature: 'test-signature', region: 'DE' } : undefined,
 });
 /** Identity answers "enabled" only for the founders listed. */
 const fetcherFor = (founders: string[]) =>
