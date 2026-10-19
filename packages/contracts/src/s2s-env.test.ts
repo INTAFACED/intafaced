@@ -77,6 +77,20 @@ describe('s2sFromEnv', () => {
     );
   });
 
+  it('never puts malformed signing key text in an error', () => {
+    const malformed = 'not-a-real-key-but-secret-looking-text-0123456789';
+    try {
+      s2sFromEnv(
+        { S2S_AUTH_MODE: 'dual', S2S_KEYRING: KEYRING, S2S_SIGNING_KID: 'svc-agents.a', S2S_SIGNING_KEY: malformed },
+        'svc-agents',
+      );
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(ServiceKeyError);
+      expect(String((e as Error).message)).not.toContain(malformed);
+    }
+  });
+
   it('never puts private key text in an error', () => {
     try {
       s2sFromEnv(

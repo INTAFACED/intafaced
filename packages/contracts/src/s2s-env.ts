@@ -38,14 +38,15 @@ export function s2sFromEnv(env: Env, self: ServiceName): S2sFromEnv {
     throw new ServiceKeyError(`S2S_AUTH_MODE=${mode} needs S2S_KEYRING`);
   }
   const keyring = parseKeyring(keyringJson);
-  const kid = env.S2S_SIGNING_KID;
-  const privateKey = env.S2S_SIGNING_KEY;
-  if ((kid === undefined) !== (privateKey === undefined)) {
+  const { S2S_SIGNING_KID: kid, S2S_SIGNING_KEY: pkcs8 } = env;
+  if ((kid === undefined) !== (pkcs8 === undefined)) {
     throw new ServiceKeyError('S2S_SIGNING_KID and S2S_SIGNING_KEY are set together or not at all');
   }
   return {
     serviceVerifier: createServiceVerifier({ self, keyring }),
     s2sMode: mode,
-    ...(kid !== undefined && privateKey !== undefined ? { signer: createServiceSigner({ service: self, kid, privateKey, keyring }) } : {}),
+    ...(kid !== undefined && pkcs8 !== undefined
+      ? { signer: createServiceSigner({ service: self, kid, privateKey: pkcs8, keyring }) }
+      : {}),
   };
 }

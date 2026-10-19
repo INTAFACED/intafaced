@@ -348,6 +348,14 @@ describe('S2S key-pair mode in production posture', () => {
     }
   });
 
+  it('refuses a bad mode when the process holds no service secret, an empty mode, and a bad mode beside a bind issue', () => {
+    const noSecret = { APP_ENV: 'prod', S2S_AUTH_MODE: 'dual' };
+    expect(productionPostureS2sIssues(noSecret).join(' ')).toMatch(/S2S_AUTH_MODE/);
+    expect(productionPostureS2sIssues({ APP_ENV: 'prod', S2S_AUTH_MODE: '' }).join(' ')).toMatch(/S2S_AUTH_MODE/);
+    const both = productionPostureS2sIssues({ APP_ENV: 'prod', S2S_AUTH_MODE: 'dual', INTERNAL_SERVICE_SECRET: REAL });
+    expect(both).toHaveLength(2);
+  });
+
   it('allows dual on a dev or test process', () => {
     expect(productionPostureS2sIssues({ APP_ENV: 'dev', S2S_AUTH_MODE: 'dual' })).toEqual([]);
   });
