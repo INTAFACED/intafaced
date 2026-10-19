@@ -61,6 +61,18 @@ const RATE_UNSET = 'bank.auto_invest_rate_unset' as const;
 /** Trade public markets window — same 1..500 as `publishedMarketsLimit`. */
 export const CONVERT_MARKETS_LIMIT_MAX = 500;
 
+/**
+ * The execute request was sent and its result is unknown or unusable. Not a
+ * BankError on purpose: the run stays `pending` for reconciliation, because the
+ * settle may have committed.
+ */
+export class ConvertOutcomeUnknown extends Error {
+  constructor(detail: string) {
+    super(`Auto-invest DCA convert outcome unknown (${detail})`);
+    this.name = 'ConvertOutcomeUnknown';
+  }
+}
+
 function rateUnset(detail: string): never {
   throw new BankError(`Auto-invest DCA convert refused — trade did not supply a rate (${detail})`, RATE_UNSET);
 }
@@ -134,6 +146,12 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     query?: Record<string, string>;
     /** Sign the POST body as svc-bank. */
     service?: boolean;
+    /**
+     * The call can settle money. Once it is sent, only a typed trade refusal is
+     * definite; a timeout, 5xx or unreadable answer is an unknown outcome and
+     * throws a plain Error so the run stays `pending` (never `rejected`).
+     */
+    settles?: boolean;
   }): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -167,11 +185,16 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       }
       if (!res.ok) {
         const rec = parsed as { error?: { message?: string; data?: { intafacedCode?: string } }; intafacedCode?: string };
-        rateUnset(rec.error?.data?.intafacedCode ?? rec.intafacedCode ?? rec.error?.message ?? `http ${res.status}`);
+        const code = rec.error?.data?.intafacedCode ?? rec.intafacedCode;
+        if (input.settles && (code === undefined || res.status >= 500)) {
+          throw new ConvertOutcomeUnknown(`convert execute answered http ${res.status} without a typed refusal`);
+        }
+        rateUnset(code ?? rec.error?.message ?? `http ${res.status}`);
       }
       return unwrapTrpc<T>(parsed);
     } catch (err) {
-      if (err instanceof BankError) throw err;
+      if (err instanceof BankError || err instanceof ConvertOutcomeUnknown) throw err;
+      if (input.settles) throw new ConvertOutcomeUnknown(err instanceof Error ? err.message : 'convert execute unreachable');
       rateUnset(err instanceof Error ? err.message : 'convert unreachable');
     } finally {
       clearTimeout(timer);
@@ -250,12 +273,23 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
         maxAvgPrice: formatAmount(parseAmount(quoted.avgPrice)),
       },
       service: true,
+      settles: true,
     });
-    if (!settled || typeof settled.fillId !== 'string' || settled.fillId === '') rateUnset('convert execute missing fill');
-    const spent = parseWireAmount(settled.inAmount, 'convert execute inAmount');
-    if (spent > maxSpend) rateUnset('convert execute spent more than the authorized amount');
-    const received = parseWireAmount(settled.outAmount, 'convert execute outAmount');
-    if (received <= 0n) rateUnset('convert execute received nothing');
+    // The settle has already happened: nothing below may read as a refusal.
+    const unknown = (detail: string): never => {
+      throw new ConvertOutcomeUnknown(detail);
+    };
+    if (!settled || typeof settled.fillId !== 'string' || settled.fillId === '') return unknown('missing fill');
+    let spent: Amount;
+    let received: Amount;
+    try {
+      spent = parseAmount(settled.inAmount);
+      received = parseAmount(settled.outAmount);
+    } catch {
+      return unknown('unreadable settled amounts');
+    }
+    if (spent > maxSpend) return unknown('settled spend above the authorized amount, reconcile');
+    if (received <= 0n) return unknown('settled with nothing received, reconcile');
     return { fillId: settled.fillId, received };
   }
 

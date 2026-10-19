@@ -211,7 +211,7 @@ describe('tradeConvertPort — amounts from trade, never a bank mid', () => {
         fromAmount: parseAmount('100'),
         clientConvertId: 'dca-empty-fill',
       }),
-    ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    ).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('omit marketsLimit refuses bank.convert_markets_limit_unset — never calls trade, never invents 50', async () => {
@@ -404,31 +404,69 @@ describe('tradeConvertPort.convert — quote proceeds only when fullyFilled is t
   });
 });
 
-describe('tradeConvertPort.convert — execute books only a settled convert', () => {
-  it('refuses when fillId is omitted', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['fillId']));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
-  });
+describe('tradeConvertPort.convert — after execute is sent, a bad answer is an unknown outcome, never a refusal', () => {
+  const unknown = { name: 'ConvertOutcomeUnknown' };
 
-  it('refuses when outAmount is omitted, blank, zero or negative', async () => {
-    for (const outAmount of [undefined, '', '   ', '0', '-1']) {
-      const port = portFrom(
-        [LISTED_SPOT],
-        quoteWire(),
-        executeWire(outAmount === undefined ? {} : { outAmount }, outAmount === undefined ? ['outAmount'] : []),
-      );
-      await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('a missing fillId, unreadable or non-positive amount, or overspend is unknown (run stays pending)', async () => {
+    const bad: Array<[Record<string, unknown>, string[]]> = [
+      [{}, ['fillId']],
+      [{}, ['outAmount']],
+      [{}, ['inAmount']],
+      [{ outAmount: '' }, []],
+      [{ outAmount: '0' }, []],
+      [{ outAmount: '-1' }, []],
+      [{ inAmount: '100.01' }, []],
+    ];
+    for (const [over, omit] of bad) {
+      const port = portFrom([LISTED_SPOT], quoteWire(), executeWire(over, omit));
+      const err = await port.convert(BUY).catch((e: unknown) => e);
+      expect(err).toMatchObject(unknown);
+      expect(err).not.toBeInstanceOf(BankError);
     }
   });
 
-  it('refuses when the settled spend is above the authorized fromAmount', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({ inAmount: '100.01' }));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('a sell that settled more than fromAmount is unknown', async () => {
+    const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell' }), executeWire({ inAmount: '0.003', outAmount: '99.5' }));
+    await expect(port.convert(SELL)).rejects.toMatchObject(unknown);
   });
 
-  it('refuses when inAmount is missing', async () => {
-    const port = portFrom([LISTED_SPOT], quoteWire(), executeWire({}, ['inAmount']));
-    await expect(port.convert(BUY)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  it('a timeout, network error, 5xx or untyped 4xx on execute is unknown; a typed refusal is definite', async () => {
+    const run = (execute: () => Promise<Response>) =>
+      tradeConvertPort({
+        baseUrl: 'http://svc-trade:4004',
+        serviceSecret: SERVICE,
+        marketsLimit: MARKETS_LIMIT,
+        fetchImpl: async (input) => {
+          const url = String(input);
+          if (url.includes('/api/v1/markets')) return jsonResponse(200, [LISTED_SPOT]);
+          if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quoteWire() } });
+          return execute();
+        },
+      }).convert(BUY);
+    await expect(run(async () => Promise.reject(new Error('socket hang up')))).rejects.toMatchObject(unknown);
+    await expect(run(async () => jsonResponse(502, { error: { message: 'bad gateway' } }))).rejects.toMatchObject(unknown);
+    await expect(run(async () => jsonResponse(400, { error: { message: 'nope' } }))).rejects.toMatchObject(unknown);
+    await expect(
+      run(async () => jsonResponse(409, { error: { message: 'x', data: { intafacedCode: 'trade.convert_quote_expired' } } })),
+    ).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+  });
+
+  it('sends maxAvgPrice equal to the live quote avgPrice', async () => {
+    let body: Record<string, unknown> = {};
+    const port = tradeConvertPort({
+      baseUrl: 'http://svc-trade:4004',
+      serviceSecret: SERVICE,
+      marketsLimit: MARKETS_LIMIT,
+      fetchImpl: async (input, init) => {
+        const url = String(input);
+        if (url.includes('/api/v1/markets')) return jsonResponse(200, [LISTED_SPOT]);
+        if (url.includes('/trpc/standing.quote')) return jsonResponse(200, { result: { data: quoteWire() } });
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return jsonResponse(200, { result: { data: executeWire() } });
+      },
+    });
+    await port.convert(BUY);
+    expect(body.maxAvgPrice).toBe('50000');
   });
 
   it('a buy returns the settled base qty and the fill id', async () => {
@@ -453,7 +491,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
 
   it('refuses when outAmount is missing', async () => {
     const port = portFrom([LISTED_SPOT], quoteWire({ side: 'sell', userNotional: '100' }), executeWire({}, ['outAmount']));
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is blank', async () => {
@@ -462,7 +500,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
       quoteWire({ side: 'sell', userNotional: '100' }),
       executeWire({ inAmount: '0.002', outAmount: '' }),
     );
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is whitespace', async () => {
@@ -471,7 +509,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
       quoteWire({ side: 'sell', userNotional: '100' }),
       executeWire({ inAmount: '0.002', outAmount: '   ' }),
     );
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is zero', async () => {
@@ -480,7 +518,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
       quoteWire({ side: 'sell', userNotional: '100' }),
       executeWire({ inAmount: '0.002', outAmount: '0' }),
     );
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 
   it('refuses when outAmount is negative', async () => {
@@ -489,7 +527,7 @@ describe('tradeConvertPort.convert — a sell books the quote asset the fill rec
       quoteWire({ side: 'sell', userNotional: '100' }),
       executeWire({ inAmount: '0.002', outAmount: '-1' }),
     );
-    await expect(port.convert(SELL)).rejects.toMatchObject({ code: 'bank.auto_invest_rate_unset' });
+    await expect(port.convert(SELL)).rejects.toMatchObject({ name: 'ConvertOutcomeUnknown' });
   });
 });
 

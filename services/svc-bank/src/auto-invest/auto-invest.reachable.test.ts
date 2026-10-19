@@ -339,6 +339,56 @@ describe('boot-shaped createBankServices convert wiring', () => {
     expect(formatAmount((await ledger.balance(userAvailable(USER_A, 'USDT'))).amount)).toBe('500');
   });
 
+  it('an execute that times out leaves the run pending, never rejected', async () => {
+    const convert = tradeConvertPort({
+      baseUrl: 'http://svc-trade:4004',
+      serviceSecret: EDGE,
+      marketsLimit: 50,
+      fetchImpl: async (input) => {
+        const url = String(input);
+        if (url.includes('/api/v1/markets')) {
+          return jsonResponse(200, [
+            { symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT', spot: true, active: true, limits: { amount: { min: '0.001' } } },
+          ]);
+        }
+        if (url.includes('/trpc/standing.quote')) {
+          return jsonResponse(200, {
+            result: {
+              data: {
+                quoteId: 'q-1',
+                symbol: 'BTC/USDT',
+                side: 'buy',
+                requestedQty: '0.002',
+                filledQty: '0.002',
+                userNotional: '100',
+                avgPrice: '50000',
+                fullyFilled: true,
+              },
+            },
+          });
+        }
+        throw new Error('socket hang up');
+      },
+    });
+    const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      nativeAssetId: 'IFC',
+      autoInvest: { enabled: true, convert },
+    });
+    await fund(USER_A, 'USDT', '500');
+    const rule = await bank.autoInvest.createDca({
+      userId: USER_A,
+      spendAssetId: 'USDT',
+      buyAssetId: 'BTC',
+      amount: amt('100'),
+      cadence: 'daily',
+      startsAt: new Date('2026-08-01T00:00:00Z'),
+    });
+    await bank.autoInvest.runDue({ now: new Date('2026-08-09T00:00:00Z'), limit: 200 }).catch(() => undefined);
+    const runs = await bank.autoInvest.runsOf(rule.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe('pending');
+  });
+
   it('convert failure does not invent a price', async () => {
     let converted = 0;
     const failing: ConvertPort = {
