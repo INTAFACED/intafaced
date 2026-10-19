@@ -111,7 +111,7 @@ that looks obviously right.
 
 The exact diff, the chain-id source, both call sites, the wrong fix that looks
 right (`ChainId.NONE`), and the fixture tests that must pass first are in
-[`SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md`](SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md).
+`SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md` (removed 2026-10-19 with the wallet RPC tree; in git history).
 It also flags a blocker to check before any code is written: web3j is pinned at
 3.3.1, whose chain-id parameter is believed to be a `byte`, which cannot express
 most modern testnet chain ids at all.

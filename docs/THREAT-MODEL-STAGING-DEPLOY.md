@@ -5,7 +5,7 @@
 **Subject:** `.github/workflows/staging-deploy.yml`, and nothing else.
 **Board:** D26-P3-01 (the workflow). Fiat / wallet_rpc / vendor Java live under **D26-P3-02** → `THREAT-MODEL-CURRENT.md` (removed).
 **Law it sits under:** [`adr/2026-08-08-staging-deploy-path.md`](adr/2026-08-08-staging-deploy-path.md) (Accepted 2026-08-08).
-**Doctrine it is consistent with, and does not restate:** [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md) · the header of `tooling/ci/secret-scan.mjs` · [`SECURITY-WHEN-PLAIN.md`](SECURITY-WHEN-PLAIN.md).
+**Doctrine it is consistent with, and does not restate:** [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md) · the header of `tooling/ci/secret-scan.mjs`.
 
 ---
 
