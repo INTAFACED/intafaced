@@ -495,9 +495,8 @@ if (!available) {
 
     it('service-only entitlement read checks the named user and session live, with no forwarded principal', async () => {
       const firstId = first.principal!.userId;
-      const service = { ...first, service: 'svc-pay', principal: null };
-      const read = (ctx: typeof service, userId: string, sessionId: string) =>
-        controls.serviceOperatorEntitlement(ctx, { userId, sessionId });
+      const service: Context = { ...first, service: 'svc-pay', principal: null };
+      const read = (ctx: Context, userId: string, sessionId: string) => controls.serviceOperatorEntitlement(ctx, { userId, sessionId });
       expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'enabled', userId: firstId });
       expect(await read(service, firstId.toUpperCase(), first.principal!.sid.toUpperCase())).toMatchObject({ status: 'enabled' });
       // Not a founder, or another user's session, or no such session: never enabled.
