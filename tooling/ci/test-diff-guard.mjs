@@ -47,7 +47,7 @@ export function judge(changes) {
       continue;
     }
     for (const l of c.added) {
-      if (SKIP.test(l) && !PG_UNAVAILABLE_SKIP.test(l))
+      if (SKIP.test(l.replace(PG_UNAVAILABLE_SKIP, '')))
         problems.push({ path: c.path, why: `skip/todo/only added: ${l.trim().slice(0, 100)}` });
     }
     if (c.status === 'M') {
