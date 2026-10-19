@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Amount } from '@intafaced/ledger-client';
+import { mulBps, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 
 /**
@@ -365,7 +365,6 @@ export function cashbackOn(capturedAmount: Amount, rateBps: number): Amount {
   // Floor, and deliberately: a rounding unit invented in the user's favour is
   // value the rewards pot never earned, and it is paid out of a pot that has to
   // balance. Under-paying by one atomic unit is visible and correctable;
-  // over-paying is a slow leak nobody notices. `formatAmount` is imported so a
   // over-paying is a slow leak nobody notices.
-  return (capturedAmount * BigInt(rateBps)) / 10_000n;
+  return mulBps(capturedAmount, rateBps, 'floor');
 }
