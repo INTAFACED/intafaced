@@ -5364,6 +5364,11 @@ export class PayService {
         }),
       );
     }
+    // A payment that never captured holds no funds to take back. Clearing is pooled per merchant, so charging it
+    // back would debit other payments' money.
+    if (payment.status === 'created' || payment.status === 'authorized' || payment.status === 'failed') {
+      throw new PayError('Payment has no captured funds to charge back', 'pay.invalid_amount');
+    }
     // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery
     // marker not yet written) would otherwise re-split from balances the first post already moved, and book the same key
