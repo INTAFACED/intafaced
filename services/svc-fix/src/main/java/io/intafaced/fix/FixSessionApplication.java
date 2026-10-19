@@ -99,12 +99,12 @@ public final class FixSessionApplication extends ApplicationAdapter {
         if (posted.httpSent) {
             matchingPosts.incrementAndGet();
         }
-        if (!posted.ok || posted.ack == null || posted.ack.sequence == null) {
-            if (posted.httpSent) {
-                send(ExecutionReportFactory.reject(adapted.command, postedResultText(posted)), sessionId);
-            } else {
-                sendSessionReject(message, sessionId, postedResultText(posted));
-            }
+        if (!posted.ok) {
+            sendSessionReject(message, sessionId, posted.errorMessage);
+            return;
+        }
+        if (posted.ack == null || posted.ack.sequence == null) {
+            sendSessionReject(message, sessionId, "matching ack has no sequence; svc-fix does not invent ExecID");
             return;
         }
         Message er = ExecutionReportFactory.fromAck(adapted.command, posted.ack);
@@ -126,13 +126,6 @@ public final class FixSessionApplication extends ApplicationAdapter {
 
     public synchronized List<Message> outbound() {
         return List.copyOf(outbound);
-    }
-
-    private static String postedResultText(MatchingSubmitResult posted) {
-        if (!posted.ok && posted.errorMessage != null) {
-            return posted.errorMessage;
-        }
-        return "matching ack has no sequence; svc-fix does not invent ExecID";
     }
 
     private void sendSessionReject(Message inbound, SessionID sessionId, String text) {
