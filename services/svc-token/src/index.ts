@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts';
+import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { formatAmount } from '@intafaced/ledger-client';
 import { env } from './env.js';
@@ -118,12 +119,7 @@ export const appRouter = createTokenRouter(token, {
 });
 export type AppRouter = typeof appRouter;
 
-const internalSecret = env.INTERNAL_SERVICE_SECRET;
-const edgeContext = createEdgeContext({
-  secret: env.EDGE_PRINCIPAL_SECRET,
-  serviceName: env.SERVICE_NAME,
-  ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
-});
+const edgeContext = buildEdgeContext(env);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
