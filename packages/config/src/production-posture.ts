@@ -282,10 +282,19 @@ export const S2S_BODY_BIND_REFUSE_CODE = 'config.s2s_body_bind_not_required' as 
  */
 export function productionPostureS2sIssues(env: Env = process.env): string[] {
   if (!isProductionPosture(env)) return [];
+  const mode = env.S2S_AUTH_MODE;
+  const modeIssues =
+    mode === undefined || mode === 'off' || mode === 'keypair'
+      ? []
+      : [
+          `S2S_AUTH_MODE must be exactly "off" or "keypair" here: "${mode === 'dual' ? 'dual' : 'that value'}" is the migration setting ` +
+            '(dual accepts the shared secret as well as the key) or is not a known mode, and neither may run on a real server',
+        ];
   const secret = env.INTERNAL_SERVICE_SECRET;
-  if (typeof secret !== 'string' || secret.trim() === '') return [];
-  if (env.INTERNAL_SERVICE_BODY_BIND === 'require') return [];
+  if (typeof secret !== 'string' || secret.trim() === '') return modeIssues;
+  if (env.INTERNAL_SERVICE_BODY_BIND === 'require') return modeIssues;
   return [
+    ...modeIssues,
     'INTERNAL_SERVICE_BODY_BIND must be exactly "require" where INTERNAL_SERVICE_SECRET is set: any other value (or none) ' +
       'leaves signed service calls replayable against any body for 300 seconds. Fix: set INTERNAL_SERVICE_BODY_BIND=require ' +
       '(docs/decisions/s2s-body-bind.md)',
@@ -302,8 +311,8 @@ export class ProductionPostureError extends Error {
     const shown = `APP_ENV=${appEnv === null || appEnv === '' ? '<unset>' : appEnv}`;
     super(
       code === S2S_BODY_BIND_REFUSE_CODE
-        ? `SERVICE CALLS MUST BE BOUND TO THEIR BODY HERE (${shown}, ${code}). Refusing to start.\n` +
-            `Only APP_ENV exactly "dev" or "test" may run on the migration setting.\n  - ${issues.join('\n  - ')}`
+        ? `SERVICE-CALL SETTINGS ARE NOT ALLOWED HERE (${shown}, ${code}). Refusing to start.\n` +
+            `Only APP_ENV exactly "dev" or "test" may run on a migration setting.\n  - ${issues.join('\n  - ')}`
         : `DEVELOPMENT MATERIAL IS NOT ALLOWED HERE (${shown}, ${code}). Refusing to start.\n` +
             `Only APP_ENV exactly "dev" or "test" may run on dev keys, the Anvil chain or published passwords.\n  - ${issues.join('\n  - ')}`,
     );

@@ -14,6 +14,7 @@ import {
   productionPostureIssues,
   productionPostureS2sIssues,
   S2S_BODY_BIND_REFUSE_CODE,
+  s2sEnvSchema,
 } from './index.js';
 
 type Env = Record<string, string | undefined>;
@@ -336,5 +337,28 @@ describe('boot', () => {
     );
     expect(loadEnv(baseEnvSchema, { APP_ENV: 'prod', SERVICE_NAME: 'svc-x' }).APP_ENV).toBe('prod');
     expect(loadEnv(baseEnvSchema, { APP_ENV: 'dev', SERVICE_NAME: 'svc-x', JWT_ACCESS_SECRET: 'dev-only-a' }).APP_ENV).toBe('dev');
+  });
+});
+
+describe('S2S key-pair mode in production posture', () => {
+  it('refuses dual (the migration setting) and accepts keypair, off and unset', () => {
+    expect(productionPostureS2sIssues(realProd({ S2S_AUTH_MODE: 'dual' })).join(' ')).toMatch(/S2S_AUTH_MODE/);
+    for (const mode of ['keypair', 'off', undefined]) {
+      expect(productionPostureS2sIssues(realProd(mode === undefined ? {} : { S2S_AUTH_MODE: mode }))).toEqual([]);
+    }
+  });
+
+  it('allows dual on a dev or test process', () => {
+    expect(productionPostureS2sIssues({ APP_ENV: 'dev', S2S_AUTH_MODE: 'dual' })).toEqual([]);
+  });
+
+  it('refuses a mode that is not exactly off, dual or keypair, so a typo cannot read as off', () => {
+    expect(productionPostureS2sIssues(realProd({ S2S_AUTH_MODE: 'Keypair' })).join(' ')).toMatch(/S2S_AUTH_MODE/);
+  });
+
+  it('the env schema reads the mode, keyring and signing pair, and rejects an unknown mode', () => {
+    expect(s2sEnvSchema.parse({}).S2S_AUTH_MODE).toBe('off');
+    expect(s2sEnvSchema.parse({ S2S_AUTH_MODE: 'keypair', S2S_KEYRING: '{}' }).S2S_AUTH_MODE).toBe('keypair');
+    expect(() => s2sEnvSchema.parse({ S2S_AUTH_MODE: 'on' })).toThrow();
   });
 });
