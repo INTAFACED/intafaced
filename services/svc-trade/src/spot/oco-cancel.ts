@@ -48,6 +48,8 @@ export function installOcoCancel(ctor: typeof TradeService): void {
       matching: MatchingClient;
       findOrder: (id: string) => Promise<OrderRecord | null>;
       finalize: (orderId: string, status: 'cancelled' | 'filled' | 'expired' | 'rejected') => Promise<void>;
+      recordOcoLegEnd: (legId: string, remainingQty: string, reason?: string | null) => Promise<void>;
+      ocoExecutionSettled: (parentId: string, opts?: { requireBothLegs?: boolean }) => Promise<boolean>;
     };
 
     const peek = await host.findOrder(orderId);
@@ -80,6 +82,12 @@ export function installOcoCancel(ctor: typeof TradeService): void {
             throw new TradeError('an OCO leg changed while cancelling; retry', 'trade.matching_unavailable');
           }
           halfCancelled.add(orderId);
+          if (pulled.cancellation) await host.recordOcoLegEnd(leg, pulled.cancellation.remainingQty, pulled.cancellation.reason);
+        }
+        // A taker may have filled a leg after the book was read: release only once the settled fills cover what
+        // the legs executed. Retrying finds nothing resting and the late fill settles itself.
+        if (!(await host.ocoExecutionSettled(orderId, { requireBothLegs: false }))) {
+          throw new TradeError('an OCO leg filled while cancelling; retry', 'trade.matching_unavailable');
         }
         halfCancelled.delete(orderId);
         await host.finalize(orderId, 'cancelled');

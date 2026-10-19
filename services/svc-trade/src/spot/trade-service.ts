@@ -2676,6 +2676,11 @@ export class TradeService {
       }
 
       const out: OrderRecord[] = [];
+      // Every leg's end is recorded before any parent closes: an OCO parent closes on its second leg.
+      for (const cancellation of result.cancellations) {
+        if (cancellation.accountId === accountId)
+          await this.recordOcoLegEnd(cancellation.orderId, cancellation.remainingQty, cancellation.reason);
+      }
       for (const cancellation of result.cancellations) {
         if (cancellation.accountId !== accountId) continue;
         const order = await this.findOrder(settlementOrderId(cancellation.orderId));
@@ -2771,6 +2776,7 @@ export class TradeService {
     // self-trade prevention. §5.1 unifies them because this service does the
     // same thing with all three: the order is done, release what is left.
     for (const cancellation of cancellations) {
+      await this.recordOcoLegEnd(cancellation.orderId, cancellation.remainingQty, cancellation.reason);
       await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
       // A leg cancellation may leave the parent open (fail closed), so only an ordinary order leaves `touched`.
       if (ocoLegParent(cancellation.orderId) === null) touched.delete(cancellation.orderId);
@@ -2808,8 +2814,43 @@ export class TradeService {
     }
     const live = new Set(listed.orders.map((row) => row.orderId));
     if (live.has(`${parentId}:tp`) || live.has(`${parentId}:sl`)) return false;
+    // A leg that left the book without a cancellation FILLED completely, and a fill the engine has printed may
+    // not be settled here yet (a second taker can take the last of a leg before the first taker's settlement runs).
+    // Release only when the settled fills cover everything the legs executed; otherwise the hold stays and the
+    // late fill's own settlement closes the order (filled, or through the next leg event).
+    if (!(await this.ocoExecutionSettled(parentId))) return false;
     await this.finalize(parentId, status, reason);
     return true;
+  }
+
+  /** Remember how much of an OCO leg the engine had NOT executed when it cancelled the leg. Idempotent. */
+  async recordOcoLegEnd(legId: string, remainingQty: string, reason?: string | null): Promise<void> {
+    const parentId = ocoLegParent(legId);
+    if (parentId === null) return;
+    const leg = legId.endsWith(':tp') ? 'tp' : 'sl';
+    await this.sql`
+      INSERT INTO trade.oco_leg_end (parent_id, leg, remaining_qty, reason)
+      VALUES (${parentId}, ${leg}, ${remainingQty}, ${reason ?? null})
+      ON CONFLICT (parent_id, leg) DO NOTHING
+    `;
+  }
+
+  /**
+   * True when the parent's settled fills cover what its legs executed. By default both legs must have a recorded
+   * end: a leg with none is gone because it filled, and its last fill may be unsettled. Fails closed. A caller
+   * that has itself just pulled the resting legs passes `requireBothLegs: false`: a leg with no record is then the
+   * sibling the engine cancelled unfilled on a first fill, which executed nothing.
+   */
+  async ocoExecutionSettled(parentId: string, opts: { requireBothLegs?: boolean } = {}): Promise<boolean> {
+    const parent = await this.findOrder(parentId);
+    if (!parent) return false;
+    const ends = await this.sql<Array<{ leg: string; remaining_qty: string }>>`
+      SELECT leg, remaining_qty::text AS remaining_qty FROM trade.oco_leg_end WHERE parent_id = ${parentId}
+    `;
+    if (ends.length < 2 && opts.requireBothLegs !== false) return false;
+    let executed = 0n;
+    for (const end of ends) executed += parent.qty - parseAmount(end.remaining_qty);
+    return parent.filledQty >= executed;
   }
 
   /**
@@ -4653,6 +4694,17 @@ export class TradeService {
                 detail: `OCO leg ${leg} changed while reconciling; hold retained, no refund`,
               };
             }
+            if (pulled.cancellation) await this.recordOcoLegEnd(leg, pulled.cancellation.remainingQty, pulled.cancellation.reason);
+          }
+          if (!(await this.ocoExecutionSettled(orderId, { requireBothLegs: false }))) {
+            return {
+              orderId,
+              case: 'open_hold_no_engine_unknown',
+              action: 'fail_closed',
+              holdBefore,
+              engineLive: true,
+              detail: 'OCO legs executed more than has settled; hold retained until the late fill settles',
+            };
           }
         } else {
           await this.matching.cancel(order.marketId, orderId);
