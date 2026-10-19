@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import { logIsolationDenial } from './isolation-log.js';
 import { pendingPayfacPermissionIntentCount } from './payfac-authority.js';
 
@@ -558,8 +559,8 @@ export class SubMerchantService {
       );
     }
 
-    if (!Number.isInteger(input.pricing.feeBps) || input.pricing.feeBps < 0 || input.pricing.feeBps > 10_000) {
-      throw new SubMerchantError('feeBps must be an integer between 0 and 10000', 'pay.submerchant_pricing_invalid');
+    if (!Number.isInteger(input.pricing.feeBps) || input.pricing.feeBps < 0 || input.pricing.feeBps > MAX_FEE_BPS) {
+      throw new SubMerchantError(`feeBps must be an integer between 0 and ${MAX_FEE_BPS}`, 'pay.submerchant_pricing_invalid');
     }
 
     return transaction(
