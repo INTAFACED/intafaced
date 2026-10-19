@@ -19,7 +19,7 @@ The customer container is nginx over the built files. It sends unknown paths to 
 
 ## Services
 
-Every one except the Rust prototype is in `docker-compose.apps.yml` (`svc-fix` only under its `fix` profile). `services/svc-matching-rust-stage1` is a Rust prototype outside compose; the TypeScript engine stays the default (`services/svc-matching-rust-stage1/src/lib.rs`). `services/svc-chain` and `services/svc-bridge` do not exist. Postgres is one database with one schema and one role per service, so in dev a service cannot read another's tables (`tooling/infra/postgres-init/01-service-schemas.sql`).
+Every one is in `docker-compose.apps.yml` (`svc-fix` only under its `fix` profile). The unwired Rust matching prototype was deleted (one order book only; it lives in git history). `services/svc-chain` and `services/svc-bridge` do not exist. Postgres is one database with one schema and one role per service, so in dev a service cannot read another's tables (`tooling/infra/postgres-init/01-service-schemas.sql`).
 
 | Service           | Owns (extend this folder, do not add a second copy)                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
