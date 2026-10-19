@@ -538,3 +538,7 @@ per asset; no `available` or `hold` balance ever goes negative; and no terminal 
 ## Closed-order history filters
 
 `GET /api/v1/orders/closed` takes `side` (`buy` or `sell`), `status` (CCXT words `closed`, `canceled`, `rejected`, `expired`) and `until` (unix ms, inclusive) next to `symbol`, `limit` and `since`. All filters run in SQL on the caller's own orders, so `limit` stays honest. An unknown `side` or `status`, an `until` that is negative, not a number or before `since` is a 400, never a silent unfiltered page.
+
+## Service keys: ledger calls
+
+The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

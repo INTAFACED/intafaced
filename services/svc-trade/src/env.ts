@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { parseOwnerIntegerEnv } from './owner-int-env.js';
 
 // Both, and they are not alternatives. `edgeEnvSchema` authenticates the USER a
@@ -8,6 +8,7 @@ import { parseOwnerIntegerEnv } from './owner-int-env.js';
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-trade'),

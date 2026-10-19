@@ -256,10 +256,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-trade/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-trade/src/otc/stake-source.ts": {
       "sign": 1,
       "caller": 0

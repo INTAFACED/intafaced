@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
+import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -153,7 +153,13 @@ await sql`SELECT 1 FROM trade.markets LIMIT 1`.catch(() => {
 });
 await assertNoLocalTestLifecycleRows(sql, process.env);
 
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-trade');
+const ledger = createLedgerClient(
+  env.LEDGER_URL,
+  env.INTERNAL_SERVICE_SECRET,
+  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
