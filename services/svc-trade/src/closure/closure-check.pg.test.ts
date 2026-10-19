@@ -141,3 +141,85 @@ it('answers 503 when the database fails', async () => {
   expect(response.json()).not.toMatchObject({ blockers: [] });
   await down.close();
 });
+
+const SUB_LISTED = '44444444-4444-4444-8444-444444444444';
+const SUB_UNLISTED = '55555555-5555-4555-8555-555555555555';
+
+function uuidN(n: number): string {
+  return `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+}
+
+it('refuses a request from a signed service that is not identity with 403', async () => {
+  const raw = JSON.stringify({ userId: USER, subAccountIds: [] });
+  const response = await app.inject({
+    method: 'POST',
+    url: '/internal/closure-check',
+    payload: raw,
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', SECRET, raw) },
+  });
+  expect(response.statusCode).toBe(403);
+  expect(response.json()).not.toHaveProperty('blockers');
+});
+
+it('accepts 100 sub-account ids and refuses 101 with 400', async () => {
+  const hundred = Array.from({ length: 100 }, (_, i) => uuidN(i + 1));
+  expect((await post({ userId: USER, subAccountIds: hundred })).statusCode).toBe(200);
+  const tooMany = await post({ userId: USER, subAccountIds: [...hundred, uuidN(101)] });
+  expect(tooMany.statusCode).toBe(400);
+  expect(tooMany.json()).toMatchObject({ code: 'trade.closure_check_input' });
+});
+
+it('refuses a malformed body with 400 and never an empty blocker list', async () => {
+  const bad: unknown[] = [
+    null,
+    [],
+    {},
+    { userId: USER },
+    { subAccountIds: [] },
+    { userId: 'not-a-uuid', subAccountIds: [] },
+    { userId: USER, subAccountIds: 'nope' },
+    { userId: USER, subAccountIds: ['not-a-uuid'] },
+    { userId: USER, subAccountIds: [42] },
+    { userId: 42, subAccountIds: [] },
+  ];
+  for (const body of bad) {
+    const response = await post(body);
+    expect(response.statusCode, JSON.stringify(body)).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'trade.closure_check_input' });
+    expect(response.json()).not.toHaveProperty('blockers');
+  }
+});
+
+it('counts rows on a listed sub-account and ignores an unlisted one', async () => {
+  const marketId = await market();
+  const insertOrder = (userId: string, subAccountId: string | null) => db.sql`
+    INSERT INTO trade.orders (id, user_id, sub_account_id, market_id, side, type, price, qty, hold_asset, hold_amount, status)
+    VALUES (${randomUUID()}, ${userId}, ${subAccountId}, ${marketId}, 'buy', 'limit', '1', '1', 'USDT', '1', 'open')
+  `;
+  // Only unlisted sub-account activity exists: nothing may appear.
+  await insertOrder(OTHER, SUB_UNLISTED);
+  await db.sql`
+    INSERT INTO trade.positions (user_id, market_id, side, size, entry_price, margin_initial, margin_current, margin_asset, status)
+    VALUES (${SUB_UNLISTED}, ${marketId}, 'long', '1', '1', '1', '1', 'USDT', 'open')
+  `;
+  const none = await post({ userId: USER, subAccountIds: [SUB_LISTED] });
+  expect(none.statusCode).toBe(200);
+  expect(none.json()).toMatchObject({ blockers: [] });
+
+  // An order tagged with the listed sub-account, and a position owned by it.
+  await insertOrder(OTHER, SUB_LISTED);
+  await db.sql`
+    INSERT INTO trade.positions (user_id, market_id, side, size, entry_price, margin_initial, margin_current, margin_asset, status)
+    VALUES (${SUB_LISTED}, ${marketId}, 'long', '1', '1', '1', '1', 'USDT', 'open')
+  `;
+  const listed = await post({ userId: USER, subAccountIds: [SUB_LISTED] });
+  expect(listed.json()).toMatchObject({
+    blockers: [
+      { code: 'open_order', count: 1 },
+      { code: 'open_position', count: 1 },
+    ],
+  });
+  // The same rows do not show when the sub-account is not listed.
+  const unlisted = await post({ userId: USER, subAccountIds: [] });
+  expect(unlisted.json()).toMatchObject({ blockers: [] });
+});
