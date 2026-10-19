@@ -88,6 +88,38 @@ describe('market action-approval consume', () => {
     expect(consumed.approverId).toBe('approver');
   });
 
+  it('refuses a reply that is not the approval asked for', async () => {
+    const row = {
+      approvalId: 'appr-OTHER',
+      actionType: 'market.vendor.vet',
+      targetService: 'svc-market',
+      targetId: 'market.vendor.vet',
+      expectedVersion: '1',
+      payloadHash: 'sha256:abc',
+      requesterId: 'requester',
+      approverId: 'approver',
+      policyVersion: 'v1',
+      createdAt: '2026-09-09T12:00:00.000Z',
+      expiresAt: '2026-09-09T12:10:00.000Z',
+      status: 'CONSUMED',
+      operationId: 'op-1',
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ result: { data: row } }), { status: 200 })),
+    );
+    await expect(
+      createIdentityApprovalClient('http://identity.test', 'secret-secret-secret-secret-32ch').consume({
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+        payloadHash: 'sha256:abc',
+        targetService: 'svc-market',
+        targetId: 'market.vendor.vet',
+        expectedVersion: '1',
+      }),
+    ).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+  });
+
   it('user apply path is not wired through consume', () => {
     const router = readFileSync(join(HERE, 'router.ts'), 'utf8');
     expect(router).toMatch(/applyAsVendor/);
