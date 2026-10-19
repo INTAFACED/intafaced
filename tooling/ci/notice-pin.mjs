@@ -51,7 +51,6 @@ const REQUIRED = [
   'vendor/upstream-exchange/NOTICE',
   'vendor/upstream-exchange/LICENSE',
   'vendor/upstream-exchange-compose.yml',
-  'vendor/upstream-exchange/05_Web_Front/src/assets/js/market-chart',
 ];
 
 function fail(msg) {
@@ -160,8 +159,9 @@ if (existsSync(vendorRoot)) {
     fail(`jar count ${jars.length} !== pin ${PINS.jarCountTip} — update NOTICE §11 and PINS.jarCountTip together (no silent extra binary)`);
   }
 
-  const chartDir = join(vendorRoot, '05_Web_Front', 'src', 'assets', 'js', 'charting_library');
-  const chartFiles = existsSync(chartDir) ? walkFiles(chartDir) : [];
+  // Any charting_library directory anywhere under the vendor tree counts; the Vue front end that
+  // held it was deleted, and a re-add must still be a named decision, not a silent file.
+  const chartFiles = walkFiles(vendorRoot).filter((p) => p.split(/[\\/]/).includes('charting_library'));
   if (chartFiles.length !== PINS.chartingLibraryFilesTip) {
     fail(
       `charting_library working-tree files ${chartFiles.length} !== pin ${PINS.chartingLibraryFilesTip} — Path A expected empty; a re-add is Class X (Nitro + counsel), not a silent NOTICE skip`,

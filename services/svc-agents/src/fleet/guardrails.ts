@@ -291,6 +291,7 @@ export const REFUSAL_CODES = [
   'agents.mode_forbids_write',
   'agents.withdraw_scope_required',
   'agents.place_idempotency_required',
+  'agents.place_key_conflict',
 ] as const;
 
 export type RefusalCode = (typeof REFUSAL_CODES)[number];
@@ -382,6 +383,13 @@ export function evaluateToolCall(guardrail: Guardrail, state: SessionState, requ
     // The default is NO. An undeclared tool is refused rather than checked
     // against some looser rule, because "what can this agent do" must be
     // answerable by reading the guardrail alone.
+    return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
+  }
+
+  if (isProductAgentId(guardrail.agentId) && isFleetHardMoneyWriteTool(request.tool)) {
+    // parseGuardrail rejects this grant. A snapshot that skipped the parser
+    // must not dispatch it: capacity mode is not consulted for every money
+    // write, and withdraw scope must not reopen cash-out on a product agent.
     return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
   }
 

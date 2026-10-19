@@ -112,7 +112,7 @@ describe('OCO — rest linked take-profit and stop-loss', () => {
     expect(liveIds(book)).not.toContain(SL);
   });
 
-  it('keeps stop fills when take-profit is rejected, and does not restore a stop snapshot', () => {
+  it('a rejected take-profit leaves the book untouched: no stop fills, no stop leg, no cancellation', () => {
     const filled = new OrderBook('BTC/USDT');
     filled.submit(order({ id: LIQ, account: 'mm', side: 'buy', qty: '1', price: '100' }));
     filled.submit(order({ id: PRINT, account: 'taker', side: 'sell', qty: '1', price: '100' }));
@@ -131,12 +131,13 @@ describe('OCO — rest linked take-profit and stop-loss', () => {
     );
     expect(rejectedTp.accepted).toBe(false);
     expect(rejectedTp.rejected?.code).toBe('oco_sibling_terminal');
-    expect(
-      rejectedTp.fills.some((fill) => fill.takerOrderId === SL && formatAmount(fill.qty) === '1' && formatAmount(fill.price) === '95'),
-    ).toBe(true);
+    // A rejected submit means the book was never touched: svc-trade releases the whole hold on it and settles no fills.
+    expect(rejectedTp.fills).toEqual([]);
+    expect(rejectedTp.triggered).toEqual([]);
     expect(liveIds(filled)).not.toContain(SL);
+    expect(liveIds(filled)).toContain(BID);
     expect(rejectedTp.resting).toBeNull();
-    expect(formatAmount(filled.lastPrice!)).toBe('95');
+    expect(formatAmount(filled.lastPrice!)).toBe('100');
 
     const book = new OrderBook('BTC/USDT');
     const removed = book.submit(
@@ -157,9 +158,7 @@ describe('OCO — rest linked take-profit and stop-loss', () => {
     expect(removed.resting).toBeNull();
     expect(liveIds(book)).not.toContain(SL);
     expect(liveIds(book)).not.toContain(TP);
-    const pulled = removed.cancellations.find((row) => row.orderId === SL);
-    expect(pulled?.reason).toBe('requested');
-    expect(formatAmount(pulled!.remainingQty)).toBe('1');
+    expect(removed.cancellations).toEqual([]);
 
     const crossed = new OrderBook('BTC/USDT');
     crossed.submit(order({ id: LIQ, account: 'mm', side: 'buy', qty: '1', price: '110' }));

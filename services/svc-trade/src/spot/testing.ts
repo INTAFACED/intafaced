@@ -404,7 +404,7 @@ export class StubMatching implements MatchingClient {
     return { bids: this.bids, asks: this.asks, sequence: this.sequence };
   }
 
-  async listOrders(marketId: string): Promise<import('./matching-client.js').EngineLiveOrders> {
+  async listOrders(marketId: string, _orderId?: string): Promise<import('./matching-client.js').EngineLiveOrders> {
     this.listedMarkets.push(marketId);
     const orders = [...this.liveById.entries()]
       .filter(([, mid]) => mid === marketId)

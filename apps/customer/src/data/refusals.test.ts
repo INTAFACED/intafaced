@@ -181,6 +181,17 @@ describe('spend-sized convert refusals', () => {
   });
 });
 
+describe('wallet withdrawal refusals', () => {
+  it('uses plain words for a missing travel-rule field and a paused withdrawal', () => {
+    expect(refusalCopy('pay.wallet_travel_rule')).toMatchObject({
+      title: 'Withdrawal was unsuccessful',
+      body: 'Add the missing recipient details and submit the withdrawal again. Nothing was sent.',
+    });
+    expect(classifyRefusal('pay.wallet_withdraw_unavailable')).toBe('walletPaused');
+    expect(classifyRefusal('pay.wallet_forbidden')).toBe('noPermission');
+  });
+});
+
 describe('scheduled order refusals', () => {
   it('says the scheduler is off and that nothing was saved', () => {
     expect(refusalCopy('trade.algo_jobs_disabled')).toEqual({

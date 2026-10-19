@@ -205,7 +205,13 @@ export function OrdersTable({
               <td className="if-num">{dayTime(order.timestamp, timeZone)}</td>
               <td>{order.symbol}</td>
               <td>
-                {order.type === 'limit' ? t('Order type limit') : order.type === 'market' ? t('Order type market') : order.type}
+                {order.type === 'limit'
+                  ? t('Order type limit')
+                  : order.type === 'market'
+                    ? t('Order type market')
+                    : order.type === 'stop_limit'
+                      ? `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`
+                      : order.type}
                 <OrderTag order={order} />
               </td>
               <td>

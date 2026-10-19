@@ -2,7 +2,7 @@
  * Time in force on the spot ticket: what the trader may pick, what the order carries, and how the outcome is worded.
  *
  * The service accepts GTC, post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
- * (the engine sends it as IOC, or FOK when asked). Nothing here widens that: stop, stop-limit and take-profit are
+ * (the engine sends it as IOC, or FOK when asked). Stop-limit is accepted (GTC only). Plain stop and take-profit are
  * refused by the service (`trade.order_type_unsupported`), so the ticket shows them disabled (`UNSUPPORTED_TYPES`).
  */
 import type { Draft, Order } from '../../../features/trade/trade-api';
@@ -14,7 +14,11 @@ const LIMIT_TIFS: readonly Tif[] = ['GTC', 'PO', 'IOC', 'FOK'];
 /** A market order never rests, so "good till cancelled" and "post only" do not apply. Standard = the engine's immediate rule. */
 const MARKET_TIFS: readonly Tif[] = ['GTC', 'FOK'];
 
-export const tifsFor = (type: OrderType): readonly Tif[] => (type === 'limit' ? LIMIT_TIFS : MARKET_TIFS);
+/** A stop-limit rests until it triggers, so only good-till-cancelled applies. */
+const STOP_TIFS: readonly Tif[] = ['GTC'];
+
+export const tifsFor = (type: OrderType): readonly Tif[] =>
+  type === 'limit' ? LIMIT_TIFS : type === 'stop_limit' ? STOP_TIFS : MARKET_TIFS;
 
 /** Keep the pick when the new order type still allows it, otherwise fall back to the standard one. */
 export const tifFor = (type: OrderType, tif: Tif): Tif => (tifsFor(type).includes(tif) ? tif : 'GTC');
@@ -38,7 +42,7 @@ export const tifOfDraft = (draft: Pick<Draft, 'timeInForce' | 'postOnly'>): Tif 
   draft.postOnly || draft.timeInForce === 'PO' ? 'PO' : draft.timeInForce;
 
 /** Order kinds the service refuses on spot today. They are listed, disabled, with one shared reason. */
-export const UNSUPPORTED_TYPES = ['stopLimit', 'takeProfitStopLoss', 'oco', 'trailingStop'] as const;
+export const UNSUPPORTED_TYPES = ['takeProfitStopLoss', 'oco', 'trailingStop'] as const;
 export type UnsupportedType = (typeof UNSUPPORTED_TYPES)[number];
 
 /** What the order itself says it is, for the tables: nothing for a plain limit or market, a short tag otherwise. */

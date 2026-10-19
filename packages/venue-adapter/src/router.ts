@@ -136,6 +136,15 @@ export function capInternalPreferenceBps(requested?: number): number {
   return Math.min(ACCEPTED_INTERNAL_PREFERENCE_BPS, requested);
 }
 
+/** An explicit undefined, NaN, Infinity or negative option keeps the default instead of overriding it. */
+function finiteNonNegative(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 /**
  * What the user really pays (buy) or receives (sell) per unit.
  *
@@ -184,7 +193,11 @@ export async function planRoute(
 ): Promise<RoutePlan> {
   const opts = {
     ...DEFAULTS,
-    ...options,
+    now: options.now,
+    costTermsByVenue: options.costTermsByVenue,
+    maxSlippageBps: finiteNonNegative(options.maxSlippageBps, DEFAULTS.maxSlippageBps),
+    maxVenues: positiveInteger(options.maxVenues, DEFAULTS.maxVenues),
+    maxStalenessMs: finiteNonNegative(options.maxStalenessMs, DEFAULTS.maxStalenessMs),
     // Cap after spread so a caller cannot silently raise the house thumb.
     internalPreferenceBps: capInternalPreferenceBps(options.internalPreferenceBps),
   };
@@ -239,6 +252,11 @@ export async function planRoute(
     }
 
     const feeOnly = effectivePrice(quote.price, quote.feeBps, request.side);
+    // The fee can eat the whole price on a sell; a non-positive effective price is not a quote.
+    if (feeOnly <= 0n) {
+      rejected.push({ venueId: source.id, reason: 'no_quote', detail: 'effective price after fee is not positive' });
+      continue;
+    }
     let allIn = feeOnly;
     let expectedImpactBps: number | undefined;
     let transferCostBps: number | undefined;
@@ -267,6 +285,10 @@ export async function planRoute(
       transferCostBps = scored.transferCostBps;
     }
 
+    if (allIn <= 0n) {
+      rejected.push({ venueId: source.id, reason: 'no_quote', detail: 'all-in effective price is not positive' });
+      continue;
+    }
     const adjusted = preferenceAdjusted(allIn, request.side, source.kind === 'internal', opts.internalPreferenceBps);
 
     candidates.push({
@@ -365,9 +387,10 @@ export async function planRoute(
 
 /** How much worse `price` is than `best`, in bps. Never negative. */
 export function priceDriftBps(best: Amount, price: Amount, side: 'buy' | 'sell'): number {
-  if (best === 0n) return 0;
   const worse = side === 'buy' ? sub(price, best) : sub(best, price);
   if (worse <= 0n) return 0;
+  // No reference price to measure against: the drift is unbounded, never zero.
+  if (best === 0n) return Number.POSITIVE_INFINITY;
   const magnitude = best < 0n ? -best : best;
   // (worse / best) * 10_000, computed in scaled space then reduced to a number.
   return Number(div(mul(worse, 10_000n * 10n ** 18n), magnitude) / 10n ** 18n);

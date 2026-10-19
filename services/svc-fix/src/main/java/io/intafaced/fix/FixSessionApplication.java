@@ -11,6 +11,8 @@ import quickfix.Session;
 import quickfix.SessionID;
 import quickfix.field.MsgSeqNum;
 import quickfix.field.MsgType;
+import quickfix.field.PossDupFlag;
+import quickfix.field.PossResend;
 import quickfix.field.RefMsgType;
 import quickfix.field.RefSeqNum;
 import quickfix.field.Text;
@@ -74,6 +76,18 @@ public final class FixSessionApplication extends ApplicationAdapter {
         record(appMsgTypes, message);
         String msgType = message.getHeader().getString(MsgType.FIELD);
         if (!MsgType.NEW_ORDER_SINGLE.equals(msgType)) {
+            AdaptResult refused = adapter.adapt(message.toString());
+            sendSessionReject(
+                    message,
+                    sessionId,
+                    refused.ok ? "only NewOrderSingle (35=D) is mapped" : refused.errorMessage);
+            return;
+        }
+        if (headerYes(message, PossDupFlag.FIELD) || headerYes(message, PossResend.FIELD)) {
+            sendSessionReject(
+                    message,
+                    sessionId,
+                    "PossDupFlag (43) or PossResend (97) is Y; svc-fix refuses a resent NewOrderSingle rather than posting it to matching again");
             return;
         }
         AdaptResult adapted = adapter.adapt(message.toString());
@@ -143,5 +157,9 @@ public final class FixSessionApplication extends ApplicationAdapter {
 
     private synchronized void record(List<String> into, Message message) throws FieldNotFound {
         into.add(message.getHeader().getString(MsgType.FIELD));
+    }
+
+    private static boolean headerYes(Message message, int field) throws FieldNotFound {
+        return message.getHeader().isSetField(field) && message.getHeader().getBoolean(field);
     }
 }

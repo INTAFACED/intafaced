@@ -225,31 +225,32 @@ describe('svc-pay user money PG-hard', () => {
     expect(await availableOf()).toBe('60');
   });
 
-  it('lost provider ACK then a later refusal retains the held intent and original provider key', async () => {
+  it('lost provider ACK: the retry asks the rail about the original key, settles once, and never pays again', async () => {
     await deposit();
     let calls = 0;
     const keys: string[] = [];
     const payout = card.payout.bind(card);
     card.payout = async (request) => {
       keys.push(request.settlementId);
-      if (++calls === 1) {
-        await payout(request);
-        throw new Error('provider ACK lost');
-      }
-      if (calls === 2) {
-        card.failNext('auth.refused', 'credentials changed');
-      }
-      return payout(request);
+      calls += 1;
+      await payout(request);
+      throw new Error('provider ACK lost');
     };
     await expect(withdraw()).rejects.toThrow('provider ACK lost');
-    await expect(withdraw()).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
     const [held] = await money.listWithdrawals(USER, 50);
     expect(held).toMatchObject({ status: 'held', attempts: 0, failureCode: null });
     expect(await holdOf(held!.id, 0)).toBe('40');
     expect(await availableOf()).toBe('60');
-    expect((await withdraw()).status).toBe('sent');
-    expect(new Set(keys).size).toBe(1);
+    // WAL-0163: the requested attempt is resolved by a status query, not a second payout.
+    const done = await withdraw();
+    expect(done.status).toBe('sent');
+    expect(done.railRef).toBeTruthy();
+    expect(calls).toBe(1);
+    expect(keys).toHaveLength(1);
     expect(await availableOf()).toBe('60');
+    expect(await holdOf(held!.id, 0)).toBe('0');
+    expect((await withdraw()).status).toBe('sent');
+    expect(calls).toBe(1);
   });
 
   it('accepted provider receipt resumes settlement after lost ledger ACK without asking the provider again', async () => {
@@ -742,7 +743,7 @@ describe('svc-pay user money PG-hard', () => {
       expect(row).toMatchObject({ status: 'failed', failure_code: 'rail.marked_down' });
     });
 
-    it('recovery of a held withdrawal with an unknown dispatch on a blocked rail stays held and says outcome unknown', async () => {
+    it('recovery of a held withdrawal whose rail never received it reverses once on a blocked rail without paying again', async () => {
       let payouts = 0;
       const realPayout = card.payout.bind(card);
       card.payout = async () => {
@@ -767,12 +768,12 @@ describe('svc-pay user money PG-hard', () => {
         return realPayout(request);
       };
 
-      await expect(withdraw({ clientRef: 'w-unknown-dispatch' })).rejects.toMatchObject({
-        code: 'pay.rail_outcome_unknown',
-      });
+      // WAL-0163: the retry asks the rail about the original key (never sent) and
+      // reverses once; `payout` is not called again.
+      await expect(withdraw({ clientRef: 'w-unknown-dispatch' })).rejects.toMatchObject({ code: 'pay.rail_failed' });
       expect(payouts).toBe(1);
-      expect((await money.getWithdrawal(held!.id)).status).toBe('held');
-      expect(await availableOf()).toBe('60');
+      expect((await money.getWithdrawal(held!.id)).status).toBe('failed');
+      expect(await availableOf()).toBe('100');
     });
 
     it('refuses a reused clientRef that names different money', async () => {

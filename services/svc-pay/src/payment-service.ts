@@ -370,6 +370,21 @@ export type PayErrorCode =
   /** A rail reference already credited something else. Never resolved by retrying. */
   | 'pay.deposit_conflict'
   | 'pay.withdrawal_not_found'
+  | 'pay.wallet_withdraw_unavailable'
+  | 'pay.wallet_withdraw_disabled'
+  | 'pay.wallet_typed_address'
+  | 'pay.wallet_cooling'
+  | 'pay.wallet_fee_unset'
+  | 'pay.wallet_fee_differs'
+  | 'pay.wallet_cap_unset'
+  | 'pay.wallet_over_cap'
+  | 'pay.wallet_travel_rule'
+  | 'pay.wallet_allowlist'
+  | 'pay.wallet_destination_rejected'
+  | 'pay.wallet_share_timeout'
+  | 'pay.wallet_forbidden'
+  | 'pay.wallet_not_found'
+  | 'pay.wallet_unconfigured'
   /** withdrawal.mine page size unpublished. Blank is not 50. */
   | 'pay.withdrawal_list_limit_unset'
   /** A client reference already names a different withdrawal. */
@@ -4209,29 +4224,6 @@ export class PayService {
            ORDER BY payment_id
         `;
 
-        // Re-check live nets under payment row locks before the ledger
-        // moves. The freeze promised these numbers; if a concurrent path
-        // (or an operator) changed captured/refunded, posting the frozen
-        // gross would take someone else's clearing.
-        let liveGross = 0n;
-        for (const { payment_id } of included) {
-          await lockPayment(tx, payment_id);
-          const totals = await totalsFor(tx, payment_id);
-          const net = totals.captured - totals.refunded;
-          if (net > 0n) liveGross += net;
-        }
-        if (liveGross !== gross) {
-          throw new PayError(
-            `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
-            'pay.settlement_desynced',
-            {
-              settlementId: row.id,
-              frozenGross: formatAmount(gross),
-              liveGross: formatAmount(liveGross),
-            },
-          );
-        }
-
         const settlementPost = recipes.merchantSettlement({
           merchantId: row.merchant_id,
           merchantUserId: merchant.userId,
@@ -4240,6 +4232,36 @@ export class PayService {
           gross,
           fee: fees,
         });
+        // A settlement the ledger already booked (the app transaction rolled back after the post) is adopted below, not
+        // rechecked: a dispute opened since then must not turn an already-paid window into a refusal that release can re-pay.
+        // Otherwise re-check live nets under payment row locks before the ledger moves. The freeze promised these numbers;
+        // if a concurrent path (or an operator) changed captured/refunded, posting the frozen gross would take someone
+        // else's clearing.
+        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
+        if (!existing) {
+          let liveGross = 0n;
+          for (const { payment_id } of included) {
+            const locked = await lockPayment(tx, payment_id);
+            // A dispute opened after the freeze took this payment's clearing back through the opening post, so its
+            // captured amount no longer sits in the pool. Counting it would post other payments' money to the merchant.
+            if (locked.status === 'disputed') continue;
+            const totals = await totalsFor(tx, payment_id);
+            const net = totals.captured - totals.refunded;
+            if (net > 0n) liveGross += net;
+          }
+          if (liveGross !== gross) {
+            throw new PayError(
+              `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
+              'pay.settlement_desynced',
+              {
+                settlementId: row.id,
+                frozenGross: formatAmount(gross),
+                liveGross: formatAmount(liveGross),
+              },
+            );
+          }
+        }
+
         if (await this.settlementIncludesSandbox(tx, row.id)) this.refuseSandboxLive(true, settlementPost);
         const bookInput = {
           merchantId: row.merchant_id,
@@ -4249,7 +4271,6 @@ export class PayService {
         // A window posted before proceeds existed already holds this key, debiting
         // userAvailable. Posting the proceeds body would conflict. Adopt that
         // transaction: the ledger post is the legacy mark, and this row becomes posted.
-        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
         if (!existing) {
           await postPayLedger(this.ledger, settlementPost);
         } else {
@@ -5348,6 +5369,11 @@ export class PayService {
           fromMerchantBalance: 0n,
         }),
       );
+    }
+    // A payment that never captured holds no funds to take back. Clearing is pooled per merchant, so charging it
+    // back would debit other payments' money.
+    if (payment.status === 'created' || payment.status === 'authorized' || payment.status === 'failed') {
+      throw new PayError('Payment has no captured funds to charge back', 'pay.invalid_amount');
     }
     // The split is frozen per dispute the first time it is computed. It depends on LIVE clearing and merchant
     // balances, and the opening recipe's key is the dispute id: a redelivery after a crash (post committed, delivery

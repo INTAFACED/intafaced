@@ -2162,6 +2162,30 @@ export function createPayRouter(
         .query(({ ctx, input }) =>
           wrap(async () => ({ available: formatAmount(await userMoney.availableBalance(ctx.principal.userId, input.assetId)) })),
         ),
+
+      /**
+       * Read of one of the caller's own withdrawals (status and attempts). No
+       * recall control. The owner is always the signed-in caller, never a value
+       * from the request, so a withdrawal id alone reads nothing of another account.
+       */
+      supportRead: scopedProcedure('support:read')
+        .input(z.object({ withdrawalId: z.string().uuid() }))
+        .output(
+          z.object({
+            withdrawalId: z.string(),
+            userId: z.string(),
+            label: z.enum(['irreversible', 'unknown']),
+            controls: z.array(z.string()),
+            attempts: z.array(z.object({ outcome: z.string(), railRef: z.string().nullable() })),
+            status: z.string(),
+          }),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.supportReadWithdrawal(input.withdrawalId, ctx.principal.userId))),
+
+      estimateFee: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
+        .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
+        .query(({ input }) => wrap(async () => userMoney.estimateWithdrawalFee(input))),
     }),
   });
 }
@@ -2414,6 +2438,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_not_pending':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_not_found':
+      case 'pay.wallet_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
@@ -2436,6 +2461,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.rail_not_creditable':
       case 'pay.kyb_operator_required':
       case 'pay.kyb_required':
+      case 'pay.wallet_forbidden':
         return 'FORBIDDEN' as const;
       case 'pay.kyb_invalid':
       case 'pay.kyb_identity_changed':

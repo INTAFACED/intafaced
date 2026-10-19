@@ -414,6 +414,9 @@ export const keySchema = z.object({
   lastUsedAt: z.string().nullable(),
   revoked: z.boolean(),
   mode: z.enum(['live', 'sandbox']),
+  requireSignature: z.boolean(),
+  requireNonEmptyIpAllowlist: z.boolean(),
+  ipAllowlist: z.array(z.string()),
 });
 export const webhookSchema = z.object({
   id,

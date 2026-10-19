@@ -183,6 +183,9 @@ export class OkxSpotTrade implements TradeAdapter {
     if (request.type === 'limit' && request.price !== undefined && request.price !== null && request.price <= 0n) {
       throw new VenueUnavailableError(VENUE.id, 'malformed', 'limit order price must be positive');
     }
+    if (request.type === 'market' && request.postOnly) {
+      throw new VenueUnavailableError(VENUE.id, 'malformed', 'post-only is a limit-order instruction; a market order cannot be post-only');
+    }
     okxSymbolOf(request.symbol);
     requirePassphrase(keys);
     await assertTradeBookPayoutGradeBeforePlace(VENUE.id, request.symbol, {

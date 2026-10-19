@@ -127,7 +127,11 @@ if (!available) {
       },
     },
   };
+  const confirmedInvites: string[] = [];
   const account = new AccountChange(deps);
+  account.email.useOnConfirmed(async (userId) => {
+    confirmedInvites.push(userId);
+  });
   const api = mergeRouters(createIdentityRouter(auth, rank, { registrationOpen: true, profile, account }), createStepUpRouter(stepUps));
 
   let n = 0;
@@ -139,6 +143,7 @@ if (!available) {
     sentMail.length = 0;
     sentPhone.length = 0;
     warnings.length = 0;
+    confirmedInvites.length = 0;
     failEmailNotice = false;
     failPhoneNotice = false;
     deps.mail = mail;
@@ -399,6 +404,7 @@ if (!available) {
       expect(row[0]?.password_hash).toBe(before[0]?.password_hash);
       expect(row[0]?.totp_secret).toBe(before[0]?.totp_secret);
       expect(row[0]?.email_verified_at).not.toBeNull();
+      expect(confirmedInvites).toEqual([user.userId]);
       const sessions = await db.sql<Array<{ id: string; revoked: boolean }>>`
         SELECT id, revoked FROM sessions WHERE user_id = ${user.userId}
       `;

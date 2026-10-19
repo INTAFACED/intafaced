@@ -34,20 +34,22 @@ import {
 } from './futures/conditional-orders/index.js';
 import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { registerPrivateRest } from './private-rest.js';
-import { attachExpireStash, bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
-import { attachReduceOnlyStash, bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
-import { attachPostOnlyStash, bindPostOnly, installPostOnlyPlace } from './spot/post-only-place.js';
-import { attachIocStash, bindIoc, installIocPlace } from './spot/ioc-place.js';
-import { attachFokStash, bindFok, installFokPlace } from './spot/fok-place.js';
-import { attachIcebergStash, bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
+import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
+import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
+import { attachBoundClosePosition } from './spot/close-position.js';
+import { bindPostOnly, installPostOnlyPlace } from './spot/post-only-place.js';
+import { bindIoc, installIocPlace } from './spot/ioc-place.js';
+import { bindFok, installFokPlace } from './spot/fok-place.js';
+import { bindIceberg, installIcebergPlace } from './spot/iceberg-place.js';
 import { sqlIcebergDisplay } from './spot/iceberg-door.js';
-import { attachStopLimitStash, bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
-import { attachTrailingStopStash, bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
-import { attachOptionStash, bindOption, installOptionPlace } from './spot/option-place.js';
-import { attachMinQtyStash, bindMinQty, installMinQtyPlace } from './spot/min-qty-place.js';
-import { attachAonStash, bindAon, installAonPlace } from './spot/aon-place.js';
-import { attachPegStash, bindPeg, installPegPlace } from './spot/peg-place.js';
-import { attachAuctionStash, bindAuction, installAuctionPlace } from './spot/auction-place.js';
+import { sqlStopTrigger } from './spot/stop-trigger-door.js';
+import { bindStopLimit, installStopLimitPlace } from './spot/stop-limit-place.js';
+import { bindTrailingStop, installTrailingStopPlace } from './spot/trailing-stop-place.js';
+import { bindOption, installOptionPlace } from './spot/option-place.js';
+import { bindMinQty, installMinQtyPlace } from './spot/min-qty-place.js';
+import { bindAon, installAonPlace } from './spot/aon-place.js';
+import { bindPeg, installPegPlace } from './spot/peg-place.js';
+import { bindAuction, installAuctionPlace } from './spot/auction-place.js';
 import { installSelfTradePlace } from './spot/self-trade-place.js';
 import { installMarketHaltPlace } from './spot/market-halt-place.js';
 import { installVenueHaltPlace } from './spot/venue-halt-place.js';
@@ -56,8 +58,8 @@ import { installMarketPostOnlyPlace } from './spot/market-post-only-place.js';
 import { installMarketPrelaunchPlace } from './spot/market-prelaunch-place.js';
 import { installMarketExpiredPlace } from './spot/market-expired-place.js';
 import { installMarketDelistedPlace } from './spot/market-delisted-place.js';
-import { attachCollarStash, bindCollar, installCollarPlace } from './spot/collar-place.js';
-import { attachComboStash, bindCombo, installComboPlace } from './spot/combo-place.js';
+import { bindCollar, installCollarPlace } from './spot/collar-place.js';
+import { bindCombo, installComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
 import { registerGreeksWhatIfRest } from './greeks/what-if-rest.js';
@@ -703,6 +705,7 @@ registerSpotOrderPreviewRest(app, {
   now: () => new Date(),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
+  stopLimitEnabled: true,
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];
@@ -753,31 +756,19 @@ registerOutcomesRest(app, {
   catalogue: memoryOutcomeCatalogue([]),
 });
 installGtdGttPlace(TradeService);
-attachExpireStash(app);
 installReduceOnlyPlace(TradeService);
-attachReduceOnlyStash(app);
+attachBoundClosePosition(app);
 installPostOnlyPlace(TradeService);
-attachPostOnlyStash(app);
 installIocPlace(TradeService);
-attachIocStash(app);
 installFokPlace(TradeService);
-attachFokStash(app);
 installIcebergPlace(TradeService);
-attachIcebergStash(app);
 installStopLimitPlace(TradeService);
-attachStopLimitStash(app);
 installTrailingStopPlace(TradeService);
-attachTrailingStopStash(app);
 installOptionPlace(TradeService);
-attachOptionStash(app);
 installMinQtyPlace(TradeService);
-attachMinQtyStash(app);
 installAonPlace(TradeService);
-attachAonStash(app);
 installPegPlace(TradeService);
-attachPegStash(app);
 installAuctionPlace(TradeService);
-attachAuctionStash(app);
 installSelfTradePlace(TradeService);
 installMarketHaltPlace(TradeService);
 installVenueHaltPlace(TradeService);
@@ -787,9 +778,7 @@ installMarketPrelaunchPlace(TradeService);
 installMarketExpiredPlace(TradeService);
 installMarketDelistedPlace(TradeService);
 installCollarPlace(TradeService);
-attachCollarStash(app);
 installComboPlace(TradeService);
-attachComboStash(app);
 registerPrivateRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   serviceName: env.SERVICE_NAME,
@@ -901,6 +890,7 @@ registerPrivateRest(app, {
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
+  stopTriggers: sqlStopTrigger(sql),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),

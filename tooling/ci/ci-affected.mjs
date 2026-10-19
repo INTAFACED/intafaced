@@ -17,7 +17,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 export const SHARDS = {
-  protocol: ['services/svc-protocol/', 'services/svc-dex/', 'services/svc-indexer/', 'services/svc-chain/', 'services/svc-bridge/'],
+  protocol: ['services/svc-protocol/', 'services/svc-dex/', 'services/svc-indexer/'],
   money: ['services/svc-ledger/', 'services/svc-identity/', 'services/svc-token/'],
   trade: ['services/svc-trade/', 'services/svc-matching/', 'services/svc-execution/', 'packages/venue-adapter/', 'services/svc-ws/'],
   paybank: ['services/svc-pay/', 'services/svc-bank/', 'services/svc-p2p/'],
@@ -31,7 +31,6 @@ export const FULL_TRIGGERS = [
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'turbo.json',
-  'INTAFACED_DEFINITIVE_BUILD.md',
   'packages/contracts/',
   'packages/events/',
   // Imported by dozens of services across every shard (27 workspaces depend on
@@ -61,7 +60,6 @@ export function classify(files, { forceFull = false } = {}) {
     money: false,
     trade: false,
     paybank: false,
-    rest: false,
     full: Boolean(forceFull),
   };
   if (out.full) return out;
@@ -75,6 +73,7 @@ export function classify(files, { forceFull = false } = {}) {
     }
   }
 
+  let unknown = false;
   for (const file of list) {
     if (file.startsWith('docs/') || file.endsWith('.md')) continue;
     let hit = false;
@@ -84,17 +83,17 @@ export function classify(files, { forceFull = false } = {}) {
         hit = true;
       }
     }
-    if (!hit && /^(apps|services|packages)\//.test(file)) out.rest = true;
+    if (!hit && /^(apps|services|packages)\//.test(file)) unknown = true;
   }
 
   // Unknown product paths run the full suite — never a silent skip.
-  if (out.rest) {
-    return { protocol: false, money: false, trade: false, paybank: false, rest: false, full: true };
+  if (unknown) {
+    return { protocol: false, money: false, trade: false, paybank: false, full: true };
   }
 
   const shardHits = SHARD_KEYS.filter((k) => out[k]).length;
   if (shardHits >= 3) {
-    return { protocol: false, money: false, trade: false, paybank: false, rest: false, full: true };
+    return { protocol: false, money: false, trade: false, paybank: false, full: true };
   }
   return out;
 }
@@ -117,7 +116,6 @@ export function sealNeeded(flags, results) {
     money: 'tests-money',
     trade: 'tests-trade',
     paybank: 'tests-paybank',
-    rest: 'tests-rest',
   };
   for (const [flag, job] of Object.entries(map)) {
     if (!flags[flag]) continue;
@@ -153,7 +151,7 @@ function same(a, b) {
 }
 
 function selfTest() {
-  const empty = { protocol: false, money: false, trade: false, paybank: false, rest: false, full: false };
+  const empty = { protocol: false, money: false, trade: false, paybank: false, full: false };
   const cases = [
     {
       files: ['services/svc-protocol/src/audit/pipeline.ts'],
@@ -208,7 +206,7 @@ function selfTest() {
   assert(forced.full === true && forced.protocol === false, 'forceFull must short-circuit to full');
 
   const sealOk = sealNeeded(
-    { full: false, protocol: true, money: false, trade: false, paybank: false, rest: false },
+    { full: false, protocol: true, money: false, trade: false, paybank: false },
     {
       changes: 'success',
       gates: 'success',
@@ -219,7 +217,7 @@ function selfTest() {
   );
   assert(sealOk.length === 0, `seal ok: ${sealOk}`);
   const sealFail = sealNeeded(
-    { full: false, protocol: true, money: false, trade: false, paybank: false, rest: false },
+    { full: false, protocol: true, money: false, trade: false, paybank: false },
     {
       changes: 'success',
       gates: 'success',
@@ -246,7 +244,6 @@ function runSeal() {
     money: process.env.MONEY === 'true',
     trade: process.env.TRADE === 'true',
     paybank: process.env.PAYBANK === 'true',
-    rest: process.env.REST === 'true',
   };
   const results = {
     changes: process.env.CHANGES,
@@ -258,7 +255,6 @@ function runSeal() {
     'tests-money': process.env.T_MONEY,
     'tests-trade': process.env.T_TRADE,
     'tests-paybank': process.env.T_PAYBANK,
-    'tests-rest': process.env.T_REST,
   };
   const problems = sealNeeded(flags, results);
   if (problems.length) {

@@ -17,6 +17,7 @@ import {
   requireSupportedType,
   sellProtectionPriceFor,
 } from './risk.js';
+import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 
@@ -24,7 +25,8 @@ export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 
 export interface SpotOrderPreviewRefusal {
   code: string;
-  field: 'symbol' | 'type' | 'side' | 'amount' | 'price' | 'timeInForce' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region';
+  field:
+    'symbol' | 'type' | 'side' | 'amount' | 'price' | 'timeInForce' | 'holdAmount' | 'fee' | 'protectionPrice' | 'region' | 'stopPrice';
   message: string;
 }
 
@@ -34,6 +36,8 @@ export interface SpotOrderPreviewWire {
   type: string;
   amount: string;
   price: string | null;
+  /** The trigger of a stop-limit; null for every other type. */
+  stopPrice: string | null;
   timeInForce: TimeInForce;
   /** Asset that placeOrder would reserve. Null when the hold cannot be named. */
   holdAsset: string | null;
@@ -69,6 +73,8 @@ export interface SpotOrderPreviewRestDeps {
   bestAsk?(marketId: string): Promise<Amount | null>;
   /** Best bid for market-sell protection. Absent/null → `trade.no_reference_price`. */
   bestBid?(marketId: string): Promise<Amount | null>;
+  /** True when the stop-trigger store is wired, the same condition under which placement accepts `stop_limit`. */
+  stopLimitEnabled?: boolean;
   spotEnabled: boolean;
   futuresEnabled: boolean;
   optionsSettlementLawStamped: boolean;
@@ -226,9 +232,10 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         message: 'maker-or-cancel is not yet accepted by the trade service',
       });
     }
+    const isStopLimit = typeWire === 'stop_limit' && deps.stopLimitEnabled === true;
     let orderType: OrderType | null = null;
     try {
-      orderType = requireSupportedType(typeWire);
+      orderType = isStopLimit ? 'limit' : requireSupportedType(typeWire);
     } catch (error) {
       pushError(refusals, error, 'type');
     }
@@ -297,6 +304,35 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       assertQty(market, qty);
     } catch (error) {
       pushError(refusals, error, 'amount');
+    }
+
+    let stopTrigger: Amount | null = null;
+    if (isStopLimit) {
+      const stopWire = typeof body.stopPrice === 'string' ? body.stopPrice.trim() : '';
+      const parsedStop = stopWire === '' ? null : parsePositive(stopWire);
+      if (parsedStop === null) {
+        refusals.push({ code: TRADE_STOP_TRIGGER_INVALID, field: 'stopPrice', message: 'a stop-limit requires a positive stopPrice' });
+      } else {
+        try {
+          assertStopTrigger(parsedStop, market.tickSize);
+          stopTrigger = parsedStop;
+        } catch (error) {
+          pushError(refusals, error, 'stopPrice');
+        }
+      }
+      if (tif !== 'GTC') {
+        refusals.push({
+          code: 'trade.invalid_tif',
+          field: 'timeInForce',
+          message: 'a stop-limit rests until triggered: use good-till-cancelled',
+        });
+      }
+    } else if (body.stopPrice !== undefined) {
+      refusals.push({
+        code: TRADE_STOP_TRIGGER_INVALID,
+        field: 'stopPrice',
+        message: 'a stop is placed as type stop_limit with a stopPrice',
+      });
     }
 
     let limitPrice: Amount | null = null;
@@ -371,14 +407,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
+    // A stop-limit's role is unknown until it triggers, so the preview shows the taker (worst-case) fee.
     const takes =
       orderType !== null &&
-      !(
-        orderType === 'limit' &&
-        (tif === 'PO' ||
-          tif === 'MOC' ||
-          (tif === 'GTC' && side === 'buy' && limitPrice !== null && bestAsk !== null && limitPrice < bestAsk))
-      );
+      (isStopLimit ||
+        !(
+          orderType === 'limit' &&
+          (tif === 'PO' ||
+            tif === 'MOC' ||
+            (tif === 'GTC' && side === 'buy' && limitPrice !== null && bestAsk !== null && limitPrice < bestAsk))
+        ));
     const rests = orderType === 'limit' && !takes;
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     const makerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'maker', discountBps) : null;
@@ -436,6 +474,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       type: typeWire,
       amount: formatAmount(qty),
       price: limitPrice === null ? null : formatAmount(limitPrice),
+      stopPrice: stopTrigger === null ? null : formatAmount(stopTrigger),
       timeInForce: tif,
       holdAsset,
       holdAmount: holdAmount === null ? null : formatAmount(holdAmount),

@@ -6,11 +6,11 @@
  * Not a redo of #3658 (matching rest) or #3634 (OCO place).
  */
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 export type BracketLeg = {
   readonly price?: string;
@@ -24,9 +24,8 @@ export type PlaceWithBracket = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.bracketPlace');
-const stash = new Map<string, { takeProfit: BracketLeg; stopLoss: BracketLeg }>();
 
-function clientKey(rec: Record<string, unknown>): string | null {
+function clientKey(rec: Readonly<Record<string, unknown>>): string | null {
   return typeof rec.clientOrderId === 'string' && rec.clientOrderId.length > 0 ? rec.clientOrderId : null;
 }
 
@@ -91,45 +90,25 @@ export function stopLossRefuse(stopLoss: Amount | null): TradeError | null {
   return new TradeError('a bracket stop-loss is missing; trade does not invent a trigger', 'trade.missing_stop_price');
 }
 
-export function stashBracketFromBody(rec: Record<string, unknown>): void {
-  if (rec.bracket !== true) return;
-  const key = clientKey(rec);
-  if (!key) {
+/** The legs this request's own body asks for, or null when it is not a bracket. Refuses what it cannot read. */
+export function readBracketFromBody(rec: Readonly<Record<string, unknown>>): { takeProfit: BracketLeg; stopLoss: BracketLeg } | null {
+  if (rec.bracket !== true) return null;
+  if (!clientKey(rec)) {
     throw new TradeError('clientOrderId is required (1–64 chars) so a retry cannot open a second hold', 'trade.client_order_id_required');
   }
-  const takeProfit = asLeg(rec.takeProfit);
-  const stopLoss = asLeg(rec.stopLoss);
-  delete rec.takeProfit;
-  delete rec.stopLoss;
-  delete rec.bracket;
-  stash.set(key, {
-    takeProfit: takeProfit ?? { stopPrice: '' },
-    stopLoss: stopLoss ?? { stopPrice: '' },
-  });
+  return {
+    takeProfit: asLeg(rec.takeProfit) ?? { stopPrice: '' },
+    stopLoss: asLeg(rec.stopLoss) ?? { stopPrice: '' },
+  };
 }
 
 export function bindBracket(input: PlaceOrderInput): PlaceWithBracket {
   const extra = input as PlaceWithBracket;
   if (wantsBracket(extra)) return extra;
-  const key = extra.clientOrderId;
-  if (!key) return extra;
-  const stashed = stash.get(key);
+  const body = carriedPlacementBody(extra);
+  const stashed = body === null ? null : readBracketFromBody(body);
   if (!stashed) return extra;
-  stash.delete(key);
   return { ...extra, bracket: true, takeProfit: stashed.takeProfit, stopLoss: stashed.stopLoss };
-}
-
-export function attachBracketStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    try {
-      const body = req.body;
-      if (body && typeof body === 'object') stashBracketFromBody(body as Record<string, unknown>);
-      done();
-    } catch (err) {
-      if (err instanceof TradeError) Object.assign(err, { statusCode: 400 });
-      done(err as Error);
-    }
-  });
 }
 
 export function installBracketPlace(ctor: typeof TradeService): void {

@@ -90,6 +90,14 @@ export interface SessionRecord {
  * audit row that was written, so a caller cannot claim the refusal went
  * unrecorded.
  */
+/** Thrown inside the metering transaction so the charge rolls back. */
+class SessionSpendCeilingError extends Error {
+  constructor(readonly cap: Amount) {
+    super('session spend ceiling');
+    this.name = 'SessionSpendCeilingError';
+  }
+}
+
 export class RefusedError extends AgentError {
   constructor(
     readonly refusal: Refusal,
@@ -424,6 +432,24 @@ export class AgentRuntime {
       throw err;
     }
 
+    // The hasRequest read above is not the claim. Overlapping thinks both see
+    // no usage row. The unique insert commits before the provider is called,
+    // and only while metering is on — metering-off must not invent a replay.
+    let claimed = false;
+    if (shouldMeter) {
+      claimed = await this.meter.claimRequest(session.id, input.requestId);
+      if (!claimed) {
+        const err = new AgentError(
+          `Request id "${input.requestId}" was already metered on session ${session.id}`,
+          'agents.request_id_replay',
+          'agents.error.request_id_replay',
+          { requestId: input.requestId },
+        );
+        await this.appendFailure(session, { kind: 'completion', task: input.task, error: err });
+        throw err;
+      }
+    }
+
     // 3 · Execute.
     let completion: Awaited<ReturnType<ModelGateway['complete']>>;
     try {
@@ -436,7 +462,9 @@ export class AgentRuntime {
     } catch (err) {
       // Nothing was metered: usage is only recorded from a provider's own
       // reported counts, and there are none. A failed call cannot be billed,
-      // and cannot be double-billed.
+      // and cannot be double-billed. Release the claim so the same request id
+      // can be retried once the engine answers.
+      if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       await this.appendFailure(session, {
         kind: 'completion',
         task: input.task,
@@ -456,11 +484,21 @@ export class AgentRuntime {
     // user is NOT billed — the house absorbs a call it cannot account for,
     // which is the only acceptable direction for that error. The attempt is
     // still logged, because §8.2 admits no gaps.
+    const ceiling = session.guardrail.limits.maxSpendPerSession;
     const committed = await transaction(
       this.sql,
       async (tx) => {
         let recorded = false;
         let window: string | null = null;
+
+        // The pre-call worst-case check is not the bill. Two thinks that each
+        // fit alone both pass it, then both would commit. The session row lock
+        // orders the charges; a null ceiling stays null.
+        if (shouldMeter && ceiling !== null) {
+          await tx`SELECT id FROM agents.agent_sessions WHERE id = ${session.id} FOR UPDATE`;
+          const spend = await this.meter.sessionSpend(session.id, tx);
+          if (spend + cost > ceiling) throw new SessionSpendCeilingError(ceiling);
+        }
 
         if (shouldMeter) {
           const result = await this.meter.record(tx, {
@@ -500,6 +538,18 @@ export class AgentRuntime {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     ).catch(async (err: unknown) => {
+      if (err instanceof SessionSpendCeilingError) {
+        throw await this.appendRefusal(
+          session,
+          {
+            allowed: false,
+            code: 'agents.spend_limit',
+            userMessageKey: 'agents.refused.spend_limit',
+            userMessageParams: { limit: formatAmount(err.cap), asset: this.feeAssetId },
+          },
+          { kind: 'completion', task: input.task },
+        );
+      }
       await this.appendFailure(session, {
         kind: 'completion',
         task: input.task,
@@ -522,9 +572,13 @@ export class AgentRuntime {
   /**
    * Run a tool inside the session's guardrails.
    *
-   * Same-key place replay returns the first outcome without spending the call
-   * budget — a conversational repeat is not a second place. Otherwise the
-   * guardrail is evaluated first and the tool is only reached if it passes.
+   * A stored place for the same session, the same key, and the same tool
+   * returns that outcome without spending the call budget. Any other place
+   * call is judged by the guardrail first. A place that passes is claimed in
+   * `agent_place_intents` before `execute`. The loser of that insert does not
+   * run the tool. A failed execute deletes the claim. A place that returned
+   * does not.
+   *
    * `execute` is supplied by the caller because the runtime does not own the
    * tools — §8.2's fleet calls module APIs, and this service must not grow a
    * dependency on every module in the platform to be able to police them.
@@ -532,12 +586,11 @@ export class AgentRuntime {
   async act(input: ActInput): Promise<ActResult> {
     const session = await this.requireSession(input.sessionId);
     const idempotencyKey = input.idempotencyKey?.trim();
+    const placeKey = isPlaceTool(input.tool) && idempotencyKey ? idempotencyKey : undefined;
 
-    if (isPlaceTool(input.tool) && idempotencyKey) {
-      const existing = await this.findPlaceIntent(session.id, idempotencyKey);
-      if (existing) {
-        return { result: existing.result, action: existing.action, replayed: true };
-      }
+    if (placeKey) {
+      const stored = await this.storedPlaceIntent(session.id, placeKey, input.tool);
+      if (stored) return { result: stored.result, action: stored.action, replayed: true };
     }
 
     const state = await this.stateOf(session);
@@ -551,10 +604,21 @@ export class AgentRuntime {
       throw await this.appendRefusal(session, decision, { kind: 'tool_call', tool: input.tool });
     }
 
+    let claimed = false;
+    if (placeKey) {
+      const claim = await this.claimPlaceIntent(session.id, placeKey, input.tool);
+      if (claim.kind === 'replay') return { result: claim.result, action: claim.action, replayed: true };
+      if (claim.kind === 'conflict') {
+        throw await this.appendRefusal(session, this.placeKeyConflict(input.tool), { kind: 'tool_call', tool: input.tool });
+      }
+      claimed = true;
+    }
+
     let result: unknown;
     try {
       result = await input.execute();
     } catch (err) {
+      if (claimed && placeKey) await this.releasePlaceClaim(session.id, placeKey, input.tool);
       await this.appendFailure(session, { kind: 'tool_call', tool: input.tool, error: err });
       throw err;
     }
@@ -573,33 +637,102 @@ export class AgentRuntime {
           userMessageParams: { tool: input.tool },
           outputDigest: digestOfText(JSON.stringify(result ?? null)),
         });
-        if (isPlaceTool(input.tool) && idempotencyKey) {
-          await tx`
-            INSERT INTO agents.agent_place_intents (session_id, idempotency_key, tool, action_id, result_json)
-            VALUES (${session.id}, ${idempotencyKey}, ${input.tool}, ${row.id}, ${JSON.stringify(result ?? null)})
-            ON CONFLICT (session_id, idempotency_key) DO NOTHING
+        if (claimed && placeKey) {
+          const updated = await tx<Array<{ session_id: string }>>`
+            UPDATE agents.agent_place_intents
+               SET action_id = ${row.id}, result_json = ${JSON.stringify(result ?? null)}
+             WHERE session_id = ${session.id}
+               AND idempotency_key = ${placeKey}
+               AND tool = ${input.tool}
+               AND result_json IS NULL
+            RETURNING session_id
           `;
+          if (updated.length === 0) throw new Error(`place intent for session ${session.id} was not stored`);
         }
         return row;
       },
       { isolation: 'read committed', maxAttempts: 5 },
-    );
+    ).catch(async (err: unknown) => {
+      if (claimed) {
+        await this.appendFailure(session, { kind: 'tool_call', tool: input.tool, error: err });
+      }
+      throw err;
+    });
 
     await this.publishCompleted(action, { inputTokens: 0, outputTokens: 0 });
 
     return { result, action };
   }
 
-  private async findPlaceIntent(sessionId: string, idempotencyKey: string): Promise<{ result: unknown; action: AuditedAction } | null> {
+  private placeKeyConflict(tool: string): Refusal {
+    return {
+      allowed: false,
+      code: 'agents.place_key_conflict',
+      userMessageKey: 'agents.refused.place_key_conflict',
+      userMessageParams: { tool },
+    };
+  }
+
+  /** Same tool, same key, with a stored result. A different tool is not a replay. */
+  private async storedPlaceIntent(
+    sessionId: string,
+    idempotencyKey: string,
+    tool: string,
+  ): Promise<{ result: unknown; action: AuditedAction } | null> {
     const rows = await this.sql<Array<{ action_id: string; result_json: string }>>`
       SELECT action_id, result_json FROM agents.agent_place_intents
-       WHERE session_id = ${sessionId} AND idempotency_key = ${idempotencyKey}
+       WHERE session_id = ${sessionId}
+         AND idempotency_key = ${idempotencyKey}
+         AND tool = ${tool}
+         AND action_id IS NOT NULL
+         AND result_json IS NOT NULL
     `;
     const row = rows[0];
     if (!row) return null;
     const action = await this.audit.byId(row.action_id);
     if (!action) return null;
     return { result: JSON.parse(row.result_json) as unknown, action };
+  }
+
+  /**
+   * Insert the claim before execute. False means another row already holds
+   * (session, key): a stored result for this tool is a replay, anything else
+   * is a conflict and must not execute.
+   */
+  private async claimPlaceIntent(
+    sessionId: string,
+    idempotencyKey: string,
+    tool: string,
+  ): Promise<{ kind: 'claimed' } | { kind: 'conflict' } | { kind: 'replay'; result: unknown; action: AuditedAction }> {
+    const inserted = await this.sql<Array<{ session_id: string }>>`
+      INSERT INTO agents.agent_place_intents (session_id, idempotency_key, tool, action_id, result_json)
+      VALUES (${sessionId}, ${idempotencyKey}, ${tool}, NULL, NULL)
+      ON CONFLICT (session_id, idempotency_key) DO NOTHING
+      RETURNING session_id
+    `;
+    if (inserted.length > 0) return { kind: 'claimed' };
+
+    const rows = await this.sql<Array<{ tool: string; action_id: string | null; result_json: string | null }>>`
+      SELECT tool, action_id, result_json FROM agents.agent_place_intents
+       WHERE session_id = ${sessionId} AND idempotency_key = ${idempotencyKey}
+    `;
+    const row = rows[0];
+    if (row && row.tool === tool && row.action_id && row.result_json !== null) {
+      const action = await this.audit.byId(row.action_id);
+      if (action) return { kind: 'replay', result: JSON.parse(row.result_json) as unknown, action };
+    }
+    return { kind: 'conflict' };
+  }
+
+  /** Drop a claim whose execute never returned. A stored place stays. */
+  private async releasePlaceClaim(sessionId: string, idempotencyKey: string, tool: string): Promise<void> {
+    await this.sql`
+      DELETE FROM agents.agent_place_intents
+       WHERE session_id = ${sessionId}
+         AND idempotency_key = ${idempotencyKey}
+         AND tool = ${tool}
+         AND result_json IS NULL
+    `;
   }
 
   // ── Settle ─────────────────────────────────────────────────────────────────

@@ -45,9 +45,12 @@ public final class DropCopyHub {
             listener.deliver(execution);
             delivered++;
         }
-        if (delivered > 0) {
-            published.add(source);
+        if (delivered == 0) {
+            return DropCopyPublishResult.refuse(
+                    "dropcopy_not_delivered",
+                    "execution was not delivered to a drop-copy listener; svc-fix does not report the fill as published");
         }
+        published.add(source);
         return DropCopyPublishResult.streamed(delivered);
     }
 

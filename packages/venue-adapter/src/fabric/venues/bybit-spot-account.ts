@@ -46,11 +46,10 @@ export function mapBybitSpotCoins(coin: unknown, now: Date): VenueBalance[] {
     const rec = row as Record<string, unknown>;
     const total = readDecimal(rec.walletBalance, VENUE.id, 'walletBalance');
     const used = readDecimal(rec.locked ?? '0', VENUE.id, 'locked');
-    const freeRaw = rec.availableToWithdraw ?? rec.free ?? rec.availableToTrade;
-    const free =
-      freeRaw === undefined || freeRaw === null || String(freeRaw) === ''
-        ? total - used
-        : readDecimal(freeRaw, VENUE.id, 'availableToWithdraw');
+    // A blank field is absent: fall through to the next field, then to total - locked.
+    const present = (v: unknown): boolean => v !== undefined && v !== null && String(v).trim() !== '';
+    const freeRaw = [rec.availableToWithdraw, rec.free, rec.availableToTrade].find(present);
+    const free = freeRaw === undefined ? total - used : readDecimal(freeRaw, VENUE.id, 'availableToWithdraw');
     const asset = String(rec.coin ?? '')
       .trim()
       .toUpperCase();
@@ -94,7 +93,7 @@ export class BybitSpotAccount implements AccountAdapter {
 
   async balances(): Promise<VenueBalance[]> {
     const keys = requireCredentials(VENUE.id, 'balances', this.#credentials);
-    const body = await this.#signedGet({ accountType: 'SPOT' }, keys);
+    const body = await this.#signedGet({ accountType: 'UNIFIED' }, keys);
     const list = (body.result as { list?: unknown } | undefined)?.list;
     if (!Array.isArray(list) || list.length === 0) {
       return [];

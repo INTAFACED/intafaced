@@ -194,6 +194,9 @@ function startIdentity(founderPair = null) {
           IDENTITY_FOUNDER_INVITE_HASHES: FOUNDER_INVITE_HASHES.join(','),
           IDENTITY_FOUNDER_INVITE_EXPIRES_AT: FOUNDER_INVITE_EXPIRES_AT,
         }),
+    // Operator desk scope for the two smoke founders' MFA sessions, so the customer journeys can review a KYC request
+    // through identity's own two-person path. SMOKE RIG ONLY — a throwaway founder pair, fresh each run
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:compliance',
     REGISTRATION_OPEN: 'true',
     WEBAUTHN_ENABLED: 'false',
     WEBAUTHN_RP_ID: 'localhost',
@@ -387,6 +390,24 @@ async function main() {
     // Settle + ledger post lag under JetStream; STRICT fails closed if still empty.
     TRADE_SMOKE_FILL_WAIT_MS: '25000',
   });
+
+  // Optional second phase on the same stack: CX8_AFTER is a JSON array, the command to run once the smoke has passed
+  // (`pnpm journeys:trade` sets it to the customer journeys). The stack is still up, the market is open, and the
+  // service addresses and secrets are passed in the same names the smoke reads.
+  if (process.env.CX8_AFTER) {
+    const [cmd, ...args] = JSON.parse(process.env.CX8_AFTER);
+    await run(cmd, args, {
+      TRADE_HTTP_URL: 'http://127.0.0.1:4004',
+      MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
+      LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
+      IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+      CX8_FOUNDERS_JSON: JSON.stringify(founders),
+      EDGE_PRINCIPAL_SECRET: EDGE,
+      INTERNAL_SERVICE_SECRET: SECRET,
+      TRADE_SMOKE_SYMBOL: 'BTC/USDT',
+      TRADE_SMOKE_REGION: process.env.TRADE_SMOKE_REGION ?? 'DE',
+    });
+  }
 
   log('CX-8 boot + smoke complete');
   killAll();

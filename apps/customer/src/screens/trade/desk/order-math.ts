@@ -11,7 +11,10 @@ import { formatAmount, parseAmount } from '../../../shared/money';
 import type { DeskMarket } from './market';
 
 export type Side = 'buy' | 'sell';
-export type OrderType = 'limit' | 'market';
+export type OrderType = 'limit' | 'market' | 'stop_limit';
+
+/** Limit and stop-limit carry a typed limit price; only a market order is priced by the book. */
+export const isPriced = (type: OrderType): boolean => type !== 'market';
 
 /** Best bid and ask of the book, null when that side is empty. */
 export interface Reference {
@@ -23,13 +26,15 @@ export interface Reference {
 export type Problem =
   | { kind: 'amountEmpty' }
   | { kind: 'priceEmpty' }
+  | { kind: 'stopEmpty' }
+  | { kind: 'stopTick'; tick: string }
   | { kind: 'amountLot'; lot: string }
   | { kind: 'amountMin'; min: string }
   | { kind: 'priceTick'; tick: string }
   | { kind: 'valueMin'; min: string }
   | { kind: 'noPrice' };
 
-export type Checked = { ok: true; amount: string; price: string | null } | { ok: false; problem: Problem };
+export type Checked = { ok: true; amount: string; price: string | null; stopPrice?: string } | { ok: false; problem: Problem };
 
 /** Parse a decimal string; null for empty or malformed text. Never throws. */
 export function scaled(value: string | null | undefined): bigint | null {
@@ -60,12 +65,12 @@ export function bboPrice(side: Side, ref: Reference | null): string | null {
 
 /** Order value in the quote asset, floored: exact for a limit order, an estimate for a market order. */
 export function orderValue(
-  input: { side: Side; type: OrderType; price: string; amount: string },
+  input: { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string },
   ref: Reference | null,
 ): { value: string; estimated: boolean } | null {
   const amount = positive(input.amount);
   if (amount === null) return null;
-  const price = positive(input.type === 'limit' ? input.price : referencePrice(input.side, ref));
+  const price = positive(isPriced(input.type) ? input.price : referencePrice(input.side, ref));
   if (price === null) return null;
   return { value: exactValue(formatAmount(price), formatAmount(amount)), estimated: input.type === 'market' };
 }
@@ -76,7 +81,7 @@ export function orderValue(
  * (no trailing zeros) when the order is fit to preview.
  */
 export function checkOrder(
-  input: { side: Side; type: OrderType; price: string; amount: string },
+  input: { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string },
   market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost'>,
   ref: Reference | null,
 ): Checked {
@@ -88,11 +93,19 @@ export function checkOrder(
   if (minAmount !== null && amount < minAmount) return { ok: false, problem: { kind: 'amountMin', min: market.minAmount! } };
 
   let price: bigint | null = null;
-  if (input.type === 'limit') {
+  if (isPriced(input.type)) {
     price = positive(input.price);
     if (price === null) return { ok: false, problem: { kind: 'priceEmpty' } };
     const tick = positive(market.tickSize);
     if (tick !== null && price % tick !== 0n) return { ok: false, problem: { kind: 'priceTick', tick: market.tickSize } };
+  }
+
+  let stop: bigint | null = null;
+  if (input.type === 'stop_limit') {
+    stop = positive(input.stopPrice);
+    if (stop === null) return { ok: false, problem: { kind: 'stopEmpty' } };
+    const tick = positive(market.tickSize);
+    if (tick !== null && stop % tick !== 0n) return { ok: false, problem: { kind: 'stopTick', tick: market.tickSize } };
   }
 
   const judged = price ?? positive(referencePrice(input.side, ref));
@@ -100,7 +113,12 @@ export function checkOrder(
   const minCost = positive(market.minCost);
   if (minCost !== null && mul(judged, amount, 'floor') < minCost) return { ok: false, problem: { kind: 'valueMin', min: market.minCost! } };
 
-  return { ok: true, amount: formatAmount(amount), price: price === null ? null : formatAmount(price) };
+  return {
+    ok: true,
+    amount: formatAmount(amount),
+    price: price === null ? null : formatAmount(price),
+    ...(stop === null ? {} : { stopPrice: formatAmount(stop) }),
+  };
 }
 
 /**
@@ -125,7 +143,7 @@ export function maxAmount(args: {
   const lot = positive(args.market.lotSize);
   if (available === null || lot === null) return null;
   if (args.side === 'sell') return formatAmount((available / lot) * lot);
-  const price = positive(args.type === 'limit' ? args.price : (args.protectionPrice ?? null));
+  const price = positive(isPriced(args.type) ? args.price : (args.protectionPrice ?? null));
   if (price === null) return null;
   const raw = div(available, price, 'floor');
   return formatAmount((raw / lot) * lot);

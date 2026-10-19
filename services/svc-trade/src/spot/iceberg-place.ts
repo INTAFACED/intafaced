@@ -1,9 +1,9 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place an iceberg through the matching door that landed in #3282.
@@ -14,16 +14,9 @@ import type { EngineSubmitRequest } from './matching-client.js';
 type PlaceWithIceberg = PlaceOrderInput & { iceberg?: boolean; displayQty?: Amount | null };
 
 const FLAG = Symbol.for('intafaced.trade.icebergPlace');
-const stash = new Map<string, { displayQty: string | null }>();
 
 export const ICEBERG_DISPLAY_MISSING = 'iceberg_display_missing' as const;
 export const ICEBERG_DISPLAY_NOT_SMALLER = 'iceberg_display_not_smaller' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__ice:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsIceberg(rec: Record<string, unknown>): boolean {
   return rec.iceberg === true || rec.displayQty !== undefined;
@@ -53,20 +46,11 @@ export function icebergDisplayRefuse(qty: Amount, displayQty: Amount | null): Tr
   return null;
 }
 
-export function attachIcebergStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsIceberg(rec)) {
-        const display = rec.displayQty;
-        stash.set(stashKey(rec), {
-          displayQty: display == null || display === '' ? null : String(display),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { displayQty: string | null } | null {
+  if (!body || !wantsIceberg(body)) return null;
+  const display = body.displayQty;
+  return { displayQty: display == null || display === '' ? null : String(display) };
 }
 
 export function bindIceberg(input: PlaceOrderInput): PlaceWithIceberg {
@@ -74,19 +58,8 @@ export function bindIceberg(input: PlaceOrderInput): PlaceWithIceberg {
   if (extra.iceberg === true || extra.displayQty !== undefined) {
     return { ...extra, iceberg: true, displayQty: extra.displayQty ?? null };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return { ...extra, iceberg: true, displayQty: hit.displayQty == null ? null : parseAmount(hit.displayQty) };
 }
 

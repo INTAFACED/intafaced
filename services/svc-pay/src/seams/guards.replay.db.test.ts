@@ -9,7 +9,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { IdentityOperationDecisionPort } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import { PayService } from '../payment-service.js';
-import { UserMoneyService } from '../user-money-service.js';
+import { UserMoneyService, openWithdrawalHolds } from '../user-money-service.js';
+import { WalletPay, failClosedWalletPublish, type WalletPublish } from '../wallet/wallet-pay.js';
 import { truncatePayForTest } from '../payment-events-test-reset.js';
 import { memoryPayoutDestinations } from '../merchant-payout-destination.js';
 import { installPayoutDestinationShim } from '../payout-destination-test-shim.js';
@@ -470,29 +471,274 @@ describe('guard seams: lock order, replay flag, refund and user-money withdrawal
       expect(await available()).toBe(amt('60'));
     });
 
-    it('fresh on a new clientRef, replay once sent, recovery once the hold is booked', async () => {
+    const flakyRegistry = (mode: 'send-then-throw' | 'throw-before-send' | 'no-query') => {
       const flaky = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
       const realPayout = flaky.payout.bind(flaky);
-      let fail = true;
+      const state = { calls: 0 };
       flaky.payout = async (instruction) => {
-        if (fail) {
-          fail = false;
-          throw new Error('rail connection dropped after the hold');
+        state.calls += 1;
+        if (state.calls === 1 && mode === 'send-then-throw') {
+          await realPayout(instruction);
+          throw new Error('rail connection dropped after the send');
         }
+        if (state.calls === 1) throw new Error('rail connection dropped before the send');
         return realPayout(instruction);
       };
-      const registry = new RailRegistry([flaky]);
+      if (mode === 'no-query') (flaky as { queryPayout?: unknown }).queryPayout = undefined;
+      return { state, registry: new RailRegistry([flaky]) };
+    };
+    const heldStatus = async (clientRef: string) =>
+      (await sql`SELECT status FROM pay.withdrawals WHERE client_ref = ${clientRef}`)[0]!.status;
+
+    it('fresh on a new clientRef and replay once sent', async () => {
+      const seen: string[] = [];
+      const money = moneyService({ beforeUserMoneyWithdrawal: async (ctx) => void seen.push(label(ctx.replay)) });
+      await credit(money);
+      expect((await money.withdraw(request('w-sent'))).status).toBe('sent');
+      expect((await money.withdraw(request('w-sent'))).status).toBe('sent');
+      expect(seen).toEqual(['fresh', 'replay:withdrawal_already_sent']);
+    });
+
+    it('requested attempt the rail accepted: the retry settles once, payout stays at one call, a third call is a replay', async () => {
+      const { state, registry } = flakyRegistry('send-then-throw');
       const seen: string[] = [];
       const money = moneyService({ beforeUserMoneyWithdrawal: async (ctx) => void seen.push(label(ctx.replay)) }, registry);
       await credit(money);
-
-      await expect(money.withdraw(request('w-held'))).rejects.toThrow('rail connection dropped');
-      expect((await sql`SELECT status FROM pay.withdrawals`)[0]!.status).toBe('held');
+      await expect(money.withdraw(request('w-held'))).rejects.toThrow('rail connection dropped after the send');
+      expect(await heldStatus('w-held')).toBe('held');
+      expect(await available()).toBe(amt('60'));
       const done = await money.withdraw(request('w-held'));
       expect(done.status).toBe('sent');
+      expect(done.railRef).toBeTruthy();
+      expect(state.calls).toBe(1);
+      expect(await available()).toBe(amt('60'));
       const again = await money.withdraw(request('w-held'));
       expect(again.status).toBe('sent');
+      expect(state.calls).toBe(1);
+      expect(await available()).toBe(amt('60'));
       expect(seen).toEqual(['fresh', 'recovery:withdrawal_hold_booked', 'replay:withdrawal_already_sent']);
+    });
+
+    it('requested attempt the rail never received: the retry reverses once, status failed, payout stays at one call', async () => {
+      const { state, registry } = flakyRegistry('throw-before-send');
+      const money = moneyService({}, registry);
+      await credit(money);
+      await expect(money.withdraw(request('w-lost'))).rejects.toThrow('rail connection dropped before the send');
+      expect(await available()).toBe(amt('60'));
+      await expect(money.withdraw(request('w-lost'))).rejects.toMatchObject({ code: 'pay.rail_failed' });
+      expect(state.calls).toBe(1);
+      expect(await heldStatus('w-lost')).toBe('failed');
+      expect(await available()).toBe(amt('100'));
+      const [row] = await sql`SELECT failure_code FROM pay.withdrawals WHERE client_ref = 'w-lost'`;
+      expect(row!.failure_code).toBe('rail.not_sent');
+    });
+
+    describe('crash window: attempt requested, rail answer lost', () => {
+      const reasons = () => ledger.journal().map((tx) => tx.reason);
+      const count = (reason: string) => reasons().filter((r) => r === reason).length;
+      const holdBalance = async (id: string) =>
+        (
+          await ledger.balance(
+            recipes.withdrawHold({ userId: USER, assetId: 'USDT', amount: amt('40'), rail: 'card-sandbox', withdrawalId: `${id}:0` })
+              .entries[1]!.account,
+          )
+        ).amount;
+
+      it('rail sent before the crash: repeats reach one settle, never a reverse; hold == settle + reverse, funds never stranded', async () => {
+        const { state, registry } = flakyRegistry('send-then-throw');
+        const money = moneyService({}, registry);
+        await credit(money);
+        await expect(money.withdraw(request('cw-sent'))).rejects.toThrow('dropped after the send');
+        // Crash window: hold booked, attempt `requested`, no settle yet.
+        expect(count('withdraw.held')).toBe(1);
+        expect(count('withdraw.settled') + count('withdraw.reversed')).toBe(0);
+        for (let i = 0; i < 3; i += 1) expect((await money.withdraw(request('cw-sent'))).status).toBe('sent');
+        expect(state.calls).toBe(1);
+        expect(count('withdraw.held')).toBe(1);
+        expect(count('withdraw.settled')).toBe(1);
+        expect(count('withdraw.reversed')).toBe(0);
+        expect(count('withdraw.held')).toBe(count('withdraw.settled') + count('withdraw.reversed'));
+        const [row] = await sql`SELECT id FROM pay.withdrawals WHERE client_ref = 'cw-sent'`;
+        expect(await holdBalance(row!.id)).toBe(0n);
+        expect(await available()).toBe(amt('60'));
+      });
+
+      it('rail never received it: the repeat reaches one reverse, never a settle; hold == settle + reverse, available restored', async () => {
+        const { state, registry } = flakyRegistry('throw-before-send');
+        const money = moneyService({}, registry);
+        await credit(money);
+        await expect(money.withdraw(request('cw-lost'))).rejects.toThrow('dropped before the send');
+        expect(count('withdraw.held')).toBe(1);
+        // The repeat resolves the requested attempt by status query: reverse once.
+        // (A later call on the now-failed row is a NEW attempt by design, so it is not repeated here.)
+        await expect(money.withdraw(request('cw-lost'))).rejects.toMatchObject({ code: 'pay.rail_failed' });
+        expect(state.calls).toBe(1);
+        expect(count('withdraw.reversed')).toBe(1);
+        expect(count('withdraw.settled')).toBe(0);
+        expect(count('withdraw.held')).toBe(count('withdraw.settled') + count('withdraw.reversed'));
+        const [row] = await sql`SELECT id, status FROM pay.withdrawals WHERE client_ref = 'cw-lost'`;
+        expect(row!.status).toBe('failed');
+        expect(await holdBalance(row!.id)).toBe(0n);
+        expect(await available()).toBe(amt('100'));
+      });
+
+      it('unknown or mismatched answer: the hold stays, nothing is settled or reversed', async () => {
+        const flaky = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+        flaky.payout = async () => {
+          throw new Error('dropped');
+        };
+        let mode: 'unknown' | 'mismatch' = 'unknown';
+        flaky.queryPayout = async () =>
+          mode === 'unknown'
+            ? { status: 'unknown' as const }
+            : { status: 'sent' as const, railRef: 'po_y', amount: amt('1'), assetId: 'USDT' };
+        const money = moneyService({}, new RailRegistry([flaky]));
+        await credit(money);
+        await expect(money.withdraw(request('cw-unk'))).rejects.toThrow('dropped');
+        await expect(money.withdraw(request('cw-unk'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+        mode = 'mismatch';
+        await expect(money.withdraw(request('cw-unk'))).rejects.toMatchObject({ code: 'pay.rail_amount_mismatch' });
+        expect(count('withdraw.held')).toBe(1);
+        expect(count('withdraw.settled') + count('withdraw.reversed')).toBe(0);
+        const [row] = await sql`SELECT id FROM pay.withdrawals WHERE client_ref = 'cw-unk'`;
+        expect(await holdBalance(row!.id)).toBe(amt('40'));
+        expect(await available()).toBe(amt('60'));
+      });
+    });
+
+    it('requested attempt on a rail with no status query: outcome unknown, hold stays, payout stays at one call', async () => {
+      const { state, registry } = flakyRegistry('no-query');
+      const money = moneyService({}, registry);
+      await credit(money);
+      await expect(money.withdraw(request('w-noq'))).rejects.toThrow('rail connection dropped before the send');
+      await expect(money.withdraw(request('w-noq'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      await expect(money.withdraw(request('w-noq'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      expect(state.calls).toBe(1);
+      expect(await heldStatus('w-noq')).toBe('held');
+      expect(await available()).toBe(amt('60'));
+    });
+
+    it('requested attempt whose status query throws or says unknown: hold stays', async () => {
+      const flaky = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      const realPayout = flaky.payout.bind(flaky);
+      let calls = 0;
+      flaky.payout = async (instruction) => {
+        calls += 1;
+        if (calls === 1) throw new Error('rail connection dropped');
+        return realPayout(instruction);
+      };
+      let answer: 'throw' | 'unknown' = 'throw';
+      flaky.queryPayout = async () => {
+        if (answer === 'throw') throw new Error('status query down');
+        return { status: 'unknown' as const };
+      };
+      const money = moneyService({}, new RailRegistry([flaky]));
+      await credit(money);
+      await expect(money.withdraw(request('w-q'))).rejects.toThrow('rail connection dropped');
+      await expect(money.withdraw(request('w-q'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      answer = 'unknown';
+      await expect(money.withdraw(request('w-q'))).rejects.toMatchObject({ code: 'pay.rail_outcome_unknown' });
+      expect(calls).toBe(1);
+      expect(await heldStatus('w-q')).toBe('held');
+      expect(await available()).toBe(amt('60'));
+    });
+
+    it('requested attempt whose rail receipt names another amount: mismatch, hold stays', async () => {
+      const flaky = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+      flaky.payout = async () => {
+        throw new Error('rail connection dropped');
+      };
+      flaky.queryPayout = async () => ({ status: 'sent' as const, railRef: 'po_x', amount: amt('39'), assetId: 'USDT' });
+      const money = moneyService({}, new RailRegistry([flaky]));
+      await credit(money);
+      await expect(money.withdraw(request('w-mm'))).rejects.toThrow('rail connection dropped');
+      await expect(money.withdraw(request('w-mm'))).rejects.toMatchObject({ code: 'pay.rail_amount_mismatch' });
+      expect(await heldStatus('w-mm')).toBe('held');
+      expect(await available()).toBe(amt('60'));
+    });
+  });
+
+  describe('customer wallet gate counts the real holds (pay.withdrawals)', () => {
+    const live = (cap: string): WalletPublish => ({
+      ...failClosedWalletPublish('live'),
+      withdrawEnabled: () => true,
+      withdrawalCap: () => cap,
+      networkFee: () => '0.1',
+      coolingHours: 1,
+      storedDestination: () => ({ ref: BANK.ref, updatedAt: new Date('2026-01-01T00:00:00.000Z') }),
+    });
+    const available = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+
+    it('an existing held row of 0.6 against a cap of 1 refuses a fresh 0.5: no new row, available unchanged', async () => {
+      const wallet = new WalletPay({
+        publish: live('1'),
+        openHolds: openWithdrawalHolds(sql),
+        allowlist: { has: () => true },
+        now: () => new Date('2026-10-18T00:00:00.000Z'),
+      });
+      const money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'], wallet });
+      await money.credit({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('100'),
+        rail: 'card-sandbox',
+        railRef: 'psp_cap',
+        creditedBy: OPERATOR,
+      });
+      await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+        VALUES (${USER}, 'USDT', 0.6, 'card-sandbox', ${sql.json(BANK as never)}, 'existing-hold', 'held')`;
+      const before = await available();
+      await expect(
+        money.withdraw({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('0.5'),
+          rail: 'card-sandbox',
+          destination: BANK,
+          clientRef: 'fresh-ask',
+        }),
+      ).rejects.toMatchObject({ code: 'pay.wallet_over_cap' });
+      expect(await sql`SELECT 1 FROM pay.withdrawals`).toHaveLength(1);
+      expect(await available()).toBe(before);
+    });
+
+    it('a blank cap refuses pay.wallet_cap_unset', async () => {
+      const wallet = new WalletPay({
+        publish: { ...live('1'), withdrawalCap: () => '  ' },
+        openHolds: openWithdrawalHolds(sql),
+        allowlist: { has: () => true },
+        now: () => new Date('2026-10-18T00:00:00.000Z'),
+      });
+      const money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'], wallet });
+      await expect(
+        money.withdraw({
+          userId: USER,
+          assetId: 'USDT',
+          amount: amt('0.5'),
+          rail: 'card-sandbox',
+          destination: BANK,
+          clientRef: 'blank-cap',
+        }),
+      ).rejects.toMatchObject({ code: 'pay.wallet_cap_unset' });
+    });
+  });
+
+  describe('supportReadWithdrawal (WAL-0162)', () => {
+    it('returns the requested outcome and rail ref for the owner, forbids another user, and posts nothing', async () => {
+      const money = new UserMoneyService(sql, ledger, rails, { operatorCreditRails: ['card-sandbox'] });
+      const [row] = await sql`INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+        VALUES (${USER}, 'USDT', 5, 'card-sandbox', ${sql.json(BANK as never)}, 'support-read', 'held') RETURNING id`;
+      await sql`INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome) VALUES (${row!.id}, 0, 'requested')`;
+      const journal = ledger.journal().length;
+      const read = await money.supportReadWithdrawal(row!.id, USER);
+      expect(read.attempts).toEqual([{ outcome: 'requested', railRef: null }]);
+      expect(read.controls).toEqual([]);
+      expect(read.label).toBe('unknown');
+      expect(read.status).toBe('held');
+      await sql`UPDATE pay.withdrawal_rail_attempts SET outcome = 'accepted', rail_ref = 'rail-9' WHERE withdrawal_id = ${row!.id}`;
+      expect((await money.supportReadWithdrawal(row!.id, USER)).attempts).toEqual([{ outcome: 'accepted', railRef: 'rail-9' }]);
+      await expect(money.supportReadWithdrawal(row!.id, OPERATOR)).rejects.toMatchObject({ code: 'pay.wallet_forbidden' });
+      expect(ledger.journal().length).toBe(journal);
     });
   });
 });

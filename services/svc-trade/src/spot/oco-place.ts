@@ -4,11 +4,11 @@
  * Installed onto TradeService.prototype so trade-service.ts never moves.
  */
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 export type OcoLeg = {
   readonly price?: string;
@@ -22,9 +22,8 @@ export type PlaceWithOco = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.ocoPlace');
-const ocoByClient = new Map<string, { takeProfit: OcoLeg; stopLoss: OcoLeg }>();
 
-function clientKey(rec: Record<string, unknown>): string | null {
+function clientKey(rec: Readonly<Record<string, unknown>>): string | null {
   return typeof rec.clientOrderId === 'string' && rec.clientOrderId.length > 0 ? rec.clientOrderId : null;
 }
 
@@ -67,31 +66,25 @@ export function wantsOco(rec: { readonly oco?: boolean; readonly takeProfit?: un
   return rec.oco === true || rec.takeProfit !== undefined || rec.stopLoss !== undefined;
 }
 
-export function stashOcoFromBody(rec: Record<string, unknown>): void {
-  if (rec.takeProfit == null && rec.stopLoss == null && rec.oco == null) return;
-  const key = clientKey(rec);
-  if (!key) {
+/** The legs this request's own body asks for, or null when it is not an OCO (a bracket carries its own legs). */
+export function readOcoFromBody(rec: Readonly<Record<string, unknown>>): { takeProfit: OcoLeg; stopLoss: OcoLeg } | null {
+  if (rec.bracket === true) return null;
+  if (rec.takeProfit == null && rec.stopLoss == null && rec.oco == null) return null;
+  if (!clientKey(rec)) {
     throw new TradeError('clientOrderId is required (1–64 chars) so a retry cannot open a second hold', 'trade.client_order_id_required');
   }
-  const takeProfit = asLeg(rec.takeProfit);
-  const stopLoss = asLeg(rec.stopLoss);
-  delete rec.takeProfit;
-  delete rec.stopLoss;
-  delete rec.oco;
-  ocoByClient.set(key, {
-    takeProfit: takeProfit ?? { stopPrice: '' },
-    stopLoss: stopLoss ?? { stopPrice: '' },
-  });
+  return {
+    takeProfit: asLeg(rec.takeProfit) ?? { stopPrice: '' },
+    stopLoss: asLeg(rec.stopLoss) ?? { stopPrice: '' },
+  };
 }
 
 export function bindOco(input: PlaceOrderInput): PlaceWithOco {
   const extra = input as PlaceWithOco;
   if (wantsOco(extra)) return extra;
-  const key = extra.clientOrderId;
-  if (!key) return extra;
-  const stashed = ocoByClient.get(key);
+  const body = carriedPlacementBody(extra);
+  const stashed = body === null ? null : readOcoFromBody(body);
   if (!stashed) return extra;
-  ocoByClient.delete(key);
   return { ...extra, oco: true, takeProfit: stashed.takeProfit, stopLoss: stashed.stopLoss };
 }
 
@@ -103,19 +96,6 @@ export function takeProfitRefuse(takeProfit: Amount | null): TradeError | null {
 export function stopLossRefuse(stopLoss: Amount | null): TradeError | null {
   if (stopLoss !== null) return null;
   return new TradeError('an OCO stop-loss is missing; trade does not invent a trigger', 'trade.missing_oco_trigger');
-}
-
-export function attachOcoStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    try {
-      const body = req.body;
-      if (body && typeof body === 'object') stashOcoFromBody(body as Record<string, unknown>);
-      done();
-    } catch (err) {
-      if (err instanceof TradeError) Object.assign(err, { statusCode: 400 });
-      done(err as Error);
-    }
-  });
 }
 
 export function installOcoPlace(ctor: typeof TradeService): void {

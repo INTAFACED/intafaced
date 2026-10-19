@@ -51,10 +51,10 @@ export function assertFillReportMatchesStatus(
   averagePrice: VenueOrder['averagePrice'],
   sent = false,
 ): void {
-  if (status === 'partially_filled' && filled <= 0n) {
+  if (status === 'partially_filled' && (filled <= 0n || averagePrice === null || averagePrice <= 0n)) {
     throw new VenueUnavailableError(venueId, 'malformed', 'partially_filled without a fill report — outcome unknown, not a fill', sent);
   }
-  if (status === 'filled' && (filled <= 0n || averagePrice === null)) {
+  if (status === 'filled' && (filled <= 0n || averagePrice === null || averagePrice <= 0n)) {
     throw new VenueUnavailableError(venueId, 'malformed', 'filled status without a fill report — outcome unknown, not a fill', sent);
   }
 }
