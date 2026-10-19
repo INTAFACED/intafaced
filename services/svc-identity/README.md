@@ -310,3 +310,7 @@ TOTP/recovery codes in 10 minutes, refuse that account with `auth.too_many_attem
 wrong codes with no success in between lock the 2FA step for 24 hours (passwords have
 no long lock). A correct password clears the password counter immediately. Counters live in Postgres, shared by every replica. The service refuses to
 boot if the `auth_attempts` table is missing.
+
+## Service keys: ledger calls
+
+The affiliate payout ledger client signs with svc-identity's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

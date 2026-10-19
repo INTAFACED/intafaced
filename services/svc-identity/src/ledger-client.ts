@@ -1,5 +1,5 @@
 import { createHttpLedgerClient, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
  * Budget for svc-ledger posts.
@@ -38,10 +38,14 @@ const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as con
  * Because it is the shared client, the post returns the entries the ledger actually booked, and a malformed
  * acknowledgement is "outcome unknown" (`svc-ledger invalid post acknowledgement; outcome unknown`), never a success.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): Pick<LedgerClient, 'post'> {
+export function createLedgerClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): Pick<LedgerClient, 'post'> {
   const writer = createHttpLedgerClient({
     baseUrl,
-    sign: (payload) => serviceAuthHeadersForBody('svc-identity', internalSecret, payload),
+    sign: serviceCallSigner({ service: 'svc-identity', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
     // client is built (telemetry, a test door) still sees every ledger call.
     fetch: (input, init) => globalThis.fetch(input, init),
