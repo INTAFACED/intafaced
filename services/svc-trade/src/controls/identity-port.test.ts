@@ -36,8 +36,7 @@ describe('Trading founder validation transport', () => {
       verifyServiceHeaders(headers, serviceSecret, { mode: 'require', rawBody: { retained: true, bytes: Buffer.from('{}') } }).service,
     ).toBeNull();
     // The shared edge secret is not used here: nothing in the request can assert a principal.
-    expect(headers['x-intafaced-principal']).toBeUndefined();
-    expect(headers['x-intafaced-principal-sig']).toBeUndefined();
+    expect(Object.keys(headers).filter((name) => name.toLowerCase().startsWith('x-intafaced-principal'))).toEqual([]);
     expect(request.redirect).toBe('error');
   });
   it.each([
