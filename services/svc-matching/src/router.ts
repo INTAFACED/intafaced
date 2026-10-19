@@ -108,6 +108,8 @@ const submitBodySchema = z.object({
   oco: z.boolean().optional(),
   takeProfit: decimal.nullish(),
   stopLoss: decimal.nullish(),
+  /** Limit price of the stop-loss leg (a stop-limit instead of a market stop). Needed to bound a buy-side stop. */
+  stopLossLimit: decimal.nullish(),
   /** Caller expire instant for GTD/GTT. The engine does not invent one. */
   expireAt: z.string().min(1).optional(),
   /** Caller session for cancel-on-disconnect. Missing is untagged — the engine does not invent one. */
@@ -290,6 +292,7 @@ function toEngineOrder(body: z.infer<typeof submitBodySchema>): EngineOrder {
     ...(body.oco === true ? { oco: true } : {}),
     ...(body.takeProfit != null ? { takeProfit: parseAmount(body.takeProfit) } : {}),
     ...(body.stopLoss != null ? { stopLoss: parseAmount(body.stopLoss) } : {}),
+    ...(body.stopLossLimit != null ? { stopLossLimit: parseAmount(body.stopLossLimit) } : {}),
     ...(body.expireAt ? { expireAt: body.expireAt } : {}),
     ...(body.sessionId ? { sessionId: body.sessionId } : {}),
     ...(body.reduceOnly === true ? { reduceOnly: true } : {}),

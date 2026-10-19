@@ -177,6 +177,7 @@ function baseEntry(extra: BracketOrder): EngineOrder {
   const {
     takeProfit: _takeProfit,
     stopLoss: _stopLoss,
+    stopLossLimit: _stopLossLimit,
     bracket: _bracket,
     oco: _oco,
     takeProfitOrderId: _takeProfitOrderId,

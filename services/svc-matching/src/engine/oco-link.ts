@@ -18,6 +18,7 @@ type OcoOrder = EngineOrder & {
   readonly oco?: boolean;
   readonly takeProfit?: Amount | null;
   readonly stopLoss?: Amount | null;
+  readonly stopLossLimit?: Amount | null;
   readonly takeProfitOrderId?: string | null;
   readonly stopLossOrderId?: string | null;
 };
@@ -77,6 +78,7 @@ function baseOrder(extra: OcoOrder): EngineOrder {
     takeProfit: _takeProfit,
     stopLoss: _stopLoss,
     oco: _oco,
+    stopLossLimit: _stopLossLimit,
     takeProfitOrderId: _takeProfitOrderId,
     stopLossOrderId: _stopLossOrderId,
     ...base
@@ -167,16 +169,20 @@ export function installOcoLink(ctor: typeof OrderBook): void {
     const tpId = extra.takeProfitOrderId && extra.takeProfitOrderId.length > 0 ? extra.takeProfitOrderId : `${order.orderId}:tp`;
     const slId = extra.stopLossOrderId && extra.stopLossOrderId.length > 0 ? extra.stopLossOrderId : `${order.orderId}:sl`;
     const base = baseOrder(extra);
+    // A stop-limit leg when the caller gave a limit price (it bounds what a buy stop can pay), else a market stop.
+    // A limit that is present but not positive is refused: falling back to a market stop would drop the worst price
+    // the caller asked for.
+    if (extra.stopLossLimit != null && extra.stopLossLimit <= ZERO) {
+      return rejected('invalid_price', 'an OCO stop-loss limit must be positive; the engine does not fall back to a market stop');
+    }
+    const stopLimit = extra.stopLossLimit ?? null;
+    const stopLeg = stopLimit === null ? ({ type: 'stop', price: null } as const) : ({ type: 'stop_limit', price: stopLimit } as const);
 
     // Atomic reject (L287): rehearse both legs on a throwaway copy of the book first. If the
     // take-profit leg is refused after the stop leg ran, the stop's fills and triggers would
     // stay executed on the live book, so a refused OCO must never touch it.
     const rehearsal = this.clone();
-    const rehearsalSl = orig.call(
-      rehearsal,
-      { ...base, orderId: slId, type: 'stop', price: null, stopPrice: stopLoss, ocoSiblingId: tpId },
-      now,
-    );
+    const rehearsalSl = orig.call(rehearsal, { ...base, orderId: slId, ...stopLeg, stopPrice: stopLoss, ocoSiblingId: tpId }, now);
     if (rehearsalSl.accepted) {
       const rehearsalTp = orig.call(
         rehearsal,
@@ -201,8 +207,7 @@ export function installOcoLink(ctor: typeof OrderBook): void {
       {
         ...base,
         orderId: slId,
-        type: 'stop',
-        price: null,
+        ...stopLeg,
         stopPrice: stopLoss,
         ocoSiblingId: tpId,
       },
