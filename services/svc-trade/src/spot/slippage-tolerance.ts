@@ -11,7 +11,11 @@ import type { PlaceOrderInput } from './trade-service.js';
  * order that has no market protection is refused before any hold, never clamped or ignored.
  */
 export function slippageToleranceFor(input: PlaceOrderInput, orderType: string, ownerCapBps: number | null): number | null {
-  const raw = carriedPlacementBody(input)?.maxSlippageBps;
+  return validateSlippageTolerance(carriedPlacementBody(input)?.maxSlippageBps, orderType, ownerCapBps);
+}
+
+/** The same rules on the raw wire value, so the order preview refuses exactly what placement refuses. */
+export function validateSlippageTolerance(raw: unknown, orderType: string, ownerCapBps: number | null): number | null {
   if (raw === undefined || raw === null) return null;
   if (orderType !== 'market') {
     throw new TradeError('maxSlippageBps applies to market orders only', 'trade.slippage_tolerance_invalid');

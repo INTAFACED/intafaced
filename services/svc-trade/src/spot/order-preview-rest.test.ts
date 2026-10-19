@@ -727,3 +727,57 @@ describe('POST /api/v1/orders/preview: exit-leg fees', () => {
     expect(plain.json().exitFees).toBeNull();
   });
 });
+
+describe('POST /api/v1/orders/preview: per-order slippage tolerance', () => {
+  const preview = async (payload: Record<string, unknown>, over: Parameters<typeof appWith>[0] = {}) => {
+    const { app } = appWith({ slippageCapBps: 200, bestAsk: parseAmount('100'), bestBid: parseAmount('100'), ...over });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload });
+    await app.close();
+    expect(response.statusCode, response.body).toBe(200);
+    return response.json();
+  };
+  const buy = { symbol: MARKET.symbol, side: 'buy', type: 'market', amount: '2' };
+  const sell = { symbol: MARKET.symbol, side: 'sell', type: 'market', amount: '2' };
+
+  it('a market buy with a tighter tolerance previews the tighter protection price and a hold sized to it', async () => {
+    const wide = await preview(buy);
+    const tight = await preview({ ...buy, maxSlippageBps: 50 });
+    // 100 + 200 bps = 102; 100 + 50 bps = 100.5. The hold is the protection price times the quantity.
+    expect(wide.protectionPrice).toBe('102');
+    expect(tight.protectionPrice).toBe('100.5');
+    expect(tight.holdAmount).toBe('201');
+    expect(tight.orderable).toBe(true);
+    expect(tight.refusals).toEqual([]);
+  });
+
+  it('a market sell with a tighter tolerance previews the higher floor', async () => {
+    const tight = await preview({ ...sell, maxSlippageBps: 50 });
+    expect(tight.protectionPrice).toBe('99.5');
+    expect(tight.orderable).toBe(true);
+  });
+
+  it('refuses a tolerance looser than the owner cap, a non-integer, a string and a limit order, with no protection price', async () => {
+    for (const body of [
+      { ...buy, maxSlippageBps: 300 },
+      { ...buy, maxSlippageBps: 1.5 },
+      { ...buy, maxSlippageBps: 0 },
+      { ...buy, maxSlippageBps: '50' },
+      { ...sell, maxSlippageBps: 300 },
+      { symbol: MARKET.symbol, side: 'buy', type: 'limit', amount: '2', price: '100', maxSlippageBps: 50 },
+    ]) {
+      const res = await preview(body);
+      expect(res.orderable, JSON.stringify(body)).toBe(false);
+      expect(
+        res.refusals.map((r: { code: string }) => r.code),
+        JSON.stringify(body),
+      ).toContain('trade.slippage_tolerance_invalid');
+    }
+  });
+
+  it('a tolerance never stands in for an unpublished owner cap', async () => {
+    const res = await preview({ ...buy, maxSlippageBps: 50 }, { slippageCapBps: null });
+    expect(res.orderable).toBe(false);
+    expect(res.protectionPrice).toBeNull();
+    expect(res.refusals.map((r: { code: string }) => r.code)).toContain('trade.slippage_cap_unset');
+  });
+});

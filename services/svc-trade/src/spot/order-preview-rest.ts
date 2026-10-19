@@ -18,6 +18,7 @@ import {
   sellProtectionPriceFor,
 } from './risk.js';
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
+import { validateSlippageTolerance } from './slippage-tolerance.js';
 import { previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
@@ -129,6 +130,7 @@ const ALLOWED_FIELDS = new Set([
   'price',
   'stopPrice',
   'exit',
+  'maxSlippageBps',
   'timeInForce',
   'postOnly',
   'reduceOnly',
@@ -398,6 +400,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     if (orderType === 'market' && side === 'buy') {
       try {
         protectionPrice = protectionPriceFor(market, bestAsk, deps.slippageCapBps);
+        const tolerance = validateSlippageTolerance(body.maxSlippageBps, orderType, deps.slippageCapBps);
+        if (tolerance !== null) {
+          const tighter = protectionPriceFor(market, bestAsk, tolerance);
+          if (tighter < protectionPrice) protectionPrice = tighter;
+        }
         assertNotional(market, protectionPrice, qty);
         fundingPrice = protectionPrice;
       } catch (error) {
@@ -407,7 +414,18 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       const bid = deps.bestBid ? await deps.bestBid(market.id) : null;
       try {
         protectionPrice = sellProtectionPriceFor(market, bid ?? null, deps.slippageCapBps);
+        const tolerance = validateSlippageTolerance(body.maxSlippageBps, orderType, deps.slippageCapBps);
+        if (tolerance !== null) {
+          const tighter = sellProtectionPriceFor(market, bid ?? null, tolerance);
+          if (tighter > protectionPrice) protectionPrice = tighter;
+        }
         fundingPrice = 0n;
+      } catch (error) {
+        pushError(refusals, error, 'protectionPrice');
+      }
+    } else if (orderType !== null) {
+      try {
+        validateSlippageTolerance(body.maxSlippageBps, orderType, deps.slippageCapBps);
       } catch (error) {
         pushError(refusals, error, 'protectionPrice');
       }
