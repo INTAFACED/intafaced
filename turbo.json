@@ -52,6 +52,12 @@
       "cache": false,
       "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
     },
+    "@intafaced/svc-indexer#test": {
+      "dependsOn": ["^build", "@intafaced/svc-dex#build"],
+      "outputs": ["coverage/**"],
+      "cache": false,
+      "env": ["INTAFACED_RUN_ID", "INTAFACED_INFRA_JOURNAL", "REQUIRE_PAY_EVM"]
+    },
     "@intafaced/sbe-codec#test": {
       "dependsOn": ["^build", "@intafaced/sbe-codec#build:jar"],
       "outputs": ["coverage/**"],
