@@ -1,52 +1,14 @@
-import { randomUUID } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { orderSchema, type Draft } from '../../src/features/trade/trade-api';
+import { orderSchema } from '../../src/features/trade/trade-api';
 import { CONFLICT_CODE, resendOrder } from '../../src/screens/trade/desk/resend';
-import { newCustomer, fund, ledgerAvailable, stack, until, type Customer } from './stack';
+import { BASE, QUOTE, SYMBOL, balance, draft, orderOf, reviewAndPlace } from './desk';
+import { newCustomer, fund, ledgerAvailable, until, type Customer } from './stack';
 
 /**
  * The pro trader's core spot journey, through the customer app's own client code (createApiClient, createTradeApi,
  * resendOrder) against the real trade, matching and ledger services. No service answer is faked: the only thing this
  * file supplies is the signed-in principal the edge would add. Funds are TEST deposits made through the ledger recipe.
  */
-const SYMBOL = stack.symbol();
-const [BASE, QUOTE] = SYMBOL.split('/') as [string, string];
-
-function draft(extra: Partial<Draft> = {}): Draft {
-  return {
-    symbol: SYMBOL,
-    side: 'buy',
-    type: 'limit',
-    amount: '0.1',
-    price: '80',
-    timeInForce: 'GTC',
-    postOnly: false,
-    clientOrderId: `journey:${randomUUID()}`,
-    ...extra,
-  };
-}
-
-/** The order a placement returned, or a failure that says what the service said. */
-function orderOf(placed: Awaited<ReturnType<Customer['trade']['place']>>) {
-  if (!placed.ok) throw new Error(`placement refused: ${placed.reason} ${'code' in placed ? placed.code : ''} ${placed.message}`);
-  if (!('data' in placed)) throw new Error('placement came back as a changed review');
-  return placed.data;
-}
-
-/** Review, then place, the way the desk's confirm step does. */
-async function reviewAndPlace(trade: Customer['trade'], d: Draft) {
-  const review = await trade.preview(d);
-  if (!review.ok) throw new Error(`preview refused: ${review.message}`);
-  expect(review.data.refusals, 'the service refused the preview').toEqual([]);
-  expect(review.data.orderable).toBe(true);
-  return { review: review.data, placed: await trade.place(d, review.data) };
-}
-
-const balance = async (trade: Customer['trade'], asset: string) => {
-  const result = await trade.balances();
-  if (!result.ok) throw new Error(`balances refused: ${result.message}`);
-  return result.data.balances[asset] ?? { free: '0', used: '0', total: '0' };
-};
 
 describe('pro trader: place, retry, cancel', () => {
   let buyer: Customer;
