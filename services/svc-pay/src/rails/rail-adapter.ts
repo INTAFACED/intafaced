@@ -824,6 +824,12 @@ export async function quoteFx(adapter: RailAdapter, request: RailFxQuoteRequest)
 export interface RailAdapter {
   readonly id: string;
   readonly capabilities: readonly RailCapability[];
+  /**
+   * True only when `refund(ref, amount, { refundId })` called again with the same refundId returns the first result and
+   * moves value once (a live chain rail keys its broadcast on it). The core resumes an in-flight refund whose reply was
+   * lost only on such a rail; on any other it stays in flight until someone reconciles it.
+   */
+  readonly refundIsIdempotentByRefundId?: boolean;
 
   /**
    * `live`, `sandbox` or `absent`. See `RailMode`.

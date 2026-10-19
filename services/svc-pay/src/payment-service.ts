@@ -3389,8 +3389,8 @@ export class PayService {
           );
         }
 
-        const inFlight = await tx<Array<{ refund_id: string }>>`
-          SELECT p.payload->>'refundId' AS refund_id
+        const inFlight = await tx<Array<{ refund_id: string; amount: string | null; source: string | null }>>`
+          SELECT p.payload->>'refundId' AS refund_id, p.payload->>'amount' AS amount, p.payload->>'source' AS source
             FROM pay.payment_events p
            WHERE p.payment_id = ${row.id} AND p.event = 'refund.posted'
              AND NOT EXISTS (
@@ -3401,11 +3401,43 @@ export class PayService {
              )
         `;
         if (inFlight.length > 0) {
-          throw new PayError(
-            `Refund ${inFlight[0]!.refund_id} is already in flight — reconcile it against the rail before refunding again`,
-            'pay.refund_in_flight',
-            { refundId: inFlight[0]!.refund_id },
-          );
+          const pending = inFlight[0]!;
+          // The same explicit refund id, asked again, is the retry of a refund whose rail reply was lost. The ledger
+          // already moved and says so (`refund.posted`), so book nothing: resume at the rail with the same id. Only a
+          // rail that answers a repeated id with its first result may be asked again; on any other this stays in flight
+          // for someone to reconcile, because asking it again could pay twice.
+          const resumable =
+            options.refundId !== undefined &&
+            inFlight.length === 1 &&
+            pending.refund_id === options.refundId &&
+            this.rails.require(row.rail_adapter, 'refund').refundIsIdempotentByRefundId === true;
+          if (!resumable) {
+            throw new PayError(
+              `Refund ${pending.refund_id} is already in flight — reconcile it against the rail before refunding again`,
+              'pay.refund_in_flight',
+              { refundId: pending.refund_id },
+            );
+          }
+          if (pending.amount !== formatAmount(amount)) {
+            throw new PayError(
+              `Refund id ${pending.refund_id} is in flight for ${pending.amount}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
+              'pay.refund_id_conflict',
+              { refundId: pending.refund_id, paymentId: row.id, inFlightAmount: pending.amount, requested: formatAmount(amount) },
+            );
+          }
+          const resumedMerchant = await this.getMerchant(row.merchant_id);
+          const resumedSource = pending.source === 'settled' ? ('settled' as const) : ('clearing' as const);
+          return {
+            replay: false as const,
+            row,
+            refundId: pending.refund_id,
+            source: resumedSource,
+            settledPot:
+              resumedSource === 'settled' ? await this.settledPotForPayment(tx, row.id, resumedMerchant.userId) : ('proceeds' as const),
+            merchant: resumedMerchant,
+            captured: totals.captured,
+            refunded: totals.refunded,
+          };
         }
 
         // BEFORE THE LEDGER MOVES, not at the rail call in Phase 2. This
@@ -3516,6 +3548,15 @@ export class PayService {
       this.sql,
       async (tx) => {
         const row = await lockPayment(tx, paymentId);
+        // A resumed refund can reach here twice (two retries of the same id). The first to commit decides; the other
+        // records nothing and answers with the same outcome.
+        const decided = await tx<Array<{ event: string }>>`
+          SELECT event FROM pay.payment_events
+           WHERE payment_id = ${row.id} AND event IN ('refunded', 'refund.reversed')
+             AND payload->>'refundId' = ${prepared.refundId}
+           LIMIT 1
+        `;
+        if (decided[0]) return { ok: decided[0].event === 'refunded', view: await this.view(tx, row) };
         await appendEvent(tx, row.id, 'rail.refund', { ...railPayload(result), refundId: prepared.refundId });
 
         const refundInput = {
