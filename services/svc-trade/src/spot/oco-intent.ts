@@ -79,3 +79,24 @@ export async function forgetOcoIntentWithoutOrder(
      WHERE order_id = ${orderId} AND NOT EXISTS (SELECT 1 FROM trade.orders WHERE id = ${orderId})
   `;
 }
+
+/** The stored legs for many parent order ids at once (orders lists), keyed by order id; ids with no intent are absent. */
+export async function readOcoIntents(
+  sql: Sql,
+  orderIds: readonly string[],
+): Promise<Map<string, { takeProfit: string; stopLoss: string; stopLossLimit: string | null }>> {
+  const out = new Map<string, { takeProfit: string; stopLoss: string; stopLossLimit: string | null }>();
+  if (orderIds.length === 0) return out;
+  const rows = await sql<Array<{ order_id: string; take_profit: string; stop_loss: string; stop_loss_limit: string | null }>>`
+    SELECT order_id, take_profit::text, stop_loss::text, stop_loss_limit::text
+      FROM trade.order_oco_intent WHERE order_id IN ${sql(orderIds)}
+  `;
+  for (const r of rows) {
+    out.set(r.order_id, {
+      takeProfit: formatAmount(parseAmount(r.take_profit)),
+      stopLoss: formatAmount(parseAmount(r.stop_loss)),
+      stopLossLimit: r.stop_loss_limit === null ? null : formatAmount(parseAmount(r.stop_loss_limit)),
+    });
+  }
+  return out;
+}

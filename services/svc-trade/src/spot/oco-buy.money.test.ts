@@ -8,6 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import './oco-place.js';
+import { readOcoIntents } from './oco-intent.js';
 import './oco-cancel.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import { type Market } from './types.js';
@@ -135,6 +136,15 @@ describe('svc-trade buy OCO: one quote hold funds both legs at the worse price (
       stopLoss: '120',
       stopLossLimit: '125',
     });
+  });
+
+  it('reads the stored legs of many parents at once, for the orders API exit marker', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const oco = await trade.placeOrder(principalFor(ALICE), buyOco());
+    const legs = await readOcoIntents(sql, [oco.id, '99999999-9999-4999-8999-999999999999']);
+    expect(legs.get(oco.id)).toEqual({ takeProfit: '90', stopLoss: '120', stopLossLimit: '125' });
+    expect(legs.has('99999999-9999-4999-8999-999999999999')).toBe(false);
+    expect((await readOcoIntents(sql, [])).size).toBe(0);
   });
 
   it('ignores the price the caller typed on the parent: the legs set it', async () => {

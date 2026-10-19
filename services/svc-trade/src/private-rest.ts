@@ -135,6 +135,8 @@ export interface PrivateRestDeps {
   icebergDisplay?: IcebergDisplayStore;
   /** Stop triggers of stop-limit orders. Absent: stop-limit is refused (fail closed). */
   stopTriggers?: StopTriggerStore;
+  /** The stored legs for OCO parents (and bracket exits), by order id; absent when the store is not wired. */
+  ocoExits?: (orderIds: readonly string[]) => Promise<ReadonlyMap<string, OcoExitLegs>>;
   /**
    * Durable create-vs-replay signal for iceberg peaks. Looks up the caller's
    * clientOrderId before placeOrder. Absent only in tests that mock placeOrder.
@@ -471,6 +473,19 @@ async function withStopTriggers(deps: PrivateRestDeps, orders: readonly OrderRec
   return <W extends { type: string; stopPrice: string | null }>(order: OrderRecord, wire: W): W => {
     const trigger = triggers?.get(order.id);
     return trigger ? { ...wire, type: 'stop_limit', stopPrice: trigger } : wire;
+  };
+}
+
+export type OcoExitLegs = { readonly takeProfit: string; readonly stopLoss: string; readonly stopLossLimit: string | null };
+
+/** An OCO parent (or a bracket's exit) carries its linked legs on the wire as `exit`; every other order is untouched. */
+async function withOcoExit(deps: PrivateRestDeps, orders: readonly OrderRecord[]) {
+  const legs = deps.ocoExits && orders.length > 0 ? await deps.ocoExits(orders.map((o) => o.id)) : null;
+  return <W extends object>(order: OrderRecord, wire: W): W => {
+    const found = legs?.get(order.id);
+    if (!found) return wire;
+    const kind = /^bracket:.+:exit$/.test(order.clientOrderId ?? '') ? 'bracket_exit' : 'oco';
+    return { ...wire, exit: { kind, ...found } };
   };
 }
 
@@ -1064,9 +1079,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbolByMarket = new Map<string, string>();
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
+      const withExit = await withOcoExit(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push({ ...withStop(order, presentCcxtOrder(order, symbol)), serverTime });
+        wire.push({ ...withExit(order, withStop(order, presentCcxtOrder(order, symbol))), serverTime });
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -1109,9 +1125,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const symbolByMarket = new Map<string, string>();
       const wire = [];
       const withStop = await withStopTriggers(deps, orders);
+      const withExit = await withOcoExit(deps, orders);
       for (const order of orders) {
         const symbol = await symbolForOrder(order, symbolByMarket, deps.marketById);
-        wire.push(withStop(order, presentCcxtOrder(order, symbol)));
+        wire.push(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
       }
       return reply.code(200).send(wire);
     } catch (err) {
@@ -2516,7 +2533,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
-      return reply.code(200).send(withStop(order, presentCcxtOrder(order, symbol)));
+      const withExit = await withOcoExit(deps, [order]);
+      return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
@@ -2534,7 +2552,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const market = await deps.marketById(order.marketId);
       const symbol = market?.symbol ?? order.marketId;
       const withStop = await withStopTriggers(deps, [order]);
-      return reply.code(200).send(withStop(order, presentCcxtOrder(order, symbol)));
+      const withExit = await withOcoExit(deps, [order]);
+      return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
