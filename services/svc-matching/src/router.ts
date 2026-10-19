@@ -6,14 +6,15 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import { marketLifecycleAdmissionProofSchema, orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
   assertEdgePrincipalLimits,
   edgePrincipalPublicKey,
   EdgeTrustError,
   verifyForwardedPrincipal,
   type EdgePrincipalLimits,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import type { MatchingEngine } from './engine/engine.js';
@@ -504,6 +505,8 @@ function forbiddenBody(): { code: 'Forbidden'; message: string } {
 }
 
 export interface MatchingRouteOptions {
+  /** Per-service keys (S2S v3). Unset keeps the shared secret alone; a failed key-signed call never falls back to it. */
+  s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   /** `INTERNAL_SERVICE_BODY_BIND`. Isolated tests default to accept-both. */
   bodyBind?: ServiceBodyBindMode;
   /** Owner-published rulebook version. Missing/blank is unpublished. */
@@ -551,7 +554,12 @@ export function registerRoutes(
   const BASKET_CHILD_CALLERS = new Set<string>(['svc-trade', 'svc-execution', 'svc-fix']);
 
   const requireService = (req: FastifyRequest, allowed: ReadonlySet<string>): void => {
-    const verification = verifyServiceHeaders(req.headers, internalSecret, { rawBody: rawBodyOf(req), mode });
+    const verification = verifyServiceRequest(req, {
+      verifier: options.s2s?.verifier,
+      mode: options.s2s?.mode,
+      legacySecret: internalSecret,
+      bodyBindMode: mode,
+    });
 
     if (verification.service) {
       if (!allowed.has(verification.service)) throw new MatchingForbiddenError();

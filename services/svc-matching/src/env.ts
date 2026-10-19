@@ -9,6 +9,7 @@ import {
   natsEnvSchema,
   otelEnvSchema,
   redisEnvSchema,
+  s2sEnvSchema,
 } from '@intafaced/config';
 
 /**
@@ -29,6 +30,7 @@ const schema = baseEnvSchema
   // svc-fix from a stranger. No default: an engine that cannot must refuse to boot
   // rather than take unfunded orders from whoever found the port.
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-matching'),

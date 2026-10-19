@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Fastify from 'fastify';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { s2sFromEnv, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { JetStreamEventBus } from '@intafaced/events';
 import { createHttpLedgerClient } from '@intafaced/ledger-client';
@@ -124,7 +124,11 @@ const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
 
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the doors stay on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-matching');
+
 registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
   // Fleet compose still defaults INTERNAL_SERVICE_BODY_BIND to accept-both
   // (compose-pin tests are law). Order writes are money instructions: unbound
   // v1 HMAC must 401 here. Callers already send serviceAuthHeadersForBody.

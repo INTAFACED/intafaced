@@ -335,3 +335,7 @@ identity, not deep equality: two different Map iteration orders would pass a dee
 depth to every client. Three further tests keep that one honest — replay must equal the live engine's state, a
 different seed must produce a different book, and the workload must actually fill, rest, and reject rather than
 comparing two empty books.
+
+## Service keys: inbound doors
+
+The order, close, basket and surveillance doors name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The per-door caller lists (svc-trade; svc-trade, svc-execution and svc-fix for basket children) are unchanged. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
