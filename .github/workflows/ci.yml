@@ -145,6 +145,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
+      - run: node tooling/ci/review-marker.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
@@ -390,10 +391,14 @@ jobs:
         run: pnpm build
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
+      # --concurrency=3: turbo's default is 10 packages at once, each with its own vitest worker pool, on a 4-core
+      # runner sharing one Postgres, Redis, NATS and anvil. Under that load a different package timed out at vitest's
+      # 5 s default on each run (svc-p2p, svc-ws, svc-pay, the svc-protocol lending test), none of them touched by the
+      # PRs that went red. Fewer packages at a time removes the contention; no timeout is raised.
       - name: Run pnpm test --continue
         run: |
           set -o pipefail
-          pnpm test --continue 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          pnpm test --continue --concurrency=3 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
@@ -419,8 +424,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           short=$(tr '\n' ';' < "$RUNNER_TEMP/failures.txt" | cut -c1-900)
           echo "FAILED_SHORT=$short" >> "$GITHUB_ENV"
+          # The first error line vitest printed (assertion, timeout, revert), so the reason is readable too.
+          err=$(awk '/(^|[: ]) FAIL  /{f=1} f && /^ *(AssertionError|[A-Za-z]*Error): /{print; exit}' "$out.clean" | sed -E 's/^ +//' | cut -c1-100)
+          echo "FAILED_ERR=$err" >> "$GITHUB_ENV"
       - name: 'Failing: ${{ env.FAILED_SHORT }}'
         if: failure() && env.FAILED_SHORT != ''
+        run: 'true'
+      - name: 'Why: ${{ env.FAILED_ERR }}'
+        if: failure() && env.FAILED_ERR != ''
         run: 'true'
 
       # The backstop. REQUIRE_POSTGRES / REQUIRE_EVM_CHAIN make the shared probes
@@ -866,6 +877,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     if: always()
+    permissions:
+      contents: read
+      pull-requests: read
     needs:
       [
         changes,
@@ -898,3 +912,11 @@ jobs:
           T_TRADE: ${{ needs.test-trade.result }}
           T_PAYBANK: ${{ needs.test-paybank.result }}
         run: node tooling/ci/ci-affected.mjs --seal
+      - name: Require the independent review marker
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/review-marker.mjs

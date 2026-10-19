@@ -62,6 +62,13 @@ describe('CCXT unified symbols', () => {
     expect(() => parseSymbol('BTC/USDT:USDT-251226-90000-X')).toThrow(/option type/);
   });
 
+  it('rejects a fifth hyphen segment instead of the four-field call', () => {
+    const extra = 'BTC/USDT:USDT-251226-90000-C-EXTRA';
+    const call = 'BTC/USDT:USDT-251226-90000-C';
+    expect(() => parseSymbol(extra)).toThrow(SymbolError);
+    expect(symbolsEqual(extra, call)).toBe(false);
+  });
+
   it('compares symbols case-insensitively', () => {
     expect(symbolsEqual('btc/usdt', 'BTC/USDT')).toBe(true);
     expect(symbolsEqual('BTC/USDT', 'BTC/USDT:USDT')).toBe(false);
@@ -123,6 +130,92 @@ describe('order validation at the boundary', () => {
     const { clientOrderId: _omit, ...noId } = base;
     const result = createOrderRequestSchema.safeParse({ ...noId, type: 'market' });
     expect(result.success).toBe(false);
+  });
+
+  it('refuses a zero or negative amount, price, or stopPrice, and refuses postOnly on a market order when time in force is omitted', () => {
+    const nonPositive = ['0', '0.0', '000', '-0', '-1'] as const;
+
+    for (const amount of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'market', amount });
+      expect(result.success, `amount ${amount}`).toBe(false);
+    }
+
+    for (const price of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'limit', price });
+      expect(result.success, `price ${price}`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === 'price' && /requires a price/.test(issue.message))).toBe(false);
+      }
+    }
+
+    for (const stopPrice of nonPositive) {
+      const result = createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice });
+      expect(result.success, `stopPrice ${stopPrice}`).toBe(false);
+      if (!result.success) {
+        expect(result.error.issues.some((issue) => issue.path[0] === 'stopPrice' && /requires a stopPrice/.test(issue.message))).toBe(
+          false,
+        );
+      }
+    }
+
+    const marketPostOnly = createOrderRequestSchema.safeParse({ ...base, type: 'market', postOnly: true });
+    expect(marketPostOnly.success).toBe(false);
+
+    expect(
+      createOrderRequestSchema.safeParse({
+        ...base,
+        type: 'limit',
+        amount: '0.000000000000000001',
+        price: '0.000000000000000001',
+      }).success,
+    ).toBe(true);
+    expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
+  });
+
+  it('rejects a GTD order with expireAt "soon"', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: 'soon',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a GTD order with expireAt "0"', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: '0',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts a GTD order with an offset expireAt', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+      expireAt: new Date(1750000000000).toISOString(),
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('still refuses a GTD order that omits expireAt', () => {
+    const result = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      timeInForce: 'GTD',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.message === 'GTD/GTT requires expireAt; the engine does not invent one')).toBe(true);
+    }
   });
 });
 

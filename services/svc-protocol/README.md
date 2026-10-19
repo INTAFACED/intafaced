@@ -259,7 +259,7 @@ pnpm --filter @intafaced/svc-protocol chain:deploy      # + CREATE2 cross-check
 
 **Effect when off:** `relayUserOperation` refuses. Reads, address prediction and calldata construction continue.
 
-Operator procedure (detect / contain / what you must not pull): [`docs/ops/INCIDENT-PROTOCOL-RUNBOOK.md`](../../docs/archive/ops/INCIDENT-PROTOCOL-RUNBOOK.md). Ledger/trade red is a different page.
+Operator procedure (detect / contain / what you must not pull): `docs/ops/INCIDENT-PROTOCOL-RUNBOOK.md` (removed). Ledger/trade red is a different page.
 
 Note what a kill-switch can and cannot do on this plane. It stops _us_ relaying. It does not stop a user transacting: their account is on a public chain and the same signed operation goes to any bundler. **A kill-switch here is a switch on our convenience, never on their access.** A kill-switch that could freeze a user's funds would mean we had custody, and this document would be a lie.
 

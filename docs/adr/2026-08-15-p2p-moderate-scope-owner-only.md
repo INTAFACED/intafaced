@@ -2,8 +2,8 @@
 
 **Status:** **Accepted — 2026-08-15.** Owner sign-off. Agents do not invent who moderates.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
-**Packet:** PKT-C8 — [`docs/ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json).
-**Packet prose:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §8.
+**Packet:** PKT-C8 — `docs/ops/owner-ruling-packet.json` (removed).
+**Packet prose:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §8.
 **Prior pack note:** [`2026-08-14-remaining-p0-money-law.md`](2026-08-14-remaining-p0-money-law.md) §PKT-C8 (same refuse; this ADR is the dedicated home).
 **Dispute law:** [`2026-08-04-p2p-escrow-and-dispute-law.md`](2026-08-04-p2p-escrow-and-dispute-law.md) — a human adjudicates; the timer never does.
 **Tracker:** `p2p.disputes` in `tooling/tracker/features.mjs`.

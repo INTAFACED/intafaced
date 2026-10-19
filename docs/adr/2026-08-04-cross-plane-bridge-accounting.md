@@ -143,7 +143,7 @@ Until an attestation design lands, **a crossing is operator-gated or it does not
 
 ## What still needs the owner
 
-- **Register the bridge as a human blocker.** It is X1 by any reading and `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` does not mention it.
+- **Register the bridge as a human blocker.** It is X1 by any reading and `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` (removed) does not mention it.
 - The attestation design and its signer set — **zero of the keys a crossing needs exist today**.
 - `jurisdiction.ts:135` sets `bridge: OPEN_FULL`, so a crossing already requires full KYC tier. That was decided silently; confirm or restate it deliberately.
 - Any go-live. Class X1, and plausibly X3.
@@ -152,6 +152,6 @@ Until an attestation design lands, **a crossing is operator-gated or it does not
 
 ## Housekeeping this ADR notes but does not fix
 
-- **Two research packs share one tracker id** — `docs/ops/trk/bridge.canonical.md` (155 lines, the superset) and `TRK-bridge.canonical.md` (114 lines, strictly smaller). Same duplication exists for `blueprint.attestations`, where the two actively contradict each other.
+- **Two research packs share one tracker id** — `docs/ops/trk/bridge.canonical.md` (removed) (155 lines, the superset) and `TRK-bridge.canonical.md` (114 lines, strictly smaller). Same duplication exists for `blueprint.attestations`, where the two actively contradict each other.
 - Both packs say `owner: none`; `features.mjs:579` says `shehzad002`.
 - The packs cite **S-B5** (design); the current board's build row is **S-D7**. Both are live — cite both.

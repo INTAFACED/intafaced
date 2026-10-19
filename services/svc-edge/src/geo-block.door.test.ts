@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { REGION_FAIL_CLOSED_ENV, SANCTIONS_REGIONS_ENV, SANCTIONS_SOURCE_ENV, SCREENING_REVIEWED_EMPTY } from '@intafaced/config';
 import { createAdminApi } from './admin-api.js';
@@ -15,6 +15,10 @@ import {
   looksLikeGeoClearance,
 } from './geo-block.js';
 import { KillSwitchState } from './kill-switch.js';
+
+// These suites read the live process env for the sanctions-screening posture. An
+// unset APP_ENV is production-like and refuses by design, so they declare the test env.
+vi.stubEnv('APP_ENV', 'test');
 
 const tokens: TokenConfig = {
   secret: 'test-only-signing-secret-at-least-32-characters-long',

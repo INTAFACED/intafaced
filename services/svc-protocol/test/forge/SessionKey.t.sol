@@ -232,6 +232,28 @@ contract SessionKeyForgeTest {
         }
     }
 
+    /// ERC-777 send/operatorSend, ERC-1363 transferAndCall/approveAndCall,
+    /// ERC-4626 withdraw/redeem, and Permit2 transferFrom move funds and
+    /// must be refused at grant time.
+    function test_missed_fund_selectors_are_outbound_and_not_grantable() public view {
+        bytes4[7] memory missed;
+        missed[0] = 0x9bd9bbc6; // ERC-777 send(address,uint256,bytes)
+        missed[1] = 0x62ad1b83; // ERC-777 operatorSend
+        missed[2] = 0x4000aea0; // ERC-1363 transferAndCall(address,uint256,bytes)
+        missed[3] = 0xcae9ca51; // ERC-1363 approveAndCall(address,uint256,bytes)
+        missed[4] = 0xb460af94; // ERC-4626 withdraw
+        missed[5] = 0xba087652; // ERC-4626 redeem
+        missed[6] = 0x36c78516; // Permit2 transferFrom(address,address,uint160,address)
+        for (uint256 i = 0; i < missed.length; i++) {
+            require(harness.outbound(missed[i]), "missed selector is not an outbound fund move");
+            SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(0xCAFE));
+            spec.selectors[0] = missed[i];
+            try harness.grantable(spec, address(this)) {
+                revert("missed fund selector must not be grantable");
+            } catch {}
+        }
+    }
+
     function testFuzz_outbound_selector_refused(uint8 which) public view {
         bytes4[33] memory forbidden = _forbiddenSelectors();
         SessionKeyLib.SessionSpec memory spec = _legalSpec(address(0xBEEF), address(0xCAFE));

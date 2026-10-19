@@ -23,10 +23,14 @@ import type { ScreeningList } from './screening.js';
  * so they pin the screening flag explicitly off. They do not supply a list.
  */
 const screeningFailClosedAtLoad = process.env[SCREENING_FAIL_CLOSED_ENV];
+const appEnvAtLoad = process.env.APP_ENV;
 beforeEach(() => {
+  process.env.APP_ENV = 'test';
   process.env[SCREENING_FAIL_CLOSED_ENV] = '0';
 });
 afterEach(() => {
+  if (appEnvAtLoad === undefined) delete process.env.APP_ENV;
+  else process.env.APP_ENV = appEnvAtLoad;
   if (screeningFailClosedAtLoad === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
   else process.env[SCREENING_FAIL_CLOSED_ENV] = screeningFailClosedAtLoad;
 });

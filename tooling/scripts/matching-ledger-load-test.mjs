@@ -7,7 +7,7 @@
  * Default invocation exits 2. LOAD_TEST_ACK=1 only prints the local target
  * plan. LOAD_TEST_SOAK=1 is still refused (no host; traffic is not generated).
  *
- * Runbook: docs/ops/D26-P3-03-MATCHING-LEDGER-LOAD-TEST.md
+ * Runbook: docs/runbooks/D26-P3-03-MATCHING-LEDGER-LOAD-TEST.md
  *
  *   node tooling/scripts/matching-ledger-load-test.mjs
  *   node tooling/scripts/matching-ledger-load-test.mjs --self-test
@@ -129,7 +129,7 @@ function main(argv = process.argv.slice(2), env = process.env) {
   const decision = evaluateLoadTestIntent(env);
   if (!decision.allow) {
     console.error(`[matching-ledger-load-test] ${decision.reason}`);
-    console.error('[matching-ledger-load-test] see docs/ops/D26-P3-03-MATCHING-LEDGER-LOAD-TEST.md');
+    console.error('[matching-ledger-load-test] see docs/runbooks/D26-P3-03-MATCHING-LEDGER-LOAD-TEST.md');
     process.exit(decision.code);
   }
   console.log(`[matching-ledger-load-test] ${decision.reason}`);

@@ -71,7 +71,7 @@ hook, before any of this code runs.
 
 **There is no vetting criterion here, and there must not be one.** No rule exists
 anywhere in this repository for what makes an application good;
-`docs/ops/trk/market.vendors.md` names it an open product question that belongs
+`docs/ops/trk/market.vendors.md` (removed) named it an open product question that belongs
 to the owner. So `vet` takes an operator's decision and their reason, records
 both, and applies the state — a log with a side effect, not a decision engine. A
 caller that reaches `VendorService.vet` without holding `market:ops` is refused
@@ -236,7 +236,7 @@ cached `is_listed`.
 and the public `listings` catalogue uses the same registration order (not newest-first) —
 stable under pagination, and it says nothing about how good anybody is. Ranking,
 quality scoring and featured placement are reserved to the owner by
-`docs/DIRECTION-2026-07-31.md` §8, and choosing one here — even "newest first",
+`docs/DIRECTION-2026-07-31.md` (removed) §8, and choosing one here — even "newest first",
 which is a growth choice — would be this service deciding listing policy. A
 public list is not a ranked list.
 
