@@ -75,6 +75,10 @@ import { CustomerStepUpService } from './auth/customer-step-up.js';
 import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
 import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
+import { httpClosureChecker } from './closure/closure-client.js';
+import { registerClosureFinalize } from './closure/closure-job.js';
+import { createClosureOpsRouter } from './closure/closure-ops-router.js';
+import { AccountClosureService } from './closure/closure-service.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
@@ -360,6 +364,11 @@ await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
   );
 });
+await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: account_closures is missing — apply drizzle/0048_account_closures.sql before starting svc-identity',
+  );
+});
 const profile = new ProfileService(sql);
 // Phone codes have no provider. account.phone.begin refuses auth.change_unwired
 // until an owner installs a PhoneCodeSender. This process does not send SMS.
@@ -372,6 +381,18 @@ const account = new AccountChange({
   maxAttempts: env.IDENTITY_CONTACT_CHANGE_MAX_ATTEMPTS,
   now: () => new Date(),
   log: { warn() {} },
+});
+const closureSecret = env.INTERNAL_SERVICE_SECRET;
+const closure = new AccountClosureService({
+  sql,
+  approvals: actionApprovals,
+  enabled: env.IDENTITY_ACCOUNT_CLOSE_ENABLED,
+  coolingOffDays: env.IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS,
+  founderUserIds: founderPair ?? [],
+  bank: httpClosureChecker({ url: env.IDENTITY_CLOSURE_BANK_URL, secret: closureSecret }),
+  trade: httpClosureChecker({ url: env.IDENTITY_CLOSURE_TRADE_URL, secret: closureSecret }),
+  p2p: httpClosureChecker({ url: env.IDENTITY_CLOSURE_P2P_URL, secret: closureSecret }),
+  now: () => new Date(),
 });
 account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));
 installPrivilegedDualControl(auth, actionApprovals);
@@ -397,7 +418,9 @@ export const appRouter = mergeRouters(
     assertStaffSessionLive: (sessionId, userId) => assertStaffSessionLive(createSqlTradeIdentityStore(sql), sessionId, userId),
     profile,
     account,
+    closure,
   }),
+  createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
   createApiKeyRequestSignRouter(sql, auth, signingEncKey),
   createApiKeyOriginRouter(sql, auth, auth),
@@ -533,6 +556,7 @@ registerBusinessDirectoryRoutes(app, {
   installRawBody: false,
 });
 
+registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, closure });
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   freeze,

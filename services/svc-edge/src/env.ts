@@ -119,6 +119,15 @@ const schema = baseEnvSchema
       MATCHING_EDGE_SIGNING_SECRET: z.string().min(32).optional(),
 
       /**
+       * The edge's Ed25519 signing key (PKCS8, base64url). Unset: the edge keeps signing the forwarded principal with
+       * EDGE_PRINCIPAL_SECRET. Set it only once every receiver verifies with the public key, or they will refuse the
+       * edge's requests. Held by svc-edge alone; no other service gets it. Needs EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS.
+       */
+      EDGE_PRINCIPAL_PRIVATE_KEY: z.string().min(40).optional(),
+      /** How long a signed principal lives, in seconds. No default: required when the signing key is set. */
+      EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS: z.coerce.number().int().min(1).max(300).optional(),
+
+      /**
        * Dedicated read key matching IDENTITY_EDGE_AUTHORITY_SECRET in identity.
        * Only currentAuthority POST and key metadata GET are authorized.
        * Missing key refuses authenticated forwarding; anonymous intake stays usable.

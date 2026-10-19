@@ -9,6 +9,7 @@ import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, re
 import { httpMatchingOperator } from './matching-operator-door.js';
 import { resolveRequestRegion } from './geo-region.js';
 import { CORS_ENFORCED_ENVS, edgeOriginAllowlist, registerCors } from './cors.js';
+import { edgeEd25519Config } from './edge-ed25519-config.js';
 import { env } from './env.js';
 import {
   EDGE_API_KEY_RATE_BUCKET,
@@ -169,6 +170,8 @@ const envLookup = (name: string): string | undefined => process.env[name];
 
 /** Per-key quota for the API-key plane (`gateway-plane.ts`). IP throttle stays in hardening.ts. */
 const keyQuota = createQuotaStore();
+
+const edgeEd25519 = edgeEd25519Config(env);
 
 const tokenConfig = {
   secret: env.JWT_ACCESS_SECRET,
@@ -402,6 +405,7 @@ await app.register(async (api) => {
     const exchanged = await exchangePrincipal(req.headers, {
       tokens: tokenConfig,
       edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+      ed25519: edgeEd25519,
       region: regionRes.region,
       // Direct to identity for `ifc_…` API keys — never via this edge (loop).
       identityUrl: env.IDENTITY_URL,
