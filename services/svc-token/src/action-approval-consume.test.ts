@@ -74,6 +74,44 @@ describe('token action-approval consume', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  const request = {
+    approvalId: 'appr-1',
+    operationId: 'op-1',
+    payloadHash: 'sha256:abc',
+    targetService: 'svc-token',
+    targetId: 'token.revenue.distribute',
+    expectedVersion: 'w1',
+  };
+
+  it('refuses a reply for a different approval, payload or status than the request', async () => {
+    for (const change of [{ payloadHash: 'sha256:other' }, { approvalId: 'appr-2' }, { expectedVersion: 'w2' }, { status: 'PENDING' }]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: true, json: async () => ({ result: { data: { json: { ...consumed, ...change } } } }) })),
+      );
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 's'.repeat(32));
+        await expect(client.consume(request)).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+  });
+
+  it('bounds the identity call with a timeout so a hung identity cannot block a founder-gated mutation', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) => ({
+      ok: true,
+      json: async () => ({ result: { data: { json: consumed } } }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await createIdentityApprovalClient('http://identity.test', 's'.repeat(32)).consume(request);
+      expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 const approvalCmd = { approvalId: 'appr-1', operationId: 'op-1' };
