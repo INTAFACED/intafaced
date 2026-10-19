@@ -1,3 +1,4 @@
+import { TestnetSigner } from './evm-signer.js';
 import { describe, expect, it } from 'vitest';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
@@ -8,9 +9,9 @@ const HOT_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b786
 const mk = () =>
   new EvmLiveChain({
     rpcUrl: 'http://127.0.0.1:1',
-    chainId: 1,
+    chainId: 31337,
     depositMnemonic: MNEMONIC,
-    hotWalletKey: HOT_KEY,
+    signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),
     minConfirmations: 1,
