@@ -2039,7 +2039,7 @@ export class TradeService {
       // still live, preserve the hold and surface a cancel recovery case.
       if (!cancellation.cancelled) {
         try {
-          const listed = await this.matching.listOrders(order.marketId);
+          const listed = await this.matching.listOrders(order.marketId, orderId);
           if (listed.orders.some((candidate) => candidate.orderId === orderId)) {
             await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
             throw new TradeError(`order ${orderId} remains live after definitive cancel miss`, 'trade.order_not_open');
@@ -2166,7 +2166,7 @@ export class TradeService {
 
       let listed;
       try {
-        listed = await this.matching.listOrders(order.marketId);
+        listed = await this.matching.listOrders(order.marketId, order.id);
       } catch {
         await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
         const frozen = (await this.findOrder(order.id)) ?? order;
@@ -4507,7 +4507,7 @@ export class TradeService {
       }
 
       // Non-destructive liveness: list before any cancel.
-      const listed = await this.matching.listOrders(order.marketId);
+      const listed = await this.matching.listOrders(order.marketId, orderId);
       const engineLive = listed.orders.some((o) => o.orderId === orderId);
 
       // Recovery is a lookup, not a blind resubmit. A live engine order stays
