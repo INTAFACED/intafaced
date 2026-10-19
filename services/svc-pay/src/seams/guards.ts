@@ -129,6 +129,8 @@ export class PayGuardRefusal extends Error {
   constructor(
     readonly code: `pay.guard_${string}`,
     readonly kind: 'refused' | 'unavailable',
+    /** Allowance left, as decimal strings, when the refusal is a limit (D-148). */
+    readonly remaining?: Readonly<Record<string, string>>,
   ) {
     super(code);
     this.name = 'PayGuardRefusal';
