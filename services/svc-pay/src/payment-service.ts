@@ -4801,7 +4801,7 @@ export class PayService {
       { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
       async () => {
         return withPayoutLock(this.sql, input.settlementId, async (connection) => {
-          const settlement = await this.getSettlement(input.settlementId, connection);
+          let settlement = await this.getSettlement(input.settlementId, connection);
           let admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
           if (admission) {
             if (
@@ -4866,16 +4866,55 @@ export class PayService {
               assetId: settlement.assetId,
             });
             if (payoutBook === 'proceeds') {
-              // A refund drawn on the proceeds after the settlement posted leaves the frozen net larger
-              // than the balance behind it. Refuse before any admission exists: an admitted payout is
-              // immutable and its hold could never post, so every retry would loop on the same row.
+              // Refunds drawn on the proceeds after the settlement posted leave the frozen net larger than
+              // the balance behind it. The merchant is owed the net less those refunds, so a fresh payout
+              // is cut down to the balance before any admission exists: an admitted payout is immutable,
+              // and its hold could never post. Gross falls with net; the fee is not returned on a refund.
               const available = (await this.ledger.balance(merchantProceeds(merchant.id, settlement.assetId))).amount;
               if (available < settlement.net) {
-                throw new PayError(
-                  `Settlement ${settlement.id} net exceeds the merchant proceeds behind it (a refund drew on them)`,
-                  'pay.settlement_exceeds_proceeds',
-                  { settlementId: settlement.id },
-                );
+                // A refund or a chargeback that may still be reversed (a refund the rail refuses, a won
+                // dispute) would put its money back after the cut and strand it.
+                const inFlight = await connection`
+                  SELECT 1 FROM pay.payments d
+                   WHERE d.merchant_id = ${settlement.merchantId}::uuid
+                     AND d.currency = ${settlement.assetId}
+                     AND d.status = 'disputed'
+                  UNION ALL
+                  SELECT 1
+                    FROM pay.payments p
+                    JOIN pay.payment_events r ON r.payment_id = p.id AND r.event = 'refund.posted'
+                   WHERE p.merchant_id = ${settlement.merchantId}::uuid
+                     AND p.currency = ${settlement.assetId}
+                     AND NOT EXISTS (
+                       SELECT 1 FROM pay.payment_events d
+                        WHERE d.payment_id = p.id AND d.event IN ('refunded', 'refund.reversed')
+                          AND d.payload->>'refundId' = r.payload->>'refundId'
+                     )
+                   LIMIT 1
+                `;
+                if (inFlight[0]) {
+                  throw new PayError(
+                    `Settlement ${settlement.id} cannot be paid out while a refund or dispute for this merchant is unresolved`,
+                    'pay.refund_in_flight',
+                    { settlementId: settlement.id },
+                  );
+                }
+                if (available <= 0n) {
+                  throw new PayError(
+                    `Settlement ${settlement.id} has nothing left to pay out (refunds drew on its proceeds)`,
+                    'pay.settlement_exceeds_proceeds',
+                    { settlementId: settlement.id },
+                  );
+                }
+                await connection`
+                  UPDATE pay.settlements
+                     SET net = ${formatAmount(available)}::numeric,
+                         gross = fees + ${formatAmount(available)}::numeric,
+                         updated_at = now()
+                   WHERE id = ${settlement.id}::uuid AND status IN ('posted', 'failed')
+                     AND payout_attempts = ${settlement.payoutAttempts}
+                `;
+                settlement = await this.getSettlement(settlement.id, connection);
               }
             }
             const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);

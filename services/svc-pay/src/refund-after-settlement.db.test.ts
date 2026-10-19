@@ -141,22 +141,64 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
     return { merchant, payment, settlement };
   }
 
-  it('refuses a payout whose net a refund has drawn below, before any admission or hold', async () => {
+  const payoutOf = (settlementId: string) => pay.payoutSettlement({ settlementId, railId: 'crypto-native', destination: DEST });
+  const payoutHoldsAndAdmissions = async () => {
+    const [admissions] = await sql`SELECT count(*)::int AS n FROM pay.payout_admissions`;
+    return admissions?.n;
+  };
+
+  it('pays out the net less a refund drawn on it, and records the reduced net', async () => {
     const { merchant, payment, settlement } = await settledPayment();
     await pay.refund(payment.id, amt('4'), { refundId: 'r-p1' });
     expect(formatAmount((await ledger.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe('6');
-    const holds = () => ledger.journal().filter((tx) => tx.reason.includes('payout')).length;
+
+    const paid = await payoutOf(settlement.id);
+
+    expect(paid.status).toBe('paid_out');
+    expect(formatAmount(paid.net)).toBe('6');
+    expect(formatAmount(paid.gross)).toBe('6');
+    expect(formatAmount((await ledger.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe('0');
+    expect(chain.outboundTransfers().map((t) => formatAmount(t.amount))).toEqual(['4', '6']);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('refuses a payout with nothing left after refunds, before any admission or hold', async () => {
+    const { payment, settlement } = await settledPayment();
+    await pay.refund(payment.id, amt('10'), { refundId: 'r-all' });
 
     for (let i = 0; i < 2; i++) {
-      await expect(pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native', destination: DEST })).rejects.toMatchObject(
-        { code: 'pay.settlement_exceeds_proceeds' },
-      );
+      await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.settlement_exceeds_proceeds' });
     }
-    expect(holds()).toBe(0);
+    expect(await payoutHoldsAndAdmissions()).toBe(0);
     expect(chain.outboundTransfers()).toHaveLength(1); // only the refund
     expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
-    const [admissions] = await sql`SELECT count(*)::int AS n FROM pay.payout_admissions`;
-    expect(admissions?.n).toBe(0);
     expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('does not cut the net while a refund may still be reversed', async () => {
+    const { payment, settlement } = await settledPayment();
+    const realSend = chain.send.bind(chain);
+    chain.send = async () => {
+      throw new Error('rpc timeout after the broadcast');
+    };
+    await expect(pay.refund(payment.id, amt('4'), { refundId: 'r-unk' })).rejects.toThrow();
+    chain.send = realSend;
+
+    await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+    expect(await payoutHoldsAndAdmissions()).toBe(0);
+    const unchanged = await pay.getSettlement(settlement.id);
+    expect(formatAmount(unchanged.net)).toBe('10');
+    expect(unchanged.status).toBe('posted');
+  });
+
+  it('does not cut the net while a dispute is open, since a won dispute returns the money', async () => {
+    const { merchant, payment, settlement } = await settledPayment();
+    await pay.openChargeback({ disputeId: 'd-1', paymentId: payment.id, merchantId: merchant.id, amount: '4', assetId: 'USDT' });
+    await pay.markDisputed(payment.id, { disputeId: 'd-1' });
+    expect(formatAmount((await ledger.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe('6');
+
+    await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+    expect(await payoutHoldsAndAdmissions()).toBe(0);
+    expect(formatAmount((await pay.getSettlement(settlement.id)).net)).toBe('10');
   });
 });
