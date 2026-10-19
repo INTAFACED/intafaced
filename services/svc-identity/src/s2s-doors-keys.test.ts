@@ -37,7 +37,7 @@ const SERVICES = [
   'svc-trade',
   'svc-pay',
   'svc-bank',
-  'svc-cron',
+  'svc-ops',
   'svc-matching',
 ] as const satisfies readonly ServiceName[];
 
@@ -200,7 +200,7 @@ describe('identity plain doors with service keys', () => {
     const { app } = build(f, 'keypair');
     const path = BUSINESS_DIRECTORY_HANDLES_PATH;
     const body = JSON.stringify({ userIds: [USER] });
-    const other = await app.inject({ method: 'POST', url: path, payload: body, headers: keyed(f, 'svc-cron', 'POST', path, body) });
+    const other = await app.inject({ method: 'POST', url: path, payload: body, headers: keyed(f, 'svc-ops', 'POST', path, body) });
     expect(other.statusCode).toBe(403);
     await app.close();
   });
@@ -241,12 +241,12 @@ describe('identity plain doors with service keys', () => {
     expect(viaSecret.statusCode).toBe(401);
     const job = '/internal/jobs/finalize-account-closures';
     const body = '{"limit":5}';
-    expect((await app.inject({ method: 'POST', url: job, payload: body, headers: legacy('svc-cron', INTERNAL, body) })).statusCode).toBe(
+    expect((await app.inject({ method: 'POST', url: job, payload: body, headers: legacy('svc-ops', INTERNAL, body) })).statusCode).toBe(
       401,
     );
     expect(calls).toEqual([]);
     expect(
-      (await app.inject({ method: 'POST', url: job, payload: body, headers: keyed(f, 'svc-cron', 'POST', job, body) })).statusCode,
+      (await app.inject({ method: 'POST', url: job, payload: body, headers: keyed(f, 'svc-ops', 'POST', job, body) })).statusCode,
     ).toBe(200);
     expect(calls).toEqual(['finalize']);
     await app.close();
