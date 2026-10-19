@@ -60,6 +60,8 @@ async function build(opts: { triggers?: StopTriggerStore | null; failPlace?: () 
       stored.set(id, order);
       return order;
     },
+    findClientOrder: async (p: Principal, input: { clientOrderId?: string }) =>
+      stored.get(orderIdFor(p.userId, market.id, input.clientOrderId as string)) ?? null,
     getOrder: async (_p: Principal, id: string) => stored.get(id)!,
     openOrders: async () => [...stored.values()],
     orderHistory: async () => [...stored.values()],
@@ -152,6 +154,21 @@ describe('stop-limit placement', () => {
     const ice = await post(app, ALICE, { ...STOP, clientOrderId: 'ice', displayQty: '0.5' });
     expect(ice.statusCode).toBe(400);
     expect(seen).toHaveLength(0);
+    await app.close();
+  });
+
+  it('does not let a plain order reuse a stop id, or a stop relabel a live plain order', async () => {
+    const { app, seen, triggers } = await build();
+    expect((await post(app, ALICE, STOP)).statusCode).toBe(201);
+    const plain = await post(app, ALICE, { ...STOP, type: 'limit', stopPrice: undefined });
+    expect(plain.json().intafacedCode).toBe('trade.stop_trigger_invalid');
+    expect(seen).toHaveLength(1);
+
+    const limit = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '1', price: '100', clientOrderId: 'plain-1' };
+    expect((await post(app, BOB, limit)).statusCode).toBe(201);
+    const relabel = await post(app, BOB, { ...STOP, clientOrderId: 'plain-1' });
+    expect(relabel.json().intafacedCode).toBe('trade.stop_trigger_invalid');
+    expect(await triggers!.read(orderIdFor(BOB, market.id, 'plain-1'))).toBeNull();
     await app.close();
   });
 

@@ -2220,6 +2220,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (deps.stopTriggers && parsed.data.type !== 'stop_limit' && hasRawStopPx(req.body)) {
         throw new TradeError('a stop is placed as type stop_limit with a stopPrice', TRADE_STOP_TRIGGER_INVALID);
       }
+      if (deps.stopTriggers && parsed.data.type !== 'stop_limit') {
+        // An id that already carries a trigger belongs to a stop; a plain order must not reuse it.
+        const market = await deps.marketBySymbol(parsed.data.symbol);
+        if (market && (await deps.stopTriggers.read(orderIdFor(principal.userId, market.id, parsed.data.clientOrderId)))) {
+          throw new TradeError('this clientOrderId was already used for a stop-limit', TRADE_STOP_TRIGGER_INVALID);
+        }
+      }
       if (parsed.data.type === 'stop_limit' && deps.stopTriggers) {
         if (displayQty) throw new TradeError('a stop-limit cannot be an iceberg', TRADE_STOP_TRIGGER_INVALID);
         const market = await deps.marketBySymbol(parsed.data.symbol);
@@ -2229,6 +2236,15 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         // Written before the hold: a crash after the hold must never leave a live
         // order without its trigger. A replay keeps the first trigger.
         const orderId = orderIdFor(principal.userId, market.id, input.clientOrderId as string);
+        // An order already placed under this id without a trigger is not a stop; do not relabel it.
+        if (deps.findClientOrder && !(await deps.stopTriggers.read(orderId))) {
+          const existing = await deps.findClientOrder(principal, {
+            symbol: input.symbol,
+            marketId: market.id,
+            clientOrderId: input.clientOrderId,
+          });
+          if (existing) throw new TradeError('this clientOrderId was already used for a non-stop order', TRADE_STOP_TRIGGER_INVALID);
+        }
         stopTrigger = await deps.stopTriggers.remember(orderId, principal.userId, formatAmount(trigger));
         if (stopTrigger !== formatAmount(trigger)) {
           throw new TradeError('this clientOrderId was already used with a different stopPrice', TRADE_STOP_TRIGGER_INVALID);
