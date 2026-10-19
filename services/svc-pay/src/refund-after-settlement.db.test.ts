@@ -156,7 +156,7 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
     expect(chain.outboundTransfers()).toHaveLength(1); // only the refund
     expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
     const [admissions] = await sql`SELECT count(*)::int AS n FROM pay.payout_admissions`;
-    expect(admissions.n).toBe(0);
+    expect(admissions?.n).toBe(0);
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 });
