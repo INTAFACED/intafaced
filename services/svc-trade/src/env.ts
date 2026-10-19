@@ -79,6 +79,15 @@ const schema = serviceEnvSchema
       /** How often the dead-man switch checks for countdowns past their deadline. Default 5s. */
       TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
 
+      /**
+       * Opens the svc-bank standing-instruction convert door (auto-invest). Default OFF:
+       * turn it on only once svc-identity decides the `standing_instruction` authority.
+       */
+      TRADE_STANDING_INSTRUCTION_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
       /** Kill-switch for one-tap Convert (`trade.convert`). */
       TRADE_CONVERT_ENABLED: z
         .union([z.boolean(), z.string()])

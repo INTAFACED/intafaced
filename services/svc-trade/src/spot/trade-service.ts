@@ -284,6 +284,11 @@ export interface TradeServiceOptions {
   /** Mirror of the `trade.convert` flag. OFF refuses convert quote + execute. */
   convertEnabled?: boolean;
   /**
+   * Opens the svc-bank standing-instruction convert door. Default OFF: identity
+   * must be able to decide the `standing_instruction` authority first.
+   */
+  standingInstructionsEnabled?: boolean;
+  /**
    * Extra house edge on convert quotes, in bps of book notional.
    * Disclosed on the firm quote; accept settles that number — never a second fee.
    * Unset / non-integer → convert quote/execute refuse. Never invent 10.
@@ -721,6 +726,7 @@ export class TradeService {
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
+  private readonly standingInstructionsEnabled: boolean;
   private readonly convertSpreadBps: number | null;
   private readonly convertQuoteTtlMs: number | null;
   private readonly convertStore: ConvertQuoteStore;
@@ -773,6 +779,7 @@ export class TradeService {
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
+    this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
     this.convertQuoteTtlMs = options.convertQuoteTtlMs ?? null;
     this.convertStore = options.convertStore ?? new SqlConvertQuoteStore(sql);
@@ -1132,9 +1139,38 @@ export class TradeService {
    */
   async convertQuote(principal: Principal, input: ConvertQuoteRequest) {
     requireScope(principal, 'trade:read');
-    const quote = await this.buildConvertQuote(principal.userId, input);
+    return this.convertQuoteFor(principal.userId, input);
+  }
+
+  private async convertQuoteFor(userId: string, input: ConvertQuoteRequest) {
+    const quote = await this.buildConvertQuote(userId, input);
     await this.convertStore.saveOpen(quote);
     return presentConvertQuote(quote);
+  }
+
+  private requireStandingInstructions() {
+    if (!this.standingInstructionsEnabled) {
+      throw new TradeError('standing-instruction convert is not enabled', 'trade.standing_instruction_disabled');
+    }
+  }
+
+  /** Quote for a user on behalf of a svc-bank schedule. The door has proved the caller. */
+  async standingConvertQuote(userId: string, _instructionId: string, input: ConvertQuoteRequest) {
+    this.requireStandingInstructions();
+    return this.convertQuoteFor(userId, input);
+  }
+
+  /**
+   * Settle a stored quote for a user on behalf of a svc-bank schedule. Same quote,
+   * ledger recipes and idempotency as the interactive door; only admission differs.
+   */
+  async standingConvertExecute(userId: string, instructionId: string, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
+    this.requireStandingInstructions();
+    return this.convertExecuteFor(userId, input, (businessId, payload) => {
+      if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+      if (typeof this.accountAdmission.admitStanding !== 'function') throw new TradingControlError('authority.unavailable');
+      return this.accountAdmission.admitStanding(userId, instructionId, businessId, payload);
+    });
   }
 
   /**
@@ -1146,15 +1182,25 @@ export class TradeService {
   }
 
   async convertExecute(principal: Principal, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
+    requireScope(principal, 'trade:write');
+    return this.convertExecuteFor(principal.userId, input, (businessId, payload) =>
+      this.admitAccountOperation(principal, 'order.place', businessId, payload),
+    );
+  }
+
+  private async convertExecuteFor(
+    userId: string,
+    input: ConvertExecuteRequest,
+    admit: (businessId: string, payload: unknown) => Promise<unknown>,
+  ): Promise<ConvertTradeWire> {
     return withMoneySpan(
       'trade.convertExecute',
       {
         operation: 'convert',
-        userId: principal.userId,
+        userId,
         orderId: input.quoteId,
       },
       async (span) => {
-        requireScope(principal, 'trade:write');
         if (!this.convertEnabled) {
           throw new TradeError('convert is disabled by the operator kill-switch', 'trade.convert_disabled');
         }
@@ -1168,10 +1214,10 @@ export class TradeService {
         if (!stored) {
           throw new TradeError('convert quote not found', 'trade.convert_quote_missing');
         }
-        if (stored.quote.userId !== principal.userId) {
+        if (stored.quote.userId !== userId) {
           throw new TradeError('convert quote belongs to another user', 'trade.convert_not_owner');
         }
-        await bindConvertClientId(this.sql, principal.userId, stored.quote.quoteId, input.clientConvertId);
+        await bindConvertClientId(this.sql, userId, stored.quote.quoteId, input.clientConvertId);
 
         const ids = convertSettleIdsFor(stored.quote.quoteId);
         if (stored.lifecycle === 'settled') {
@@ -1189,7 +1235,7 @@ export class TradeService {
           throw new TradeError('convert accept must honour the quoted quantity', 'trade.convert_price_moved');
         }
 
-        const original = await this.accountAdmission?.original(principal.userId, `convert:${stored.quote.quoteId}`);
+        const original = await this.accountAdmission?.original(userId, `convert:${stored.quote.quoteId}`);
         const recordedBound = (original?.payload as { bound?: { fillPrice: string; fillNotional: string; acceptedAt: string } } | undefined)
           ?.bound;
         let bound: BoundConvertFill;
@@ -1239,12 +1285,7 @@ export class TradeService {
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
-          await this.admitAccountOperation(
-            principal,
-            'order.place',
-            `convert:${stored.quote.quoteId}`,
-            original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }),
-          );
+          await admit(`convert:${stored.quote.quoteId}`, original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }));
         }
         if (stored.lifecycle === 'open') {
           await this.convertStore.saveBound(stored.quote, bound);

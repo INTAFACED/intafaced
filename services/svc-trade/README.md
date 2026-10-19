@@ -8,13 +8,14 @@ is allowed, funds it, hands it to the engine, and turns what comes back into led
 
 **Primary shipped surface here:** `trade.spot` + mounted Convert / OTC / CCXT REST / futures-orderable path (flagged).
 
-| Surface                                     | Mount            | Default                                                                       |
-| ------------------------------------------- | ---------------- | ----------------------------------------------------------------------------- |
-| Convert                                     | tRPC `convert.*` | ON (`TRADE_CONVERT_ENABLED`)                                                  |
-| OTC                                         | tRPC `otc.*`     | mounted; blank §8 law → refuse-closed                                         |
-| Algo TWAP create/ctrl                       | tRPC `algo.*`    | create ON; **scheduler job OFF** (`TRADE_ALGO_JOBS_ENABLED`, denylist enable) |
-| Copy                                        | tRPC `copy.*`    | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
-| Futures jobs / candle / MM seed / reconcile | job hosts        | **OFF**                                                                       |
+| Surface                                     | Mount             | Default                                                                       |
+| ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------- |
+| Convert                                     | tRPC `convert.*`  | ON (`TRADE_CONVERT_ENABLED`)                                                  |
+| Convert for a bank schedule                 | tRPC `standing.*` | OFF (`TRADE_STANDING_INSTRUCTION_ENABLED`)                                    |
+| OTC                                         | tRPC `otc.*`      | mounted; blank §8 law → refuse-closed                                         |
+| Algo TWAP create/ctrl                       | tRPC `algo.*`     | create ON; **scheduler job OFF** (`TRADE_ALGO_JOBS_ENABLED`, denylist enable) |
+| Copy                                        | tRPC `copy.*`     | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
+| Futures jobs / candle / MM seed / reconcile | job hosts         | **OFF**                                                                       |
 
 Wave-3 sealed money on tip (#1193 TWAP respace+jobs OFF, #1191/#1199 copy races, #1202–#1207 funding/insurance/reconcile, #1211 margin-call). See tracker `trade.copy` / `trade.algo` and [Not in this PR](#not-in-this-pr).
 
@@ -523,3 +524,7 @@ identical submissions.
 `ledger.reconcile()` and `ledger.verifyChain()` are clean after a run of mixed operations; `orders.filled_qty`
 always equals `SUM(fills.qty)`; the sum of open orders' `hold_amount` always equals the ledger's `hold` balance,
 per asset; no `available` or `hold` balance ever goes negative; and no terminal order consumed more than it held.
+
+## Standing-instruction convert (auto-invest)
+
+`standing.quote` and `standing.execute` let svc-bank run a customer's auto-invest schedule through the same firm quote, ledger recipes and idempotency as `convert.*`. There is no session or API key: the call is an authenticated service call (svc-bank only; the user and instruction ids come from the signed body), and admission names the `standing_instruction` authority, which svc-identity decides. The door is OFF by default (`TRADE_STANDING_INSTRUCTION_ENABLED`, refuses `trade.standing_instruction_disabled`); turn it on only once identity decides that authority. Limits to know: svc-bank and the other services share one `INTERNAL_SERVICE_SECRET` today, so the caller name is only as strong as that secret until per-service keys land; this path has no principal tier or region gate (svc-bank checks the instruction when it is created; identity checks the user is active and not frozen, and the restriction guard still applies).

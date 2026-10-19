@@ -238,6 +238,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.seed_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.seed_must_make': { ccxt: 'InvalidOrder', status: 400 },
   'trade.convert_disabled': { ccxt: 'OnMaintenance', status: 503 },
+  'trade.standing_instruction_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.convert_quote_missing': { ccxt: 'OrderNotFound', status: 404 },
   'trade.convert_quote_expired': { ccxt: 'InvalidOrder', status: 409 },
   'trade.convert_expiry_missing': { ccxt: 'InvalidOrder', status: 400 },
