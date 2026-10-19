@@ -132,8 +132,10 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
       stopLoss: { stopPrice: '90' },
     } as Parameters<TradeService['placeOrder']>[1]);
     // The engine rests the two legs under derived ids; the parent id never rests.
-    matching.scriptLive(tpOf(oco.id), btcusdt.id, '1');
-    matching.scriptLive(slOf(oco.id), btcusdt.id, '1');
+    // The real engine never lists the parent id: only its legs rest.
+    matching.scriptCancelMiss(oco.id);
+    matching.scriptLive(tpOf(oco.id), btcusdt.id, '1', 1, ALICE);
+    matching.scriptLive(slOf(oco.id), btcusdt.id, '1', 1, ALICE);
     return { oco };
   }
 
@@ -348,5 +350,28 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
     expect(cancelled.status).toBe('cancelled');
     expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0');
     expect(await avail(ALICE, 'BTC')).toBe('0.6');
+  });
+
+  it('reconcile of a live OCO pulls both legs from the engine before it releases the hold', async () => {
+    const { oco } = await setup();
+    const result = await trade.reconcileOrder(oco.id);
+    expect(result.engineLive).toBe(true);
+    expect(matching.cancelledOrders).toEqual(expect.arrayContaining([tpOf(oco.id), slOf(oco.id)]));
+    expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('0');
+    expect(await avail(ALICE, 'BTC')).toBe('1');
+  });
+
+  it('a transient listing failure then success on user cancel never releases over resting legs', async () => {
+    const { oco } = await setup();
+    const realList = matching.listOrders.bind(matching);
+    let calls = 0;
+    matching.listOrders = async (marketId: string, orderId?: string) => {
+      calls += 1;
+      if (calls === 1) throw new Error('svc-matching is unreachable');
+      return realList(marketId, orderId);
+    };
+    await expect(trade.cancelOrder(principalFor(ALICE), oco.id)).rejects.toBeDefined();
+    expect(await heldFor(ALICE, 'BTC', oco.id)).toBe('1');
+    expect((await trade.findOrder(oco.id))?.status).not.toBe('cancelled');
   });
 });

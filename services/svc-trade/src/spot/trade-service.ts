@@ -2041,7 +2041,7 @@ export class TradeService {
       if (!cancellation.cancelled) {
         try {
           const listed = await this.matching.listOrders(order.marketId, orderId);
-          if (listed.orders.some((candidate) => candidate.orderId === orderId)) {
+          if (listed.orders.some((candidate) => settlementOrderId(candidate.orderId) === orderId)) {
             await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
             throw new TradeError(`order ${orderId} remains live after definitive cancel miss`, 'trade.order_not_open');
           }
@@ -4559,7 +4559,7 @@ export class TradeService {
 
       // Non-destructive liveness: list before any cancel.
       const listed = await this.matching.listOrders(order.marketId, orderId);
-      const engineLive = listed.orders.some((o) => o.orderId === orderId);
+      const engineLive = listed.orders.some((o) => settlementOrderId(o.orderId) === orderId);
 
       // Recovery is a lookup, not a blind resubmit. A live engine order stays
       // unresolved and encumbered. List miss still consults trade.fills before
@@ -4637,7 +4637,25 @@ export class TradeService {
       // only local proof of no fill. No fills table row and filled_qty 0 is
       // the existing cancel path. Anything else is unknown: refuse, no refund.
       if (engineLive) {
-        await this.matching.cancel(order.marketId, orderId);
+        // An OCO rests as its legs, never under the parent id: pull each leg, and release only if every pull held.
+        const legs = listed.orders.map((o) => o.orderId).filter((id) => ocoLegParent(id) === orderId);
+        if (legs.length > 0) {
+          for (const leg of legs) {
+            const pulled = await this.matching.cancel(order.marketId, leg);
+            if (!pulled.cancelled) {
+              return {
+                orderId,
+                case: 'open_hold_no_engine_unknown',
+                action: 'fail_closed',
+                holdBefore,
+                engineLive: true,
+                detail: `OCO leg ${leg} changed while reconciling; hold retained, no refund`,
+              };
+            }
+          }
+        } else {
+          await this.matching.cancel(order.marketId, orderId);
+        }
         await this.finalize(orderId, 'cancelled');
         return {
           orderId,
