@@ -86,6 +86,7 @@ export function sizeFor(args: {
   available: string | null;
   lotSize: string;
   protectionPrice: string | null;
+  stopLimit?: string;
   percent: 25 | 50 | 75 | 100;
 }): { amount: string | null; needsPrice: boolean } {
   const max = maxAmount({
@@ -95,6 +96,7 @@ export function sizeFor(args: {
     available: args.available,
     market: { lotSize: args.lotSize },
     protectionPrice: args.protectionPrice,
+    stopLimit: args.stopLimit,
   });
   if (max === null) return { amount: null, needsPrice: args.available !== null };
   return { amount: portionOf(max, args.percent, args.lotSize), needsPrice: false };

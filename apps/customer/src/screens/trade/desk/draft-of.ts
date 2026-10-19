@@ -5,7 +5,8 @@ import { tifFields, type Tif } from './tif';
 
 /**
  * The order the service is asked about and to place, from a form the client rules accept. An OCO is a limit sell
- * priced at its take-profit; a bracket is a market (or immediate limit) buy. Both carry their exit prices in `exit`.
+ * priced at its take-profit (a buy OCO at its stop-loss limit); a bracket is a market, immediate or resting limit buy.
+ * Both carry their exit prices in `exit`.
  */
 export function draftOf(args: {
   market: Pick<DeskMarket, 'symbol'>;
@@ -24,7 +25,12 @@ export function draftOf(args: {
     side,
     type: sent,
     amount: checked.amount,
-    ...(checked.price ? { price: checked.price } : {}),
+    // A buy OCO is held at its stop-loss limit, so that is the price the order carries.
+    ...(checked.exit?.stopLossLimit && type === 'oco'
+      ? { price: checked.exit.stopLossLimit }
+      : checked.price
+        ? { price: checked.price }
+        : {}),
     ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
     ...tifFields(sentTif),
     ...(checked.exit && hasExits(type) ? { exit: { kind: type as 'oco' | 'bracket', ...checked.exit } } : {}),

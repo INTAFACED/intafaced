@@ -108,6 +108,10 @@ const messages = {
   'Enter a stop loss': 'Enter a stop-loss price.',
   'Take profit must be a whole number of steps': 'The take-profit price must be a whole number of {tick} {asset} steps.',
   'Stop loss must be a whole number of steps': 'The stop-loss price must be a whole number of {tick} {asset} steps.',
+  'Enter a stop loss limit': 'Enter a stop-loss limit price.',
+  'Stop loss limit must be a whole number of steps': 'The stop-loss limit price must be a whole number of {tick} {asset} steps.',
+  'Stop loss limit at or above stop loss': 'The stop-loss limit price must be at or above the stop-loss price.',
+  'Take profit below stop loss': 'To buy, the take-profit price must be below the stop-loss price.',
   'Take profit above stop loss': 'The take-profit price must be above the stop-loss price.',
   'Entry between exits': 'The entry price must sit between the stop-loss and the take-profit price.',
   'Review take profit': 'Take profit',
@@ -115,14 +119,29 @@ const messages = {
   'Review exit note label': 'Exits',
   'Review exit note oco':
     'One sell order holds your {asset} once. If the take profit starts to fill, the stop loss is cancelled, and the other way round, so a partly filled exit leaves the rest without the other one.',
+  'Review exit note oco buy':
+    'One hold of {asset} covers both buys, sized at the stop-loss limit price. The take profit waits on the book and the stop loss waits for its price. When one starts to fill, the other is cancelled, and the unused hold is released.',
   'Review exit note bracket':
     'This buys now, then places one sell order with both exits for the {asset} you receive after fees. Exit fees are not shown here. While the buy is partly filled there is no stop loss.',
+  'Review exit note bracket resting':
+    'The buy waits on the book at your entry price. The exits are placed shortly after the buy ends, for the {asset} it received. Until then, and while it is only partly filled, there is no stop loss. If you log out or your login runs out, the buy is cancelled for you and what filled is protected.',
   'Exit note oco':
     'Sell {asset} with a take profit and a stop loss. When one fills, the other is cancelled. The take-profit price rests on the book; the stop loss waits for its price.',
+  'Exit note oco buy':
+    'Buy {asset} with a take profit below the stop loss. The take-profit buy rests on the book and the stop loss buys once the price rises to it, up to your stop-loss limit. When one fills, the other is cancelled. Funds are held once, at the stop-loss limit price.',
   'Exit note bracket':
     'Buy {asset} now (market, or at your entry price as immediate-or-cancel or fill-or-kill), then place a take profit and a stop loss on what you received.',
-  'OCO buy off': 'OCO is sell-only for now. To buy with exits, use the Bracket tab.',
+  'Exit note bracket resting':
+    'The {asset} buy rests on the book at your entry price. It stays only while you are logged in and is cancelled for you before your login runs out. There is no stop loss while it is partly filled; the exits are placed shortly after the buy ends.',
   'Bracket sell off': 'A bracket starts with a buy. To put exits on {asset} you hold, use the OCO tab.',
+  'Stop loss limit': 'Stop-loss limit',
+  'Review stop loss limit': 'Stop-loss limit',
+  'Resting bracket refused title': 'This resting buy can’t be placed',
+  'Resting bracket refused body':
+    'A buy that waits on the book needs a login that is recent enough to place the exits for you. Log in again and try once more. Nothing was held.',
+  'Place the exits': 'Place the exits',
+  'Exits placed': 'The exits are in.',
+  'Exits still not placed': 'The exits are still not placed. Try again in a moment.',
   Amount: 'Amount',
   Total: 'Total',
   'Min amount': 'Min {min}',
@@ -198,6 +217,9 @@ const messages = {
   'Order type trailingStop': 'Trailing stop',
   'Time in force': 'Time in force',
   'Review time in force': 'Time in force',
+  'Tif bracket resting': 'Rest on the book',
+  'Tif bracket resting help':
+    'Needs an entry price. The buy waits on the book until it fills or you cancel it, and is cancelled for you before your login runs out.',
   'Tif GTC': 'Good till cancelled',
   'Tif GTC help': 'Stays on the book until it fills or you cancel it.',
   'Tif PO': 'Post only',

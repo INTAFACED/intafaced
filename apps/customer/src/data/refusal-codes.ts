@@ -35,6 +35,10 @@ export type RefusalKind =
   | 'belowMinimum'
   | 'selfTrade'
   | 'orderTypeUnsupported'
+  | 'exitPriceOrder'
+  | 'exitStopLimitMissing'
+  | 'exitMissing'
+  | 'exitsNotPlaced'
   | 'postOnlyWouldCross'
   | 'fokUnfillable'
   | 'tifInvalid'
@@ -127,6 +131,11 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.oco_price_order': 'exitPriceOrder',
+  'trade.oco_stop_limit_required': 'exitStopLimitMissing',
+  'trade.missing_oco_trigger': 'exitMissing',
+  'trade.missing_stop_price': 'exitMissing',
+  'trade.bracket_exit_failed': 'exitsNotPlaced',
   'trade.post_only_would_cross': 'postOnlyWouldCross',
   post_only_would_cross: 'postOnlyWouldCross',
   'trade.fok_unfillable': 'fokUnfillable',

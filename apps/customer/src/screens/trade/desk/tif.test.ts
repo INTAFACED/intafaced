@@ -18,10 +18,10 @@ describe('time in force on the ticket', () => {
     expect(tifsFor('limit')).toEqual(['GTC', 'PO', 'IOC', 'FOK']);
     expect(tifsFor('market')).toEqual(['GTC', 'FOK']);
   });
-  it('a sell OCO is good till cancelled only and a bracket entry is IOC or FOK, never resting', () => {
+  it('an OCO is good till cancelled only and a bracket entry is IOC, FOK or a resting GTC, never post only', () => {
     expect(tifsFor('oco')).toEqual(['GTC']);
-    expect(tifsFor('bracket')).toEqual(['IOC', 'FOK']);
-    expect(tifFor('bracket', 'GTC')).toBe('IOC');
+    expect(tifsFor('bracket')).toEqual(['IOC', 'FOK', 'GTC']);
+    expect(tifFor('bracket', 'GTC')).toBe('GTC');
     expect(tifFor('bracket', 'PO')).toBe('IOC');
     expect(tifFor('bracket', 'FOK')).toBe('FOK');
     expect(tifFor('oco', 'IOC')).toBe('GTC');
