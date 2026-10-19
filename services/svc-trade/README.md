@@ -63,6 +63,10 @@ every open order of that user through `cancelAllOrders`. Allowed timeouts are `T
 refuses `trade.cancel_all_after_unset`); the credential must outlive the deadline. The countdown is the durable row
 `trade.cancel_all_after`, holding the caller's own claims, never a token.
 
+**Batch cancel.** `POST /api/v1/orders/batch-cancel` takes up to 100 order ids (`{ids}`, `{orders:[{id}]}` or a bare array) and cancels them one by
+one through the same path as `DELETE /api/v1/orders/:id`. Results are per item (`success`, `refused`, `unknown`), never atomic; scope and jurisdiction
+are checked before any item, and a repeated id is refused.
+
 `trade:withdraw` appears nowhere, deliberately: it is an `INTERACTIVE_ONLY_SCOPE` that no API key may hold, which
 is what protects a leaked bot key from moving value off the platform.
 

@@ -78,6 +78,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch    scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch-amend scope: trade:write + jurisdiction(module=trade)  (sequential native amend)
+ *   POST   /api/v1/orders/batch-cancel scope: trade:write + jurisdiction(module=trade)  (sequential cancel by order id list)
  *   POST   /api/v1/orders/cancel-all-after scope: trade:write + jurisdiction(module=trade)  (dead-man switch; timeout 0 disarms)
  *   POST   /api/v1/orders/:id/replace scope: trade:write + jurisdiction(module=trade)
  *   PATCH  /api/v1/orders/:id      scope: trade:write + jurisdiction(module=trade)  (native amend)
@@ -2224,6 +2225,99 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           results.push({ ...base, status: 'REFUSED', error: mapped.body });
         } else {
           results.push(batchAmendUnknownItem(base));
+        }
+      }
+    }
+
+    return reply.code(200).send({ atomic: false, results });
+  });
+
+  /**
+   * POST /api/v1/orders/batch-cancel — bounded, sequential cancel of an id list.
+   *
+   * Auth, scope and jurisdiction are request-wide, checked before any item. Each id then takes the same
+   * TradeService.cancelOrder path as DELETE /orders/:id (engine first, hold release second). Results are ordered
+   * and independent: a refusal or unresolved cancel never rewrites an earlier item and there is no rollback or
+   * atomicity promise. Body: `{ ids: [...] }`, `{ orders: [{ id }|"id"] }`, or a bare array of ids.
+   */
+  app.post('/api/v1/orders/batch-cancel', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    try {
+      requireScope(principal, 'trade:write');
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+
+    const body = req.body as unknown;
+    const container =
+      body !== null && typeof body === 'object' && !Array.isArray(body) ? (body as { ids?: unknown; orders?: unknown }) : null;
+    const rawItems = Array.isArray(body)
+      ? body
+      : Array.isArray(container?.ids)
+        ? container.ids
+        : Array.isArray(container?.orders)
+          ? container.orders
+          : null;
+    if (rawItems === null) {
+      return reply
+        .code(400)
+        .send(invalidOrder('batch cancel body must be an array or an object with an ids array', 'trade.batch_body_invalid').body);
+    }
+    if (rawItems.length === 0) {
+      return reply.code(400).send(invalidOrder('batch cancel ids must be non-empty', 'trade.batch_empty').body);
+    }
+    if (rawItems.length > MAX_BATCH_ORDERS) {
+      return reply.code(400).send(invalidOrder(`batch cancel may contain at most ${MAX_BATCH_ORDERS} items`, 'trade.batch_too_large').body);
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const [index, rawItem] of rawItems.entries()) {
+      const idRaw =
+        typeof rawItem === 'string'
+          ? rawItem
+          : rawItem !== null && typeof rawItem === 'object'
+            ? ((rawItem as { id?: unknown; orderId?: unknown }).id ?? (rawItem as { orderId?: unknown }).orderId)
+            : null;
+      const orderId = typeof idRaw === 'string' && idRaw.length > 0 ? idRaw : null;
+      const base = { index, orderId };
+      if (orderId === null) {
+        results.push({ ...base, status: 'refused', error: invalidOrder('id must be a non-empty order id', 'trade.invalid_order_id').body });
+        continue;
+      }
+      if (seen.has(orderId)) {
+        results.push({ ...base, status: 'refused', error: invalidOrder('order id repeated in this batch', 'trade.batch_duplicate').body });
+        continue;
+      }
+      seen.add(orderId);
+      try {
+        const order = await deps.cancelOrder(principal, orderId);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const wire = presentCcxtOrder(order, symbol);
+        if (wire.executionOutcome !== null) {
+          results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
+        } else {
+          results.push({ ...base, status: 'success', order: wire });
+        }
+      } catch (err) {
+        const mapped = toCcxtError(err);
+        if (mapped) {
+          results.push({ ...base, status: 'refused', error: mapped.body });
+        } else {
+          results.push({
+            ...base,
+            status: 'unknown',
+            error: {
+              code: 'ExchangeError',
+              message: 'batch item outcome is unknown; read the order to reconcile',
+              intafacedCode: 'trade.batch_outcome_unknown',
+            },
+          });
         }
       }
     }
