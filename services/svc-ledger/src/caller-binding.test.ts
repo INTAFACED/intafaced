@@ -356,7 +356,10 @@ describe('POST /trpc/post caller binding', () => {
       m.app.inject({ method: 'POST', url: '/trpc/post', headers: { 'content-type': 'application/json', ...headers }, payload });
 
     expect((await call()).statusCode).toBe(200);
-    expect((await call()).statusCode).toBe(401);
+    const replay = await call();
+    expect(replay.statusCode).toBe(401);
+    expect(replay.json().code).toBe('ledger.unauthenticated');
+    expect(posted.value).toBe(true);
     await m.app.close();
   });
 
@@ -403,6 +406,7 @@ describe('every door names its callers', () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe('ledger.caller_forbidden');
+    expect(String(res.json().message)).toContain('svc-edge');
     await m.app.close();
   });
 
