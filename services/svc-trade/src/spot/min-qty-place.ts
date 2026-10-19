@@ -4,6 +4,7 @@ import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a min qty through the matching door that landed in #3305.
@@ -45,12 +46,13 @@ export function minQtyRefuse(qty: Amount, minQty: Amount | null): TradeError | n
 }
 
 export function attachMinQtyStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsMinQty(rec)) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           minQty: rec.minQty == null || rec.minQty === '' ? null : String(rec.minQty),
         });
       }

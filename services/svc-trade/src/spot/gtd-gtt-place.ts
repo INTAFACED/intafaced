@@ -4,6 +4,7 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineCancellation, EngineFill, EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a GTD/GTT through the matching clock that just landed.
@@ -23,12 +24,13 @@ const FLAG = Symbol.for('intafaced.trade.gtdGttPlace');
 const expireByClient = new Map<string, string>();
 
 export function attachExpireStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (typeof rec.clientOrderId === 'string' && typeof rec.expireAt === 'string' && rec.expireAt.length > 0) {
-        expireByClient.set(rec.clientOrderId, rec.expireAt);
+        stashSet(req, expireByClient, rec.clientOrderId, rec.expireAt);
       }
     }
     done();

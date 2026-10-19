@@ -4,6 +4,7 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineCancellation, EngineFill, EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place an IOC through the matching door that just landed.
@@ -29,12 +30,13 @@ function isIoc(tif: unknown): boolean {
 }
 
 export function attachIocStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (isIoc(rec.timeInForce) || isIoc(rec.tif)) {
-        iocByClient.set(stashKey(rec), true);
+        stashSet(req, iocByClient, stashKey(rec), true);
       }
     }
     done();

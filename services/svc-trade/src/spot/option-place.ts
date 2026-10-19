@@ -6,6 +6,7 @@ import { TradeService, type AmendOrderInput, type PlaceOrderInput } from './trad
 import { installNativeQtyUpAmend } from './qty-up-amend.js';
 import type { EngineAmendRequest, EngineCancellation, EngineFill, EngineSubmitRequest, MatchingClient } from './matching-client.js';
 import type { Market } from './types.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place an option through the matching door that landed in #3484.
@@ -146,6 +147,7 @@ export function priceRefuse(price: Amount | null | undefined): TradeError | null
 }
 
 export function attachOptionStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
@@ -159,7 +161,7 @@ export function attachOptionStash(app: FastifyInstance): void {
         rec.amend === true ||
         rec.now != null
       ) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           strike: rec.strike == null || rec.strike === '' ? null : String(rec.strike),
           expiry: rec.expiry == null || rec.expiry === '' ? null : String(rec.expiry),
           exercise: rec.exercise === true,

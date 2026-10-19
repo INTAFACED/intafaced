@@ -5,6 +5,7 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineComboLeg, EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Combo take/fill as one instrument (mega H4 trade half).
@@ -253,12 +254,13 @@ function wireLegs(legs: readonly ComboLegInput[]): EngineComboLeg[] {
 }
 
 export function attachComboStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsCombo(rec)) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           combo: rec.combo === undefined ? null : flagFromRaw(rec.combo),
           legs: rec.legs === undefined ? null : asLegRecords(rec.legs),
         });
@@ -337,6 +339,8 @@ export function installComboPlace(ctor: typeof TradeService): void {
     const req = origToEngine.apply(this, args);
     const input = args[2] as PlaceWithCombo | undefined;
     if (!input || !wantsCombo(input)) return req;
+    // An explicit combo:false is the caller's no; legs alone must not turn it into a combo order.
+    if (input.combo === false) return req;
     const legs = readLegs(input);
     return {
       ...req,

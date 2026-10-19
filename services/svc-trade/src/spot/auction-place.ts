@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place auction / benchmark through the matching door that landed in #3321.
@@ -62,12 +63,13 @@ export function auctionIntentRefuse(order: { readonly auction?: boolean | null; 
 }
 
 export function attachAuctionStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsAuctionIntent(rec)) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           auction: rec.auction === undefined ? null : flagFromRaw(rec.auction),
           benchmark: rec.benchmark === undefined ? null : flagFromRaw(rec.benchmark),
         });
