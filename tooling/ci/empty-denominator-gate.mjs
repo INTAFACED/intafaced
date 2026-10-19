@@ -287,22 +287,15 @@ export const ENFORCED = {
       'D26-P3-05: denominator is the tip runbook. With the tree gone the file is missing and the scan refuses by name ' +
       'rather than printing clean over an absent inventory.',
   },
+  'cross-package-reads': {
+    kind: 'guard',
+    must: /scope is EMPTY/,
+    note: 'walks every workspace test file; with no test file anywhere it refuses by name instead of printing clean.',
+  },
   'money-property-mutation': {
     kind: 'uncaught',
     must: /ENOENT[\s\S]*money\.ts/,
     note: 'copies its subject aside before mutating it, so an absent subject fails at the backup. Refuses, by throw.',
-  },
-  'i18n-bypass': {
-    kind: 'guard',
-    must: /scope is EMPTY/,
-    note:
-      '"A frozen baseline compared against nothing is not a frozen baseline" — the law, stated by a gate that already ' +
-      'had it. LIMIT, recorded because it is easy to over-read this row: the gate has TWO empty-denominator branches ' +
-      'and this row exercises one. No candidate files at all is an UNDECLARED empty scope and fails (tested here); a ' +
-      'scope where every candidate is allowlisted is a DECLARED state, so it prints "INSPECTED NOTHING … compared ' +
-      'against an empty scan" and exits 0 by deliberate design (i18n-bypass-scan.mjs:207-228). That declared branch is ' +
-      'the one the real repo takes today — apps/web went in #757 and the one project left is allowlisted in full. ' +
-      'Reaching it needs a per-gate apps/ fixture rather than an empty tree, which this harness does not build.',
   },
 };
 
@@ -318,37 +311,6 @@ export const ENFORCED = {
 // number with a reason beside it, not an append nobody reviews.
 // ───────────────────────────────────────────────────────────────────────────
 export const EXEMPT = {
-  'worktree-gc-selftest': {
-    proof: /✓ (\d+)\/(\d+) self-test cases passed/,
-    denom: 2,
-    reason:
-      '--self-test is a pure classifier harness over 15 in-memory fixtures and returns before the script touches git or ' +
-      'the disk. Its denominator is the fixture count, printed on every run and asserted non-zero here, and it cannot ' +
-      'reach zero without the printed count changing.',
-  },
-  'worktree-selftest': {
-    proof: /✓ (\d+)\/(\d+) self-test cases passed/,
-    denom: 2,
-    reason:
-      '--self-test pins pnpm wt start-point law (SHA not ref name, fetch status, resume path) over in-memory fixtures and ' +
-      'returns before any real worktree is cut. Measured empty-tree: 30/30 green with the repo gone. Same shape as ' +
-      'worktree-gc-selftest; classified when main landed the gate (#1476) after this PR branched.',
-  },
-  'claim-check-selftest': {
-    proof: /claim-check --self-test OK/,
-    reason:
-      '--self-test is pure fixtures over realArgPaths/pathsFromPorcelainLine/prListAtCap/prFilesTruncated/touches and ' +
-      'exits before gh or git. Measured empty-tree: OK with the repo gone. Landed as a doctrine gate (#1503) after this ' +
-      'PR branched — census gap that made empty-denominator red on tip until this row.',
-  },
-  'path-collide-selftest': {
-    proof: /path-collide --self-test OK/,
-    reason:
-      'pure fixtures over touches()/filesCollide(), no gh and no git. NOTE, honestly: unlike its two siblings here it ' +
-      'prints no fixture COUNT, only OK, so this row can prove the harness ran without the repo but cannot prove how ' +
-      'many assertions fired. Not fixed here — retuning an existing gate is out of scope for this change — recorded as ' +
-      'a residual instead.',
-  },
   'gate-tools-tests': {
     // Spec reporter (Node 21+ default, this laptop): "ℹ pass N".
     // TAP reporter (Node 20 default, CI): "# pass N". Same count, earlier than the
@@ -372,8 +334,8 @@ export const EXEMPT = {
   },
 };
 // Raised 5 → 6 (2026-10-13) for gate-tools-tests, whose subject is its own fixtures; every earlier raise had the same reason.
-// Raised 3 → 5 in the same commit that classified worktree-selftest + claim-check-selftest (gates main added after branch).
-export const EXEMPT_MAX = 6;
+// Lowered 6 → 2 (2026-10-19) with the retirement of the four tooling self-test gates (#5088).
+export const EXEMPT_MAX = 2;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 3. BLIND — measured, printing clean over nothing, frozen as debt.
@@ -408,15 +370,8 @@ export const BLIND = {
     observed: /no services yet/,
     reason: 'clean on "no services yet" — true of a scaffold, indistinguishable from a services/ directory that stopped resolving.',
   },
-  i18n: {
-    observed: /no apps\/ yet/,
-    reason:
-      'blind in the same way, but bounded: gates.mjs marks it `advisory: true`, so it is a reporter that cannot fail the ' +
-      'build at all and its zero-denominator run misleads nobody into a passing verdict it did not earn. Listed rather ' +
-      'than exempted because its denominator IS the repo, which is the test for this table.',
-  },
 };
-export const BLIND_MAX = 5;
+export const BLIND_MAX = 4;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 4. SELF — this gate, which cannot run inside its own fixture without

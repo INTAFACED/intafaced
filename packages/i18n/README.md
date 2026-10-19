@@ -38,8 +38,7 @@ Adding a language is an **owner decision with a content cost**, not an engineeri
 here is machine-translated and nothing here ever will be: a mistranslated "confirm withdrawal" in a
 money product is a loss, not a typo.
 
-The bypass in `apps/web` is frozen and enforced by `pnpm scan:i18n-bypass` — the queue can shrink
-and cannot grow. That file explains why it is a gate rather than a migration.
+The old `apps/web` bypass scan was retired with the Vue front end (the scan is deleted; see git history).
 
 ---
 
@@ -220,23 +219,8 @@ shifts the decimal point rather than multiplying by 100. `formatDate`, `formatDa
 
 ## The scanner
 
-`pnpm scan:i18n` reads every `.tsx` under `apps/` and reports JSX text nodes and `title` / `label` /
-`placeholder` / `alt` / `aria-label` props written as string literals.
-
-It **warns and exits 0**. It is a heuristic, it will produce false positives, and a heuristic that
-reddens `main` on a false positive gets disabled within a week — leaving neither the gate nor the
-discipline. It is deliberately not in CI. `--strict` exits 1 for anyone who wants it locally.
-
-Suppress a genuine false positive with a reason:
-
-```tsx
-{
-  /* i18n-exempt: protocol identifier, not prose */
-}
-<code title="ERC-20 transfer">{hash}</code>;
-```
-
-The gate that actually holds is the type system in this package. The scanner is a nudge.
+The heuristic JSX-literal scanner (`pnpm scan:i18n`) was retired on 2026-10-19: it was advisory and could not fail a build.
+The gate that actually holds is the type system in this package.
 
 ---
 
