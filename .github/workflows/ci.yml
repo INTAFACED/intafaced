@@ -390,7 +390,39 @@ jobs:
         run: pnpm build
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
-      - run: pnpm test --continue
+      - name: Run pnpm test --continue
+        run: |
+          set -o pipefail
+          pnpm test --continue 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+
+      # Makes a red run readable without the full log. The Postgres service
+      # container dumps its own log after the last step, so the tail of the job
+      # log is database noise and the failing tests sit far above it. This
+      # collects turbo's failed tasks and vitest's FAIL lines, prints them, and
+      # puts the first few in this step's name, which the jobs API returns.
+      # Reads output only; it changes no result and no test.
+      - id: failures
+        name: Collect failing tests
+        if: failure()
+        run: |
+          out="$RUNNER_TEMP/test-output.log"
+          [ -f "$out" ] || exit 0
+          sed -E 's/\x1b\[[0-9;]*m//g' "$out" > "$out.clean"
+          {
+            grep -E '^ *Failed: ' "$out.clean" | sed 's#@intafaced/##g' | head -n 1
+            grep -E '(^|[: ]) FAIL  ' "$out.clean" | sed 's#@intafaced/##' | cut -c1-110 | sort -u | head -n 40
+          } | tee "$RUNNER_TEMP/failures.txt" | sed 's/^/::error::/'
+          {
+            echo "## Failing tests"
+            echo '```'
+            cat "$RUNNER_TEMP/failures.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          short=$(tr '\n' ';' < "$RUNNER_TEMP/failures.txt" | cut -c1-900)
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+      - name: 'Failing: ${{ steps.failures.outputs.short }}'
+        if: failure() && steps.failures.outputs.short != ''
+        run: 'true'
 
       # The backstop. REQUIRE_POSTGRES / REQUIRE_EVM_CHAIN make the shared probes
       # throw, which turns most missing infrastructure into a red suite before
