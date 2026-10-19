@@ -486,18 +486,25 @@ export class CryptoNativeAdapter implements RailAdapter {
       this.completedRefundKeys.set(idempotencyKey, ok);
       return ok;
     } catch (err) {
-      // Nothing is stranded: the broadcast did not happen, the refunded total
-      // was not advanced, and the value is still in the merchant's clearing
-      // account where the core left it. The caller retries or gives up.
-      if (usedSequenceFallback) this.refundSequence--;
-      return railFailure({
-        railRef: ref,
-        amount,
-        assetId: transfer.assetId,
-        failureCode: this.chainFailureCode(err, 'chain.broadcast_failed'),
-        failureReason: err instanceof Error ? err.message : String(err),
-        at: this.now(),
-      });
+      // Only a chain that was never configured is a known "not sent": nothing
+      // left the building, the refunded total was not advanced, and the value
+      // is still in the merchant's clearing account. Any other throw (a timeout
+      // after the node took the transaction, a dropped reply) may already have
+      // paid the payer, so it is uncertainty, never a refusal: the core keeps
+      // the refund in flight rather than crediting the merchant back. Same rule
+      // as `payout`.
+      if (err instanceof ChainNotConfiguredError) {
+        if (usedSequenceFallback) this.refundSequence--;
+        return railFailure({
+          railRef: ref,
+          amount,
+          assetId: transfer.assetId,
+          failureCode: 'chain.not_configured',
+          failureReason: err.message,
+          at: this.now(),
+        });
+      }
+      throw new RailOutcomeUnknownError(err);
     }
   }
 

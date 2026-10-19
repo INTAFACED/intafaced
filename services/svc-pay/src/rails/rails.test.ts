@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { formatAmount, parseAmount as amt } from '@intafaced/ledger-client';
 import { runRailAdapterConformance, type RailHarness } from './conformance.js';
 import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './card-sandbox.js';
-import { CryptoNativeAdapter } from './crypto-native.js';
+import { CryptoNativeAdapter, RailOutcomeUnknownError } from './crypto-native.js';
 import { MemoryChain } from './chain-port.js';
 import { RailRegistry, UnknownRailError, RailCapabilityError } from './registry.js';
 import { signPayload, verifySignature } from './webhook-signature.js';
@@ -210,11 +210,11 @@ describe('crypto-native — finality is the whole rail', () => {
     await adapter.capture(auth.railRef);
 
     localChain.failNextBroadcast();
-    const failed = await adapter.refund(auth.railRef, amt('100'));
-    expect(failed.ok).toBe(false);
-    expect(failed.failureCode).toBe('chain.broadcast_failed');
+    // A broadcast that throws is uncertainty, never a refusal: the caller must
+    // not treat the refund as not sent.
+    await expect(adapter.refund(auth.railRef, amt('100'))).rejects.toBeInstanceOf(RailOutcomeUnknownError);
 
-    // Nothing left the chain, so the whole 100 is still refundable. If the
+    // Here nothing left the chain, so the whole 100 is still refundable. If the
     // total had advanced, the buyer's money would be unreachable.
     const retry = await adapter.refund(auth.railRef, amt('100'));
     expect(retry.ok).toBe(true);
