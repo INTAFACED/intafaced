@@ -15,6 +15,18 @@ export function problemText(problem: Problem, market: DeskMarket, t: ReturnType<
       return t('Enter a stop price');
     case 'stopTick':
       return t('Stop price must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
+    case 'takeProfitEmpty':
+      return t('Enter a take profit');
+    case 'stopLossEmpty':
+      return t('Enter a stop loss');
+    case 'takeProfitTick':
+      return t('Take profit must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
+    case 'stopLossTick':
+      return t('Stop loss must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
+    case 'exitOrder':
+      return t('Take profit above stop loss');
+    case 'entryBetween':
+      return t('Entry between exits');
     case 'amountLot':
       return t('Amount must be a whole number of steps', {
         lot: fmtAmount(problem.lot, { places: placesOf(problem.lot) }),

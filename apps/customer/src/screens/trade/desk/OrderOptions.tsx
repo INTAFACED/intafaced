@@ -5,14 +5,12 @@ import type { OrderType } from './order-math';
 import { tifLabelKey, tifsFor, UNSUPPORTED_TYPES, type Tif, type TifHelpKey, type UnsupportedType } from './tif';
 
 const TYPE_KEY = {
-  takeProfitStopLoss: 'Order type takeProfitStopLoss',
-  oco: 'Order type oco',
   trailingStop: 'Order type trailingStop',
 } as const satisfies Record<UnsupportedType, string>;
 
 /**
- * The order kinds the market does not take (stop-limit, take profit / stop loss, OCO, trailing), listed in the
- * strip's last slot the way the public spot desks list TP/SL, but disabled: each row is greyed and one line says why.
+ * The order kinds the market does not take (trailing stop), listed in the strip's last slot but disabled: each row is
+ * greyed and one line says why.
  */
 export function MoreOrderTypes() {
   const { t } = deskCopy.useCopy();

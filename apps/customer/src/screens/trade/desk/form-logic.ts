@@ -7,7 +7,7 @@
 import { SCALE } from '@intafaced/ledger-client/money';
 import type { Preview } from '../../../features/trade/trade-api';
 import { formatAmount } from '../../../shared/money';
-import { maxAmount, portionOf, scaled, type OrderType, type Side } from './order-math';
+import { exitSideOff, maxAmount, portionOf, scaled, type OrderType, type Side } from './order-math';
 
 /** A basis-point count as the ratio string the percent formatter reads: 10 bps is "0.001". */
 export const bpsToRatio = (bps: number): string => formatAmount((BigInt(bps) * SCALE) / 10_000n);
@@ -27,7 +27,8 @@ export function holdShort(preview: Pick<Preview, 'holdAsset' | 'holdAmount'>, sp
 }
 
 export type LiveState = 'idle' | 'checking' | 'ok' | 'blocked' | 'error';
-export type GateReason = 'signedOut' | 'closed' | 'pending' | 'marketSell' | 'invalid' | 'checking' | 'refused' | 'error' | 'short' | null;
+export type GateReason =
+  'signedOut' | 'closed' | 'pending' | 'marketSell' | 'exitSide' | 'invalid' | 'checking' | 'refused' | 'error' | 'short' | null;
 
 /**
  * May the person press Buy or Sell now? Only when signed in, the market is open, no earlier order is unconfirmed, the
@@ -51,19 +52,21 @@ export function gateSubmit(args: {
       ? 'closed'
       : marketSellOff(args.side, args.type)
         ? 'marketSell'
-        : args.pending
-          ? 'pending'
-          : !args.checkedOk
-            ? 'invalid'
-            : args.live === 'checking' || args.live === 'idle'
-              ? 'checking'
-              : args.live === 'blocked'
-                ? 'refused'
-                : args.live === 'error'
-                  ? 'error'
-                  : args.short
-                    ? 'short'
-                    : null;
+        : exitSideOff(args.side, args.type)
+          ? 'exitSide'
+          : args.pending
+            ? 'pending'
+            : !args.checkedOk
+              ? 'invalid'
+              : args.live === 'checking' || args.live === 'idle'
+                ? 'checking'
+                : args.live === 'blocked'
+                  ? 'refused'
+                  : args.live === 'error'
+                    ? 'error'
+                    : args.short
+                      ? 'short'
+                      : null;
   return { canSend: reason === null && !args.busy, reason };
 }
 

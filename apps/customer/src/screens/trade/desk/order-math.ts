@@ -11,10 +11,29 @@ import { formatAmount, parseAmount } from '../../../shared/money';
 import type { DeskMarket } from './market';
 
 export type Side = 'buy' | 'sell';
-export type OrderType = 'limit' | 'market' | 'stop_limit';
+/**
+ * `oco` (sell) and `bracket` (buy) are desk tabs, not service order types: the order the service takes is a limit
+ * (OCO: priced at the take-profit) or a market/limit entry (bracket), with the exit prices riding beside it.
+ */
+export type OrderType = 'limit' | 'market' | 'stop_limit' | 'oco' | 'bracket';
 
-/** Limit and stop-limit carry a typed limit price; only a market order is priced by the book. */
-export const isPriced = (type: OrderType): boolean => type !== 'market';
+/** The two tabs that attach a take-profit and a stop-loss. */
+export const hasExits = (type: OrderType): boolean => type === 'oco' || type === 'bracket';
+
+/** Limit, stop-limit and OCO carry a typed limit price; a market order is priced by the book and a bracket entry is when left empty. */
+export const isPriced = (type: OrderType): boolean => type !== 'market' && type !== 'bracket';
+
+/** True when the typed price is what the order is judged and held at (a bracket entry with no price is a market entry). */
+export const usesTypedPrice = (type: OrderType, price: string): boolean =>
+  isPriced(type) || (type === 'bracket' && positive(price) !== null);
+
+/** The order type the service is asked for: a bracket with an entry price is a limit entry, without one a market entry. */
+export const serviceType = (type: OrderType, price: string): 'market' | 'limit' | 'stop_limit' =>
+  type === 'oco' ? 'limit' : type === 'bracket' ? (positive(price) === null ? 'market' : 'limit') : type;
+
+/** OCO is sell-only and a bracket starts with a buy: the other side of each tab is off. */
+export const exitSideOff = (side: Side, type: OrderType): boolean =>
+  (type === 'oco' && side === 'buy') || (type === 'bracket' && side === 'sell');
 
 /** Best bid and ask of the book, null when that side is empty. */
 export interface Reference {
@@ -28,13 +47,23 @@ export type Problem =
   | { kind: 'priceEmpty' }
   | { kind: 'stopEmpty' }
   | { kind: 'stopTick'; tick: string }
+  | { kind: 'takeProfitEmpty' }
+  | { kind: 'stopLossEmpty' }
+  | { kind: 'takeProfitTick'; tick: string }
+  | { kind: 'stopLossTick'; tick: string }
+  | { kind: 'exitOrder' }
+  | { kind: 'entryBetween' }
   | { kind: 'amountLot'; lot: string }
   | { kind: 'amountMin'; min: string }
   | { kind: 'priceTick'; tick: string }
   | { kind: 'valueMin'; min: string }
   | { kind: 'noPrice' };
 
-export type Checked = { ok: true; amount: string; price: string | null; stopPrice?: string } | { ok: false; problem: Problem };
+export type Exit = { takeProfit: string; stopLoss: string };
+export type Checked = { ok: true; amount: string; price: string | null; stopPrice?: string; exit?: Exit } | { ok: false; problem: Problem };
+
+/** What the person typed. `price` is the limit price, the OCO take-profit, or the optional bracket entry price; `stopPrice` is the stop-limit trigger or the stop-loss. */
+type FormInput = { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string; takeProfit?: string };
 
 /** Parse a decimal string; null for empty or malformed text. Never throws. */
 export function scaled(value: string | null | undefined): bigint | null {
@@ -64,15 +93,13 @@ export function bboPrice(side: Side, ref: Reference | null): string | null {
 }
 
 /** Order value in the quote asset, floored: exact for a limit order, an estimate for a market order. */
-export function orderValue(
-  input: { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string },
-  ref: Reference | null,
-): { value: string; estimated: boolean } | null {
+export function orderValue(input: FormInput, ref: Reference | null): { value: string; estimated: boolean } | null {
   const amount = positive(input.amount);
   if (amount === null) return null;
-  const price = positive(isPriced(input.type) ? input.price : referencePrice(input.side, ref));
+  const typed = usesTypedPrice(input.type, input.price);
+  const price = positive(typed ? input.price : referencePrice(input.side, ref));
   if (price === null) return null;
-  return { value: exactValue(formatAmount(price), formatAmount(amount)), estimated: input.type === 'market' };
+  return { value: exactValue(formatAmount(price), formatAmount(amount)), estimated: !typed };
 }
 
 /**
@@ -81,7 +108,7 @@ export function orderValue(
  * (no trailing zeros) when the order is fit to preview.
  */
 export function checkOrder(
-  input: { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string },
+  input: FormInput,
   market: Pick<DeskMarket, 'tickSize' | 'lotSize' | 'minAmount' | 'minCost'>,
   ref: Reference | null,
 ): Checked {
@@ -92,20 +119,45 @@ export function checkOrder(
   const minAmount = positive(market.minAmount);
   if (minAmount !== null && amount < minAmount) return { ok: false, problem: { kind: 'amountMin', min: market.minAmount! } };
 
+  const tick = positive(market.tickSize);
+  const offGrid = (value: bigint) => tick !== null && value % tick !== 0n;
   let price: bigint | null = null;
   if (isPriced(input.type)) {
     price = positive(input.price);
+    if (price === null) return { ok: false, problem: { kind: input.type === 'oco' ? 'takeProfitEmpty' : 'priceEmpty' } };
+    // An OCO's price field is its take-profit, which has its own wording.
+    if (offGrid(price))
+      return {
+        ok: false,
+        problem: input.type === 'oco' ? { kind: 'takeProfitTick', tick: market.tickSize } : { kind: 'priceTick', tick: market.tickSize },
+      };
+  } else if (input.type === 'bracket' && input.price.trim() !== '') {
+    // The entry price of a bracket is optional: empty is a market entry.
+    price = positive(input.price);
     if (price === null) return { ok: false, problem: { kind: 'priceEmpty' } };
-    const tick = positive(market.tickSize);
-    if (tick !== null && price % tick !== 0n) return { ok: false, problem: { kind: 'priceTick', tick: market.tickSize } };
+    if (offGrid(price)) return { ok: false, problem: { kind: 'priceTick', tick: market.tickSize } };
   }
 
   let stop: bigint | null = null;
   if (input.type === 'stop_limit') {
     stop = positive(input.stopPrice);
     if (stop === null) return { ok: false, problem: { kind: 'stopEmpty' } };
-    const tick = positive(market.tickSize);
-    if (tick !== null && stop % tick !== 0n) return { ok: false, problem: { kind: 'stopTick', tick: market.tickSize } };
+    if (offGrid(stop)) return { ok: false, problem: { kind: 'stopTick', tick: market.tickSize } };
+  }
+
+  let exit: Exit | undefined;
+  if (hasExits(input.type)) {
+    const takeProfit = input.type === 'oco' ? price : positive(input.takeProfit);
+    const stopLoss = positive(input.stopPrice);
+    if (takeProfit === null) return { ok: false, problem: { kind: 'takeProfitEmpty' } };
+    if (stopLoss === null) return { ok: false, problem: { kind: 'stopLossEmpty' } };
+    if (offGrid(takeProfit)) return { ok: false, problem: { kind: 'takeProfitTick', tick: market.tickSize } };
+    if (offGrid(stopLoss)) return { ok: false, problem: { kind: 'stopLossTick', tick: market.tickSize } };
+    if (takeProfit <= stopLoss) return { ok: false, problem: { kind: 'exitOrder' } };
+    // A bracket that buys at a typed price exits above it and below it; anything else would sell at once.
+    if (input.type === 'bracket' && price !== null && (price <= stopLoss || price >= takeProfit))
+      return { ok: false, problem: { kind: 'entryBetween' } };
+    exit = { takeProfit: formatAmount(takeProfit), stopLoss: formatAmount(stopLoss) };
   }
 
   const judged = price ?? positive(referencePrice(input.side, ref));
@@ -118,6 +170,7 @@ export function checkOrder(
     amount: formatAmount(amount),
     price: price === null ? null : formatAmount(price),
     ...(stop === null ? {} : { stopPrice: formatAmount(stop) }),
+    ...(exit ? { exit } : {}),
   };
 }
 
@@ -143,7 +196,7 @@ export function maxAmount(args: {
   const lot = positive(args.market.lotSize);
   if (available === null || lot === null) return null;
   if (args.side === 'sell') return formatAmount((available / lot) * lot);
-  const price = positive(isPriced(args.type) ? args.price : (args.protectionPrice ?? null));
+  const price = positive(usesTypedPrice(args.type, args.price) ? args.price : (args.protectionPrice ?? null));
   if (price === null) return null;
   const raw = div(available, price, 'floor');
   return formatAmount((raw / lot) * lot);

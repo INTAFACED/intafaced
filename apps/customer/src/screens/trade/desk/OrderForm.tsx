@@ -43,7 +43,10 @@ import {
   probeAmount,
   protectionNow,
   scaled,
+  exitSideOff,
+  hasExits,
   isPriced,
+  serviceType,
   type OrderType,
   type Reference,
   type Side,
@@ -66,7 +69,8 @@ import { scaleLockStays } from './ticket/scale-flow';
 import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
-import { outcomeOf, tifFields, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
+import { draftOf } from './draft-of';
+import { outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -155,6 +159,7 @@ function SideForm({
   const env = useDataEnv();
   const [price, setPrice] = useState('');
   const [stopPrice, setStopPrice] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
   const [amount, setAmount] = useState('');
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -231,32 +236,26 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
-  const input = { side, type, price, amount, stopPrice };
+  const input = { side, type, price, amount, stopPrice, takeProfit };
   const priced = isPriced(type);
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
   const sellOff = marketSellOff(side, type);
-  const tradable = signedIn && market.open && !blocked && !sellOff;
+  const exitOff = exitSideOff(side, type);
+  const tradable = signedIn && market.open && !blocked && !sellOff && !exitOff;
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
     if (!tradable || !checked.ok) return null;
-    return {
-      symbol: market.symbol,
-      side,
-      type,
-      amount: checked.amount,
-      ...(checked.price ? { price: checked.price } : {}),
-      ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
-      ...tifFields(tif),
-      clientOrderId: 'desk-preview',
-    };
+    return draftOf({ market, side, type, tif, checked, clientOrderId: 'desk-preview' });
   }, [
     tradable,
     checked.ok,
     checked.ok ? checked.amount : '',
     checked.ok ? checked.price : '',
     checked.ok ? (checked.stopPrice ?? '') : '',
+    checked.ok ? (checked.exit?.takeProfit ?? '') : '',
+    checked.ok ? (checked.exit?.stopLoss ?? '') : '',
     market.symbol,
     side,
     type,
@@ -269,7 +268,7 @@ function SideForm({
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
-  const marketBuy = side === 'buy' && type === 'market';
+  const marketBuy = side === 'buy' && serviceType(type, price) === 'market';
   const [protection, setProtection] = useState<{ price: string; ask: string } | null>(null);
   const bestAsk = reference?.bestAsk ?? null;
   const liveProtection = live.state === 'ok' ? live.preview.protectionPrice : null;
@@ -320,16 +319,7 @@ function SideForm({
     setBusy(true);
     setFailure(null);
     setStatus(null);
-    const fresh: Draft = {
-      symbol: market.symbol,
-      side,
-      type,
-      amount: checked.amount,
-      ...(checked.price ? { price: checked.price } : {}),
-      ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
-      ...tifFields(tif),
-      clientOrderId: `desk:${crypto.randomUUID()}`,
-    };
+    const fresh = draftOf({ market, side, type, tif, checked, clientOrderId: `desk:${crypto.randomUUID()}` });
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
     else {
@@ -474,6 +464,21 @@ function SideForm({
   const bbo = bboPrice(side, reference);
   const listed = listedFees.status === 'ready' ? (listedFees.data[market.symbol] ?? null) : null;
 
+  const stopInput = (label: string) => (
+    <AmountInput
+      label={label}
+      value={stopPrice}
+      onValueChange={(next) => edit(() => setStopPrice(next))}
+      precision={pricePlaces}
+      placeholder={fmtPrice('0', market.tickSize)}
+      tick={market.tickSize}
+      min={market.tickSize}
+      unit={market.quote}
+      stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
+      aria-label={label}
+    />
+  );
+
   return (
     <form
       className="dk-form"
@@ -490,23 +495,25 @@ function SideForm({
         }
       }}
     >
-      {type === 'stop_limit' ? (
+      {type === 'stop_limit' ? stopInput(t('Stop price')) : null}
+      {type === 'bracket' ? (
         <AmountInput
-          label={t('Stop price')}
-          value={stopPrice}
-          onValueChange={(next) => edit(() => setStopPrice(next))}
+          label={t('Entry price')}
+          value={price}
+          onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
           precision={pricePlaces}
-          placeholder={fmtPrice('0', market.tickSize)}
+          placeholder={t('Entry price market')}
           tick={market.tickSize}
           min={market.tickSize}
           unit={market.quote}
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
-          aria-label={t('Stop price')}
+          onBbo={bbo && referenceFresh ? () => edit(() => (setPrice(padDecimals(bbo, pricePlaces)), setTotalEdit(null))) : undefined}
+          bboLabel={t('BBO')}
+          aria-label={t('Entry price')}
         />
-      ) : null}
-      {priced ? (
+      ) : priced ? (
         <AmountInput
-          label={t('Price')}
+          label={type === 'oco' ? t('Take profit') : t('Price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
           precision={pricePlaces}
@@ -517,7 +524,7 @@ function SideForm({
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
           onBbo={bbo && referenceFresh ? () => edit(() => (setPrice(padDecimals(bbo, pricePlaces)), setTotalEdit(null))) : undefined}
           bboLabel={t('BBO')}
-          aria-label={t('Price')}
+          aria-label={type === 'oco' ? t('Take profit') : t('Price')}
         />
       ) : (
         <AmountInput
@@ -532,6 +539,21 @@ function SideForm({
           aria-label={t('Price')}
         />
       )}
+      {type === 'bracket' ? (
+        <AmountInput
+          label={t('Take profit')}
+          value={takeProfit}
+          onValueChange={(next) => edit(() => setTakeProfit(next))}
+          precision={pricePlaces}
+          placeholder={fmtPrice('0', market.tickSize)}
+          tick={market.tickSize}
+          min={market.tickSize}
+          unit={market.quote}
+          stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
+          aria-label={t('Take profit')}
+        />
+      ) : null}
+      {hasExits(type) ? stopInput(t('Stop loss')) : null}
       <AmountInput
         label={t('Amount')}
         value={amount}
@@ -629,6 +651,14 @@ function SideForm({
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
         {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
+        {signedIn && market.open && exitOff ? (
+          <p className="dk-note">{side === 'buy' ? t('OCO buy off') : t('Bracket sell off', { asset: market.base })}</p>
+        ) : null}
+        {market.open && hasExits(type) && !exitOff ? (
+          <p className="dk-note-small">
+            {type === 'oco' ? t('Exit note oco', { asset: market.base }) : t('Exit note bracket', { asset: market.base })}
+          </p>
+        ) : null}
         {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
         {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
         {tradable && checked.ok && live.state === 'checking' && !failure && !status ? (
@@ -677,6 +707,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
   const { draft, preview } = review;
   const limit = draft.type !== 'market';
   const stop = draft.type === 'stop_limit';
+  const exit = draft.exit ?? null;
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
   return (
@@ -687,7 +718,17 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
       </div>
       <div>
         <dt>{t('Review type')}</dt>
-        <dd>{stop ? t('Order type stopLimit') : limit ? t('Order type limit') : t('Order type market')}</dd>
+        <dd>
+          {exit
+            ? exit.kind === 'oco'
+              ? t('Order type oco')
+              : t('Order type bracket')
+            : stop
+              ? t('Order type stopLimit')
+              : limit
+                ? t('Order type limit')
+                : t('Order type market')}
+        </dd>
       </div>
       <div>
         <dt>{t('Review time in force')}</dt>
@@ -701,12 +742,38 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           </dd>
         </div>
       ) : null}
-      <div>
-        <dt>{t('Review price')}</dt>
-        <dd className="if-num">
-          {limit && draft.price ? `${fmtPrice(draft.price, market.tickSize)} ${market.quote}` : t('Review market price')}
-        </dd>
-      </div>
+      {exit?.kind === 'oco' ? null : (
+        <div>
+          <dt>{exit ? t('Entry price') : t('Review price')}</dt>
+          <dd className="if-num">
+            {limit && draft.price ? `${fmtPrice(draft.price, market.tickSize)} ${market.quote}` : t('Review market price')}
+          </dd>
+        </div>
+      )}
+      {exit ? (
+        <>
+          <div>
+            <dt>{t('Review take profit')}</dt>
+            <dd className="if-num">
+              {fmtPrice(exit.takeProfit, market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review stop loss')}</dt>
+            <dd className="if-num">
+              {fmtPrice(exit.stopLoss, market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review exit note label')}</dt>
+            <dd>
+              {exit.kind === 'oco'
+                ? t('Review exit note oco', { asset: market.base })
+                : t('Review exit note bracket', { asset: market.base })}
+            </dd>
+          </div>
+        </>
+      ) : null}
       <div>
         <dt>{t('Review amount')}</dt>
         <dd className="if-num">
@@ -917,6 +984,8 @@ export const OrderPanel = memo(function OrderPanel({
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
           <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
+          <TabsTab value="oco">{t('Order type oco')}</TabsTab>
+          <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
           <TabsTab value="market">{t('Market')}</TabsTab>
         </TabsList>
         <MoreOrderTypes />

@@ -73,8 +73,23 @@ export const draftSchema = z
     timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
     postOnly: z.boolean(),
     clientOrderId: z.string().min(1).max(64),
+    /** A sell OCO or a buy bracket: the order above is its entry (bracket) or its take-profit leg (OCO). */
+    exit: z.object({ kind: z.enum(['oco', 'bracket']), takeProfit: positive, stopLoss: positive }).optional(),
   })
   .superRefine((draft, ctx) => {
+    if (draft.exit) {
+      const { kind, takeProfit, stopLoss } = draft.exit;
+      const bad = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: ['exit', path], message });
+      if (parseAmount(takeProfit) <= parseAmount(stopLoss)) bad('takeProfit', copy.t('enterALimitPrice'));
+      if (kind === 'oco' && (draft.side !== 'sell' || draft.type !== 'limit' || draft.timeInForce !== 'GTC' || draft.postOnly))
+        bad('kind', copy.t('enterALimitPrice'));
+      if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
+        bad('price', copy.t('enterALimitPrice'));
+      if (kind === 'bracket' && (draft.side !== 'buy' || draft.type === 'stop_limit' || draft.postOnly || draft.timeInForce === 'PO'))
+        bad('kind', copy.t('enterALimitPrice'));
+      if (kind === 'bracket' && draft.type === 'limit' && draft.timeInForce !== 'IOC' && draft.timeInForce !== 'FOK')
+        bad('kind', copy.t('enterALimitPrice'));
+    }
     if (draft.type === 'stop_limit' && !draft.stopPrice)
       ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
     if (draft.type !== 'stop_limit' && draft.stopPrice !== undefined)
@@ -86,6 +101,23 @@ export const draftSchema = z
       ctx.addIssue({ code: 'custom', path: ['postOnly'], message: copy.t('postOnlyRequiresALimitOrderWithGtc') });
   });
 export type Draft = z.infer<typeof draftSchema>;
+
+/** The advisory preview is of the order itself: the service has no preview for exit legs, so they are not sent to it. */
+export function previewBody(draft: Draft): Omit<Draft, 'exit'> {
+  const { exit: _exit, ...order } = draft;
+  return order;
+}
+
+/**
+ * The create-order body: the order, plus `oco` or `bracket` with both exit prices as decimal strings. A bracket's exit
+ * is placed by the service after the entry fills, for the base actually received.
+ */
+export function placeBody(draft: Draft): Record<string, unknown> {
+  const { exit, ...order } = draft;
+  if (!exit) return order;
+  const legs = { takeProfit: { stopPrice: exit.takeProfit }, stopLoss: { stopPrice: exit.stopLoss } };
+  return exit.kind === 'oco' ? { ...order, oco: true, ...legs } : { ...order, bracket: true, ...legs };
+}
 export const amendmentSchema = z.object({
   accepted: z.boolean(),
   idempotent: z.boolean(),
@@ -272,7 +304,7 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     async preview(input: Draft): Promise<ApiResult<Preview>> {
       const draft = draftSchema.safeParse(input);
       if (!draft.success) return refused(draft.error.issues.map((row) => row.message).join(' '));
-      const result = await api.rest('/orders/preview', previewSchema, { method: 'POST', body: draft.data });
+      const result = await api.rest('/orders/preview', previewSchema, { method: 'POST', body: previewBody(draft.data) });
       if (!result.ok && result.reason === 'uncertain')
         return tradeRefusal('orderPreviewCouldNotBeVerifiedNoOrderWasSent', { reason: 'invalid_response' });
       return result.ok && !matchesPreview(draft.data, result.data)
@@ -287,7 +319,7 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       const result = await currentReview(draft, reviewed);
       if (!result.ok) return result;
       if (!canDispatch(result.data)) return tradeRefusal('tradingContextChangedBeforePlacementNoOrderWasSent', { reason: 'aborted' });
-      const placed = await api.rest('/orders', orderSchema, { method: 'POST', body: draft });
+      const placed = await api.rest('/orders', orderSchema, { method: 'POST', body: placeBody(draft) });
       if (placed.ok && (placed.data.symbol !== draft.symbol || placed.data.clientOrderId !== draft.clientOrderId))
         return tradeRefusal('thePlacementResponseDoesNotIdentifyThisRequestReconcileTheOriginal', { reason: 'uncertain' });
       if (placed.ok && placed.data.recoveryRequired)
