@@ -64,6 +64,7 @@ import {
   sellProtectionPriceFor,
   requireSupportedType,
 } from './risk.js';
+import { slippageToleranceFor } from './slippage-tolerance.js';
 import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
@@ -1681,12 +1682,20 @@ export class TradeService {
     let marketSellLimitPrice: Amount | null = null;
 
     if (orderType === 'limit') {
+      slippageToleranceFor(input, orderType, null);
       if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
       assertPrice(market, input.price);
       assertNotional(market, input.price, input.qty);
       fundingPrice = input.price;
     } else if (input.side === 'buy') {
-      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
+      const ask = await this.bestAsk(market.id);
+      const ownerCap = await this.slippageCap(market.id);
+      protectionPrice = protectionPriceFor(market, ask, ownerCap);
+      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
+      if (tolerance !== null) {
+        const tighter = protectionPriceFor(market, ask, tolerance);
+        if (tighter < protectionPrice) protectionPrice = tighter;
+      }
       if (input.maxProtectionPrice != null && input.maxProtectionPrice < protectionPrice) {
         if (input.maxProtectionPrice <= 0n) {
           throw new TradeError('maxProtectionPrice must be positive', 'trade.invalid_price');
@@ -1701,7 +1710,13 @@ export class TradeService {
       // through an unpublished or missing bid. The bid is read once and shared
       // with the owner-limit reference below.
       const bid = await this.bestBid(market.id);
-      let floor = sellProtectionPriceFor(market, bid, await this.slippageCap(market.id));
+      const ownerCap = await this.slippageCap(market.id);
+      let floor = sellProtectionPriceFor(market, bid, ownerCap);
+      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
+      if (tolerance !== null) {
+        const tighter = sellProtectionPriceFor(market, bid, tolerance);
+        if (tighter > floor) floor = tighter;
+      }
       if (input.minProtectionPrice != null) {
         if (input.minProtectionPrice <= 0n) {
           throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');

@@ -465,6 +465,7 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place
    * both refuse. Never `orderable: true` with a null protection price.

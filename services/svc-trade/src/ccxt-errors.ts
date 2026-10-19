@@ -317,6 +317,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.convert_quote_ttl_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
