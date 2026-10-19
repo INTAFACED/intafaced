@@ -6,7 +6,7 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
  * Budgets for svc-ledger calls.
@@ -49,16 +49,20 @@ const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const
  * The signature covers a timestamp and the body (L2-6): the shared transport signs the exact bytes it sends, once per
  * attempt, so a captured header stops working after the skew window and cannot be replayed against another body.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string, options: { timeoutMs?: number } = {}): LedgerClient {
+export function createLedgerClient(
+  baseUrl: string,
+  internalSecret: string,
+  options: { timeoutMs?: number; s2s?: { signer: ServiceSigner; mode: ServiceAuthMode } } = {},
+): LedgerClient {
   // Transport budget only: neither an escrow deadline nor a ledger outcome.
   // Node timers overflow above this bound; never silently disable the budget.
-  const { timeoutMs } = options;
+  const { timeoutMs, s2s } = options;
   if (timeoutMs !== undefined && (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647)) {
     throw new RangeError('P2P ledger HTTP timeoutMs must be a positive integer at most 2147483647');
   }
   const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
     baseUrl,
-    sign: (payload) => serviceAuthHeadersForBody('svc-p2p', internalSecret, payload),
+    sign: serviceCallSigner({ service: 'svc-p2p', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
     // client is built (telemetry, a test door) still sees every ledger call.
     fetch: (input, init) => globalThis.fetch(input, init),

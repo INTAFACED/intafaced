@@ -232,10 +232,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-p2p/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-pay/src/affiliate-accrue.ts": {
       "sign": 1,
       "caller": 0

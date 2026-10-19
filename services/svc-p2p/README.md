@@ -500,3 +500,7 @@ The device throughout is a **canary** — the seller's account details contain a
 - raw `UPDATE` and `DELETE` on the access log, behind the service's back → refused by the database
 - retention: nothing purged while live or before the window; past it, values gone, fingerprint kept, canary unfindable in the table
 - the registry: empty → refuses; undeclared field → refused, not dropped; blank required field → missing; exact country beats the wildcard and does not fall back past it; a second active destination in one slot → `CONFLICT`, and rotation after removal works
+
+## Service keys (S2S v3)
+
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, the calls to svc-ledger are signed with svc-p2p's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. The affiliate calls to identity still use the shared secret and move in their own PR. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

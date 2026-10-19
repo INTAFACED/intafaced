@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 
 const bool = z
@@ -19,6 +19,7 @@ const ownerInt = z
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-p2p'),
