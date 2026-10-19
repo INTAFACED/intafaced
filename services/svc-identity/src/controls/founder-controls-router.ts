@@ -8,6 +8,7 @@ import {
   accountControlStateSchema,
   accountControlResultSchema,
   accountOperatorEntitlementSchema,
+  serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
   router,
@@ -27,7 +28,15 @@ import {
 
 export type FounderControlsPort = Pick<
   FounderControls,
-  'change' | 'getState' | 'history' | 'changeEntitlement' | 'operatorEntitlement' | 'operatorStatus' | 'currentAuthority' | 'listRestricted'
+  | 'change'
+  | 'getState'
+  | 'history'
+  | 'changeEntitlement'
+  | 'operatorEntitlement'
+  | 'serviceOperatorEntitlement'
+  | 'operatorStatus'
+  | 'currentAuthority'
+  | 'listRestricted'
 >;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
@@ -150,6 +159,12 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(z.object({ userId: z.string().uuid() }).strict())
         .output(accountOperatorEntitlementSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.operatorEntitlement(ctx, input.userId))),
+      // Service-only: no principal is forwarded. The caller names the user and the session it authenticated
+      // at the edge; identity checks both live. Consumers must not positive-cache an enabled answer.
+      serviceOperatorEntitlement: serviceProcedure
+        .input(serviceOperatorEntitlementInputSchema)
+        .output(accountOperatorEntitlementSchema)
+        .mutation(({ ctx, input }) => controlCall(() => controls.serviceOperatorEntitlement(ctx, input))),
       currentAuthority: serviceProcedure
         .input(currentAuthorityInputSchema)
         .output(currentAuthorityResultSchema)
