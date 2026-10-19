@@ -1,8 +1,10 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import {
+  encodeForwardedPrincipal,
   encodePrincipal,
   serviceAuthHeadersForBody,
   signPrincipalHeader,
+  signPrincipalHeaderEd25519,
   EDGE_PRINCIPAL_HEADER,
   EDGE_SIGNATURE_HEADER,
 } from '@intafaced/contracts';
@@ -61,6 +63,12 @@ export interface ExchangeOptions {
   tokens: TokenConfig;
   /** Shared with every mounted service. Signs the principal we forward. */
   edgeSecret: string;
+  /**
+   * When set, the forwarded principal is signed with this Ed25519 key (and carries `iat` and a short expiry) instead of
+   * the shared secret. Unset keeps the shared-secret form until every receiver verifies with the public key.
+   * `maxLifetimeSeconds` has no default; it comes from `EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS`.
+   */
+  ed25519?: { privateKey: string; maxLifetimeSeconds: number };
   /**
    * Resolved server-side — never from the request. Today a single configured
    * value; when geo-IP lands it resolves per request. Either way the caller
@@ -408,9 +416,15 @@ export async function exchangePrincipal(
   // Identity's current tier may have changed since this JWT was minted.
   principal = { ...principal, tier: authority.account.kycTier };
 
-  const raw = encodePrincipal(principal);
-  forward[EDGE_PRINCIPAL_HEADER] = raw;
-  forward[EDGE_SIGNATURE_HEADER] = signPrincipalHeader(raw, options.edgeSecret, options.region);
+  if (options.ed25519) {
+    const raw = encodeForwardedPrincipal(principal, options.ed25519.maxLifetimeSeconds, now);
+    forward[EDGE_PRINCIPAL_HEADER] = raw;
+    forward[EDGE_SIGNATURE_HEADER] = signPrincipalHeaderEd25519(raw, options.ed25519.privateKey, options.region);
+  } else {
+    const raw = encodePrincipal(principal);
+    forward[EDGE_PRINCIPAL_HEADER] = raw;
+    forward[EDGE_SIGNATURE_HEADER] = signPrincipalHeader(raw, options.edgeSecret, options.region);
+  }
 
   return { headers: forward, principal, rejected: null };
 }
