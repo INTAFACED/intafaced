@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../../shared/api';
 import { createPortalApi, type PortalApi } from './api';
 import { createPortalMock } from './portal.mock.mjs';
+import { refusalText } from './refusal';
 import type { ContractCase, ContractPart } from './mock-contract-kit';
 import { moneyContract } from './money/contract-cases';
 import { paymentsContract } from './payments/contract-cases';
@@ -66,6 +67,49 @@ describe('stand-in answers match the shapes the client parses', () => {
     const covered = new Set<string>([...all.map((c) => c.method), ...Object.values(parts).flatMap((p) => Object.keys(p.notMocked))]);
     const missing = Object.keys(portal).filter((name) => !covered.has(name));
     expect(missing).toEqual([]);
+  });
+  it('answers an email invite the same way for any address, keeps it as a pending email member, and never echoes an account', async () => {
+    const mock = createPortalMock('active');
+    const portal = clientFor(mock);
+    const first = await portal.invite({ email: '  Priya@Test.Invalid ', role: 'finance' });
+    const second = await portal.invite({ email: 'someone.else@test.invalid', role: 'finance' });
+    expect(first.ok && second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.data).toMatchObject({ userId: 'email:priya@test.invalid', status: 'invited', role: 'finance' });
+    expect(Object.keys(first.data).sort()).toEqual(Object.keys(second.data).sort());
+    const inviteCalls = mock.calls.filter((c: { procedure: string }) => c.procedure === 'merchantOps.team.invite');
+    expect(inviteCalls).toHaveLength(2);
+  });
+  it('refuses an email invite in plain words when the system has it switched off, or the window is full', async () => {
+    const off = await clientFor(createPortalMock('active', { emailInvites: 'off' })).invite({ email: 'a@test.invalid', role: 'viewer' });
+    expect(off.ok).toBe(false);
+    if (!off.ok) expect(refusalText(off)).toBe('Email invitations are switched off on this system.');
+    const limited = await clientFor(createPortalMock('active', { emailInvites: 'limited' })).invite({
+      email: 'a@test.invalid',
+      role: 'viewer',
+    });
+    expect(limited.ok).toBe(false);
+    if (!limited.ok) expect(refusalText(limited)).toMatch(/Too many email invitations/);
+    // The account-id path stays open when email invitations are off.
+    const byId = await clientFor(createPortalMock('active', { emailInvites: 'off' })).invite({ userId: 'TEST-user-new', role: 'viewer' });
+    expect(byId.ok).toBe(true);
+  });
+  it('refuses a bad address, both targets, no target, and an account id that borrows the email prefix', async () => {
+    const portal = clientFor(createPortalMock('active'));
+    const cases: Array<[Parameters<PortalApi['invite']>[0], RegExp]> = [
+      [{ email: 'not an email', role: 'viewer' }, /one email address/],
+      [{ email: 'a@test.invalid', userId: 'TEST-user-new', role: 'viewer' }, /either an email address or an account id/],
+      [{ role: 'viewer' }, /either an email address or an account id/],
+      [{ userId: 'email:a@test.invalid', role: 'viewer' }, /not an account id/],
+    ];
+    for (const [input, words] of cases) {
+      const result = await portal.invite(input);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(refusalText(result)).toMatch(words);
+        expect(refusalText(result)).not.toMatch(/pay\./);
+      }
+    }
   });
   it('uses real-shaped ids and marks amounts as test data', () => {
     const mock = createPortalMock('active');

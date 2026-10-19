@@ -19,6 +19,7 @@ import { accountCopy } from '../account/copy';
 import { memberKey, memberName, pinOwner } from '../account/model';
 import { extensionCopy, portalCopy } from '../copy';
 import { grantableRoles, memberActions } from '../model';
+import { inviteEmailOf, maskEmail, normaliseInviteEmail } from './email';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
 type Filters = { search: string; role: string; status: string };
@@ -96,10 +97,13 @@ export function TeamView(props: {
   const rows = props.members.status === 'ready' ? pinOwner(props.members.items, a('teamMemberFallback')) : null;
   const chosen = rows?.find((m) => memberKey(m) === props.selected) ?? null;
   // A person with no name on file is told apart by the end of their account id, so two of them never read the same.
-  const nameOf = (m: Member) =>
-    m.userId === props.myUserId
-      ? a('actorYou')
-      : memberName(m, `${a('teamMemberFallback')} (${m.userId.length > 14 ? `…${m.userId.slice(-8)}` : m.userId})`);
+  const nameOf = (m: Member) => {
+    if (m.userId === props.myUserId) return a('actorYou');
+    // A pending email invite has no account yet: it reads "Invited · p***@example.com", never the full address.
+    const invited = inviteEmailOf(m.userId);
+    if (invited) return memberName(m, t('invitedMasked', { email: maskEmail(invited) }));
+    return memberName(m, `${a('teamMemberFallback')} (${m.userId.length > 14 ? `…${m.userId.slice(-8)}` : m.userId})`);
+  };
   return (
     <div className="stack">
       <p className="pp-callout" role="note">
@@ -167,6 +171,9 @@ export function TeamView(props: {
                     cell: (m) => (
                       <>
                         <strong>{nameOf(m)}</strong>
+                        {inviteEmailOf(m.userId) && m.label && (
+                          <small className="pay-cell-note">{maskEmail(inviteEmailOf(m.userId)!)}</small>
+                        )}
                         {m.role === 'owner' && <small className="sa-pin pay-cell-note">{a('ownerPinned')}</small>}
                       </>
                     ),
@@ -225,7 +232,7 @@ export function TeamView(props: {
                 label={t('teamHistoryTitle')}
                 items={events.map((e) => ({
                   at: e.createdAt,
-                  title: eventTitle(e, (id) => actorName(id, props.myUserId, props.names), t),
+                  title: eventTitle(e, (id) => personName(id, props.myUserId, props.names, t), t),
                   detail: t('byActor', { actor: actorName(e.actorId, props.myUserId, props.names) }),
                 }))}
               />
@@ -290,6 +297,11 @@ export function InvitationsOnly({ portal }: { portal: PortalApi }) {
 }
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
+/** Who a history line is about: an email invite shows its masked address, anyone else by name. */
+function personName(id: string, me: string | null, names: ReadonlyMap<string, string>, t: T): string {
+  const invited = inviteEmailOf(id);
+  return invited ? t('invitedMasked', { email: maskEmail(invited) }) : actorName(id, me, names);
+}
 function eventTitle(e: TeamEvent, who: (id: string) => string, t: T): string {
   const person = who(e.memberUserId);
   const r = (v: string | null) => (v ? t(`role_${v}` as 'role_owner') : '');
@@ -359,6 +371,12 @@ function MemberPanel({
             <DateTime value={member.activatedAt ?? member.createdAt} />
           </dd>
         </div>
+        {inviteEmailOf(member.userId) && (
+          <div>
+            <dt>{t('fInvitedEmail')}</dt>
+            <dd>{maskEmail(inviteEmailOf(member.userId)!)}</dd>
+          </div>
+        )}
         {inviter && (
           <div>
             <dt>{a('invitedBy')}</dt>
@@ -367,6 +385,7 @@ function MemberPanel({
         )}
       </dl>
       <p className="muted">{t(`roleCan_${member.role}` as 'roleCan_owner')}</p>
+      {inviteEmailOf(member.userId) && member.status === 'invited' && <p className="muted">{t('pendingEmailBody')}</p>}
       {actions.canChange && member.memberId ? (
         <div className="pp-row-actions">
           <SelectField
@@ -415,21 +434,35 @@ function MemberPanel({
   );
 }
 
-/** What an invite will do. The full account ID is always shown; a label is only a name beside it, never instead of it. */
-export function InviteReview({ userId, label, role }: { userId: string; label: string; role: TeamRole }) {
+/**
+ * What an invite will do. An email invite shows the address exactly as it will be sent, after trimming and
+ * lower-casing; an account-id invite shows the full account ID. A label is only a name beside it, never instead of it.
+ */
+export function InviteReview({ userId = '', email, label, role }: { userId?: string; email?: string; label: string; role: TeamRole }) {
   const { t } = portalCopy.useCopy();
   const id = userId.trim();
+  const address = email === undefined ? null : (normaliseInviteEmail(email) ?? email.trim());
   const name = label.trim();
+  const roleName = t(`role_${role}` as 'role_owner');
   return (
     <>
-      <p>{t('inviteReview', { who: id, role: t(`role_${role}` as 'role_owner') })}</p>
+      <p>{address !== null ? t('inviteReviewEmail', { who: address, role: roleName }) : t('inviteReview', { who: id, role: roleName })}</p>
       <dl className="pp-facts">
-        <div>
-          <dt>{t('fUserId')}</dt>
-          <dd>
-            <code className="pp-wrap">{id}</code>
-          </dd>
-        </div>
+        {address !== null ? (
+          <div>
+            <dt>{t('fEmail')}</dt>
+            <dd>
+              <code className="pp-wrap">{address}</code>
+            </dd>
+          </div>
+        ) : (
+          <div>
+            <dt>{t('fUserId')}</dt>
+            <dd>
+              <code className="pp-wrap">{id}</code>
+            </dd>
+          </div>
+        )}
         {name && (
           <div>
             <dt>{t('fLabel')}</dt>
@@ -438,7 +471,7 @@ export function InviteReview({ userId, label, role }: { userId: string; label: s
         )}
         <div>
           <dt>{t('fRole')}</dt>
-          <dd>{t(`role_${role}` as 'role_owner')}</dd>
+          <dd>{roleName}</dd>
         </div>
       </dl>
     </>
@@ -448,27 +481,53 @@ export function InviteReview({ userId, label, role }: { userId: string; label: s
 function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: MemberRole | null; refresh: () => void }) {
   const { t } = portalCopy.useCopy();
   const allowed = grantableRoles(role);
+  const [byEmail, setByEmail] = useState(true);
+  const [email, setEmail] = useState('');
   const [userId, setUserId] = useState('');
   const [pick, setPick] = useState<TeamRole>('viewer');
   const [label, setLabel] = useState('');
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const chosen: TeamRole = allowed.includes(pick) ? pick : (allowed[allowed.length - 1] ?? 'viewer');
   const blocked = allowed.length === 0;
-  useUnsavedForm(Boolean(userId || label), extensionCopy.t('draftWarning'));
+  const normal = normaliseInviteEmail(email);
+  const emailError = email.trim().length > 0 && !normal ? t('errEmail') : undefined;
+  const ready = byEmail ? normal !== null : userId.trim().length > 0;
+  useUnsavedForm(Boolean(email || userId || label), extensionCopy.t('draftWarning'));
   return (
     <div id="invite">
-      <PaySection title={t('inviteTitle')} description={t('inviteBody')}>
+      <PaySection title={t('inviteTitle')} description={byEmail ? t('inviteBody') : t('inviteBodyId')}>
         <div className="form-stack pp-form">
-          <Field
-            label={`${t('fUserId')} *`}
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-            maxLength={128}
-            autoComplete="off"
-            spellCheck={false}
-            hint={t('hUserId')}
-            disabled={blocked}
-            required
-          />
+          {byEmail ? (
+            <Field
+              label={`${t('fEmail')} *`}
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setSentTo(null);
+              }}
+              maxLength={254}
+              autoComplete="off"
+              spellCheck={false}
+              hint={normal && normal !== email ? t('hEmailNormal', { email: normal }) : t('hEmail')}
+              error={emailError}
+              disabled={blocked}
+              required
+            />
+          ) : (
+            <Field
+              label={`${t('fUserId')} *`}
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              maxLength={128}
+              autoComplete="off"
+              spellCheck={false}
+              hint={t('hUserId')}
+              disabled={blocked}
+              required
+            />
+          )}
           <div className="form-row">
             <SelectField
               label={`${t('fRole')} *`}
@@ -491,16 +550,38 @@ function InviteForm({ portal, role, refresh }: { portal: PortalApi; role: Member
             title={t('sendInvite')}
             variant="primary"
             description={t('sendInviteBody')}
-            review={<InviteReview userId={userId} label={label} role={chosen} />}
-            perform={() => portal.invite({ userId: userId.trim(), role: chosen, ...(label.trim() ? { label: label.trim() } : {}) })}
+            review={
+              byEmail ? (
+                <InviteReview email={email} label={label} role={chosen} />
+              ) : (
+                <InviteReview userId={userId} label={label} role={chosen} />
+              )
+            }
+            perform={() =>
+              portal.invite({
+                ...(byEmail ? { email: normal ?? email.trim() } : { userId: userId.trim() }),
+                role: chosen,
+                ...(label.trim() ? { label: label.trim() } : {}),
+              })
+            }
             onConfirmed={() => {
+              if (byEmail) setSentTo(normal);
+              setEmail('');
               setUserId('');
               setLabel('');
               refresh();
             }}
-            disabled={blocked || userId.trim().length === 0}
+            disabled={blocked || !ready}
             disabledReason={blocked ? t('whyRole') : undefined}
           />
+          {sentTo && (
+            <p className="pay-confirmed" role="status">
+              {t('inviteSentEmail', { email: sentTo })}
+            </p>
+          )}
+          <button type="button" className="text-link" onClick={() => setByEmail(!byEmail)} disabled={blocked}>
+            {byEmail ? t('inviteById') : t('inviteByEmail')}
+          </button>
           {blocked && <p className="muted pp-note">{t('whyRole')}</p>}
         </div>
       </PaySection>

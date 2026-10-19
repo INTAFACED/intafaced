@@ -149,6 +149,7 @@ export function KeysView({
                           header: t('colLastUsed'),
                           cell: (k) => (k.lastUsedAt ? <DateTime value={k.lastUsedAt} /> : <span className="muted">{t('neverUsed')}</span>),
                         },
+                        { header: t('colProtection'), cell: (k) => <KeyProtection apiKey={k} /> },
                         { header: t('colStatus'), cell: (k) => <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} /> },
                         {
                           header: <span className="pp-sr">{t('colActions')}</span>,
@@ -161,12 +162,17 @@ export function KeysView({
                             {k.name} <code>{k.prefix}</code>
                           </>
                         ),
-                        time: k.lastUsedAt ? (
+                        time: (
                           <>
-                            {t('usedAt')} <DateTime value={k.lastUsedAt} />
+                            {k.lastUsedAt ? (
+                              <>
+                                {t('usedAt')} <DateTime value={k.lastUsedAt} />
+                              </>
+                            ) : (
+                              t('neverUsed')
+                            )}
+                            {!k.revoked && <> · {protectionLine(k, t)}</>}
                           </>
-                        ) : (
-                          t('neverUsed')
                         ),
                         status: <StatusChip entity="key" value={k.revoked ? 'revoked' : 'active'} />,
                       })}
@@ -189,6 +195,35 @@ export function KeysView({
         />
       </div>
     </div>
+  );
+}
+
+type T = ReturnType<typeof c.useCopy>['t'];
+
+const ipsLine = (k: ApiKey, t: T): string =>
+  k.ipAllowlist.length === 0 ? t('protIpsNone') : k.ipAllowlist.length === 1 ? t('protIpsOne') : t('protIps', { n: k.ipAllowlist.length });
+
+/** How the key is protected, in words: whether requests must be signed and which addresses may use it. Never a secret. */
+function protectionLine(k: ApiKey, t: T): string {
+  const ips = ipsLine(k, t);
+  return `${k.requireSignature ? t('protSigned') : t('protNotSigned')} · ${ips}`;
+}
+
+/** The saved signing and allowed-address state of one key, as shown on its row. */
+export function KeyProtection({ apiKey }: { apiKey: ApiKey }) {
+  const { t } = c.useCopy();
+  if (apiKey.revoked) return <span className="muted">{t('protRevoked')}</span>;
+  return (
+    <span className="pp-protection">
+      <ToneChip
+        tone={apiKey.requireSignature ? 'done' : 'progress'}
+        label={apiKey.requireSignature ? t('protSigned') : t('protNotSigned')}
+      />
+      <small className="pay-cell-note">
+        {ipsLine(apiKey, t)}
+        {apiKey.requireNonEmptyIpAllowlist ? ` · ${t('protIpRequired')}` : ''}
+      </small>
+    </span>
   );
 }
 
