@@ -7,10 +7,12 @@
  * the owner can always switch a key off. API-key and sub-account callers can
  * never take these actions.
  */
+import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { TRPCError } from '@intafaced/contracts';
 import { AuthError, type ApiKeyActionScope, type PayStepUpFactorProof } from './auth-service.js';
 import { userCopy } from '../user-copy.js';
+import { inTransaction } from './api-key-request-sign.js';
 
 export const factorProofSchema = z.union([
   z.object({ totpCode: z.string().regex(/^\d{6}$/) }).strict(),
@@ -119,4 +121,39 @@ export function narrowsAllowlist(current: readonly string[], next: readonly stri
   if (current.length === 0) return true;
   const allowed = new Set(current.map(norm));
   return next.every((entry) => allowed.has(norm(entry)));
+}
+
+/**
+ * Change an allowlist so the narrow-or-widen decision and the write share one transaction.
+ *
+ * The key row is locked (`readLocked` must `SELECT ... FOR UPDATE`) and the decision is made from
+ * the locked value, so a concurrent change cannot slip between the read and the write. A change that
+ * narrows commits on its own. Anything else, including a change that only turned into a widening
+ * because another request got there first, takes the guarded path: the fresh factor is consumed and
+ * audited in the same transaction as the write, and the row is locked again there.
+ */
+export async function narrowOrGuardedAllowlistChange<T>(args: {
+  sql: Sql;
+  gate: ApiKeyFactorGate;
+  caller: Caller;
+  proof: PayStepUpFactorProof | undefined;
+  action: { action: string; keyId: string };
+  readLocked: (tx: Sql) => Promise<string[]>;
+  nextFrom: (current: string[]) => string[];
+  norm?: (v: string) => string;
+  write: (tx: Sql) => Promise<T>;
+}): Promise<T> {
+  if (args.caller.kid || args.caller.sub_account) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'API keys and sub-accounts cannot create or change keys' });
+  }
+  const narrowed = await inTransaction(args.sql, async (tx) => {
+    const current = await args.readLocked(tx);
+    if (!narrowsAllowlist(current, args.nextFrom(current), args.norm)) return undefined;
+    return { value: await args.write(tx) };
+  });
+  if (narrowed) return narrowed.value;
+  return guardedApiKeyAction(args.gate, args.caller, args.proof, args.action, async (scope) => {
+    await args.readLocked(scope.tx);
+    return args.write(scope.tx);
+  });
 }
