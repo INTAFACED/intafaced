@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { initTRPC } from '@trpc/server';
 import { serviceAuthHeadersForBody } from './service-auth.js';
 import { createEdgeContext } from './edge.js';
-import { s2sFetch, s2sRequestHeaders, verifyServiceRequest } from './service-auth-http.js';
+import { s2sFetch, s2sRequestHeaders, serviceCallSigner, verifyServiceRequest } from './service-auth-http.js';
 import { createServiceSigner, createServiceVerifier, parseKeyring, type ServiceName } from './service-keys.js';
 import { serviceProcedureFor, type Context } from './trpc.js';
 
@@ -156,5 +156,83 @@ describe('serviceProcedureFor', () => {
   it('treats a claimed (shared-secret) name as a caller only while it is on the list', async () => {
     expect(await router.createCaller(ctx('svc-agents', 'shared')).ping()).toBe('ok');
     await expect(router.createCaller(ctx('svc-trade', 'shared')).ping()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+});
+
+describe('serviceCallSigner', () => {
+  const target = new URL('http://svc-academy.internal/trpc/post');
+  const request = { method: 'POST', url: target, contentType: 'application/json' };
+  const asRequest = (headers: Record<string, string>) => ({
+    method: 'POST',
+    url: target.pathname + target.search,
+    headers: { 'content-type': 'application/json', ...headers },
+    body: BODY,
+  });
+
+  it('signs with the shared secret alone when there is no signing key', () => {
+    const sign = serviceCallSigner({ service: 'svc-agents', audience: 'svc-academy', legacySecret: SECRET });
+    const headers = sign(BODY, request);
+    expect(Object.keys(headers).some((h) => h.startsWith('x-intafaced-s2s-'))).toBe(false);
+    expect(verifyServiceRequest(asRequest(headers), { verifier: newVerifier(), legacySecret: SECRET })).toMatchObject({
+      service: 'svc-agents',
+      scheme: 'shared',
+    });
+  });
+
+  it('dual sends the key signature and the shared secret', () => {
+    const sign = serviceCallSigner({
+      service: 'svc-agents',
+      audience: 'svc-academy',
+      legacySecret: SECRET,
+      s2s: { signer: signer('svc-agents'), mode: 'dual' },
+    });
+    const headers = sign(BODY, request);
+    expect(headers['x-intafaced-s2s-sig']).toBeDefined();
+    expect(headers['x-intafaced-service']).toBe('svc-agents');
+    expect(verifyServiceRequest(asRequest(headers), { verifier: newVerifier(), legacySecret: SECRET })).toEqual({
+      service: 'svc-agents',
+      scheme: 'keypair',
+      rejected: null,
+    });
+  });
+
+  it('keypair sends the key signature only, and the receiver in keypair mode accepts it', () => {
+    const sign = serviceCallSigner({
+      service: 'svc-agents',
+      audience: 'svc-academy',
+      legacySecret: SECRET,
+      s2s: { signer: signer('svc-agents'), mode: 'keypair' },
+    });
+    const headers = sign(BODY, request);
+    expect(headers['x-intafaced-service']).toBeUndefined();
+    expect(headers['x-intafaced-signature']).toBeUndefined();
+    expect(verifyServiceRequest(asRequest(headers), { verifier: newVerifier(), legacySecret: SECRET, mode: 'keypair' })).toMatchObject({
+      service: 'svc-agents',
+      scheme: 'keypair',
+    });
+  });
+
+  it('signs each call afresh, so a retry is not a replay', () => {
+    const sign = serviceCallSigner({
+      service: 'svc-agents',
+      audience: 'svc-academy',
+      legacySecret: SECRET,
+      s2s: { signer: signer('svc-agents'), mode: 'keypair' },
+    });
+    const verifier = newVerifier();
+    expect(verifyServiceRequest(asRequest(sign(BODY, request)), { verifier, mode: 'keypair' }).service).toBe('svc-agents');
+    expect(verifyServiceRequest(asRequest(sign(BODY, request)), { verifier, mode: 'keypair' }).service).toBe('svc-agents');
+  });
+
+  it('covers the content type: a different one at the receiver is refused', () => {
+    const sign = serviceCallSigner({
+      service: 'svc-agents',
+      audience: 'svc-academy',
+      legacySecret: SECRET,
+      s2s: { signer: signer('svc-agents'), mode: 'keypair' },
+    });
+    const headers = sign(BODY, request);
+    const tampered = { ...asRequest(headers), headers: { ...headers, 'content-type': 'text/plain' } };
+    expect(verifyServiceRequest(tampered, { verifier: newVerifier(), mode: 'keypair' }).service).toBeNull();
   });
 });

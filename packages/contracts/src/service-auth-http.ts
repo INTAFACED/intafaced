@@ -151,3 +151,39 @@ export async function s2sFetch(
   );
   return (options.fetchImpl ?? fetch)(url, { method, headers: { ...headers, ...signed }, body: init.body, signal: init.signal });
 }
+
+export interface ServiceCallSignerOptions {
+  /** The service making the calls. */
+  service: ServiceName;
+  /** The service receiving them. */
+  audience: ServiceName;
+  /** The shared secret. Sent only while the service is not in `keypair` mode. */
+  legacySecret: string;
+  /** Present once the service has a signing key and S2S is on; absent leaves the call on the shared secret alone. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode } | undefined;
+}
+
+/**
+ * The `sign` callback for an HTTP client that posts JSON to one service. It reads what is being sent (the
+ * ledger client passes method, URL and content type) and returns the headers for that exact call. Without a
+ * signing key the call is signed as it always was; with one, `dual` sends both forms and `keypair` sends the key
+ * signature only.
+ */
+export function serviceCallSigner(
+  options: ServiceCallSignerOptions,
+): (payload: string, request: { method: string; url: URL; contentType: string }) => Record<string, string> {
+  return (payload, request) => {
+    if (!options.s2s) return serviceAuthHeadersForBody(options.service, options.legacySecret, payload);
+    return s2sRequestHeaders(
+      options.s2s.signer,
+      {
+        audience: options.audience,
+        method: request.method,
+        url: request.url,
+        body: payload,
+        context: { contentType: request.contentType },
+      },
+      { legacySecret: options.s2s.mode === 'keypair' ? undefined : options.legacySecret },
+    );
+  };
+}
