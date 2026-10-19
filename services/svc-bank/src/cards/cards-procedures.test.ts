@@ -49,7 +49,8 @@ const APPROVAL = { approvalId: 'appr-1', operationId: 'op-1' } as const;
 const FEE_PAYER = '99999999-9999-4999-8999-999999999999';
 const NOW = new Date('2026-06-15T12:00:00.000Z');
 const PAN = '4242424242424242';
-const CVV = '909';
+// Not purely digits: the stored-rows dump holds random UUIDs, and a bare 3-digit CVV can occur inside one by chance.
+const CVV = 'cvv-909';
 const PIN = '135790';
 const WALLET_PAYLOAD = 'wallet-payload-test';
 const ADDRESS = {
