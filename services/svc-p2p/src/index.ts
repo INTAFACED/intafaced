@@ -102,6 +102,8 @@ const s2s = s2sFromEnv(env, 'svc-p2p');
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, {
   s2s: s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
 });
+// The same switch for the inbound internal doors: unset keeps them on the shared secret alone.
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 
 // Where the buyer is told to send the fiat, and the record of who ever looked.
 // Constructed before P2pService because a P2pService without one would lock
@@ -204,7 +206,7 @@ const edgeContext = buildEdgeContext(env);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 installP2pS2sRawBody(app);
-registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET });
+registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 
 const moderationPublic = moderationOnPublicDoor(isModerationConfigured(moderatorUserIds));
 
@@ -233,7 +235,7 @@ app.get('/ready', async () => ({
  * alarm, not a metric — it means a trade's terms and its value disagree.
  */
 app.get('/internal/escrow-integrity', async (req, reply) => {
-  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND) === null) {
+  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s) === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'p2p.unauthenticated' });
   }
   const result = await p2p.escrowIntegrity();
@@ -251,14 +253,14 @@ app.get('/internal/escrow-integrity', async (req, reply) => {
  * like from the outside.
  */
 app.get('/internal/moderation-backlog', async (req, reply) => {
-  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND) === null) {
+  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s) === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'p2p.unauthenticated' });
   }
   return p2p.moderationBacklog();
 });
 
 app.get<{ Params: { userId: string } }>('/internal/reputation/:userId', async (req, reply) => {
-  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND) === null) {
+  if (p2pInternalServiceOf(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s) === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'p2p.unauthenticated' });
   }
   const snapshot = await p2p.reputationOf(req.params.userId);
