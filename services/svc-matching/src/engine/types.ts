@@ -75,6 +75,8 @@ export interface EngineOrder {
   readonly ocoSiblingId?: OrderId | null;
   /** Existing linked bracket instruction and caller terms; journal replay preserves them. */
   readonly bracket?: boolean;
+  /** One-cancels-other exit pair (take-profit + stop-loss). Journalled so replay reaches the same refuse or rest. */
+  readonly oco?: boolean;
   readonly takeProfit?: Amount | null;
   readonly stopLoss?: Amount | null;
   readonly takeProfitOrderId?: OrderId | null;

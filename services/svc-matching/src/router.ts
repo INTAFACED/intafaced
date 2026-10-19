@@ -104,6 +104,10 @@ const submitBodySchema = z.object({
   tif: timeInForceSchema,
   /** Linked TP+SL sibling. First fill cancels the other; refuse if that sibling is already terminal. */
   ocoSiblingId: z.string().uuid().optional(),
+  /** One-cancels-other exit pair: take-profit (limit) and stop-loss (stop). Missing a leg refuses; the engine does not invent one. */
+  oco: z.boolean().optional(),
+  takeProfit: decimal.nullish(),
+  stopLoss: decimal.nullish(),
   /** Caller expire instant for GTD/GTT. The engine does not invent one. */
   expireAt: z.string().min(1).optional(),
   /** Caller session for cancel-on-disconnect. Missing is untagged — the engine does not invent one. */
@@ -283,6 +287,9 @@ function toEngineOrder(body: z.infer<typeof submitBodySchema>): EngineOrder {
     stopPrice: stopPx == null ? null : parseAmount(stopPx),
     tif: bindPostOnlyTif(body.tif, body.postOnly),
     ...(body.ocoSiblingId ? { ocoSiblingId: body.ocoSiblingId } : {}),
+    ...(body.oco === true ? { oco: true } : {}),
+    ...(body.takeProfit != null ? { takeProfit: parseAmount(body.takeProfit) } : {}),
+    ...(body.stopLoss != null ? { stopLoss: parseAmount(body.stopLoss) } : {}),
     ...(body.expireAt ? { expireAt: body.expireAt } : {}),
     ...(body.sessionId ? { sessionId: body.sessionId } : {}),
     ...(body.reduceOnly === true ? { reduceOnly: true } : {}),

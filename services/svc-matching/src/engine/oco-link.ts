@@ -171,7 +171,7 @@ export function installOcoLink(ctor: typeof OrderBook): void {
     // Atomic reject (L287): rehearse both legs on a throwaway copy of the book first. If the
     // take-profit leg is refused after the stop leg ran, the stop's fills and triggers would
     // stay executed on the live book, so a refused OCO must never touch it.
-    const rehearsal = OrderBook.fromState(this.toState());
+    const rehearsal = this.clone();
     const rehearsalSl = orig.call(
       rehearsal,
       { ...base, orderId: slId, type: 'stop', price: null, stopPrice: stopLoss, ocoSiblingId: tpId },

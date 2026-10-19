@@ -1875,6 +1875,18 @@ export class OrderBook {
     };
   }
 
+  /**
+   * An independent copy for rehearsal. `toState` is the durable form and leaves out the previous print and the
+   * mark and index prices, so a bare `fromState(toState())` would rehearse against a book that reacts differently.
+   */
+  clone(): OrderBook {
+    const copy = OrderBook.fromState(this.toState());
+    copy.previousTradePrice = this.previousTradePrice;
+    copy.markPrice = this.markPrice;
+    copy.indexPrice = this.indexPrice;
+    return copy;
+  }
+
   serialize(): string {
     return JSON.stringify(this.toState());
   }
