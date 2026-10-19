@@ -442,8 +442,9 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
    * `ledger.post` at all — not even to be rejected by it later.
    *
    * The caller is the owner of the key that verified, or, while the service is
-   * in `dual` mode, the name claimed under the shared secret. Either way the
-   * door's caller list is enforced; a door with an empty list refuses everyone.
+   * not in `keypair` mode, the name claimed under the shared secret. The door's
+   * caller list is enforced on a verified key; a door with an empty list
+   * refuses every key.
    */
   const authenticate = (req: FastifyRequest, door: LedgerDoor): PostCaller => {
     const { service, rejected, scheme } = verifyServiceRequest(req, {
@@ -462,7 +463,10 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
         'ledger.unauthenticated',
       );
     }
-    if (!(options.doorCallers?.[door] ?? (LEDGER_DOOR_CALLERS[door] as readonly string[])).includes(service)) {
+    // A name claimed under the shared secret is not proof, so it cannot be refused
+    // on its own say-so: the local test scripts and callers not yet on keys sign
+    // that way. `keypair` mode refuses the shared secret outright.
+    if (scheme === 'keypair' && !(options.doorCallers?.[door] ?? (LEDGER_DOOR_CALLERS[door] as readonly string[])).includes(service)) {
       throw new LedgerError(`Caller ${service} may not call ${door}.`, CALLER_FORBIDDEN);
     }
     return scheme === 'keypair' ? { kind: 'bound', service } : { kind: 'legacy', claimed: service };

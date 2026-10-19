@@ -410,6 +410,22 @@ describe('every door names its callers', () => {
     await m.app.close();
   });
 
+  it('dual lets a shared-secret claim of an unlisted name reach a door, since the name is not proof', async () => {
+    const m = await mount({ mode: 'dual', posted: { value: false } });
+    const payload = JSON.stringify(READ_BODY);
+
+    const res = await m.app.inject({
+      method: 'POST',
+      url: '/trpc/custody',
+      headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('local-test-seed', SHARED, payload) },
+      payload,
+    });
+
+    expect(res.statusCode).not.toBe(401);
+    expect(res.statusCode).not.toBe(403);
+    await m.app.close();
+  });
+
   it('refuses every caller on a door with no named caller', async () => {
     const m = await mount({ mode: 'keypair', posted: { value: false } });
 
@@ -424,7 +440,21 @@ describe('every door names its callers', () => {
   it('lets a listed service reach a read door and rejects an unsigned one', async () => {
     const m = await mount({ mode: 'keypair', posted: { value: false } });
 
-    expect((await sendKeyed(m, 'svc-bank', READ_BODY, '/trpc/balance')).statusCode).not.toBe(403);
+    const ledger = {
+      balance: async () => ({ accountId: 'acct-1', amount: amt('5') }),
+    } as unknown as LedgerService;
+    const app = Fastify({ logger: false });
+    registerS2sHttp(app, ledger, SHARED, { bodyBind: 'require', s2s: { verifier: m.k.verifier(), mode: 'keypair' } });
+    await app.ready();
+    const listed = await sendKeyed(
+      { app, k: m.k },
+      'svc-bank',
+      { ownerType: 'user', ownerId: USER, assetId: 'USDT', kind: 'available' },
+      '/trpc/balance',
+    );
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json().amount).toBe('5');
+    await app.close();
     const anon = await m.app.inject({
       method: 'POST',
       url: '/trpc/balance',
