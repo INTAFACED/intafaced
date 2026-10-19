@@ -75,29 +75,20 @@ async function probe(name, url, path = '/health') {
 }
 
 async function deposit(contracts, userId, assetId, amountStr, railRef) {
-  const { recipes, parseAmount, formatAmount } = await loadLedgerClient();
-  const request = recipes.deposit({
-    userId,
-    assetId,
-    amount: parseAmount(amountStr),
-    rail: 'cx8-smoke',
-    railRef,
+  const { createHttpLedgerClient, recipes, parseAmount } = await loadLedgerClient();
+  const ledger = createHttpLedgerClient({
+    baseUrl: LEDGER.replace(/\/$/, ''),
+    sign: (payload) => contracts.serviceAuthHeadersForBody('svc-trade', INTERNAL, payload),
   });
-  const wire = {
-    ...request,
-    entries: request.entries.map((e) => ({
-      ...e,
-      amount: typeof e.amount === 'bigint' ? formatAmount(e.amount) : e.amount,
-    })),
-  };
-  const raw = JSON.stringify(wire);
-  const headers = {
-    'content-type': 'application/json',
-    ...contracts.serviceAuthHeadersForBody('svc-trade', INTERNAL, raw),
-  };
-  const res = await fetch(`${LEDGER.replace(/\/$/, '')}/trpc/post`, { method: 'POST', headers, body: raw });
-  const text = await res.text();
-  if (!res.ok) throw new Error(`ledger deposit ${assetId} for ${userId} failed ${res.status}: ${text.slice(0, 400)}`);
+  await ledger.post(
+    recipes.deposit({
+      userId,
+      assetId,
+      amount: parseAmount(amountStr),
+      rail: 'cx8-smoke',
+      railRef,
+    }),
+  );
   log(`SEED deposit ${amountStr} ${assetId} for ${userId}`);
 }
 
