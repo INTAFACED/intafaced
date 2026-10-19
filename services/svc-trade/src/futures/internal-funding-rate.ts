@@ -5,7 +5,7 @@
  * public surface only reflects what was published.
  */
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import { consumeApproval, payloadHash, type ApprovalBook } from '../admin/common.js';
 import { periodIdFor, type FundingRateEntry } from './funding-rate-source.js';
 import { assertFundingRateWithinBound, FundingRateBoundError } from './funding-rate-bound.js';
@@ -16,6 +16,8 @@ const FUTURE_SKEW_MS = 60_000;
 
 export interface InternalFundingRateDeps {
   internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   publishFundingRate: (entry: FundingRateEntry) => void;
   /**
    * Absolute max |rate| (TRADE_FUTURES_FUNDING_MAX_ABS_RATE).
@@ -70,7 +72,14 @@ export function registerInternalFundingRate(app: FastifyInstance, deps: Internal
       markPrice?: string;
     };
   }>('/internal/futures/funding-rate', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: 'require',
+      }).service === null
+    ) {
       return reply.code(401).send({ error: 'unauthorized', message: 'service auth required' });
     }
 

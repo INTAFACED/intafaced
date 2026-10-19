@@ -25,12 +25,12 @@ describe('svc-trade mutate S2S HMAC require', () => {
     const outcomes = readFileSync(join(DIR, 'outcomes-rest.ts'), 'utf8');
     const fixtures = readFileSync(join(DIR, 'agents/copy-leader-fixtures-routes.ts'), 'utf8');
 
-    expect(funding).toMatch(/mode:\s*'require'/);
+    expect(funding).toMatch(/bodyBindMode:\s*'require'/);
     expect(funding).not.toMatch(/DEFAULT_SERVICE_BODY_BIND_MODE/);
-    expect(funding).not.toMatch(/bodyBind/);
-    expect(outcomes).toMatch(/mode:\s*'require'/);
+    expect(funding).not.toMatch(/bodyBind(?!Mode)/);
+    expect(outcomes).toMatch(/bodyBindMode:\s*'require'/);
     expect(outcomes).not.toMatch(/DEFAULT_SERVICE_BODY_BIND_MODE/);
-    expect(outcomes).not.toMatch(/bodyBind/);
+    expect(outcomes).not.toMatch(/bodyBind(?!Mode)/);
 
     const fundingReg = sliceRegister(index, 'registerInternalFundingRate(app, {', ['registerMarketLifecycleRoutes']);
     expect(fundingReg).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);

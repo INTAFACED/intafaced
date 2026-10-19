@@ -1,7 +1,14 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import { checkAccess } from '@intafaced/config';
-import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders, type EdgeRequest } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  retainRawBody,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
+  type EdgeRequest,
+} from '@intafaced/contracts';
 import { createOrderRequestSchema } from '@intafaced/exchange-contract';
 import { parseAmount } from '@intafaced/ledger-client';
 import { collateralForBinaryBuy, type OutcomeMarket, type OutcomeSide } from './outcomes/outcome-market.js';
@@ -46,6 +53,8 @@ export interface OutcomesRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   /**
    * Isolated tests install retention. Production index already called
    * `retainRawBody` on the same Fastify instance.
@@ -131,7 +140,14 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
   });
 
   app.post('/api/v1/outcomes/settle', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: 'require',
+      }).service === null
+    ) {
       return sendError(reply, 401, 'trade.unauthenticated', 'service credentials required');
     }
     const body = req.body as Record<string, unknown> | null;

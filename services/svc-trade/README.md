@@ -542,3 +542,7 @@ per asset; no `available` or `hold` balance ever goes negative; and no terminal 
 ## Service keys: ledger calls
 
 The ledger client signs with svc-trade's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: inbound doors
+
+The internal doors (market lifecycle publication and read, funding-rate publish, copy-leader fixtures, outcomes settle, closure check) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

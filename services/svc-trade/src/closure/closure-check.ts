@@ -3,7 +3,7 @@
  * A failed read is 503, never an empty blocker list.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
+import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,10 +14,10 @@ export type ClosureBlocker = { code: string; count: number };
 export type ClosureCheckBody = { userId: string; subAccountIds: string[] };
 
 /** The verified calling service, or null when the credentials are missing or bad. */
-function callerOf(req: FastifyRequest, secret: string): string | null {
+function callerOf(req: FastifyRequest, secret: string, s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode }): string | null {
   if (typeof secret !== 'string' || secret.length === 0) return null;
   try {
-    return verifyServiceHeaders(req.headers, secret, { rawBody: rawBodyOf(req), mode: 'require' }).service;
+    return verifyServiceRequest(req, { verifier: s2s?.verifier, mode: s2s?.mode, legacySecret: secret, bodyBindMode: 'require' }).service;
   } catch {
     return null;
   }
@@ -76,9 +76,12 @@ export async function runTradeClosureCheck(sql: Sql, input: ClosureCheckBody): P
   return { asOf: new Date().toISOString(), blockers };
 }
 
-export function registerClosureCheck(app: FastifyInstance, deps: { sql: Sql; secret: string }): void {
+export function registerClosureCheck(
+  app: FastifyInstance,
+  deps: { sql: Sql; secret: string; s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode } },
+): void {
   app.post('/internal/closure-check', async (req, reply) => {
-    const caller = callerOf(req, deps.secret);
+    const caller = callerOf(req, deps.secret, deps.s2s);
     if (caller === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'trade.unauthenticated' });
     }

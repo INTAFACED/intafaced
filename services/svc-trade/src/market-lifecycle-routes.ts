@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import { correctionLinkSchema } from '@intafaced/exchange-contract';
 import {
   MarketLifecycleLocalTestFixtureError,
@@ -17,14 +17,21 @@ export function registerMarketLifecycleRoutes(
   app: FastifyInstance,
   deps: {
     readonly internalSecret: string;
+    /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+    readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
     readonly store: SqlMarketLifecycleEvidenceStore;
     /** Isolated tests install retention. Production index already called `retainRawBody`. */
     readonly installRawBody?: boolean;
   },
 ): void {
   if (deps.installRawBody !== false) retainRawBody(app);
-  const authorised = (req: { headers: Record<string, string | string[] | undefined> }): boolean =>
-    verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service !== null;
+  const authorised = (req: Parameters<typeof verifyServiceRequest>[0]): boolean =>
+    verifyServiceRequest(req, {
+      verifier: deps.s2s?.verifier,
+      mode: deps.s2s?.mode,
+      legacySecret: deps.internalSecret,
+      bodyBindMode: 'require',
+    }).service !== null;
 
   app.get<{ Params: { marketId: string } }>(`${MARKET_LIFECYCLE_PATH}/:marketId`, async (req, reply) => {
     if (!authorised(req)) return reply.code(401).send({ error: 'trade.unauthenticated' });
