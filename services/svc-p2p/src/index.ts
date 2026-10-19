@@ -4,6 +4,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { installP2pS2sRawBody, p2pInternalServiceOf } from './s2s-auth.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import {
@@ -96,7 +97,11 @@ const bus = await JetStreamEventBus.connect({
 
 // Escrowed value lives in svc-ledger's `escrow` accounts, never in this
 // service's tables (Doctrine §0.6). This client is the only path.
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger call on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-p2p');
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, {
+  s2s: s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+});
 
 // Where the buyer is told to send the fiat, and the record of who ever looked.
 // Constructed before P2pService because a P2pService without one would lock
