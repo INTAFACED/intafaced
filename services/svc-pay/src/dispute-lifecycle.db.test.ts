@@ -170,6 +170,46 @@ describe('dispute lifecycle and settlement windows', { timeout: 30_000 }, () => 
     expect((await pay.getPayment(payment.id)).status).toBe('captured');
   });
 
+  it('a second dispute opening while the first is won keeps the payment disputed', async () => {
+    const m = await merchant();
+    const payment = await captured(m.id);
+    await deliver(payment, 'dispute.opened', 'dp-r1', 'evt-open-r1', '30');
+
+    // The second dispute's case row commits only after the first one's win has restored the payment.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    class GatedStore extends PostgresDisputeCaseStore {
+      override async open(input: Parameters<PostgresDisputeCaseStore['open']>[0]) {
+        if (input.disputeId === 'dp-r2') await gate;
+        return super.open(input);
+      }
+    }
+    const store = new GatedStore(sql);
+    const card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
+    const gated = new PayService(sql, ledger, new RailRegistry([card]), {
+      payoutDestinations: memoryPayoutDestinations(),
+      linkDefaultTtlDays: 30,
+      linkMaxTtlDays: 365,
+      checkoutSessionTtlSeconds: 900,
+      maxOpenSessionsPerLink: 25,
+      disputeCases: store,
+      chargebackOutcomeSlots: 4,
+    });
+    const send = (id: string, type: string, disputeId: string) =>
+      gated.handleWebhook('card-sandbox', signed({ id, type, ref: payment.railRef, assetId: 'USDT', disputeId, amount: '30' }));
+
+    const opening = send('evt-open-r2', 'dispute.opened', 'dp-r2');
+    // Let the second delivery read the payment (still disputed) and book its opening before the first dispute is won.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await send('evt-won-r1', 'dispute.won', 'dp-r1');
+    expect((await gated.getPayment(payment.id)).status).toBe('captured');
+    release();
+    await opening;
+
+    expect((await store.get('dp-r2'))?.status).toBe('open');
+    expect((await gated.getPayment(payment.id)).status).toBe('disputed');
+  });
+
   it('a lost dispute leaves the payment disputed', async () => {
     const m = await merchant();
     const payment = await captured(m.id);
