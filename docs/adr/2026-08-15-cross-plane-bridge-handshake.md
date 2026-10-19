@@ -1,7 +1,7 @@
 # D26-P4-02 — Cross-plane bridge handshake (ledger ↔ chain · who signs)
 
 **Status:** Handshake recorded — 2026-08-15. **Does not** implement `svc-bridge`, protocol, or chain.
-**Board:** D26-P4-02 (`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md` §8).
+**Board:** D26-P4-02 (`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) §8).
 **Lane:** `denon-d26-p4-02-bridge-handshake`.
 **Accounting law (already accepted):** [`docs/adr/2026-08-04-cross-plane-bridge-accounting.md`](2026-08-04-cross-plane-bridge-accounting.md) (D-S-12).
 **Chain side (Shehzad, not this PR):** S-B5 (bridge design) · S-D7 (`svc-bridge`) · S-B3 (IFC on-chain representation) · tracker `bridge.canonical` owner `shehzad002`.

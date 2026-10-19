@@ -99,4 +99,4 @@ Fixed in #412 (Dockerfile, nginx, compose on `:8090`) and gated by `workspace-sy
 
 ## Open, and owner-gated
 
-Per [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8: the security review's scope and who performs it; whether `apps/web` retires, becomes the admin/marketing surface, or has its working trade terminal ported into the Vue shell; and any decision to run `01_wallet_rpc` against real value.
+Per `DIRECTION-2026-07-31.md` (removed) §8: the security review's scope and who performs it; whether `apps/web` retires, becomes the admin/marketing surface, or has its working trade terminal ported into the Vue shell; and any decision to run `01_wallet_rpc` against real value.

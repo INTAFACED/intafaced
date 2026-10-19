@@ -1,6 +1,6 @@
 # ADR: the house desk and the market-making engine — what may be built before the owner rules
 
-**Status:** **Accepted — 2026-08-12 (D26-P0-01 sealed).** The five mechanism rules below remain Accepted. The three owner questions are now **ruled** (external-only v1 · existence-disclosure deferred · hard mark exclusion). Source packet: [`docs/OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §A1 — recommendations sealed as owner decisions this session.
+**Status:** **Accepted — 2026-08-12 (D26-P0-01 sealed).** The five mechanism rules below remain Accepted. The three owner questions are now **ruled** (external-only v1 · existence-disclosure deferred · hard mark exclusion). Source packet: `docs/OWNER-DECISION-PACKET-2026-08-09.md` (removed) §A1 — recommendations sealed as owner decisions this session.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Law:** [`INTAFACED_DEFINITIVE_BUILD.md`](../../INTAFACED_DEFINITIVE_BUILD.md) §28 (`:770`–`:777`), the Throne Law at `:777`.
 **Board:** `execution.sor`, `execution.arbitrage`, `execution.market-making`, `execution.house-tenant` — boarded 2026-08-08 (#1127). D26-P0-01 fairness gate sealed here.

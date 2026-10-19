@@ -86,4 +86,4 @@ Tests: `pnpm test` is `turbo run test`; most packages use Vitest. Single package
 
 ## Decisions and runbooks
 
-Settled, hard-to-reverse decisions: [`docs/adr/`](adr/). Operations procedures: [`docs/runbooks/`](runbooks/). Newer ADRs win over older ones. Current truth is `AGENTS.md` and this file, plus `adr/`, `runbooks/`, `refs/` and `agents/`. Everything else under `docs/`, including `docs/archive/`, is history, not instructions; [`docs/README.md`](README.md) lists what is kept.
+Settled, hard-to-reverse decisions: [`docs/adr/`](adr/). Operations procedures: [`docs/runbooks/`](runbooks/). Newer ADRs win over older ones. Current truth is `AGENTS.md` and this file, plus `adr/`, `runbooks/`, `refs/` and `agents/`. Everything else under `docs/` is history, not instructions; [`docs/README.md`](README.md) lists what is kept.

@@ -21,4 +21,4 @@ This ADR does not choose the new colors, the type, or the way a balance is writt
 ## Consequences
 
 - Agents may replace the served product UI. An older line that said never build a new site does not keep the old site.
-- `AGENTS.md` and `docs/INTERNET-LEVERAGE-LAW.md` point here for the product UI. The money rows stay as they were.
+- `AGENTS.md` and `docs/INTERNET-LEVERAGE-LAW.md` (removed) point here for the product UI. The money rows stay as they were.

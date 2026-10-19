@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-12 (structural gates).** Blank-policy fail-closed is **Accepted 2026-08-15** in [`2026-08-15-listing-policy-refuse-blank.md`](2026-08-15-listing-policy-refuse-blank.md) (`trade.listing_policy_unset`; blank ≠ default allow).  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-06 — Listing / delisting policy (DIRECTION §8 item 5; board label “§8.5”).  
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §2 (instrument listing rule) and §8 item 5 (agents must not decide which assets list); [`2026-08-04-market-id-authority.md`](2026-08-04-market-id-authority.md); [`2026-08-04-instrument-enum-authority.md`](2026-08-04-instrument-enum-authority.md).  
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §2 (instrument listing rule) and §8 item 5 (agents must not decide which assets list); [`2026-08-04-market-id-authority.md`](2026-08-04-market-id-authority.md); [`2026-08-04-instrument-enum-authority.md`](2026-08-04-instrument-enum-authority.md).  
 **Does not invent:** the catalogue of symbols, tick/lot tables, fee bps, leverage caps, insurance target size, or settlement fixing content — those stay owner law (DIRECTION §8 and adjacent P0 rows).
 
 ---

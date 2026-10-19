@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-13 (D26-P0-10 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-10 — listings / treasury / house commission law.  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-10.  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-10.  
 **Overlaps:** D26-P0-02 (the **number**); this ADR is the **mechanism**.  
 **Does not invent:** a bps figure, a “launch 50 bps” seed, treasury splits, or a second fee book.
 

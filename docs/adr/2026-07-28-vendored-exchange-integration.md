@@ -78,8 +78,8 @@
 > truncates, so a later reconciliation finds drift it cannot attribute. Those are
 > not two points on a spectrum. One is expensive; the other is the failure mode.
 >
-> Full evidence: `docs/VENDORED-OVERLAP-AUDIT.md` (#213).
-> Execution direction: `docs/DIRECTION-2026-07-31.md` §4.
+> Full evidence: `docs/VENDORED-OVERLAP-AUDIT.md` (removed) (#213).
+> Execution direction: `docs/DIRECTION-2026-07-31.md` (removed) §4.
 
 **Source:** https://github.com/jammy928/CoinExchange_CryptoExchange_Java · Apache-2.0 · 1.7k★ · 10 commits, inactive.
 

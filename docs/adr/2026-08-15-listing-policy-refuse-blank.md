@@ -4,7 +4,7 @@
 **Amends:** [`2026-08-12-listing-delisting-policy.md`](2026-08-12-listing-delisting-policy.md) (structural gates + halt/delist non-confiscation stay).  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-06 — Listing / delisting policy (DIRECTION §8 item 5; board label “§8.5”).  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) P0-06.  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) P0-06.  
 **Does not invent:** the live instrument set, settlement asset, or refuse matrix for options/forex (**D26-P0-05**). Does not list coins, tick/lot, fee bps, or insurance target size.
 
 ---

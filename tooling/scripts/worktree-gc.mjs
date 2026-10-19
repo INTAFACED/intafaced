@@ -19,12 +19,12 @@
  *
  * That is wrong in a swarm, and it was wrong in production, twice:
  *
- *   · docs/LANE-CLOSEOUT-OPS-2026-08-08.md §"Practical notes": "Another lane's
+ *   · docs/LANE-CLOSEOUT-OPS-2026-08-08.md (removed) §"Practical notes": "Another lane's
  *     worktree-gc --apply deleted two of this lane's worktrees mid-edit, along
  *     with an unpushed branch."  A freshly created worktree is clean and is an
  *     ancestor of main, so it looked like garbage on the very first minute of
  *     its life — exactly when an agent is working in it.
- *   · docs/MEGA-AUDIT-2026-08-07-FINDINGS.md:887 (severity: high):
+ *   · docs/MEGA-AUDIT-2026-08-07-FINDINGS.md (removed):887 (severity: high):
  *     "worktree-gc --apply will run `git branch -D main` and delete the local
  *     main branch."  The MAIN-checkout skip compared against
  *     `rev-parse --show-toplevel`, i.e. the toplevel of *wherever you ran it*.
@@ -285,7 +285,7 @@ if (selfTest) {
  * The MAIN checkout, derived from --git-common-dir and NOT from the cwd.
  * `--show-toplevel` is the toplevel of wherever you happened to run this, so
  * using it meant the real main checkout was classified like any other worktree
- * (MEGA-AUDIT-2026-08-07-FINDINGS.md:887). On Windows Git Bash the common dir
+ * (MEGA-AUDIT-2026-08-07-FINDINGS.md (removed):887). On Windows Git Bash the common dir
  * comes back as `C:/path/.git` from a linked worktree and as the literal `.git`
  * from the main checkout, so both spellings have to be handled.
  */
@@ -310,7 +310,7 @@ function collectExcludes() {
 
 /**
  * The claim board. docs/LIVE-LANES.md is the repo's first-claimer-wins board
- * (CLAUDE.md §5, docs/COORDINATION-TRUTH-LAYERS.md), so a GC that cannot read
+ * (CLAUDE.md §5, docs/COORDINATION-TRUTH-LAYERS.md, removed), so a GC that cannot read
  * it has no business deleting anything. Read from the MAIN checkout — that is
  * the canonical copy — and union in the running checkout's copy plus any
  * docs/ops/claims/*.md, which LIVE-LANES itself names as the alternative place

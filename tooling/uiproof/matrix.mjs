@@ -1,6 +1,6 @@
 /**
  * Route × viewport matrix — single source of coverage truth for Stream A uiproof.
- * Spec: FRONTEND-OPERATING-PLAN-2026-07-30.md §2.6
+ * Spec: FRONTEND-OPERATING-PLAN-2026-07-30.md (removed) §2.6
  */
 export const TIER_A_VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900 },
