@@ -1,4 +1,4 @@
-import { parseAmount, recipes, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
+import { parseAmount, rewardPay, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { planPplns, type PplnsInput } from './pplns.js';
 import { EMISSION_UNPUBLISHED, EPOCH_UNSET } from './window-store.js';
 
@@ -16,7 +16,7 @@ export function miningPayoutIdempotencyKey(windowId: string, minerId: string): s
 export function buildPayoutRecipes(input: PplnsInput): PostRequest[] {
   const plan = planPplns(input);
   return plan.payouts.map((payout) =>
-    recipes.rewardPay({
+    rewardPay({
       rewardId: miningPayoutRewardId(plan.windowId, payout.minerId),
       userId: payout.minerId,
       assetId: plan.assetId,
