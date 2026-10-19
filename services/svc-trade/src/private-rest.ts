@@ -71,7 +71,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/orders/open     scope: trade:read  (?symbol=&limit=)
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
- *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms)
+ *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=)
  *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
  *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
@@ -152,7 +152,17 @@ export interface PrivateRestDeps {
   openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]>;
   /** Operator projection. Unset mounts a typed refuse, never a fallback book. Limit required — never invent 100. */
   adminOpenOrders?(principal: Principal, limit: number): Promise<OrderRecord[]>;
-  orderHistory(principal: Principal, input: { marketId?: string; limit: number; sinceMs?: number }): Promise<OrderRecord[]>;
+  orderHistory(
+    principal: Principal,
+    input: {
+      marketId?: string;
+      limit: number;
+      sinceMs?: number;
+      untilMs?: number;
+      side?: 'buy' | 'sell';
+      status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+    },
+  ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
   cancelOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
@@ -694,6 +704,33 @@ export function parseSince(raw: unknown): { ok: true; sinceMs?: number } | { ok:
   return { ok: true, sinceMs: Math.floor(n) };
 }
 
+type ClosedQuery = { symbol?: string; limit?: string; since?: string; until?: string; side?: string; status?: string };
+
+const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 'expired'> = {
+  closed: 'filled',
+  canceled: 'cancelled',
+  rejected: 'rejected',
+  expired: 'expired',
+};
+
+/** Optional `side` and `status` filters of orders/closed; CCXT status words, anything else is a 400. */
+export function parseClosedFilters(query: {
+  side?: unknown;
+  status?: unknown;
+}): { ok: true; side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } | { ok: false; message: string } {
+  const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } = {};
+  if (query.side !== undefined && query.side !== '') {
+    if (query.side !== 'buy' && query.side !== 'sell') return { ok: false, message: 'side must be buy or sell' };
+    out.side = query.side;
+  }
+  if (query.status !== undefined && query.status !== '') {
+    const mapped = typeof query.status === 'string' ? CLOSED_STATUS_WORDS[query.status] : undefined;
+    if (!mapped) return { ok: false, message: 'status must be closed, canceled, rejected or expired' };
+    out.status = mapped;
+  }
+  return { ok: true, ...out };
+}
+
 /**
  * Map CCXT create body → PlaceOrderInput (decimal strings → Amount).
  * Only market/limit; postOnly becomes tif PO when no other tif is set.
@@ -1098,7 +1135,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
-  app.get<{ Querystring: { symbol?: string; limit?: string; since?: string } }>('/api/v1/orders/closed', async (req, reply) => {
+  app.get<{ Querystring: ClosedQuery }>('/api/v1/orders/closed', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
 
@@ -1120,13 +1157,27 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!sinceParsed.ok) {
       return sendCcxt(reply, badRequest(sinceParsed.message, 'trade.invalid_since'));
     }
+    const untilParsed = parseSince(req.query.until);
+    if (!untilParsed.ok) {
+      return sendCcxt(reply, badRequest(untilParsed.message.replace('since', 'until'), 'trade.invalid_until'));
+    }
+    if (sinceParsed.sinceMs !== undefined && untilParsed.sinceMs !== undefined && untilParsed.sinceMs < sinceParsed.sinceMs) {
+      return sendCcxt(reply, badRequest('until must not be before since', 'trade.invalid_until'));
+    }
+    const filters = parseClosedFilters(req.query);
+    if (!filters.ok) {
+      return sendCcxt(reply, badRequest(filters.message, 'trade.invalid_filter'));
+    }
 
     try {
-      // since → SQL on orders.created_at (timestamptz) via orderHistory.sinceMs.
+      // since/until → SQL on orders.created_at (timestamptz); side and status filter in SQL too.
       const orders = await deps.orderHistory(principal, {
         marketId,
         limit,
         sinceMs: sinceParsed.sinceMs,
+        ...(untilParsed.sinceMs !== undefined ? { untilMs: untilParsed.sinceMs } : {}),
+        ...(filters.side ? { side: filters.side } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
