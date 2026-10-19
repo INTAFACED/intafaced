@@ -8,7 +8,7 @@ import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
   founderAttestationVerdict,
-  serviceAuthHeadersForBody,
+  createIdentityApprovalClient as createSharedIdentityApprovalClient,
   type ActionApproval,
   type ActionApprovalConsumeInput,
   type FounderApprovalSubject,
@@ -78,53 +78,14 @@ export function stubApprovalConsumer(approverId: string): ActionApprovalConsumer
   };
 }
 
-function unwrapTrpcJson(body: unknown): unknown {
-  const envelope = body as { result?: { data?: unknown }; json?: unknown };
-  const data = envelope.result?.data ?? body;
-  if (data && typeof data === 'object' && 'json' in data) {
-    return (data as { json: unknown }).json;
-  }
-  return data;
-}
-
 export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  return {
-    async consume(input) {
-      const parsed = actionApprovalConsumeInputSchema.parse(input);
-      const payload = JSON.stringify(parsed);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-bank', internalSecret, payload),
-        },
-        body: payload,
-        // Fail closed, never hang a money door on identity: a timeout is "unavailable", and nothing posts.
-        signal: AbortSignal.timeout(IDENTITY_CONSUME_TIMEOUT_MS),
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
-      }
-      const approval = actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
-      if (
-        approval.status !== 'CONSUMED' ||
-        approval.approvalId !== parsed.approvalId ||
-        approval.operationId !== parsed.operationId ||
-        approval.payloadHash !== parsed.payloadHash ||
-        approval.targetService !== parsed.targetService ||
-        approval.targetId !== parsed.targetId ||
-        approval.expectedVersion !== parsed.expectedVersion
-      ) {
-        throw new ActionApprovalConsumeError(
-          'identity consume result does not match the request or is not CONSUMED',
-          'action_approval.consume_failed',
-        );
-      }
-      return approval;
-    },
-  };
+  return createSharedIdentityApprovalClient({
+    service: 'svc-bank',
+    baseUrl,
+    internalSecret,
+    timeoutMs: IDENTITY_CONSUME_TIMEOUT_MS,
+    fail: (message, code) => new ActionApprovalConsumeError(message, code),
+  });
 }
 
 export function readApprovalIds(cmd: { readonly approvalId?: string | null; readonly operationId?: string | null }): {
