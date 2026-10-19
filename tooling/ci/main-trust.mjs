@@ -90,7 +90,7 @@ async function failedStepNames(repo, runId, attempt) {
   const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`);
   const names = [];
   for (const job of json?.jobs ?? []) {
-    if (job.conclusion !== 'failure') continue;
+    if (job.conclusion !== 'failure' && job.conclusion !== 'timed_out') continue;
     for (const s of job.steps ?? []) names.push(s.name);
   }
   return names;
@@ -122,15 +122,18 @@ async function publishLastGreen(repo, sha) {
   const ref = `heads/${LAST_GREEN_BRANCH}`;
   const cur = await gh('GET', `/repos/${repo}/git/ref/${ref}`);
   if (cur.status === 404) {
-    await gh('POST', `/repos/${repo}/git/refs`, { ref: `refs/${ref}`, sha });
+    const made = await gh('POST', `/repos/${repo}/git/refs`, { ref: `refs/${ref}`, sha });
+    if (made.status !== 201) throw new Error(`could not create ${LAST_GREEN_BRANCH}: HTTP ${made.status}`);
     return `created ${LAST_GREEN_BRANCH} at ${sha}`;
   }
+  if (cur.status !== 200) throw new Error(`could not read ${LAST_GREEN_BRANCH}: HTTP ${cur.status}`);
   const have = cur.json.object.sha;
   if (have === sha) return `${LAST_GREEN_BRANCH} already at ${sha}`;
   const cmp = await gh('GET', `/repos/${repo}/compare/${have}...${sha}`);
   // Only ever forward: an older run finishing late must not move the pointer back.
   if (cmp.json?.status !== 'ahead') return `${LAST_GREEN_BRANCH} stays at ${have} (${sha} is ${cmp.json?.status})`;
-  await gh('PATCH', `/repos/${repo}/git/refs/${ref}`, { sha, force: false });
+  const moved = await gh('PATCH', `/repos/${repo}/git/refs/${ref}`, { sha, force: false });
+  if (moved.status !== 200) throw new Error(`could not move ${LAST_GREEN_BRANCH}: HTTP ${moved.status}`);
   return `moved ${LAST_GREEN_BRANCH} ${have} -> ${sha}`;
 }
 
