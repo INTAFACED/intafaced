@@ -24,10 +24,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-agents/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/merchant/pay-metrics-http-port.ts": {
       "sign": 1,
       "caller": 0

@@ -113,7 +113,10 @@ const bus = await JetStreamEventBus.connect({
 // Metered usage moves value, and value moves through svc-ledger — never
 // through this service's own tables (Doctrine §0.6). LEDGER_URL is required
 // with no localhost default — unset refuses boot rather than guessing a book.
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the ledger and academy calls stay on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-agents');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
 const meter = new UsageMeter(sql, ledger, {
   assetId: env.AGENTS_FEE_ASSET_ID,
@@ -132,11 +135,8 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 const bootAgents = await registerProductAgentsAtBoot(runtime);
 
 const academyUrl = env.ACADEMY_URL;
-// Per-service keys (S2S v3): with no S2S_AUTH_MODE this is the shared-secret call it always was.
-const s2s = s2sFromEnv(env, 'svc-agents');
-const academyS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const loadCoachGrounding = academyUrl
-  ? () => createAcademyCurriculumSource(academyUrl, env.INTERNAL_SERVICE_SECRET, fetch, academyS2s).load()
+  ? () => createAcademyCurriculumSource(academyUrl, env.INTERNAL_SERVICE_SECRET, fetch, s2sKey).load()
   : undefined;
 
 const supportDesk = env.SUPPORT_URL

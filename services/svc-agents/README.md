@@ -289,3 +289,7 @@ The money and audit paths run against real Postgres with the ledger's in-memory 
 `src/copy.test.ts` runs the brand law over every file in the package. It spells the forbidden names in pieces so the test that enforces the rule is not the thing that breaks it — which is strictly better than allowlisting the file and carving a permanent hole in the rule in order to test the rule. It also plants a violation and asserts the check catches it: a scanner nobody has seen fail is a scanner nobody should trust.
 
 Failure branches covered: an unrouted task, a route naming an unregistered provider, an engine outage, a transient blip retried, a tool that threw, a guardrail widened mid-session, usage arriving after settlement, and settlement run three times.
+
+## Service keys: ledger calls
+
+The ledger client signs with svc-agents' own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
