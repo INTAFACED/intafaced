@@ -1,12 +1,16 @@
 import { createHash } from 'node:crypto';
-import type { Principal } from '@intafaced/auth';
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { ConvertPort } from './auto-invest-service.js';
 
 /**
- * HTTP ConvertPort — svc-trade `convert.quote` + `convert.execute`.
+ * HTTP ConvertPort — svc-trade `standing.quote` + `standing.execute`.
+ *
+ * A standing instruction is not an interactive customer: there is no session
+ * and no minted principal. Bank makes a body-bound service call; the user and
+ * instruction ride in the signed body and trade accepts only an authenticated
+ * svc-bank.
  *
  * Bank never invents a mid. Pairing comes from the public markets listing
  * (not a price). Size and fill amounts come from convert itself. If trade
@@ -15,11 +19,10 @@ import type { ConvertPort } from './auto-invest-service.js';
 
 export interface TradeConvertPortOptions {
   baseUrl: string;
-  /** Shared edge HMAC — the same secret svc-trade verifies on /trpc. */
-  edgeSecret: string;
+  /** Shared internal service secret — svc-trade verifies the body-bound service call with it. */
+  serviceSecret: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
-  region?: string;
   /**
    * Owner-published page size for `GET /api/v1/markets?limit=` (trade 1..500).
    * Unset refuses `bank.convert_markets_limit_unset` — never invent 50.
@@ -37,6 +40,7 @@ interface ListedMarket {
 }
 
 interface ConvertQuoteWire {
+  quoteId: string;
   symbol: string;
   side: 'buy' | 'sell';
   requestedQty: string;
@@ -47,12 +51,10 @@ interface ConvertQuoteWire {
 }
 
 interface ConvertExecuteWire {
-  id: string;
-  filled: string;
-  remaining?: string;
-  status?: string;
-  /** Quote asset the fill received on a sell. Decimal string on the wire. */
-  outAmount?: string;
+  fillId: string;
+  /** What the settled convert spent (in asset) and received (out asset). Decimal strings on the wire. */
+  inAmount: string;
+  outAmount: string;
 }
 
 const RATE_UNSET = 'bank.auto_invest_rate_unset' as const;
@@ -123,33 +125,15 @@ function unwrapTrpc<T>(body: unknown): T {
 export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort {
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
-  const region = options.region ?? 'XX';
   const baseUrl = options.baseUrl.replace(/\/$/, '');
-
-  const principalHeaders = (userId: string): Record<string, string> => {
-    const principal = {
-      sub: userId,
-      userId,
-      sid: '00000000-0000-4000-8000-0000000000d1',
-      scopes: ['trade:read', 'trade:write'],
-      tier: 'full',
-      mfa: true,
-      expiresAt: new Date(Date.now() + 60_000),
-    } as Principal;
-    const raw = encodePrincipal(principal);
-    return {
-      [EDGE_PRINCIPAL_HEADER]: raw,
-      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, options.edgeSecret, region),
-      'x-intafaced-region': region,
-    };
-  };
 
   async function call<T>(input: {
     method: 'GET' | 'POST';
     path: string;
     body?: unknown;
     query?: Record<string, string>;
-    headers?: Record<string, string>;
+    /** Sign the POST body as svc-bank. */
+    service?: boolean;
   }): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -169,7 +153,7 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
         headers: {
           accept: 'application/json',
           ...(payload ? { 'content-type': 'application/json' } : {}),
-          ...(input.headers ?? {}),
+          ...(input.service && payload ? serviceAuthHeadersForBody('svc-bank', options.serviceSecret, payload) : {}),
         },
         body: payload,
         signal: controller.signal,
@@ -213,14 +197,26 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     return { symbol: match.symbol, base: match.base, quote: match.quote, minQty };
   }
 
-  async function quote(userId: string, symbol: string, side: 'buy' | 'sell', qty: Amount): Promise<ConvertQuoteWire> {
+  async function quote(
+    userId: string,
+    instructionId: string,
+    symbol: string,
+    side: 'buy' | 'sell',
+    qty: Amount,
+  ): Promise<ConvertQuoteWire> {
     const q = await call<ConvertQuoteWire>({
-      method: 'GET',
-      path: '/trpc/convert.quote',
-      body: { symbol, side, qty: formatAmount(qty) },
-      headers: principalHeaders(userId),
+      method: 'POST',
+      path: '/trpc/standing.quote',
+      body: { userId, instructionId, symbol, side, qty: formatAmount(qty) },
+      service: true,
     });
-    if (!q || typeof q.avgPrice !== 'string' || typeof q.userNotional !== 'string' || typeof q.filledQty !== 'string') {
+    if (
+      !q ||
+      typeof q.quoteId !== 'string' ||
+      typeof q.avgPrice !== 'string' ||
+      typeof q.userNotional !== 'string' ||
+      typeof q.filledQty !== 'string'
+    ) {
       rateUnset('convert quote missing amounts');
     }
     if (q.fullyFilled !== true) rateUnset('trade.convert_insufficient_depth');
@@ -229,35 +225,38 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
     return q;
   }
 
+  /** Execute the quoted convert. Returns what settled; refuses unless a positive amount came out and no more than `maxSpend` went in. */
   async function execute(
     userId: string,
+    instructionId: string,
+    quoted: ConvertQuoteWire,
     symbol: string,
     side: 'buy' | 'sell',
     qty: Amount,
     clientConvertId: string,
-    maxAvgPrice: Amount,
-  ): Promise<ConvertExecuteWire> {
-    const order = await call<ConvertExecuteWire>({
+    maxSpend: Amount,
+  ): Promise<{ fillId: string; received: Amount }> {
+    const settled = await call<ConvertExecuteWire>({
       method: 'POST',
-      path: '/trpc/convert.execute',
+      path: '/trpc/standing.execute',
       body: {
+        userId,
+        instructionId,
+        quoteId: quoted.quoteId,
+        clientConvertId: convertClientId(clientConvertId),
         symbol,
         side,
         qty: formatAmount(qty),
-        clientConvertId: convertClientId(clientConvertId),
-        maxAvgPrice: formatAmount(maxAvgPrice),
+        maxAvgPrice: formatAmount(parseAmount(quoted.avgPrice)),
       },
-      headers: principalHeaders(userId),
+      service: true,
     });
-    if (!order || typeof order.filled !== 'string' || typeof order.id !== 'string') {
-      rateUnset('convert execute missing fill');
-    }
-    if (order.status !== 'filled') rateUnset('convert execute status is not filled');
-    const remaining = parseWireAmount(order.remaining, 'convert execute remaining');
-    if (remaining !== 0n) rateUnset('convert execute remaining is not zero');
-    const filled = parseWireAmount(order.filled, 'convert execute filled');
-    if (filled <= 0n) rateUnset('convert execute filled nothing');
-    return order;
+    if (!settled || typeof settled.fillId !== 'string' || settled.fillId === '') rateUnset('convert execute missing fill');
+    const spent = parseWireAmount(settled.inAmount, 'convert execute inAmount');
+    if (spent > maxSpend) rateUnset('convert execute spent more than the authorized amount');
+    const received = parseWireAmount(settled.outAmount, 'convert execute outAmount');
+    if (received <= 0n) rateUnset('convert execute received nothing');
+    return { fillId: settled.fillId, received };
   }
 
   return {
@@ -266,27 +265,35 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
       const sellingBase = input.fromAsset === market.base && input.toAsset === market.quote;
       const buyingBase = input.fromAsset === market.quote && input.toAsset === market.base;
       if (!sellingBase && !buyingBase) rateUnset('assets do not match listed market');
+      const { userId, instructionId } = input;
 
       if (sellingBase) {
-        const q = await quote(input.userId, market.symbol, 'sell', input.fromAmount);
-        const order = await execute(input.userId, market.symbol, 'sell', input.fromAmount, input.clientConvertId, parseAmount(q.avgPrice));
-        const received = parseWireAmount(order.outAmount, 'sell convert outAmount');
-        if (received <= 0n) rateUnset('sell convert received nothing');
-        return { toAmount: received, ledgerTxId: order.id };
+        const q = await quote(userId, instructionId, market.symbol, 'sell', input.fromAmount);
+        const order = await execute(
+          userId,
+          instructionId,
+          q,
+          market.symbol,
+          'sell',
+          input.fromAmount,
+          input.clientConvertId,
+          input.fromAmount,
+        );
+        return { toAmount: order.received, ledgerTxId: order.fillId };
       }
 
       // Spend quote, receive base: size the base qty from convert's own avg.
       // The probe quantity is the market's published minimum. Never invent one.
-      const probe = await quote(input.userId, market.symbol, 'buy', market.minQty);
+      const probe = await quote(userId, instructionId, market.symbol, 'buy', market.minQty);
       const avg = parseAmount(probe.avgPrice);
       const sized = floorToStep(div(input.fromAmount, avg, 'floor'), market.minQty);
       if (sized <= 0n) rateUnset('spend amount below convert min qty at trade rate');
-      const live = await quote(input.userId, market.symbol, 'buy', sized);
+      const live = await quote(userId, instructionId, market.symbol, 'buy', sized);
       const liveNotional = parseWireAmount(live.userNotional, 'buy convert userNotional');
       if (liveNotional <= 0n) rateUnset('buy convert notional is not positive');
       if (liveNotional > input.fromAmount) rateUnset('buy convert notional exceeds authorized fromAmount');
-      const order = await execute(input.userId, market.symbol, 'buy', sized, input.clientConvertId, parseAmount(live.avgPrice));
-      return { toAmount: parseAmount(order.filled), ledgerTxId: order.id };
+      const order = await execute(userId, instructionId, live, market.symbol, 'buy', sized, input.clientConvertId, input.fromAmount);
+      return { toAmount: order.received, ledgerTxId: order.fillId };
     },
   };
 }

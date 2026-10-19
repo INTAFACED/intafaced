@@ -99,8 +99,8 @@ describe('index.ts boot-wires autoInvest.convert (cards/ramps shape)', () => {
     expect(routerSrc).toMatch(/runAutoInvest:/);
     expect(routerSrc).toMatch(/autoInvest\.runDue/);
     expect(serviceSrc).toMatch(/this\.convert\.convert\(/);
-    expect(portSrc).toMatch(/\/trpc\/convert\.quote/);
-    expect(portSrc).toMatch(/\/trpc\/convert\.execute/);
+    expect(portSrc).toMatch(/\/trpc\/standing\.quote/);
+    expect(portSrc).toMatch(/\/trpc\/standing\.execute/);
     expect(portSrc).toMatch(/query:\s*\{\s*limit:\s*String\(page\)\s*\}/);
     expect(portSrc).toMatch(/assertConvertMarketsListLimit/);
     expect(portSrc).not.toMatch(/path:\s*'\/api\/v1\/markets'\s*\}/);
@@ -231,7 +231,7 @@ describe('boot-shaped createBankServices convert wiring', () => {
     const seen: string[] = [];
     const convert = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: EDGE,
       marketsLimit: 50,
       fetchImpl: async (input) => {
         const url = String(input);
@@ -248,10 +248,11 @@ describe('boot-shaped createBankServices convert wiring', () => {
             },
           ]);
         }
-        if (url.includes('/trpc/convert.quote')) {
+        if (url.includes('/trpc/standing.quote')) {
           return jsonResponse(200, {
             result: {
               data: {
+                quoteId: 'q-1',
                 symbol: 'BTC/USDT',
                 side: 'buy',
                 requestedQty: '0.002',
@@ -263,14 +264,14 @@ describe('boot-shaped createBankServices convert wiring', () => {
             },
           });
         }
-        if (url.includes('/trpc/convert.execute')) {
+        if (url.includes('/trpc/standing.execute')) {
           return jsonResponse(200, {
             result: {
               data: {
-                id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-                filled: '0.002',
-                remaining: '0',
-                status: 'filled',
+                quoteId: 'q-1',
+                fillId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                inAmount: '100',
+                outAmount: '0.002',
               },
             },
           });
@@ -293,8 +294,8 @@ describe('boot-shaped createBankServices convert wiring', () => {
     });
     const report = await bank.autoInvest.runDue({ now: new Date('2026-08-09T00:00:00Z'), limit: 200 });
     expect(seen).toContain('http://svc-trade:4004/api/v1/markets?limit=50');
-    expect(seen.some((u) => u.includes('/trpc/convert.quote'))).toBe(true);
-    expect(seen.some((u) => u.includes('/trpc/convert.execute'))).toBe(true);
+    expect(seen.some((u) => u.includes('/trpc/standing.quote'))).toBe(true);
+    expect(seen.some((u) => u.includes('/trpc/standing.execute'))).toBe(true);
     expect(report.settled).toBe(1);
     const runs = await bank.autoInvest.runsOf(rule.id);
     expect(runs[0]?.ledgerTxId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
@@ -305,7 +306,7 @@ describe('boot-shaped createBankServices convert wiring', () => {
   it('runDue through tradeConvertPort names rate_unset when convert.quote fails', async () => {
     const convert = tradeConvertPort({
       baseUrl: 'http://svc-trade:4004',
-      edgeSecret: EDGE,
+      serviceSecret: EDGE,
       marketsLimit: 50,
       fetchImpl: async (input) => {
         const url = String(input);
