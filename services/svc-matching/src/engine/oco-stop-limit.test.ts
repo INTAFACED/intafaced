@@ -75,6 +75,14 @@ describe('OCO stop-loss limit', () => {
     expect(marketFills.some((f) => f.takerOrderId === `${PARENT}:sl` && f.price === A('130'))).toBe(true);
   });
 
+  it('refuses a zero stop-loss limit instead of falling back to an unbounded market stop', () => {
+    const book = seeded();
+    const placed = book.submit(buyOco({ stopLossLimit: A('0') }));
+    expect(placed.accepted).toBe(false);
+    expect(placed.rejected?.code).toBe('invalid_price');
+    expect(book.toState().stops).toEqual([]);
+  });
+
   it('the stop-loss limit survives the journal: replay and the on-disk codec rest the same stop-limit', () => {
     const records: JournalRecord[] = [
       { kind: 'submit', marketId: 'BTC/USDT', at: '2026-10-19T08:00:00.000Z', seq: 1, order: toWire(buyOco({ stopLossLimit: A('125') })) },

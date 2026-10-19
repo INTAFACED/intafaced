@@ -170,7 +170,12 @@ export function installOcoLink(ctor: typeof OrderBook): void {
     const slId = extra.stopLossOrderId && extra.stopLossOrderId.length > 0 ? extra.stopLossOrderId : `${order.orderId}:sl`;
     const base = baseOrder(extra);
     // A stop-limit leg when the caller gave a limit price (it bounds what a buy stop can pay), else a market stop.
-    const stopLimit = extra.stopLossLimit != null && extra.stopLossLimit > ZERO ? extra.stopLossLimit : null;
+    // A limit that is present but not positive is refused: falling back to a market stop would drop the worst price
+    // the caller asked for.
+    if (extra.stopLossLimit != null && extra.stopLossLimit <= ZERO) {
+      return rejected('invalid_price', 'an OCO stop-loss limit must be positive; the engine does not fall back to a market stop');
+    }
+    const stopLimit = extra.stopLossLimit ?? null;
     const stopLeg = stopLimit === null ? ({ type: 'stop', price: null } as const) : ({ type: 'stop_limit', price: stopLimit } as const);
 
     // Atomic reject (L287): rehearse both legs on a throwaway copy of the book first. If the
