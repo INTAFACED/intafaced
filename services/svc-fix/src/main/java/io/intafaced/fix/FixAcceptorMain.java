@@ -47,13 +47,19 @@ public final class FixAcceptorMain {
             System.exit(2);
             return;
         }
+        FixAcceptorConfig.StoreResult orderStore = FixAcceptorConfig.storeFromEnv(env);
+        if (!orderStore.ok) {
+            System.err.print(orderStore.errorCode + ": " + orderStore.errorMessage);
+            System.exit(2);
+            return;
+        }
         FixDropCopyConfig.StoreResult store = FixDropCopyConfig.storeFromEnv(env);
         if (!store.ok) {
             System.err.print(store.errorCode + ": " + store.errorMessage);
             System.exit(2);
             return;
         }
-        try (FixAcceptor ignored = FixAcceptor.start(parsed.config, orderApp);
+        try (FixAcceptor ignored = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
                 FixDropCopyAcceptor dropIgnored = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
                 DropCopyIngest ingestIgnored = ingestStarted.ingest) {
             Thread.currentThread().join();
