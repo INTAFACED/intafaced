@@ -26,6 +26,9 @@ import { existsSync } from 'node:fs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\/__tests__\/)/;
 const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|runIf)\b|x(?:it|describe|test)\s*\(|f(?:it|describe)\s*\()/;
+// The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
+// runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
+const PG_UNAVAILABLE_SKIP = /^\s*describe\.skip\(\s*'[^']+ \(Postgres unavailable\)'\s*,/;
 const ASSERT = /\b(?:expect(?:\.\w+)?|assert(?:\.\w+)?|t\.(?:is|equal|deepEqual|throws|true|false|truthy|falsy))\s*\(/g;
 const WEAK_MATCHER = /\.(?:toBeDefined|toBeTruthy|toBeFalsy|toBeUndefined|not\.toBeNull|toBeInstanceOf)\s*\(/;
 const STRONG_MATCHER =
@@ -44,7 +47,8 @@ export function judge(changes) {
       continue;
     }
     for (const l of c.added) {
-      if (SKIP.test(l)) problems.push({ path: c.path, why: `skip/todo/only added: ${l.trim().slice(0, 100)}` });
+      if (SKIP.test(l) && !PG_UNAVAILABLE_SKIP.test(l))
+        problems.push({ path: c.path, why: `skip/todo/only added: ${l.trim().slice(0, 100)}` });
     }
     if (c.status === 'M') {
       const lost = count(c.removed) - count(c.added);
@@ -102,6 +106,9 @@ function selfTest() {
   eq(t({ added: ["  it.skip('x', () => {})"] }).length, 1, 'skip added');
   eq(t({ added: ["  describe.only('x', () => {"] }).length, 1, 'only added');
   eq(t({ added: ["  xit('x', () => {})"] }).length, 1, 'xit added');
+  eq(t({ added: ["  describe.skip('account closure (Postgres unavailable)', () => {"] }).length, 0, 'journalled no-database skip is fine');
+  eq(t({ added: ["  describe.skip('account closure', () => {"] }).length, 1, 'other describe.skip still flagged');
+  eq(t({ added: ["  it.skip('x (Postgres unavailable)', () => {})"] }).length, 1, 'it.skip still flagged');
   eq(t({ added: ["  it('skips the empty case', () => {"] }).length, 0, 'word skip in a title is fine');
   eq(t({ removed: ['  expect(a).toBe(1);', '  expect(b).toBe(2);'], added: ['  expect(a).toBe(1);'] }).length, 1, 'fewer assertions');
   eq(t({ removed: ['  expect(a).toBe(1);'], added: ['  expect(a).toBe(2);', '  expect(c).toBe(3);'] }).length, 0, 'more assertions fine');
@@ -111,7 +118,7 @@ function selfTest() {
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
-  console.log('✓ test-diff-guard --self-test OK (12 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (15 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
