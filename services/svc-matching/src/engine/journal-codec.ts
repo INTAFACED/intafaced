@@ -248,6 +248,7 @@ export function encode(record: JournalRecord): string {
         tif: o.tif,
         ...(o.ocoSiblingId ? { ocoSiblingId: o.ocoSiblingId } : {}),
         ...(o.bracket !== undefined ? { bracket: o.bracket } : {}),
+        ...(o.oco === true ? { oco: true } : {}),
         ...(o.takeProfit !== undefined ? { takeProfit: o.takeProfit } : {}),
         ...(o.stopLoss !== undefined ? { stopLoss: o.stopLoss } : {}),
         ...(o.takeProfitOrderId !== undefined ? { takeProfitOrderId: o.takeProfitOrderId } : {}),

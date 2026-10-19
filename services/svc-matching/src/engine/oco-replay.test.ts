@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount as A } from '@intafaced/ledger-client/money';
 import './engine.js';
 import { replay, toWire } from './journal.js';
+import { encode } from './journal-codec.js';
+import { decodeAll } from './journal-io.js';
 import type { JournalRecord } from './journal.js';
 import type { EngineOrder } from './types.js';
 
@@ -34,5 +36,15 @@ describe('OCO submits replay the way they ran live', () => {
     const book = replay(tape(bare({ oco: true, takeProfit: A('110'), stopLoss: A('90') }))).get(MARKET)!;
     expect(book.toState().asks[0]!.orders[0]!.orderId).toBe(`${ID}:tp`);
     expect(book.toState().stops.map((s) => s.orderId)).toEqual([`${ID}:sl`]);
+  });
+
+  it('the on-disk journal keeps the oco flag: a refused bare oco stays refused after encode and decode', () => {
+    const onDisk = decodeAll(
+      tape(bare({ oco: true }))
+        .map(encode)
+        .join('\n'),
+    );
+    const book = replay(onDisk).get(MARKET);
+    expect(book?.toState().asks ?? []).toEqual([]);
   });
 });
