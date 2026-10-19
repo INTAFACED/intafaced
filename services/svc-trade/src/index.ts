@@ -155,6 +155,7 @@ await assertNoLocalTestLifecycleRows(sql, process.env);
 
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-trade');
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const ledger = createLedgerClient(
   env.LEDGER_URL,
   env.INTERNAL_SERVICE_SECRET,
@@ -193,7 +194,7 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
-registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET });
+registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -377,6 +378,7 @@ const edgeContext = createEdgeContext({
   ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(doorS2s ? { serviceVerifier: doorS2s.verifier, s2sMode: doorS2s.mode } : {}),
   bodyBindMode: 'require',
 });
 if (venueBookPort && venuePublicAdapter) {
@@ -753,6 +755,7 @@ registerSpotOrderPreviewRest(app, {
 const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   publishFundingRate: (entry) => futuresJobs.publishFundingRate(entry),
   recordFundingHistory: (row) => fundingHistory.record(row),
   maxAbsRate: fundingMaxAbsRate,
@@ -765,12 +768,14 @@ registerFundingHistory(app, {
 });
 registerMarketLifecycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   store: marketLifecycleStore,
   installRawBody: false,
 });
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
 registerCopyLeaderFixturesRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   store: copyLeaderFixturesStore,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   installRawBody: false,
@@ -780,6 +785,7 @@ registerOutcomesRest(app, {
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   installRawBody: false,
   catalogue: memoryOutcomeCatalogue([]),
 });
