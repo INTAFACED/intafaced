@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody } from '@intafaced/contracts';
+import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -231,10 +231,13 @@ const loadVenueIncident = async () =>
 export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
 export type AppRouter = typeof appRouter;
 
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door stays on the pairwise secret alone.
+const s2s = s2sFromEnv(env, 'svc-notify');
 const edgeContext = createGuestIngressContext({
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
   opsSecret: env.NOTIFY_OPS_SERVICE_SECRET,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
