@@ -124,10 +124,12 @@ const schema = serviceEnvSchema
       PAY_CRYPTO_RPC_URL: z.string().url().optional(),
       PAY_CRYPTO_CHAIN_ID: z.coerce.number().int().positive().optional(),
       /**
-       * BIP-39 mnemonic that derives per-payment acceptance addresses.
-       * Never the hot wallet — deposits land here; payouts leave from the hot key.
+       * Where per-payment deposit addresses come from. Only `testnet` can be
+       * chosen here: addresses from a public throwaway phrase held in code,
+       * refused on any non-test chain and any staging/prod boot. No seed phrase
+       * is ever read from settings; a provider source is injected by boot code.
        */
-      PAY_CRYPTO_DEPOSIT_MNEMONIC: z.string().min(20).optional(),
+      PAY_CRYPTO_DEPOSIT_SOURCE: z.enum(['testnet']).optional(),
       /**
        * Which signer signs outbound payouts and refunds. Only `testnet` can be
        * chosen here: a throwaway in-memory key that refuses any non-test chain

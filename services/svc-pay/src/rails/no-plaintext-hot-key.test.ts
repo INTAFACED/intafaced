@@ -17,7 +17,7 @@ const LIVE_ENV = {
   APP_ENV: 'dev',
   PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
   PAY_CRYPTO_CHAIN_ID: '31337',
-  PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
+  PAY_CRYPTO_DEPOSIT_SOURCE: 'testnet',
   PAY_CRYPTO_ASSETS: 'ETH:native',
   PAY_MIN_CONFIRMATIONS: '6',
 };

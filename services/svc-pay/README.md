@@ -125,7 +125,7 @@ A user who can call the thing that credits their own balance does not need to de
 ```bash
 PAY_CRYPTO_RPC_URL=…          # archive-capable JSON-RPC
 PAY_CRYPTO_CHAIN_ID=…
-PAY_CRYPTO_DEPOSIT_MNEMONIC=… # HD acceptance addresses (not the hot wallet)
+PAY_CRYPTO_DEPOSIT_SOURCE=testnet # deposit addresses, test chains only; a provider source is injected at boot
 PAY_CRYPTO_SIGNER=testnet     # test chains only; a provider signer is injected at boot
 PAY_CRYPTO_ASSETS=ETH:native  # or ETH:native,USDT:0x…:6
 ```
@@ -144,9 +144,9 @@ That builds `EvmLiveChain` (`src/rails/evm-chain.ts`, `posture: 'live'`), starts
 **What the owner must still obtain for production money:**
 
 - A **production** (or public testnet) RPC, not only compose anvil — anvil proves the wiring; it is not a chain decision (`docs/decisions/local-dev-chain.md`).
-- Custody of the hot wallet / deposit mnemonic outside the repo (HSM or signing service preferred; the in-process key is the v1 minimum).
+- A real provider for the hot wallet signer and the deposit address source (HSM or signing service). Neither a key nor a seed phrase is a setting; the testnet implementations refuse mainnet, staging and prod.
 - Live boot wires `PostgresBroadcastStore` (`pay.crypto_broadcasts`, migration 0004 + `signed_raw` in 0012) for multi-replica claim→putSigned→sendRaw→put. `MemoryBroadcastStore` remains the unit/local default when no store is passed to `defaultChainFor` in `dev`/`test`. staging/prod live chain **refuses to build** without a store — two replicas on the in-memory journal can double-send. DIRECTION §3.1 / D26-P1-P9: the signed raw is journalled **before** `eth_sendRawTransaction`; crash-resume rebroadcasts the identical payload (`claim` → `resume`) instead of signing a second spend. Put-before-receipt still closes the wait-for-inclusion window.
-- Live boot also wires `PostgresChainWatcherCursorStore` (`pay.chain_watcher_cursors`, migration 0017) so the in-process watcher persists last-seen (block, tx hash, log index). A crash that re-drains the same finalization does not POST a second credit. No mnemonic → no live chain → watcher never starts; `/pay` deposits stay a named refuse, not an invented inbound.
+- Live boot also wires `PostgresChainWatcherCursorStore` (`pay.chain_watcher_cursors`, migration 0017) so the in-process watcher persists last-seen (block, tx hash, log index). A crash that re-drains the same finalization does not POST a second credit. No live chain config → no live chain → watcher never starts; `/pay` deposits stay a named refuse, not an invented inbound.
 - **Card acquiring** — sponsor bank / BIN. Still a §13 commercial socket; `card-sandbox` is never it.
 
 `/ready` and `railHealth` both carry `mode` now, because `healthy: true` was accurate and useless — a sandbox is reliably healthy at simulating.

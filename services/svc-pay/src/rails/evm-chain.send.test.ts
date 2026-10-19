@@ -1,4 +1,5 @@
 import { parseAmount } from '@intafaced/ledger-client';
+import { TestnetDepositAddresses } from './deposit-source.js';
 import { TestnetSigner } from './evm-signer.js';
 import type { Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -19,7 +20,7 @@ function chain(): EvmLiveChain {
   return new EvmLiveChain({
     rpcUrl: 'http://127.0.0.1:9',
     chainId: 31337,
-    depositMnemonic: MNEMONIC,
+    deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
     signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),

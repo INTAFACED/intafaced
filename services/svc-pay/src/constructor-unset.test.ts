@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { TestnetDepositAddresses } from './rails/deposit-source.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -55,7 +56,7 @@ describe('svc-pay constructor unset refuse', () => {
     const incomplete = {
       rpcUrl: 'http://127.0.0.1:1',
       chainId: 1,
-      depositMnemonic: '',
+      deposits: TestnetDepositAddresses.default(),
       signer: TestnetSigner.fromFixtureKey('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'),
       assets: new Map(),
       broadcasts: new MemoryBroadcastStore(),

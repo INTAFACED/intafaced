@@ -11,7 +11,7 @@
  *    PAY_REGISTER_CARD_SANDBOX:
  *    PAY_CRYPTO_RPC_URL:
  *    PAY_CRYPTO_CHAIN_ID:
- *    PAY_CRYPTO_DEPOSIT_MNEMONIC:
+ *    PAY_CRYPTO_DEPOSIT_SOURCE:
  *    PAY_CRYPTO_SIGNER:
  *    PAY_CRYPTO_ASSETS:
  *    (key, no value; unset omits). Do not bake true/false or `${VAR:-}`.
@@ -49,7 +49,7 @@ function keyNoValue(name: string): RegExp {
 const REGISTER = keyNoValue('PAY_REGISTER_CARD_SANDBOX');
 const RPC = keyNoValue('PAY_CRYPTO_RPC_URL');
 const CHAIN_ID = keyNoValue('PAY_CRYPTO_CHAIN_ID');
-const MNEMONIC = keyNoValue('PAY_CRYPTO_DEPOSIT_MNEMONIC');
+const MNEMONIC = keyNoValue('PAY_CRYPTO_DEPOSIT_SOURCE');
 const SIGNER = keyNoValue('PAY_CRYPTO_SIGNER');
 const ASSETS = keyNoValue('PAY_CRYPTO_ASSETS');
 const OPERATOR_CREDIT = /^\s+PAY_OPERATOR_CREDIT_RAILS:\s*\$\{PAY_OPERATOR_CREDIT_RAILS:-\}\s*$/gm;
@@ -68,7 +68,7 @@ const KEY_NO_VALUE = [
   ['PAY_REGISTER_CARD_SANDBOX', REGISTER],
   ['PAY_CRYPTO_RPC_URL', RPC],
   ['PAY_CRYPTO_CHAIN_ID', CHAIN_ID],
-  ['PAY_CRYPTO_DEPOSIT_MNEMONIC', MNEMONIC],
+  ['PAY_CRYPTO_DEPOSIT_SOURCE', MNEMONIC],
   ['PAY_CRYPTO_SIGNER', SIGNER],
   ['PAY_CRYPTO_ASSETS', ASSETS],
 ] as const;
@@ -85,7 +85,7 @@ describe('compose PAY_REGISTER_CARD_SANDBOX for svc-pay', () => {
   it('env.ts still declares optional live-crypto keys (empty string invalid)', () => {
     expect(envTs).toMatch(/PAY_CRYPTO_RPC_URL:\s*z\.string\(\)\.url\(\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_CHAIN_ID:\s*z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_DEPOSIT_MNEMONIC:\s*z\.string\(\)\.min\(20\)\.optional\(\)/);
+    expect(envTs).toMatch(/PAY_CRYPTO_DEPOSIT_SOURCE:\s*z\.enum\(\['testnet'\]\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_SIGNER:\s*z\.enum\(\['testnet'\]\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_ASSETS:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
   });
