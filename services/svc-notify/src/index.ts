@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { retainRawBody } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
@@ -230,7 +231,11 @@ const loadVenueIncident = async () =>
 export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
 export type AppRouter = typeof appRouter;
 
-const edgeContext = createGuestIngressContext({ edgeSecret: env.EDGE_PRINCIPAL_SECRET, opsSecret: env.NOTIFY_OPS_SERVICE_SECRET });
+const edgeContext = createGuestIngressContext({
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  opsSecret: env.NOTIFY_OPS_SERVICE_SECRET,
+});
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
