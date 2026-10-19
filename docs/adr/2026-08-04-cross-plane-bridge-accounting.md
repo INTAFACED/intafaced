@@ -152,6 +152,6 @@ Until an attestation design lands, **a crossing is operator-gated or it does not
 
 ## Housekeeping this ADR notes but does not fix
 
-- **Two research packs share one tracker id** — `docs/ops/trk/bridge.canonical.md` (155 lines, the superset) and `TRK-bridge.canonical.md` (114 lines, strictly smaller). Same duplication exists for `blueprint.attestations`, where the two actively contradict each other.
+- **Two research packs share one tracker id** — `docs/ops/trk/bridge.canonical.md` (removed) (155 lines, the superset) and `TRK-bridge.canonical.md` (114 lines, strictly smaller). Same duplication exists for `blueprint.attestations`, where the two actively contradict each other.
 - Both packs say `owner: none`; `features.mjs:579` says `shehzad002`.
 - The packs cite **S-B5** (design); the current board's build row is **S-D7**. Both are live — cite both.

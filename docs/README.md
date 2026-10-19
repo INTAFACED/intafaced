@@ -6,18 +6,17 @@ Old history docs were deleted. Git history keeps them (`git log --diff-filter=D 
 
 ## Folders
 
-| Folder                     | What it is                                      |
-| -------------------------- | ----------------------------------------------- |
-| [`adr/`](adr/)             | settled decisions                               |
-| [`runbooks/`](runbooks/)   | operator procedures                             |
-| [`refs/`](refs/)           | measured front-end references                   |
-| [`agents/`](agents/)       | issue tracker, labels and domain notes          |
-| [`security/`](security/)   | security review read by tooling                 |
-| [`decisions/`](decisions/) | decision notes cited by code                    |
-| [`audit/`](audit/)         | audit notes cited by code                       |
-| [`audits/`](audits/)       | audit records cited by code                     |
-| [`pay/`](pay/)             | payments notes cited by code                    |
-| [`ops/`](ops/)             | ops claims and tracker files read by CI scripts |
+| Folder                     | What it is                             |
+| -------------------------- | -------------------------------------- |
+| [`adr/`](adr/)             | settled decisions                      |
+| [`runbooks/`](runbooks/)   | operator procedures                    |
+| [`refs/`](refs/)           | measured front-end references          |
+| [`agents/`](agents/)       | issue tracker, labels and domain notes |
+| [`security/`](security/)   | security review read by tooling        |
+| [`decisions/`](decisions/) | decision notes cited by code           |
+| [`audit/`](audit/)         | audit notes cited by code              |
+| [`audits/`](audits/)       | audit records cited by code            |
+| [`pay/`](pay/)             | payments notes cited by code           |
 
 ## Files kept at this level
 

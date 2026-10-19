@@ -71,7 +71,7 @@ hook, before any of this code runs.
 
 **There is no vetting criterion here, and there must not be one.** No rule exists
 anywhere in this repository for what makes an application good;
-`docs/ops/trk/market.vendors.md` names it an open product question that belongs
+`docs/ops/trk/market.vendors.md` (removed) named it an open product question that belongs
 to the owner. So `vet` takes an operator's decision and their reason, records
 both, and applies the state — a log with a side effect, not a decision engine. A
 caller that reaches `VendorService.vet` without holding `market:ops` is refused

@@ -205,11 +205,6 @@ const ALLOWLIST = [
   // Wave paste dirs (docs/paste-wN, PASTE-BUILD-WAVE-N*, PASTE-W*) and
   // docs/paste/** are covered by isInternalPastePath() — do not re-list each
   // wave here (that is how WAVE-7 re-redded main after #1471).
-  {
-    path: join('docs', 'ops'),
-    reason:
-      'internal swarm FREEZE/report board; must list real shell paths so agents can claim work without paraphrasing territory. Not user-facing product copy. Remove once the vendor directory is renamed.',
-  },
   // REMOVED 2026-08-05, both on the terms their own reasons set:
   //
   //   `tooling/scripts/swarm.mjs`      — existed because that file assembled the

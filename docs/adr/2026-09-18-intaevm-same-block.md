@@ -89,7 +89,7 @@ How EVM reads INTACORE is **not** picked here:
 | Shared module store mapped into EVM   | Allowed later.                                                                         |
 | Bridge-attested read of another chain | **Not** INTAEVM. That is a crossing (D-S-12 / S-D7).                                   |
 
-`docs/ops/trk/chain.evm.md` Stage 2 remains: “precompile, shared store, or bridge-attested reads — product law, not agent invent.” **Bridge-attested is rejected as the INTAEVM in-block read.** Attestation is for cross-plane conservation, not for same-block book view.
+`docs/ops/trk/chain.evm.md` (removed) Stage 2 remains: “precompile, shared store, or bridge-attested reads — product law, not agent invent.” **Bridge-attested is rejected as the INTAEVM in-block read.** Attestation is for cross-plane conservation, not for same-block book view.
 
 ---
 

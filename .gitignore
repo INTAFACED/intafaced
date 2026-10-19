@@ -80,9 +80,6 @@ packages/greeks-adapter/native/*.node
 # Local agent worktrees + pnpm store (never commit)
 .worktrees/
 .pnpm-store/
-docs/ops/FREEZE-LIVE.json
-docs/ops/RUN-LEDGER.json
-docs/ops/RUN-LEDGER.json.tmp
 
 # Infra journal — one record per external-dependency probe, written by
 # packages/db/src/infra-journal.ts and read by tooling/ci/infra-verdict.mjs so
