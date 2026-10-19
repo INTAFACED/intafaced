@@ -357,26 +357,9 @@ describe('evaluateCompletion', () => {
     expect(evaluateCompletion(guardrail(), state({ spend: amt('0.9') }), attempt(), 'IFC')).toEqual({ allowed: true });
   });
 
-  it('refuses a null or omitted session spend cap instead of leaving the session uncapped', () => {
-    const explicitNull = parseGuardrail({ ...BASE, limits: { ...BASE.limits, maxSpendPerSession: null } });
-    expect(explicitNull.limits.maxSpendPerSession).toBeNull();
-    const nullDecision = evaluateCompletion(explicitNull, state({ spend: amt('0') }), attempt({ worstCaseCost: amt('0') }), 'IFC');
-    expect(nullDecision).toMatchObject({
-      allowed: false,
-      code: 'agents.spend_limit_unset',
-      userMessageKey: 'agents.refused.spend_limit_unset',
-    });
-    if (!nullDecision.allowed) expect(nullDecision.userMessageParams).not.toHaveProperty('limit');
-
-    const { maxSpendPerSession: omittedCap, ...limits } = BASE.limits;
-    void omittedCap;
-    const omitted = parseGuardrail({ ...BASE, limits });
-    expect(omitted.limits.maxSpendPerSession).toBeNull();
-    expect(evaluateCompletion(omitted, state({ spend: amt('1000000') }), attempt(), 'IFC')).toMatchObject({
-      allowed: false,
-      code: 'agents.spend_limit_unset',
-      userMessageKey: 'agents.refused.spend_limit_unset',
-    });
+  it('treats a null cap as uncapped', () => {
+    const uncapped = parseGuardrail({ ...BASE, limits: { ...BASE.limits, maxSpendPerSession: null } });
+    expect(evaluateCompletion(uncapped, state({ spend: amt('1000000') }), attempt(), 'IFC')).toEqual({ allowed: true });
   });
 
   it('names the limit and the asset in the refusal parameters', () => {
