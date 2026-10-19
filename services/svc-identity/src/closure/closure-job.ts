@@ -3,13 +3,13 @@
  * Blank limit refuses. This route does not erase history.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
+import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { AccountClosureService, ClosureError, publishedFinalizeLimit } from './closure-service.js';
 
-function authorized(req: FastifyRequest, secret: string): boolean {
+function authorized(req: FastifyRequest, secret: string, s2s?: IdentityS2s): boolean {
   if (typeof secret !== 'string' || secret.length === 0) return false;
   try {
-    return verifyServiceHeaders(req.headers, secret, { rawBody: rawBodyOf(req), mode: 'require' }).service !== null;
+    return serviceOfRequest(req, secret, 'require', s2s).service !== null;
   } catch {
     return false;
   }
@@ -21,9 +21,12 @@ function bodyLimit(body: unknown): unknown {
   return (body as { limit?: unknown }).limit;
 }
 
-export function registerClosureFinalize(app: FastifyInstance, deps: { secret: string; closure: AccountClosureService }): void {
+export function registerClosureFinalize(
+  app: FastifyInstance,
+  deps: { secret: string; s2s?: IdentityS2s; closure: AccountClosureService },
+): void {
   app.post('/internal/jobs/finalize-account-closures', async (req, reply) => {
-    if (!authorized(req, deps.secret)) {
+    if (!authorized(req, deps.secret, deps.s2s)) {
       return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
     }
     const limit = publishedFinalizeLimit(bodyLimit(req.body));
