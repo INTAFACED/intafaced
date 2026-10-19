@@ -9,6 +9,7 @@ import {
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
   operationAdmissionInputSchema,
+  serviceOperatorEntitlementInputSchema,
   operationAdmissionResultSchema,
   committedOperationAdmissionSchema,
   operationRecoveryInputSchema,
@@ -330,5 +331,20 @@ describe('committed admission and immutable recovery', () => {
     ])
       expect(recoveryMatchesAdmission(candidate, admission)).toBe(false);
     expect(recoveryMatchesAdmission(recovery, eligible)).toBe(false);
+  });
+});
+
+describe('service-only operator entitlement read', () => {
+  it('names the user and the live session the caller authenticated, and nothing else', () => {
+    expect(serviceOperatorEntitlementInputSchema.parse({ userId: USER, sessionId: KEY })).toEqual({ userId: USER, sessionId: KEY });
+    for (const candidate of [
+      { userId: USER },
+      { sessionId: KEY },
+      { userId: 'someone', sessionId: KEY },
+      { userId: USER, sessionId: 'session' },
+      { userId: USER, sessionId: KEY, mfa: true },
+      { userId: USER, sessionId: KEY, expiresAt: NOW },
+    ])
+      expect(serviceOperatorEntitlementInputSchema.safeParse(candidate).success).toBe(false);
   });
 });
