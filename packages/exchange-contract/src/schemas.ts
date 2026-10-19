@@ -355,7 +355,7 @@ export const createOrderRequestSchema = z
     /** Sub-account to trade from (§4.1 sub_accounts). */
     subAccountId: z.string().uuid().optional(),
     /** Caller expire instant for GTD/GTT. Never invented here. */
-    expireAt: z.string().min(1).optional(),
+    expireAt: isoDatetime.optional(),
   })
   .superRefine((order, ctx) => {
     // A limit order without a price is the single most common integration bug.
