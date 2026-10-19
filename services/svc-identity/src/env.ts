@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
@@ -49,6 +49,7 @@ const schema = serviceEnvSchema
   .merge(authEnvSchema)
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-identity'),

@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
+import { mergeRouters, rawBodyOf, s2sFromEnv, verifyServiceHeaders } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -314,7 +314,15 @@ const dmaHierarchyLaw = parseDmaHierarchyLawJson(env.IDENTITY_DMA_HIERARCHY_LAW_
  * Absent (non-compose / omitted) → payout refuses `affiliate.payout.ledger_unwired`
  * rather than reporting a payment it could not make. No localhost default.
  */
-const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET) : undefined;
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger call on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-identity');
+const ledger = env.LEDGER_URL
+  ? createLedgerClient(
+      env.LEDGER_URL,
+      env.INTERNAL_SERVICE_SECRET,
+      s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+    )
+  : undefined;
 
 /**
  * §10 KYC encrypted vault. Unset IDENTITY_KYC_DOC_KEY → vault null (procedures
