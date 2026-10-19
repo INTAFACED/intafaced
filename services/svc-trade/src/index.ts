@@ -157,7 +157,7 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
-  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET }),
   createIdentityOperationDecisionClient({
     owner: 'svc-trade',
     identityUrl: env.IDENTITY_URL,

@@ -1,22 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { verifyServiceHeaders, verifyForwardedPrincipal } from '@intafaced/contracts';
+import { verifyServiceHeaders } from '@intafaced/contracts';
 import { principalFor } from '../spot/testing.js';
 import { createLiveTradingOperator } from './identity-port.js';
 
 const subject = 'a1111111-1111-4111-8111-111111111111';
-const serviceSecret = 's'.repeat(32),
-  edgeSecret = 'e'.repeat(32);
-const config = { url: 'http://identity.invalid', serviceSecret, edgeSecret };
+const serviceSecret = 's'.repeat(32);
+const config = { url: 'http://identity.invalid', serviceSecret };
 const context = () => ({ principal: { ...principalFor(subject), mfa: true }, service: null, region: 'SG', requestId: 'request' });
 const enabled = { status: 'enabled', userId: subject, version: '0', changedAt: new Date().toISOString() };
 describe('Trading founder validation transport', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
-  it('binds exact body and original signed principal/region; every check performs a live request', async () => {
+  it('binds exact body (user and session) with service credentials only and no forwarded principal; every check performs a live request', async () => {
     const requests: RequestInit[] = [];
     const port = createLiveTradingOperator(config, (async (url, request) => {
-      expect(String(url)).toBe('http://identity.invalid/trpc/accountControls.operatorEntitlement');
+      expect(String(url)).toBe('http://identity.invalid/trpc/accountControls.serviceOperatorEntitlement');
       requests.push(request!);
       return new Response(JSON.stringify({ result: { data: enabled } }), { status: 200 });
     }) as typeof fetch)!;
@@ -25,7 +24,8 @@ describe('Trading founder validation transport', () => {
     expect(requests).toHaveLength(2);
     const request = requests[0]!;
     const headers = request.headers as Record<string, string>;
-    expect(request.body).toBe(JSON.stringify({ userId: subject }));
+    const sessionId = context().principal.sid;
+    expect(request.body).toBe(JSON.stringify({ userId: subject, sessionId }));
     expect(
       verifyServiceHeaders(headers, serviceSecret, {
         mode: 'require',
@@ -35,10 +35,9 @@ describe('Trading founder validation transport', () => {
     expect(
       verifyServiceHeaders(headers, serviceSecret, { mode: 'require', rawBody: { retained: true, bytes: Buffer.from('{}') } }).service,
     ).toBeNull();
-    expect(
-      verifyForwardedPrincipal(headers['x-intafaced-principal']!, headers['x-intafaced-principal-sig']!, edgeSecret, new Date(), 'SG')
-        .principal?.userId,
-    ).toBe(subject);
+    // The shared edge secret is not used here: nothing in the request can assert a principal.
+    expect(headers['x-intafaced-principal']).toBeUndefined();
+    expect(headers['x-intafaced-principal-sig']).toBeUndefined();
     expect(request.redirect).toBe('error');
   });
   it.each([
