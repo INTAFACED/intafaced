@@ -53,6 +53,7 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('.github/workflows/ci.yml'));
   assert.ok(touched('.github/workflows/new-one.yaml'));
   assert.ok(touched('.gitleaks.toml'));
+  assert.ok(touched('tooling/scripts/gate-gh.mjs'));
   assert.ok(touched('tooling/scripts/main-auto-revert.mjs'));
   assert.ok(touched('tooling/scripts/gate-file-guard.mjs'));
 });
