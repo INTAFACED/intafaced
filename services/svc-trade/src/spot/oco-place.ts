@@ -9,6 +9,7 @@ import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashClaim } from './stash-scope.js';
 
 export type OcoLeg = {
   readonly price?: string;
@@ -84,6 +85,12 @@ export function stashOcoFromBody(rec: Record<string, unknown>): void {
   });
 }
 
+/** Tie the entry stashOcoFromBody just wrote to this request, so a refused request releases it. */
+export function claimOcoStash(req: object, rec: Record<string, unknown>): void {
+  const key = clientKey(rec);
+  if (key) stashClaim(req, ocoByClient, key);
+}
+
 export function bindOco(input: PlaceOrderInput): PlaceWithOco {
   const extra = input as PlaceWithOco;
   if (wantsOco(extra)) return extra;
@@ -109,13 +116,17 @@ export function attachOcoStash(app: FastifyInstance): void {
   app.addHook('preValidation', (req, _reply, done) => {
     try {
       const body = req.body;
-      if (body && typeof body === 'object') stashOcoFromBody(body as Record<string, unknown>);
+      if (body && typeof body === 'object') {
+        stashOcoFromBody(body as Record<string, unknown>);
+        claimOcoStash(req, body as Record<string, unknown>);
+      }
       done();
     } catch (err) {
       if (err instanceof TradeError) Object.assign(err, { statusCode: 400 });
       done(err as Error);
     }
   });
+  attachStashRelease(app);
 }
 
 export function installOcoPlace(ctor: typeof TradeService): void {

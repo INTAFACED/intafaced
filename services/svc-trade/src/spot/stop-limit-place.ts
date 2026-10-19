@@ -4,6 +4,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a stop-limit through the matching door that landed in #3288.
@@ -46,13 +47,14 @@ export function stopPxRefuse(stopPx: Amount | null): TradeError | null {
 }
 
 export function attachStopLimitStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsStopLimit(rec)) {
         const raw = rec.stopPx ?? rec.stopPrice;
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           stopPx: raw == null || raw === '' ? null : String(raw),
         });
       }

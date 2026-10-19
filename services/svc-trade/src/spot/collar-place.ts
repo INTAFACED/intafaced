@@ -5,6 +5,7 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a price collar through the matching door that landed in #3410.
@@ -132,12 +133,13 @@ function collarRejectResult(code: typeof COLLAR_MISSING | typeof COLLAR_OUTSIDE,
 }
 
 export function attachCollarStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsCollar(rec)) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           collar: rec.collar === undefined ? null : flagFromRaw(rec.collar),
           min: rec.min == null || rec.min === '' ? null : String(rec.min),
           max: rec.max == null || rec.max === '' ? null : String(rec.max),

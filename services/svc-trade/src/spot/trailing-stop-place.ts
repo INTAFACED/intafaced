@@ -6,6 +6,7 @@ import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import './oco-cancel.js';
 import './bracket-place.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a trailing stop through the matching door that landed in #3294.
@@ -60,14 +61,16 @@ export function markRefuse(mark: Amount | null): TradeError | null {
 }
 
 export function attachTrailingStopStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsTrailing(rec)) {
-        stash.set(stashKey(rec), {
-          trail: rec.trail == null || rec.trail === '' ? null : String(rec.trail),
-          mark: rec.mark == null || rec.mark === '' ? null : String(rec.mark),
+        stashSet(req, stash, stashKey(rec), {
+          // A JSON number is float-derived; only a decimal string is a distance. Anything else stays missing and refuses.
+          trail: typeof rec.trail === 'string' && rec.trail !== '' ? rec.trail : null,
+          mark: typeof rec.mark === 'string' && rec.mark !== '' ? rec.mark : null,
         });
       }
     }

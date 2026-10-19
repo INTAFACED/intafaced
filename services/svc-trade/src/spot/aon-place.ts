@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place all-or-none through the matching door that landed in #3312.
@@ -46,12 +47,13 @@ export function aonIcebergRefuse(aon: boolean, iceberg: boolean): TradeError | n
 }
 
 export function attachAonStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsAon(rec)) {
-        stash.set(stashKey(rec), { aon: rec.aon === true ? true : rec.aon == null ? null : Boolean(rec.aon) });
+        stashSet(req, stash, stashKey(rec), { aon: rec.aon === true ? true : rec.aon == null ? null : Boolean(rec.aon) });
       }
     }
     done();

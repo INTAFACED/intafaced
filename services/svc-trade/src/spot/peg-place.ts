@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place peg / midpoint / relative through the matching door that landed in #3318.
@@ -77,12 +78,13 @@ export function pegIntentRefuse(order: {
 }
 
 export function attachPegStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (wantsPegIntent(rec)) {
-        stash.set(stashKey(rec), {
+        stashSet(req, stash, stashKey(rec), {
           peg: rec.peg === undefined ? null : flagFromRaw(rec.peg),
           midpoint: rec.midpoint === undefined ? null : flagFromRaw(rec.midpoint),
           relative: rec.relative === undefined ? null : flagFromRaw(rec.relative),

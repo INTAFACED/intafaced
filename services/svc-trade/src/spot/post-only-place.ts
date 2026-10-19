@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place a post-only through the matching door already on main.
@@ -32,12 +33,13 @@ function stashKey(rec: Record<string, unknown>): string {
 }
 
 export function attachPostOnlyStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (rec.postOnly === true || rec.timeInForce === 'PO' || rec.tif === 'PO') {
-        poByClient.set(stashKey(rec), true);
+        stashSet(req, poByClient, stashKey(rec), true);
         delete rec.postOnly;
       }
     }

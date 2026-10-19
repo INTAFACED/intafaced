@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { attachStashRelease, stashSet } from './stash-scope.js';
 
 /**
  * Place an FOK through the matching door that just landed.
@@ -27,12 +28,13 @@ function isFok(tif: unknown): boolean {
 }
 
 export function attachFokStash(app: FastifyInstance): void {
+  attachStashRelease(app);
   app.addHook('preValidation', (req, _reply, done) => {
     const body = req.body;
     if (body && typeof body === 'object') {
       const rec = body as Record<string, unknown>;
       if (isFok(rec.timeInForce) || isFok(rec.tif)) {
-        fokByClient.set(stashKey(rec), true);
+        stashSet(req, fokByClient, stashKey(rec), true);
       }
     }
     done();
