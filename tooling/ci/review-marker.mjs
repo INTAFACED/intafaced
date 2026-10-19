@@ -11,14 +11,14 @@
  * habit, not identity. A new push needs a new review and a new comment. After
  * posting it, re-run the failed "CI merge seal" job.
  */
-const MARKER = /^Independent review: PASS ([0-9a-f]{40})\b/im;
+const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 
 /** True when any comment carries the marker for exactly `sha`. */
 export function hasReviewMarker(comments, sha) {
   const want = String(sha).toLowerCase();
   return comments.some((c) => {
     const m = MARKER.exec(c?.body ?? '');
-    return m !== null && m[1] === want;
+    return m !== null && m[1].toLowerCase() === want;
   });
 }
 
@@ -32,6 +32,8 @@ function selfTest() {
     [[{ body: `Independent review: FAIL ${sha}` }], sha, false],
     [[{ body: `Independent review: PASS for head ${sha}` }], sha, false],
     [[{ body: `Independent review: PASS ${sha}` }], sha, true],
+    [[{ body: `Independent review: PASS ${sha} but not really` }], sha, false],
+    [[{ body: `Independent review: PASS ${sha.toUpperCase()}` }], sha, true],
     [[], sha, false],
   ];
   for (const [comments, s, want] of ok) {
