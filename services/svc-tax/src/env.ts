@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, internalServiceEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import {
+  baseEnvSchema,
+  edgeEnvSchema,
+  httpEnvSchema,
+  internalServiceEnvSchema,
+  loadEnv,
+  otelEnvSchema,
+  s2sEnvSchema,
+} from '@intafaced/config';
 
 /**
  * svc-tax — lot export. No Postgres: reads live on svc-ledger.
@@ -18,6 +26,7 @@ const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-tax'),

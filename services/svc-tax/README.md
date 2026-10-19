@@ -28,3 +28,7 @@ Read-only. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-le
 | `history`  | lot reconstruction for those accounts |
 
 Data lake / indexer missing → named `absent` on the pack (`tax.data_lake_unavailable`, `tax.indexer_unavailable`). A set URL is `configured` + `tax.data_lake_unprobed` / `tax.indexer_unprobed` — never `ok`. Never filled in as `$0`.
+
+## Service keys: ledger reads
+
+The ledger reads (balances and history) are signed with svc-tax's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, they are signed with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
