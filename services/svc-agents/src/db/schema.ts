@@ -192,10 +192,12 @@ export const agentActions = agents.table(
 /**
  * Place-tool idempotency (PTX-M28-R05).
  *
- * Conversational repeat and transport retry reuse `(session, key)`. The first
- * successful `trade.order` / `trade.place` wins; a second `act` with the same
- * key returns that outcome and does not call `execute` again. Result JSON is
- * the tool outcome (order id / refuse payload), never a prompt.
+ * The row is inserted before `execute`, unique on `(session, key)`. `tool` is
+ * stored with the claim. `action_id` and `result_json` stay null until that
+ * place is stored. A failed execute deletes the claim. A later act with the
+ * same tool and a stored result returns that outcome and does not call
+ * `execute` again. A different place tool that reuses the key does not read
+ * this result. Result JSON is the tool outcome, never a prompt.
  */
 export const agentPlaceIntents = agents.table(
   'agent_place_intents',
@@ -205,13 +207,31 @@ export const agentPlaceIntents = agents.table(
       .references(() => agentSessions.id),
     idempotencyKey: text('idempotency_key').notNull(),
     tool: text('tool').notNull(),
-    actionId: uuid('action_id')
-      .notNull()
-      .references(() => agentActions.id),
-    resultJson: text('result_json').notNull(),
+    actionId: uuid('action_id').references(() => agentActions.id),
+    resultJson: text('result_json'),
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.sessionId, t.idempotencyKey] })],
+);
+
+/**
+ * In-flight think claim.
+ *
+ * Committed before the provider call, unique on `(session_id, request_id)`, so
+ * a second overlapping think loses the insert and never reaches the model.
+ * It is not a bill: token counts live in `usage_records`, and a provider
+ * failure deletes the row so a retry can still be metered once.
+ */
+export const thinkClaims = agents.table(
+  'think_claims',
+  {
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => agentSessions.id),
+    requestId: text('request_id').notNull(),
+    claimedAt: tstz('claimed_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.requestId] })],
 );
 
 /**

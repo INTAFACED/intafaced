@@ -173,7 +173,7 @@ if (!available) {
 
   beforeEach(async () => {
     await sql`
-      TRUNCATE agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
+      TRUNCATE agents.think_claims, agents.agent_place_intents, agents.usage_records, agents.usage_windows, agents.agent_actions, agents.agent_sessions, agents.agent_definitions
       RESTART IDENTITY CASCADE
     `;
 
@@ -195,6 +195,51 @@ if (!available) {
   });
 
   const open = (userId = USER_A, agentId = 'probe') => runtime.openSession({ userId, agentId });
+
+  /**
+   * Hold `gateway.complete` so two thinks overlap.
+   *
+   * `first` releases only the first entry, so a same-id replay that still
+   * reaches the provider returns while the winner is inside the call.
+   * `both` waits until two entries have started, then releases them together.
+   */
+  function gateComplete(inner: ModelGateway, mode: 'first' | 'both') {
+    let entered = 0;
+    let releaseHold!: () => void;
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+    let markReady!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      markReady = resolve;
+    });
+    const wrapped = Object.create(inner) as ModelGateway;
+    wrapped.complete = async (task: string, request: Parameters<ModelGateway['complete']>[1]) => {
+      entered += 1;
+      if (mode === 'first') {
+        if (entered === 1) {
+          markReady();
+          await hold;
+        }
+      } else if (entered >= 2) {
+        markReady();
+        await hold;
+      } else {
+        await hold;
+      }
+      return inner.complete(task, request);
+    };
+    return {
+      gateway: wrapped,
+      entered: () => entered,
+      release: () => releaseHold(),
+      ready,
+    };
+  }
+
+  function meteredRuntime(gw: ModelGateway) {
+    return new AgentRuntime(sql, gw, meter, bus, { feeAssetId: 'IFC', meteringEnabled: true });
+  }
 
   // ── Routing ───────────────────────────────────────────────────────────────
 
@@ -360,6 +405,34 @@ if (!available) {
       expect(settlement.amount).toBe(usageCost(first.usage, first.route.price));
       expect(await houseOf()).toBe(formatAmount(settlement.amount));
       expect(ledger.totalsByAsset().IFC).toBe('0');
+    });
+
+    it('overlapping thinks with the same request id call the provider once and bill the real cost', async () => {
+      const session = await open();
+      const gate = gateComplete(gateway, 'first');
+      const local = meteredRuntime(gate.gateway);
+      const { route, usage } = expectedUsage('plan');
+      const expected = usageCost(usage, route.price);
+      expect(expected).toBeGreaterThan(0n);
+
+      const first = local.think({ sessionId: session.id, requestId: 'overlap-same', task: 'plan', messages: MESSAGES });
+      await gate.ready;
+
+      const second = local.think({ sessionId: session.id, requestId: 'overlap-same', task: 'plan', messages: MESSAGES });
+      await expect(second).rejects.toMatchObject({ code: 'agents.request_id_replay' });
+      expect(gate.entered()).toBe(1);
+
+      gate.release();
+      const winner = await first;
+      expect(typeof winner.cost).toBe('bigint');
+      expect(winner.cost).toBe(expected);
+      expect(winner.metered).toBe(true);
+
+      const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(rows).toHaveLength(1);
+      const executed = (await local.sessionLog(session.id, 500)).filter((a) => a.kind === 'completion' && a.status === 'executed');
+      expect(executed).toHaveLength(1);
+      expect(executed[0]!.cost).toBe(expected);
     });
 
     it('settles a window exactly once, however many times settlement is run', async () => {
@@ -685,6 +758,189 @@ if (!available) {
       ).rejects.toMatchObject({ refusal: { code: 'agents.tool_call_limit' } });
     });
 
+    it('overlapping places with the same key execute once, and a later retry returns that result', async () => {
+      const session = await open();
+      let entered = 0;
+      let releaseHold!: () => void;
+      const hold = new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      });
+      let markReady!: () => void;
+      const ready = new Promise<void>((resolve) => {
+        markReady = resolve;
+      });
+
+      const first = runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          entered += 1;
+          markReady();
+          await hold;
+          return 'first-place';
+        },
+      });
+      await ready;
+
+      const second = runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          entered += 1;
+          return 'second-place';
+        },
+      });
+      await expect(second).rejects.toMatchObject({ refusal: { code: 'agents.place_key_conflict' } });
+      expect(entered).toBe(1);
+
+      releaseHold();
+      const winner = await first;
+      expect(winner.result).toBe('first-place');
+      expect(winner.replayed).toBeUndefined();
+
+      let third = 0;
+      const replay = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'overlap-place',
+        execute: async () => {
+          third += 1;
+          return 'placed again';
+        },
+      });
+      expect(replay.replayed).toBe(true);
+      expect(replay.result).toBe('first-place');
+      expect(third).toBe(0);
+      expect(entered).toBe(1);
+    });
+
+    it('a different place tool reusing the key is refused by the guardrail and does not receive the first result', async () => {
+      const session = await open();
+      await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'shared-key',
+        execute: async () => 'order-result',
+      });
+
+      let ran = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          approved: true,
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            ran = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.tool_not_declared' } });
+      expect(ran).toBe(false);
+    });
+
+    it('a different place tool the guardrail would allow still does not place', async () => {
+      await runtime.registerAgent({
+        ...PROBE,
+        agentId: 'both-place',
+        tools: [
+          { name: 'trade.order', module: 'trade', mode: 'write', maxCallsPerSession: 1, requiresApproval: true },
+          { name: 'trade.place', module: 'trade', mode: 'write', maxCallsPerSession: 1, requiresApproval: true },
+        ],
+      });
+      const session = await open(USER_A, 'both-place');
+      await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'shared-key',
+        execute: async () => 'order-result',
+      });
+
+      let unapproved = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            unapproved = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.approval_required' } });
+      expect(unapproved).toBe(false);
+
+      let ran = false;
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.place',
+          approved: true,
+          idempotencyKey: 'shared-key',
+          execute: async () => {
+            ran = true;
+            return 'place-result';
+          },
+        }),
+      ).rejects.toMatchObject({ refusal: { code: 'agents.place_key_conflict' } });
+      expect(ran).toBe(false);
+    });
+
+    it('a failed place releases the key so one later retry can place', async () => {
+      const session = await open();
+      let calls = 0;
+
+      await expect(
+        runtime.act({
+          sessionId: session.id,
+          tool: 'trade.order',
+          approved: true,
+          idempotencyKey: 'retry-place',
+          execute: async () => {
+            calls += 1;
+            throw new Error('venue rejected');
+          },
+        }),
+      ).rejects.toThrow('venue rejected');
+
+      const placed = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'retry-place',
+        execute: async () => {
+          calls += 1;
+          return 'placed-after-failure';
+        },
+      });
+
+      expect(placed.result).toBe('placed-after-failure');
+      expect(placed.replayed).toBeUndefined();
+      expect(calls).toBe(2);
+
+      let again = 0;
+      const replay = await runtime.act({
+        sessionId: session.id,
+        tool: 'trade.order',
+        approved: true,
+        idempotencyKey: 'retry-place',
+        execute: async () => {
+          again += 1;
+          return 'placed twice';
+        },
+      });
+      expect(replay.replayed).toBe(true);
+      expect(replay.result).toBe('placed-after-failure');
+      expect(again).toBe(0);
+    });
+
     it('refuses an engine call the agent is not permitted to make, and bills nothing', async () => {
       const session = await open();
 
@@ -709,6 +965,104 @@ if (!available) {
       expect(provider.callCount).toBe(0);
       expect(await balanceOf(USER_A)).toBe('1000');
       expect(ledger.totalsByAsset().IFC).toBe('0');
+    });
+
+    it('a charge that lands exactly on the ceiling commits its real cost', async () => {
+      const { route, usage } = expectedUsage('quick', MESSAGES, 1);
+      const expected = usageCost(usage, route.price);
+      expect(expected).toBeGreaterThan(0n);
+      await runtime.registerAgent({
+        ...PROBE,
+        agentId: 'exact-cap',
+        limits: { ...PROBE.limits, maxSpendPerSession: formatAmount(expected) },
+      });
+      const session = await open(USER_A, 'exact-cap');
+      expect(session.guardrail.limits.maxSpendPerSession).toBe(expected);
+      expect(typeof session.guardrail.limits.maxSpendPerSession).toBe('bigint');
+
+      const result = await runtime.think({
+        sessionId: session.id,
+        requestId: 'exact-one',
+        task: 'quick',
+        messages: MESSAGES,
+        maxOutputTokens: 1,
+      });
+
+      expect(typeof result.cost).toBe('bigint');
+      expect(result.cost).toBe(expected);
+      expect(result.metered).toBe(true);
+      expect(await meter.sessionSpend(session.id)).toBe(expected);
+    });
+
+    it('overlapping thinks that each fit alone do not both commit past the ceiling', async () => {
+      const { route, usage } = expectedUsage('quick', MESSAGES, 1);
+      const expected = usageCost(usage, route.price);
+      expect(expected).toBeGreaterThan(0n);
+      await runtime.registerAgent({
+        ...PROBE,
+        agentId: 'pair-cap',
+        limits: { ...PROBE.limits, maxSpendPerSession: formatAmount(expected) },
+      });
+      const session = await open(USER_A, 'pair-cap');
+      const gate = gateComplete(gateway, 'both');
+      const local = meteredRuntime(gate.gateway);
+
+      const left = local.think({
+        sessionId: session.id,
+        requestId: 'pair-a',
+        task: 'quick',
+        messages: MESSAGES,
+        maxOutputTokens: 1,
+      });
+      const right = local.think({
+        sessionId: session.id,
+        requestId: 'pair-b',
+        task: 'quick',
+        messages: MESSAGES,
+        maxOutputTokens: 1,
+      });
+      await gate.ready;
+      gate.release();
+
+      const settled = await Promise.allSettled([left, right]);
+      const won = settled.filter((s): s is PromiseFulfilledResult<Awaited<typeof left>> => s.status === 'fulfilled');
+      const lost = settled.filter((s): s is PromiseRejectedResult => s.status === 'rejected');
+      expect(won).toHaveLength(1);
+      expect(lost).toHaveLength(1);
+      expect(typeof won[0]!.value.cost).toBe('bigint');
+      expect(won[0]!.value.cost).toBe(expected);
+      expect(lost[0]!.reason).toMatchObject({ refusal: { code: 'agents.spend_limit' } });
+
+      const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(rows).toHaveLength(1);
+      expect(await meter.sessionSpend(session.id)).toBe(expected);
+      const stored = await runtime.session(session.id);
+      expect(stored!.guardrail.limits.maxSpendPerSession).toBe(expected);
+      expect(typeof stored!.guardrail.limits.maxSpendPerSession).toBe('bigint');
+    });
+
+    it('a null spend ceiling stays null while overlapping thinks commit their real costs', async () => {
+      const session = await open();
+      expect(session.guardrail.limits.maxSpendPerSession).toBeNull();
+      const gate = gateComplete(gateway, 'both');
+      const local = meteredRuntime(gate.gateway);
+      const { route, usage } = expectedUsage('plan');
+      const expected = usageCost(usage, route.price);
+
+      const left = local.think({ sessionId: session.id, requestId: 'null-a', task: 'plan', messages: MESSAGES });
+      const right = local.think({ sessionId: session.id, requestId: 'null-b', task: 'plan', messages: MESSAGES });
+      await gate.ready;
+      gate.release();
+      const [a, b] = await Promise.all([left, right]);
+
+      expect(typeof a.cost).toBe('bigint');
+      expect(typeof b.cost).toBe('bigint');
+      expect(a.cost).toBe(expected);
+      expect(b.cost).toBe(expected);
+      const stored = await runtime.session(session.id);
+      expect(stored!.guardrail.limits.maxSpendPerSession).toBeNull();
+      const rows = await sql`SELECT id FROM agents.usage_records WHERE session_id = ${session.id}`;
+      expect(rows).toHaveLength(2);
     });
 
     it('research-only never reaches place even when the tool is granted and approved', async () => {
