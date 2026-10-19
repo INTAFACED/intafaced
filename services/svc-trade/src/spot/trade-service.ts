@@ -2039,7 +2039,7 @@ export class TradeService {
       // still live, preserve the hold and surface a cancel recovery case.
       if (!cancellation.cancelled) {
         try {
-          const listed = await this.matching.listOrders(order.marketId);
+          const listed = await this.matching.listOrders(order.marketId, orderId);
           if (listed.orders.some((candidate) => candidate.orderId === orderId)) {
             await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
             throw new TradeError(`order ${orderId} remains live after definitive cancel miss`, 'trade.order_not_open');
@@ -2166,7 +2166,7 @@ export class TradeService {
 
       let listed;
       try {
-        listed = await this.matching.listOrders(order.marketId);
+        listed = await this.matching.listOrders(order.marketId, order.id);
       } catch {
         await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
         const frozen = (await this.findOrder(order.id)) ?? order;
@@ -3756,6 +3756,12 @@ export class TradeService {
     if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
     const refusal = await this.holdUnknownSubmitRefusal(order, market);
     if (refusal) return this.rejectBookedHoldUnknown(order, `booked hold was not submitted: ${refusal}`);
+    // A stop-limit rests as a limit; its trigger lives in order_stop_trigger. Losing it here would
+    // send the order to the book live, so the stored trigger rides every resubmit.
+    const triggerRows = await this.sql<Array<{ stop_price: string }>>`
+      SELECT stop_price::text AS stop_price FROM trade.order_stop_trigger WHERE order_id = ${order.id}
+    `;
+    const storedTrigger = triggerRows[0]?.stop_price;
     const request = this.toEngineRequest(
       order.id,
       order.userId,
@@ -3768,7 +3774,8 @@ export class TradeService {
         tif: order.tif,
         clientOrderId: order.clientOrderId ?? undefined,
         subAccountId: order.subAccountId ?? undefined,
-      },
+        ...(storedTrigger === undefined ? {} : { stopPx: parseAmount(storedTrigger) }),
+      } as PlaceOrderInput,
       order.type,
       order.tif,
       order.protectionPrice,
@@ -4507,7 +4514,7 @@ export class TradeService {
       }
 
       // Non-destructive liveness: list before any cancel.
-      const listed = await this.matching.listOrders(order.marketId);
+      const listed = await this.matching.listOrders(order.marketId, orderId);
       const engineLive = listed.orders.some((o) => o.orderId === orderId);
 
       // Recovery is a lookup, not a blind resubmit. A live engine order stays

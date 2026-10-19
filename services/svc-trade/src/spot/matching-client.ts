@@ -359,7 +359,11 @@ export interface MatchingClient {
    * Matching 200 `{ orders: [] }` is a live empty list. Matching 404 throws
    * MatchingNoBookError — never a fabricated empty list.
    */
-  listOrders(marketId: string): Promise<EngineLiveOrders>;
+  /**
+   * Resting orders of one market, read at the engine's page size. When the page is full the list
+   * may be cut, so a full page that does not hold `orderId` throws instead of claiming absence.
+   */
+  listOrders(marketId: string, orderId?: string): Promise<EngineLiveOrders>;
   /**
    * Whole-engine market id set — GET /markets.
    * Used for market-id drift alarm vs trade.markets (handoff §4.5).
@@ -417,6 +421,14 @@ export class MatchingNoBookError extends Error {
  * that case explicitly rather than assuming a failed request means a failed
  * order.
  */
+/**
+ * Page size for `GET /markets/:id/orders`. Matching refuses a request with no limit
+ * (`matching.resting_orders_limit_unset`) and accepts 1..500, so 500 is the widest read it
+ * allows: the smallest chance that a live order sits past the page. Evidence: matching
+ * `l2-limit.ts` (cap 500). A full page cannot prove an order is absent, see `listOrders`.
+ */
+export const MATCHING_RESTING_ORDERS_PAGE = 500;
+
 export function createMatchingClient(baseUrl: string, internalSecret: string): MatchingClient {
   const url = baseUrl.replace(/\/$/, '');
 
@@ -591,8 +603,8 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
      * matching 200 `{ orders: [] }` is a live empty list; matching 404 is
      * MarketNotFound, not a fabricated empty list.
      */
-    async listOrders(marketId) {
-      const path = `/markets/${encodeURIComponent(marketId)}/orders`;
+    async listOrders(marketId, orderId) {
+      const path = `/markets/${encodeURIComponent(marketId)}/orders?limit=${MATCHING_RESTING_ORDERS_PAGE}`;
       let response: Response;
       try {
         response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('') });
@@ -606,7 +618,11 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
         throw new MatchingUnavailableError(`svc-matching ${path} failed (${response.status}): ${detail}`);
       }
 
-      return (await response.json()) as EngineLiveOrders;
+      const listed = (await response.json()) as EngineLiveOrders;
+      if (listed.orders.length >= MATCHING_RESTING_ORDERS_PAGE && !(orderId && listed.orders.some((o) => o.orderId === orderId))) {
+        throw new MatchingUnavailableError(`svc-matching ${path} returned a full page; absence cannot be proven`);
+      }
+      return listed;
     },
 
     /**

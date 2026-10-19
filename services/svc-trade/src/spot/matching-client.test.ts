@@ -5,6 +5,7 @@ import {
   createMatchingClient,
   massCancelAccountRefuse,
   massCancelSessionRefuse,
+  MATCHING_RESTING_ORDERS_PAGE,
   MatchingNoBookError,
   MatchingUnavailableError,
   readSessionId,
@@ -128,6 +129,29 @@ describe('listOrders — non-destructive liveness', () => {
     const client = createMatchingClient('http://matching:4005', SECRET);
 
     await expect(client.listOrders(MARKET)).resolves.toEqual({ marketId: MARKET, orders: [] });
+  });
+
+  it('asks matching for a page: a bare read is refused by matching with resting_orders_limit_unset', async () => {
+    const calls = stubFetch(new Response(JSON.stringify({ marketId: MARKET, orders: [] }), { status: 200 }));
+    const client = createMatchingClient('http://matching:4005', SECRET);
+
+    await client.listOrders(MARKET);
+
+    expect(calls[0]).toContain(`/markets/${MARKET}/orders?limit=${MATCHING_RESTING_ORDERS_PAGE}`);
+  });
+
+  it('a full page that does not hold the order cannot prove it is absent', async () => {
+    const row = (orderId: string) => ({ marketId: MARKET, orderId, accountId: '', kind: 'book', side: 'buy', price: '1', remaining: '1' });
+    const full = Array.from({ length: MATCHING_RESTING_ORDERS_PAGE }, (_, i) => row(`o-${i}`));
+    const respond = () => new Response(JSON.stringify({ marketId: MARKET, orders: full }), { status: 200 });
+    stubFetch(respond());
+    const client = createMatchingClient('http://matching:4005', SECRET);
+
+    await expect(client.listOrders(MARKET, 'not-there')).rejects.toBeInstanceOf(MatchingUnavailableError);
+    stubFetch(respond());
+    await expect(client.listOrders(MARKET)).rejects.toBeInstanceOf(MatchingUnavailableError);
+    stubFetch(respond());
+    await expect(client.listOrders(MARKET, 'o-7')).resolves.toMatchObject({ marketId: MARKET });
   });
 
   it('500 is MatchingUnavailable, not NoBook', async () => {

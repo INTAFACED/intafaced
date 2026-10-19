@@ -100,6 +100,7 @@
     "scan:dual-book-door-paths": "node tooling/ci/dual-book-door-path-unit.mjs",
     "dual-book:classify": "node tooling/scripts/dual-book-setbalance-classify.mjs",
     "order-path-cx8": "node tooling/scripts/order-path-cx8-boot.mjs",
+    "journeys:trade": "CX8_AFTER='[\"pnpm\",\"--filter\",\"@intafaced/customer\",\"run\",\"test:journeys\"]' node tooling/scripts/order-path-cx8-boot.mjs",
     "wt:gc": "node tooling/scripts/worktree-gc.mjs",
     "wt:gc:check": "node tooling/scripts/worktree-gc.mjs --check",
     "wt:gc:self-test": "node tooling/scripts/worktree-gc.mjs --self-test",

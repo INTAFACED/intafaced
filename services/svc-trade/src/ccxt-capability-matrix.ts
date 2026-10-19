@@ -327,7 +327,12 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
   // ── Private (REST_ROUTES) ─────────────────────────────────────────────────
   route('fetchTradingFees', 'supported', [], 'Per-market maker/taker fee rates'),
   route('fetchBalance', 'supported', [], 'Ledger balances for principal'),
-  route('createOrder', 'supported', [], 'Place spot (and gated) order — money path'),
+  route(
+    'createOrder',
+    'supported',
+    [],
+    'Place spot (and gated) order — money path; market, limit, stop_limit (trigger kept in order_stop_trigger)',
+  ),
   route('cancelOrder', 'supported', [], 'Cancel one open order by id'),
   route('cancelAllOrders', 'supported', [], 'Cancel open orders; optional symbol filter'),
   route('fetchOrder', 'supported', [], 'One order by id'),
