@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
+import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { expireApiKey, ExpireApiKeyError } from './auth/expire-api-key.js';
 
 /**
@@ -14,9 +15,13 @@ export function createApiKeyExpireRouter(sql: Sql) {
       .output(z.object({ id: z.string(), expiresAt: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
+          assertDelegateCannotGrant(ctx.principal.kid);
           const out = await expireApiKey(sql, ctx.principal.userId, input.keyId, input.expiresAt);
           return { id: out.id, expiresAt: out.expiresAt.toISOString() };
         } catch (err) {
+          if (err instanceof AuthError && err.code === 'auth.delegate_cannot_grant') {
+            throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+          }
           if (err instanceof ExpireApiKeyError) {
             if (err.code === 'auth.not_found') {
               throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
