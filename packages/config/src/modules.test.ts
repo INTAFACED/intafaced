@@ -120,6 +120,8 @@ describe('custody-scan derives its service list from the registry, faithfully', 
     const source = readFileSync(scanPath, 'utf8');
 
     expect(source, 'vendored-tree check id missing').toContain('vendored-tree-returned');
+    expect(source, 'must not shell out to the deleted Java successor scan').not.toContain('vendor-java-money-scan.mjs');
+    expect(source, 'Protocol Plane import check (check 1) must stay').toContain('ledger-write-on-protocol-plane');
     expect(source, 'a present vendor/ tree must be a violation').toMatch(/if \(existsSync\(VENDOR\)\) \{[\s\S]{0,200}violations\.push/);
   });
 });
