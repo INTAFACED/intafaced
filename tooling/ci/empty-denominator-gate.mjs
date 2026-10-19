@@ -321,9 +321,8 @@ export const EXEMPT = {
       'node:test over in-memory fixtures (fixture JSON and log excerpts under tooling/scripts/fixtures, a fake gh and a fake ' +
       'git): the repo is not its subject. The count of passing tests is printed on every run and asserted non-zero here. ' +
       'CI Node 20 prints that count as TAP "# pass N"; Node 21+ prints spec "ℹ pass N". Both are the pass count. ' +
-      'HONEST EXCEPTION: one test compares the PR path filter mirrored in merge-gate.mjs with .github/workflows/ci.yml, and ' +
-      'one compares the dependabot prefix with the title rule; both read the repo, and both skip themselves (reported as ' +
-      'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout they run.',
+      'HONEST EXCEPTION: one test compares the dependabot prefix with the title rule; it reads the repo, and skips itself (reported as ' +
+      'skipped, not passed) when the file is absent, which is exactly this empty-tree run. In a real checkout it runs.',
   },
   'secret-scan-mutation': {
     proof: /(\d+)\/(\d+) planted defects caught/,

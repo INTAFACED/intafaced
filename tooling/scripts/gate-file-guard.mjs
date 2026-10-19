@@ -7,7 +7,7 @@
  *   A pull request fails this check if it changes a GATE FILE, unless its TITLE states that it is a gate change.
  *   Gate files are the files that decide what may merge: tooling/ci/** (every scan, plus the dependency-audit allowlist
  *   KNOWN in dependency-audit.mjs, the secret-scan allowlists in secret-scan.mjs, and the money-skip inventory in
- *   money-skip-inventory.mjs), .github/workflows/**, .gitleaks.toml, and the merge-gate / auto-revert / guard scripts
+ *   money-skip-inventory.mjs), .github/workflows/**, .gitleaks.toml, and the auto-revert / guard scripts
  *   themselves. A title states it when it:
  *     - starts with `ci:` or `gate:`      (a scope is fine: `ci(deps): ...`)
  *     - starts with `chore(ci)`           (any type works when the scope is ci or gate: `fix(ci): ...`, `test(gate): ...`)
@@ -17,7 +17,7 @@
  *
  * #4402 widened the dependency-audit allowlist inside a migration fix. The title said "fix the migration", the diff
  * quietly loosened a gate, and a reviewer reading the title had no reason to look. The rule changes nothing about WHO may
- * change a gate; it makes the change impossible to miss, in the title, on the PR page, and in the merge-gate verdict.
+ * change a gate; it makes the change impossible to miss, in the title, and on the PR page.
  *
  * WHAT IT DOES NOT DO (read this before trusting it)
  *
@@ -28,8 +28,7 @@
  *
  * KNOWN LIMIT: a PR can still edit or delete the workflow file pr-checks.yml itself, and GitHub runs the PR's copy of
  * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
- * merge-gate.mjs: it applies this same rule to the PR when the PR is merged, and it refuses to run unless the checkout
- * it runs from matches origin/main (tooling/scripts and tooling/ci), so the rule that judges is always main's.
+ * the independent review of the exact head, which the CI merge seal requires, and the full test run a gate-file PR always gets.
  *
  * There is no author exemption: anyone with write access can push to a bot's branch, so the author proves nothing. Dependabot's
  * commit-message prefixes in .github/dependabot.yml are `ci`/`ci(deps)`, so its PRs declare themselves like anyone's.
@@ -65,9 +64,6 @@ export const GATE_PATHS = [
   ['turbo.json', 'which tasks CI runs and how they depend on each other'],
   ['.prettierignore', 'which files the format check skips'],
   ['package.json', 'the root scripts CI and verify run'],
-  ['tooling/scripts/merge-gate.mjs', 'the merge gate'],
-  ['tooling/scripts/merge-gate.test.mjs', 'the merge gate tests'],
-  ['tooling/scripts/fixtures/merge-gate/**', 'the merge gate test fixtures'],
   ['tooling/scripts/main-auto-revert.mjs', 'the auto-revert of a red main'],
   ['tooling/scripts/main-auto-revert.test.mjs', 'the auto-revert tests'],
   ['tooling/scripts/gate-file-guard.mjs', 'this guard'],
@@ -115,7 +111,7 @@ export function evaluateGateFileRule(title, files) {
 }
 
 export const RULE_TEXT =
-  'A PR that changes a gate file (CI scans and their allowlists, workflows, the secret-scan config, the merge-gate tools) ' +
+  'A PR that changes a gate file (CI scans and their allowlists, workflows, the secret-scan config, the gate tools) ' +
   'must say so in its title: start it with `ci:`, `gate:` or `chore(ci):`, or include `[gate-change]`.';
 
 export function renderComment(result) {
