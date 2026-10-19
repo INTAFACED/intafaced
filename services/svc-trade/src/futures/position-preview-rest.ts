@@ -5,6 +5,7 @@ import { formatAmount, mul, mulBps, parseAmount, type Amount } from '@intafaced/
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import type { FuturesMarkProvenance } from './mark-policy.js';
 import type { Market } from '../spot/types.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export interface PositionPreviewRefusal {
   code: string;
@@ -31,6 +32,7 @@ export interface PositionPreviewWire {
 
 export interface PositionPreviewRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   marketBySymbol(symbol: string): Promise<Market | null>;
   markForMarket(marketId: string, symbol: string): Promise<{ price: string; source: FuturesMarkProvenance } | null>;
@@ -65,7 +67,7 @@ function parsePositive(value: string): Amount | null {
 
 /** Read-only futures risk preview. This route never receives a ledger port. */
 export function registerPositionPreviewRest(app: FastifyInstance, deps: PositionPreviewRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post('/api/v1/positions/preview', async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };

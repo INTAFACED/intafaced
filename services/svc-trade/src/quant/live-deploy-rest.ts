@@ -8,11 +8,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkQuantLiveDeploy, QUANT_LIVE_DEPLOY_PATH } from './live-deploy.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export { QUANT_LIVE_DEPLOY_PATH };
 
 export interface QuantLiveDeployRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   /** Owner eligibility pin from boot env. Blank refuses. */
   pin?: string;
@@ -32,7 +34,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 
 /** Preview-only live deploy. This route never receives a ledger port. */
 export function registerQuantLiveDeployRest(app: FastifyInstance, deps: QuantLiveDeployRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(QUANT_LIVE_DEPLOY_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };

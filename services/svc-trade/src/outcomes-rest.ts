@@ -7,6 +7,7 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { collateralForBinaryBuy, type OutcomeMarket, type OutcomeSide } from './outcomes/outcome-market.js';
 import { presentCcxtOrder } from './private-rest.js';
 import type { OrderRecord, TimeInForce } from './spot/types.js';
+import type { EdgeTrust } from './edge-trust.js';
 
 export interface OutcomeCatalogue {
   list(): readonly OutcomeMarket[];
@@ -42,6 +43,7 @@ export interface PlaceOutcomeOrderInput {
 
 export interface OutcomesRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   internalSecret: string;
   /**
@@ -64,7 +66,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 /** Public listing + authenticated order + S2S settlement doors. */
 export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
   const now = deps.now ?? Date.now;
 
   function contextFrom(req: FastifyRequest) {

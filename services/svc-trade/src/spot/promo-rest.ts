@@ -7,11 +7,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkCreatePromo, CREATE_PROMO_PATH } from './promo.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export { CREATE_PROMO_PATH };
 
 export interface PromoRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   /** Owner sockets from boot env. Blank refuses. */
   budget?: string;
@@ -31,7 +33,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 
 /** Preview-only create-promo. This route never receives a ledger port. */
 export function registerPromoRest(app: FastifyInstance, deps: PromoRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(CREATE_PROMO_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };

@@ -20,6 +20,7 @@ import {
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export const SPOT_ORDER_PREVIEW_PATH = '/api/v1/orders/preview';
 
@@ -61,6 +62,7 @@ export interface SpotOrderPreviewWire {
 
 export interface SpotOrderPreviewRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   now(): Date;
   marketBySymbol(symbol: string): Promise<Market | null>;
@@ -150,7 +152,7 @@ function pushError(refusals: SpotOrderPreviewRefusal[], error: unknown, field: S
  * `placeOrder` would use, or blank with a typed refusal.
  */
 export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrderPreviewRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(SPOT_ORDER_PREVIEW_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
