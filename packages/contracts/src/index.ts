@@ -20,6 +20,7 @@ export * from './ops-analytics-consume.js';
 export * from './ops-analytics-warehouse.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';
+export * from './action-approval-client.js';
 export * from './customer-step-up.js';
 export * from './outreach-crm.js';
 export * from './account-controls.js';
