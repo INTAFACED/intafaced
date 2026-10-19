@@ -1,7 +1,7 @@
 # @intafaced/svc-support
 
-Support desk for `ops.support` — tickets + knowledge base + operator queue. Read `README.md` before editing.
+Support desk: tickets, knowledge base and operator queue. Read `README.md` before editing.
 
 - Tests: `*.test.*` files under `scripts/`, `src/`. Run `pnpm --filter @intafaced/svc-support test`.
-- Root rules that matter most here: One service per PR; services never read each other's tables; cross-service changes are two PRs (contracts or events first). Money rules apply if this touches value.
+- Root rules that matter most here: Non-custodial: holds no balance (`packages/config/src/modules.ts`). One service per PR; no reading other services' tables; cross-service changes are two PRs (contracts or events first).
 - Env, ports and required settings: `docs/SERVICES.md` (generated). All other rules: root `AGENTS.md`.

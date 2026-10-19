@@ -1,7 +1,7 @@
 # @intafaced/svc-indexer
 
-Chain → Postgres read models for `apps/web` — books, fills, positions (§17.5). Read `README.md` before editing.
+Chain to Postgres read models: books, fills and positions. Read `README.md` before editing.
 
 - Tests: `*.test.*` files under `scripts/`, `src/`. Run `pnpm --filter @intafaced/svc-indexer test`.
-- Root rules that matter most here: One service per PR; services never read each other's tables; cross-service changes are two PRs (contracts or events first). Money rules apply: move value only through `packages/ledger-client` recipes.
+- Root rules that matter most here: Protocol Plane: never import ledger write recipes (`pnpm scan:custody`). One service per PR; no reading other services' tables; cross-service changes are two PRs (contracts or events first).
 - Env, ports and required settings: `docs/SERVICES.md` (generated). All other rules: root `AGENTS.md`.

@@ -1,7 +1,7 @@
 # @intafaced/svc-academy
 
-Live lobbies with capacity tiers (§8.3, §XIII) plus the curriculum library (list · body · study guide · depth). Read `README.md` before editing.
+Live lobbies with capacity tiers plus the curriculum library. Read `README.md` before editing.
 
 - Tests: `*.test.*` files under `scripts/`, `src/`. Run `pnpm --filter @intafaced/svc-academy test`.
-- Root rules that matter most here: One service per PR; services never read each other's tables; cross-service changes are two PRs (contracts or events first). Money rules apply: move value only through `packages/ledger-client` recipes.
+- Root rules that matter most here: Non-custodial: holds no balance (`packages/config/src/modules.ts`). One service per PR; no reading other services' tables; cross-service changes are two PRs (contracts or events first). Protected money/security package: a red test here blocks merge even if main shares it (AGENTS.md).
 - Env, ports and required settings: `docs/SERVICES.md` (generated). All other rules: root `AGENTS.md`.
