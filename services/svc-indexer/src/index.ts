@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { createDb } from '@intafaced/db';
 import { createEdgeContext } from '@intafaced/contracts';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
@@ -142,7 +142,7 @@ export type AppRouter = typeof appRouter;
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous
 // (docs/decisions/mount-boundary.md).
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 await registerIndexerPublicHttp(app, {
   indexer,
