@@ -204,12 +204,22 @@ describe('svc-trade bracket-place (H8a PG-hard)', () => {
       });
     });
 
-    it('places one linked bracket through matching — no invented trigger', async () => {
+    it('places the bracket entry as an ordinary buy — the exit fields never reach the engine', async () => {
       await fund(ALICE, 'USDT', '200');
+      matching.script1((request, next) => ({
+        accepted: true,
+        sequence: next(),
+        fills: [],
+        resting: null,
+        rejected: null,
+        cancellations: [{ orderId: request.orderId, accountId: ALICE, remainingQty: '1', sequence: next(), reason: 'ioc_remainder' }],
+        triggered: [],
+      }));
       const placed = await trade.placeOrder(principalFor(ALICE), {
         marketId: btcusdt.id,
         side: 'buy',
         type: 'limit',
+        tif: 'IOC',
         qty: amt('1'),
         price: amt('100'),
         clientOrderId: 'brkt-1',
@@ -217,7 +227,7 @@ describe('svc-trade bracket-place (H8a PG-hard)', () => {
         takeProfit: '110',
         stopLoss: '90',
       } as Parameters<TradeService['placeOrder']>[1]);
-      expect(placed.status).toBe('open');
+      expect(placed.status).toBe('cancelled');
       expect(matching.submitted).toHaveLength(1);
       const req = matching.submitted[0]?.request as {
         bracket?: boolean;
@@ -225,12 +235,12 @@ describe('svc-trade bracket-place (H8a PG-hard)', () => {
         takeProfit?: string | null;
         stopLoss?: string | null;
       };
-      expect(req?.bracket).toBe(true);
+      expect(req?.bracket).toBeUndefined();
       expect(req?.oco).toBeUndefined();
-      expect(req?.takeProfit).toBe('110');
-      expect(req?.stopLoss).toBe('90');
-      expect(await heldFor(ALICE, 'USDT', placed.id)).toBe('100');
-      expect(await avail(ALICE, 'USDT')).toBe('100');
+      expect(req?.takeProfit).toBeUndefined();
+      expect(req?.stopLoss).toBeUndefined();
+      expect(await heldFor(ALICE, 'USDT', placed.id)).toBe('0');
+      expect(await avail(ALICE, 'USDT')).toBe('200');
     });
 
     it('refuses a missing take-profit — no invented trigger', async () => {

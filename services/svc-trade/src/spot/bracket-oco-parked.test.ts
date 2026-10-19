@@ -7,7 +7,7 @@ import { fakeMarket } from '../public-rest.js';
 import type { PlaceOrderInput } from './trade-service.js';
 
 /**
- * Bracket is parked until entry-fill placement exists. OCO is accepted on the create door only (matching carries its legs).
+ * OCO and bracket are accepted on the create door only; replace and batch refuse them.
  */
 
 const SECRET = 'a-trade-bracket-oco-parked-edge-secret-long-x';
@@ -60,7 +60,7 @@ async function build() {
   return { app, placed };
 }
 
-describe('bracket is parked; OCO has the create door only', () => {
+describe('OCO and bracket have the create door only', () => {
   it('OCO on the create door reaches placeOrder carrying its legs', async () => {
     const { app, placed } = await build();
     const res = await app.inject({
@@ -74,17 +74,40 @@ describe('bracket is parked; OCO has the create door only', () => {
     await app.close();
   });
 
-  it.each([['bracket', { bracket: true, takeProfit: '110', stopLoss: '90' }]])(
-    '%s is refused and nothing is placed',
-    async (_name, extra) => {
-      const { app, placed } = await build();
-      const res = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, ...extra } });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().intafacedCode).toBe('trade.order_type_unsupported');
-      expect(placed).toHaveLength(0);
-      await app.close();
-    },
-  );
+  it('a bracket on the create door reaches placeOrder; svc-trade places the exit after the entry fills', async () => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, bracket: true, takeProfit: '110', stopLoss: '90' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(placed).toHaveLength(1);
+    expect(placed[0]?.clientOrderId).toBe('b-1');
+    expect(placed[0]?.side).toBe('buy');
+    await app.close();
+  });
+
+  it('a bracket in a batch item is refused per item and the plain item is still placed', async () => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/batch',
+      headers: signed(),
+      payload: {
+        orders: [
+          { ...BASE, clientOrderId: 'b-4', bracket: true, takeProfit: '110', stopLoss: '90' },
+          { ...BASE, clientOrderId: 'b-5' },
+        ],
+      },
+    });
+    const results = res.json().results as Array<{ status: string; error?: { intafacedCode?: string } }>;
+    expect(results[0]).toMatchObject({ status: 'refused', error: { intafacedCode: 'trade.order_type_unsupported' } });
+    expect(results[1]?.status).not.toBe('refused');
+    expect(placed.map((p) => p.clientOrderId)).toEqual(['b-5']);
+    await app.close();
+  });
 
   it('a batch item with OCO legs is refused per item and the plain item is still placed', async () => {
     const { app, placed } = await build();

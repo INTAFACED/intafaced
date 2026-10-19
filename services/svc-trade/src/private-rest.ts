@@ -717,18 +717,15 @@ export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLi
  * here, before any hold. Called only once the caller is signed in and the body has passed the typed schema.
  */
 /**
- * Bracket is parked: its exit legs are placed only after the entry fills, which no door does yet. OCO has
- * one door, the create-order route (`allowOco`); replace and batch still refuse it, because they would reach
- * the engine without the single parent hold an OCO needs.
+ * OCO and bracket have one door, the create-order route (`allowOco`); replace and batch still refuse them,
+ * because they would reach the engine without the single parent hold an OCO needs. A bracket there is an
+ * entry plus one sell OCO placed by svc-trade after the entry fills (spot/bracket-place.ts).
  */
 function refuseExitLegs(body: unknown, allowOco = false): void {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
   const rec = body as Record<string, unknown>;
-  if (readBracketFromBody(rec) !== null) {
-    throw new TradeError(
-      'bracket orders are not available yet: the exit legs are placed only after the entry fills, and no door does that yet',
-      'trade.order_type_unsupported',
-    );
+  if (!allowOco && readBracketFromBody(rec) !== null) {
+    throw new TradeError('bracket orders are available on the create-order route only', 'trade.order_type_unsupported');
   }
   if (!allowOco && readOcoFromBody(rec) !== null) {
     throw new TradeError('OCO orders are available on the create-order route only', 'trade.order_type_unsupported');

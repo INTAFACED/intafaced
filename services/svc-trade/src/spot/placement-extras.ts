@@ -22,6 +22,13 @@ export function carriedPlacementBody(input: PlaceOrderInput): Readonly<Record<st
   return (input as Carrier)[CARRIED] ?? null;
 }
 
+/** The input without the request body it carried, so no installer can re-read an option from it. */
+export function withoutCarriedBody<T extends PlaceOrderInput>(input: T): T {
+  if ((input as Carrier)[CARRIED] === undefined) return input;
+  const { [CARRIED]: _body, ...rest } = input as T & Carrier;
+  return rest as unknown as T;
+}
+
 /**
  * The body the typed create schema reads. Reduce-only is carried with the request instead, because the spot mapper
  * refuses a reduce-only flag it is handed; the installer that honours it reads it from the carried body.

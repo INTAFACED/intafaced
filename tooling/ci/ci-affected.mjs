@@ -19,6 +19,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
+import { detectedEdges } from './cross-package-reads.mjs';
 
 /** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
@@ -56,6 +57,9 @@ function matchesPrefix(file, prefix) {
   return f === p || f.startsWith(`${p}/`);
 }
 
+/** True for a gate file: the agent rules, the CI and tooling directories, the workflows. */
+export const isGateFile = (file) => GATE_FILES.some((g) => matchesPrefix(file, g)) || GATE_BASENAMES.has(posix(file).split('/').pop());
+
 const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
 
 /**
@@ -63,11 +67,21 @@ const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
  * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
  */
 export function readEdges() {
+  let declared = {};
   try {
-    return JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
+    declared = JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
   } catch {
-    return {};
+    /* no declared edges */
   }
+  // Reads the scan finds count too, so a test that reads another package needs no edge-list entry to be selected.
+  return mergeEdges(declared, detectedEdges());
+}
+
+export function mergeEdges(a, b) {
+  const out = {};
+  for (const src of [a, b])
+    for (const [reader, reads] of Object.entries(src)) out[reader] = [...new Set([...(out[reader] ?? []), ...reads])];
+  return out;
 }
 
 /**
@@ -80,7 +94,7 @@ export function classify(files, { forceFull = false } = {}) {
   const list = (files || []).map(posix).filter(Boolean);
   let affected = false;
   for (const file of list) {
-    if (GATE_FILES.some((g) => matchesPrefix(file, g)) || GATE_BASENAMES.has(file.split('/').pop())) return { full: true, affected: false };
+    if (isGateFile(file)) return { full: true, affected: false };
     if (isDoc(file)) continue;
     if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
     if (PRODUCT_DIRS.test(file)) affected = true;
@@ -203,6 +217,18 @@ function selfTest() {
     'every reader of every changed package is selected',
   );
   assert(!affectedFilters(['services/svc-trade-extra/a.ts'], edges).includes('./apps/customer'), 'a prefix sibling is not a match');
+  assert(
+    same(Object.entries(mergeEdges({ 'apps/a': ['x', 'y'] }, { 'apps/a': ['y', 'z'], 'apps/b': ['x'] })).flat(2), [
+      'apps/a',
+      'x',
+      'y',
+      'z',
+      'apps/b',
+      'x',
+    ]),
+    'declared and detected edges merge without duplicates',
+  );
+  assert(detectedEdges()['apps/customer']?.includes('services/svc-trade'), 'a read the scan finds becomes an edge with no declaration');
 
   const ok = { changes: 'success', gates: 'success', format: 'success', build: 'success' };
   assert(sealNeeded(none, ok).length === 0, 'docs only needs no test job');
@@ -215,7 +241,7 @@ function selfTest() {
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
   assert(same(shardMatrix({ full: true }), ['1/4', '2/4', '3/4', '4/4']), 'a full run is split four ways');
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
-  console.log('✓ ci-affected --self-test OK (' + (cases.length + 12) + ' fixtures)');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 14) + ' fixtures)');
 }
 
 function githubOutput(flags) {
@@ -252,25 +278,27 @@ function runSeal() {
   console.log('✓ CI merge seal: required jobs succeeded');
 }
 
-const args = process.argv.slice(2);
-if (args.includes('--self-test')) {
-  selfTest();
-  process.exit(0);
-}
-if (args.includes('--seal')) {
-  runSeal();
-  process.exit(0);
-}
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const args = process.argv.slice(2);
+  if (args.includes('--self-test')) {
+    selfTest();
+    process.exit(0);
+  }
+  if (args.includes('--seal')) {
+    runSeal();
+    process.exit(0);
+  }
 
-const filesIdx = args.indexOf('--files');
-let files;
-let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
-if (filesIdx >= 0) files = args.slice(filesIdx + 1);
-else files = gitChangedFiles();
-if (args.includes('--filters')) {
-  for (const f of affectedFilters(files)) console.log(f);
-  process.exit(0);
+  const filesIdx = args.indexOf('--files');
+  let files;
+  let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
+  if (filesIdx >= 0) files = args.slice(filesIdx + 1);
+  else files = gitChangedFiles();
+  if (args.includes('--filters')) {
+    for (const f of affectedFilters(files)) console.log(f);
+    process.exit(0);
+  }
+  const flags = classify(files, { forceFull });
+  if (args.includes('--github-output')) githubOutput(flags);
+  else console.log(JSON.stringify({ files, flags }, null, 2));
 }
-const flags = classify(files, { forceFull });
-if (args.includes('--github-output')) githubOutput(flags);
-else console.log(JSON.stringify({ files, flags }, null, 2));
