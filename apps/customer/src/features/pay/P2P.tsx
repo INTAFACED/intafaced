@@ -439,7 +439,7 @@ function OrderActions({
           />
         )}
       </div>
-      {(['created', 'escrowed'].includes(trade.status) || (trade.status === 'fiat_sent' && trade.sellerId === userId)) && (
+      {['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">
           <summary>
             <Copy k="other" />
