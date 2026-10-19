@@ -56,6 +56,29 @@ const schema = serviceEnvSchema
        */
       TRADE_MARKET_SLIPPAGE_CAP_BPS: z.string().default('').transform(parseOwnerIntegerEnv),
 
+      /**
+       * Cancel-all-after timeouts the owner publishes, in seconds, comma separated (for example "10,30,60").
+       *
+       * NO DEFAULT. Blank / unset / any non-integer entry → null; arming refuses `trade.cancel_all_after_unset`.
+       * Timeout 0 (disarm) is always allowed. Never invent 10 or 120.
+       */
+      TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: z
+        .string()
+        .default('')
+        .transform((raw) => {
+          const parts = raw
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p !== '');
+          if (parts.length === 0) return null;
+          const values = parts.map((p) => parseOwnerIntegerEnv(p));
+          if (values.some((v) => v === null || v <= 0)) return null;
+          return values as number[];
+        }),
+
+      /** How often the dead-man switch checks for countdowns past their deadline. Default 5s. */
+      TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: z.coerce.number().int().min(1_000).max(60_000).default(5_000),
+
       /** Kill-switch for one-tap Convert (`trade.convert`). */
       TRADE_CONVERT_ENABLED: z
         .union([z.boolean(), z.string()])
