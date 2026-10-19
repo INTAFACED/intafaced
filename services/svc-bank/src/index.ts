@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, rawBodyOf, retainRawBody, s2sFromEnv, verifyServiceHeaders } from '@intafaced/contracts';
+import { createEdgeContext, rawBodyOf, retainRawBody, s2sFromEnv, verifyServiceRequest } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
@@ -78,6 +78,7 @@ await sql`SELECT 1 FROM bank.spaces LIMIT 1`.catch(() => {
 // (Doctrine §0.6). This client is the only path.
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-bank');
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const ledgerS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
 const history = createLedgerHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
@@ -248,7 +249,7 @@ const edgeContext = createEdgeContext({
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
-registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET });
+registerClosureCheck(app, { sql, ledger, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 app.get('/ready', async () =>
@@ -319,7 +320,7 @@ function inboundRawBody(req: object & { body?: unknown }) {
 }
 
 function requireService(req: object & { headers: Record<string, string | string[] | undefined>; body?: unknown }): boolean {
-  return requireInternalJobHmac(req.headers, env.INTERNAL_SERVICE_SECRET, inboundRawBody(req));
+  return requireInternalJobHmac(req.headers, env.INTERNAL_SERVICE_SECRET, inboundRawBody(req), doorS2s ? { req, ...doorS2s } : undefined);
 }
 
 function bodyLimit(body: unknown): number | undefined {
@@ -525,9 +526,11 @@ await app.register(fastifyTRPCPlugin, {
     // for why an unsigned header makes every scope check decorative.
     createContext: ({ req }) => {
       const ctx = edgeContext(req);
-      const { service } = verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-        rawBody: inboundRawBody(req),
-        mode: env.INTERNAL_SERVICE_BODY_BIND,
+      const { service } = verifyServiceRequest(req, {
+        verifier: doorS2s?.verifier,
+        mode: doorS2s?.mode,
+        legacySecret: env.INTERNAL_SERVICE_SECRET,
+        bodyBindMode: env.INTERNAL_SERVICE_BODY_BIND,
       });
       return { ...ctx, service };
     },

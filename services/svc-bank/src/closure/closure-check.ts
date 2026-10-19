@@ -6,7 +6,7 @@
  * saw nothing open. It does not mean the other services are clear.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { rawBodyOf, verifyServiceHeaders } from '@intafaced/contracts';
+import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import { add, formatAmount, isZero, type LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 
@@ -24,10 +24,10 @@ export type ClosureCheckBody = {
 type Owner = { ownerType: 'user' | 'subaccount'; ownerId: string };
 
 /** The verified calling service, or null when the credentials are missing or bad. */
-function callerOf(req: FastifyRequest, secret: string): string | null {
+function callerOf(req: FastifyRequest, secret: string, s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode }): string | null {
   if (typeof secret !== 'string' || secret.length === 0) return null;
   try {
-    return verifyServiceHeaders(req.headers, secret, { rawBody: rawBodyOf(req), mode: 'require' }).service;
+    return verifyServiceRequest(req, { verifier: s2s?.verifier, mode: s2s?.mode, legacySecret: secret, bodyBindMode: 'require' }).service;
   } catch {
     return null;
   }
@@ -157,10 +157,10 @@ export async function runBankClosureCheck(
 
 export function registerClosureCheck(
   app: FastifyInstance,
-  deps: { sql: Sql; ledger: Pick<LedgerClient, 'balances'>; secret: string },
+  deps: { sql: Sql; ledger: Pick<LedgerClient, 'balances'>; secret: string; s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode } },
 ): void {
   app.post('/internal/closure-check', async (req, reply) => {
-    const caller = callerOf(req, deps.secret);
+    const caller = callerOf(req, deps.secret, deps.s2s);
     if (caller === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
     }

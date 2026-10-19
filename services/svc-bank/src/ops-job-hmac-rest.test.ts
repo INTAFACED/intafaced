@@ -159,7 +159,7 @@ describe('ops job tRPC HMAC as svc-bank (HTTP)', () => {
     expect(index).toMatch(/internalSecret/);
     expect(index).toMatch(/retainRawBody\(app\)/);
     expect(index).toMatch(/inboundRawBody\(req\)/);
-    expect(index).toMatch(/mode:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
+    expect(index).toMatch(/bodyBindMode:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
   });
 
   it.each(JOBS)('$name unsigned → 401', async ({ path, payload }) => {
