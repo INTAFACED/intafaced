@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
-  serviceAuthHeadersForBody,
+  createIdentityApprovalClient as createSharedIdentityApprovalClient,
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
@@ -62,33 +62,13 @@ export function stubApprovalConsumer(approverId: string): ActionApprovalConsumer
   };
 }
 
-function unwrapTrpcJson(body: unknown): unknown {
-  const envelope = body as { result?: { data?: unknown }; json?: unknown };
-  const data = envelope.result?.data ?? body;
-  return data && typeof data === 'object' && 'json' in (data as object) ? (data as { json: unknown }).json : data;
-}
-
 export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  return {
-    async consume(input) {
-      const parsed = actionApprovalConsumeInputSchema.parse(input);
-      const payload = JSON.stringify(parsed);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-p2p', internalSecret, payload),
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
-      }
-      return actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
-    },
-  };
+  return createSharedIdentityApprovalClient({
+    service: 'svc-p2p',
+    baseUrl,
+    internalSecret,
+    fail: (message, code) => new ActionApprovalConsumeError(message, code),
+  });
 }
 
 /** Identity action type for a dispute ruling. Operator audience: svc-p2p is already an operator target. */
