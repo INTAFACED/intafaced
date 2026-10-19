@@ -217,6 +217,7 @@ const admin = createAdminApi(killSwitches, {
     identityUrl: env.IDENTITY_URL,
     edgeSecret: env.EDGE_PRINCIPAL_SECRET,
     region: env.DEFAULT_REGION,
+    ed25519: edgeEd25519,
   }),
 });
 
@@ -308,7 +309,7 @@ registerAdminRoutes(
   app,
   admin,
   env.MATCHING_URL && env.EDGE_PRINCIPAL_SECRET
-    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, env.EDGE_PRINCIPAL_SECRET)
+    ? httpMatchingOperator(env.MATCHING_URL, env.UPSTREAM_TIMEOUT_MS, env.EDGE_PRINCIPAL_SECRET, edgeEd25519)
     : null,
 );
 

@@ -6,14 +6,11 @@ import { createHash } from 'node:crypto';
 import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
-  encodePrincipal,
-  signPrincipalHeader,
-  EDGE_PRINCIPAL_HEADER,
-  EDGE_SIGNATURE_HEADER,
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
 import type { Principal } from '@intafaced/auth';
+import { forwardedPrincipalHeaders, type EdgeEd25519Signing } from './forward-principal-signature.js';
 
 export const ACTION_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
 export const ACTION_APPROVAL_MISSING = 'action_approval.missing' as const;
@@ -71,6 +68,8 @@ export function createHttpEdgeApprovalConsumer(opts: {
   readonly identityUrl: string;
   readonly edgeSecret: string;
   readonly region: string;
+  /** The edge's signing key when it has one; else the shared secret signs. */
+  readonly ed25519?: EdgeEd25519Signing | undefined;
 }): ActionApprovalConsumer {
   const url = opts.identityUrl.replace(/\/$/, '');
   return {
@@ -80,13 +79,11 @@ export function createHttpEdgeApprovalConsumer(opts: {
       }
       const parsed = actionApprovalConsumeInputSchema.parse(input);
       const payload = JSON.stringify(parsed);
-      const raw = encodePrincipal(operator);
       const res = await fetch(`${url}/trpc/actionApproval.consumeForEdge`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          [EDGE_PRINCIPAL_HEADER]: raw,
-          [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, opts.edgeSecret, opts.region),
+          ...forwardedPrincipalHeaders(operator, { edgeSecret: opts.edgeSecret, ed25519: opts.ed25519, region: opts.region }),
         },
         body: payload,
       });

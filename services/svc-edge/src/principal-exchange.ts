@@ -1,13 +1,6 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import {
-  encodeForwardedPrincipal,
-  encodePrincipal,
-  serviceAuthHeadersForBody,
-  signPrincipalHeader,
-  signPrincipalHeaderEd25519,
-  EDGE_PRINCIPAL_HEADER,
-  EDGE_SIGNATURE_HEADER,
-} from '@intafaced/contracts';
+import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
 import { assertApiKeyAccount, optionalAccountIdFromExchange, requestAccountId, KeyAccountError } from './api-key-account.js';
@@ -416,15 +409,10 @@ export async function exchangePrincipal(
   // Identity's current tier may have changed since this JWT was minted.
   principal = { ...principal, tier: authority.account.kycTier };
 
-  if (options.ed25519) {
-    const raw = encodeForwardedPrincipal(principal, options.ed25519.maxLifetimeSeconds, now);
-    forward[EDGE_PRINCIPAL_HEADER] = raw;
-    forward[EDGE_SIGNATURE_HEADER] = signPrincipalHeaderEd25519(raw, options.ed25519.privateKey, options.region);
-  } else {
-    const raw = encodePrincipal(principal);
-    forward[EDGE_PRINCIPAL_HEADER] = raw;
-    forward[EDGE_SIGNATURE_HEADER] = signPrincipalHeader(raw, options.edgeSecret, options.region);
-  }
+  Object.assign(
+    forward,
+    forwardedPrincipalHeaders(principal, { edgeSecret: options.edgeSecret, ed25519: options.ed25519, region: options.region, now }),
+  );
 
   return { headers: forward, principal, rejected: null };
 }
