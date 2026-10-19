@@ -176,6 +176,11 @@ export const ENFORCED = {
     must: /CUSTODY SCAN FAILED — cannot read the module registry/,
     note: 'derives its service list from a registry; with no registry it declines to walk rather than walking nothing.',
   },
+  s2s: {
+    kind: 'guard',
+    must: /S2S SCAN FAILED: cannot find services\//,
+    note: 'a ratchet over services/ with no services/ to count; it refuses rather than reporting an empty tree as within its baseline.',
+  },
   secrets: {
     kind: 'uncaught',
     must: /not a git repository/,
