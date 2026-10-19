@@ -244,6 +244,14 @@ Its result describes authority at query time; it grants no account-change or
 future admission authority. Callers must reject invalid/unavailable/timed-out
 responses and must not cache enabled results.
 
+Service-only POST `/trpc/accountControls.serviceOperatorEntitlement` takes plain JSON
+`{"userId":"...","sessionId":"..."}` (both UUIDs, nothing else) and a v2 service signature
+over the exact body bytes from `svc-trade`, `svc-pay` or `svc-ops`; any other service
+is refused. No principal is forwarded or signed. It reads, fresh, the founder pair,
+the revocable entitlement, an active account with a verified second factor, and a
+live, unexpired, MFA session of that same user. The answer describes authority at
+query time and must not be cached when enabled. It is never part of a mixed batch.
+
 Service-only POST `accountControls.currentAuthority` checks credential and optional
 subaccount ownership against current identity state. Eligible snapshots expire no
 later than five seconds after the database check, or sooner with the credential.

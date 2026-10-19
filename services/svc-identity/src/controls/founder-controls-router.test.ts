@@ -67,6 +67,10 @@ function fixture() {
         ? { userId, status: 'enabled', version: '1', changedAt: new Date().toISOString() }
         : { userId, status: 'not_operator' };
     },
+    async serviceOperatorEntitlement(ctx, request) {
+      calls.push({ context: ctx, input: request });
+      return { userId: request.userId, status: 'enabled', version: '1', changedAt: new Date().toISOString() };
+    },
     async operatorStatus(ctx) {
       return { userId: ctx.principal!.userId, status: 'not_operator' };
     },
@@ -131,6 +135,68 @@ describe('identity founder control routes', () => {
     await expect(caller.accountControls.history({ target: input.target } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(caller.accountControls.history({ target: input.target, limit: 201 })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
+  it('answers the service-only entitlement read from a body-bound service signature, with no forwarded principal', async () => {
+    const { port, calls } = fixture();
+    const app = Fastify();
+    retainRawBody(app);
+    const factory = createIdentityRequestContext({ secret: edgeSecret, internalSecret, serviceName: 'svc-identity' });
+    await app.register(fastifyTRPCPlugin, {
+      prefix: '/trpc',
+      trpcOptions: { router: createFounderControlsRouter(port), createContext: ({ req }: { req: FastifyRequest }) => factory(req) },
+    });
+    const url = '/trpc/accountControls.serviceOperatorEntitlement';
+    const body = JSON.stringify({ userId: USER, sessionId: SESSION });
+    const signed = { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', internalSecret, body) };
+    try {
+      const accepted = await app.inject({ method: 'POST', url, headers: signed, payload: body });
+      expect(accepted.statusCode).toBe(200);
+      expect(accepted.json()).toMatchObject({ result: { data: { status: 'enabled', userId: USER } } });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.context.service).toBe('svc-pay');
+      expect(calls[0]!.context.principal).toBeNull();
+      expect(calls[0]!.input).toEqual({ userId: USER, sessionId: SESSION });
+      // A body changed after signing, an unsigned call and a wrong key are all refused before the port runs.
+      const tampered = await app.inject({
+        method: 'POST',
+        url,
+        headers: signed,
+        payload: JSON.stringify({ userId: TARGET, sessionId: SESSION }),
+      });
+      expect(tampered.statusCode).toBe(401);
+      const unsigned = await app.inject({ method: 'POST', url, headers: { 'content-type': 'application/json' }, payload: body });
+      expect(unsigned.statusCode).toBe(401);
+      const wrongKey = await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', `${internalSecret}-other`, body) },
+        payload: body,
+      });
+      expect(wrongKey.statusCode).toBe(401);
+      // The session is part of the signed body, and no field beyond the two is accepted.
+      for (const extra of [{ userId: USER }, { userId: USER, sessionId: SESSION, mfa: true }]) {
+        const raw = JSON.stringify(extra);
+        const refused = await app.inject({
+          method: 'POST',
+          url,
+          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-pay', internalSecret, raw) },
+          payload: raw,
+        });
+        expect(refused.statusCode).toBe(400);
+      }
+      // A mixed batch never reaches this read.
+      const batch = await app.inject({
+        method: 'POST',
+        url: `${url},accountControls.currentAuthority?batch=1`,
+        headers: signed,
+        payload: body,
+      });
+      expect(batch.statusCode).not.toBe(200);
+      expect(calls).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it('verifies real POST serialization, body-bound service HMAC and original signed principal', async () => {
     const { port, calls } = fixture();
     const ctx = await context();

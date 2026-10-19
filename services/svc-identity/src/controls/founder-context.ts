@@ -84,6 +84,10 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       const rawBody = inboundRawBodyOf(req);
       return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
     }
+    if (procedures.includes('accountControls.serviceOperatorEntitlement')) {
+      // Service-only read: never part of a mixed batch, and body-bound like the other service reads.
+      if (procedures.some((name) => name !== 'accountControls.serviceOperatorEntitlement')) return { ...context, service: null };
+    }
     const signedExchange = new Set(['apiKeys.exchange', 'exchangeApiKeyForProduct', 'exchangeApiKeyForAccount', 'attribution.exchange']);
     if (procedures.some((name) => signedExchange.has(name))) {
       // The signed `request` field is the edge's observation of the merchant call.
@@ -111,7 +115,10 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
     // digest never matches, and every consume answers 401 — so no two-person approval could ever be used.
     const requiresBody = procedures.some(
       (name) =>
-        name === 'accountControls.operatorEntitlement' || name === 'accountControls.currentAuthority' || name === 'actionApproval.consume',
+        name === 'accountControls.operatorEntitlement' ||
+        name === 'accountControls.serviceOperatorEntitlement' ||
+        name === 'accountControls.currentAuthority' ||
+        name === 'actionApproval.consume',
     );
     if (!requiresBody) return context;
     // The tRPC Fastify adapter replaces the shared JSON parser and preserves
