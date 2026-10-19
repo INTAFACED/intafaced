@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-13 (D26-P0-03 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-03 — `socket.dex-venue-set` one sentence.  
-**Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §2.  
+**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §2.  
 **Does not invent:** which CEX, which CLOB address, or a seeded `DEX_EXTERNAL_VENUES` row. Doctrine §0.4 / §0.7 — no vendor names in source.
 
 ---

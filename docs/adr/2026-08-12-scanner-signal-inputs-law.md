@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-15 (D26-P0-11 sealed; #1733 production recipe withdrawn).**
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Board:** D26-P0-11 · tracker `agents.scanner` · D26-P1-A3 honour this seal; do not invent a second ranker.
-**Binds:** D-S-18 ([`2026-08-04-predict-quant-connect-law.md`](2026-08-04-predict-quant-connect-law.md)) honesty — absent is named, never empty-as-quiet; **no returns-ranked board** in any room (§8 + D-S-18). Packet: [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-11.
+**Binds:** D-S-18 ([`2026-08-04-predict-quant-connect-law.md`](2026-08-04-predict-quant-connect-law.md)) honesty — absent is named, never empty-as-quiet; **no returns-ranked board** in any room (§8 + D-S-18). Packet: `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-11.
 **Law:** market honesty (no fabricated last/volume/change) · brand §0.7 · agents never invent alpha or signal sources.
 
 ---

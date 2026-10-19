@@ -344,6 +344,38 @@ describe('healthFromGrade — the whole wiring into routing', () => {
     expect(healthFromGrade(grader.grade(at(50)), at(50)).healthy).toBe(true);
   });
 
+  it('a provisional F from silence is not routable — staleness needs no sample count', () => {
+    const grader = new VenueLatencyGrader('v');
+    // Two fast reads are a provisional A if graded now. Silence past the 5s
+    // ceiling, still inside the 60s window, is an F with that same p95.
+    feed(grader, 2, 10);
+    const when = at(30_000);
+    const grade = grader.grade(when);
+
+    expect(grade.grade).toBe('F');
+    expect(grade.provisional).toBe(true);
+    expect(grade.samples).toBe(2);
+    expect(grade.p95Ms).toBe(10);
+    expect(grade.staleMs).toBe(29_999);
+
+    const health = healthFromGrade(grade, when);
+    expect(health.healthy).toBe(false);
+    // The measured p95 stays the measurement. It does not keep the venue healthy.
+    expect(health.latencyMs).toBe(10);
+
+    const source = {
+      id: 'v',
+      kind: 'external-cex' as const,
+      capabilities: ['quote'] as const,
+      health: () => health,
+      markets: async () => [],
+      quote: async () => null,
+      orderBook: async () => ({}) as never,
+      submit: async () => ({}) as never,
+    };
+    expect(isRoutable(source, when)).toBe(false);
+  });
+
   it('an unmeasured venue IS excluded — ungraded is not permission to route', () => {
     const grade = new VenueLatencyGrader('v').grade(T0);
     const health = healthFromGrade(grade, T0);

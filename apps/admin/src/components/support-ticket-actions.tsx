@@ -22,7 +22,7 @@ import { ActionOutcome, ConfirmStep } from './support-action-parts';
  * TICKET ACTIONS — reply, set status, escalate.
  *
  * Every control is on the page whatever the founder's permissions are. svc-support is the judge: when it answers
- * forbidden, the page says "Your console session does not have support operations permission yet" and nothing is
+ * forbidden, the page says "Your console session does not have support operations permission" and nothing is
  * changed or shown as done. Each send needs a second click, and the buttons are off while a send is in progress, so a
  * double click cannot send twice. A dropped connection is "outcome not known", never "failed" or "done".
  */

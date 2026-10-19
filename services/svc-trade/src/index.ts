@@ -325,9 +325,9 @@ const copy = new CopyService(ledger, {
       return null;
     }
     const [row] = await sql<
-      Array<{ id: string; user_id: string; side: 'buy' | 'sell'; qty: string; quote_amount: string; symbol: string }>
+      Array<{ id: string; user_id: string; side: 'buy' | 'sell'; qty: string; quote_amount: string; price: string; symbol: string }>
     >`
-      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, m.symbol
+      SELECT f.id, f.user_id, f.side, f.qty, f.quote_amount, f.price, m.symbol
       FROM trade.fills f
       INNER JOIN trade.markets m ON m.id = f.market_id
       WHERE f.id = ${id}
@@ -342,6 +342,7 @@ const copy = new CopyService(ledger, {
       side: row.side,
       qty: parseAmount(row.qty),
       notional: parseAmount(row.quote_amount),
+      price: parseAmount(row.price),
     };
   },
 });

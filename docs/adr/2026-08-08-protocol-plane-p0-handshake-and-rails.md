@@ -4,7 +4,7 @@
 **P1 timing:** parked **2026-09-03** — [`2026-09-03-protocol-rails-until-intachain.md`](2026-09-03-protocol-rails-until-intachain.md).  
 **Decision owner:** `@shehzad002` (plan + proposal) · Nitro rules the named deploy chain and Class X.  
 **Board ids:** S-D0 (plan-first handshake) · S-D1 (P0 rails).  
-**Law:** `INTAFACED_DEFINITIVE_BUILD.md` §17 · `docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md` (delta 2026-08-07) · `docs/GITHUB-OWNERSHIP-SHEHZAD.md`.
+**Law:** `INTAFACED_DEFINITIVE_BUILD.md` §17 · `docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md` (removed) (delta 2026-08-07) · `docs/GITHUB-OWNERSHIP-SHEHZAD.md` (removed).
 
 ---
 

@@ -11,6 +11,7 @@ export default defineConfig({
     // Unit/API fixtures exercise service behavior without owner screening
     // configuration. Strict screening remains covered explicitly below.
     env: {
+      APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
     },
   },

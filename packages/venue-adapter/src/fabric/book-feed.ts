@@ -82,6 +82,8 @@ export class MaintainedBook {
   #subscription: { close(): Promise<void> } | null = null;
   #stopped = false;
   #resyncs = 0;
+  /** Bumped by every `#seed`. A completion that is not this number is stale. */
+  #seedGeneration = 0;
 
   readonly #adapter: MarketDataAdapter;
   readonly #options: BookFeedOptions & Required<Pick<BookFeedOptions, 'depthLimit' | 'maxSnapshotAttempts' | 'maxResyncs'>>;
@@ -179,8 +181,12 @@ export class MaintainedBook {
    * snapshot, and the only safe alternative to retrying is refusing to go live.
    */
   async #seed(): Promise<void> {
+    const generation = ++this.#seedGeneration;
+    // Stop, or a newer seed, during the await: do not go live and do not #stop.
+    const abandoned = (): boolean => this.#stopped || generation !== this.#seedGeneration;
+
     for (let attempt = 1; attempt <= this.#options.maxSnapshotAttempts; attempt += 1) {
-      if (this.#stopped) return;
+      if (abandoned()) return;
 
       let snapshot;
       const started = this.#clock();
@@ -189,11 +195,14 @@ export class MaintainedBook {
         this.#grader?.observe({ roundTripMs: this.#clock() - started, outcome: 'ok', at: new Date(this.#clock()) });
       } catch (error) {
         this.#grader?.observe({ roundTripMs: this.#clock() - started, outcome: 'error', at: new Date(this.#clock()) });
+        if (abandoned()) return;
         if (attempt === this.#options.maxSnapshotAttempts) {
           this.#stop(`${this.venueId}:${this.symbol} could not fetch a snapshot: ${String(error)}`);
         }
         continue;
       }
+
+      if (abandoned()) return;
 
       const outcome = this.tracker.onSnapshot(snapshot);
       if (outcome.kind === 'applied') {
@@ -207,6 +216,7 @@ export class MaintainedBook {
       // `snapshot-stale`: loop and fetch a newer one. The book stays withheld.
     }
 
+    if (abandoned()) return;
     this.#stop(
       `${this.venueId}:${this.symbol} could not join the stream after ${this.#options.maxSnapshotAttempts} snapshots — ` +
         'the REST endpoint is lagging its own websocket',
@@ -214,8 +224,12 @@ export class MaintainedBook {
   }
 
   #stop(reason: string): BookFeedStatus {
+    // The first reason stands. Closing the subscription is what unblocks run()
+    // on a quiet book; a later stream error or end must not replace it.
+    if (this.#status.kind === 'stopped') return this.#status;
     this.#stopped = true;
     this.#status = { kind: 'stopped', reason };
+    void this.#subscription?.close().catch(() => undefined);
     return this.#status;
   }
 }
