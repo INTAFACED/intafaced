@@ -399,18 +399,17 @@ jobs:
       # container dumps its own log after the last step, so the tail of the job
       # log is database noise and the failing tests sit far above it. This
       # collects turbo's failed tasks and vitest's FAIL lines, prints them, and
-      # puts the first few in this step's name, which the jobs API returns.
+      # puts the first few in the next step's name (through env), which the jobs API returns.
       # Reads output only; it changes no result and no test.
-      - id: failures
-        name: Collect failing tests
+      - name: Collect failing tests
         if: failure()
         run: |
           out="$RUNNER_TEMP/test-output.log"
           [ -f "$out" ] || exit 0
           sed -E 's/\x1b\[[0-9;]*m//g' "$out" > "$out.clean"
           {
-            grep -E '^ *Failed: ' "$out.clean" | sed 's#@intafaced/##g' | head -n 1
-            grep -E '(^|[: ]) FAIL  ' "$out.clean" | sed 's#@intafaced/##' | cut -c1-110 | sort -u | head -n 40
+            { grep -E '^ *Failed: ' "$out.clean" || true; } | sed 's#@intafaced/##g' | head -n 1
+            { grep -E '(^|[: ]) FAIL  ' "$out.clean" || true; } | sed 's#@intafaced/##' | cut -c1-110 | sort -u | head -n 40
           } | tee "$RUNNER_TEMP/failures.txt" | sed 's/^/::error::/'
           {
             echo "## Failing tests"
@@ -419,9 +418,9 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           short=$(tr '\n' ';' < "$RUNNER_TEMP/failures.txt" | cut -c1-900)
-          echo "short=$short" >> "$GITHUB_OUTPUT"
-      - name: 'Failing: ${{ steps.failures.outputs.short }}'
-        if: failure() && steps.failures.outputs.short != ''
+          echo "FAILED_SHORT=$short" >> "$GITHUB_ENV"
+      - name: 'Failing: ${{ env.FAILED_SHORT }}'
+        if: failure() && env.FAILED_SHORT != ''
         run: 'true'
 
       # The backstop. REQUIRE_POSTGRES / REQUIRE_EVM_CHAIN make the shared probes
