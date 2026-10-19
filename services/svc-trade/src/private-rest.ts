@@ -72,6 +72,8 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
  *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms)
+ *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
+ *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch    scope: trade:write + jurisdiction(module=trade)
@@ -2559,6 +2561,82 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
   });
+
+  // ── By client order id ────────────────────────────────────────────────────
+  // A client id is unique per market (it keys the order id with the user and the market), so the symbol is required.
+
+  async function orderByClientId(
+    principal: Principal,
+    req: { params: { clientOrderId: string }; query: { symbol?: string } },
+    reply: FastifyReply,
+  ): Promise<OrderRecord | null> {
+    const symbolRaw = req.query.symbol;
+    if (symbolRaw === undefined || symbolRaw === '') {
+      sendCcxt(reply, badRequest('symbol is required: a clientOrderId is unique per market', 'trade.order_symbol_required'));
+      return null;
+    }
+    const symbol = decodeURIComponent(symbolRaw);
+    const market = await deps.marketBySymbol(symbol);
+    if (!market) {
+      sendCcxt(reply, badSymbol(symbol));
+      return null;
+    }
+    const order = deps.findClientOrder
+      ? await deps.findClientOrder(principal, { marketId: market.id, symbol, clientOrderId: req.params.clientOrderId })
+      : null;
+    if (!order) {
+      throw new TradeError('order not found', 'trade.order_not_found');
+      return null;
+    }
+    return order;
+  }
+
+  app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
+    '/api/v1/orders/by-client-id/:clientOrderId',
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      try {
+        requireScope(principal, 'trade:read');
+        const found = await orderByClientId(principal, req, reply);
+        if (!found) return reply;
+        const order = await deps.getOrder(principal, found.id);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const withStop = await withStopTriggers(deps, [order]);
+        const withExit = await withOcoExit(deps, [order]);
+        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
+
+  app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
+    '/api/v1/orders/by-client-id/:clientOrderId',
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!requireTradeJurisdiction(req, reply, principal)) return;
+      try {
+        requireScope(principal, 'trade:write');
+        const found = await orderByClientId(principal, req, reply);
+        if (!found) return reply;
+        const order = await deps.cancelOrder(principal, found.id);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const withStop = await withStopTriggers(deps, [order]);
+        const withExit = await withOcoExit(deps, [order]);
+        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
   // ── By id ─────────────────────────────────────────────────────────────────
 
