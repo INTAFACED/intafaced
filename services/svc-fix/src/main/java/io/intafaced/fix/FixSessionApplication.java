@@ -76,6 +76,11 @@ public final class FixSessionApplication extends ApplicationAdapter {
         record(appMsgTypes, message);
         String msgType = message.getHeader().getString(MsgType.FIELD);
         if (!MsgType.NEW_ORDER_SINGLE.equals(msgType)) {
+            AdaptResult refused = adapter.adapt(message.toString());
+            sendSessionReject(
+                    message,
+                    sessionId,
+                    refused.ok ? "only NewOrderSingle (35=D) is mapped" : refused.errorMessage);
             return;
         }
         if (headerYes(message, PossDupFlag.FIELD) || headerYes(message, PossResend.FIELD)) {
