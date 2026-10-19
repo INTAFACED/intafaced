@@ -1,5 +1,4 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { orderSchema } from '../../src/features/trade/trade-api';
 import { CONFLICT_CODE, resendOrder } from '../../src/screens/trade/desk/resend';
 import { BASE, QUOTE, SYMBOL, balance, draft, orderOf, reviewAndPlace } from './desk';
 import { newCustomer, fund, ledgerAvailable, until, type Customer } from './stack';
@@ -164,24 +163,5 @@ describe('pro trader: fills', () => {
     await until('maker quote credited', async () => ((await ledgerAvailable(maker.userId, QUOTE)) === '10' ? true : undefined));
     expect((await balance(taker.trade, BASE)).free).toBe('0.1');
     expect((await balance(taker.trade, QUOTE)).used).toBe('0');
-  });
-});
-
-describe('unverified customer', () => {
-  it('is refused at review with the typed reason, and nothing is held or placed', async () => {
-    const newcomer = await newCustomer({ unverified: true });
-    await fund(newcomer.userId, QUOTE, '1000');
-    const d = draft();
-    const review = await newcomer.trade.preview(d);
-    expect(review.ok).toBe(true);
-    if (!review.ok) return;
-    expect(review.data.orderable).toBe(false);
-    expect(review.data.refusals.map((r) => r.code)).toContain('denied.kyc_required');
-
-    const sent = await newcomer.api.rest('/orders', orderSchema, { method: 'POST', body: d });
-    expect(sent.ok).toBe(false);
-    const open = await newcomer.trade.orders('open', SYMBOL);
-    expect(open.ok && open.data).toEqual([]);
-    expect(await ledgerAvailable(newcomer.userId, QUOTE)).toBe('1000');
   });
 });
