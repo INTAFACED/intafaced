@@ -32,21 +32,11 @@ name: Docs format
 
 on:
   pull_request:
-    # Negation: claim locks + FREEZE regen alone must not burn Docs-format.
-    # (Swarm claim files / FREEZE-LIVE are ops meters, not prose that needs CI.)
     paths:
       - 'docs/**'
       - '**/*.md'
       - 'NOTICE'
       - 'LICENSE'
-      - '!docs/ops/FREEZE-LIVE.md'
-      - '!docs/ops/FREEZE-LIVE.json'
-      - '!docs/ops/claims/**'
-      - '!docs/ops/R00-INVENTORY.md'
-      - '!docs/ops/R01-PR-MATRIX.md'
-      - '!docs/ops/R02-FREE-CLAIMS.md'
-      - '!docs/ops/DASHBOARD.md'
-      - '!docs/ops/DASHBOARD.html'
   workflow_dispatch:
 
 concurrency:

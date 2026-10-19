@@ -1,4 +1,4 @@
-import type { Cell, CellValue, Column, ReadData, ReadSpec, Row } from './types';
+import type { Cell, CellValue, Column, ReadData, ReadOutcome, ReadSpec, Row } from './types';
 import { formatWhen } from '@/lib/as-of';
 import { codeWords } from '@/lib/desk/words';
 
@@ -158,6 +158,41 @@ export function displayCell(cell: Cell): string {
   if (cell.kind === 'time' && typeof cell.value === 'string') return formatWhen(cell.value);
   if (cell.kind === 'text' && typeof cell.value === 'string') return codeWords(cell.value);
   return formatCell(cell);
+}
+
+/**
+ * Puts a name in front of each row of a list that only has ids, from the desk's own read that lists the same things by name
+ * (`ReadSpec.namesFrom`). The id cell moves to the detail. When the naming read failed, was not read, or does not list a row's id,
+ * that row's name cell says why in words. Never invents a name and never drops a row.
+ */
+export function withNames(spec: ReadSpec, data: Extract<ReadData, { shape: 'list' }>, source: ReadOutcome | undefined): typeof data {
+  const by = spec.namesFrom;
+  if (!by) return data;
+  const names = new Map<string, string>();
+  const sourceData = source?.part.kind === 'ok' ? source.part.data : null;
+  if (sourceData?.shape === 'list') {
+    for (const r of sourceData.rows) {
+      const id = cellOfRow(r, by.idKey);
+      const name = cellOfRow(r, by.nameKey);
+      if (typeof id === 'string' && typeof name === 'string' && name.trim() !== '') names.set(id, name);
+    }
+  }
+  const unread = sourceData?.shape !== 'list';
+  return {
+    ...data,
+    rows: data.rows.map((row) => {
+      const name = names.get(row.id);
+      const nameCell: Cell = {
+        key: '_name',
+        label: by.label,
+        kind: 'text',
+        detail: false,
+        value: name ?? (unread ? `No name: ${by.missing} was not read` : `Not in ${by.missing}`),
+      };
+      const cells = row.cells.map((c) => (c.key === spec.idKey ? { ...c, detail: true } : c));
+      return { ...row, cells: [nameCell, ...cells] };
+    }),
+  };
 }
 
 export function tableCells(row: Row): readonly Cell[] {

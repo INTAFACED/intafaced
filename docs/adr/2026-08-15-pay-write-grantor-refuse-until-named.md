@@ -39,4 +39,4 @@ The product starter fee is still unset. A local-test stand-in is not that number
 
 ## Packet
 
-`docs/ops/owner-ruling-packet.json` **D26-P0-08** is `mechanism_only` (shape + refuse on tip; A2 content still owner). It is not a full `sealed` owner ruling.
+`docs/ops/owner-ruling-packet.json` (removed) **D26-P0-08** is `mechanism_only` (shape + refuse on tip; A2 content still owner). It is not a full `sealed` owner ruling.

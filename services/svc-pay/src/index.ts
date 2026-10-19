@@ -22,7 +22,7 @@ import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conver
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
-import { isExplicitDevOrTestEnv } from '@intafaced/config';
+import { assertNoLocalTestFixtures, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
@@ -111,6 +111,11 @@ registerProcessHooks(
 // D-S-10 / Doctrine 5 — refuse boot if a third-party money orchestrator landed
 // in svc-pay's package.json. Socket.psp-partners stays a commercial relationship.
 assertNoThirdPartyMoneyLibrary();
+
+// Local-test stand-ins (ZZ / fixture-marked screening list, INTAFACED_SCREENING_FAIL_CLOSED=off,
+// LOCAL_TEST_KMS) refuse unless APP_ENV is exactly dev or test. Reads the raw APP_ENV:
+// unset, blank and typos are not dev. Throws before postgres opens.
+assertNoLocalTestFixtures(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,

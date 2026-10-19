@@ -13,6 +13,8 @@ import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 
 // Same test posture as the other services' vitest configs. Does not supply a sanctions list.
+// Off is honoured only when APP_ENV is exactly test (or dev).
+process.env.APP_ENV = 'test';
 process.env.INTAFACED_SCREENING_FAIL_CLOSED = 'off';
 
 const ADA = '11111111-1111-4111-8111-111111111111';

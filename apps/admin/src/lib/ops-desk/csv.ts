@@ -30,7 +30,9 @@ export const CSV_NEWLINE = '\r\n';
 
 /** The header row, then one line per row shown. A cell the service sent as null is left empty, not "—". */
 export function listToCsv(spec: ReadSpec, data: Extract<ReadData, { shape: 'list' }>): string {
-  const header = spec.columns.map((c) => csvField(c.label)).join(',');
+  // The rows' own cells, so a column the desk adds (a name from another read, see withNames) keeps its header.
+  const labels = data.rows[0]?.cells.map((c) => c.label) ?? spec.columns.map((c) => c.label);
+  const header = labels.map((label) => csvField(label)).join(',');
   const lines = data.rows.map((row) =>
     row.cells.map((cell) => (cell.value === null ? '' : csvField(formatCell(cell), cell.kind))).join(','),
   );

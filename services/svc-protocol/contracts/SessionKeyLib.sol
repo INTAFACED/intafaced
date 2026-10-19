@@ -86,6 +86,13 @@ library SessionKeyLib {
     bytes4 internal constant SEL_ERC1155_SAFE_TRANSFER = 0xf242432a;
     bytes4 internal constant SEL_ERC1155_SAFE_BATCH_TRANSFER = 0x2eb2c2d6;
     bytes4 internal constant SEL_PERMIT2_APPROVE = 0x87517c45;
+    bytes4 internal constant SEL_ERC777_SEND = 0x9bd9bbc6;
+    bytes4 internal constant SEL_ERC777_OPERATOR_SEND = 0x62ad1b83;
+    bytes4 internal constant SEL_ERC1363_TRANSFER_AND_CALL = 0x4000aea0;
+    bytes4 internal constant SEL_ERC1363_APPROVE_AND_CALL = 0xcae9ca51;
+    bytes4 internal constant SEL_ERC4626_WITHDRAW = 0xb460af94;
+    bytes4 internal constant SEL_ERC4626_REDEEM = 0xba087652;
+    bytes4 internal constant SEL_PERMIT2_TRANSFER_FROM = 0x36c78516;
     bytes4 internal constant SEL_TRANSFER_OWNERSHIP = 0xf2fde38b;
     bytes4 internal constant SEL_UPGRADE_TO = 0x3659cfe6;
     bytes4 internal constant SEL_UPGRADE_TO_AND_CALL = 0x4f1ef286;
@@ -253,6 +260,13 @@ library SessionKeyLib {
             selector == SEL_ERC1155_SAFE_TRANSFER ||
             selector == SEL_ERC1155_SAFE_BATCH_TRANSFER ||
             selector == SEL_PERMIT2_APPROVE ||
+            selector == SEL_ERC777_SEND ||
+            selector == SEL_ERC777_OPERATOR_SEND ||
+            selector == SEL_ERC1363_TRANSFER_AND_CALL ||
+            selector == SEL_ERC1363_APPROVE_AND_CALL ||
+            selector == SEL_ERC4626_WITHDRAW ||
+            selector == SEL_ERC4626_REDEEM ||
+            selector == SEL_PERMIT2_TRANSFER_FROM ||
             selector == SEL_TRANSFER_OWNERSHIP ||
             selector == SEL_UPGRADE_TO ||
             selector == SEL_ESCROW_OPEN ||

@@ -99,6 +99,24 @@ export interface ReadSpec {
   readonly refusals?: Readonly<Record<string, string>>;
   /** A row on this list can be acted on with a two-founder request (see `RowAction`). */
   readonly rowAction?: RowAction;
+  /**
+   * List only: reference data, not work (the fiat currencies P2P can trade against). The table starts folded behind its row count
+   * and the CSV export, so it does not push the desk's work (disputes, offers, trades) below the first screen. Nothing is hidden:
+   * one click opens every row.
+   */
+  readonly collapsed?: true;
+  /**
+   * List only: the service gives each row an id but no name (pool totals carry `poolId`). The name comes from another read on the
+   * same desk that lists the same things with their names (`bank.pools`), matched by id. The id moves to the row's detail. A row
+   * whose id that read does not list, or a failed or missing read, says so in words instead of a name; nothing is guessed.
+   */
+  readonly namesFrom?: {
+    readonly read: string;
+    readonly idKey: string;
+    readonly nameKey: string;
+    readonly label: string;
+    readonly missing: string;
+  };
 }
 
 export type RowAction =

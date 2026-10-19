@@ -104,8 +104,15 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
         <dd>{t.category}</dd>
         <dt>Status</dt>
         <dd>{t.status}</dd>
-        <dt>Customer</dt>
-        <dd className="dk-packet">{shortId(t.userId)}</dd>
+        <dt>Customer account id</dt>
+        <dd>
+          <span className="dk-packet" title={t.userId}>
+            {shortId(t.userId)}
+          </span>{' '}
+          <span className="dk-muted" data-testid="customer-no-handle">
+            No handle: svc-identity has no operator read that names an account from its id (back-end need 47).
+          </span>
+        </dd>
         <dt>Owner</dt>
         <dd>{t.assigneeId === null ? 'Nobody yet' : mine ? 'You' : shortId(t.assigneeId)}</dd>
         <dt>Opened</dt>

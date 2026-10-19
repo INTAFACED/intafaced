@@ -19,7 +19,7 @@
 >
 > Careful equivalence, if ever, is a later **owner ADR** that names the mapping, the two ledgers, and the failure if one side moves without the other. This file forbids the silent version.
 
-This is the S-D3 architecture answer `docs/ops/trk/chain.validators.md` Stage 1 asked for. It is **non-equivalence**. It is not a schedule and not a slash table.
+This is the S-D3 architecture answer `docs/ops/trk/chain.validators.md` (removed) Stage 1 asked for. It is **non-equivalence**. It is not a schedule and not a slash table.
 
 ---
 
@@ -121,7 +121,7 @@ An empty schedule that never fires is marketing. Do not stamp `chain.validators`
 ## Done bar (this ADR)
 
 1. Non-equivalence is the law (this file).
-2. A chain engineer opening `docs/ops/trk/chain.validators.md` Stage 1 finds this path, not a blank.
+2. A chain engineer opening `docs/ops/trk/chain.validators.md` (removed) Stage 1 finds this path, not a blank.
 3. A later `svc-chain` PR that imports `stakeOf` / `ACCESS_TIERS` for bonding **without** a successor ADR is a spec violation. The test that should go red: any module under `services/svc-chain` (when it exists) importing `@intafaced/svc-token` `stakeOf` or `accessTierFor` for admission or voting power.
 4. No magnitudes invented. No genesis. No `svc-chain` in this commit.
 

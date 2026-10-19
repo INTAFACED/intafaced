@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-16, **completing** it.
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §3, which decided the merge rule and its four carve-outs. That stands verbatim. This defines **when a hold binds**, which is the part the board's column asked for and §3 does not say.
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §3, which decided the merge rule and its four carve-outs. That stands verbatim. This defines **when a hold binds**, which is the part the board's column asked for and §3 does not say.
 
 ---
 

@@ -2,112 +2,29 @@
 
 Current rules for agents and people: [`../AGENTS.md`](../AGENTS.md). How the code is laid out: [`ARCHITECTURE.md`](ARCHITECTURE.md). Services, ports and required env (generated): [`SERVICES.md`](SERVICES.md).
 
-History lives in [`archive/`](archive/): it is not instructions. Everything below is kept in place because code, tests, CI or the rules above read it by path. Its content can still be dated: when it disagrees with AGENTS.md or the code, AGENTS.md and the code win.
+Old history docs were deleted. Git history keeps them (`git log --diff-filter=D -- docs/`). What stays here is current truth, or a file that code, tests or CI read by path. A kept file can still be dated: when it disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 ## Folders
 
-| Folder                     | Files | What it is                                                    |
-| -------------------------- | ----- | ------------------------------------------------------------- |
-| [`ops/`](ops/)             | 301   | ops claims and tracker files read by CI scripts               |
-| [`adr/`](adr/)             | 80    | decision records (current decisions)                          |
-| [`refs/`](refs/)           | 54    | measured front-end references read by the front-end preflight |
-| [`decisions/`](decisions/) | 4     | decision notes cited by code                                  |
-| [`agents/`](agents/)       | 3     | agent tracker conventions                                     |
-| [`audit/`](audit/)         | 3     | audit notes cited by code                                     |
-| [`runbooks/`](runbooks/)   | 3     | operator runbooks                                             |
-| [`pay/`](pay/)             | 2     | payments notes cited by code                                  |
-| [`audits/`](audits/)       | 1     | audit records cited by code                                   |
-| [`paste-w6/`](paste-w6/)   | 1     | cited by code or CI                                           |
-| [`security/`](security/)   | 1     | cited by code or CI                                           |
+| Folder                     | What it is                             |
+| -------------------------- | -------------------------------------- |
+| [`adr/`](adr/)             | settled decisions                      |
+| [`runbooks/`](runbooks/)   | operator procedures                    |
+| [`refs/`](refs/)           | measured front-end references          |
+| [`agents/`](agents/)       | issue tracker, labels and domain notes |
+| [`security/`](security/)   | security review read by tooling        |
+| [`decisions/`](decisions/) | decision notes cited by code           |
+| [`audit/`](audit/)         | audit notes cited by code              |
+| [`audits/`](audits/)       | audit records cited by code            |
+| [`pay/`](pay/)             | payments notes cited by code           |
 
 ## Files kept at this level
 
-- [`A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md`](A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md)
-- [`ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md`](ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md)
-- [`AI-GATEWAY-SOCKET.md`](AI-GATEWAY-SOCKET.md)
-- [`AUTONOMOUS-RUN.md`](AUTONOMOUS-RUN.md)
-- [`AXIS-IMPROVEMENT-PLAN-2026-08-08.md`](AXIS-IMPROVEMENT-PLAN-2026-08-08.md)
-- [`BOARD-CLEAR-AGENT-BACKLOG-2026-08-02.md`](BOARD-CLEAR-AGENT-BACKLOG-2026-08-02.md)
-- [`BOARD-CLEAR-HUMAN-BLOCKERS.md`](BOARD-CLEAR-HUMAN-BLOCKERS.md)
-- [`BOARD-CLEAR-NEXT.md`](BOARD-CLEAR-NEXT.md)
-- [`BOARD-CLEAR-PROCESS-LOOPS.md`](BOARD-CLEAR-PROCESS-LOOPS.md)
-- [`BOARD-CLEAR-SCOREBOARD.md`](BOARD-CLEAR-SCOREBOARD.md)
-- [`BUILD-STOP-TRADE-2026-08-08.md`](BUILD-STOP-TRADE-2026-08-08.md)
-- [`COLOR-LOCK-P21-PROVISIONAL-2026-07-31.md`](COLOR-LOCK-P21-PROVISIONAL-2026-07-31.md)
-- [`COORDINATION-FINISH-AUDIT-2026-08-02.md`](COORDINATION-FINISH-AUDIT-2026-08-02.md)
-- [`COORDINATION-STRESS-TEST-USER-CLAIMS-2026-08-02.md`](COORDINATION-STRESS-TEST-USER-CLAIMS-2026-08-02.md)
-- [`COORDINATION-TRUTH-LAYERS.md`](COORDINATION-TRUTH-LAYERS.md)
-- [`COORDINATOR-PASTE-SKELETON.md`](COORDINATOR-PASTE-SKELETON.md)
-- [`DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md`](DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md)
-- [`DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md`](DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md)
-- [`DIRECTION-2026-07-31.md`](DIRECTION-2026-07-31.md)
-- [`FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02.md`](FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02.md)
-- [`FRONTEND-AUTONOMOUS-OPERATING-SYSTEM-2026-08-02.md`](FRONTEND-AUTONOMOUS-OPERATING-SYSTEM-2026-08-02.md)
-- [`FRONTEND-BASELINE-SCORECARD-A0-2026-07-31.md`](FRONTEND-BASELINE-SCORECARD-A0-2026-07-31.md)
-- [`FRONTEND-GO-READY-BRIEF-2026-08-02.md`](FRONTEND-GO-READY-BRIEF-2026-08-02.md)
-- [`FRONTEND-LEVEL-RECOVERY-AND-GO-READY-2026-08-02.md`](FRONTEND-LEVEL-RECOVERY-AND-GO-READY-2026-08-02.md)
-- [`FRONTEND-MASTER-METHODOLOGY-2026-07-31.md`](FRONTEND-MASTER-METHODOLOGY-2026-07-31.md)
-- [`FRONTEND-MASTER-PLAN-WAVE-A-B-2026-07-31.md`](FRONTEND-MASTER-PLAN-WAVE-A-B-2026-07-31.md)
-- [`FRONTEND-OPS-NOW-2026-07-30.md`](FRONTEND-OPS-NOW-2026-07-30.md)
-- [`FRONTEND-REMAINING-SOT-2026-08-25.md`](FRONTEND-REMAINING-SOT-2026-08-25.md)
-- [`FRONTEND-SCORECARD-LIVE.md`](FRONTEND-SCORECARD-LIVE.md)
-- [`FRONTEND-STATE-OF-TRUTH-2026-07-31.md`](FRONTEND-STATE-OF-TRUTH-2026-07-31.md)
-- [`GITHUB-OWNERSHIP-SHEHZAD.md`](GITHUB-OWNERSHIP-SHEHZAD.md)
-- [`HANDOVER-2026-07-29.md`](HANDOVER-2026-07-29.md)
-- [`INTERNET-LEVERAGE-CURRENT-AUDIT-2026-08-04.md`](INTERNET-LEVERAGE-CURRENT-AUDIT-2026-08-04.md)
-- [`INTERNET-LEVERAGE-LAW.md`](INTERNET-LEVERAGE-LAW.md)
-- [`INTERNET-LEVERAGE-PHASE-B-FULL-HORIZON-2026-08-05.md`](INTERNET-LEVERAGE-PHASE-B-FULL-HORIZON-2026-08-05.md)
-- [`JAVA-GRADE-D-JAR-TRUTH.md`](JAVA-GRADE-D-JAR-TRUTH.md)
-- [`LANE-CLOSEOUT-OPS-2026-08-08.md`](LANE-CLOSEOUT-OPS-2026-08-08.md)
-- [`LICENCE-POSITION.md`](LICENCE-POSITION.md)
-- [`LIVE-LANES.md`](LIVE-LANES.md)
-- [`LOCAL-TEST-STACK.md`](LOCAL-TEST-STACK.md)
-- [`MEGA-AUDIT-2026-08-07-FINDINGS.md`](MEGA-AUDIT-2026-08-07-FINDINGS.md)
-- [`MEGA-AUDIT-2026-08-07-PLAN.md`](MEGA-AUDIT-2026-08-07-PLAN.md)
-- [`NITRO-AGENT-PACKAGES-2026-07-30.md`](NITRO-AGENT-PACKAGES-2026-07-30.md)
-- [`NITRO-FRONTEND-NEW-CHAT-HANDOFF-2026-07-31.md`](NITRO-FRONTEND-NEW-CHAT-HANDOFF-2026-07-31.md)
-- [`NITRO-L3-SLICE-FACTORY-LAW.md`](NITRO-L3-SLICE-FACTORY-LAW.md)
-- [`NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md`](NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md)
-- [`NITRO-SESSION-PROMPT.md`](NITRO-SESSION-PROMPT.md)
-- [`NITRO-STREAM-A-CLAIM.md`](NITRO-STREAM-A-CLAIM.md)
-- [`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md)
-- [`ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md`](ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md)
-- [`ORDER-ROUTE-VENDOR-MONEY-INVENTORY.md`](ORDER-ROUTE-VENDOR-MONEY-INVENTORY.md)
-- [`OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](OWNER-ACTIONS-NOTIFY-GATEWAYS.md)
-- [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md)
-- [`OWNER-DECISION-PACKET-2026-08-09.md`](OWNER-DECISION-PACKET-2026-08-09.md)
-- [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md)
-- [`OWNER-DECISIONS-OPEN.md`](OWNER-DECISIONS-OPEN.md)
-- [`OWNER-OPS-CHECKLIST-2026-07-31.md`](OWNER-OPS-CHECKLIST-2026-07-31.md)
-- [`OWNER-RULINGS-FROM-DENON-PAYOUT-2026-08-09.md`](OWNER-RULINGS-FROM-DENON-PAYOUT-2026-08-09.md)
-- [`PASTE-BUILD-WAVE-6-2026-08-09.md`](PASTE-BUILD-WAVE-6-2026-08-09.md)
-- [`PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md`](PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md)
-- [`POST-MERGE-RESIDUAL-AFTER-86.md`](POST-MERGE-RESIDUAL-AFTER-86.md)
-- [`PROMPT-GROK-FRONTEND-GO.md`](PROMPT-GROK-FRONTEND-GO.md)
-- [`REGROUP-2026-08-03.md`](REGROUP-2026-08-03.md)
-- [`RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md`](RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md)
-- [`RUNNING.md`](RUNNING.md)
-- [`SECRET-ROTATION-READINESS-2026-08-03.md`](SECRET-ROTATION-READINESS-2026-08-03.md)
-- [`SECRET-ROTATION-READINESS.md`](SECRET-ROTATION-READINESS.md)
-- [`SECURITY-WHEN-PLAIN.md`](SECURITY-WHEN-PLAIN.md)
-- [`SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md`](SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md)
-- [`SHIZU-BOARD-AUDIT-2026-08-07.md`](SHIZU-BOARD-AUDIT-2026-08-07.md)
-- [`SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md`](SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md)
-- [`SPEC-PAY-VERTICALS-2026-08-02.md`](SPEC-PAY-VERTICALS-2026-08-02.md)
-- [`SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md`](SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md)
-- [`SPEC-SUBACCOUNTS-2026-08-02.md`](SPEC-SUBACCOUNTS-2026-08-02.md)
-- [`SPLIT-BOARD.md`](SPLIT-BOARD.md)
-- [`START-HERE.md`](START-HERE.md)
-- [`STATUS-2026-07-29-EVENING.md`](STATUS-2026-07-29-EVENING.md)
-- [`STREAM-A-DESIGN-BAR.md`](STREAM-A-DESIGN-BAR.md)
-- [`SWARM-ALL-OUT-ORIENT-2026-08-03.md`](SWARM-ALL-OUT-ORIENT-2026-08-03.md)
-- [`TERMINAL.md`](TERMINAL.md)
-- [`TERMINAL_INTEGRATION.md`](TERMINAL_INTEGRATION.md)
-- [`THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md`](THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md)
-- [`THREAT-MODEL-STAGING-DEPLOY.md`](THREAT-MODEL-STAGING-DEPLOY.md)
-- [`THREE-WAY-DISTRIBUTION-2026-08-04.md`](THREE-WAY-DISTRIBUTION-2026-08-04.md)
-- [`TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md`](TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md)
-- [`TRACKER.md`](TRACKER.md)
-- [`VENDOR-JAVA-MONEY-PLANE-MAP-D26-P2-02.md`](VENDOR-JAVA-MONEY-PLANE-MAP-D26-P2-02.md)
-- [`VENDORED-OVERLAP-AUDIT.md`](VENDORED-OVERLAP-AUDIT.md)
-- [`ui-kit.md`](ui-kit.md)
+Each is read or cited by path from a CI gate, script or config.
+
+- Run and test locally: [`RUNNING.md`](RUNNING.md), [`LOCAL-TEST-STACK.md`](LOCAL-TEST-STACK.md), [`AI-GATEWAY-SOCKET.md`](AI-GATEWAY-SOCKET.md)
+- Generated: [`TRACKER.md`](TRACKER.md) (`pnpm tracker`)
+- Claims board read by `pnpm wt:gc`: [`LIVE-LANES.md`](LIVE-LANES.md)
+- Licence and vendor truth gates: [`LICENCE-POSITION.md`](LICENCE-POSITION.md), [`JAVA-GRADE-D-JAR-TRUTH.md`](JAVA-GRADE-D-JAR-TRUTH.md)
+- Secrets, keys and custody: [`A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md`](A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md), [`SECRET-ROTATION-READINESS.md`](SECRET-ROTATION-READINESS.md), [`SECRET-ROTATION-READINESS-2026-08-03.md`](SECRET-ROTATION-READINESS-2026-08-03.md), [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md`](OWNER-ACTIONS-WALLET-RPC-SECRETS.md), [`OWNER-ACTIONS-NOTIFY-GATEWAYS.md`](OWNER-ACTIONS-NOTIFY-GATEWAYS.md), [`RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md`](RUNBOOK-ETH-KEYSTORE-REENCRYPTION.md), [`SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md`](SPEC-EIP155-WALLET-RPC-WITHDRAWAL-SIGNING.md)
+- Security and operations: [`SECURITY-WHEN-PLAIN.md`](SECURITY-WHEN-PLAIN.md), [`OPS-KILL-SWITCH-RUNBOOK.md`](OPS-KILL-SWITCH-RUNBOOK.md), [`THREAT-MODEL-STAGING-DEPLOY.md`](THREAT-MODEL-STAGING-DEPLOY.md), [`THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md`](THREAT-MODEL-BLUEPRINT-ATTESTATIONS.md)

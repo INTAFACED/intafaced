@@ -3,8 +3,8 @@
 **Status:** **Accepted — 2026-08-13 (D26-P0-07 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07 — Leverage / margin / liq params beyond §1 defaults.  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-07.  
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §1 (isolated v1, 10×, partial-before-full, ladder by depth, insurance, ADL last-resort).  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-07.  
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §1 (isolated v1, 10×, partial-before-full, ladder by depth, insurance, ADL last-resort).  
 **Does not invent:** a raise above 10×, a maintenance-margin bps table, market-level overrides, or liquidation-ladder rungs (D3).
 
 ---
