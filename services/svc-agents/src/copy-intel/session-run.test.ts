@@ -65,8 +65,10 @@ class FakeRuntime {
   openCalls = 0;
   settleCalls = 0;
   closeCalls = 0;
+  closeThrows: Error | null = null;
   guardrail: Guardrail = copyIntelAgentGuardrail();
   settlements: SettlementResult[] = [];
+  readonly chargedAmounts: bigint[] = [];
 
   async openSession(input: { userId: string; agentId: string }) {
     this.openCalls += 1;
@@ -108,11 +110,13 @@ class FakeRuntime {
 
   async settleSession(_sessionId: string): Promise<SettlementResult[]> {
     this.settleCalls += 1;
+    for (const row of this.settlements) this.chargedAmounts.push(row.amount);
     return this.settlements;
   }
 
   async closeSession(_sessionId: string) {
     this.closeCalls += 1;
+    if (this.closeThrows) throw this.closeThrows;
     return {
       id: SESSION,
       userId: USER,
@@ -276,5 +280,46 @@ describe('copy_intel.stats metered session run', () => {
 
     expect(fake.toolCalls).toEqual([]);
     expect(fake.toolCalls.some((t) => t === 'trade.order' || t === 'ledger.post' || t.includes('fee'))).toBe(false);
+  });
+
+  it('does not settle again when close throws after the charge', async () => {
+    const prevOpen = process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+    const prevIds = process.env.LIVE_TRADE_COPY_LEADER_IDS;
+    process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = 'true';
+    process.env.LIVE_TRADE_COPY_LEADER_IDS = 'leader-a';
+    const charge = parseAmount('1.25');
+    try {
+      const fake = new FakeRuntime();
+      fake.settlements = [
+        {
+          sessionId: SESSION,
+          windowId: 'w1',
+          chargeKey: 'agent.usage:s:w1',
+          amount: charge,
+          chargeTxId: 'tx1',
+          settled: true,
+        },
+      ];
+      fake.closeThrows = new Error('close failed after charge');
+
+      await expect(
+        runCopyIntelStatsSession({
+          ...baseInput(fake),
+          fixtures: [fixture('leader-a')],
+          leaderAllowlist: ['leader-a'],
+          copyLeaderFixturesPort: { sample: async () => [fixture('leader-a')] },
+        }),
+      ).rejects.toThrow('close failed after charge');
+
+      expect(fake.settleCalls).toBe(1);
+      expect(fake.closeCalls).toBe(1);
+      expect(fake.chargedAmounts).toEqual([1250000000000000000n]);
+      expect(typeof fake.chargedAmounts[0]).toBe('bigint');
+    } finally {
+      if (prevOpen === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN;
+      else process.env.LIVE_TRADE_COPY_LEADER_PLANE_OPEN = prevOpen;
+      if (prevIds === undefined) delete process.env.LIVE_TRADE_COPY_LEADER_IDS;
+      else process.env.LIVE_TRADE_COPY_LEADER_IDS = prevIds;
+    }
   });
 });
