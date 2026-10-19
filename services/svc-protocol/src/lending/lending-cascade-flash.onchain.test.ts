@@ -40,7 +40,11 @@ describeOnChain('S-A4 cascade + flash adversarial on chain', () => {
 
   async function write(_client: PublicClient, fn: () => Promise<`0x${string}`>) {
     const hash = await fn();
-    await a.publicClient.waitForTransactionReceipt({ hash });
+    const receipt = await a.publicClient.waitForTransactionReceipt({ hash });
+    // A transaction mined as reverted must fail here, naming itself, not later as a bare "0 > 0".
+    if (receipt.status !== 'success') {
+      throw new Error(`transaction ${hash} reverted in block ${receipt.blockNumber} (to ${receipt.to}, from ${receipt.from})`);
+    }
   }
 
   async function reportBoth(priceCol: bigint, priceBor: bigint) {
