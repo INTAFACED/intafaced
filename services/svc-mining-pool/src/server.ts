@@ -7,6 +7,7 @@ import { miningHealthHonesty } from './health-honesty.js';
 import { createMiningRequestHandler } from './http.js';
 import { createLedgerClient } from './ledger-client.js';
 import { startMiningJobs } from './epoch-jobs.js';
+import { edgeTrustFromProcessEnv } from './edge-trust.js';
 
 const port = Number.parseInt(process.env.HTTP_PORT ?? '4023', 10);
 const ledgerUrl = process.env.LEDGER_URL?.trim();
@@ -43,6 +44,7 @@ const handler = createMiningRequestHandler({
   sql,
   internalSecret,
   edgeSecret,
+  edgeTrust: edgeTrustFromProcessEnv(process.env),
   ledger,
 });
 
