@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, s2sEnvSchema } from '@intafaced/config';
 
 /**
  * svc-execution — house-tenant mechanism + OMS plan/execute (D26-P1-X3).
@@ -22,6 +22,7 @@ const schema = baseEnvSchema
   .merge(otelEnvSchema)
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-execution'),

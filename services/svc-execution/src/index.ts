@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
@@ -122,11 +122,15 @@ const appRouter = createExecutionRouter(
     : undefined,
 );
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the doors stay on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-execution');
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
+  ...(doorS2s ? { serviceVerifier: doorS2s.verifier, s2sMode: doorS2s.mode } : {}),
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
@@ -162,22 +166,25 @@ registerStartBasketDoor(app, {
   matchingVenueHalt,
   matchingUrl: env.MATCHING_URL,
   internalSecret,
+  s2s: doorS2s,
 });
 
 registerOmsDisplayQtyDoor(app, {
   edgeContext,
   internalSecret,
+  s2s: doorS2s,
 });
 
 registerOmsPegDoor(app, {
   edgeContext,
   internalSecret,
+  s2s: doorS2s,
 });
-registerOmsOcoDoor(app, { edgeContext, internalSecret });
-registerOmsBuyingPowerDoor(app, { edgeContext, internalSecret });
-registerOmsMmpDoor(app, { edgeContext, internalSecret });
-registerOmsCareDoor(app, { edgeContext, internalSecret });
-registerOmsKillDoor(app, { edgeContext, emsStore, matchingVenueHalt, internalSecret });
+registerOmsOcoDoor(app, { edgeContext, internalSecret, s2s: doorS2s });
+registerOmsBuyingPowerDoor(app, { edgeContext, internalSecret, s2s: doorS2s });
+registerOmsMmpDoor(app, { edgeContext, internalSecret, s2s: doorS2s });
+registerOmsCareDoor(app, { edgeContext, internalSecret, s2s: doorS2s });
+registerOmsKillDoor(app, { edgeContext, emsStore, matchingVenueHalt, internalSecret, s2s: doorS2s });
 registerKillParentDoor(app, {
   edgeContext,
   parentStore,
@@ -186,10 +193,11 @@ registerKillParentDoor(app, {
   cancelByVenue: venueTradeMaps.cancelByVenue,
   matchingUrl: env.MATCHING_URL,
   internalSecret,
+  s2s: doorS2s,
 });
-registerOmsTcaDoor(app, { edgeContext, emsStore, captureLake: captureLakeRuntime.lake, internalSecret });
-registerOmsPaperDoor(app, { edgeContext, internalSecret });
-registerOmsMultivenueDoor(app, { edgeContext, wiredVenueIds: venueTradeMaps.wiredVenueIds, internalSecret });
+registerOmsTcaDoor(app, { edgeContext, emsStore, captureLake: captureLakeRuntime.lake, internalSecret, s2s: doorS2s });
+registerOmsPaperDoor(app, { edgeContext, internalSecret, s2s: doorS2s });
+registerOmsMultivenueDoor(app, { edgeContext, wiredVenueIds: venueTradeMaps.wiredVenueIds, internalSecret, s2s: doorS2s });
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info({ port: env.HTTP_PORT }, 'svc-execution ready');
