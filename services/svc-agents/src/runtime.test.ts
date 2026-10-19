@@ -97,7 +97,7 @@ const PROBE = {
   limits: {
     maxActionsPerSession: 20,
     maxOutputTokensPerCall: 256,
-    maxSpendPerSession: '1000',
+    maxSpendPerSession: null,
     allowedModules: ['trade'],
     allowedTasks: ['plan', 'quick', 'orphan'],
   },

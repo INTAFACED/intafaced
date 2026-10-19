@@ -258,7 +258,6 @@ export const en = {
   'agents.refused.module_not_allowed': 'Refused: this agent is not permitted to act in {module}.',
   'agents.refused.step_limit': 'Refused: this session has reached its limit of {limit} action(s).',
   'agents.refused.spend_limit': 'Refused: this session has reached its spend limit of {limit} {asset}.',
-  'agents.refused.spend_limit_unset': 'Refused: this session has no spend limit, so the call was not run.',
   'agents.refused.output_limit': 'Refused: the request asked for more output than this agent is allowed to produce.',
   'agents.refused.approval_required': 'Held for your approval: {tool} needs you to confirm before it runs.',
   'agents.refused.session_closed': 'Refused: this session is closed. Start a new one to continue.',
