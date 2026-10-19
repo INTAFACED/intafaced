@@ -224,6 +224,29 @@ describe.runIf(Boolean(url))('durable identity operation decisions', () => {
     });
   });
 
+  it('a standing customer instruction needs no session but still requires the real active identity', async () => {
+    const input: IdentityOperationIntent = {
+      businessId: `auto-invest:${randomUUID()}:2026-10-19`,
+      payloadHash: 'sha256:' + 'a'.repeat(64),
+      operation: { service: 'svc-trade', kind: 'order.place', userId: target.principal!.userId },
+      authority: { kind: 'standing_instruction', instructionId: randomUUID(), ownerService: 'svc-bank' },
+    };
+    // The schedule runs with no live session: revoking every session does not stop it.
+    await db.sql`UPDATE sessions SET revoked=true WHERE user_id=${target.principal!.userId}`;
+    const admitted = await decisions.decide(grant(input), 'svc-trade');
+    expect(admitted).toMatchObject({ status: 'granted', intent: input });
+    expect(await decisions.decide(cancel(input), 'svc-trade')).toEqual(admitted);
+    // Only the trade owner may ask; a caller authenticated as another service is refused.
+    await expect(decisions.decide(grant({ ...input, businessId: randomUUID() }), 'svc-bank')).rejects.toThrow(
+      'identity.operation_owner_denied',
+    );
+    await change('restrict', '0');
+    expect(await decisions.decide(grant({ ...input, businessId: randomUUID() }), 'svc-trade')).toMatchObject({
+      status: 'cancelled',
+      code: 'auth.account_frozen',
+    });
+  });
+
   function payfacIntent(actor: Context, explicit = false): IdentityOperationIntent {
     const actorMerchantId = randomUUID(),
       subjectMerchantId = randomUUID();
