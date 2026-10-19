@@ -478,6 +478,9 @@ export type TradeErrorCode =
   | 'trade.limit_max_order'
   | 'trade.limit_max_position'
   | 'trade.limit_max_loss'
+  /** Owner cap on resting orders per user (TRADE_MAX_OPEN_ORDERS), and its set-but-not-an-integer refusal. */
+  | 'trade.limit_max_open_orders'
+  | 'trade.max_open_orders_invalid'
   /**
    * MM seed refused: TRADE_MM_SEED_HALF_SPREAD_BPS or TRADE_MM_SEED_STEP_BPS
    * blank / non-integer. Never invent 10.

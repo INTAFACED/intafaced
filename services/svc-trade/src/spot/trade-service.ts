@@ -116,7 +116,13 @@ import {
   type ConvertQuoteResult,
   type ConvertTradeWire,
 } from '../convert/quote.js';
-import { checkMaxOrder, checkMaxOrderNotional, resolveAdmissionLimits } from '../futures/pretrade-limits.js';
+import {
+  checkMaxOpenOrders,
+  checkMaxOrder,
+  checkMaxOrderNotional,
+  resolveAdmissionLimits,
+  resolveOpenOrdersCap,
+} from '../futures/pretrade-limits.js';
 import { convertSettleIdsFor } from '../convert/ids.js';
 import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
 import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
@@ -1740,6 +1746,8 @@ export class TradeService {
     // (or the floor when that is higher), never the floor alone.
     if (!seeded && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
       await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? marketSellLimitPrice ?? protectionPrice);
+      // Owner cap on resting orders per user. Only an order that can rest counts against it.
+      if (orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK') await this.assertOpenOrdersCap(userId);
     }
 
     // A market SELL holds base quantity, so `holdFor` ignores the price on that
@@ -5249,6 +5257,23 @@ export class TradeService {
       );
     }
     const refusal = checkMaxOrder({ limits, quoteAsset: market.quoteAsset, price: reference, qty });
+    if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
+  }
+
+  /**
+   * TRADE_MAX_OPEN_ORDERS: the user's resting orders across every market (the same statuses the mass cancel
+   * sweeps). Best effort under concurrency: two requests in flight can each see one free slot, so the book can
+   * overshoot the cap by at most the number of parallel placements.
+   */
+  private async assertOpenOrdersCap(userId: string): Promise<void> {
+    const resolved = resolveOpenOrdersCap();
+    if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code);
+    if (resolved.cap == null) return;
+    const [row] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM trade.orders
+       WHERE user_id = ${userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+    `;
+    const refusal = checkMaxOpenOrders({ cap: resolved.cap, openCount: row?.n ?? 0 });
     if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
   }
 
