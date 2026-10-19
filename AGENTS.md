@@ -39,7 +39,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
 6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
 7. Never push `main`.
-8. The independent review's PASS for the exact head sha is posted as a comment on the PR before you merge.
+8. The independent review's PASS for the exact head sha is posted as a comment on the PR before you merge, in this form on its own line: `Independent review: PASS <full 40-character head sha>`. The `CI merge seal` fails without it; after posting, re-run that job.
 9. `main` must stay green: a red `main` (other than the accepted reds in item 3) is fixed or reverted before any other merge.
 
 ## Git

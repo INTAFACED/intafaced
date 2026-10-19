@@ -145,6 +145,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
+      - run: node tooling/ci/review-marker.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
@@ -866,6 +867,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     if: always()
+    permissions:
+      contents: read
+      pull-requests: read
     needs:
       [
         changes,
@@ -898,3 +902,11 @@ jobs:
           T_TRADE: ${{ needs.test-trade.result }}
           T_PAYBANK: ${{ needs.test-paybank.result }}
         run: node tooling/ci/ci-affected.mjs --seal
+      - name: Require the independent review marker
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/review-marker.mjs

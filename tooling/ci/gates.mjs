@@ -466,6 +466,8 @@ export const GATES = [
 export const NOT_GATES = {
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
+  'review-marker.mjs':
+    'merge-seal step: needs a `Independent review: PASS <head sha>` comment on the PR. Needs a GitHub token and PR number, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the matcher.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
