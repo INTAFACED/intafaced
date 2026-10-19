@@ -13,7 +13,7 @@ export type Issued = { userId: string; accessToken: string };
 export const claimsOf = (accessToken: string): Claims =>
   JSON.parse(Buffer.from(accessToken.split('.')[1]!, 'base64url').toString('utf8')) as Claims;
 
-function principalHeaders(claims: Claims): Record<string, string> {
+export function principalHeaders(claims: Claims): Record<string, string> {
   const raw = encodePrincipal({
     sub: claims.sub,
     userId: claims.sub,

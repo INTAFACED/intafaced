@@ -11,6 +11,7 @@ function need(name: string): string {
 export const stack = {
   trade: () => need('TRADE_HTTP_URL').replace(/\/$/, ''),
   ledger: () => need('LEDGER_HTTP_URL').replace(/\/$/, ''),
+  pay: () => need('PAY_HTTP_URL').replace(/\/$/, ''),
   identity: () => need('IDENTITY_HTTP_URL').replace(/\/$/, ''),
   edgeSecret: () => need('EDGE_PRINCIPAL_SECRET'),
   internalSecret: () => need('INTERNAL_SERVICE_SECRET'),

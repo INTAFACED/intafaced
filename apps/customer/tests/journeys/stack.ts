@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { inject } from 'vitest';
 import { encodePrincipal, serviceAuthHeadersForBody, signPrincipalHeader } from '@intafaced/contracts';
 import { formatAmount, parseAmount, recipes } from '@intafaced/ledger-client';
-import { claimsOf, hashOf, identityCall, randomHandle, type Claims, type Issued } from './identity';
+import { claimsOf, hashOf, identityCall, randomHandle, totpCode, type Claims, type Issued } from './identity';
 import { createApiClient } from '../../src/shared/api';
 import { createTradeApi } from '../../src/features/trade/trade-api';
 
@@ -117,6 +117,23 @@ export async function newCustomer(opts: Parameters<typeof customerFetch>[1] & { 
         proposer,
       );
     },
+    /**
+     * The customer's own withdrawal door, as the app walks it: enrol an authenticator (identity's totp.enrol and totp.confirm), then
+     * step up with a fresh code, which buys the five-minute token that carries trade:withdraw. A TOTP step is single-use, so the
+     * confirm takes the current step and the step-up the next one (inside identity's one-step drift window).
+     */
+    async stepUp(): Promise<Claims> {
+      const now = Date.now();
+      const login = claimsOf((await identityCall<Issued>('auth.login', { identifier: email, password }, null)).accessToken);
+      const enrolled = await identityCall<{ secret: string }>('totp.enrol', {}, login);
+      await identityCall('totp.confirm', { secret: enrolled.secret, code: totpCode(enrolled.secret, now) }, login);
+      const elevated = await identityCall<{ accessToken: string }>(
+        'auth.stepUp',
+        { totpCode: totpCode(enrolled.secret, now + 30_000) },
+        login,
+      );
+      return claimsOf(elevated.accessToken);
+    },
     /** A fresh sign-in: the tier in the new access token is whatever identity now says. */
     async signIn() {
       const again = await identityCall<Issued>('auth.login', { identifier: email, password }, null);
@@ -138,6 +155,7 @@ type Account = {
   email: string;
   password: string;
   approveKyc(): Promise<void>;
+  stepUp(): Promise<Claims>;
   signIn(): Promise<Customer>;
 };
 
