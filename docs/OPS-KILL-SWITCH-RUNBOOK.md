@@ -8,7 +8,7 @@
 
 This is the operator path to **halt a module without a deploy**, and the ledger freeze path that **halts all value movement**. It is not a full `ops.admin` product (listings, fee params, treasury UI, SSO) — those remain residual.
 
-**When ledger/trade is red (roles + detect + which door):** [`ops/INCIDENT-MONEY-PATH-RUNBOOK.md`](ops/INCIDENT-MONEY-PATH-RUNBOOK.md) (D26-P3-10). That page does not invent a second switch.
+**When ledger/trade is red (roles + detect + which door):** [`runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md`](runbooks/INCIDENT-MONEY-PATH-RUNBOOK.md) (D26-P3-10). That page does not invent a second switch.
 
 ---
 

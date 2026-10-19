@@ -4,7 +4,7 @@
 **Decision owner (magnitudes):** Nitro / host (DIRECTION §8 item 10).
 **Mechanism owner (this document):** Denon.
 **Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-02**.
-**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §3; index [`ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json) row `D26-P0-02` only.
+**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §3; index `docs/ops/owner-ruling-packet.json` (removed) row `D26-P0-02` only.
 **Law cited:** `DIRECTION-2026-07-31.md` (removed) §8 item 10 — `leader_share_bps` and every other fee-share rate are owner-only.
 **Pattern (already on tip — do not re-implement here):** `COPY_FEE_SHARE_RESIDUAL` in `services/svc-trade/src/copy/errors.ts` — decline the surface and name the residual rather than inventing a rate.
 

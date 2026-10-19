@@ -62,13 +62,13 @@ Slice B view SQL remains documentation + fixture-tested. Stage-1 does **not** cl
 
 ## 2 · Code homes
 
-| Concern                          | Path                                                |
-| -------------------------------- | --------------------------------------------------- |
-| Replica role + empty surface     | `packages/contracts/src/ops-analytics-warehouse.ts` |
-| Lag / metric catalogue (Slice A) | `packages/contracts/src/ops-analytics.ts`           |
-| Cube views + fixtures (Slice B)  | `packages/contracts/src/ops-analytics-cube.ts`      |
-| Consumer purity (Slice C light)  | `packages/contracts/src/ops-analytics-consume.ts`   |
-| Operator runbook                 | `docs/ops/ANALYTICS-WAREHOUSE-REPLICA-RUNBOOK.md`   |
+| Concern                          | Path                                                   |
+| -------------------------------- | ------------------------------------------------------ |
+| Replica role + empty surface     | `packages/contracts/src/ops-analytics-warehouse.ts`    |
+| Lag / metric catalogue (Slice A) | `packages/contracts/src/ops-analytics.ts`              |
+| Cube views + fixtures (Slice B)  | `packages/contracts/src/ops-analytics-cube.ts`         |
+| Consumer purity (Slice C light)  | `packages/contracts/src/ops-analytics-consume.ts`      |
+| Operator runbook                 | `docs/runbooks/ANALYTICS-WAREHOUSE-REPLICA-RUNBOOK.md` |
 
 ---
 

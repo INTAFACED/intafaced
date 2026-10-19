@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-13 (D26-P0-02 + PKT-B5 + PAYOUT-01 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-02 — DIRECTION §8 rates / fee-shares.  
-**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §3; index `docs/ops/owner-ruling-packet.json`.  
+**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §3; index `docs/ops/owner-ruling-packet.json` (removed).  
 **Consent:** Denon session 2026-08-13 — publish these numbers as host law.  
 **Does not invent:** live PSP credentials, sanctions / jurisdiction lists, prod RPC, token emission magnitudes, DEX venue names, marketplace bps, insurance fund size, D3 ladder, Class X secrets.
 

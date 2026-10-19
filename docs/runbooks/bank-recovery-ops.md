@@ -2,7 +2,7 @@
 
 **Code:** `services/svc-bank/src/loans/loan-service.ts` (`abandonPending`, `resumePending`), `services/svc-bank/src/earn/earn-service.ts` (`resumePending`), `services/svc-bank/src/cards/card-service.ts`, `services/svc-bank/src/auto-invest/auto-invest-service.ts`, `services/svc-ledger/src/db/connection-options.ts`.
 **Decision:** [`../adr/2026-10-14-recovery-lookup-first-no-expiry-yet.md`](../adr/2026-10-14-recovery-lookup-first-no-expiry-yet.md).
-**Money law:** the ledger is the only book. Nothing below edits `ledger.*`. A ledger movement is always a posting through the operator door named in [`../ops/INCIDENT-MONEY-PATH-RUNBOOK.md`](../ops/INCIDENT-MONEY-PATH-RUNBOOK.md).
+**Money law:** the ledger is the only book. Nothing below edits `ledger.*`. A ledger movement is always a posting through the operator door named in [`INCIDENT-MONEY-PATH-RUNBOOK.md`](INCIDENT-MONEY-PATH-RUNBOOK.md).
 
 A bank money path writes a **claim row** first (`pending`), then posts to the ledger on a business key, then marks the row `settled`. If the reply to the post is lost, the row stays `pending` on its original terms and the ledger may or may not have booked it. The ledger never forgets a booked key, so a re-send can never double-book. The open question is always the same: **did the post commit?** Recovery answers it by asking the ledger (`getTxByKey`) before it does anything else.
 

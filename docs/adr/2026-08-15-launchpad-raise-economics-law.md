@@ -6,7 +6,7 @@
 **Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-13**.
 **Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) P0-13.
 **Prior seal (still binds):** [`2026-08-14-remaining-p0-money-law.md`](2026-08-14-remaining-p0-money-law.md) § D26-P0-13 — empty store → typed refuse, not a default curve.
-**Research pack:** [`docs/ops/trk/launch.launchpad.md`](../ops/trk/launch.launchpad.md) (Stage 0 law). Tracker owner remains `shehzad002` for contracts.
+**Research pack:** `docs/ops/trk/launch.launchpad.md` (removed) (Stage 0 law). Tracker owner remains `shehzad002` for contracts.
 **Law cited:** [`INTAFACED_DEFINITIVE_BUILD.md`](../../INTAFACED_DEFINITIVE_BUILD.md) §0.6 · §8.4 · §35.
 **Leverage:** Phase B row `launch.launchpad` is **S** (Shehzad plane). This PR is **LAW only** — no `svc-protocol`, no Solidity, no Vue, no token-factory UI.
 
