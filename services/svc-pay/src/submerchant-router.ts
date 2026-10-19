@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { payAmountStringSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { PERMISSION_AREAS, SubMerchantError, refuseSubMerchantWithoutConsent, type SubMerchantService } from './submerchants.js';
 import { readSubMerchantSummary } from './merchant-portal/summary.js';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 
 /**
  * THE PAYFAC SURFACE (§6.1) — sub-merchant trees and the permissions over them.
@@ -247,7 +248,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
           z.object({
             parentMerchantId: z.string().uuid(),
             userId: z.string().min(1).max(128),
-            pricing: z.object({ feeBps: z.number().int().min(0).max(10_000) }),
+            pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
             /**
              * Optional, and `'self'` is the only accepted value today. It is on
              * the wire rather than hidden so a caller that needs a sponsor gets

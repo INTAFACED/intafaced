@@ -80,6 +80,7 @@ import type { Amount } from '@intafaced/ledger-client';
 import { formatAmount } from '@intafaced/ledger-client';
 import { PayError } from '../payment-service.js';
 import { dueOccurrence, lastOccurrenceBefore, occurrenceStart, type Cadence } from './schedule.js';
+import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 
 /**
  * How many times one period may be attempted before the subscription stalls.
@@ -250,8 +251,11 @@ export function resolveSubscriptionFeeBps(input: { merchantFeeBps?: number | nul
       'pay.subscription_fee_unpublished',
     );
   }
-  if (!Number.isInteger(bps) || bps < 0 || bps > 10_000) {
-    throw new PayError(`Subscription fee must be an integer between 0 and 10000 bps, got ${bps}`, 'pay.subscription_fee_unpublished');
+  if (!Number.isInteger(bps) || bps < 0 || bps > MAX_FEE_BPS) {
+    throw new PayError(
+      `Subscription fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${bps}`,
+      'pay.subscription_fee_unpublished',
+    );
   }
   return bps;
 }

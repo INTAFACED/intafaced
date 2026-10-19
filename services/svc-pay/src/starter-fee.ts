@@ -9,6 +9,8 @@
  * a missing APP_ENV into `dev` is not read here.
  */
 
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
+
 export const STARTER_FEE_ENV = 'PAY_MERCHANT_STARTER_FEE_BPS';
 
 export class MerchantStarterFeeBootError extends Error {
@@ -20,7 +22,7 @@ export class MerchantStarterFeeBootError extends Error {
 
 export type MerchantStarterFee = { readonly bps: number; readonly source: 'local_test' };
 
-/** The stored fee on a merchant row is not an integer from 0 to 10000. */
+/** The stored fee on a merchant row is not an integer from 0 to 9999. */
 export class MerchantStoredFeeError extends Error {
   constructor() {
     super('Merchant pricing fee is malformed');
@@ -30,14 +32,14 @@ export class MerchantStoredFeeError extends Error {
 
 /**
  * The fee stored on `pay.merchants.pricing.feeBps`.
- * Absent is null. A present value that is not an integer from 0 to 10000 refuses.
+ * Absent is null. A present value that is not an integer from 0 to 9999 refuses.
  * This is the same check `toMerchant` uses before `merchant.me` returns the fee.
  */
 export function normalizeStoredFeeBps(pricing: unknown): number | null {
   if (pricing == null) return null;
   if (typeof pricing !== 'object' || Array.isArray(pricing)) throw new MerchantStoredFeeError();
   const feeBps = (pricing as { feeBps?: unknown }).feeBps;
-  if (feeBps !== undefined && (typeof feeBps !== 'number' || !Number.isInteger(feeBps) || feeBps < 0 || feeBps > 10_000)) {
+  if (feeBps !== undefined && (typeof feeBps !== 'number' || !Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS)) {
     throw new MerchantStoredFeeError();
   }
   return typeof feeBps === 'number' ? feeBps : null;
@@ -84,13 +86,13 @@ export function readMerchantStarterFee(env: StarterFeeEnv): MerchantStarterFee |
   }
   if (!/^\d+$/.test(trimmed)) {
     throw new MerchantStarterFeeBootError(
-      'PAY_MERCHANT_STARTER_FEE_BPS must be an integer from 0 to 10000 on the local test stack. Refusing to boot.',
+      'PAY_MERCHANT_STARTER_FEE_BPS must be an integer from 0 to 9999 on the local test stack. Refusing to boot.',
     );
   }
   const bps = Number(trimmed);
-  if (!Number.isSafeInteger(bps) || bps > 10_000) {
+  if (!Number.isSafeInteger(bps) || bps > MAX_FEE_BPS) {
     throw new MerchantStarterFeeBootError(
-      'PAY_MERCHANT_STARTER_FEE_BPS must be an integer from 0 to 10000 on the local test stack. Refusing to boot.',
+      'PAY_MERCHANT_STARTER_FEE_BPS must be an integer from 0 to 9999 on the local test stack. Refusing to boot.',
     );
   }
   return { bps, source: 'local_test' };

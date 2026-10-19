@@ -15,6 +15,7 @@ import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
+import { MAX_FEE_BPS } from './fee-bps-bound.js';
 
 /**
  * DIGITAL KYB + PSP PRICING / MODE — operator + merchant surfaces (`pay.psp`).
@@ -276,7 +277,7 @@ export function createKybPspRouter(
         .input(
           z.object({
             merchantId: z.string().uuid(),
-            feeBps: z.number().int().min(0).max(10_000),
+            feeBps: z.number().int().min(0).max(MAX_FEE_BPS),
             reason: z.string().trim().min(3).max(500),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),
