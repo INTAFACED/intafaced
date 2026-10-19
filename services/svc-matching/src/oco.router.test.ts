@@ -97,4 +97,12 @@ describe('POST /markets/:marketId/orders OCO', () => {
     expect(engine.book(MARKET).toState().stops).toEqual([]);
     await app.close();
   });
+
+  it('an explicit null leg on a plain order is not an OCO', async () => {
+    const { app, engine } = await mount();
+    const res = await post(app, submitBody({ takeProfit: null, stopLoss: null }));
+    expect(res.json().accepted).toBe(true);
+    expect(engine.book(MARKET).toState().asks[0]!.orders[0]!.orderId).toBe('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    await app.close();
+  });
 });
