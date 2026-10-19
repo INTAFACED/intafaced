@@ -180,18 +180,19 @@ export class EvmLiveChain implements CryptoChainPort {
     const existing = this.byPayment.get(key);
     if (existing) return existing.address;
 
-    let index = stableDepositIndex(paymentId, assetId);
-    for (let guard = 0; guard < 1_000; guard++, index = (index + 1) >>> 0) {
-      const address = deriveDepositAddress(this.depositMnemonic, index);
-      const taken = this.byAddress.get(address.toLowerCase());
-      if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) continue;
-
-      const entry: AddressBookEntry = { paymentId, assetId, address, index };
-      this.byPayment.set(key, entry);
-      this.byAddress.set(address.toLowerCase(), entry);
-      return address;
+    // The address is a pure function of the payment, so a restart (or another replica) hands out the same one. There is no
+    // collision walk: a walk depends on which payments this process has already seen, and that order differs after a restart.
+    const index = stableDepositIndex(paymentId, assetId);
+    const address = deriveDepositAddress(this.depositMnemonic, paymentId, assetId);
+    const taken = this.byAddress.get(address.toLowerCase());
+    if (taken && (taken.paymentId !== paymentId || taken.assetId !== assetId)) {
+      throw new Error('Deposit address collision between two payments — refusing to hand one address to both');
     }
-    throw new Error('Could not allocate a unique acceptance address — address book exhausted');
+
+    const entry: AddressBookEntry = { paymentId, assetId, address, index };
+    this.byPayment.set(key, entry);
+    this.byAddress.set(address.toLowerCase(), entry);
+    return address;
   }
 
   async inboundTransfer(address: string): Promise<ConfirmedTransfer | null> {
@@ -548,8 +549,15 @@ export function stableDepositIndex(paymentId: string, assetId: string): number {
   return Number(BigInt(digest) & 0x7fff_ffffn);
 }
 
-function deriveDepositAddress(mnemonic: string, index: number): Address {
-  return mnemonicToAccount(mnemonic, { addressIndex: index }).address;
+/**
+ * Two 31-bit path levels from one keccak digest (62 bits), so two payments sharing an address is about 2^-62 per pair
+ * rather than the 2^-31 of a single index. `stableDepositIndex` stays as the low level and the display index.
+ */
+function deriveDepositAddress(mnemonic: string, paymentId: string, assetId: string): Address {
+  const digest = BigInt(keccak256(toBytes(`${paymentId}:${assetId}`)));
+  const high = Number((digest >> 31n) & 0x7fff_ffffn);
+  const low = Number(digest & 0x7fff_ffffn);
+  return mnemonicToAccount(mnemonic, { path: `m/44'/60'/0'/${high}/${low}` }).address;
 }
 
 /**
