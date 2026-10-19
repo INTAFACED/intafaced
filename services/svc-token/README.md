@@ -170,3 +170,7 @@ pnpm --filter @intafaced/svc-token test
 The money paths run against real Postgres with the ledger's in-memory reference implementation, which the conformance suite proves equivalent to svc-ledger's Postgres engine (§4.4).
 
 Failure branches covered: staking more than you hold, unstaking while locked, unstaking twice, concurrent unstakes, crash mid stake/unstake resume, minting a closed epoch, minting past the schedule, empty yield freezes, fee pot underfund, buyback window claim, distributing a window, and re-running a distribution.
+
+## Service keys: ledger calls
+
+The ledger client signs with svc-token's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

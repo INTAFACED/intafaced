@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
 // Self-mounts /trpc — must authenticate the edge principal. And it CALLS
 // svc-ledger, so it must also identify itself as a service. The two are
@@ -7,6 +7,7 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } fr
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-token'),
