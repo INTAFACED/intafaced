@@ -4453,47 +4453,34 @@ export class TradeService {
    * non-integer / out of 1..500 refuses (never invent 100). Owner/query may pass
    * 100 explicitly.
    */
-  async orderHistory(principal: Principal, input: { marketId?: string; limit: number; sinceMs?: number }): Promise<OrderRecord[]> {
+  async orderHistory(
+    principal: Principal,
+    input: {
+      marketId?: string;
+      limit: number;
+      sinceMs?: number;
+      untilMs?: number;
+      side?: 'buy' | 'sell';
+      status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+    },
+  ): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:read');
     const limit = publishedOrderHistoryLimit(input.limit);
     // timestamptz compare: Date carries ms precision into postgres.js.
     const sinceDate = input.sinceMs !== undefined ? new Date(input.sinceMs) : undefined;
-    const rows =
-      input.marketId && sinceDate
-        ? await this.sql<OrderRow[]>`
-            SELECT * FROM trade.orders
-             WHERE user_id = ${principal.userId}
-               AND market_id = ${input.marketId}
-               AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-               AND created_at >= ${sinceDate}
-             ORDER BY created_at DESC
-             LIMIT ${limit}
-          `
-        : input.marketId
-          ? await this.sql<OrderRow[]>`
-              SELECT * FROM trade.orders
-               WHERE user_id = ${principal.userId}
-                 AND market_id = ${input.marketId}
-                 AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-               ORDER BY created_at DESC
-               LIMIT ${limit}
-            `
-          : sinceDate
-            ? await this.sql<OrderRow[]>`
-                SELECT * FROM trade.orders
-                 WHERE user_id = ${principal.userId}
-                   AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-                   AND created_at >= ${sinceDate}
-                 ORDER BY created_at DESC
-                 LIMIT ${limit}
-              `
-            : await this.sql<OrderRow[]>`
-                SELECT * FROM trade.orders
-                 WHERE user_id = ${principal.userId}
-                   AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-                 ORDER BY created_at DESC
-                 LIMIT ${limit}
-              `;
+    const untilDate = input.untilMs !== undefined ? new Date(input.untilMs) : undefined;
+    const closed = ['filled', 'cancelled', 'rejected', 'expired'];
+    const rows = await this.sql<OrderRow[]>`
+      SELECT * FROM trade.orders
+       WHERE user_id = ${principal.userId}
+         AND status IN ${this.sql(input.status ? [input.status] : closed)}
+         ${input.marketId ? this.sql`AND market_id = ${input.marketId}` : this.sql``}
+         ${input.side ? this.sql`AND side = ${input.side}` : this.sql``}
+         ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
+         ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
+       ORDER BY created_at DESC
+       LIMIT ${limit}
+    `;
     return rows.map(toOrder);
   }
 
