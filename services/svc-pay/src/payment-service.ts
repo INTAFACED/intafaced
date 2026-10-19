@@ -3855,16 +3855,15 @@ export class PayService {
               amount,
               assetId,
             });
-            let marked = false;
-            if (payment.status === 'settled' || payment.status === 'captured') {
-              await this.markDisputed(payment.id, {
-                disputeId,
-                reasonCode: event.reasonCode ?? null,
-                ledgerWire: wire.ledgerPost ? 'posted' : 'refused',
-                ledgerTxId: wire.ledgerPost?.txId ?? null,
-              });
-              marked = true;
-            }
+            const mark = {
+              disputeId,
+              reasonCode: event.reasonCode ?? null,
+              ledgerWire: wire.ledgerPost ? ('posted' as const) : ('refused' as const),
+              ledgerTxId: wire.ledgerPost?.txId ?? null,
+            };
+            // The status read at the top of this delivery can be stale: another dispute's win may restore the payment
+            // meanwhile. Read it fresh here, and again once the case row exists (see restoreAfterWonDispute).
+            const marked = await this.markDisputedIfLive(payment.id, mark);
             await this.disputeCases.open({
               disputeId,
               paymentId: payment.id,
@@ -3876,6 +3875,7 @@ export class PayService {
               ledgerPost: wire.ledgerPost,
               ledgerRefuse: wire.ledgerRefuse,
             });
+            await this.markDisputedIfLive(payment.id, mark);
             await recordRailDisputeDeadline(this.sql, {
               merchantId: payment.merchant_id,
               disputeId,
@@ -4086,6 +4086,19 @@ export class PayService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /** `markDisputed` only when the payment is live right now (captured or settled). True when this call moved it. */
+  private async markDisputedIfLive(paymentId: string, meta: Parameters<PayService['markDisputed']>[1]): Promise<boolean> {
+    const [row] = await this.sql<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id = ${paymentId}`;
+    if (!row || (row.status !== 'captured' && row.status !== 'settled')) return false;
+    try {
+      await this.markDisputed(paymentId, meta);
+      return true;
+    } catch (err) {
+      if (err instanceof PayError && err.code === 'pay.invalid_transition') return false;
+      throw err;
+    }
   }
 
   /**

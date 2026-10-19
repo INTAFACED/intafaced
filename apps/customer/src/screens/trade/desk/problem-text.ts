@@ -23,6 +23,14 @@ export function problemText(problem: Problem, market: DeskMarket, t: ReturnType<
       return t('Take profit must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
     case 'stopLossTick':
       return t('Stop loss must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
+    case 'stopLimitEmpty':
+      return t('Enter a stop loss limit');
+    case 'stopLimitTick':
+      return t('Stop loss limit must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
+    case 'stopLimitBelowTrigger':
+      return t('Stop loss limit at or above stop loss');
+    case 'exitOrderBuy':
+      return t('Take profit below stop loss');
     case 'exitOrder':
       return t('Take profit above stop loss');
     case 'entryBetween':

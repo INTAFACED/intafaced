@@ -50,6 +50,7 @@ import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesFor
 import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
 import { ocoLegParent, settlementOrderId } from './oco-legs.js';
+import { readOcoIntent } from './oco-intent.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -3844,6 +3845,8 @@ export class TradeService {
       SELECT stop_price::text AS stop_price FROM trade.order_stop_trigger WHERE order_id = ${order.id}
     `;
     const storedTrigger = triggerRows[0]?.stop_price;
+    // An OCO parent rests as its two legs; its row alone would resubmit as a plain limit.
+    const ocoIntent = await readOcoIntent(this.sql, order.id);
     const request = this.toEngineRequest(
       order.id,
       order.userId,
@@ -3857,6 +3860,7 @@ export class TradeService {
         clientOrderId: order.clientOrderId ?? undefined,
         subAccountId: order.subAccountId ?? undefined,
         ...(storedTrigger === undefined ? {} : { stopPx: parseAmount(storedTrigger) }),
+        ...(ocoIntent ?? {}),
       } as PlaceOrderInput,
       order.type,
       order.tif,

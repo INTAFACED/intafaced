@@ -31,9 +31,11 @@ export const usesTypedPrice = (type: OrderType, price: string): boolean =>
 export const serviceType = (type: OrderType, price: string): 'market' | 'limit' | 'stop_limit' =>
   type === 'oco' ? 'limit' : type === 'bracket' ? (positive(price) === null ? 'market' : 'limit') : type;
 
-/** OCO is sell-only and a bracket starts with a buy: the other side of each tab is off. */
-export const exitSideOff = (side: Side, type: OrderType): boolean =>
-  (type === 'oco' && side === 'buy') || (type === 'bracket' && side === 'sell');
+/** An OCO works on either side; a bracket starts with a buy, so its sell side is off. */
+export const exitSideOff = (side: Side, type: OrderType): boolean => type === 'bracket' && side === 'sell';
+
+/** A buy OCO: the take-profit buys below the stop trigger, and the stop-loss is a limit order that sizes the one hold. */
+export const isBuyOco = (side: Side, type: OrderType): boolean => type === 'oco' && side === 'buy';
 
 /** Best bid and ask of the book, null when that side is empty. */
 export interface Reference {
@@ -51,7 +53,11 @@ export type Problem =
   | { kind: 'stopLossEmpty' }
   | { kind: 'takeProfitTick'; tick: string }
   | { kind: 'stopLossTick'; tick: string }
+  | { kind: 'stopLimitEmpty' }
+  | { kind: 'stopLimitTick'; tick: string }
+  | { kind: 'stopLimitBelowTrigger' }
   | { kind: 'exitOrder' }
+  | { kind: 'exitOrderBuy' }
   | { kind: 'entryBetween' }
   | { kind: 'amountLot'; lot: string }
   | { kind: 'amountMin'; min: string }
@@ -59,11 +65,21 @@ export type Problem =
   | { kind: 'valueMin'; min: string }
   | { kind: 'noPrice' };
 
-export type Exit = { takeProfit: string; stopLoss: string };
+/** `stopLossLimit` is the buy OCO's stop-loss limit price (the stop-loss is the trigger); a sell OCO and a bracket have none. */
+export type Exit = { takeProfit: string; stopLoss: string; stopLossLimit?: string };
 export type Checked = { ok: true; amount: string; price: string | null; stopPrice?: string; exit?: Exit } | { ok: false; problem: Problem };
 
 /** What the person typed. `price` is the limit price, the OCO take-profit, or the optional bracket entry price; `stopPrice` is the stop-limit trigger or the stop-loss. */
-type FormInput = { side: Side; type: OrderType; price: string; amount: string; stopPrice?: string; takeProfit?: string };
+type FormInput = {
+  side: Side;
+  type: OrderType;
+  price: string;
+  amount: string;
+  stopPrice?: string;
+  stopLimit?: string;
+  takeProfit?: string;
+  tif?: string;
+};
 
 /** Parse a decimal string; null for empty or malformed text. Never throws. */
 export function scaled(value: string | null | undefined): bigint | null {
@@ -96,6 +112,11 @@ export function bboPrice(side: Side, ref: Reference | null): string | null {
 export function orderValue(input: FormInput, ref: Reference | null): { value: string; estimated: boolean } | null {
   const amount = positive(input.amount);
   if (amount === null) return null;
+  // A buy OCO is held at its stop-loss limit, the worse of its two legs, so that is the value shown.
+  if (isBuyOco(input.side, input.type)) {
+    const limit = positive(input.stopLimit);
+    return limit === null ? null : { value: exactValue(formatAmount(limit), formatAmount(amount)), estimated: false };
+  }
   const typed = usesTypedPrice(input.type, input.price);
   const price = positive(typed ? input.price : referencePrice(input.side, ref));
   if (price === null) return null;
@@ -136,6 +157,9 @@ export function checkOrder(
     price = positive(input.price);
     if (price === null) return { ok: false, problem: { kind: 'priceEmpty' } };
     if (offGrid(price)) return { ok: false, problem: { kind: 'priceTick', tick: market.tickSize } };
+  } else if (input.type === 'bracket' && input.tif === 'GTC') {
+    // A resting entry is a limit order: with no entry price the form would send a market buy instead.
+    return { ok: false, problem: { kind: 'priceEmpty' } };
   }
 
   let stop: bigint | null = null;
@@ -146,6 +170,7 @@ export function checkOrder(
   }
 
   let exit: Exit | undefined;
+  let heldAt: bigint | null = null;
   if (hasExits(input.type)) {
     const takeProfit = input.type === 'oco' ? price : positive(input.takeProfit);
     const stopLoss = positive(input.stopPrice);
@@ -153,14 +178,27 @@ export function checkOrder(
     if (stopLoss === null) return { ok: false, problem: { kind: 'stopLossEmpty' } };
     if (offGrid(takeProfit)) return { ok: false, problem: { kind: 'takeProfitTick', tick: market.tickSize } };
     if (offGrid(stopLoss)) return { ok: false, problem: { kind: 'stopLossTick', tick: market.tickSize } };
-    if (takeProfit <= stopLoss) return { ok: false, problem: { kind: 'exitOrder' } };
+    let stopLossLimit: bigint | null = null;
+    if (isBuyOco(input.side, input.type)) {
+      // The engine's order for a buy OCO: take-profit below the stop trigger, the stop-loss limit at or above it.
+      stopLossLimit = positive(input.stopLimit);
+      if (stopLossLimit === null) return { ok: false, problem: { kind: 'stopLimitEmpty' } };
+      if (offGrid(stopLossLimit)) return { ok: false, problem: { kind: 'stopLimitTick', tick: market.tickSize } };
+      if (takeProfit >= stopLoss) return { ok: false, problem: { kind: 'exitOrderBuy' } };
+      if (stopLossLimit < stopLoss) return { ok: false, problem: { kind: 'stopLimitBelowTrigger' } };
+      heldAt = stopLossLimit;
+    } else if (takeProfit <= stopLoss) return { ok: false, problem: { kind: 'exitOrder' } };
     // A bracket that buys at a typed price exits above it and below it; anything else would sell at once.
     if (input.type === 'bracket' && price !== null && (price <= stopLoss || price >= takeProfit))
       return { ok: false, problem: { kind: 'entryBetween' } };
-    exit = { takeProfit: formatAmount(takeProfit), stopLoss: formatAmount(stopLoss) };
+    exit = {
+      takeProfit: formatAmount(takeProfit),
+      stopLoss: formatAmount(stopLoss),
+      ...(stopLossLimit === null ? {} : { stopLossLimit: formatAmount(stopLossLimit) }),
+    };
   }
 
-  const judged = price ?? positive(referencePrice(input.side, ref));
+  const judged = heldAt ?? price ?? positive(referencePrice(input.side, ref));
   if (judged === null) return { ok: false, problem: { kind: 'noPrice' } };
   const minCost = positive(market.minCost);
   if (minCost !== null && mul(judged, amount, 'floor') < minCost) return { ok: false, problem: { kind: 'valueMin', min: market.minCost! } };
@@ -191,12 +229,16 @@ export function maxAmount(args: {
   market: Pick<DeskMarket, 'lotSize'>;
   /** Price protection the service reported for a market buy (see `protectionNow`). */
   protectionPrice?: string | null;
+  /** A buy OCO's stop-loss limit: its one hold is sized there. */
+  stopLimit?: string;
 }): string | null {
   const available = scaled(args.available);
   const lot = positive(args.market.lotSize);
   if (available === null || lot === null) return null;
   if (args.side === 'sell') return formatAmount((available / lot) * lot);
-  const price = positive(usesTypedPrice(args.type, args.price) ? args.price : (args.protectionPrice ?? null));
+  const price = positive(
+    isBuyOco(args.side, args.type) ? args.stopLimit : usesTypedPrice(args.type, args.price) ? args.price : (args.protectionPrice ?? null),
+  );
   if (price === null) return null;
   const raw = div(available, price, 'floor');
   return formatAmount((raw / lot) * lot);

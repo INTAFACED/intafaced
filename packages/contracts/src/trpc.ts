@@ -137,6 +137,27 @@ export function algoRefusalDetails(cause: unknown): Record<string, string> | und
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+const ALLOWANCE_KEYS = ['perTx', 'rolling24h'] as const;
+
+/**
+ * Remaining withdrawal allowance on a `pay.guard_withdrawal_limit_exceeded`
+ * refusal (D-148), so a customer can be told what they may still send. Decimal
+ * strings only; any other key is dropped and a malformed value drops the lot,
+ * so a sentence cannot ride out on this field.
+ */
+export function withdrawalAllowanceOf(cause: unknown): { perTx: string; rolling24h: string } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'pay.guard_withdrawal_limit_exceeded') return undefined;
+  const raw = 'remaining' in cause ? cause.remaining : undefined;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const key of ALLOWANCE_KEYS) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value !== 'string' || !ALGO_DECIMAL.test(value)) return undefined;
+    out[key] = value;
+  }
+  return out as { perTx: string; rolling24h: string };
+}
+
 /** Codes copied onto a tRPC error. Sentences and extra keys are dropped. */
 export function errorBlockersOf(cause: unknown): { code: string }[] | undefined {
   if (!cause || typeof cause !== 'object' || !('blockers' in cause)) return undefined;
@@ -174,6 +195,7 @@ const t = initTRPC.context<Context>().create({
     const requestId = ctx && typeof ctx.requestId === 'string' && ctx.requestId.length > 0 ? ctx.requestId : undefined;
     const blockers = errorBlockersOf(cause);
     const algo = algoRefusalDetails(cause);
+    const allowance = withdrawalAllowanceOf(cause);
     return {
       ...shape,
       data: {
@@ -196,6 +218,8 @@ const t = initTRPC.context<Context>().create({
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
+        // Only on `pay.guard_withdrawal_limit_exceeded`.
+        ...(allowance ? { allowance } : {}),
       },
     };
   },

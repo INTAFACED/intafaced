@@ -6,7 +6,7 @@
  * service. A missing MATCHING_URL or EDGE_PRINCIPAL_SECRET is the caller's
  * 503 (`edge.matching_unwired`) before this function is constructed.
  */
-import { EDGE_PRINCIPAL_HEADER, EDGE_SIGNATURE_HEADER, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
+import { forwardedPrincipalHeaders, type EdgeEd25519Signing } from './forward-principal-signature.js';
 import type { Principal } from '@intafaced/auth';
 import { resolveRequestRegion } from './geo-region.js';
 
@@ -36,17 +36,20 @@ function regionForPrincipal(region: string | undefined): string {
   }).region;
 }
 
-export function httpMatchingOperator(baseUrl: string, timeoutMs: number, edgePrincipalSecret: string): MatchingOperatorCall {
+export function httpMatchingOperator(
+  baseUrl: string,
+  timeoutMs: number,
+  edgePrincipalSecret: string,
+  ed25519?: EdgeEd25519Signing,
+): MatchingOperatorCall {
   const base = baseUrl.replace(/\/$/, '');
   return async (path, method, principal, body, region) => {
     const signedRegion = regionForPrincipal(region);
-    const raw = encodePrincipal(principal);
     try {
       const res = await fetch(`${base}${path}`, {
         method,
         headers: {
-          [EDGE_PRINCIPAL_HEADER]: raw,
-          [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(raw, edgePrincipalSecret, signedRegion),
+          ...forwardedPrincipalHeaders(principal, { edgeSecret: edgePrincipalSecret, ed25519, region: signedRegion }),
           'x-intafaced-region': signedRegion,
           ...(body === undefined ? {} : { 'content-type': 'application/json' }),
         },

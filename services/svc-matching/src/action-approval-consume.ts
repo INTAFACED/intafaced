@@ -6,8 +6,8 @@ import { createHash } from 'node:crypto';
 import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
+  createIdentityApprovalClient as createSharedApprovalClient,
   founderAttestationVerdict,
-  serviceAuthHeadersForBody,
   type ActionApproval,
   type ActionApprovalConsumeInput,
   type FounderApprovalSubject,
@@ -51,14 +51,6 @@ export interface ActionApprovalConsumer {
 export function matchingActionPayloadHash(actionType: string, fields: Record<string, string>): string {
   const payload = JSON.stringify({ actionType, ...fields });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
-}
-
-export function unwrapTrpcJson(body: unknown): unknown {
-  const root = body && typeof body === 'object' ? (body as { result?: { data?: unknown }; json?: unknown }) : null;
-  if (!root) return body;
-  const data = root.result?.data ?? root.json ?? body;
-  if (data && typeof data === 'object' && 'json' in data) return (data as { json: unknown }).json;
-  return data;
 }
 
 export function unwiredApprovalConsumer(): ActionApprovalConsumer {
@@ -118,27 +110,14 @@ export function stubApprovalConsumer(approverId: string, requesterId = 'ops-1'):
   };
 }
 
+/** The shared client: one signed request, bounded by a timeout, accepted only when CONSUMED and echoing the request. */
 export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  return {
-    async consume(input) {
-      const parsed = actionApprovalConsumeInputSchema.parse(input);
-      const payload = JSON.stringify(parsed);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-matching', internalSecret, payload),
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
-      }
-      return actionApprovalSchema.parse(unwrapTrpcJson(await res.json()));
-    },
-  };
+  return createSharedApprovalClient({
+    service: 'svc-matching',
+    baseUrl,
+    internalSecret,
+    fail: (message, code) => new ActionApprovalConsumeError(message, code),
+  });
 }
 
 export function readApprovalIds(cmd: { readonly approvalId?: string | null; readonly operationId?: string | null }): {
@@ -178,6 +157,8 @@ export async function consumeMatchingApproval(
   actionType: string,
   fields: Record<string, string>,
   targetId: string,
+  /** The operator acting on this door. Identity recorded who proposed; the two must be the same person. */
+  operatorId: string,
 ): Promise<ActionApproval> {
   const ids = readApprovalIds(cmd);
   const consumed = await approvals.consume({
@@ -188,6 +169,9 @@ export async function consumeMatchingApproval(
     targetId,
     expectedVersion: '1',
   });
+  if (!sameUser(consumed.requesterId, operatorId)) {
+    throw new ActionApprovalConsumeError('operatorId is not the person who proposed this approval', ACTION_APPROVAL_OPERATOR_MISMATCH);
+  }
   assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-matching', targetId });
   return consumed;
 }

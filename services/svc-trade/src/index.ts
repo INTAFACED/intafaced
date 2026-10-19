@@ -9,6 +9,7 @@ import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
+import { readOcoIntents } from './spot/oco-intent.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
@@ -901,6 +902,7 @@ registerPrivateRest(app, {
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers: sqlStopTrigger(sql),
+  ocoExits: (ids) => readOcoIntents(sql, ids),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),

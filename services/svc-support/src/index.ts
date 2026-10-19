@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
@@ -63,6 +64,7 @@ const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
 });
 

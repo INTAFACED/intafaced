@@ -39,8 +39,8 @@ describe('gateSubmit', () => {
     expect(marketSellOff('sell', 'limit')).toBe(false);
     expect(marketSellOff('buy', 'market')).toBe(false);
     expect(gateSubmit({ ...ready, side: 'sell', type: 'market' })).toEqual({ canSend: false, reason: 'marketSell' });
-    // OCO is sell-only and a bracket buy-only: the other side of each tab never opens.
-    expect(gateSubmit({ ...ready, side: 'buy', type: 'oco' })).toEqual({ canSend: false, reason: 'exitSide' });
+    // An OCO works on both sides; a bracket is buy-only, so its sell side never opens.
+    expect(gateSubmit({ ...ready, side: 'buy', type: 'oco' })).toEqual({ canSend: true, reason: null });
     expect(gateSubmit({ ...ready, side: 'sell', type: 'bracket' })).toEqual({ canSend: false, reason: 'exitSide' });
     expect(gateSubmit({ ...ready, side: 'sell', type: 'oco' })).toEqual({ canSend: true, reason: null });
     expect(gateSubmit({ ...ready, side: 'buy', type: 'bracket' })).toEqual({ canSend: true, reason: null });

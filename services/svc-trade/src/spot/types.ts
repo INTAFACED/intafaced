@@ -552,6 +552,8 @@ export type TradeErrorCode =
   | 'trade.engine_clock_missing'
   /** OCO placed without a caller stopPrice on a leg — trade does not invent a trigger. */
   | 'trade.missing_oco_trigger'
+  | 'trade.oco_stop_limit_required'
+  | 'trade.oco_price_order'
   /** Matching refused: an OCO sibling is already terminal. Trade does not invent a trigger. */
   | 'trade.oco_sibling_terminal'
   /** Matching refused: account is flat on this book. Trade does not invent a mark. */

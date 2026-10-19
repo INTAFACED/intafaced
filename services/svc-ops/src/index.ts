@@ -11,7 +11,7 @@ import { createOutreachNotificationClient } from './outreach/notification-client
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext } from '@intafaced/contracts';
+import { buildEdgeContext } from './edge-context.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { createOpsRouter, type OpsRouter } from './router.js';
@@ -98,7 +98,7 @@ const appRouter = createOpsRouter(
       env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   },
 );
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = buildEdgeContext(env);
 
 const resolveClientIp = createClientIpResolver(process.env.OPS_TRUSTED_PROXY_CIDRS);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000, trustProxy: false });

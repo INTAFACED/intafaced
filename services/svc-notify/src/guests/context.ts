@@ -1,9 +1,14 @@
-import { createEdgeContext, inboundRawBodyOf, verifyServiceHeaders, type Context } from '@intafaced/contracts';
+import { createEdgeContext, inboundRawBodyOf, verifyServiceHeaders, type Context, type EdgeContextOptions } from '@intafaced/contracts';
 
 /** The installed Fastify tRPC adapter retains JSON as the exact raw string and
  * replaces the normal JSON parser. Never reconstruct bytes from a parsed object. */
-export function createGuestIngressContext(config: { edgeSecret: string; opsSecret?: string }) {
-  const edge = createEdgeContext({ secret: config.edgeSecret, serviceName: 'svc-notify' });
+export function createGuestIngressContext(config: {
+  edgeSecret: string;
+  /** Optional edge public key and limits (`edgeTrustFromEnv`): verify the edge's public-key signature as well. */
+  edgeTrust?: Pick<EdgeContextOptions, 'edgePublicKey' | 'principalLimits'>;
+  opsSecret?: string;
+}) {
+  const edge = createEdgeContext({ secret: config.edgeSecret, ...config.edgeTrust, serviceName: 'svc-notify' });
   return (req: { headers: Record<string, string | string[] | undefined>; id?: string | number; body?: unknown }): Context => {
     const context = edge(req);
     // `inboundRawBodyOf` takes the adapter's raw string first. Otherwise

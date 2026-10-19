@@ -146,6 +146,15 @@ export const accountOperatorEntitlementSchema = z.discriminatedUnion('status', [
 ]);
 export type AccountOperatorEntitlement = z.infer<typeof accountOperatorEntitlementSchema>;
 
+/**
+ * Service-only read of the same entitlement. The calling service proves itself with a body-bound
+ * service signature and names the user and the session it already authenticated at the edge; no
+ * principal is forwarded or signed. Identity checks the founder pair, the entitlement, the active
+ * account, its second factor and that exact session, live. The answer is a query-time observation.
+ */
+export const serviceOperatorEntitlementInputSchema = z.object({ userId: id, sessionId: id }).strict();
+export type ServiceOperatorEntitlementInput = z.infer<typeof serviceOperatorEntitlementInputSchema>;
+
 const ownership = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), ownership: sessionOwnershipSchema.strict() }).strict(),
   z.object({ kind: z.literal('api_key'), ownership: apiKeyOwnershipSchema.strict() }).strict(),
@@ -314,6 +323,7 @@ export interface AccountControlsContract {
     input: { target: AccountControlTarget; limit: number },
   ): Promise<AccountControlResult[]>;
   operatorEntitlement(context: Context, input: { userId: string }): Promise<AccountOperatorEntitlement>;
+  serviceOperatorEntitlement(context: Context, input: ServiceOperatorEntitlementInput): Promise<AccountOperatorEntitlement>;
   currentAuthority(context: Context, input: CurrentAuthorityInput): Promise<CurrentAuthorityResult>;
   admit(context: Context, input: OperationAdmissionInput): Promise<OperationAdmissionResult>;
   resolveRecovery(context: Context, input: OperationRecoveryInput): Promise<CommittedOperationAdmission>;

@@ -3,7 +3,7 @@ import { credentialAuthority, restPaymentCreationId } from './payment-authority.
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import swagger from '@fastify/swagger';
 import { requireScope, type Principal, type Scope } from '@intafaced/auth';
-import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
+import { createEdgeContext, type EdgeContextOptions, type EdgeRequest } from '@intafaced/contracts';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { assertMerchantAreaAccess, refuseAsMissing, type MerchantAreaFence } from './merchant-ownership.js';
 import { allowMerchantRead } from './merchant-read-access.js';
@@ -116,6 +116,8 @@ const AMOUNT_PATTERN = '^\\d+(\\.\\d{1,18})?$';
 export interface PublicRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — the same value the tRPC mount verifies. */
   edgeSecret: string;
+  /** Optional edge public key and limits (`edgeTrustFromEnv`): verify the edge's public-key signature as well. */
+  edgeTrust?: Pick<EdgeContextOptions, 'edgePublicKey' | 'principalLimits'>;
   serviceName: string;
   pay: PayService;
   /** Version string for the OpenAPI document. */
@@ -411,7 +413,7 @@ export async function registerPublicPayRest(app: FastifyInstance, deps: PublicRe
       }),
       () => new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found'),
     );
-  const edge = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edge = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
   const idempotency = deps.idempotency ?? new MemoryRestIdempotencyStore();
 
   // Validation errors are Fastify's shape. The public error schema requires

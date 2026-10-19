@@ -3,7 +3,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { createDb } from '@intafaced/db';
 import { createEdgeContext } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
-import { checkAccess } from '@intafaced/config';
+import { checkAccess, edgeTrustFromEnv } from '@intafaced/config';
 import type { Address } from 'viem';
 import { env } from './env.js';
 import { protocolGasPosture, venueVaultFromKek } from './chain/policy-surface.js';
@@ -104,7 +104,7 @@ export type AppRouter = typeof appRouter;
 
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous.
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 

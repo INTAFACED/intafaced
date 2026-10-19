@@ -73,21 +73,37 @@ export const draftSchema = z
     timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
     postOnly: z.boolean(),
     clientOrderId: z.string().min(1).max(64),
-    /** A sell OCO or a buy bracket: the order above is its entry (bracket) or its take-profit leg (OCO). */
-    exit: z.object({ kind: z.enum(['oco', 'bracket']), takeProfit: positive, stopLoss: positive }).optional(),
+    /**
+     * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
+     * A buy OCO: the order above is a limit buy at the stop-loss limit (where its one hold is sized); `stopLoss` is the trigger.
+     */
+    exit: z
+      .object({ kind: z.enum(['oco', 'bracket']), takeProfit: positive, stopLoss: positive, stopLossLimit: positive.optional() })
+      .optional(),
   })
   .superRefine((draft, ctx) => {
     if (draft.exit) {
-      const { kind, takeProfit, stopLoss } = draft.exit;
+      const { kind, takeProfit, stopLoss, stopLossLimit } = draft.exit;
       const bad = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: ['exit', path], message });
-      if (parseAmount(takeProfit) <= parseAmount(stopLoss)) bad('takeProfit', copy.t('enterALimitPrice'));
-      if (kind === 'oco' && (draft.side !== 'sell' || draft.type !== 'limit' || draft.timeInForce !== 'GTC' || draft.postOnly))
+      const buyOco = kind === 'oco' && draft.side === 'buy';
+      if (kind === 'oco' && (draft.type !== 'limit' || draft.timeInForce !== 'GTC' || draft.postOnly))
         bad('kind', copy.t('enterALimitPrice'));
-      if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
-        bad('price', copy.t('enterALimitPrice'));
+      if (buyOco) {
+        // The engine's order for a buy OCO: take-profit < stop trigger <= stop-loss limit, and the hold is sized at the limit.
+        if (stopLossLimit === undefined) bad('stopLossLimit', copy.t('enterALimitPrice'));
+        else {
+          if (parseAmount(takeProfit) >= parseAmount(stopLoss) || parseAmount(stopLossLimit) < parseAmount(stopLoss))
+            bad('takeProfit', copy.t('enterALimitPrice'));
+          if (draft.price !== undefined && parseAmount(draft.price) !== parseAmount(stopLossLimit))
+            bad('price', copy.t('enterALimitPrice'));
+        }
+      } else {
+        if (parseAmount(takeProfit) <= parseAmount(stopLoss)) bad('takeProfit', copy.t('enterALimitPrice'));
+        if (stopLossLimit !== undefined) bad('stopLossLimit', copy.t('enterALimitPrice'));
+        if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
+          bad('price', copy.t('enterALimitPrice'));
+      }
       if (kind === 'bracket' && (draft.side !== 'buy' || draft.type === 'stop_limit' || draft.postOnly || draft.timeInForce === 'PO'))
-        bad('kind', copy.t('enterALimitPrice'));
-      if (kind === 'bracket' && draft.type === 'limit' && draft.timeInForce !== 'IOC' && draft.timeInForce !== 'FOK')
         bad('kind', copy.t('enterALimitPrice'));
     }
     if (draft.type === 'stop_limit' && !draft.stopPrice)
@@ -115,7 +131,11 @@ export function previewBody(draft: Draft): Omit<Draft, 'exit'> {
 export function placeBody(draft: Draft): Record<string, unknown> {
   const { exit, ...order } = draft;
   if (!exit) return order;
-  const legs = { takeProfit: { stopPrice: exit.takeProfit }, stopLoss: { stopPrice: exit.stopLoss } };
+  // A buy OCO's stop-loss leg is a stop-limit: its limit price rides beside its trigger.
+  const legs = {
+    takeProfit: { stopPrice: exit.takeProfit },
+    stopLoss: { stopPrice: exit.stopLoss, ...(exit.stopLossLimit ? { price: exit.stopLossLimit } : {}) },
+  };
   return exit.kind === 'oco' ? { ...order, oco: true, ...legs } : { ...order, bracket: true, ...legs };
 }
 export const amendmentSchema = z.object({
@@ -330,6 +350,8 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
         ]);
       return placed;
     },
+    /** The same create-order request again, on the person's click (same `clientOrderId`): the service never makes a second order. */
+    resend: (draft: Draft): Promise<ApiResult<Order>> => api.rest('/orders', orderSchema, { method: 'POST', body: placeBody(draft) }),
     async replace(
       original: ReviewedOrder,
       draft: Draft,

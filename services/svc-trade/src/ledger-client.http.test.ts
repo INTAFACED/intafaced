@@ -8,14 +8,13 @@
  * Here the client talks to a fetch stub that answers like svc-ledger's S2S door,
  * backed by the in-memory reference ledger.
  */
-import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryLedger, parseAmount, recipes, userAvailable, formatAmount, type PostRequest } from '@intafaced/ledger-client';
 import { classifyHoldPostError } from './spot/hold-outcome.js';
 import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './convert/quote.js';
 import { planConvertSettle, postConvertSettle } from './convert/settle.js';
 import { convertSettleIdsFor } from './convert/ids.js';
-import { createLedgerClient } from './ledger-client.js';
+import { createLedgerClient, LEDGER_CALL_DEADLINE_MS } from './ledger-client.js';
 
 const USER = '00000000-0000-4000-8000-000000000001';
 const NOW = new Date('2026-08-26T12:00:00.000Z');
@@ -37,6 +36,28 @@ function ledgerDoorOver(ledger: MemoryLedger, calls: string[]) {
           : { found: false },
       );
     }
+    if (path === '/trpc/txById') {
+      const tx = await ledger.getTx(String(body.txId));
+      return json(
+        tx
+          ? {
+              found: true,
+              txId: tx.id,
+              idempotencyKey: tx.idempotencyKey,
+              hash: tx.hash,
+              postedAt: tx.postedAt.toISOString(),
+              module: tx.module,
+              reason: tx.reason,
+              entries: tx.entries.map((e) => ({
+                accountId: e.accountId,
+                assetId: e.assetId,
+                direction: e.direction,
+                amount: formatAmount(e.amount),
+              })),
+            }
+          : { found: false },
+      );
+    }
     if (path === '/trpc/post') {
       const request = body as unknown as Omit<PostRequest, 'entries'> & {
         entries: Array<{ account: never; direction: 'debit' | 'credit'; amount: string }>;
@@ -46,7 +67,20 @@ function ledgerDoorOver(ledger: MemoryLedger, calls: string[]) {
           ...request,
           entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: parseAmount(e.amount) })),
         });
-        return json({ txId: tx.id, hash: tx.hash, postedAt: tx.postedAt.toISOString() });
+        return json({
+          txId: tx.id,
+          hash: tx.hash,
+          postedAt: tx.postedAt.toISOString(),
+          entries: tx.entries.map((e) => ({
+            id: e.id,
+            txId: e.txId,
+            accountId: e.accountId,
+            assetId: e.assetId,
+            direction: e.direction,
+            amount: formatAmount(e.amount),
+            balanceAfter: formatAmount(e.balanceAfter),
+          })),
+        });
       } catch (err) {
         return json({ message: (err as Error).message, code: (err as { code?: string }).code }, 400);
       }
@@ -112,14 +146,46 @@ describe('createLedgerClient.getTxByKey', () => {
       vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } })),
     );
     const client = createLedgerClient('http://ledger.test', SECRET);
-    await expect(client.getTxByKey('order.hold:missing-shape')).rejects.toThrow(/unreadable body/);
+    await expect(client.getTxByKey('order.hold:missing-shape')).rejects.toThrow(/malformed/);
+  });
+});
+
+describe('createLedgerClient receipts', () => {
+  it('returns the booked entries on a post, so receipt checks compare real accounts and amounts', async () => {
+    const ledger = new MemoryLedger();
+    vi.stubGlobal('fetch', ledgerDoorOver(ledger, []));
+    const client = createLedgerClient('http://ledger.test', SECRET);
+    const tx = await client.post(
+      recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10'), rail: 'test', railRef: 'rcpt' }),
+    );
+    expect(tx.entries.length).toBeGreaterThanOrEqual(2);
+    expect(tx.entries.some((e) => e.assetId === 'USDT' && formatAmount(e.amount) === '10')).toBe(true);
+  });
+
+  it('treats a post acknowledgement with no hash as outcome unknown, never a success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ txId: 'tx-1', postedAt: NOW.toISOString() }), { status: 200 })),
+    );
+    const client = createLedgerClient('http://ledger.test', SECRET);
+    await expect(
+      client.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: 'bad-ack' })),
+    ).rejects.toThrow(/outcome unknown/);
+  });
+
+  it('getTxByKey returns the booked entries for a key it has', async () => {
+    const ledger = new MemoryLedger();
+    const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10'), rail: 'test', railRef: 'k-entries' });
+    await ledger.post(deposit);
+    vi.stubGlobal('fetch', ledgerDoorOver(ledger, []));
+    const tx = await createLedgerClient('http://ledger.test', SECRET).getTxByKey(deposit.idempotencyKey);
+    expect(tx?.entries.length).toBeGreaterThanOrEqual(2);
   });
 });
 
 describe('createLedgerClient timeout', () => {
   it('aborts every ledger call and a timeout is unknown, never a refusal', async () => {
-    const src = readFileSync(new URL('./ledger-client.ts', import.meta.url), 'utf8');
-    expect(src).toContain('signal: AbortSignal.timeout(25_000)');
+    expect(LEDGER_CALL_DEADLINE_MS).toBe(25_000);
 
     const signals: AbortSignal[] = [];
     vi.stubGlobal(
@@ -143,7 +209,8 @@ describe('createLedgerClient timeout', () => {
 
     await expect(client.balance(userAvailable(USER, 'USDT'))).rejects.toMatchObject({ name: 'TimeoutError' });
     await expect(client.getTxByKey('order.hold:timeout')).rejects.toMatchObject({ name: 'TimeoutError' });
-    expect(signals).toHaveLength(3);
+    // Three calls, each tried once and retried twice on a timeout (a retried post is safe: the ledger dedups by key).
+    expect(signals).toHaveLength(9);
     expect(signals.every((signal) => signal.aborted === false)).toBe(true);
   });
 });
