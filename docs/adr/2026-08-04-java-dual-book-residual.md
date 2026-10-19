@@ -15,7 +15,7 @@ The adoption ADR is correct and stays. What follows is what an honest status lin
 
 This is settled. Agents and engineers implement it; they do not re-litigate it.
 
-**Honesty sheet (D26-P2-07):** [`JAVA-GRADE-D-JAR-TRUTH.md`](../JAVA-GRADE-D-JAR-TRUTH.md) — Grade D allowlist empty; gitignored compose jars are not the scanned source.
+**Honesty sheet (D26-P2-07):** `JAVA-GRADE-D-JAR-TRUTH.md` (removed 2026-10-19; in git history) — Grade D allowlist empty; gitignored compose jars are not the scanned source.
 
 ---
 
