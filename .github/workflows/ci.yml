@@ -282,14 +282,12 @@ jobs:
         env:
           CI: 'true'
 
-      - name: Build full-test dependencies
-        if: needs.changes.outputs.full == 'true'
-        run: pnpm build
-      # A `changed` run tests dependents and readers, and some of their tests start their own compiled output
-      # (svc-notify's relay boot, svc-ops, svc-trade, svc-pay, telemetry). turbo's ^build builds only a test's
-      # dependencies, so build the selected packages themselves too. Apps are left out: their tests run from source.
-      - name: Build the changed run's packages
-        if: matrix.shard == 'changed'
+      # Every shard builds only what it tests: its packages' own dist (some tests start their own compiled output,
+      # e.g. svc-notify's relay boot, svc-ops, svc-trade, svc-pay, telemetry) and, through turbo's ^build, their
+      # dependencies. Apps are left out: their tests run from source. A full `pnpm build` in each of the four shards
+      # repeated the same 3-4 minutes four times (measured on run 39314334555: 3m50s to 4m00s of each shard's
+      # 8-12 minutes).
+      - name: Build this job's packages
         run: |
           filters=()
           while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
