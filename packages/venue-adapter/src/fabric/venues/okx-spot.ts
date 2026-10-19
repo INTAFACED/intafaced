@@ -1,4 +1,4 @@
-import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
+import { formatAmount } from '@intafaced/ledger-client/money';
 import {
   readDecimal,
   readInteger,
@@ -402,6 +402,18 @@ export class OkxSpotMarketData implements MarketDataAdapter {
   }
 
   #market(raw: Record<string, unknown>, observedAt: Date): VenueMarket {
+    // A blank tick, lot or minimum size is never replaced with an invented value:
+    // publishing made-up limits would let an order pass checks the venue never set.
+    const tickSz = readOptionalDecimal(raw.tickSz, VENUE.id, 'tickSz');
+    const lotSz = readOptionalDecimal(raw.lotSz, VENUE.id, 'lotSz');
+    const minSz = readOptionalDecimal(raw.minSz, VENUE.id, 'minSz');
+    if (tickSz === null || tickSz === undefined || lotSz === null || lotSz === undefined || minSz === null || minSz === undefined) {
+      throw new VenueUnavailableError(
+        VENUE.id,
+        'malformed',
+        `instrument ${String(raw.instId ?? '(no instId)')} has a blank tickSz, lotSz or minSz — limits are not invented`,
+      );
+    }
     const base = String(raw.baseCcy ?? '');
     const quote = String(raw.quoteCcy ?? '');
     return {
@@ -416,11 +428,11 @@ export class OkxSpotMarketData implements MarketDataAdapter {
       contractSize: null,
       expiry: null,
       precision: {
-        price: readOptionalDecimal(raw.tickSz, VENUE.id, 'tickSz') ?? parseAmount('0.00000001'),
-        amount: readOptionalDecimal(raw.lotSz, VENUE.id, 'lotSz') ?? parseAmount('0.00000001'),
+        price: tickSz,
+        amount: lotSz,
       },
       limits: {
-        minAmount: readOptionalDecimal(raw.minSz, VENUE.id, 'minSz') ?? 0n,
+        minAmount: minSz,
         maxAmount: readOptionalDecimal(raw.maxLmtSz, VENUE.id, 'maxLmtSz'),
         minCost: 0n,
         maxLeverageBps: null,

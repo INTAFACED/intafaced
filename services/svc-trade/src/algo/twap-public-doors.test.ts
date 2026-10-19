@@ -335,6 +335,7 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
       durationMs: 8_000,
       sliceIntervalMs: 2_000,
       limitPrice: '100',
+      clientAlgoId: 'blank-book',
     });
     expect(refused.statusCode).toBe(400);
     expect(refused.body.error?.message ?? '').toMatch(/refusing algo rather than inventing/);
@@ -506,6 +507,7 @@ describe('D26-P1-T4 public doors — TWAP children pause overdue no fake fills',
       totalQty: '0.004',
       durationMs: 8_000,
       sliceIntervalMs: 2_000,
+      clientAlgoId: 'kill-switch',
     });
     expect(res.statusCode).toBe(400);
     expect(res.body.error?.message ?? '').toMatch(/kill-switch/);

@@ -431,7 +431,6 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         if (err instanceof z.ZodError) throw new Error(err.issues.map((i) => i.message).join('; '));
         throw err;
       }
-      const before = state.isKilled(input.module as ModuleId);
       const ids = readApprovalIds(input);
       const approvals = deps.approvals ?? unwiredApprovalConsumer();
       const consumed = await approvals.consume(
@@ -460,6 +459,8 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
        * record landing. Dual-control runs first so a one-operator body never
        * lands a halt.
        */
+      // Read after the approval await: two overlapping identical calls must not both see the old state.
+      const before = state.isKilled(input.module as ModuleId);
       state.set(input.module as ModuleId, input.disabled, operator.userId, input.reason, confirmOperatorId);
 
       return { ...snapshot(), changed: before !== input.disabled, confirmOperatorId };

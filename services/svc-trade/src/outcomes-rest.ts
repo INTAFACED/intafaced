@@ -96,6 +96,19 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
       return sendError(reply, 503, 'trade.outcome_order_path_unconfigured', 'ledger-backed outcome order path is not configured');
     }
 
+    // Outcome contracts settle at 0 or 1, so a limit price must lie strictly inside (0, 1); market orders have no price.
+    const priceRaw = parsed.data.price;
+    if (priceRaw == null || parsed.data.type !== 'limit') {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome orders must be limit orders with a price between 0 and 1');
+    }
+    const priceUnits = parseAmount(priceRaw);
+    if (priceUnits <= 0n || priceUnits >= parseAmount('1')) {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome limit price must be strictly between 0 and 1');
+    }
+    if (parsed.data.stopPrice != null || parsed.data.expireAt != null) {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome orders do not support stopPrice or expireAt');
+    }
+
     const collateralAmount = collateralForBinaryBuy(parsed.data.amount);
     const order = await deps.placeOutcomeOrder(principal, {
       symbol: parsed.data.symbol,

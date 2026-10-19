@@ -7,6 +7,7 @@ import { listSessions, ListSessionsError, SessionsListLimitUnsetError } from './
  * Top-level list (not nested under auth) so mergeRouters cannot replace
  * auth.logout. identity:read (write implies read). Named userId required.
  * Limit required — omit never dumps seats. Live seats only. No refresh hash.
+ * A caller lists only their own seats; the operator view is the ops router.
  */
 export function createListSessionsRouter(sql: Sql) {
   return router({
@@ -24,7 +25,10 @@ export function createListSessionsRouter(sql: Sql) {
           ),
         }),
       )
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (ctx.principal.userId !== input.userId) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'You can list only your own sessions' });
+        }
         try {
           const out = await listSessions(sql, input.userId, input.limit);
           return {

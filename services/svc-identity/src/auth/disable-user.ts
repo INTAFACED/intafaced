@@ -52,6 +52,10 @@ export async function disableUser(
   await sql`
     UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${named}
   `;
+  // A frozen account must not keep live seats: refresh rotation and the session
+  // door honour a live session, so revoke sessions with the keys. Passkeys stay on the account; the
+  // frozen status blocks them and an unfreeze restores them.
+  await sql`UPDATE sessions SET revoked = true WHERE user_id = ${named} AND revoked = false`;
   const rows = await sql<Array<{ id: string }>>`
     UPDATE api_keys
     SET revoked = true

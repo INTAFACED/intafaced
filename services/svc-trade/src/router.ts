@@ -1153,7 +1153,7 @@ export function createTradeRouter(
             durationMs: z.number().int().min(1_000).max(86_400_000),
             sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
             limitPrice: decimal.optional(),
-            clientAlgoId: z.string().min(1).max(48).optional(),
+            clientAlgoId: z.string().trim().min(1).max(48),
             subAccountId: z.string().uuid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
