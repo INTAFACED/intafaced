@@ -427,7 +427,7 @@ export function installOptionAmend(ctor: typeof TradeService): void {
         const market = await host.marketById(order.marketId);
         if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
         const lifecycleProof = await host.assertLifecycleAction(market, 'AMEND');
-        const listed = await host.matching.listOrders(order.marketId);
+        const listed = await host.matching.listOrders(order.marketId, order.id);
         const live = listed.orders.find((candidate) => candidate.orderId === order.id);
         if (!live) {
           return host.amendOutcome(order as OrderRecord, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);

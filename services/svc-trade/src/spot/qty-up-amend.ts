@@ -152,7 +152,7 @@ async function amendOrderWithQtyUp(
 
     let listed;
     try {
-      listed = await host.matching.listOrders(order.marketId);
+      listed = await host.matching.listOrders(order.marketId, order.id);
     } catch {
       await host.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
       const frozen = (await host.findOrder(order.id)) ?? order;
