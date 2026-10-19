@@ -38,11 +38,13 @@ const messages = {
   Value: 'Value',
   Available: 'Available',
   'In orders': 'In orders',
+  Locked: 'Locked',
   'In spaces': 'In spaces',
-  'Spaces figure missing': 'What you keep in spaces could not be read right now, so Available and In orders may not add up to Amount.',
+  'Spaces figure missing':
+    'What you keep in spaces could not be read right now, so Available, In orders and Locked may not add up to Amount.',
   'Spaces left out of amount': 'Amount here leaves out money kept in spaces. It is listed under Your spaces below.',
   'Held read apart':
-    'Available, In orders and In spaces don’t add up to Amount right now. Money on hold for an approval counts in Amount but not in these columns.',
+    'Available, In orders, Locked and In spaces don’t add up to Amount right now. Money on hold for an approval counts in Amount but not in these columns.',
   Share: 'Share',
   'Small balances': 'Small balances',
   '{count} coins under $1': '{count} coins under $1',

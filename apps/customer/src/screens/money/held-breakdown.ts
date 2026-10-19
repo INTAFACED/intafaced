@@ -7,7 +7,7 @@
 import { add, dec, str, sumOf, type Scaled } from '../../data/decimal';
 import type { Decimal, Loadable } from '../../data';
 import type { BalanceEntry } from '../../data/derive';
-import type { NamedAccount } from './portfolio-source';
+import type { LockSplit, NamedAccount } from './portfolio-source';
 
 /**
  * known: the bank returned the spaces list. waiting: still loading. unavailable: the bank did not return it.
@@ -24,10 +24,14 @@ export interface Spaces {
 export interface Held {
   available: Decimal | null;
   inOrders: Decimal | null;
+  /** Escrow, stake and collateral together; null when the bank's lock breakdown was not returned (then "In orders" is every lock). */
+  locked: Decimal | null;
+  /** The locks with their claims, for the hover detail; empty when the breakdown was not returned. */
+  claims: LockSplit['claims'];
   /** What named spaces hold of this coin; null when no spaces figure was returned. */
   inSpaces: Decimal | null;
   /**
-   * True when Available + In orders + In spaces equals Amount exactly. False when all three are known and differ (the
+   * True when Available + In orders + Locked + In spaces equals Amount exactly. False when all three are known and differ (the
    * two calls were read a moment apart). Null when one is missing, so no sum can be claimed.
    */
   adds: boolean | null;
@@ -48,13 +52,24 @@ export function spacesFor(accounts: Loadable<NamedAccount[]>, source: 'server' |
 }
 
 /** One coin's Available, In orders and In spaces next to its Amount. */
-export function heldFor(asset: string, amount: Decimal, balance: BalanceEntry | undefined, spaces: Spaces): Held {
+export function heldFor(
+  asset: string,
+  amount: Decimal,
+  balance: BalanceEntry | undefined,
+  spaces: Spaces,
+  /** The bank's per-coin lock breakdown; `undefined` while it is not available, `null` entry never happens. */
+  locks?: Record<string, LockSplit> | undefined,
+): Held {
   // Worked out on this device the Amount leaves spaces out, so no spaces figure applies: shown as a dash, never as 0.
   const inSpaces: Scaled | null = spaces.state === 'known' ? (spaces.byAsset.get(asset) ?? 0n) : null;
-  const free = dec(balance?.free);
-  const used = dec(balance?.used);
+  // With the bank's lock breakdown the "used" figure is told apart: orders on one side, escrow/stake/collateral on the other.
+  // A coin missing from a breakdown that did arrive holds nothing in the main account.
+  const split = locks === undefined ? undefined : (locks[asset] ?? { available: '0', inOrders: '0', locked: '0', claims: [] });
+  const free = dec(split ? split.available : balance?.free);
+  const used = dec(split ? split.inOrders : balance?.used);
+  const lockedAmount = split ? dec(split.locked) : 0n;
   const total = dec(amount);
-  const held = free === null || used === null ? null : add(free, used);
+  const held = free === null || used === null || lockedAmount === null ? null : add(add(free, used), lockedAmount);
   const adds =
     held === null || total === null
       ? null
@@ -64,8 +79,10 @@ export function heldFor(asset: string, amount: Decimal, balance: BalanceEntry | 
           ? null
           : add(held, inSpaces) === total;
   return {
-    available: balance?.free ?? null,
-    inOrders: balance?.used ?? null,
+    available: split ? split.available : (balance?.free ?? null),
+    inOrders: split ? split.inOrders : (balance?.used ?? null),
+    locked: split ? split.locked : null,
+    claims: split ? split.claims : [],
     inSpaces: inSpaces === null ? null : str(inSpaces),
     adds,
   };

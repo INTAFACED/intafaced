@@ -37,6 +37,7 @@ import { buyHref } from './links';
 import { clockTime } from './time';
 import {
   useAssetBalances,
+  useLockSplits,
   useMoneyPortfolio,
   useNamedAccounts,
   type MoneyRow,
@@ -194,6 +195,12 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
  * Pro columns: what can be spent now (Available), what is set aside for open orders (In orders) and what sits in named
  * spaces (In spaces), as the bank returned them. A figure the bank did not return shows a dash.
  */
+/** Hover detail for the Locked cell: which escrow, stake or collateral the figure is, named by the bank. Nothing when hidden. */
+function lockTitle(held: Held): string | undefined {
+  const named = held.claims.filter((claim) => claim.kind !== 'hold');
+  return named.length === 0 ? undefined : named.map((claim) => `${claim.kind} ${claim.purpose}: ${claim.amount}`).join('\n');
+}
+
 function HeldCells({ held, hidden }: { held: Held; hidden: boolean }) {
   const show = (value: string | null) => (value === null ? '—' : fmtAmount(value, { round: 'down' }));
   return (
@@ -203,6 +210,9 @@ function HeldCells({ held, hidden }: { held: Held; hidden: boolean }) {
       </td>
       <td className="money-num money-cell--pro" data-col="in-orders">
         <Amount value={show(held.inOrders)} hidden={hidden} />
+      </td>
+      <td className="money-num money-cell--pro" data-col="locked" title={lockTitle(held)}>
+        <Amount value={show(held.locked)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--pro" data-col="in-spaces">
         <Amount value={show(held.inSpaces)} hidden={hidden} />
@@ -308,6 +318,9 @@ function CoinTable({
                 </th>
                 <th scope="col" className="money-num money-cell--pro">
                   {t('In orders')}
+                </th>
+                <th scope="col" className="money-num money-cell--pro">
+                  {t('Locked')}
                 </th>
                 <th scope="col" className="money-num money-cell--pro">
                   {t('In spaces')}
@@ -451,6 +464,7 @@ export default function Portfolio() {
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const portfolio = useMoneyPortfolio();
   const balances = useAssetBalances(layout === 'pro');
+  const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
   const accounts = useNamedAccounts();
 
@@ -483,10 +497,11 @@ export default function Portfolio() {
             // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
             balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
             spaces,
+            lockSplit.status === 'ready' ? lockSplit.data : lockSplit.status === 'empty' ? {} : undefined,
           ),
         ]),
       ),
-    [view, balances, spaces],
+    [view, balances, spaces, lockSplit],
   );
   const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
   const noteFirst = cashRows.length > 0 ? 'cash' : 'crypto';

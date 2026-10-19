@@ -10,7 +10,7 @@
 import { useEffect, useMemo } from 'react';
 import { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
-import { dec, decOrNull, ratio, sub, sumOf, type Scaled } from '../../data/decimal';
+import { dec, decOrNull, ratio, str, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
 import { balancesFetcher } from '../../data/fetchers';
 import type { BalanceEntry } from '../../data/derive';
@@ -319,6 +319,80 @@ export function useNamedAccounts(): Loadable<NamedAccount[]> {
 // ── free and used, for Pro ───────────────────────────────────────────────────
 
 const BALANCE_INTERVAL = 15_000;
+
+/** The bank's `bank.portfolio.balanceBreakdown` for the main account: each asset split into spendable and every lock kind. */
+export const breakdownSchema = z.object({
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      total: z.string(),
+      available: z.string(),
+      locked: z.array(
+        z.object({
+          kind: z.string(),
+          amount: z.string(),
+          claims: z.array(z.object({ purpose: z.string(), amount: z.string() })),
+        }),
+      ),
+    }),
+  ),
+});
+
+/** One coin of the main account with its locks told apart: orders on one side, everything else locked on the other. */
+export interface LockSplit {
+  available: Decimal;
+  /** Money set aside for open orders (the `hold` lock kind). */
+  inOrders: Decimal;
+  /** Escrow, stake and collateral together. */
+  locked: Decimal;
+  /** Every lock with the claim behind it, as the bank named it. */
+  claims: ReadonlyArray<{ kind: string; purpose: string; amount: Decimal }>;
+}
+
+/** Reshape the bank's answer into one `LockSplit` per coin. Sums are exact (scaled integers), never floating point. */
+export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> {
+  const out: Record<string, LockSplit> = {};
+  for (const asset of answer.assets) {
+    const hold = asset.locked.filter((lock) => lock.kind === 'hold');
+    const other = asset.locked.filter((lock) => lock.kind !== 'hold');
+    const sum = (locks: typeof asset.locked) => sumOf(locks.map((lock) => dec(lock.amount) ?? 0n));
+    out[asset.assetId] = {
+      available: asset.available,
+      inOrders: str(sum(hold)),
+      locked: str(sum(other)),
+      claims: asset.locked.flatMap((lock) =>
+        lock.claims.map((claim) => ({ kind: lock.kind, purpose: claim.purpose, amount: claim.amount })),
+      ),
+    };
+  }
+  return out;
+}
+
+export function breakdownFetcher(env: DataEnv): Fetcher<Record<string, LockSplit>> {
+  return async (signal) => {
+    const result = await env.api.query('bank', 'portfolio.balanceBreakdown', { scope: 'main' }, breakdownSchema, { signal });
+    return result.ok ? { ok: true, data: lockSplits(result.data) } : result;
+  };
+}
+
+/**
+ * The main account's balances with each lock told apart. Pro only. An older bank without the call (or one that cannot answer)
+ * leaves the screen on the exchange balance's single "used" figure, which is not split by lock.
+ */
+export function useLockSplits(enabled: boolean): Loadable<Record<string, LockSplit>> {
+  const env = useDataEnv();
+  return useSource(
+    useMemo(
+      () =>
+        env.userId && enabled
+          ? env.poller.source<Record<string, LockSplit>>(`bank-balance-breakdown:${env.userId}`, breakdownFetcher(env), {
+              intervalMs: BALANCE_INTERVAL,
+            })
+          : constantSource<Record<string, LockSplit>>({ status: 'refused', code: 'auth.required' }),
+      [env, enabled],
+    ),
+  );
+}
 
 /**
  * What can be spent now (`free`) and what is set aside for open orders (`used`), per asset, from `/account/balance`.
