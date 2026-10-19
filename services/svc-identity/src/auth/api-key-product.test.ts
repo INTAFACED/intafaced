@@ -87,7 +87,7 @@ describe('assertProductsDelegatable / scopesWithinProducts', () => {
 
 describe('product scope mint/bind is mounted (not helper-only)', () => {
   it('mergeRouters includes createApiKeyProductRouter and the exchange wrap', () => {
-    expect(indexSrc).toMatch(/createApiKeyProductRouter\(sql, auth\)/);
+    expect(indexSrc).toMatch(/createApiKeyProductRouter\(sql, auth, auth\)/);
     expect(indexSrc).toMatch(/from ['"]\.\/api-key-product-router\.js['"]/);
     expect(indexSrc).toMatch(/installApiKeyProductExchange\(auth, sql\)/);
   });

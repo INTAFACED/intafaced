@@ -12,11 +12,22 @@
 import type { Sql } from 'postgres';
 import { TIMEFRAME_MS, timeframeSchema, type Timeframe } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
-import type { Candle } from './types.js';
+import { TradeError, type Candle } from './types.js';
 
 /** Blank / non-integer / out of 1..1000 fill-aggregation limit refuse. Never invent 500. */
 export const TRADE_CANDLES_FILL_LIMIT_UNSET = 'trade.candles_fill_limit_unset' as const;
 export const CANDLES_FILL_LIMIT_MAX = 1000;
+
+/**
+ * A request is answered in full for the window it asked for, or refused.
+ * The cap is the request's own limit. TradeService also refuses a limit above
+ * {@link OHLC_RECENT_ROW_CAP} before SQL. A legal limit does not shrink the
+ * window into a partial series.
+ */
+export const TRADE_CANDLES_RANGE_POINT_CAP = 'trade.candles_range_point_cap' as const;
+
+/** Kraken returns at most the 720 most recent OHLC rows. Older rows are absent, never invented. */
+export const OHLC_RECENT_ROW_CAP = 720;
 
 export class CandlesFillLimitUnsetError extends Error {
   constructor(
@@ -38,6 +49,47 @@ export interface QueryCandlesOpts {
   limit?: number | null;
   /** Inclusive lower bound on fill `ts` (unix ms). */
   sinceMs?: number;
+}
+
+/** Buckets a [sinceMs, endMs) selection would cover. End at or before start is an empty selection. */
+export function candleRangePointCount(timeframe: Timeframe, sinceMs: number, endMs: number): number {
+  const span = TIMEFRAME_MS[timeframe];
+  if (!Number.isInteger(sinceMs) || !Number.isInteger(endMs) || endMs <= sinceMs) return 0;
+  const delta = endMs - sinceMs;
+  return Math.floor((delta + span - 1) / span);
+}
+
+/** Refuse the whole request when the selection is over the request's own limit. */
+export function assertCandleRangeWithinCap(timeframe: Timeframe, sinceMs: number, endMs: number, cap: number): void {
+  const points = candleRangePointCount(timeframe, sinceMs, endMs);
+  if (points > cap) {
+    throw new TradeError(`candle selection would return ${points} points, over the published cap of ${cap}`, TRADE_CANDLES_RANGE_POINT_CAP);
+  }
+}
+
+export interface ExportedCandle extends Candle {
+  /** False while the bucket is still open. The current timeframe stays in the export. */
+  readonly committed: boolean;
+}
+
+/**
+ * OHLC export. The last row may be the current open bucket (`committed: false`).
+ * The 720-row slice is a defensive guard. TradeService.candles refuses a limit
+ * over that cap before this can run. Missing buckets stay missing.
+ */
+export function exportOhlcv(candles: readonly Candle[], timeframe: Timeframe, nowMs: number): ExportedCandle[] {
+  const span = TIMEFRAME_MS[timeframe];
+  const tagged = candles.map((candle) => ({
+    openTimeMs: candle.openTimeMs,
+    open: candle.open,
+    high: candle.high,
+    low: candle.low,
+    close: candle.close,
+    volume: candle.volume,
+    committed: candle.openTimeMs + span <= nowMs,
+  }));
+  if (tagged.length <= OHLC_RECENT_ROW_CAP) return tagged;
+  return tagged.slice(tagged.length - OHLC_RECENT_ROW_CAP);
 }
 
 /** Owner-published fill window. Missing / null / non-int / out of 1..max refuses. Never invent 500. */

@@ -32,6 +32,7 @@ const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-bluepr
 beforeEach(() => {
   // Exercise signature, ownership and scope with the explicit legacy test posture.
   // Production keeps its strict blank-list refusal; the control below verifies it.
+  vi.stubEnv('APP_ENV', 'test');
   vi.stubEnv('INTAFACED_SCREENING_FAIL_CLOSED', 'off');
   vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', undefined);
   vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', undefined);

@@ -167,6 +167,16 @@ const schema = baseEnvSchema
       ),
 
       /**
+       * Owner-published cap on new public websocket connections in one minute,
+       * shared by the single-market door and the multiplexed door. Blank /
+       * unset does not invent 30 and does not refuse. Owner may set 30.
+       */
+      WS_MAX_NEW_CONNECTIONS_PER_MINUTE: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1)]),
+      ),
+
+      /**
        * Owner-published private / drop-copy max open sockets per authenticated
        * user on this replica. Stops one principal from filling
        * `WS_MAX_CONNECTIONS`. Blank / unset is unpublished — attach refuses
@@ -364,6 +374,7 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_HIGH_WATER_BYTES',
   'WS_MAX_LAG_TICKS',
   'WS_MAX_CONNECTIONS',
+  'WS_MAX_NEW_CONNECTIONS_PER_MINUTE',
   'WS_PRIVATE_MAX_CONNECTIONS_PER_USER',
   'WS_HEARTBEAT_MS',
   'WS_TRADE_RECENT_LIMIT',

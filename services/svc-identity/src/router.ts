@@ -71,6 +71,7 @@ import { FlagDisabledError } from '@intafaced/config';
 import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
+import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -1731,6 +1732,8 @@ export function createIdentityRouter(
             domainWhitelist: z.array(z.string()).optional(),
             /** pay.public-api step 4 — sandbox keys route to the sandbox rail. */
             mode: z.enum(['live', 'sandbox']).optional(),
+            /** A TOTP code, passkey assertion or proof id verified in the last five minutes. */
+            factorProof: optionalFactorProof,
           }),
         )
         .output(
@@ -1758,13 +1761,21 @@ export function createIdentityRouter(
                 message: `${userCopy('auth.step_up_required')} [auth.step_up_required]`,
               });
             }
-            const created = await auth.createApiKey({
-              userId: ctx.principal.userId,
-              ...input,
-              grantorScopes: ctx.principal.scopes,
-              grantorKid: ctx.principal.kid,
-              payStepUp,
-            });
+            const { factorProof, ...keyInput } = input;
+            const created = await guardedApiKeyAction(
+              auth,
+              ctx.principal,
+              factorProof,
+              { action: 'create', scopes: input.scopes },
+              (scope) =>
+                scope.createApiKey({
+                  userId: ctx.principal.userId,
+                  ...keyInput,
+                  grantorScopes: ctx.principal.scopes,
+                  grantorKid: ctx.principal.kid,
+                  payStepUp,
+                }),
+            );
             return { ...created, scopes: created.scopes ?? input.scopes };
           } catch (err) {
             if (err instanceof TRPCError) throw err;

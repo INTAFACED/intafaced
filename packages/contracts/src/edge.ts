@@ -1,4 +1,13 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  sign as cryptoSign,
+  timingSafeEqual,
+  verify as cryptoVerify,
+  type KeyObject,
+} from 'node:crypto';
 import { z } from 'zod';
 import { accessClaimsSchema, type Principal } from '@intafaced/auth';
 import type { Context } from './trpc.js';
@@ -45,6 +54,8 @@ export const EDGE_SIGNATURE_HEADER = 'x-intafaced-principal-sig';
 export const principalHeaderSchema = accessClaimsSchema.extend({
   userId: z.string().uuid(),
   expiresAt: z.string().datetime(),
+  /** Issue time, whole seconds. Present on every Ed25519-signed principal. */
+  iat: z.number().int().positive().optional(),
 });
 
 export type PrincipalHeader = z.infer<typeof principalHeaderSchema>;
@@ -79,6 +90,133 @@ export function signPrincipalHeader(raw: string, secret: string, region = 'XX'):
   return createHmac('sha256', secret).update(`${raw}\nregion=${region}`, 'utf8').digest('hex');
 }
 
+/**
+ * ED25519 PRINCIPAL SIGNING (only svc-edge may sign a user principal).
+ *
+ * The HMAC scheme above needs every verifier to hold the signing secret, so any
+ * service that can verify can also forge a principal for any user. Ed25519 splits
+ * the two: svc-edge holds the private key, every other service holds only the
+ * public key and can verify but never mint.
+ *
+ * - Signature header value: `ed25519:` + base64url signature (the HMAC form is bare hex, so the
+ *   two never collide).
+ * - Preimage: `intafaced-principal-v2\n<raw header>\nregion=<region>` (region is bound, as before).
+ * - A principal signed this way carries `iat` and an expiry at most the configured maximum
+ *   lifetime after it; anything longer is refused, however it was signed. The maximum lifetime and
+ *   the clock-skew allowance are REQUIRED configuration (`EdgePrincipalLimits`), never defaults:
+ *   the value is an open owner decision, so a missing or invalid one refuses with a typed error.
+ * - The public key is published as the raw 32 bytes, base64url (SERVICE-AUTH-SLICES S2S-00 (1)).
+ */
+
+/** Supplied by the caller / service config. There is deliberately no default for either. */
+export interface EdgePrincipalLimits {
+  /** Longest allowed gap between `iat` and `expiresAt`, in whole seconds (positive integer). */
+  readonly maxLifetimeSeconds: number;
+  /** How far in the future an `iat` may be, in whole seconds (positive integer). */
+  readonly clockSkewSeconds: number;
+}
+
+/** Stable codes on `EdgeTrustError.code` for the principal limits. */
+export const EDGE_PRINCIPAL_LIMITS_REQUIRED = 'EDGE_PRINCIPAL_LIMITS_REQUIRED';
+export const EDGE_PRINCIPAL_LIMITS_INVALID = 'EDGE_PRINCIPAL_LIMITS_INVALID';
+
+const isPositiveInt = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
+
+/** Throws EdgeTrustError (stable `code`) when either limit is missing, non-integer or not positive. */
+export function assertEdgePrincipalLimits(limits: Partial<EdgePrincipalLimits> | undefined): asserts limits is EdgePrincipalLimits {
+  if (limits === undefined || limits === null || limits.maxLifetimeSeconds === undefined || limits.clockSkewSeconds === undefined) {
+    throw new EdgeTrustError(
+      'Forwarded-principal maxLifetimeSeconds and clockSkewSeconds are required configuration and have no default.',
+      EDGE_PRINCIPAL_LIMITS_REQUIRED,
+    );
+  }
+  if (!isPositiveInt(limits.maxLifetimeSeconds) || !isPositiveInt(limits.clockSkewSeconds)) {
+    throw new EdgeTrustError(
+      'Forwarded-principal maxLifetimeSeconds and clockSkewSeconds must be positive integers (seconds).',
+      EDGE_PRINCIPAL_LIMITS_INVALID,
+    );
+  }
+}
+
+function limitsOk(limits: Partial<EdgePrincipalLimits> | undefined): limits is EdgePrincipalLimits {
+  try {
+    assertEdgePrincipalLimits(limits);
+    return true;
+  } catch {
+    return false;
+  }
+}
+const ED25519_PREFIX = 'ed25519:';
+const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+function principalPreimage(raw: string, region: string): Buffer {
+  return Buffer.from(`intafaced-principal-v2\n${raw}\nregion=${region}`, 'utf8');
+}
+
+/** Raw 32-byte Ed25519 public key (base64url) to a key object. Throws on any other length. */
+export function edgePrincipalPublicKey(publicKey: string): KeyObject {
+  const raw = Buffer.from(publicKey, 'base64url');
+  if (raw.length !== 32 || raw.toString('base64url') !== publicKey) {
+    throw new EdgeTrustError('EDGE_PRINCIPAL_PUBLIC_KEY must be a raw 32-byte Ed25519 public key, base64url');
+  }
+  return createPublicKey({ key: Buffer.concat([ED25519_SPKI_PREFIX, raw]), format: 'der', type: 'spki' });
+}
+
+/** A fresh edge key pair: PKCS8 private key and raw public key, both base64url. For key generation tooling and tests. */
+export function generateEdgePrincipalKeyPair(): { privateKey: string; publicKey: string } {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const spki = publicKey.export({ format: 'der', type: 'spki' });
+  return {
+    privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+    publicKey: Buffer.from(spki.subarray(spki.length - 32)).toString('base64url'),
+  };
+}
+
+/** Sign the exact header bytes with the edge private key. Only svc-edge holds that key. */
+export function signPrincipalHeaderEd25519(raw: string, privateKey: string, region = 'XX'): string {
+  const key = createPrivateKey({ key: Buffer.from(privateKey, 'base64url'), format: 'der', type: 'pkcs8' });
+  return ED25519_PREFIX + cryptoSign(null, principalPreimage(raw, region), key).toString('base64url');
+}
+
+/**
+ * The wire form for a principal the edge forwards: `iat` set, expiry clamped to
+ * `maxLifetimeSeconds` from now (never later than the token's own expiry). The lifetime is required
+ * and has no default; a missing or invalid one throws EdgeTrustError.
+ */
+export function encodeForwardedPrincipal(principal: Principal, maxLifetimeSeconds: number, now: Date = new Date()): string {
+  assertEdgePrincipalLimits({ maxLifetimeSeconds, clockSkewSeconds: 1 });
+  const wire = JSON.parse(encodePrincipal(principal)) as PrincipalHeader;
+  const iat = Math.floor(now.getTime() / 1000);
+  const cap = iat * 1000 + maxLifetimeSeconds * 1000;
+  wire.iat = iat;
+  wire.expiresAt = new Date(Math.min(principal.expiresAt.getTime(), cap)).toISOString();
+  return JSON.stringify(wire);
+}
+
+/** What a verifier trusts: the legacy shared secret and/or the edge public key. */
+export type EdgePrincipalTrust =
+  | string
+  | {
+      readonly hmacSecret?: string;
+      readonly publicKey?: string;
+      /** Required to accept the asymmetric form; ignored by the legacy shared-secret path. */
+      readonly limits?: EdgePrincipalLimits;
+    };
+
+function trustOf(trust: EdgePrincipalTrust): { hmacSecret?: string; publicKey?: string; limits?: EdgePrincipalLimits } {
+  return typeof trust === 'string' ? { hmacSecret: trust } : trust;
+}
+
+function ed25519Matches(raw: string, signature: string, publicKey: string, region: string): boolean {
+  const body = signature.slice(ED25519_PREFIX.length);
+  if (!/^[A-Za-z0-9_-]{86}$/.test(body)) return false;
+  try {
+    return cryptoVerify(null, principalPreimage(raw, region), edgePrincipalPublicKey(publicKey), Buffer.from(body, 'base64url'));
+  } catch {
+    return false;
+  }
+}
+
 function signatureMatches(raw: string, signature: string, secret: string, region = 'XX'): boolean {
   const expected = signPrincipalHeader(raw, secret, region);
 
@@ -95,6 +233,12 @@ function signatureMatches(raw: string, signature: string, secret: string, region
 export interface EdgeVerifyResult {
   principal: Principal | null;
   /** Why a principal was refused. Null when one was accepted or none was sent. */
+  rejected: 'bad-signature' | 'malformed' | 'expired' | 'unconfigured' | null;
+}
+
+/** What the shared-secret form can return. Exactly the original shape; it never returns 'unconfigured'. */
+export interface EdgeLegacyVerifyResult {
+  principal: Principal | null;
   rejected: 'bad-signature' | 'malformed' | 'expired' | null;
 }
 
@@ -109,13 +253,36 @@ export interface EdgeVerifyResult {
 export function verifyForwardedPrincipal(
   raw: string | undefined,
   signature: string | undefined,
-  secret: string,
+  trust: string,
+  now?: Date,
+  region?: string,
+): EdgeLegacyVerifyResult;
+export function verifyForwardedPrincipal(
+  raw: string | undefined,
+  signature: string | undefined,
+  trust: EdgePrincipalTrust,
+  now?: Date,
+  region?: string,
+): EdgeVerifyResult;
+export function verifyForwardedPrincipal(
+  raw: string | undefined,
+  signature: string | undefined,
+  trust: EdgePrincipalTrust,
   now: Date = new Date(),
   region = 'XX',
 ): EdgeVerifyResult {
   if (!raw) return { principal: null, rejected: null };
   if (!signature) return { principal: null, rejected: 'bad-signature' };
-  if (!signatureMatches(raw, signature, secret, region)) return { principal: null, rejected: 'bad-signature' };
+  const { hmacSecret, publicKey, limits } = trustOf(trust);
+  const asymmetric = signature.startsWith(ED25519_PREFIX);
+  if (asymmetric) {
+    // No lifetime / skew configured: refuse (fail closed) rather than assume a magnitude.
+    // A verifier that holds no public key cannot accept this form, and one that does accepts nothing else for it.
+    if (publicKey && !limitsOk(limits)) return { principal: null, rejected: 'unconfigured' };
+    if (!publicKey || !ed25519Matches(raw, signature, publicKey, region)) return { principal: null, rejected: 'bad-signature' };
+  } else if (!hmacSecret || !signatureMatches(raw, signature, hmacSecret, region)) {
+    return { principal: null, rejected: 'bad-signature' };
+  }
 
   let parsed: unknown;
   try {
@@ -133,13 +300,36 @@ export function verifyForwardedPrincipal(
   // recently. A captured header would otherwise be replayable forever.
   if (expiresAt.getTime() <= now.getTime()) return { principal: null, rejected: 'expired' };
 
-  const { expiresAt: _discard, ...claims } = result.data;
+  if (asymmetric) {
+    // Short-lived by construction: iat is required, may not be in the future, and the
+    // expiry may be at most the configured lifetime after it.
+    const iatMs = (result.data.iat ?? 0) * 1000;
+    if (!result.data.iat || iatMs > now.getTime() + limits!.clockSkewSeconds * 1000) return { principal: null, rejected: 'malformed' };
+    if (expiresAt.getTime() - iatMs > limits!.maxLifetimeSeconds * 1000) return { principal: null, rejected: 'expired' };
+  }
+
+  const { expiresAt: _discard, iat: _iat, ...claims } = result.data;
   return { principal: { ...claims, expiresAt }, rejected: null };
 }
 
 export interface EdgeContextOptions {
-  /** Shared secret between the edge and this service. */
-  secret: string;
+  /**
+   * Legacy shared HMAC secret between the edge and this service. A service holding it can also
+   * FORGE principals, so a service moves to `edgePublicKey` and drops this. At least one of the
+   * two is required; with both set either form is accepted (migration only).
+   */
+  secret?: string;
+  /**
+   * The edge's raw 32-byte Ed25519 public key, base64url (`EDGE_PRINCIPAL_PUBLIC_KEY`). Verify-only:
+   * a service holding just this key cannot mint a principal anyone else will accept.
+   */
+  edgePublicKey?: string;
+  /**
+   * Maximum principal lifetime and clock-skew allowance for the asymmetric form. REQUIRED whenever
+   * `edgePublicKey` is set, with no default (the value is an open owner decision): boot throws
+   * EdgeTrustError with a stable code when missing, non-integer or non-positive.
+   */
+  principalLimits?: EdgePrincipalLimits;
   /** Service name, used only in the boot-time error message. */
   serviceName: string;
   /**
@@ -174,8 +364,10 @@ export interface EdgeContextOptions {
 const MIN_SECRET_LENGTH = 32;
 
 export class EdgeTrustError extends Error {
-  constructor(message: string) {
+  readonly code?: string;
+  constructor(message: string, code?: string) {
     super(message);
+    this.code = code;
     this.name = 'EdgeTrustError';
   }
 }
@@ -200,12 +392,37 @@ export interface EdgeRequest {
  * until the first unauthorised call succeeds against a `publicProcedure`.
  */
 export function createEdgeContext(options: EdgeContextOptions): (req: EdgeRequest) => Context {
-  if (!options.secret || options.secret.length < MIN_SECRET_LENGTH) {
+  if (options.edgePublicKey !== undefined) {
+    try {
+      edgePrincipalPublicKey(options.edgePublicKey);
+    } catch {
+      throw new EdgeTrustError(`${options.serviceName}: EDGE_PRINCIPAL_PUBLIC_KEY must be a raw 32-byte Ed25519 public key, base64url.`);
+    }
+  }
+  if (options.edgePublicKey !== undefined) {
+    try {
+      assertEdgePrincipalLimits(options.principalLimits);
+    } catch (e) {
+      throw new EdgeTrustError(`${options.serviceName}: ${(e as Error).message}`, (e as EdgeTrustError).code);
+    }
+  }
+  const hasSecret = options.secret !== undefined && options.secret.length > 0;
+  if (hasSecret && options.secret!.length < MIN_SECRET_LENGTH) {
     throw new EdgeTrustError(
       `${options.serviceName}: EDGE_PRINCIPAL_SECRET must be at least ${MIN_SECRET_LENGTH} characters to mount /trpc. ` +
         'Without it the principal header is caller-controlled and every scope check is decorative (§9).',
     );
   }
+  if (!hasSecret && options.edgePublicKey === undefined) {
+    throw new EdgeTrustError(
+      `${options.serviceName}: set EDGE_PRINCIPAL_PUBLIC_KEY (or the legacy EDGE_PRINCIPAL_SECRET, at least ${MIN_SECRET_LENGTH} characters) to mount /trpc. ` +
+        'Without one the principal header is caller-controlled and every scope check is decorative (§9).',
+    );
+  }
+  const trust = {
+    ...(hasSecret ? { hmacSecret: options.secret } : {}),
+    ...(options.edgePublicKey ? { publicKey: options.edgePublicKey, limits: options.principalLimits } : {}),
+  };
 
   // A present service-to-service secret is the same HMAC. Shorter than
   // MIN_SECRET_LENGTH is offline-guessable signing theatre, including the
@@ -224,13 +441,9 @@ export function createEdgeContext(options: EdgeContextOptions): (req: EdgeReques
     };
 
     const region = header('x-intafaced-region') ?? 'XX';
-    const { principal } = verifyForwardedPrincipal(
-      header(EDGE_PRINCIPAL_HEADER),
-      header(EDGE_SIGNATURE_HEADER),
-      options.secret,
-      new Date(),
-      region,
-    );
+    const rawPrincipal = header(EDGE_PRINCIPAL_HEADER);
+    const principalSignature = header(EDGE_SIGNATURE_HEADER);
+    const { principal } = verifyForwardedPrincipal(rawPrincipal, principalSignature, trust, new Date(), region);
 
     const traceparent = header('traceparent');
 
@@ -258,6 +471,27 @@ export function createEdgeContext(options: EdgeContextOptions): (req: EdgeReques
       region,
       requestId: String(req.id ?? ''),
       ...(traceparent ? { traceparent } : {}),
+      // The exact edge-signed bytes, so a service acting during this user's request can pass
+      // them on unchanged. It cannot build or alter them: it holds no signing key.
+      ...(principal && rawPrincipal && principalSignature
+        ? { forwardedPrincipal: { raw: rawPrincipal, signature: principalSignature, region } }
+        : {}),
     };
+  };
+}
+
+/**
+ * Headers for a service that calls another service WHILE ACTING FOR the user of this request:
+ * the edge-signed principal, byte for byte, plus the region it was signed with. Empty for an
+ * anonymous request or a pure service call: such work runs as the service itself (a signed
+ * service call, user id in the signed body), never under a user principal it made up.
+ */
+export function forwardedPrincipalHeaders(ctx: Pick<Context, 'forwardedPrincipal'>): Record<string, string> {
+  const forwarded = ctx.forwardedPrincipal;
+  if (!forwarded) return {};
+  return {
+    [EDGE_PRINCIPAL_HEADER]: forwarded.raw,
+    [EDGE_SIGNATURE_HEADER]: forwarded.signature,
+    'x-intafaced-region': forwarded.region,
   };
 }

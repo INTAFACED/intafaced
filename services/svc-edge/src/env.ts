@@ -76,6 +76,23 @@ const schema = baseEnvSchema
       UPSTREAM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(15_000),
 
       /**
+       * Cap on the per-request identity authority read for money modules, identity, ops and every
+       * write. Strict: when identity cannot answer in time the request gets 503
+       * `edge.authority_unavailable` and nothing runs.
+       */
+      EDGE_AUTHORITY_STRICT_TIMEOUT_MS: z.coerce.number().int().min(500).max(10_000).default(3000),
+      /**
+       * Higher cap for non-money reads (GET/HEAD to academy, blueprint, indexer, quant, support,
+       * tax, notify) so a slow identity does not fail a page load.
+       */
+      EDGE_AUTHORITY_READ_TIMEOUT_MS: z.coerce.number().int().min(500).max(20_000).default(8000),
+      /**
+       * Reuse of a positive authority answer for the SAME session, in ms. Capped at 1000: identity's
+       * revocation lease is 5000 ms, and a revoked or ineligible answer is never cached.
+       */
+      EDGE_AUTHORITY_POSITIVE_CACHE_MS: z.coerce.number().int().min(0).max(1000).default(1000),
+
+      /**
        * Where to exchange long-lived API keys (`ifc_…`) for short-lived JWTs.
        * Direct to svc-identity — never loop back through this edge (recursion).
        * Matches routes.ts IDENTITY_URL default.

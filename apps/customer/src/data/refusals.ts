@@ -81,6 +81,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },
   duplicate: { title: 'That was already sent', body: 'We saw this request a moment ago, so we kept the first one.' },
   notSetUp: { title: 'Not switched on', body: "This part of INTAFACED isn't switched on. Nothing was changed." },
+  chartRange: { title: 'That chart range is too long', body: 'Choose a shorter range and try again.' },
   algoSchedulerOff: {
     title: 'Scheduled orders are off',
     body: 'Nothing was saved. A schedule placed now would stay open and send no orders.',

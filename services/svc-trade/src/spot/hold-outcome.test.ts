@@ -21,6 +21,7 @@ describe('order hold unknown outcome', () => {
     const lost = Object.assign(new Error('connect ECONNRESET'), { code: 'ECONNRESET' });
     expect(classifyHoldPostError(lost)).toBe('unknown');
     expect(classifyHoldPostError(new Error('timeout'))).toBe('unknown');
+    expect(classifyHoldPostError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('unknown');
     expect(classifyHoldPostError(new LedgerError('ledger 500', 'ledger.internal'))).toBe('unknown');
     expect(classifyHoldPostError(Object.assign(new Error('socket hang up'), { code: 'UND_ERR_SOCKET' }))).toBe('unknown');
   });

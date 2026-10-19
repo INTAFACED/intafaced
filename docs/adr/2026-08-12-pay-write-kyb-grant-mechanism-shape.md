@@ -3,8 +3,8 @@
 **Status:** **Accepted as mechanism shape — 2026-08-12.** Grant **issuance** itself remains owner-sealed (DIRECTION §8 item 4). This ADR does **not** invent who grants or auto-approve KYB.
 **Decision owner (issuance):** Nitro (DIRECTION §8.4 / §8 item 4).
 **Shape owner (this document):** Denon.
-**Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-08** (shape) → **D26-P1-P10** (implement after seal).
-**Law cited:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §3 item 2 · §8 item 4; harvest [`PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md`](../PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md) §1.1.
+**Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-08** (shape) → **D26-P1-P10** (implement after seal).
+**Law cited:** `DIRECTION-2026-07-31.md` (removed) §3 item 2 · §8 item 4; harvest `PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` (removed) §1.1.
 **A2 grantor freeze (pointer, 2026-08-15):** [`2026-08-15-pay-write-grantor-refuse-until-named.md`](2026-08-15-pay-write-grantor-refuse-until-named.md) — `issueMerchantPayScopes` stays refuse-closed until the owner names grantor, predicates, and revocation; no auto-grant on KYB approved. **Layer B below is not rewritten.**
 
 ---

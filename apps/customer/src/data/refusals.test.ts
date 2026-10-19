@@ -3,6 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { classifyRefusal } from './refusal-codes';
 import { refusalCopy } from './refusals';
 
+describe('edge.authority_unavailable', () => {
+  it('is a retry, not a sign-out', () => {
+    expect(classifyRefusal('edge.authority_unavailable')).toBe('tryAgain');
+  });
+});
+
 describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('screening refusals', () => {
     for (const code of ['denied.screening_fixture', 'denied.screening_unconfigured', 'denied.network_dark', 'denied.module_blocked']) {
@@ -84,6 +90,13 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('bank.dest_user_missing', { recipient: '@sam', asset: 'USDT' })).toEqual({
       title: "@sam can't receive USDT",
       body: 'Ask them to open INTAFACED once, then try again.',
+    });
+  });
+  it('a chart window past the published point cap asks for a shorter range', () => {
+    expect(classifyRefusal('trade.candles_range_point_cap')).toBe('chartRange');
+    expect(refusalCopy('trade.candles_range_point_cap')).toEqual({
+      title: 'That chart range is too long',
+      body: 'Choose a shorter range and try again.',
     });
   });
   it('anything else uses the last row, with support only when Help is live', () => {

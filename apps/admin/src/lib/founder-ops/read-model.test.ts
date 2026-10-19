@@ -5,11 +5,14 @@ import {
   isUuid,
   one,
   PAGE_LIMIT,
+  paidOutTotals,
   parseRiskWindow,
   sectionRequest,
   SCREEN_SECTIONS,
   SECTION_SPECS,
+  settlementStatusChip,
   shareAsPercent,
+  sumDecimals,
   slugOf,
   statusChip,
   totalOf,
@@ -102,5 +105,33 @@ describe('display rules', () => {
   it('parseTags de-duplicates and refuses an over-long tag', () => {
     expect(parseTags('a, b, a ,')).toEqual(['a', 'b']);
     expect(parseTags('x'.repeat(41))).toBeNull();
+  });
+});
+
+describe('settlements are credited, not sent', () => {
+  it('words posted as credited and not sent, and only paid_out as sent', () => {
+    expect(settlementStatusChip('posted').label).toBe('credited, not sent');
+    expect(settlementStatusChip('paid_out').label).toBe('paid out');
+    expect(settlementStatusChip('mystery').label).toBe(statusChip('mystery').label);
+  });
+  it('sums decimal strings exactly and refuses anything else', () => {
+    expect(sumDecimals(['0.1', '0.2'])).toBe('0.3');
+    expect(sumDecimals(['9007199254740993', '1'])).toBe('9007199254740994');
+    expect(sumDecimals(['1', 'x'])).toBeNull();
+    expect(sumDecimals([])).toBe('0');
+  });
+  it('counts only paid_out rows, per asset', () => {
+    const rows = [
+      { assetId: 'a', net: '1.50', status: 'paid_out' },
+      { assetId: 'a', net: '2.5', status: 'paid_out' },
+      { assetId: 'a', net: '100', status: 'posted' },
+      { assetId: 'b', net: '7', status: 'failed' },
+    ];
+    expect(paidOutTotals(rows)).toEqual([{ assetId: 'a', net: '4.00', settlements: 2 }]);
+    expect(paidOutTotals([{ assetId: 'a', net: '5', status: 'posted' }])).toEqual([]);
+    expect(paidOutTotals([{ assetId: 'a', net: 'bad', status: 'paid_out' }])).toBeNull();
+  });
+  it('names the payouts section for what it is', () => {
+    expect(SECTION_SPECS.payouts.title).toBe('Settlements credited to the merchant balance');
   });
 });

@@ -2,8 +2,8 @@
 
 **Status:** **Accepted — 2026-08-12 (mechanism).** Seals refuse-closed **shape**. **2026-08-15:** the 2026-08-14 “owner published allowlist” note is **withdrawn as product law** — copy geo stays refuse-closed in all regions until a **counsel-supplied** list exists. See [`2026-08-15-copy-jurisdiction-refuse-closed.md`](2026-08-15-copy-jurisdiction-refuse-closed.md) (D26-P0-15 content seal · `CLASS-X-SANCTIONS`).
 **Decision owner:** repo owner. **Written by:** Denon.
-**Law:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8 item 10; [`SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md`](../SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md) (served-jurisdiction answer); [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §A3.
-**Board:** `trade.copy` · D26-P0-15 on [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md).
+**Law:** `DIRECTION-2026-07-31.md` (removed) §8 item 10; `SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md` (removed) (served-jurisdiction answer); `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §A3.
+**Board:** `trade.copy` · D26-P0-15 on `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed).
 **Code:** `services/svc-trade/src/copy/` — `TRADE_COPY_JURISDICTION_LAW` · `trade.copy_jurisdiction_blank` · `trade.copy_jurisdiction_blocked`.
 
 ---
@@ -18,7 +18,7 @@ This is the same shape already Accepted for `leader_share_bps`: unset is not zer
 
 ## Why this is a ruling, not a leftover
 
-`SPEC-SOVEREIGN…` calls the jurisdiction answer **the single highest-leverage answer**. Serving copy into a region is a product/compliance act. An engineer-authored ISO list is counsel and owner content dressed as code. `OWNER-DECISIONS-OPEN.md` already closed the adjacent sanctions case the same way: **engineers do not draft jurisdiction lists**.
+`SPEC-SOVEREIGN…` calls the jurisdiction answer **the single highest-leverage answer**. Serving copy into a region is a product/compliance act. An engineer-authored ISO list is counsel and owner content dressed as code. `OWNER-DECISIONS-OPEN.md` (removed) already closed the adjacent sanctions case the same way: **engineers do not draft jurisdiction lists**.
 
 D26-P0-15’s done bar is **list or refuse-closed**. The owner has not published a list. Therefore the sealed answer is **refuse-closed**, with a single publish path when they do.
 

@@ -304,6 +304,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: [],
     fixed: {},
   },
+  {
+    scope: 'identity.step_up.close_account',
+    purpose: 'account.close',
+    clientFields: ['intent', 'clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {

@@ -61,14 +61,11 @@ export function TraderSummary({ record }: { record: ApiResult<Reputation> | null
   if (!record.ok) return <span className="muted">{t('traderRecordOff')}</span>;
   const summary = makerSummary(record.data);
   if (summary.kind === 'new') return <span className="muted">{t('traderNew')}</span>;
-  if (summary.kind === 'unfinished')
-    return (
-      <span className="muted">
-        {t('traderRecordOpen', { orders: new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders) })}
-      </span>
-    );
+  const n = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders);
+  // "1 order", "3 orders": the plural rule of the shown language, not a bare "s".
+  const orders = t(new Intl.PluralRules(requestedLocale).select(summary.orders) === 'one' ? 'traderOrdersOne' : 'traderOrdersMany', { n });
+  if (summary.kind === 'unfinished') return <span className="muted">{t('traderRecordOpen', { orders })}</span>;
   const rate = new Intl.NumberFormat(requestedLocale, { style: 'percent', maximumFractionDigits: 1 }).format(summary.completionRate);
-  const orders = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 }).format(summary.orders);
   if (summary.releaseSecs === null) return <span className="muted">{t('traderRecord', { orders, rate })}</span>;
   const parts = splitDuration(summary.releaseSecs);
   const time =

@@ -871,6 +871,12 @@ export const LIST_PROCS: ListProc[] = [
     rows: arr,
   },
   {
+    name: 'trpc merchantOps.team.list',
+    call: { via: 'trpc', path: 'merchantOps.team.list', input: () => ({ limit: 200 }) },
+    rows: (v) => pageRows(v).flatMap((r) => (typeof r.memberId === 'string' ? [{ id: r.memberId }] : [])),
+    expectedIds: (e) => [e.memberId, e.inviteId],
+  },
+  {
     name: 'trpc merchantOps.activity.list',
     call: { via: 'trpc', path: 'merchantOps.activity.list', input: () => ({ limit: 200 }) },
     rows: pageRows,

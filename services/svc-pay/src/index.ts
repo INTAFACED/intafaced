@@ -22,7 +22,7 @@ import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conver
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
-import { isExplicitDevOrTestEnv } from '@intafaced/config';
+import { assertNoLocalTestFixtures, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
@@ -78,7 +78,10 @@ import { onCapturedOverCap } from './control/over-cap-signal.js';
 import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
+import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
 import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
+import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
+import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -108,6 +111,11 @@ registerProcessHooks(
 // D-S-10 / Doctrine 5 — refuse boot if a third-party money orchestrator landed
 // in svc-pay's package.json. Socket.psp-partners stays a commercial relationship.
 assertNoThirdPartyMoneyLibrary();
+
+// Local-test stand-ins (ZZ / fixture-marked screening list, INTAFACED_SCREENING_FAIL_CLOSED=off,
+// LOCAL_TEST_KMS) refuse unless APP_ENV is exactly dev or test. Reads the raw APP_ENV:
+// unset, blank and typos are not dev. Throws before postgres opens.
+assertNoLocalTestFixtures(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -416,6 +424,8 @@ const founderAuthority = createFounderAuthority({
 
 /** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */
 const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
+/** Blank, zero, or a partial triple leaves email invites unconfigured. */
+const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
@@ -450,6 +460,7 @@ export const appRouter = mergeRouters(
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
+    teamEmailInvite,
     disputes: disputeCases,
     pay,
     evidence: {
@@ -621,6 +632,12 @@ registerCaptureReconcileRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   pay,
   mode: env.PAY_CAPTURE_RECONCILE,
+  installRawBody: false,
+});
+
+registerMerchantEmailInviteRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  claim: (input) => claimEmailTeamInvites(sql, input, teamEmailInvite?.ttlMs),
   installRawBody: false,
 });
 

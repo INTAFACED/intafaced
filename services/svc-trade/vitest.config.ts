@@ -10,12 +10,18 @@ import { defineConfig } from 'vitest/config';
 // apply when the variable is not already exported by the caller.
 export default defineConfig({
   test: {
+    // Same budget as svc-bank, svc-matching, and the other services. The
+    // defaults (5s test, 10s hook) are shorter than a full-suite schema reset
+    // and the 20-position liquidation race on the shared test database.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     setupFiles: ['./vitest.futures-open-fixture.ts'],
     env: {
       // TRD-0522: production create refuses while TRADE_ALGO_JOBS_ENABLED is off.
       // Suites that store a parent assume the scheduler is on. The acceptance
       // test sets this back to false.
       TRADE_ALGO_JOBS_ENABLED: 'true',
+      APP_ENV: 'test',
       INTAFACED_SCREENING_FAIL_CLOSED: 'off',
       DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://svc_trade@127.0.0.1:5432/intafaced_trade_test',
       DATABASE_POOL_MAX: process.env.DATABASE_POOL_MAX ?? '2',

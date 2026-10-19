@@ -26,8 +26,16 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../tracing.js';
-import { queryCandlesFromFills, queryTakerVolumeFromFills } from './candles.js';
+import {
+  queryCandlesFromFills,
+  queryTakerVolumeFromFills,
+  assertCandleRangeWithinCap,
+  exportOhlcv,
+  OHLC_RECENT_ROW_CAP,
+} from './candles.js';
 import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
+import { deriveAlgoResultFromTotals, loadAlgoChildFillTotals, type AlgoResult } from '../algo/algo-result.js';
+import { newestSchedulerHeartbeat, readSchedulerState, type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
 import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
 import {
   optionsExercises as optionsExercisesDoor,
@@ -39,6 +47,7 @@ import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInpu
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
+import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
 import {
   assertMarketOpen,
@@ -148,7 +157,6 @@ import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
-  type Candle,
   type FillRecord,
   type Market,
   type MarketKind,
@@ -289,6 +297,16 @@ export interface TradeServiceOptions {
   /** Kill-switch for TWAP algo (D-S-04). OFF refuses create; cancel/pause still work. */
   algoEnabled?: boolean;
   /**
+   * TRADE_ALGO_JOBS_ENABLED. Default false. This service does not turn it on.
+   * The scheduler view reads the value it was given.
+   */
+  algoJobsEnabled?: boolean;
+  /**
+   * The algo.twap loop's own intervalMs. Null while the flag is off is fine.
+   * Jobs on with a blank interval answers jobs_interval_unset. Never invent 1000 here.
+   */
+  algoJobsIntervalMs?: number | null;
+  /**
    * The clock the venue-hours check reads.
    *
    * `risk.ts` deliberately takes `at` as a parameter so a session boundary can
@@ -325,6 +343,12 @@ export interface TradeServiceOptions {
    * Failures must not unwind the ledger settle.
    */
   dropCopyIngest?: DropCopyIngestPort;
+  /**
+   * After a spot fill is stored. Copy records a partial or filled trail row
+   * when the order is a placed mirror. A throwing sink is logged and does
+   * not unwind the fill.
+   */
+  onCopyMirrorFill?: (notice: { orderId: string; fillId: string; side: 'buy' | 'sell'; price: Amount; qty: Amount }) => Promise<void>;
   /**
    * Fired when an `order.hold` reply stays unknown, and when the sweep
    * resolves a `hold_unknown` row. A throwing sink does not change the money
@@ -699,6 +723,8 @@ export class TradeService {
   private readonly convertQuoteTtlMs: number | null;
   private readonly convertStore: ConvertQuoteStore;
   private readonly algoEnabled: boolean;
+  private readonly algoJobsEnabled: boolean;
+  private readonly algoJobsIntervalMs: number | null;
   private readonly now: () => Date;
   private readonly subAccounts: SubAccountOwnershipSource;
   /** D-S-04 TWAP scheduler — parent holds no value; children go through placeOrder. */
@@ -711,6 +737,13 @@ export class TradeService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   /** Best-effort FIX drop-copy hitch after settle (never fails the fill). */
   private readonly dropCopyIngest: DropCopyIngestPort;
+  private onCopyMirrorFill?: (notice: {
+    orderId: string;
+    fillId: string;
+    side: 'buy' | 'sell';
+    price: Amount;
+    qty: Amount;
+  }) => Promise<void>;
   private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
   private readonly holdUnknownTakerMaxAgeMs: number;
 
@@ -742,12 +775,15 @@ export class TradeService {
     this.convertQuoteTtlMs = options.convertQuoteTtlMs ?? null;
     this.convertStore = options.convertStore ?? new SqlConvertQuoteStore(sql);
     this.algoEnabled = options.algoEnabled ?? true;
+    this.algoJobsEnabled = options.algoJobsEnabled === true;
+    this.algoJobsIntervalMs = options.algoJobsIntervalMs ?? null;
     this.now = options.now ?? (() => new Date());
     this.subAccounts = options.subAccounts ?? new NoSubAccounts();
     this.algoStore = options.algoStore ?? new SqlTwapParentStore(sql);
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.dropCopyIngest = options.dropCopyIngest ?? new NoopDropCopyIngest();
+    this.onCopyMirrorFill = options.onCopyMirrorFill;
     this.onHoldUnknownAlert = options.onHoldUnknownAlert;
     const takerMaxAge = options.holdUnknownTakerMaxAgeMs ?? 30_000;
     this.holdUnknownTakerMaxAgeMs = Number.isInteger(takerMaxAge) && takerMaxAge >= 1_000 && takerMaxAge <= 600_000 ? takerMaxAge : 30_000;
@@ -822,6 +858,7 @@ export class TradeService {
           const level = side === 'buy' ? depth.asks[0] : depth.bids[0];
           return level ? parseAmount(level[0]) : null;
         },
+        recordArrivalMark: (parentId, mark) => this.algoStore.recordArrivalMark(parentId, mark.price, mark.asOf),
         markFor: async (marketId): Promise<AlgoQuotedMark | null> => {
           const depth = await this.matching.depth(marketId, 1);
           const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
@@ -1264,7 +1301,7 @@ export class TradeService {
   }
 
   algoList(principal: Principal, query: AlgoListQuery) {
-    return listAlgoParents(this.sql, principal, query, this.now());
+    return this.algoScheduler().then((scheduler) => listAlgoParents(this.sql, principal, query, this.now(), scheduler));
   }
 
   algoReports(principal: Principal, query: { algoId: string; limit?: number | null; cursor?: string | null }) {
@@ -2221,6 +2258,12 @@ export class TradeService {
    * After a proven engine remaining, shrink qty and post the exact leftover
    * hold. Sequence is the new instruction version so it never collides with
    * the terminal sequence-0 release.
+   *
+   * Qty is the committed fill sum plus the new remaining. `filled_qty` is a
+   * cache `refreshFilledQty` rewrites after the fill row commits and before
+   * `tradeFill` posts. Using the cache can store a qty below that sum; the
+   * overfill check then rejects every refresh and the hold slice
+   * `remainingHold` already counted stays in the order-hold account.
    */
   private async applyNativeAmendHold(
     order: OrderRecord,
@@ -2263,7 +2306,13 @@ export class TradeService {
             ),
           );
         }
-        const newQty = locked.filledQty + newRemaining;
+        const filledRows = await tx<Array<{ filled: string }>>`
+          SELECT COALESCE(SUM(qty), 0)::numeric(38, 18)::text AS filled
+            FROM trade.fills
+           WHERE order_id = ${locked.id}
+        `;
+        const committedFilled = parseAmount(filledRows[0]?.filled ?? '0');
+        const newQty = committedFilled + newRemaining;
         const amendReleased = locked.amendReleased + release;
         await appendOrderEvent(tx, {
           orderId: locked.id,
@@ -3086,6 +3135,13 @@ export class TradeService {
         makerFeeAsset,
         takerFeeAsset,
       });
+      await this.notifyCopyMirrorFill({
+        orderId: taker.id,
+        fillId: fillLegIdFor(market.id, fill.sequence, 'taker'),
+        side: fill.takerSide,
+        price,
+        qty,
+      });
 
       const takerSettledAt = new Date().toISOString();
       await this.bus.publish(
@@ -3290,6 +3346,13 @@ export class TradeService {
         ts: settledAt,
         order: leg.order,
       });
+      await this.notifyCopyMirrorFill({
+        orderId: leg.order.id,
+        fillId: fillLegIdFor(market.id, fill.sequence, leg.role),
+        side: leg.side,
+        price,
+        qty,
+      });
       const latest = await this.findOrder(leg.order.id);
       if (latest) await this.publishOrderUpdated(latest);
     }
@@ -3309,6 +3372,29 @@ export class TradeService {
     takerFeeAsset: string;
   }): Promise<void> {
     await fireAffiliateAccrue(this.affiliateAccrue, affiliateLegsAfterFill({ ...input, houseMmUserId: HOUSE_MM_USER_UUID }));
+  }
+
+  /** After the fill is stored. Failure is logged; the settled fill stays settled. */
+  bindCopyMirrorFill(observe: NonNullable<TradeServiceOptions['onCopyMirrorFill']>): void {
+    this.onCopyMirrorFill = observe;
+  }
+
+  private async notifyCopyMirrorFill(notice: {
+    orderId: string;
+    fillId: string;
+    side: 'buy' | 'sell';
+    price: Amount;
+    qty: Amount;
+  }): Promise<void> {
+    if (!this.onCopyMirrorFill) return;
+    try {
+      await this.onCopyMirrorFill(notice);
+    } catch (err) {
+      console.warn(
+        `svc-trade: copy mirror fill event failed orderId=${notice.orderId} — fill already settled`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   /**
@@ -4335,7 +4421,8 @@ export class TradeService {
    *
    * | Case | Detection | Action |
    * | --- | --- | --- |
-   * | orphan pending | `pending` + hold 0 | delete row (never held) |
+   * | orphan pending | `pending` + hold 0 + older than the in-flight bound | delete row (never held) |
+   * | pending in flight | `pending` + hold 0 + inside the bound | no action (a hold may still commit) |
    * | open+hold, engine live | `open` + hold > 0 + list hit | cancel then release remainder once |
    * | open+hold, engine miss, proven empty fills | list miss + `trade.fills` empty + `filled_qty` 0 | cancel remainder (existing path, fills are the evidence) |
    * | open+hold, engine miss, unknown fills | list miss + fills do not prove no fill | **fail closed** — named break, hold stays |
@@ -4375,8 +4462,40 @@ export class TradeService {
       const holdBefore = formatAmount(holdBal);
 
       // ── orphan pending: intent row, never funded ───────────────────────────
+      // Same age floor as the scheduled reconcile. Inside it, a hold post can
+      // still commit after this balance read; deleting the row would strand it.
       if (order.status === 'pending' && holdBal === 0n) {
-        await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+        const removed = await this.sql<{ id: string }[]>`
+          DELETE FROM trade.orders
+           WHERE id = ${orderId}
+             AND status = 'pending'
+             AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
+          RETURNING id
+        `;
+        if (removed.length === 0) {
+          const current = await this.findOrder(orderId);
+          if (!current) {
+            return {
+              orderId,
+              case: 'not_found',
+              action: 'none',
+              holdBefore,
+              engineLive: null,
+              detail: 'pending row vanished before the age-bounded delete',
+            };
+          }
+          return {
+            orderId,
+            case: 'pending_in_flight',
+            action: 'none',
+            holdBefore,
+            engineLive: null,
+            detail:
+              current.status === 'pending'
+                ? 'pending row is inside the hold in-flight bound — left in place'
+                : `status=${current.status} changed before the pending delete — left in place`,
+          };
+        }
         return {
           orderId,
           case: 'orphan_pending',
@@ -4570,15 +4689,17 @@ export class TradeService {
            ORDER BY f.sequence DESC
            LIMIT ${capped}
         `;
-    return rows.map((row) => ({
-      id: row.id,
-      side: row.side,
-      price: parseAmount(row.price),
-      qty: parseAmount(row.qty),
-      quoteAmount: parseAmount(row.quote_amount),
-      sequence: row.sequence,
-      ts: row.ts,
-    }));
+    return rows.map((row) =>
+      publicTapePrint({
+        id: row.id,
+        side: row.side,
+        price: parseAmount(row.price),
+        qty: parseAmount(row.qty),
+        quoteAmount: parseAmount(row.quote_amount),
+        sequence: row.sequence,
+        ts: row.ts,
+      }),
+    );
   }
 
   /**
@@ -4590,9 +4711,19 @@ export class TradeService {
    *
    * Limit is required — same inner door as HTTP OHLCV. Missing / non-integer /
    * out of 1..1000 refuses via `queryCandlesFromFills` (never invent 500).
+   * A request is answered in full for the window it asked for, or refused
+   * before SQL. Refuse when since→now covers more points than `limit`, or when
+   * `limit` is over 720. No shortened series.
+   * The export flags the open bucket. Its 720-row slice is only a defensive guard.
    */
-  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number): Promise<Candle[]> {
-    return queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+  async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number) {
+    const endMs = this.now().getTime();
+    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs, limit);
+    if (limit > OHLC_RECENT_ROW_CAP) {
+      throw new TradeError(`candle limit ${limit} is over the published cap of ${OHLC_RECENT_ROW_CAP}`, 'trade.candles_range_point_cap');
+    }
+    const rows = await queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
+    return exportOhlcv(rows, timeframe, endMs);
   }
 
   // ── Algo TWAP (D-S-04) — schedule emits children; parent holds no value ─────
@@ -4782,12 +4913,49 @@ export class TradeService {
 
   async algoProgress(principal: Principal, parentId: string): Promise<AlgoProgressView> {
     const parent = await this.getAlgo(principal, parentId);
-    let filled = 0n;
-    for (const child of parent.children) {
-      const fills = await this.fillsForOrder(principal, child.orderId, FILLS_MINE_LIMIT_MAX);
-      for (const f of fills) filled += f.qty;
-    }
-    return presentAlgoProgress(parent, filled);
+    // Aggregated in SQL over every child fill: no per-child page cap, and a
+    // child whose order row is gone does not fail the read.
+    const totals = await loadAlgoChildFillTotals(
+      this.sql,
+      principal.userId,
+      parent.children.map((child) => child.orderId),
+      '',
+    );
+    return presentAlgoProgress(parent, totals?.filledQty ?? 0n, await this.algoScheduler());
+  }
+
+  /** Derived child-fill result. Does not write. Does not put money on the parent. */
+  async algoResult(principal: Principal, parentId: string): Promise<AlgoResult> {
+    const parent = await this.getAlgo(principal, parentId);
+    const arrival = await this.algoStore.loadArrivalMark(parentId);
+    const markets = await this.sql<Array<{ quote_asset: string }>>`
+      SELECT quote_asset FROM markets WHERE id = ${parent.marketId}
+    `;
+    const quoteAsset = markets[0]?.quote_asset;
+    if (!quoteAsset) throw new TradeError(`market ${parent.marketId} not found`, 'trade.market_not_found');
+    const totals = await loadAlgoChildFillTotals(
+      this.sql,
+      principal.userId,
+      parent.children.map((child) => child.orderId),
+      quoteAsset,
+    );
+    return deriveAlgoResultFromTotals({
+      side: parent.side,
+      quoteAsset,
+      totals: totals ? [totals] : [],
+      arrivalPrice: arrival?.price ?? null,
+    });
+  }
+
+  /** Heartbeat read. Selects only. */
+  async algoScheduler(): Promise<AlgoSchedulerView> {
+    const newestTickAt = this.algoJobsEnabled ? await newestSchedulerHeartbeat(this.sql) : null;
+    return readSchedulerState({
+      jobsEnabled: this.algoJobsEnabled,
+      intervalMs: this.algoJobsIntervalMs,
+      newestTickAt,
+      now: this.now(),
+    });
   }
 
   async pauseAlgo(principal: Principal, parentId: string): Promise<TwapParent> {

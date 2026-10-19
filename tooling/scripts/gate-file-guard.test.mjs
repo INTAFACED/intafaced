@@ -134,6 +134,8 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
   for (const f of [
     'AGENTS.md',
     'CLAUDE.md',
+    'services/svc-x/CLAUDE.md',
+    'packages/a/b/CLAUDE.md',
     'tooling/agent-protocol/AGENT_PROTOCOL.md',
     '.agents/skills/x/SKILL.md',
     '.cursor/rules/inta.mdc',

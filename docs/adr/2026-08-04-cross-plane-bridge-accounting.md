@@ -143,7 +143,7 @@ Until an attestation design lands, **a crossing is operator-gated or it does not
 
 ## What still needs the owner
 
-- **Register the bridge as a human blocker.** It is X1 by any reading and `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` does not mention it.
+- **Register the bridge as a human blocker.** It is X1 by any reading and `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` (removed) does not mention it.
 - The attestation design and its signer set — **zero of the keys a crossing needs exist today**.
 - `jurisdiction.ts:135` sets `bridge: OPEN_FULL`, so a crossing already requires full KYC tier. That was decided silently; confirm or restate it deliberately.
 - Any go-live. Class X1, and plausibly X3.

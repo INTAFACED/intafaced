@@ -14,8 +14,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
-import type { Principal } from '@intafaced/auth';
+import { requireScope, type Principal } from '@intafaced/auth';
+import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
   copyMirrorClientOrderId,
@@ -75,7 +77,14 @@ import { generateCopySessionKey, requireUnrevokedCopySessionKey } from './sessio
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
-import { bindEnvelopeLimits, type CopyLeaderLimitSettings } from './follower-limits.js';
+import {
+  bindCopyFollowerLimits,
+  bindEnvelopeLimits,
+  envelopeWithBoundLimits,
+  followerLimitsFromEnvelope,
+  type CopyLeaderLimitSettings,
+} from './follower-limits.js';
+import { assertCopyConcurrency, assertCopySlippage, assertLeverageUnsupported, drawdownDecision } from './follow-limits-extra.js';
 import {
   acceptCopyDisclosure,
   readCopyDisclosure,
@@ -83,6 +92,16 @@ import {
   UNPUBLISHED_COPY_DISCLOSURE_LAW,
   type CopyDisclosureLaw,
 } from './disclosure.js';
+import { followResultFigure, readFollowResult, type FollowResult } from './follow-result.js';
+import {
+  MemoryMirrorEventLog,
+  observeCopyMirrorFill,
+  recordPlaceMirrorEvents,
+  recordPlanMirrorEvents,
+  type CopyMirrorFillNotice,
+  type MirrorEventLog,
+} from './mirror-events.js';
+import { exportMirrorTrail, listMirrorTrail, type MirrorTrailPage, type MirrorTrailQuery } from './mirror-trail.js';
 import {
   LeaderDirectory,
   memoryLeaderDirectory,
@@ -115,6 +134,8 @@ export type LeaderFill = {
   readonly side: MirrorSide;
   readonly qty: Amount;
   readonly notional: Amount;
+  /** Leader fill price. Absent → a slippage cap cannot be evaluated. */
+  readonly price?: Amount;
 };
 
 /** Production wires `trade.fills`. Absent or missing fill row → refuse-closed. */
@@ -160,8 +181,22 @@ export interface CopyServiceOptions {
    * this. Absent → copy.flatten refuses rather than invent a close.
    */
   flattenCopyPosition?: FlattenCopyPositionPort;
+  /** Append-only mirror trail. Production wires SqlMirrorEventLog. */
+  mirrorEvents?: MirrorEventLog;
+  /** Spot tables for the result and the trail. Absent → those reads refuse. */
+  sql?: Sql;
+  /**
+   * Book mid the algo engine's markFor reads, then gated by acceptableForAlgo.
+   * Absent → unrealised P&L is null with trade.mark_unavailable.
+   */
+  lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
+  /**
+   * Result figure for the drawdown stop. Production reads `followResultFigure`.
+   * A null figure refuses; this port must not invent one.
+   */
+  readResultFigure?: (follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>;
 }
 
 type FollowRef = { followId: string };
@@ -232,7 +267,11 @@ export class CopyService {
   private readonly lookupFollowerFillFee: LookupFollowerFillFeePort | null;
   private readonly lookupLeaderFill: LookupLeaderFillPort | null;
   private readonly flattenCopyPosition: FlattenCopyPositionPort | null;
+  private readonly mirrorEvents: MirrorEventLog;
+  private readonly sql: Sql | null;
+  private readonly lookupMark: ((marketId: string) => Promise<AlgoQuotedMark | null>) | null;
   private readonly directory: LeaderDirectory;
+  private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
 
   constructor(
     private readonly ledger: LedgerClient,
@@ -250,6 +289,10 @@ export class CopyService {
     this.lookupFollowerFillFee = options.lookupFollowerFillFee ?? null;
     this.lookupLeaderFill = options.lookupLeaderFill ?? null;
     this.flattenCopyPosition = options.flattenCopyPosition ?? null;
+    this.mirrorEvents = options.mirrorEvents ?? new MemoryMirrorEventLog();
+    this.sql = options.sql ?? null;
+    this.lookupMark = options.lookupMark ?? null;
+    this.readResultFigure = options.readResultFigure ?? null;
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -308,103 +351,131 @@ export class CopyService {
    * Flag off / blank §8 / paper→live refuse by name. Idempotent on fillId.
    */
   async placeMirrorForFollow(principal: Principal, input: { followId: string; fillId: string; leaderPaper: boolean }) {
-    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
-      let follow: CopyFollow;
-      try {
-        follow = await this.requireOwnedFollow(store, principal, input.followId);
-      } catch (err) {
-        // Flag off stays the public door: a missing follow must not become "not found".
-        if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
+      recordPlaceMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), async () => {
+        let follow: CopyFollow;
+        try {
+          follow = await this.requireOwnedFollow(store, principal, input.followId);
+        } catch (err) {
+          // Flag off stays the public door: a missing follow must not become "not found".
+          if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+            throw new CopyError(
+              'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
+              'trade.copy_place_disabled',
+              COPY_PLACE_DISABLED_RESIDUAL,
+            );
+          }
+          throw err;
+        }
+        await this.directory.refuseNewMirror(follow.leaderId);
+        if (!this.placeMirrorEnabled) {
           throw new CopyError(
             'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
             'trade.copy_place_disabled',
             COPY_PLACE_DISABLED_RESIDUAL,
           );
         }
-        throw err;
-      }
-      await this.directory.refuseNewMirror(follow.leaderId);
-      if (!this.placeMirrorEnabled) {
-        throw new CopyError(
-          'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
-          'trade.copy_place_disabled',
-          COPY_PLACE_DISABLED_RESIDUAL,
-        );
-      }
-      requirePublishedCopyFeeShareLaw(this.feeShareLaw);
+        requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
-      await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
-      await this.refuseIfFollowRegionClosed(store, follow);
-      if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
-        throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
-      }
-      requireNewCopyIntentAllowed(follow);
-      requireUnrevokedCopySessionKey(follow);
-      const prior = await store.getMirroredFill(follow.followId, canonicalizeCopyFillId(input.fillId));
-      if (!prior) {
-        throw new CopyError(
-          'No durable mirror plan for this fillId — planMirror first',
-          'trade.copy_auto_mirror_place_socket',
-          COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-        );
-      }
-      if (!this.placeFollowerOrder) {
-        throw new CopyError(
-          `Auto-mirror place into spot is refuse-closed (${COPY_AUTO_MIRROR_PLACE_SOCKET}) — planMirror claimed fill ${prior.fillId}; never invent a spot fill`,
-          'trade.copy_auto_mirror_place_socket',
-          COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-        );
-      }
-
-      const market = this.inspectMarket ? await this.inspectMarket(prior.marketId) : null;
-      if (input.leaderPaper) {
-        if (!market || market.paper !== true) {
+        await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
+        await this.refuseIfFollowRegionClosed(store, follow);
+        if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
+          throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
+        }
+        requireNewCopyIntentAllowed(follow);
+        requireUnrevokedCopySessionKey(follow);
+        const prior = await store.getMirroredFill(follow.followId, canonicalizeCopyFillId(input.fillId));
+        if (!prior) {
           throw new CopyError(
-            'Paper leader fill cannot place a live follower order',
+            'No durable mirror plan for this fillId — planMirror first',
+            'trade.copy_auto_mirror_place_socket',
+            COPY_AUTO_MIRROR_PLACE_RESIDUAL,
+          );
+        }
+        if (!this.placeFollowerOrder) {
+          throw new CopyError(
+            `Auto-mirror place into spot is refuse-closed (${COPY_AUTO_MIRROR_PLACE_SOCKET}) — planMirror claimed fill ${prior.fillId}; never invent a spot fill`,
+            'trade.copy_auto_mirror_place_socket',
+            COPY_AUTO_MIRROR_PLACE_RESIDUAL,
+          );
+        }
+
+        const market = this.inspectMarket ? await this.inspectMarket(prior.marketId) : null;
+        if (input.leaderPaper) {
+          if (!market || market.paper !== true) {
+            throw new CopyError(
+              'Paper leader fill cannot place a live follower order',
+              'trade.copy_paper_live_forbidden',
+              COPY_PAPER_LIVE_RESIDUAL,
+            );
+          }
+        } else if (market?.paper === true) {
+          throw new CopyError(
+            'Live leader fill cannot place onto a paper market',
             'trade.copy_paper_live_forbidden',
             COPY_PAPER_LIVE_RESIDUAL,
           );
         }
-      } else if (market?.paper === true) {
-        throw new CopyError(
-          'Live leader fill cannot place onto a paper market',
-          'trade.copy_paper_live_forbidden',
-          COPY_PAPER_LIVE_RESIDUAL,
-        );
-      }
 
-      const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
-      const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
-        const clientOrderId = copyMirrorClientOrderId(follow.followId, prior.fillId);
-        const placed = await this.placeFollowerOrder!(principal, {
-          followId: follow.followId,
-          symbol: prior.marketId,
-          marketId: prior.marketId,
-          side: prior.side,
-          qty: prior.qty,
-          price,
-          clientOrderId,
+        const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
+        const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
+          const leaderFill = this.lookupLeaderFill ? await this.lookupLeaderFill(prior.fillId) : null;
+          assertCopySlippage({
+            capBps: follow.envelope.maxSlippageBps,
+            followerPrice: price,
+            leaderPrice: leaderFill?.price ?? null,
+          });
+          if (follow.envelope.maxConcurrent !== undefined) {
+            assertCopyConcurrency(await store.countOpenMirrors(follow.followId), follow.envelope.maxConcurrent);
+          }
+          if (follow.envelope.maxDrawdown !== undefined) {
+            const reading = await this.currentResultFigure(follow);
+            if (reading.figure === null) {
+              throw new CopyError(
+                `Drawdown cannot be evaluated: ${reading.missing ?? 'followResult'} is missing`,
+                'trade.copy_limit_unevaluable',
+              );
+            }
+            const latest = await store.getFollow(follow.followId);
+            const decision = drawdownDecision(latest?.peakResult ?? null, reading.figure, follow.envelope.maxDrawdown);
+            if (decision.stop) {
+              throw new CopyError(
+                'Drawdown from the peak result is at the cap — new mirrors stop and existing positions stay',
+                'trade.copy_drawdown_stop',
+              );
+            }
+          }
+          const clientOrderId = copyMirrorClientOrderId(follow.followId, prior.fillId);
+          const placed = await this.placeFollowerOrder!(principal, {
+            followId: follow.followId,
+            symbol: prior.marketId,
+            marketId: prior.marketId,
+            side: prior.side,
+            qty: prior.qty,
+            price,
+            clientOrderId,
+          });
+          return {
+            followId: follow.followId,
+            fillId: prior.fillId,
+            orderId: placed.orderId,
+            clientOrderId,
+            price,
+          };
         });
+
         return {
           followId: follow.followId,
           fillId: prior.fillId,
-          orderId: placed.orderId,
-          clientOrderId,
-          price,
+          orderId: once.record.orderId,
+          marketId: prior.marketId,
+          side: prior.side,
+          qty: formatAmount(prior.qty),
+          price: formatAmount(price),
+          duplicate: once.status === 'duplicate',
         };
-      });
-
-      return {
-        followId: follow.followId,
-        fillId: prior.fillId,
-        orderId: once.record.orderId,
-        marketId: prior.marketId,
-        side: prior.side,
-        qty: formatAmount(prior.qty),
-        price: formatAmount(price),
-        duplicate: once.status === 'duplicate',
-      };
-    });
+      }),
+    );
   }
 
   /**
@@ -472,6 +543,14 @@ export class CopyService {
       maxAggregateExposure: string;
       /** Independent follower loss cap. Required when leaderSettings.maxLoss is set. */
       maxLoss?: string;
+      /** Whole basis points, 1 to 10000. Required when the leader recommends one. */
+      maxSlippageBps?: number | null;
+      /** Placed mirrors of this follow that are not yet terminal. At least 1. */
+      maxConcurrent?: number | null;
+      /** Positive decimal. Peak minus current result at or above this stops new mirrors. */
+      maxDrawdown?: string | null;
+      /** Refused. Copy places spot limits only; nothing is stored. */
+      maxLeverage?: string | number | null;
       expiresAt: string;
       /** Leader recommendations — clamp only; never raise follower caps. */
       leaderSettings?: CopyLeaderLimitSettings;
@@ -487,6 +566,7 @@ export class CopyService {
     if (leaderId === principal.userId) {
       throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
     }
+    assertLeverageUnsupported(input.maxLeverage);
 
     for (const f of await this.store.listFollowsByFollower(principal.userId)) {
       if (f.leaderId === leaderId) {
@@ -494,16 +574,25 @@ export class CopyService {
       }
     }
 
-    const envelope = bindEnvelopeLimits(
-      parseCopyEnvelope({
-        permittedMarkets: input.permittedMarkets,
-        maxNotionalPerOrder: input.maxNotionalPerOrder,
-        maxAggregateExposure: input.maxAggregateExposure,
-        maxLoss: input.maxLoss,
-        expiresAt: input.expiresAt,
-        now: this.now(),
+    const parsed = parseCopyEnvelope({
+      permittedMarkets: input.permittedMarkets,
+      maxNotionalPerOrder: input.maxNotionalPerOrder,
+      maxAggregateExposure: input.maxAggregateExposure,
+      maxLoss: input.maxLoss,
+      expiresAt: input.expiresAt,
+      now: this.now(),
+    });
+    const envelope = envelopeWithBoundLimits(
+      parsed,
+      bindCopyFollowerLimits({
+        follower: {
+          ...followerLimitsFromEnvelope(parsed),
+          maxSlippageBps: input.maxSlippageBps,
+          maxConcurrent: input.maxConcurrent,
+          maxDrawdown: input.maxDrawdown,
+        },
+        leader: input.leaderSettings,
       }),
-      input.leaderSettings,
     );
 
     const follow: CopyFollow = {
@@ -721,7 +810,9 @@ export class CopyService {
    */
   async planMirrorForFollow(principal: Principal, input: PlanMirrorInput) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      this.planMirrorForFollowExclusive(store, principal, input),
+      recordPlanMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), () =>
+        this.planMirrorForFollowExclusive(store, principal, input),
+      ),
     );
   }
 
@@ -767,7 +858,15 @@ export class CopyService {
       return presentMirrorPlan({ ...prior, reason: 'within_envelope' });
     }
 
-    const observation = await this.observationFromLeaderFill(follow, fillId);
+    const { observation, leaderPrice } = await this.observationFromLeaderFill(follow, fillId);
+    assertCopySlippage({
+      capBps: gated.envelope.maxSlippageBps,
+      followerPrice: copyLimitPriceFromPlan(observation.qty, observation.notional),
+      leaderPrice,
+    });
+    if (gated.envelope.maxConcurrent !== undefined) {
+      assertCopyConcurrency(await store.countOpenMirrors(follow.followId), gated.envelope.maxConcurrent);
+    }
 
     const current = await store.getExposure(follow.followId);
     // Envelope / market / expiry / per-order checks — may throw typed refuse.
@@ -779,6 +878,18 @@ export class CopyService {
       currentExposure: current,
       now: this.now(),
     });
+
+    let drawdown: { current: Amount; cap: Amount } | undefined;
+    if (gated.envelope.maxDrawdown !== undefined) {
+      const reading = await this.currentResultFigure(follow);
+      if (reading.figure === null) {
+        throw new CopyError(
+          `Drawdown cannot be evaluated: ${reading.missing ?? 'followResult'} is missing`,
+          'trade.copy_limit_unevaluable',
+        );
+      }
+      drawdown = { current: reading.figure, cap: gated.envelope.maxDrawdown };
+    }
 
     const claimed = await store.claimMirrorFill({
       followId: follow.followId,
@@ -794,8 +905,15 @@ export class CopyService {
         qty: planned.qty,
         notional: planned.notional,
       },
+      ...(drawdown ? { drawdown } : {}),
     });
 
+    if (claimed.status === 'drawdown_stop') {
+      throw new CopyError(
+        'Drawdown from the peak result is at the cap — new mirrors stop and existing positions stay',
+        'trade.copy_drawdown_stop',
+      );
+    }
     if (claimed.status === 'duplicate') {
       // Lost the race to another delivery of the same fill — return its plan.
       return presentMirrorPlan({ ...claimed.plan, reason: 'within_envelope' });
@@ -838,15 +956,33 @@ export class CopyService {
         'trade.copy_leader_fill_not_found',
       );
     }
-    return parseLeaderFillObservation({
-      fillId,
-      leaderId: follow.leaderId,
-      marketId: fill.marketId,
-      side: fill.side,
-      qty: formatAmount(fill.qty),
-      notional: formatAmount(fill.notional),
-      observedAt: this.now(),
+    return {
+      observation: parseLeaderFillObservation({
+        fillId,
+        leaderId: follow.leaderId,
+        marketId: fill.marketId,
+        side: fill.side,
+        qty: formatAmount(fill.qty),
+        notional: formatAmount(fill.notional),
+        observedAt: this.now(),
+      }),
+      leaderPrice: fill.price ?? null,
+    };
+  }
+
+  private async currentResultFigure(follow: CopyFollow): Promise<{ figure: Amount | null; missing: string | null }> {
+    if (this.readResultFigure) return this.readResultFigure(follow);
+    if (!this.sql) return { figure: null, missing: 'followResult' };
+    const result = await readFollowResult(this.sql, follow, {
+      lookupFollowerFillFee: this.lookupFollowerFillFee,
+      lookupMark: this.lookupMark,
+      now: this.now(),
     });
+    const figured = followResultFigure(result);
+    return {
+      figure: figured.figure === null ? null : parseAmount(figured.figure),
+      missing: figured.missing,
+    };
   }
 
   /**
@@ -1091,6 +1227,41 @@ export class CopyService {
       }),
       settled: record.settled,
     };
+  }
+
+  /** Caller's own follow. Another account's id is not found. */
+  async result(principal: Principal, followId: string): Promise<FollowResult> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy result is not mounted', 'trade.copy_unavailable');
+    const follow = await this.requireOwnedFollow(this.store, principal, followId);
+    return readFollowResult(this.sql, follow, {
+      lookupFollowerFillFee: this.lookupFollowerFillFee,
+      lookupMark: this.lookupMark,
+      now: this.now(),
+    });
+  }
+
+  /** Oldest first. Window and limit are required; a blank limit is refused. */
+  async mirrorTrail(principal: Principal, input: MirrorTrailQuery): Promise<MirrorTrailPage> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy trail is not mounted', 'trade.copy_unavailable');
+    await this.requireOwnedFollow(this.store, principal, input.followId);
+    return listMirrorTrail(this.sql, principal, input);
+  }
+
+  /** Same rows as the trail, as CSV. Session scope is trade:read. */
+  async exportMirrorTrail(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy trail is not mounted', 'trade.copy_unavailable');
+    const followId = requireCopyFollowId(query.followId);
+    await this.requireOwnedFollow(this.store, principal, followId);
+    return exportMirrorTrail(this.sql, principal, { followId, from: query.from, to: query.to });
+  }
+
+  /** One-line spot hook after a follower fill is stored. Not a mirror order → no row. */
+  async observeFollowerFill(notice: CopyMirrorFillNotice): Promise<void> {
+    if (!this.sql) return;
+    await observeCopyMirrorFill(this.sql, this.mirrorEvents, notice, this.now());
   }
 
   /** Forbidden surfaces — explicit refuse for honesty tests. */

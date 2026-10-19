@@ -26,6 +26,7 @@ import { createDropCopyWebSocketGateway } from './drop-copy/gateway.js';
 import { HttpPrivateBookPort } from './private/book.js';
 import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
+import { NewConnectionWindow } from './new-connection-window.js';
 import { createWebSocketGateway } from './ws/gateway.js';
 import { customerOriginsFromEnv } from './customer-origin.js';
 import { CandleHub } from './mux/candle-hub.js';
@@ -481,6 +482,7 @@ busLifecycle.start();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 
+const newConnections = new NewConnectionWindow(env.WS_MAX_NEW_CONNECTIONS_PER_MINUTE);
 const gateway = createWebSocketGateway({
   server: app.server,
   hub,
@@ -490,6 +492,7 @@ const gateway = createWebSocketGateway({
   heartbeatMs: env.WS_HEARTBEAT_MS,
   log: app.log,
   enabled: isEnabled,
+  admitNewConnection: () => newConnections.admit(),
 });
 
 const customerOrigins = customerOriginsFromEnv(env);

@@ -3,8 +3,8 @@
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-09, **completing** it rather than opening it.
-**Builds on:** [`SPEC-OTC-RFQ-AND-EARN-2026-08-02.md`](../SPEC-OTC-RFQ-AND-EARN-2026-08-02.md) Part B, which already decided the Earn half ("yield must have a named source"), and [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §7. Neither answered the board's other column — **cards/ramps sandbox bounds, and what is §13 forever**. That is what this adds. Part B stands unchanged.
-**Supersedes in scope:** nothing. Sharpens the Phase 5 done-bar in [`BOARD-CLEAR-CONSTITUTION-2026-08-01.md`](../BOARD-CLEAR-CONSTITUTION-2026-08-01.md) §3.8 for `bank.*` specifically.
+**Builds on:** `SPEC-OTC-RFQ-AND-EARN-2026-08-02.md` (removed) Part B, which already decided the Earn half ("yield must have a named source"), and `DIRECTION-2026-07-31.md` (removed) §7. Neither answered the board's other column — **cards/ramps sandbox bounds, and what is §13 forever**. That is what this adds. Part B stands unchanged.
+**Supersedes in scope:** nothing. Sharpens the Phase 5 done-bar in `BOARD-CLEAR-CONSTITUTION-2026-08-01.md` (removed) §3.8 for `bank.*` specifically.
 
 ---
 

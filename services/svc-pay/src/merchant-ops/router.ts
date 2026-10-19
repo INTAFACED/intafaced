@@ -24,6 +24,7 @@ import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
 import { TeamService } from './team.js';
+import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
 
 /**
@@ -54,6 +55,8 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
+  readonly teamEmailInvite?: TeamEmailInviteLimit;
   /**
    * How a freshly queued export gets generated. Default: run it in this process
    * on the next tick. Tests pass a no-op and drive `processQueued` themselves.
@@ -71,7 +74,7 @@ function makeParts(deps: MerchantOpsDeps) {
   const parts = sql
     ? {
         sql,
-        team: new TeamService(sql),
+        team: new TeamService(sql, deps.teamEmailInvite),
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
@@ -283,7 +286,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         invite: write
           .input(
             z.object({
-              userId: z.string().trim().min(1).max(128),
+              userId: z.string().trim().min(1).max(128).optional(),
+              email: z.string().trim().min(1).max(254).optional(),
               role: z.enum(TEAM_ROLES),
               label: z.string().trim().min(1).max(120).optional(),
             }),

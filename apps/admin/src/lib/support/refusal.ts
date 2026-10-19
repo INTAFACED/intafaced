@@ -10,7 +10,7 @@ import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
  */
 
 /** The sentence a founder reads when svc-support says the session lacks the support permission. Said the same everywhere. */
-export const SUPPORT_OPS_FORBIDDEN = 'Your console session does not have support operations permission yet';
+export const SUPPORT_OPS_FORBIDDEN = 'Your console session does not have support operations permission';
 
 export const SUPPORT_OPS_FORBIDDEN_BODY =
   'svc-support checks the support-staff permission (support:ops) itself and refused. Founder sign-in does not carry it today; granting it is pending in identity.';

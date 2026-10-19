@@ -26,6 +26,12 @@ export interface TwapParentStore {
   load(id: string): Promise<TwapParentRecord | null>;
   listForUser(userId: string): Promise<TwapParent[]>;
   listActive(): Promise<TwapParentRecord[]>;
+  /**
+   * First accepted mark. A second call for the same parent does nothing
+   * and returns false. The price is not a field of TwapParent.
+   */
+  recordArrivalMark(id: string, price: Amount, at: Date): Promise<boolean>;
+  loadArrivalMark(id: string): Promise<{ price: Amount; at: Date } | null>;
 }
 
 type ChildJson = {
@@ -219,6 +225,27 @@ export class SqlTwapParentStore implements TwapParentStore {
     `;
     return rows.map(rowToRecord);
   }
+
+  async recordArrivalMark(id: string, price: Amount, at: Date): Promise<boolean> {
+    const rows = await this.sql`
+      UPDATE algo_parents
+      SET arrival_mark = ${formatAmount(price)}::numeric,
+          arrival_mark_at = ${at}
+      WHERE id = ${id} AND arrival_mark IS NULL
+      RETURNING id
+    `;
+    return rows.length > 0;
+  }
+
+  async loadArrivalMark(id: string): Promise<{ price: Amount; at: Date } | null> {
+    const rows = await this.sql<Array<{ arrival_mark: string | null; arrival_mark_at: Date | string | null }>>`
+      SELECT arrival_mark::text AS arrival_mark, arrival_mark_at
+      FROM algo_parents WHERE id = ${id}
+    `;
+    const row = rows[0];
+    if (!row || row.arrival_mark == null || row.arrival_mark_at == null) return null;
+    return { price: parseAmount(row.arrival_mark), at: new Date(row.arrival_mark_at) };
+  }
 }
 
 function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
@@ -264,6 +291,8 @@ function rowToRecord(row: Record<string, unknown>): TwapParentRecord {
 /** In-memory store for unit tests (process-local). */
 export class MemoryTwapParentStore implements TwapParentStore {
   private readonly byId = new Map<string, TwapParentRecord>();
+  /** First accepted mark. Not copied onto the parent object. */
+  private readonly arrival = new Map<string, { price: Amount; at: Date }>();
 
   constructor(private readonly readJobs: () => boolean = readTradeAlgoJobsEnabled) {}
 
@@ -305,5 +334,15 @@ export class MemoryTwapParentStore implements TwapParentStore {
 
   async listActive(): Promise<TwapParentRecord[]> {
     return [...this.byId.values()].filter((r) => r.parent.status === 'active');
+  }
+
+  async recordArrivalMark(id: string, price: Amount, at: Date): Promise<boolean> {
+    if (!this.byId.has(id) || this.arrival.has(id)) return false;
+    this.arrival.set(id, { price, at });
+    return true;
+  }
+
+  async loadArrivalMark(id: string): Promise<{ price: Amount; at: Date } | null> {
+    return this.arrival.get(id) ?? null;
   }
 }

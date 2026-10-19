@@ -3,9 +3,9 @@
 **Status:** **Accepted as launch-closed — 2026-08-15.** Mechanism is refuse-closed. Magnitudes remain unpublished until the owner writes them into **config authority**, not source seeds.
 **Decision owner (magnitudes):** Nitro / host (DIRECTION §8 item 10).
 **Mechanism owner (this document):** Denon.
-**Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-02**.
-**Packet:** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §3; index [`ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json) row `D26-P0-02` only.
-**Law cited:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8 item 10 — `leader_share_bps` and every other fee-share rate are owner-only.
+**Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-02**.
+**Packet:** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §3; index [`ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json) row `D26-P0-02` only.
+**Law cited:** `DIRECTION-2026-07-31.md` (removed) §8 item 10 — `leader_share_bps` and every other fee-share rate are owner-only.
 **Pattern (already on tip — do not re-implement here):** `COPY_FEE_SHARE_RESIDUAL` in `services/svc-trade/src/copy/errors.ts` — decline the surface and name the residual rather than inventing a rate.
 
 This ADR does **not** invent bps, percents, caps, decay, hop rates, commission floors, or PSP price rows. It does **not** edit `svc-trade` / `svc-identity` / `svc-market` / Vue / `svc-edge`.

@@ -358,7 +358,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
                   ) : (
                     <PayNotice title={p2pDepth.t('offersNoneBoardTitle')}>{p2pDepth.t('offersNoneBoardBody')}</PayNotice>
                   )}
-                  <PayPagination count={rows.length} limit={limit} setLimit={setLimit} />
+                  <PayPagination count={visible.length} fetched={rows.length} limit={limit} setLimit={setLimit} />
                 </>
               );
             }}

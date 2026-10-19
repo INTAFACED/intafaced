@@ -12,7 +12,7 @@
  *
  *   1. The PR head is exactly --head, the PR is open, not a draft, and has no merge conflict.
  *   2. Every check on that head has FINISHED (bounded wait; nothing here can hang past --timeout-min).
- *   3. The required checks, Gitleaks (workflow "Gitleaks") and Dependency audit (workflow "Supply chain"), ran and passed.
+ *   3. The required checks, Gitleaks and Dependency audit (both in workflow "PR checks"), ran and passed.
  *      Checks are identified by workflow AND name, so a same-named job in another workflow neither satisfies a required
  *      check nor gets excused by a job of that name on main.
  *   4. The PR adds no failing check that is not ALSO failing on main's latest completed push run of ci.yml that actually
@@ -74,7 +74,7 @@
  *
  * RUN IT FROM AN UP-TO-DATE origin/main CHECKOUT. A PR can edit this very file; the gate refuses to run unless
  * `git diff origin/main -- tooling/scripts tooling/ci` is empty (after fetching), so it is always main's copy that judges.
- * That is also the backstop for the one thing gate-file-guard.yml cannot stop: a PR editing the guard workflow itself.
+ * That is also the backstop for the one thing pr-checks.yml cannot stop: a PR editing the guard workflow itself.
  *
  * Exit codes: 0 pass, 1 gate failed (new failures, missing required check, undeclared gate change, conflict), 2 could not
  * decide (wrong head, timeout, bad arguments, no baseline), 3 GitHub refused with 403/429 (stop, never retried).
@@ -95,8 +95,8 @@ export const MARKER = '<!-- merge-gate -->';
  * Identified by workflow + name, which is the `workflow` and `name` that `gh pr checks --json` reports.
  */
 export const REQUIRED = [
-  { workflow: 'Gitleaks', name: 'Gitleaks' },
-  { workflow: 'Supply chain', name: 'Dependency audit' },
+  { workflow: 'PR checks', name: 'Gitleaks' },
+  { workflow: 'PR checks', name: 'Dependency audit' },
 ];
 
 /** Identity of a check or job: "<workflow>/<job name>". */

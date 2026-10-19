@@ -2,8 +2,8 @@
 
 **Status:** **Accepted — 2026-08-05.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
-**Spec ids:** **D-S-01** (futures risk product law) and the futures half of **D-S-07** (oracle / mark policy). The lending half of D-S-07 is already law in [`SPEC-LENDING-2026-08-02.md`](../SPEC-LENDING-2026-08-02.md) §1 and is unchanged.
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §1 — isolated margin only, partial-liquidation posture, MVP done bar. All of that stands.
+**Spec ids:** **D-S-01** (futures risk product law) and the futures half of **D-S-07** (oracle / mark policy). The lending half of D-S-07 is already law in `SPEC-LENDING-2026-08-02.md` (removed) §1 and is unchanged.
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §1 — isolated margin only, partial-liquidation posture, MVP done bar. All of that stands.
 **Binds:** [`adr/2026-08-04-bank-vertical-law.md`](2026-08-04-bank-vertical-law.md), which already binds futures to `prices.ts`'s refusal vocabulary. This is the other half of that sentence.
 
 ---

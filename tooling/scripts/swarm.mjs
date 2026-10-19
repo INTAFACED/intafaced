@@ -53,7 +53,7 @@ function ghJson(args) {
   }
 }
 
-/** REGROUP product claims — paths from tip docs/REGROUP-2026-08-03.md §5–6 */
+/** REGROUP product claims — paths from tip docs/REGROUP-2026-08-03.md (removed) §5–6 */
 const REGROUP_CLAIMS = [
   {
     id: 'RP1',
@@ -1012,9 +1012,9 @@ function renderFreezeMd(m) {
   lines.push(`- **Stranded branches (P1):** ${m.strandedCount ?? (m.strandedBranches || []).length}`);
   // Recommend the DRY RUN, never the destructive form. A cap warning is a
   // count, not a diagnosis: it cannot tell an abandoned checkout from four
-  // live agents. Pointing an operator straight at `wt:gc:apply` is how
+  // live agents. Pointing an operator straight at a bulk-removal mode is how
   // "Another lane's worktree-gc --apply deleted two of this lane's worktrees
-  // mid-edit" happened (docs/LANE-CLOSEOUT-OPS-2026-08-08.md).
+  // mid-edit" happened (docs/LANE-CLOSEOUT-OPS-2026-08-08.md, removed).
   lines.push(
     `- **Worktrees:** ${m.worktreeCount ?? '?'} ${m.worktreeOverCap ? '⚠ OVER CAP 20 — review with `pnpm wt:gc` (dry run; it prints why each one is kept). It removes nothing: remove only your own worktree with `git worktree remove <path>` (never --force, never delete a branch).' : '(cap 20)'}`,
   );
@@ -1029,11 +1029,11 @@ function renderFreezeMd(m) {
     lines.push('- **Actions runs (24h):** (gh unavailable — re-run with network)');
   }
   lines.push(
-    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/archive/styleboard/`) — NO-FLEET is Docker, not "never seen UI".',
+    '- **Proof mode:** NO-FLEET until Docker present — static build + scans; never fake UI done. UI proof tooling exists (`pnpm ui:proof` + `docs/archive/styleboard/ (removed)`) — NO-FLEET is Docker, not "never seen UI".',
   );
   lines.push('- **Claims:** docs/ops/claims/<id>.md (do not hand-edit LIVE-LANES mid-wave)');
   lines.push(
-    '- **Cold resume:** this file + `docs/COORDINATION-TRUTH-LAYERS.md` § Agent cold-start · human blockers: `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` · value gate: `tooling/ci/value-gate.mjs`',
+    '- **Cold resume:** this file + `docs/COORDINATION-TRUTH-LAYERS.md` (removed) § Agent cold-start · human blockers: `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` (removed) · value gate: `tooling/ci/value-gate.mjs`',
   );
   if (m.residualError) lines.push(`- **Residual error:** ${m.residualError}`);
   else lines.push(`- **Residual:** updated=${m.residualUpdated} tip_note=${m.residualTipNote || '—'}`);
@@ -1055,7 +1055,7 @@ function renderFreezeMd(m) {
       '**BAN:** `docs(ops): R07 cycleN freeProduct=0` style PRs when freeShell+freeImplementable stay 0 and partner matrix unchanged.',
     );
     lines.push(
-      '**Metric:** L0 value gate (`tooling/ci/value-gate.mjs`) + `Board-Delta:` trailer — see `docs/BOARD-CLEAR-PROCESS-LOOPS.md` L0.',
+      '**Metric:** L0 value gate (`tooling/ci/value-gate.mjs`) + `Board-Delta:` trailer — see `docs/BOARD-CLEAR-PROCESS-LOOPS.md` (removed) L0.',
     );
     lines.push('');
   }
@@ -1135,7 +1135,7 @@ function renderFreezeMd(m) {
   lines.push('## Law');
   lines.push('');
   lines.push(
-    '- `docs/ops/SWARM-MANDATE.md` (AFK priority ladder + stamp-mill ban) · `docs/SWARM-ALL-OUT-ORIENT-2026-08-03.md` · `docs/REGROUP-2026-08-03.md`',
+    '- `docs/ops/SWARM-MANDATE.md` (AFK priority ladder + stamp-mill ban) · `docs/SWARM-ALL-OUT-ORIENT-2026-08-03.md` (removed) · `docs/REGROUP-2026-08-03.md` (removed)',
   );
   lines.push('- Before edit: `pnpm claim:check <paths>` · worktree only · no invent money/depth');
   lines.push('- Shehzad protocol/INTACHAIN babysit only · no dual-edit Denon open PR files');

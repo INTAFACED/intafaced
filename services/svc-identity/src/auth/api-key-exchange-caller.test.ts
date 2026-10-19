@@ -6,6 +6,7 @@ import { publicProcedure, retainRawBody, router, serviceAuthHeadersForBody } fro
 import { createIdentityRequestContext } from '../controls/founder-context.js';
 import { createApiKeyAccountRouter } from '../api-key-account-router.js';
 import { createApiKeyProductRouter } from '../api-key-product-router.js';
+import type { ApiKeyFactorGate } from './api-key-fresh-factor.js';
 
 const INTERNAL = 'synthetic-generic-identity-service-key-long-enough';
 const EDGE = 'synthetic-http-read-identity-key-long-enough';
@@ -113,8 +114,8 @@ describe('exchange routes accept request material only from svc-edge', () => {
       },
     };
     const sql = (async () => []) as unknown as Sql;
-    const product = createApiKeyProductRouter(sql, minter);
-    const account = createApiKeyAccountRouter(sql, minter);
+    const product = createApiKeyProductRouter(sql, minter, {} as ApiKeyFactorGate);
+    const account = createApiKeyAccountRouter(sql, minter, {} as ApiKeyFactorGate);
     const anonymous = { principal: null, service: null, region: 'DE', requestId: 'r' };
     const edge = { ...anonymous, service: 'svc-edge' };
     await expect(

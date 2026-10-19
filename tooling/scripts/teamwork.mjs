@@ -37,15 +37,6 @@ const OWNERSHIP_SURFACES = [
   ['tooling/frontend/residual-register.json', 'non-tracker residual status'],
   ['docs/ops/claims', 'per-claim lock/completion files'],
   ['docs/LIVE-LANES.md', 'session lanes'],
-  ['docs/THREE-WAY-DISTRIBUTION-2026-08-04.md', 'person lanes'],
-  ['docs/GITHUB-OWNERSHIP-SHEHZAD.md', 'chain mountains'],
-  ['docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md', 'chain board'],
-  ['docs/DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md', 'Denon-reserved work'],
-  ['docs/NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md', 'layer split'],
-  ['docs/BOARD-CLEAR-NEXT.md', 'campaign next'],
-  ['docs/BOARD-CLEAR-SCOREBOARD.md', 'campaign owners'],
-  ['docs/BOARD-CLEAR-HUMAN-BLOCKERS.md', 'human-only blockers'],
-  ['docs/SPLIT-BOARD.md', 'path territory'],
 ];
 
 /**
@@ -61,21 +52,10 @@ const MANDATED_READ = [
   'AGENTS.md',
   'INTAFACED_DEFINITIVE_BUILD.md',
   'tooling/agent-protocol/AGENT_PROTOCOL.md',
-  'docs/NITRO-OWNERSHIP-AND-DENON-DIRECTION-2026-07-31.md',
-  'docs/INTERNET-LEVERAGE-LAW.md',
-  'docs/INTERNET-LEVERAGE-CURRENT-AUDIT-2026-08-04.md',
-  'docs/INTERNET-LEVERAGE-PHASE-B-FULL-HORIZON-2026-08-05.md',
   'CONTRIBUTING.md',
-  'docs/START-HERE.md',
   'docs/ops/README.md',
   'docs/LIVE-LANES.md',
-  'docs/COORDINATION-TRUTH-LAYERS.md',
-  'docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md',
-  'docs/THREE-WAY-DISTRIBUTION-2026-08-04.md',
-  'docs/SWARM-ALL-OUT-ORIENT-2026-08-03.md',
   'docs/ops/SWARM-MANDATE.md',
-  'docs/REGROUP-2026-08-03.md',
-  'docs/DENON-HARD-TASK-BOARD-FROM-NITRO-SWARM-2026-08-03.md',
 ];
 
 const words = (p) => {

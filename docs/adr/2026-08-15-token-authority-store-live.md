@@ -2,7 +2,7 @@
 
 **Status:** **Accepted — 2026-08-15 (D26-P0-04 sealed as a dedicated authority ADR).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
-**Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-04**.  
+**Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-04**.  
 **Cites (does not replace):** [`2026-08-04-token-economics-outcomes.md`](2026-08-04-token-economics-outcomes.md) — whose the numbers are, and the irreversible-burn defect.  
 **Does not invent:** emission, buyback, burn, or staking **magnitudes** — those stay **PKT-C9 / Nitro**.  
 **Does not edit:** `services/svc-token` (promise-falsify / remaining implement = **D26-P2-01g**). No Vue. No Shehzad chain.

@@ -60,10 +60,10 @@ export const GATES = [
     why:
       'the only tool in this repo that deletes another agent’s working state, and until this entry nothing ran its ' +
       'proof. #1151 fixed three ways it did exactly that — it read no claim board, so a worktree named **live** in ' +
-      'docs/LIVE-LANES.md was garbage on its first clean minute (docs/LANE-CLOSEOUT-OPS-2026-08-08.md:333 records ' +
+      'docs/LIVE-LANES.md was garbage on its first clean minute (docs/LANE-CLOSEOUT-OPS-2026-08-08.md (removed):333 records ' +
       'another lane losing two worktrees mid-edit and an unpushed branch to that); it had no mtime signal; and it ' +
       'found MAIN via `rev-parse --show-toplevel`, so run from a linked worktree the real main checkout was just ' +
-      'another cherry-empty row and `git branch -D main` was in the plan (MEGA-AUDIT-2026-08-07-FINDINGS.md:887, ' +
+      'another cherry-empty row and `git branch -D main` was in the plan (MEGA-AUDIT-2026-08-07-FINDINGS.md (removed):887, ' +
       'severity high, recorded and unfixed for a day). #1151 also shipped 15 classifier fixtures that go red if any ' +
       'of the three is reverted — and wired them to nothing, so a revert broke no check that verify or CI ran. That ' +
       'is the shape of the six guards this repo has already built correct and left unreachable. Cheap enough to sit ' +
@@ -466,9 +466,11 @@ export const GATES = [
 export const NOT_GATES = {
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
+  'review-marker.mjs':
+    'merge-seal step: needs a `Independent review: PASS <head sha>` comment on the PR. Needs a GitHub token and PR number, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the matcher.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
-    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test; CI runs it in the `dod` job, which needs [gates, build, test].',
+    'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
   // claim-check.mjs is in GATES as claim-check-selftest (--self-test only). The
   // interactive full run still needs gh + network: `pnpm claim:check` by hand.
 
@@ -483,7 +485,7 @@ export const NOT_GATES = {
   'assert-test-db-env.mjs':
     'asserts the TEST_DATABASE_URL_* env the CI Tests job sets up. It is meaningless without that env, so it belongs to that job (residual #9) rather than to a laptop run.',
   'dependency-audit.mjs':
-    'the supply-chain ratchet (`pnpm scan:deps`), wired as its own workflow (.github/workflows/supply-chain.yml) on dependency-surface PRs plus a weekly cron. NOT a GATES entry for the same reason claim-check is not: it needs NETWORK — the advisory database is remote — and reddening a local `pnpm verify` on a train is how a security gate gets deleted. It is a ratchet, not a severity gate: 12 advisories were already in the tree when it landed (8 high, 2 on production paths — drizzle-orm direct and fast-uri under fastify), so `--audit-level=high` would have red-mained on day one, the trap the since-deleted shell-i18n-scan documented. NEW advisories fail; STALE frozen entries also fail, so the list can only shrink. When it reaches zero, replace the baseline with a plain `pnpm audit --audit-level=high` and delete this entry.',
+    'the supply-chain ratchet (`pnpm scan:deps`), wired as its own workflow (the Dependency audit job in .github/workflows/pr-checks.yml) on dependency-surface PRs plus a weekly cron. NOT a GATES entry for the same reason claim-check is not: it needs NETWORK — the advisory database is remote — and reddening a local `pnpm verify` on a train is how a security gate gets deleted. It is a ratchet, not a severity gate: 12 advisories were already in the tree when it landed (8 high, 2 on production paths — drizzle-orm direct and fast-uri under fastify), so `--audit-level=high` would have red-mained on day one, the trap the since-deleted shell-i18n-scan documented. NEW advisories fail; STALE frozen entries also fail, so the list can only shrink. When it reaches zero, replace the baseline with a plain `pnpm audit --audit-level=high` and delete this entry.',
   'value-gate.mjs':
     'stamp-mill detector for near-duplicate commits — the docs-only rule (Board-Delta trailer) AND, since 2026-08-06, the code rule (near-duplicate subject SERIES whose new symbols nothing outside them calls; Serial-Work trailer). Wired as an explicit STRICT step in BOTH workflows and in neither gate list: docs-format.yml, because ci.yml excludes docs/** and **/*.md so coordinator docs PRs never hit GATES; and the `gates` job of ci.yml, because docs-format only fires on markdown, so a code PR without a slice doc never met the gate at all — half of how #832–#876 landed. (ci.yml writes that exclusion as negated `paths:` rather than `paths-ignore`, because INTAFACED_DEFINITIVE_BUILD.md is law and coverage-check has to see it; the set of excluded docs is unchanged.) Still NOT a GATES entry: it needs a current `origin/main` plus >=11 ancestors, which a laptop `pnpm verify` cannot promise, and reddening a local verify over a stale fetch is how a gate gets deleted. Both checkouts now pin fetch-depth: 0 — under the actions/checkout default of 1 it compared an empty ancestor list against an empty ancestor list and printed OK. Local pre-flight: `pnpm value-gate:self-test` (20 fixtures).',
   'checkout-staleness.mjs':

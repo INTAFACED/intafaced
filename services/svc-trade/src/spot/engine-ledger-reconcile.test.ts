@@ -8,6 +8,7 @@ import {
   toCounterpartOrder,
   type TradeOrderClaim,
 } from './engine-ledger-reconcile.js';
+import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from './hold-outcome.js';
 import type { ReconcileReport } from './matching-client.js';
 
 const MARKET = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -271,6 +272,8 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
       }
       if (text.includes('DELETE')) {
         expect(values[0]).toBe(orderId);
+        expect(text).toContain('make_interval');
+        expect(values).toContain(HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS);
         deleted = true;
         return [{ id: orderId }];
       }
@@ -314,6 +317,69 @@ describe('runEngineLedgerReconcileTick — no silent release of funded missing',
     expect(deleted).toBe(true);
     expect(result.deleted).toEqual([orderId]);
     expect(ledgerPost).not.toHaveBeenCalled();
+    expect(result.ledgerPosts).toEqual([]);
+  });
+
+  it('unfunded pending inside the age floor: DELETE matches nothing, row stays', async () => {
+    const orderId = 'orphan-young';
+    let deleteSql = '';
+
+    const sql = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join('?');
+      if (text.includes('FROM trade.markets')) return [{ id: MARKET }];
+      if (text.includes('FROM trade.orders') && text.includes('SELECT')) {
+        return [
+          {
+            id: orderId,
+            user_id: USER,
+            market_id: MARKET,
+            status: 'pending' as const,
+            qty: '1',
+            filled_qty: '0',
+            hold_asset: 'USDT',
+          },
+        ];
+      }
+      if (text.includes('DELETE')) {
+        deleteSql = text;
+        expect(values).toContain(HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS);
+        return [];
+      }
+      return [];
+    }, {}) as unknown as import('postgres').Sql;
+
+    const result = await runEngineLedgerReconcileTick({
+      sql,
+      ledger: {
+        balance: vi.fn(async () => ({
+          account: { ownerType: 'user' as const, ownerId: USER, assetId: 'USDT', kind: 'hold' as const },
+          accountId: 'acc',
+          amount: 0n,
+        })),
+      },
+      matching: {
+        listMarkets: async () => ({ markets: [MARKET] }),
+        reconcile: async () => ({
+          checked: 1,
+          agreed: 0,
+          refusals: 0,
+          ok: true,
+          findings: [
+            {
+              orderId,
+              case: 'counterpart_unfunded_engine_missing',
+              verdict: 'auto',
+              engine: 'engine: NOT LIVE',
+              counterpart: 'counterpart: PENDING funded=false',
+              reason: 'intent',
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(deleteSql).toContain('make_interval');
+    expect(result.deleted).toEqual([]);
     expect(result.ledgerPosts).toEqual([]);
   });
 

@@ -51,7 +51,7 @@ const chk = (name, bucket, workflow = 'CI', completedAt = '2026-10-13T12:00:00Z'
   };
 };
 const prJobId = (name, workflow = 'CI') => jobIds.get(`${workflow}/${name}`);
-const REQ_OK = [chk('Gitleaks', 'pass', 'Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')];
+const REQ_OK = [chk('Gitleaks', 'pass', 'PR checks'), chk('Dependency audit', 'pass', 'PR checks')];
 const K = (name) => `CI/${name}`;
 
 /** A fake gh. `world` holds the fixture answers; `calls` records every invocation. */
@@ -210,14 +210,14 @@ test('a same-named job in another workflow neither hides nor is excused', () => 
   );
   // and a fake "Gitleaks" in another workflow does not satisfy the required check
   const fake = evaluate({
-    checks: [chk('Gitleaks', 'pass', 'Not Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')],
+    checks: [chk('Gitleaks', 'pass', 'Not Gitleaks'), chk('Dependency audit', 'pass', 'PR checks')],
     mainFailing: new Set(),
     files: ['docs/a.md'],
     title: 'docs: x',
     ciPresent: false,
   });
   assert.equal(fake.pass, false);
-  assert.match(fake.reasons.join(), /"Gitleaks" \(workflow "Gitleaks"\) never reported/);
+  assert.match(fake.reasons.join(), /"Gitleaks" \(workflow "PR checks"\) never reported/);
 });
 
 test('ratchet passes when every failure is also on main (name level)', () => {
@@ -258,8 +258,8 @@ test('known PR-only red (CX-8) is allowed, but only because it is listed and abs
 
 test('required checks are never excused, even if main "fails" a job of the same name', () => {
   const r = evaluate({
-    checks: [chk('Gitleaks', 'fail', 'Gitleaks'), chk('Dependency audit', 'pass', 'Supply chain')],
-    mainFailing: new Set(['Gitleaks/Gitleaks']),
+    checks: [chk('Gitleaks', 'fail', 'PR checks'), chk('Dependency audit', 'pass', 'PR checks')],
+    mainFailing: new Set(['PR checks/Gitleaks']),
     files: ['a.md'],
     title: 'docs: x',
     ciPresent: false,

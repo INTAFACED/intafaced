@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createPortalMock } from './portal.mock.mjs';
 
 /**
@@ -9,6 +9,16 @@ import { createPortalMock } from './portal.mock.mjs';
 const NOW = Date.parse('2026-10-17T09:00:00.000Z');
 const DAY = 86_400_000;
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
+
+// The stand-in seeds its records relative to `now` (an approval expires 22 hours after it) but checks expiry and
+// stamps new records with the wall clock. Run the wall clock from NOW too, or the seeded approvals expire a day
+// after NOW and the approve-then-send case fails on every later date.
+beforeAll(() => {
+  vi.useFakeTimers({ now: NOW, toFake: ['Date'], shouldAdvanceTime: true });
+});
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 type Mock = ReturnType<typeof createPortalMock>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

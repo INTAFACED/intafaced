@@ -172,7 +172,7 @@ describe('academy appoint ambassador', () => {
     const reply = await opsExecute(ctx)(appoint, ids);
     expect(reply.ok).toBe(false);
     if (reply.ok) return;
-    expect(reply.refusal.title).toBe('Your console session does not have Academy operator permission yet');
+    expect(reply.refusal.title).toBe('Your console session does not have Academy operator permission');
     expect(reply.refusal.body).toContain('admin:write');
     expect(reply.refusal.changed).toBe('no');
   });
@@ -241,7 +241,7 @@ describe('academy residency decision', () => {
     const refused = await opsExecute(ctx)(decide('accepted'), ids);
     expect(refused).toMatchObject({
       ok: false,
-      refusal: { title: 'Your console session does not have Academy operator permission yet', changed: 'no' },
+      refusal: { title: 'Your console session does not have Academy operator permission', changed: 'no' },
     });
     vi.stubGlobal(
       'fetch',
@@ -262,7 +262,7 @@ describe('the market 403 uses the same plain pattern', () => {
     );
     const reply = await opsExecute(ctx)(vet('approved'), ids);
     if (reply.ok) throw new Error('refusal expected');
-    expect(reply.refusal.title).toBe('Your console session does not have market operator permission yet');
+    expect(reply.refusal.title).toBe('Your console session does not have market operator permission');
   });
 });
 
@@ -338,7 +338,7 @@ describe('operator card freeze', () => {
     const reply = await opsExecute(ctx)(freeze, ids);
     expect(reply).toMatchObject({
       ok: false,
-      refusal: { title: 'Your console session does not have bank treasury permission yet', changed: 'no' },
+      refusal: { title: 'Your console session does not have bank treasury permission', changed: 'no' },
     });
     if (!reply.ok) expect(reply.refusal.body).toContain('admin:treasury');
   });

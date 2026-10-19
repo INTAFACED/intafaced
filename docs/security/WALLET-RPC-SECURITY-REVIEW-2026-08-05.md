@@ -7,7 +7,7 @@
 **Method:** static reading only. Nothing in this review was compiled, executed, or tested.
 **Status of the tree:** unreviewed until this document. This document is that review.
 
-This is the read that [`docs/UPSTREAM-ADOPTION-QUEUE-2026-08-02.md:1488`](../UPSTREAM-ADOPTION-QUEUE-2026-08-02.md) deferred when it said _"It is not a security review and must not be cited as one. 215 files were not read line by line."_ It is the precondition of adoption that the [vendored-exchange ADR](../adr/2026-07-28-vendored-exchange-integration.md) requires, and that [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md` §A4](../OWNER-ACTIONS-WALLET-RPC-SECRETS.md) records as not having happened.
+This is the read that `docs/UPSTREAM-ADOPTION-QUEUE-2026-08-02.md (removed):1488` (removed) deferred when it said _"It is not a security review and must not be cited as one. 215 files were not read line by line."_ It is the precondition of adoption that the [vendored-exchange ADR](../adr/2026-07-28-vendored-exchange-integration.md) requires, and that [`OWNER-ACTIONS-WALLET-RPC-SECRETS.md` §A4](../OWNER-ACTIONS-WALLET-RPC-SECRETS.md) records as not having happened.
 
 **Verdict up front:** this tree must not be pointed at real value in its current state, and the reason is not the three findings that were already known. It is that **three of its thirteen bootable services print a live spending credential to stdout on an ordinary success path**, and one of the three prints an Ethereum private key. Those are not configuration mistakes; they are code. See [Verdict](#6-verdict).
 

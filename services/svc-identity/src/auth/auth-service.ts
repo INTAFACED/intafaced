@@ -325,6 +325,13 @@ export type PayStepUpGrant = {
   readonly payoutSend: boolean;
 };
 
+/** What a guarded API-key action runs on: one open transaction, shared with its audit row. */
+export type ApiKeyActionScope = {
+  readonly tx: Sql;
+  createApiKey: (input: Parameters<AuthService['createApiKey']>[0]) => ReturnType<AuthService['createApiKey']>;
+  revokeApiKey: (userId: string, keyId: string) => Promise<boolean>;
+};
+
 export type PayStepUpFactorProof =
   { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON } | { readonly proofId: string };
 
@@ -1607,22 +1614,21 @@ export class AuthService {
     mode?: 'live' | 'sandbox';
     /** True only when this create asked for pay:refund / pay:payout under a step-up token. */
     payStepUp?: boolean;
+    /** Run on this open transaction instead of starting one (used by `withApiKeyAction`). */
+    executor?: Sql;
   }): Promise<{ id: string; key: string; prefix: string; mode: 'live' | 'sandbox'; scopes: string[] }> {
     assertDelegateCannotGrant(input.grantorKid);
     assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
     const { key, hash, prefix } = generateApiKey(mode);
-    const rows = await transaction(
-      this.sql,
-      async (tx) => {
-        const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
-        if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-        return tx<
-          Array<{ id: string }>
-        >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
-      },
-      { isolation: 'read committed' },
-    );
+    const insert = async (tx: Sql) => {
+      const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+      return tx<
+        Array<{ id: string }>
+      >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
+    };
+    const rows = input.executor ? await insert(input.executor) : await transaction(this.sql, insert, { isolation: 'read committed' });
     return { id: rows[0]!.id, key, prefix, mode, scopes: [...input.scopes] };
   }
 
@@ -1686,8 +1692,9 @@ export class AuthService {
     return { accessToken, expiresAt, userId: verified.userId, keyId: verified.keyId, scopes: verified.scopes, mode: verified.mode };
   }
 
-  async revokeApiKey(userId: string, keyId: string): Promise<boolean> {
-    const result = await this.sql`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
+  async revokeApiKey(userId: string, keyId: string, executor?: Sql): Promise<boolean> {
+    const result = await (executor ??
+      this.sql)`UPDATE api_keys SET revoked = true WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false`;
     return result.count > 0;
   }
 
@@ -2184,11 +2191,12 @@ export class AuthService {
     proof: PayStepUpFactorProof,
   ): Promise<'totp' | 'passkey' | 'proof'> {
     if ('proofId' in proof) {
-      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date }>>`
-        SELECT user_id, session_id, expires_at FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
+      const rows = await this.sql<Array<{ user_id: string; session_id: string; expires_at: Date; bound_action: string | null }>>`
+        SELECT user_id, session_id, expires_at, bound_action FROM pay_step_up_proofs WHERE proof_id = ${proof.proofId}
       `;
       const row = rows[0];
-      if (!row || row.user_id !== userId || row.session_id !== sessionId) {
+      // A proof issued for an API-key action is never a pay proof.
+      if (!row || row.bound_action !== null || row.user_id !== userId || row.session_id !== sessionId) {
         throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
       }
       const expires = row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at);
@@ -2201,9 +2209,19 @@ export class AuthService {
       if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
       return 'proof';
     }
+    const method = await this.verifyFreshFactorOnly(userId, sessionId, proof);
+    await this.recordPayStepUpProof(userId, sessionId, method);
+    return method;
+  }
+
+  /** Verify a TOTP code or passkey assertion now. Records nothing: the factor is spent by this one call. */
+  private async verifyFreshFactorOnly(
+    userId: string,
+    sessionId: string,
+    proof: { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON },
+  ): Promise<'totp' | 'passkey'> {
     if ('totpCode' in proof) {
       await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
-      await this.recordPayStepUpProof(userId, sessionId, 'totp');
       return 'totp';
     }
     // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
@@ -2220,8 +2238,89 @@ export class AuthService {
       webauthn: proof.webauthn,
       webauthnChallenge: held.challenge,
     });
-    await this.recordPayStepUpProof(userId, sessionId, 'passkey');
     return 'passkey';
+  }
+
+  /**
+   * Run one API-key action behind a fresh second factor, atomically.
+   *
+   * - A TOTP code or passkey assertion is verified for THIS action only (the code or challenge is
+   *   spent; no reusable proof row is left behind).
+   * - A `proofId` must be a proof issued for this exact action (and key, when it names one), unexpired
+   *   and unused. It is consumed here, in the same transaction as the action.
+   * - The action (`run`) and the audit row share one transaction: a failed action leaves no audit row and
+   *   does not consume the proof; one factor yields exactly one audit row.
+   * Missing proof refuses `auth.step_up_required`; a stale proof `auth.step_up_expired`.
+   */
+  async withApiKeyAction<T>(
+    input: {
+      userId: string;
+      sessionId: string;
+      proof?: PayStepUpFactorProof | undefined;
+      action: string;
+      keyId?: string | undefined;
+      scopes?: readonly string[] | undefined;
+    },
+    run: (scope: ApiKeyActionScope) => Promise<T>,
+  ): Promise<T> {
+    if (!input.proof) {
+      throw new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required');
+    }
+    const proof = input.proof;
+    let factor: 'totp' | 'passkey' | 'proof';
+    if ('proofId' in proof) {
+      factor = 'proof';
+    } else {
+      factor = await this.verifyFreshFactorOnly(input.userId, input.sessionId, proof);
+    }
+    return transaction(
+      this.sql,
+      async (tx) => {
+        let proofId: string | null = null;
+        if ('proofId' in proof) {
+          const consumed = await tx<Array<{ proof_id: string }>>`
+            UPDATE pay_step_up_proofs
+            SET consumed_at = clock_timestamp()
+            WHERE proof_id = ${proof.proofId}
+              AND user_id = ${input.userId}
+              AND session_id = ${input.sessionId}
+              AND bound_action = ${input.action}
+              AND bound_key_id IS NOT DISTINCT FROM ${input.keyId ?? null}
+              AND consumed_at IS NULL
+              AND expires_at > clock_timestamp()
+            RETURNING proof_id
+          `;
+          if (!consumed[0]) {
+            const stale = await tx<Array<{ expires_at: Date }>>`
+              SELECT expires_at FROM pay_step_up_proofs
+              WHERE proof_id = ${proof.proofId} AND user_id = ${input.userId} AND session_id = ${input.sessionId}
+                AND bound_action = ${input.action} AND consumed_at IS NULL AND expires_at <= clock_timestamp()
+            `;
+            throw new AuthError(
+              stale[0] ? 'This confirmation timed out. Confirm again.' : 'A fresh confirmation is required. Confirm again.',
+              stale[0] ? 'auth.step_up_expired' : 'auth.step_up_required',
+            );
+          }
+          proofId = consumed[0].proof_id;
+          const sessions = await tx<Array<{ id: string }>>`
+            SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()
+          `;
+          if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+        }
+        const scope: ApiKeyActionScope = {
+          tx: tx as unknown as Sql,
+          createApiKey: (create) => this.createApiKey({ ...create, executor: tx as unknown as Sql }),
+          revokeApiKey: (userId, keyId) => this.revokeApiKey(userId, keyId, tx as unknown as Sql),
+        };
+        const result = await run(scope);
+        await tx`
+          INSERT INTO api_key_action_audit (audit_id, user_id, session_id, action, key_id, scopes, factor, proof_id)
+          VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.action}, ${input.keyId ?? null}, ${[...(input.scopes ?? [])]}, ${factor}, ${proofId})
+        `;
+        return result;
+      },
+      { isolation: 'read committed' },
+    );
   }
 
   private async recordPayStepUpProof(userId: string, sessionId: string, method: 'totp' | 'passkey'): Promise<void> {

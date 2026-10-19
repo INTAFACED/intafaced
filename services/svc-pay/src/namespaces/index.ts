@@ -2,6 +2,7 @@ import { mergeRouters } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
+import type { TeamEmailInviteLimit } from '../merchant-ops/team-email.js';
 import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -51,6 +52,7 @@ export function createPayNamespaces(deps: {
   ledger?: Pick<LedgerClient, 'balances'>;
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
+  teamEmailInvite?: TeamEmailInviteLimit;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
@@ -70,6 +72,7 @@ export function createPayNamespaces(deps: {
     ledger: deps.ledger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
+    teamEmailInvite: deps.teamEmailInvite,
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,
     disputes: deps.disputes,

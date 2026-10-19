@@ -419,6 +419,12 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    * credential must carry sid or kid; trade does not invent a session.
    */
   'trade.auth_attribution_missing': { ccxt: 'AuthenticationError', status: 403 },
+  /**
+   * Chart window is longer than the request's own limit, or that limit is over
+   * 720. Not retryable: the same selection fails again, and a 5xx would make a
+   * client repeat it.
+   */
+  'trade.candles_range_point_cap': { ccxt: 'BadRequest', status: 400 },
 
   // ── Algo TWAP (D-S-04) — schedule refusals / state ─────────────────────────
   'trade.algo_disabled': { ccxt: 'OnMaintenance', status: 503 },

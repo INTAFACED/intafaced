@@ -26,6 +26,8 @@ export interface SectionSpec {
   /** Statuses the service accepts for this section. Absent: the section has no status filter. */
   readonly statuses?: readonly string[];
   readonly searchable?: boolean;
+  /** Short name for the count tile when the title is too long for one. */
+  readonly kpiLabel?: string;
 }
 
 const PAYOUT_STATES = ['pending', 'posted', 'paid_out', 'failed'] as const;
@@ -61,8 +63,9 @@ export const SECTION_SPECS: Readonly<Record<FounderMerchantSection, SectionSpec>
   },
   payouts: {
     section: 'payouts',
-    title: 'Payouts',
-    sub: 'Money sent out to the merchant, by settlement window.',
+    title: 'Settlements credited to the merchant balance',
+    kpiLabel: 'Settlements credited',
+    sub: 'Each row is a settlement the platform posted to this merchant’s balance. A row here is not money sent out: it is paid out only after the merchant asks for a payout, the approvals pass and the rail confirms it.',
     statuses: PAYOUT_STATES,
     searchable: true,
   },
@@ -228,6 +231,66 @@ const STATUS: Record<string, ChipSpec> = {
   rejected: chip('rejected', 'danger', 'Declined.'),
   none: chip('none', 'dark', 'Nothing submitted.'),
 };
+
+/**
+ * Settlement status in plain words. `posted` means the ledger credited the merchant's balance; it never means money left.
+ * Only `paid_out` means the rail confirmed a payout.
+ */
+const SETTLEMENT_STATUS: Record<string, ChipSpec> = {
+  pending: chip('not credited yet', 'warn', 'The settlement is still being prepared. Nothing is credited to the merchant balance yet.'),
+  posted: chip(
+    'credited, not sent',
+    'info',
+    'Credited to the merchant balance. No money has been sent out for it; a payout must be requested, approved and confirmed first.',
+  ),
+  paid_out: chip('paid out', 'live', 'A payout for this settlement was sent and the rail confirmed it.'),
+  failed: chip('failed', 'danger', 'The settlement did not complete. See the failure code.'),
+};
+
+export function settlementStatusChip(value: string): ChipSpec {
+  return SETTLEMENT_STATUS[value] ?? statusChip(value);
+}
+
+/** Sections whose rows are settlements, so their statuses are shown in settlement words. */
+export const SETTLEMENT_ROW_SECTIONS: readonly FounderMerchantSection[] = ['payouts', 'settlements'];
+
+const DECIMAL = /^(\d+)(?:\.(\d+))?$/;
+
+/** Exact sum of non-negative decimal strings, with no floats. Null when any value is not a plain decimal. */
+export function sumDecimals(values: readonly string[]): string | null {
+  const parts = values.map((v) => DECIMAL.exec(v));
+  if (parts.some((p) => p === null)) return null;
+  const scale = Math.max(0, ...parts.map((p) => (p![2] ?? '').length));
+  const total = parts.reduce((sum, p) => sum + BigInt(`${p![1]}${(p![2] ?? '').padEnd(scale, '0')}`), 0n);
+  if (scale === 0) return total.toString();
+  const digits = total.toString().padStart(scale + 1, '0');
+  return `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
+}
+
+export interface PaidOutTotal {
+  readonly assetId: string;
+  readonly net: string;
+  readonly settlements: number;
+}
+
+/**
+ * What was actually paid out, per asset: the net of settlements the rail confirmed (`paid_out`). Credited, pending and failed
+ * settlements are never counted, so a merchant with nothing sent gets an empty list, which the page shows as zero.
+ */
+export function paidOutTotals(rows: readonly { assetId: string; net: string; status: string }[]): PaidOutTotal[] | null {
+  const byAsset = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.status !== 'paid_out') continue;
+    byAsset.set(row.assetId, [...(byAsset.get(row.assetId) ?? []), row.net]);
+  }
+  const out: PaidOutTotal[] = [];
+  for (const [assetId, nets] of [...byAsset].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const net = sumDecimals(nets);
+    if (net === null) return null;
+    out.push({ assetId, net, settlements: nets.length });
+  }
+  return out;
+}
 
 export function statusChip(value: string): ChipSpec {
   return (

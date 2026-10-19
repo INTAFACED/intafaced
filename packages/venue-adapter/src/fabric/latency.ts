@@ -398,12 +398,16 @@ export function healthFromGrade(grade: VenueLatencyGrade, lastUpdate: Date): Ven
   const failing = grade.grade === 'F';
   // A grade built on too little data may not exclude a venue on its own:
   // excluding on two samples takes real liquidity off the router for no
-  // evidence. The no-samples / no-p95 case never reaches here — it is handled
-  // above. `liveMs` is the measured p95, never a substituted sentinel.
+  // evidence. Staleness is the exception: an F whose last observation is past
+  // maxStalenessMs excludes with no sample count, so a silent venue cannot
+  // stay routable on its old fast p95. The no-samples / no-p95 case never
+  // reaches here — it is handled above. `liveMs` is the measured p95, never
+  // a substituted sentinel.
   const trusted = !grade.provisional;
+  const stale = grade.staleMs !== null && grade.staleMs > DEFAULT_THRESHOLDS.maxStalenessMs;
 
   return {
-    healthy: !(failing && trusted),
+    healthy: !(failing && (trusted || stale)),
     latencyMs: liveMs,
     lastUpdate,
     reason: grade.reasons.length > 0 ? `grade ${grade.grade}: ${grade.reasons.join('; ')}` : undefined,

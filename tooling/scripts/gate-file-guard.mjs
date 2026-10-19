@@ -23,10 +23,10 @@
  *
  * It is a declaration check, not an access control. An agent can still write `ci:` on a PR that loosens a gate; the
  * point is that it now has to say so out loud, and the title is what a reviewer or the weekly audit reads. The workflow
- * (.github/workflows/gate-file-guard.yml) runs the copy of this script from the PR's BASE commit, so a PR cannot
+ * (the Gate-file guard job in .github/workflows/pr-checks.yml) runs the copy of this script from the PR's BASE commit, so a PR cannot
  * weaken the rule inside the PR it is judged on.
  *
- * KNOWN LIMIT: a PR can still edit or delete the workflow file gate-file-guard.yml itself, and GitHub runs the PR's copy of
+ * KNOWN LIMIT: a PR can still edit or delete the workflow file pr-checks.yml itself, and GitHub runs the PR's copy of
  * a workflow. That edit is a gate change, so the rule flags it in every other place that applies it. The backstop is
  * merge-gate.mjs: it applies this same rule to the PR when the PR is merged, and it refuses to run unless the checkout
  * it runs from matches origin/main (tooling/scripts and tooling/ci), so the rule that judges is always main's.
@@ -58,6 +58,7 @@ export const GATE_PATHS = [
   ['.gitleaksignore', 'the secret-scan (gitleaks) ignore list'],
   ['AGENTS.md', 'the rules every agent loads, including the merge rule'],
   ['CLAUDE.md', 'the rules every agent loads'],
+  ['**/CLAUDE.md', 'the short rules a service, app or package loads for its own directory'],
   ['tooling/agent-protocol/**', 'the agent protocol every agent loads'],
   ['.agents/**', 'agent skills and rules'],
   ['.cursor/rules/**', 'agent rules'],

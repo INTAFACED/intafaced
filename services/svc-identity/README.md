@@ -145,6 +145,8 @@ Kill-switch: `WEBAUTHN_ENABLED=false`. Relying party: `WEBAUTHN_RP_ID`, `WEBAUTH
 
 > The revocation is committed in a _separate_ statement, outside the transaction that detected it. Throwing from inside would roll it back, and the thief's replay would revoke nothing. There is a test for exactly this.
 
+**Key actions need a fresh second factor.** Creating a key, widening an allowlist, rotating a key and revealing a signing secret each need a TOTP code, a passkey assertion or a proof from the last five minutes (`factorProof`). Missing proof refuses `auth.step_up_required`, a stale one `auth.step_up_expired`; nothing is changed. Revoking a key never needs one. API-key and sub-account callers cannot take these actions. Each accepted factor is audited in `api_key_action_audit`, in the same transaction as the change. A TOTP code or passkey assertion is spent by the one action it confirms. `factorProof.proofId` is accepted only for a proof row bound to that exact action (and key, for key-specific actions), used once; nothing issues such a proof yet, so clients send `totpCode` or `webauthn`.
+
 **API keys cannot withdraw.** `trade:withdraw`, `admin:treasury`, `bank:card`, and `pay:payout` are refused on key creation by the service **and** by a database CHECK constraint (`INTERACTIVE_ONLY_SCOPES`). A leaked bot key must not be able to move value off the platform (§9).
 
 **Handles are citext.** `Handle` and `handle` are the same account. Impersonation by casing is a real attack.

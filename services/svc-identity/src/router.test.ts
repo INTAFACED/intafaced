@@ -145,6 +145,14 @@ function stubServices(): Stub {
       allowCredentials: [{ type: 'public-key' as const, id: 'cred-1' }],
       userVerification: 'preferred' as const,
     })),
+    withApiKeyAction: (input: { proof?: unknown }, run: (scope: unknown) => Promise<unknown>) => {
+      if (!input.proof) return Promise.reject(new AuthError('A fresh confirmation is required. Confirm again.', 'auth.step_up_required'));
+      return run({
+        tx: {},
+        createApiKey: (i: unknown) => (auth.createApiKey as (x: unknown) => unknown)(i),
+        revokeApiKey: async () => true,
+      });
+    },
     createApiKey: record('createApiKey', () => ({ id: 'key-1', key: 'ifc_secret', prefix: 'ifc_abc', mode: 'live' as const })),
     exchangeApiKey: record('exchangeApiKey', () => ({
       accessToken: 'api.key.jwt',
@@ -708,6 +716,7 @@ describe('webauthn registration requires a live session; auth is public', () => 
 // ── API keys are a delegation, not a wish list ───────────────────────────────
 
 describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
+  const factorProof = { proofId: '77777777-7777-4777-8777-777777777777' };
   const argsOf = (method: string) => stub.calls.filter((c) => c.method === method).map((c) => c.args[0] as Record<string, unknown>);
 
   it('reads the ceiling from the token, never from the request body', async () => {
@@ -717,7 +726,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // stops being passed at all — the check downstream has nothing to compare
     // against and any account can mint any scope again.
     const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] });
+    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof });
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write', 'trade:read']);
@@ -728,16 +737,24 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
     // A body naming its own grantor must not reach the service. `grantorScopes`
     // is spread AFTER `...input` in the router for exactly this reason.
     const api = await caller(['identity:write']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['identity:read'], grantorScopes: ['admin:compliance'] } as never);
+    await api.apiKeys.create({ name: 'bot', scopes: ['identity:read'], grantorScopes: ['admin:compliance'], factorProof } as never);
 
     const [args] = argsOf('createApiKey');
     expect(args!.grantorScopes).toEqual(['identity:write']);
   });
 
+  it('refuses create without a fresh factor and never reaches the service', async () => {
+    const api = await caller(['identity:write', 'trade:read']);
+    const err = await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect((err as Error).message).toMatch(/auth\.step_up_required/);
+    expect(argsOf('createApiKey')).toHaveLength(0);
+  });
+
   it('surfaces a refused delegation as BAD_REQUEST, not a 500', async () => {
     stub.fail(new Error('Cannot grant scopes the granting session does not hold: admin:compliance'));
     const api = await caller(['identity:write']);
-    const err = await api.apiKeys.create({ name: 'escalate', scopes: ['admin:compliance'] }).catch((e: unknown) => e);
+    const err = await api.apiKeys.create({ name: 'escalate', scopes: ['admin:compliance'], factorProof }).catch((e: unknown) => e);
     expect(codeOf(err)).toBe('BAD_REQUEST');
   });
 
@@ -761,7 +778,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
 
   it('passes payStepUp when the token stp claim lists the requested pay scope', async () => {
     const api = await caller(['identity:write', 'pay:refund'], { stepUpScopes: ['pay:refund'] });
-    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'] });
+    const created = await api.apiKeys.create({ name: 'bot', scopes: ['pay:refund'], factorProof });
     const [args] = argsOf('createApiKey');
     expect(args!.payStepUp).toBe(true);
     expect(args!.scopes).toEqual(['pay:refund']);
@@ -770,7 +787,7 @@ describe('apiKeys.create passes the GRANTING session as the ceiling', () => {
 
   it('session grantor has no kid on the mint call', async () => {
     const api = await caller(['identity:write', 'trade:read']);
-    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'] });
+    await api.apiKeys.create({ name: 'bot', scopes: ['trade:read'], factorProof });
     const [args] = argsOf('createApiKey');
     expect(args!.grantorKid).toBeUndefined();
   });

@@ -58,10 +58,14 @@ const POPULATED = parseScreeningList('AA:placeholder programme,ZY', 'test-fixtur
  * honesty path (allowed, list not configured, not screened-clean) pin explicit off.
  */
 const screeningFailClosedAtLoad = process.env[SCREENING_FAIL_CLOSED_ENV];
+const appEnvAtLoad = process.env.APP_ENV;
 beforeEach(() => {
+  process.env.APP_ENV = 'test';
   process.env[SCREENING_FAIL_CLOSED_ENV] = '0';
 });
 afterEach(() => {
+  if (appEnvAtLoad === undefined) delete process.env.APP_ENV;
+  else process.env.APP_ENV = appEnvAtLoad;
   if (screeningFailClosedAtLoad === undefined) delete process.env[SCREENING_FAIL_CLOSED_ENV];
   else process.env[SCREENING_FAIL_CLOSED_ENV] = screeningFailClosedAtLoad;
 });
@@ -290,9 +294,9 @@ describe('screening fail-closed — refuse when list unset (D26-P1-O1)', () => {
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'true' })).toBe(true);
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'yes' })).toBe(true);
     expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'on' })).toBe(true);
-    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'no' })).toBe(false);
-    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: '0' })).toBe(false);
-    expect(screeningFailClosedFromEnv({ [SCREENING_FAIL_CLOSED_ENV]: 'false' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ APP_ENV: 'test', [SCREENING_FAIL_CLOSED_ENV]: 'no' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ APP_ENV: 'test', [SCREENING_FAIL_CLOSED_ENV]: '0' })).toBe(false);
+    expect(screeningFailClosedFromEnv({ APP_ENV: 'test', [SCREENING_FAIL_CLOSED_ENV]: 'false' })).toBe(false);
 
     process.env[SCREENING_FAIL_CLOSED_ENV] = 'yes';
     const d = checkAccess({
@@ -495,8 +499,8 @@ describe('boot guard — production-like postures refuse to start unscreened', (
     }
   });
 
-  it('defaults to dev when APP_ENV is unset, rather than failing every local run', () => {
-    expect(() => assertScreeningConfigured({})).not.toThrow();
+  it('refuses an unconfigured list when APP_ENV is unset', () => {
+    expect(() => assertScreeningConfigured({})).toThrow(UnscreenedJurisdictionError);
   });
 
   it('a whitespace-only variable does not satisfy the guard', () => {

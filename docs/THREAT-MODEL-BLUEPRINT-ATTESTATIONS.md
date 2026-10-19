@@ -6,7 +6,7 @@
 **Packet:** [`ops/owner-ruling-packet.json`](ops/owner-ruling-packet.json) `D26-P0-12`. Predecessor subsection in [`adr/2026-08-14-remaining-p0-money-law.md`](adr/2026-08-14-remaining-p0-money-law.md) was not edited.  
 **Bar status (helper):** **UNMET** — product Done stays refused until Denon adds the helper's P0-12 seal line after the on-chain half is specified with Shehzad. This page is the working bar, not that helper token.  
 **Class:** N on the Fiat refuse; on-chain issuance is **Shehzad** (babysit only).  
-**Not this page:** [`THREAT-MODEL-CURRENT.md`](THREAT-MODEL-CURRENT.md) (D26-P3-02 fiat/wallet_rpc/Java) · [`THREAT-MODEL-STAGING-DEPLOY.md`](THREAT-MODEL-STAGING-DEPLOY.md) (one workflow).
+**Not this page:** `THREAT-MODEL-CURRENT.md` (removed) (D26-P3-02 fiat/wallet_rpc/Java) · [`THREAT-MODEL-STAGING-DEPLOY.md`](THREAT-MODEL-STAGING-DEPLOY.md) (one workflow).
 
 **Doctrine:** §19 (portable standing, zero PII) · §10 (PII stays in the Fiat Plane encrypted store) · §26 (unlinkable presentations; this row is the standing half, not stealth receive).
 

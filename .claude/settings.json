@@ -1,1 +1,19 @@
-{}
+{
+  "permissions": {
+    "allow": ["mcp__github__merge_pull_request"]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ \"$CLAUDE_CODE_REMOTE\" = true ] && command -v intafaced-services >/dev/null && intafaced-services || true",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

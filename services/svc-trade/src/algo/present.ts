@@ -1,11 +1,37 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
-import type { AlgoProgressView, TwapParent } from './types.js';
+import type { AlgoSchedulerView } from './scheduler-heartbeat.js';
+import type { AlgoProgressView, AlgoStatus, TwapParent } from './types.js';
+
+/**
+ * Shipped default of TRADE_ALGO_JOBS_ENABLED is off. Callers that have read
+ * the flag and the heartbeat pass that reading. Callers that have not
+ * (engine unit tests, the memory public-door façade) get this view, which
+ * is the flag's default, not a guess that the loop is up.
+ */
+export const SCHEDULER_FLAG_OFF: AlgoSchedulerView = { running: false, reason: 'jobs_disabled' };
+
+/** Next due time only while the schedule is active. A stored time on a finished parent is not a next slice. */
+export function nextSliceAtIso(status: AlgoStatus, nextDueAt: Date | null): string | null {
+  if (status !== 'active' || nextDueAt == null) return null;
+  return nextDueAt.toISOString();
+}
+
+export function presentScheduleHonesty(
+  parent: { readonly status: AlgoStatus; readonly nextDueAt: Date },
+  scheduler: AlgoSchedulerView,
+): { nextSliceAt: string | null; scheduler: AlgoSchedulerView } {
+  return { nextSliceAt: nextSliceAtIso(parent.status, parent.nextDueAt), scheduler };
+}
 
 /**
  * Progress is a sum over real fills — or nothing.
  * The parent never stores filledQty; this view is derived at read time.
  */
-export function presentAlgoProgress(parent: TwapParent, filledFromChildren: Amount): AlgoProgressView {
+export function presentAlgoProgress(
+  parent: TwapParent,
+  filledFromChildren: Amount,
+  scheduler: AlgoSchedulerView = SCHEDULER_FLAG_OFF,
+): AlgoProgressView {
   const view: AlgoProgressView = {
     parentId: parent.id,
     status: parent.status,
@@ -16,6 +42,7 @@ export function presentAlgoProgress(parent: TwapParent, filledFromChildren: Amou
     nextSliceIndex: parent.nextSliceIndex,
     filledQty: formatAmount(filledFromChildren),
     totalQty: formatAmount(parent.totalQty),
+    ...presentScheduleHonesty(parent, scheduler),
   };
   assertProgressHasNoInventedFills(view, filledFromChildren);
   return view;

@@ -3,7 +3,7 @@
  * Vendor shell residue scan — keep the Java exchange UI from re-introducing
  * known money/CORS hazards that the TS ledger does not own.
  *
- * Residual queue (docs/POST-MERGE-RESIDUAL-AFTER-86.md + PEACE cleanup):
+ * Residual queue (docs/POST-MERGE-RESIDUAL-AFTER-86.md (removed) + PEACE cleanup):
  *   - mass balance credit symbols (unfreezeMore / unfreezeLess bulk SQL)
  *   - TRUNCATE wallet snapshot helpers (dropWeekTable class)
  *   - CORS wildcard origin with credentials

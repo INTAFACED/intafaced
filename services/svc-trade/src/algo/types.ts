@@ -126,6 +126,13 @@ export interface AlgoProgressView {
   /** Decimal string — sum of child fill qtys. Zero when no fills, never a schedule %. */
   readonly filledQty: string;
   readonly totalQty: string;
+  /** Stored next due time while status is active. Null otherwise. Not a price. */
+  readonly nextSliceAt: string | null;
+  /** Whether the slice loop is alive. Not a balance. */
+  readonly scheduler: {
+    readonly running: boolean | null;
+    readonly reason: 'jobs_disabled' | 'heartbeat_unknown' | 'heartbeat_stale' | 'jobs_interval_unset' | null;
+  };
 }
 
 export interface CreateTwapInput {

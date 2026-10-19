@@ -55,10 +55,14 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
 
   async function call<T>(path: string, body: unknown): Promise<T> {
     const payload = JSON.stringify(body);
+    // 25s is the caller deadline inside HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS
+    // (hold-outcome.ts). TimeoutError has no cause.code, so classifyHoldPostError
+    // returns unknown and the order stays. A timeout is never a refusal.
     const response = await fetch(`${url}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...authHeaders(payload) },
       body: payload,
+      signal: AbortSignal.timeout(25_000),
     });
 
     if (!response.ok) {

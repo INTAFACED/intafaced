@@ -2,9 +2,9 @@
 
 > **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
-**For Nitro + every agent.** Full tool detail lives in [`BULLETPROOF-ARSENAL-2026-07-29.md`](./BULLETPROOF-ARSENAL-2026-07-29.md). Strix only: [`STRIX-ASSESSMENT-2026-07-29.md`](./STRIX-ASSESSMENT-2026-07-29.md).  
-**Post-audit status (Track A partial / product doors closed):** [`SECURITY-FLOOR-AFTER-AUDIT-2026-07-29.md`](./SECURITY-FLOOR-AFTER-AUDIT-2026-07-29.md) · product scoreboard: [`PEACE-OF-MIND-AUDIT-CURRENT.md`](./PEACE-OF-MIND-AUDIT-CURRENT.md).  
-**Current threat model (D26-P3-02 — judgment, not pentest):** [`THREAT-MODEL-CURRENT.md`](./THREAT-MODEL-CURRENT.md). July 29 `audit/2026-07-29/05-THREAT-MODEL.md` is archive.
+**For Nitro + every agent.** Full tool detail lives in `BULLETPROOF-ARSENAL-2026-07-29.md` (removed). Strix only: `STRIX-ASSESSMENT-2026-07-29.md` (removed).  
+**Post-audit status (Track A partial / product doors closed):** `SECURITY-FLOOR-AFTER-AUDIT-2026-07-29.md` (removed) · product scoreboard: `PEACE-OF-MIND-AUDIT-CURRENT.md` (removed).  
+**Current threat model (D26-P3-02 — judgment, not pentest):** `THREAT-MODEL-CURRENT.md` (removed). The July 29 threat model was removed with the archive.
 
 **One sentence:** We are **not** “only stress testing later.” We are building **layers of proof** that money cannot be stolen or broken — cheap automatic checks **now**, attack-style tests **when the product is running**, independent human check **before real customer money**.
 
@@ -49,7 +49,7 @@ The long arsenal list is mostly **Track B**. Track A is smaller and should alrea
 3. **Secret scanning** — gitleaks-class as always-on law. **On tip:** `.github/workflows/gitleaks.yml` + `.gitleaks.toml` (FH-SEC-02) beside `tooling/ci/secret-scan.mjs` assignment law.
 4. **Stronger money tests** — invariants / property tests on ledger holds. Example regression tests exist; **property suite still thin.**
 5. **Catch AI cheating** — on money fix PRs (WAVE-AUDIT process). **Not yet an automated gate.**
-6. **After Denon merges:** run [`WAVE-AUDIT.md`](./WAVE-AUDIT.md) only — full A–E is **closed**.
+6. **After Denon merges:** run `WAVE-AUDIT.md` (removed) only — full A–E is **closed**.
 7. **Keep the map current** — security floor + this file + arsenal + Strix assessment.
 
 **Do _not_ do now:**
@@ -95,10 +95,10 @@ Routers **are** mounted on main. There is something to **hit** when you choose t
 
 ## Nitro’s prep checklist (so future you doesn’t re-decide)
 
-- [x] Strix assessed and parked — `STRIX-ASSESSMENT-2026-07-29.md`
-- [x] Full arsenal mapped by phase — `BULLETPROOF-ARSENAL-2026-07-29.md`
+- [x] Strix assessed and parked — `STRIX-ASSESSMENT-2026-07-29.md` (removed)
+- [x] Full arsenal mapped by phase — `BULLETPROOF-ARSENAL-2026-07-29.md` (removed)
 - [x] Plain when-to — **this file**
-- [x] Session prompt points agents here (see `NITRO-SESSION-PROMPT.md`)
+- [x] Session prompt points agents here (see `NITRO-SESSION-PROMPT.md (removed)`)
 - [ ] When first staging exists: schedule **one** campaign (ZAP or Strix), not ten tools
 
 **Your standing decision (2026-07-29):**  

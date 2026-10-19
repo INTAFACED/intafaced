@@ -43,7 +43,7 @@ import { convertHistoryProcedures } from './convert/convert-history-router.js';
 import { convertHistoryTrpcError } from './convert/convert-history.js';
 import { deskTrpcError } from './desk/errors.js';
 import { algoDeskProcedures, optionsDeskProcedures, rfqHistoryProcedures, scaleProcedures } from './desk/procedures.js';
-import { presentAlgoDesk } from './algo/present.js';
+import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
@@ -71,6 +71,65 @@ import type { TradeOpsAdmin } from './admin/service.js';
 
 /** Unsigned decimal string. Reuses the exchange contract's rule rather than inventing a second one. */
 const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
+const copySignedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'amounts are signed decimal strings with at most 18 decimal places');
+
+const copyResultAssetOutput = z
+  .object({
+    quoteAsset: z.string(),
+    tradingFee: copySignedDecimal.nullable(),
+    tradingFeeReason: z.string().nullable(),
+    leaderShare: copySignedDecimal.nullable(),
+    leaderShareReason: z.string().nullable(),
+    leaderShareSkippedReasons: z.array(z.string()),
+    mirroredOrders: z.number().int(),
+    fills: z.number().int(),
+    realisedPnl: copySignedDecimal.nullable(),
+    realisedPnlReason: z.string().nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
+    unrealisedPnlReason: z.string().nullable(),
+  })
+  .strict();
+
+const copyResultOutput = z
+  .object({
+    followId: z.string(),
+    mirroredOrders: z.number().int(),
+    fills: z.number().int(),
+    rejects: z.number().int(),
+    tradingFee: copySignedDecimal.nullable(),
+    tradingFeeReason: z.string().nullable(),
+    leaderShare: copySignedDecimal.nullable(),
+    leaderShareReason: z.string().nullable(),
+    realisedPnl: copySignedDecimal.nullable(),
+    realisedPnlReason: z.string().nullable(),
+    unrealisedPnl: copySignedDecimal.nullable(),
+    unrealisedPnlReason: z.string().nullable(),
+    assets: z.array(copyResultAssetOutput),
+  })
+  .strict();
+
+const copyTrailRowOutput = z
+  .object({
+    eventId: z.string(),
+    followId: z.string(),
+    leaderFillId: z.string(),
+    kind: z.string(),
+    followerOrderId: z.string().nullable(),
+    followerFillId: z.string().nullable(),
+    quantity: copySignedDecimal.nullable(),
+    price: copySignedDecimal.nullable(),
+    basisPoints: z.string().nullable(),
+    code: z.string().nullable(),
+    occurredAt: z.string(),
+  })
+  .strict();
+
+const copyTrailOutput = z
+  .object({
+    rows: z.array(copyTrailRowOutput),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();
 
 const convertSourceOutput = z.object({
   kind: z.literal('book'),
@@ -152,10 +211,45 @@ const algoParentOutputSchema = z.object({
   scheduleStretchReason: z.enum(['user_pause', 'tick_outage']).nullable(),
 });
 
+const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amounts are decimal strings with at most 18 decimal places');
+
+const algoSchedulerOutputSchema = z.object({
+  running: z.boolean().nullable(),
+  reason: z.enum(['jobs_disabled', 'heartbeat_unknown', 'heartbeat_stale', 'jobs_interval_unset']).nullable(),
+});
+
+const algoScheduleHonestySchema = {
+  nextSliceAt: z.string().nullable(),
+  scheduler: algoSchedulerOutputSchema,
+};
+
 const algoGetOutputSchema = algoParentOutputSchema.extend({
   children: z.array(z.object({ orderId: z.string(), sliceIndex: z.number().int(), time: z.string() })),
   misses: z.array(z.object({ sliceIndex: z.number().int(), time: z.string(), code: z.string() })),
   filledQty: decimal,
+  ...algoScheduleHonestySchema,
+});
+
+const algoResultOutputSchema = z.object({
+  quotes: z.array(
+    z.object({
+      quoteAsset: z.string(),
+      filledQty: decimal,
+      notional: decimal,
+      averageFillPrice: decimal.nullable(),
+      feesPaid: z.array(z.object({ asset: z.string(), amount: decimal })).nullable(),
+      feesReason: z.enum(['fee_not_recorded']).nullable(),
+      arrivalPrice: decimal.nullable(),
+      arrivalReason: z.enum(['arrival_not_recorded']).nullable(),
+      shortfall: signedDecimal.nullable(),
+      shortfallMissing: z
+        .object({
+          code: z.literal('missing_input'),
+          fields: z.array(z.enum(['averageFillPrice', 'arrivalPrice'])),
+        })
+        .nullable(),
+    }),
+  ),
 });
 
 const marketOutput = z.object({
@@ -1091,9 +1185,18 @@ export function createTradeRouter(
           guard(async () => {
             const parent = await trade.getAlgo(ctx.principal, input.algoId);
             const progress = await trade.algoProgress(ctx.principal, input.algoId);
-            return { ...presentAlgo(parent), ...presentAlgoDesk(parent, progress.filledQty) };
+            return {
+              ...presentAlgo(parent),
+              ...presentAlgoDesk(parent, progress.filledQty),
+              ...presentScheduleHonesty(parent, progress.scheduler),
+            };
           }),
         ),
+
+      result: scopedProcedure('trade:read')
+        .input(z.object({ algoId: z.string().min(1) }))
+        .output(algoResultOutputSchema)
+        .query(({ ctx, input }) => guard(async () => trade.algoResult(ctx.principal, input.algoId))),
 
       progress: scopedProcedure('trade:read')
         .input(z.object({ algoId: z.string().min(1) }))
@@ -1108,6 +1211,7 @@ export function createTradeRouter(
             nextSliceIndex: z.number().int(),
             filledQty: decimal,
             totalQty: decimal,
+            ...algoScheduleHonestySchema,
           }),
         )
         .query(({ ctx, input }) => guard(async () => trade.algoProgress(ctx.principal, input.algoId))),
@@ -1250,12 +1354,19 @@ export function createTradeRouter(
             maxNotionalPerOrder: decimal,
             maxAggregateExposure: decimal,
             maxLoss: decimal.optional(),
+            maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+            maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+            maxDrawdown: decimal.optional(),
+            maxLeverage: z.union([z.string(), z.number()]).optional(),
             expiresAt: z.string().datetime(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
                 permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
                 maxLoss: decimal.optional(),
+                maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+                maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+                maxDrawdown: decimal.optional(),
               })
               .optional(),
           }),
@@ -1511,6 +1622,9 @@ export function createTradeRouter(
                 maxAllocation: decimal.optional(),
                 permittedInstruments: z.array(z.string().min(1).max(64)).max(64).optional(),
                 maxLoss: decimal.optional(),
+                maxSlippageBps: z.number().int().min(1).max(10_000).optional(),
+                maxConcurrent: z.number().int().min(1).max(2_147_483_647).optional(),
+                maxDrawdown: decimal.optional(),
               })
               .optional(),
           }),
@@ -1568,6 +1682,42 @@ export function createTradeRouter(
               throw new CopyError(COPY_FEE_SHARE_RESIDUAL, 'trade.copy_fee_share_blank', COPY_FEE_SHARE_RESIDUAL);
             }
             return copy.settleFeeShare(ctx.principal, input);
+          }),
+        ),
+
+      /**
+       * Caller's own follow result. Fees and P&L are per quote asset.
+       * Another account's follow id is not found.
+       */
+      result: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .output(copyResultOutput)
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('copy result is not mounted', 'trade.copy_unavailable');
+            return copy.result(ctx.principal, input.followId);
+          }),
+        ),
+
+      /**
+       * Leader-intent trail for the caller's follow. Window and limit are
+       * required. Oldest first.
+       */
+      mirrorTrail: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z.object({
+            followId: z.string().min(1).max(64),
+            from: z.string().optional(),
+            to: z.string().optional(),
+            limit: z.number().optional(),
+            cursor: z.string().optional(),
+          }),
+        )
+        .output(copyTrailOutput)
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('copy trail is not mounted', 'trade.copy_unavailable');
+            return copy.mirrorTrail(ctx.principal, input);
           }),
         ),
     }),

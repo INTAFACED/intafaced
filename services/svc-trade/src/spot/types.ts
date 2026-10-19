@@ -32,6 +32,8 @@ export type Liquidity = 'maker' | 'taker';
  */
 export type ReconcileCase =
   | 'orphan_pending'
+  /** `pending` + zero hold, still inside the hold in-flight bound. Row stays. */
+  | 'pending_in_flight'
   | 'open_hold_no_engine'
   /** Funded engine-miss whose `trade.fills` do not prove no fill — hold stays. */
   | 'open_hold_no_engine_unknown'
@@ -617,7 +619,12 @@ export type TradeErrorCode =
   /** Operator throttle is set and this account is already at it. */
   | 'trade.operator_throttle'
   /** Operator circuit breaker is set and no reference mark is configured. */
-  | 'trade.circuit_breaker_reference_unset';
+  | 'trade.circuit_breaker_reference_unset'
+  /**
+   * Candle start/end/granularity would return more than the published point cap.
+   * The request is refused whole — no trimmed series.
+   */
+  | 'trade.candles_range_point_cap';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */

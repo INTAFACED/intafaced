@@ -31,7 +31,6 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@intafaced/config": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {
