@@ -75,6 +75,19 @@ export function installOcoCancel(ctor: typeof TradeService): void {
       if (ocoSiblingsLive(listed.orders, orderId)) {
         requireScope(principal, 'trade:write');
         const result: EngineSubmitResult = await host.matching.submit(peek.marketId, ocoCancelSubmit(peek));
+        if (result.rejected?.code === OCO_SIBLING_TERMINAL && peek.filledQty > 0n) {
+          // The engine cancels a sibling on any first fill, so after a partial fill one leg is gone and the
+          // other still rests. The user is cancelling that remainder: pull each leg still listed, then close.
+          // With no fill recorded a missing sibling is unexplained, and the refusal below stands.
+          for (const row of listed.orders) {
+            if (!ocoSiblingIds(orderId).includes(row.orderId)) continue;
+            await host.matching.cancel(peek.marketId, row.orderId);
+          }
+          await host.finalize(orderId, 'cancelled');
+          const closed = await host.findOrder(orderId);
+          if (!closed) throw new TradeError(`order ${orderId} vanished during OCO cancel`, 'trade.order_not_found');
+          return closed;
+        }
         const refuse = matchingOcoCancelRefuse(result.rejected);
         if (refuse) throw refuse;
         if (!result.accepted) {

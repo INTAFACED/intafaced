@@ -49,6 +49,7 @@ import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } fro
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
 import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
+import { ocoLegParent, settlementOrderId } from './oco-legs.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -2762,14 +2763,19 @@ export class TradeService {
 
     for (const fill of [...fills].sort((a, b) => a.sequence - b.sequence)) {
       await this.settleFill(market, fill);
-      touched.add(fill.makerOrderId);
-      touched.add(fill.takerOrderId);
+      touched.add(settlementOrderId(fill.makerOrderId));
+      touched.add(settlementOrderId(fill.takerOrderId));
     }
 
     // An IOC remainder, a market remainder, or a resting order pulled by
     // self-trade prevention. §5.1 unifies them because this service does the
     // same thing with all three: the order is done, release what is left.
     for (const cancellation of cancellations) {
+      const parentId = ocoLegParent(cancellation.orderId);
+      if (parentId !== null) {
+        if (await this.finalizeOcoWhenNoLegLive(market.id, cancellation.orderId, cancellation.reason)) touched.delete(parentId);
+        continue;
+      }
       await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
       touched.delete(cancellation.orderId);
     }
@@ -2780,6 +2786,29 @@ export class TradeService {
     // so a wei of rounding can be left behind. Left behind is exactly what it
     // must not be.
     for (const id of touched) await this.finalizeIfComplete(id);
+  }
+
+  /**
+   * One OCO leg left the book. The parent's single hold funds BOTH legs, so it may be released only when no leg
+   * is left resting. The engine cancels the sibling on ANY first fill, so a partly filled take-profit keeps
+   * resting on the rest of the hold while its stop-loss sibling is cancelled: releasing here would leave that
+   * leg on the book without funds. Fails closed: if the engine cannot say the other leg is gone, the hold stays
+   * and a later leg event (or the fill that completes the order) closes it.
+   * Returns true when the parent was closed.
+   */
+  private async finalizeOcoWhenNoLegLive(marketId: string, legId: string, reason?: string | null): Promise<boolean> {
+    const parentId = ocoLegParent(legId);
+    if (parentId === null) return false;
+    let listed: Awaited<ReturnType<MatchingClient['listOrders']>>;
+    try {
+      listed = await this.matching.listOrders(marketId);
+    } catch {
+      return false;
+    }
+    const live = new Set(listed.orders.map((row) => row.orderId));
+    if (live.has(`${parentId}:tp`) || live.has(`${parentId}:sl`)) return false;
+    await this.finalize(parentId, 'cancelled', reason);
+    return true;
   }
 
   /**
@@ -2996,6 +3025,9 @@ export class TradeService {
         'trade.dust_fill',
       );
     }
+
+    // An OCO leg (`<id>:tp` / `<id>:sl`) draws on its parent's one hold: settle against the parent row.
+    fill = { ...fill, makerOrderId: settlementOrderId(fill.makerOrderId), takerOrderId: settlementOrderId(fill.takerOrderId) };
 
     const maker = await this.findOrder(fill.makerOrderId);
     const taker = await this.findOrder(fill.takerOrderId);
@@ -4176,12 +4208,12 @@ export class TradeService {
     const market = await this.marketById(input.marketId);
     if (!market) throw new TradeError(`market ${input.marketId} not found`, 'trade.market_not_found');
 
-    const taker = await this.findOrder(input.takerOrderId);
+    const taker = await this.findOrder(settlementOrderId(input.takerOrderId));
     if (!taker) throw new TradeError(`order ${input.takerOrderId} not found`, 'trade.order_not_found');
 
     // Prefer event payload; then orders table. House bookkeeping UUID → house STP id.
     // Never invent house MM from an unknown maker (empty + no house row).
-    const makerRow = await this.findOrder(input.makerOrderId);
+    const makerRow = await this.findOrder(settlementOrderId(input.makerOrderId));
     const makerAccountId = recoverMatchingAccountId({
       eventAccountId: input.makerAccountId,
       orderUserId: makerRow?.userId,
@@ -4205,8 +4237,8 @@ export class TradeService {
           price: input.price,
           qty: input.qty,
         });
-        await this.finalizeIfComplete(input.makerOrderId);
-        await this.finalizeIfComplete(input.takerOrderId);
+        await this.finalizeIfComplete(settlementOrderId(input.makerOrderId));
+        await this.finalizeIfComplete(settlementOrderId(input.takerOrderId));
       },
     );
   }
@@ -4221,6 +4253,11 @@ export class TradeService {
    */
   async releaseOnCancelEvent(orderId: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
+      if (ocoLegParent(orderId) !== null) {
+        const parent = await this.findOrder(settlementOrderId(orderId));
+        if (parent) await this.finalizeOcoWhenNoLegLive(parent.marketId, orderId);
+        return;
+      }
       await this.finalize(orderId, 'cancelled');
     });
   }

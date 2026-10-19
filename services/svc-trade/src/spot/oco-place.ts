@@ -111,6 +111,11 @@ export function installOcoPlace(ctor: typeof TradeService): void {
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const bound = bindOco(input);
     if (!wantsOco(bound)) return origPlace.call(this, principal, bound);
+    // One hold funds both legs. A sell holds base once, whichever leg fills; a buy would need quote at the
+    // worse of two prices, which is not built yet. Refuse before any hold rather than under-fund a leg.
+    if (bound.side !== 'sell') {
+      throw new TradeError('OCO is available on the sell side only for now', 'trade.order_type_unsupported');
+    }
     const missingTp = takeProfitRefuse(triggerOf(bound.takeProfit));
     if (missingTp) throw missingTp;
     const missingSl = stopLossRefuse(triggerOf(bound.stopLoss));

@@ -7,8 +7,7 @@ import { fakeMarket } from '../public-rest.js';
 import type { PlaceOrderInput } from './trade-service.js';
 
 /**
- * Bracket and OCO are parked with a named blocker: svc-matching's order intake does not carry exit legs, so an
- * accepted request would rest a bare entry and silently drop the stop-loss and take-profit.
+ * Bracket is parked until entry-fill placement exists. OCO is accepted on the create door only (matching carries its legs).
  */
 
 const SECRET = 'a-trade-bracket-oco-parked-edge-secret-long-x';
@@ -61,22 +60,33 @@ async function build() {
   return { app, placed };
 }
 
-describe('bracket and OCO are refused until matching carries exit legs', () => {
-  it.each([
-    ['bracket', { bracket: true, takeProfit: '110', stopLoss: '90' }],
-    ['OCO with legs', { oco: true, takeProfit: '110', stopLoss: '90' }],
-    ['a lone take-profit', { takeProfit: '110' }],
-    ['a lone stop-loss', { stopLoss: '90' }],
-  ])('%s is refused and nothing is placed', async (_name, extra) => {
+describe('bracket is parked; OCO has the create door only', () => {
+  it('OCO on the create door reaches placeOrder carrying its legs', async () => {
     const { app, placed } = await build();
-    const res = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, ...extra } });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().intafacedCode).toBe('trade.order_type_unsupported');
-    expect(placed).toHaveLength(0);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, side: 'sell', oco: true, takeProfit: '110', stopLoss: '90' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(placed).toHaveLength(1);
     await app.close();
   });
 
-  it('a batch item with exit legs is refused per item and the plain item is still placed', async () => {
+  it.each([['bracket', { bracket: true, takeProfit: '110', stopLoss: '90' }]])(
+    '%s is refused and nothing is placed',
+    async (_name, extra) => {
+      const { app, placed } = await build();
+      const res = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, ...extra } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().intafacedCode).toBe('trade.order_type_unsupported');
+      expect(placed).toHaveLength(0);
+      await app.close();
+    },
+  );
+
+  it('a batch item with OCO legs is refused per item and the plain item is still placed', async () => {
     const { app, placed } = await build();
     const res = await app.inject({
       method: 'POST',
@@ -84,7 +94,7 @@ describe('bracket and OCO are refused until matching carries exit legs', () => {
       headers: signed(),
       payload: {
         orders: [
-          { ...BASE, clientOrderId: 'b-2', bracket: true, takeProfit: '110', stopLoss: '90' },
+          { ...BASE, clientOrderId: 'b-2', oco: true, takeProfit: '110', stopLoss: '90' },
           { ...BASE, clientOrderId: 'b-3' },
         ],
       },
