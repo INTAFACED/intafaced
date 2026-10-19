@@ -119,14 +119,14 @@ const ROWS = [
     id: '18.2-docs',
     bullet: 'Canonical documents do not contradict shipped architecture or claim unfinished waves as current',
     cls: 'SOURCE-READ',
-    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md, docs/PROMPT-GROK-FRONTEND-GO.md',
+    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md (removed), docs/PROMPT-GROK-FRONTEND-GO.md (removed)',
     note: '§9.2/§19.7 owner 2026-09-09: AT deferred, withdraw not-now, AC wait, Layer A freeze. Remaining SOCKET/LATER/REFUSED named, not unfinished waves.',
   },
   {
     id: '18.2-m07',
     bullet: 'Every M07 R-item NOW-complete, REFUSE-closed, SOCKET, or LATER with a named owner',
     cls: 'SOURCE-READ',
-    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md §19.4 + goldens/specs listed in M07 rows below',
+    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md (removed) §19.4 + goldens/specs listed in M07 rows below',
     note: 'R03 densify #3993. R04 mounts exist #3830. R08 AT LATER owner 2026-09-09. R02/R07 SOCKET.',
   },
   {
@@ -176,7 +176,7 @@ const ROWS = [
     id: 'm07-r07',
     bullet: 'R07 mobile control plane',
     cls: 'SOCKET',
-    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md',
+    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md (removed)',
     note: 'PX-S05-O08. 390 desk is not a control plane.',
   },
   {
@@ -212,7 +212,7 @@ const ROWS = [
     id: 'm07-r12',
     bullet: 'R12 long-session budgets',
     cls: 'LATER',
-    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md',
+    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md (removed)',
     note: 'Wave 3. Do not fake.',
   },
   {
@@ -240,7 +240,7 @@ const ROWS = [
     id: 'm07-r16',
     bullet: 'R16 journal / live vs replay',
     cls: 'LATER',
-    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md',
+    evidence: 'docs/FRONTEND-REMAINING-SOT-2026-08-25.md (removed)',
     note: 'Replay REFUSE. Retention SOCKET.',
   },
   {

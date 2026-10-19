@@ -236,7 +236,7 @@ cached `is_listed`.
 and the public `listings` catalogue uses the same registration order (not newest-first) —
 stable under pagination, and it says nothing about how good anybody is. Ranking,
 quality scoring and featured placement are reserved to the owner by
-`docs/DIRECTION-2026-07-31.md` §8, and choosing one here — even "newest first",
+`docs/DIRECTION-2026-07-31.md` (removed) §8, and choosing one here — even "newest first",
 which is a growth choice — would be this service deciding listing policy. A
 public list is not a ranked list.
 

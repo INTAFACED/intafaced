@@ -3,8 +3,8 @@
 **Status:** **Accepted — 2026-08-16 (D26-P0-16 sealed).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-16 — “Audited / insured / guaranteed” language ban surface.  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-16.  
-**Law:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §8.9.  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-16.  
+**Law:** `DIRECTION-2026-07-31.md` (removed) §8.9.  
 **Gate:** [`tooling/ci/marketing-language-scan.mjs`](../../tooling/ci/marketing-language-scan.mjs) (`packages/config/src/marketing-language.ts`).  
 **Does not invent:** that any product, fund, deposit, contract, or yield is audited, insured, or guaranteed.
 

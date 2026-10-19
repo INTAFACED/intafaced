@@ -1,6 +1,6 @@
 # ADR: what a TWAP does with overdue slices — the interval is the promise
 
-**Status:** **Accepted — 2026-08-08.** This is the ruling `docs/BUILD-STOP-TRADE-2026-08-08.md` §4 asked for. It unblocks defect 1 of the three that made the adversarial pass return **DO NOT MOUNT** on the TWAP scheduler.
+**Status:** **Accepted — 2026-08-08.** This is the ruling `docs/BUILD-STOP-TRADE-2026-08-08.md` (removed) §4 asked for. It unblocks defect 1 of the three that made the adversarial pass return **DO NOT MOUNT** on the TWAP scheduler.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec:** the algo half of **D-S-04**, extending [`adr/2026-08-04-algo-execution-law.md`](2026-08-04-algo-execution-law.md) (TWAP only, icebergs out). That ADR stands unchanged.
 **Lane:** `services/svc-trade/src/algo/**` is claimed live by `nitro-money-trade-algo`. **This is law only — the craft is theirs.** No code in this PR.
@@ -62,12 +62,12 @@ A time-weighted average price order is a promise about _spacing_, not about a se
 
 ## The other two defects — not ruled here, and not blocked on me
 
-`BUILD-STOP-TRADE-2026-08-08.md` §4 lists three. Two are **engineering defects with no product question in them**, and the algo lane may fix them without asking:
+`BUILD-STOP-TRADE-2026-08-08.md` (removed) §4 lists three. Two are **engineering defects with no product question in them**, and the algo lane may fix them without asking:
 
 - **A failed child cancel leaves the parent active** — the status update sits after the per-child cancel loop, so one throw and the algo keeps placing. The correct shape is already law elsewhere in this repo: a state transition that must hold across several writes belongs in the transaction that makes them, which is what `#950` established for `close()` with `SELECT … FOR UPDATE` spanning the posts and the status write.
 - **Cancel silently no-ops after a restart** — the parent flips to `cancelled` while children stay live on the book, holding funds and still filling. **A cancel that does not cancel is worse than a refused cancel**, because the trader stops watching. This is the honesty doctrine applied to a state word.
 
-`docs/TRADE-LANE-HARVEST-2026-08-08.md:76` is right that these must land in the same change as the mount: _"This must be fixed in the same change as the scheduler, or mounting it is worse than leaving it dead."_ This ADR removes the product blocker; it does not lower that bar.
+`docs/TRADE-LANE-HARVEST-2026-08-08.md (removed):76` is right that these must land in the same change as the mount: _"This must be fixed in the same change as the scheduler, or mounting it is worse than leaving it dead."_ This ADR removes the product blocker; it does not lower that bar.
 
 ---
 

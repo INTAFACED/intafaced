@@ -14,7 +14,7 @@
 >
 > **`APP_ENV=staging` is a fail-closed policy switch**, not a label. Sanctions screening and pay-rail sandbox rules that refuse to boot without required blocklists **must stay enforced**. Setting `APP_ENV=dev` on a reachable staging host to make it boot is **forbidden**.
 >
-> **Secrets:** doctrine §9 prefers vault. GitHub Actions secrets are an explicit **named deviation** for staging only until a vault path exists. Real staging credentials are Class **X2** — append `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md`; never invent placeholder secrets in the repo.
+> **Secrets:** doctrine §9 prefers vault. GitHub Actions secrets are an explicit **named deviation** for staging only until a vault path exists. Real staging credentials are Class **X2** — append `docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` (removed); never invent placeholder secrets in the repo.
 >
 > **Rollback** is redeploy previous image tag. That is not a §14.6 kill-switch. Kill-switch remains a separate lever.
 >

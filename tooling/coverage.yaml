@@ -657,7 +657,7 @@ capabilities:
     tracker: [trade.copy, agents.copy-intel, socket.copy-auto-mirror-place]
     note: >-
       Audit §B2 — the law line and the row both still say "profit share", which
-      SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md:95 forbids in v1. Reported for the owner's pen; the
+      SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md (removed):95 forbids in v1. Reported for the owner's pen; the
       law is not edited from here. socket.copy-auto-mirror-place is the §13 refuse-closed place half
       after planMirror (D26-P1-T3) — never invent follower fills.
   - id: m.trade.forex
@@ -698,7 +698,7 @@ capabilities:
     phase: 1
     tracker: [identity.apikeys]
     note: >-
-      Audit §A1.d — folded into the identity.apikeys title, while SPEC-SUBACCOUNTS-2026-08-02.md treats
+      Audit §A1.d — folded into the identity.apikeys title, while SPEC-SUBACCOUNTS-2026-08-02.md (removed) treats
       it as its own M5 product. Visible here, not visible on the board.
   - id: m.trade.terminal
     capability: Pro terminal
@@ -1761,7 +1761,7 @@ tracker_extra:
     basis: orphan
     reason: >-
       No law basis, no ADR, no spec — `grep -l CCXT docs/adr/ docs/SPEC-*.md` returns nothing. It is
-      acknowledged in passing at docs/DIRECTION-2026-07-31.md:21 as an existing fact, never decided as
+      acknowledged in passing at docs/DIRECTION-2026-07-31.md (removed):21 as an existing fact, never decided as
       product. It is now the de-facto public trade API, with no owner and no spec, and §27:755 forbids
       a third-party connectivity library in the money path — which is what its name promises.
   - id: identity.kyc-review
