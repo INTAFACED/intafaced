@@ -168,6 +168,34 @@ export function installOcoLink(ctor: typeof OrderBook): void {
     const slId = extra.stopLossOrderId && extra.stopLossOrderId.length > 0 ? extra.stopLossOrderId : `${order.orderId}:sl`;
     const base = baseOrder(extra);
 
+    // Atomic reject (L287): rehearse both legs on a throwaway copy of the book first. If the
+    // take-profit leg is refused after the stop leg ran, the stop's fills and triggers would
+    // stay executed on the live book, so a refused OCO must never touch it.
+    const rehearsal = OrderBook.fromState(this.toState());
+    const rehearsalSl = orig.call(
+      rehearsal,
+      { ...base, orderId: slId, type: 'stop', price: null, stopPrice: stopLoss, ocoSiblingId: tpId },
+      now,
+    );
+    if (rehearsalSl.accepted) {
+      const rehearsalTp = orig.call(
+        rehearsal,
+        { ...base, orderId: tpId, type: 'limit', price: takeProfit, stopPrice: null, ocoSiblingId: slId },
+        now,
+      );
+      if (!rehearsalTp.accepted) {
+        return {
+          accepted: false,
+          sequence: rehearsalTp.sequence,
+          fills: [],
+          resting: null,
+          rejected: rehearsalTp.rejected,
+          cancellations: [],
+          triggered: [],
+        };
+      }
+    }
+
     const sl = orig.call(
       this,
       {
