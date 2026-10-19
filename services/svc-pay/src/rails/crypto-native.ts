@@ -428,6 +428,16 @@ export class CryptoNativeAdapter implements RailAdapter {
       });
     }
 
+    // A replay of a durable refund id answers with the first result. It must
+    // come before the refundable check: a full refund already shrank
+    // `refundable` to zero, so the replay would otherwise read as a failure for
+    // a refund that was sent.
+    const durableId = opts?.refundId?.trim();
+    if (durableId) {
+      const replayed = this.completedRefundKeys.get(`pay.refund:${ref}:${durableId}`);
+      if (replayed) return replayed;
+    }
+
     const already = this.refunded.get(ref) ?? 0n;
     const refundable = transfer.amount - already;
     if (amount > refundable) {
