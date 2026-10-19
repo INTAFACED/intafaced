@@ -1,14 +1,13 @@
 /**
- * Cancel both siblings of a linked OCO through matching (#3642).
- * Refuse if either sibling is already terminal.
+ * Cancel the legs of a linked OCO through matching, one cancel per leg that rests.
+ * Refuse if a sibling is already terminal with no fill recorded.
  * Trade does not invent a trigger.
  * Installed onto TradeService.prototype so trade-service.ts never moves.
  */
 import { requireScope, type Principal } from '@intafaced/auth';
-import { formatAmount } from '@intafaced/ledger-client';
 import { TradeError, type OrderRecord } from './types.js';
 import { TradeService } from './trade-service.js';
-import type { EngineSubmitRequest, EngineSubmitResult, MatchingClient } from './matching-client.js';
+import type { MatchingClient } from './matching-client.js';
 
 export const OCO_SIBLING_TERMINAL = 'oco_sibling_terminal' as const;
 
@@ -28,20 +27,6 @@ export function matchingOcoCancelRefuse(
 ): TradeError | null {
   if (rejected?.code !== OCO_SIBLING_TERMINAL) return null;
   return new TradeError('an OCO sibling is already terminal; trade does not invent a trigger', 'trade.oco_sibling_terminal');
-}
-
-function ocoCancelSubmit(order: OrderRecord): EngineSubmitRequest {
-  return {
-    orderId: order.id,
-    accountId: order.userId,
-    type: order.type,
-    side: order.side,
-    qty: formatAmount(order.qty),
-    price: order.price == null ? null : formatAmount(order.price),
-    tif: order.tif,
-    cancel: true,
-    oco: true,
-  } as EngineSubmitRequest;
 }
 
 export function installOcoCancel(ctor: typeof TradeService): void {
@@ -74,29 +59,21 @@ export function installOcoCancel(ctor: typeof TradeService): void {
       }
       if (ocoSiblingsLive(listed.orders, orderId)) {
         requireScope(principal, 'trade:write');
-        const result: EngineSubmitResult = await host.matching.submit(peek.marketId, ocoCancelSubmit(peek));
-        if (result.rejected?.code === OCO_SIBLING_TERMINAL && peek.filledQty > 0n) {
-          // The engine cancels a sibling on any first fill, so after a partial fill one leg is gone and the
-          // other still rests. The user is cancelling that remainder: pull each leg still listed, then close.
-          // With no fill recorded a missing sibling is unexplained, and the refusal below stands.
-          for (const row of listed.orders) {
-            if (!ocoSiblingIds(orderId).includes(row.orderId)) continue;
-            const pulled = await host.matching.cancel(peek.marketId, row.orderId);
-            // A refused pull means the leg moved (it may have filled): do not release over an unsettled fill.
-            if (!pulled.cancelled) {
-              throw new TradeError('an OCO leg changed while cancelling; retry', 'trade.matching_unavailable');
-            }
-          }
-          await host.finalize(orderId, 'cancelled');
-          const closed = await host.findOrder(orderId);
-          if (!closed) throw new TradeError(`order ${orderId} vanished during OCO cancel`, 'trade.order_not_found');
-          return closed;
+        // The engine rests an OCO as its legs, and a cancel submitted to its order intake needs a PLACE lifecycle
+        // proof (matching answers 400 without one, and a halted market could never be cancelled). Cancel the legs
+        // that rest, directly, like any other cancel.
+        const legs = ocoSiblingIds(orderId).filter((id) => listed.orders.some((row) => row.orderId === id));
+        // One leg gone with no fill recorded is unexplained: refuse and keep the hold. After a partial fill the
+        // engine has cancelled the sibling itself, and the remainder is what the user is cancelling.
+        if (legs.length < 2 && peek.filledQty <= 0n) {
+          throw new TradeError('an OCO sibling is already terminal; trade does not invent a trigger', 'trade.oco_sibling_terminal');
         }
-        const refuse = matchingOcoCancelRefuse(result.rejected);
-        if (refuse) throw refuse;
-        if (!result.accepted) {
-          if (result.rejected?.code === 'order_not_found') return origCancel.call(this, principal, orderId);
-          throw new TradeError(result.rejected?.message ?? 'linked OCO cancel refused', 'trade.matching_unavailable');
+        for (const leg of legs) {
+          const pulled = await host.matching.cancel(peek.marketId, leg);
+          // A refused pull means the leg moved (it may have filled): do not release over an unsettled fill.
+          if (!pulled.cancelled) {
+            throw new TradeError('an OCO leg changed while cancelling; retry', 'trade.matching_unavailable');
+          }
         }
         await host.finalize(orderId, 'cancelled');
         const settled = await host.findOrder(orderId);
