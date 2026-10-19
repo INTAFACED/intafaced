@@ -435,3 +435,7 @@ Whole-identity serialization also requires the matching durable identity decisio
 4. Set the operator-history retention/export policy and prove backup restore before live launch. Append-only triggers reject edits/deletes; corrections are new attributed actions.
 
 The PostgreSQL suite injects a SQL failure after successful rail and ledger completion, verifies recovery under suspension without a second transfer, verifies hold-crash recovery, changed-destination refusal, concurrent payout dedupe and reversal-projection recovery. Founder/control tests cover version races, both actors, legacy bypass refusal, immutable audit and pending-decision drain failure/cancellation/lost acknowledgement.
+
+## Service keys: ledger calls
+
+The ledger client signs with svc-pay's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

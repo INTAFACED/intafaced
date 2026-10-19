@@ -224,10 +224,6 @@
       "sign": 1,
       "caller": 1
     },
-    "services/svc-pay/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-pay/src/limits/identity-tier.ts": {
       "sign": 1,
       "caller": 0

@@ -1,5 +1,5 @@
 import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 /**
  * Budgets for svc-ledger calls.
@@ -37,10 +37,14 @@ const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const
  * Because it is the shared client, a post returns the entries the ledger actually booked, which is what makes
  * `postPayLedger`'s receipt check compare real legs instead of an empty list.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
+export function createLedgerClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): LedgerClient {
   const shared: Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> = {
     baseUrl,
-    sign: (payload) => serviceAuthHeadersForBody('svc-pay', internalSecret, payload),
+    sign: serviceCallSigner({ service: 'svc-pay', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
     // client is built (telemetry, a test door) still sees every ledger call.
     fetch: (input, init) => globalThis.fetch(input, init),
