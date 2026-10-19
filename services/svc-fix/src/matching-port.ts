@@ -283,7 +283,8 @@ export async function postMatchingSubmit(command: unknown, options: MatchingPort
       body: payload,
       signal: controller.signal,
     });
-    const text = await response.text().catch(() => '');
+    // A body that stalls or breaks after 2xx headers must reach the catch below: matching may already hold the order, so it is a timeout, never a clean rejection.
+    const text = await response.text();
     if (!response.ok) {
       return classifyHttpStatus(response.status, text.slice(0, 500));
     }
