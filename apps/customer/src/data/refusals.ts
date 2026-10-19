@@ -63,6 +63,19 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   priceInvalid: { title: 'Check the price', body: 'Enter a price that is close to the market price.' },
   belowMinimum: { title: 'Amount is too small', body: 'Enter a larger amount to continue.' },
   orderTypeUnsupported: { title: "That order type isn't offered", body: 'This market takes limit and market orders only.' },
+  exitPriceOrder: {
+    title: 'Check the exit prices',
+    body: 'To buy with exits, the take profit must be below the stop loss, and the stop-loss limit at or above it. Nothing was held.',
+  },
+  exitStopLimitMissing: {
+    title: 'Add a stop-loss limit price',
+    body: 'A buy with exits needs a limit on its stop loss, so the funds can be held once. Nothing was held.',
+  },
+  exitMissing: { title: 'Add both exit prices', body: 'A take profit and a stop loss are both needed. Nothing was held.' },
+  exitsNotPlaced: {
+    title: 'Your buy went through, but the exits were not placed',
+    body: 'Until they are placed, what you bought has no stop loss. Place the exits again; the buy will not be repeated.',
+  },
   postOnlyWouldCross: {
     title: 'Post-only order not placed',
     body: 'It would have matched an order on the book right away, so it was refused. Nothing was traded.',

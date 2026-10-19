@@ -236,12 +236,42 @@ describe('exit orders (OCO and bracket)', () => {
     expect(checkOrder({ ...bracket, price: '59000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'entryBetween' } });
   });
 
-  it('OCO is sell-only and a bracket buy-only', () => {
-    expect(exitSideOff('buy', 'oco')).toBe(true);
+  it('OCO works on both sides and a bracket is buy-only', () => {
+    expect(exitSideOff('buy', 'oco')).toBe(false);
     expect(exitSideOff('sell', 'oco')).toBe(false);
     expect(exitSideOff('sell', 'bracket')).toBe(true);
     expect(exitSideOff('buy', 'bracket')).toBe(false);
     expect(exitSideOff('buy', 'limit')).toBe(false);
+  });
+
+  it('a buy OCO needs take-profit < stop loss <= stop-loss limit, and is held and sized at the limit', () => {
+    const buyOco = { ...oco, side: 'buy', price: '58000', stopPrice: '60000', stopLimit: '60100' } as const;
+    expect(checkOrder(buyOco, market, ref)).toEqual({
+      ok: true,
+      amount: '0.001',
+      price: '58000',
+      exit: { takeProfit: '58000', stopLoss: '60000', stopLossLimit: '60100' },
+    });
+    // equal trigger and limit is allowed
+    expect(checkOrder({ ...buyOco, stopLimit: '60000' }, market, ref)).toMatchObject({ ok: true });
+    expect(checkOrder({ ...buyOco, stopLimit: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopLimitEmpty' } });
+    expect(checkOrder({ ...buyOco, stopLimit: '60100.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'stopLimitTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...buyOco, stopLimit: '59999' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopLimitBelowTrigger' } });
+    expect(checkOrder({ ...buyOco, price: '60000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'exitOrderBuy' } });
+    expect(checkOrder({ ...buyOco, price: '61000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'exitOrderBuy' } });
+    expect(orderValue(buyOco, ref)).toEqual({ value: '60.1', estimated: false });
+    expect(maxAmount({ side: 'buy', type: 'oco', price: '58000', stopLimit: '100', available: '1000', market: { lotSize: '0.001' } })).toBe(
+      '10',
+    );
+  });
+
+  it('a resting bracket entry (good till cancelled) needs an entry price', () => {
+    expect(checkOrder({ ...bracket, tif: 'GTC' }, market, ref)).toEqual({ ok: false, problem: { kind: 'priceEmpty' } });
+    expect(checkOrder({ ...bracket, price: '65000', tif: 'GTC' }, market, ref)).toMatchObject({ ok: true, price: '65000' });
+    expect(checkOrder({ ...bracket, tif: 'IOC' }, market, ref)).toMatchObject({ ok: true, price: null });
   });
 
   it('a market-entry bracket is sized from the price protection, a limit entry from its own price', () => {

@@ -32,12 +32,38 @@ describe('OCO and bracket drafts', () => {
       expect(draftSchema.safeParse({ ...bracket, type: 'limit', price: '100', timeInForce }).success).toBe(true);
   });
 
-  it('refuses what the service refuses: a buy OCO, a sell bracket, a resting bracket entry, a take-profit at or under the stop-loss', () => {
-    expect(draftSchema.safeParse({ ...oco, side: 'buy' }).success).toBe(false);
+  it('accepts a buy OCO held at its stop-loss limit, and a resting bracket entry', () => {
+    const buyOco = {
+      ...oco,
+      side: 'buy',
+      price: '91',
+      exit: { kind: 'oco', takeProfit: '80', stopLoss: '90', stopLossLimit: '91' },
+    } as const;
+    expect(draftSchema.safeParse(buyOco).success).toBe(true);
+    expect(draftSchema.safeParse({ ...buyOco, exit: { ...buyOco.exit, stopLossLimit: '90' }, price: '90' }).success).toBe(true);
+    expect(draftSchema.safeParse({ ...bracket, type: 'limit', price: '100' }).success).toBe(true);
+    expect(placeBody(buyOco)).toMatchObject({
+      oco: true,
+      side: 'buy',
+      type: 'limit',
+      price: '91',
+      takeProfit: { stopPrice: '80' },
+      stopLoss: { stopPrice: '90', price: '91' },
+    });
+    // The engine's order is take-profit < stop trigger <= stop-loss limit, held at the limit.
+    expect(draftSchema.safeParse({ ...buyOco, exit: { ...buyOco.exit, stopLossLimit: undefined } }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...buyOco, exit: { ...buyOco.exit, stopLossLimit: '89' }, price: '89' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...buyOco, exit: { ...buyOco.exit, takeProfit: '90' } }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...buyOco, price: '80' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...buyOco, timeInForce: 'IOC' }).success).toBe(false);
+  });
+
+  it('refuses what the service refuses: a sell bracket, a post-only bracket, a stop-loss limit on a sell OCO, a take-profit at or under the stop-loss', () => {
+    expect(draftSchema.safeParse({ ...oco, exit: { ...oco.exit, stopLossLimit: '89' } }).success).toBe(false);
     expect(draftSchema.safeParse({ ...oco, timeInForce: 'IOC' }).success).toBe(false);
     expect(draftSchema.safeParse({ ...oco, price: '111' }).success).toBe(false);
     expect(draftSchema.safeParse({ ...bracket, side: 'sell' }).success).toBe(false);
-    expect(draftSchema.safeParse({ ...bracket, type: 'limit', price: '100' }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...bracket, type: 'limit', price: '100', timeInForce: 'PO', postOnly: true }).success).toBe(false);
     expect(draftSchema.safeParse({ ...oco, exit: { ...oco.exit, stopLoss: '110' } }).success).toBe(false);
     expect(draftSchema.safeParse({ ...bracket, exit: { ...bracket.exit, takeProfit: '80' } }).success).toBe(false);
   });

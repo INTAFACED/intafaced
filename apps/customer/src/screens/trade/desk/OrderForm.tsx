@@ -45,6 +45,7 @@ import {
   scaled,
   exitSideOff,
   hasExits,
+  isBuyOco,
   isPriced,
   serviceType,
   type OrderType,
@@ -87,6 +88,19 @@ function notTradedCopy(
 }
 
 /** The reason a refusal gives, with its action link ("Verify now") when it has one. */
+/**
+ * A resting bracket entry is refused with the generic "order type" code when the login cannot back it (no trading scope,
+ * or no known expiry). Say that, not "limit and market orders only".
+ */
+function restingRefusal(failure: Failure, draft: Draft): Failure {
+  if (failure.kind !== 'refusal' || draft.exit?.kind !== 'bracket' || draft.type !== 'limit' || draft.timeInForce !== 'GTC') return failure;
+  if (failure.copy.title !== refusalCopy('trade.order_type_unsupported', {}).title) return failure;
+  return {
+    kind: 'refusal',
+    copy: { title: deskCopy.t('Resting bracket refused title'), body: deskCopy.t('Resting bracket refused body') },
+  };
+}
+
 function RefusalNote({ failure, onRetry, onDismiss }: { failure: Failure; onRetry?: () => void; onDismiss?: () => void }) {
   const { t } = deskCopy.useCopy();
   if (failure.kind === 'network')
@@ -160,6 +174,9 @@ function SideForm({
   const [price, setPrice] = useState('');
   const [stopPrice, setStopPrice] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
+  const [stopLimit, setStopLimit] = useState('');
+  // A bracket buy that went through but whose exits were refused: the SAME request is sent again to place them, never a new buy.
+  const [exitRetry, setExitRetry] = useState<Draft | null>(null);
   const [amount, setAmount] = useState('');
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -236,13 +253,14 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
-  const input = { side, type, price, amount, stopPrice, takeProfit };
+  const input = { side, type, price, amount, stopPrice, stopLimit, takeProfit, tif };
   const priced = isPriced(type);
   const checked = checkOrder(input, market, reference);
   const value = orderValue(input, reference);
   const sellOff = marketSellOff(side, type);
   const exitOff = exitSideOff(side, type);
-  const tradable = signedIn && market.open && !blocked && !sellOff && !exitOff;
+  const held = blocked || exitRetry !== null;
+  const tradable = signedIn && market.open && !held && !sellOff && !exitOff;
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
@@ -256,6 +274,7 @@ function SideForm({
     checked.ok ? (checked.stopPrice ?? '') : '',
     checked.ok ? (checked.exit?.takeProfit ?? '') : '',
     checked.ok ? (checked.exit?.stopLoss ?? '') : '',
+    checked.ok ? (checked.exit?.stopLossLimit ?? '') : '',
     market.symbol,
     side,
     type,
@@ -298,12 +317,12 @@ function SideForm({
       });
   }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const protectionPrice = marketBuy ? protectionNow(protection?.price ?? null, protection?.ask ?? null, bestAsk) : null;
-  const max = maxAmount({ side, type, price, available, market, protectionPrice });
+  const max = maxAmount({ side, type, price, available, market, protectionPrice, stopLimit });
   const short = live.state === 'ok' && holdShort(live.preview, spendAsset, available);
   const gate = gateSubmit({
     signedIn,
     marketOpen: market.open,
-    pending: blocked,
+    pending: held,
     side,
     type,
     checkedOk: checked.ok,
@@ -425,13 +444,48 @@ function SideForm({
       if (mounted.current) setReview(null);
       onPlaced();
       requestCheck();
+    } else if (result.code === 'trade.bracket_exit_failed') {
+      // The buy went through; only the exits were refused. Offer the same request again so the buy is never repeated.
+      release(userId, sending.clientOrderId);
+      if (mounted.current) {
+        setReview(null);
+        setExitRetry(sending);
+      }
+      onPlaced();
     } else {
       release(userId, sending.clientOrderId);
       if (isLedgerFrozen(result)) markOrdersPaused();
       if (mounted.current) {
         setReview(null);
-        setFailure(failureOf(result, context));
+        setFailure(restingRefusal(failureOf(result, context), sending));
       }
+    }
+    if (mounted.current) setBusy(false);
+    busyRef.current = false;
+  }
+
+  /** Send the same bracket request again (same order number): the service returns the buy it has and places the exits. */
+  async function placeExits() {
+    if (!exitRetry || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    markInFlight(exitRetry.clientOrderId);
+    let result: Awaited<ReturnType<TradeApi['resend']>>;
+    try {
+      env.poller.recordExternalRequest();
+      result = await api.resend(exitRetry);
+    } finally {
+      unmarkInFlight(exitRetry.clientOrderId);
+    }
+    if (mounted.current) {
+      if (result.ok) {
+        setExitRetry(null);
+        setStatus(t('Exits placed'));
+        setAmount('');
+        setTotalEdit(null);
+        onPlaced();
+      } else if (result.code === 'trade.bracket_exit_failed' || result.reason === 'uncertain') setHint(t('Exits still not placed'));
+      else setFailure(failureOf(result, context));
     }
     if (mounted.current) setBusy(false);
     busyRef.current = false;
@@ -439,7 +493,7 @@ function SideForm({
 
   function pickPercent(percent: (typeof PERCENTS)[number]) {
     if (available === null) return;
-    const size = sizeFor({ side, type, price, available, lotSize: market.lotSize, protectionPrice, percent });
+    const size = sizeFor({ side, type, price, available, lotSize: market.lotSize, protectionPrice, stopLimit, percent });
     if (size.amount === null) {
       setHint(
         size.needsPrice
@@ -554,6 +608,20 @@ function SideForm({
         />
       ) : null}
       {hasExits(type) ? stopInput(t('Stop loss')) : null}
+      {isBuyOco(side, type) ? (
+        <AmountInput
+          label={t('Stop loss limit')}
+          value={stopLimit}
+          onValueChange={(next) => edit(() => (setStopLimit(next), setTotalEdit(null)))}
+          precision={pricePlaces}
+          placeholder={fmtPrice('0', market.tickSize)}
+          tick={market.tickSize}
+          min={market.tickSize}
+          unit={market.quote}
+          stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
+          aria-label={t('Stop loss limit')}
+        />
+      ) : null}
       <AmountInput
         label={t('Amount')}
         value={amount}
@@ -585,12 +653,13 @@ function SideForm({
         onValueChange={(next) =>
           edit(() => {
             if (!priced) return;
-            if (scaled(price) === null) {
+            const heldPrice = isBuyOco(side, type) ? stopLimit : price;
+            if (scaled(heldPrice) === null) {
               setHint(t('Enter a price first'));
               return;
             }
             setTotalEdit(next);
-            setAmount(next === '' ? '' : (amountForValue(next, price, market.lotSize) ?? ''));
+            setAmount(next === '' ? '' : (amountForValue(next, heldPrice, market.lotSize) ?? ''));
           })
         }
         precision={8}
@@ -651,13 +720,25 @@ function SideForm({
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
         {signedIn && market.open && sellOff ? <p className="dk-note">{t('Market sell off')}</p> : null}
-        {signedIn && market.open && exitOff ? (
-          <p className="dk-note">{side === 'buy' ? t('OCO buy off') : t('Bracket sell off', { asset: market.base })}</p>
-        ) : null}
+        {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
-            {type === 'oco' ? t('Exit note oco', { asset: market.base }) : t('Exit note bracket', { asset: market.base })}
+            {type === 'oco'
+              ? side === 'buy'
+                ? t('Exit note oco buy', { asset: market.base })
+                : t('Exit note oco', { asset: market.base })
+              : tif === 'GTC'
+                ? t('Exit note bracket resting', { asset: market.base })
+                : t('Exit note bracket', { asset: market.base })}
           </p>
+        ) : null}
+        {exitRetry ? (
+          <div className="dk-note dk-note--bad" role="alert">
+            <RefusalNote failure={refusalFailure('trade.bracket_exit_failed', context)} />
+            <button type="button" className="dk-link" disabled={busy} onClick={() => void placeExits()}>
+              {t('Place the exits')}
+            </button>
+          </div>
         ) : null}
         {gate.reason === 'short' ? <RefusalNote failure={refusalFailure('ledger.insufficient_funds', context)} /> : null}
         {tradable && showProblem && !checked.ok ? <p className="dk-note">{problemText(checked.problem, market, t)}</p> : null}
@@ -764,12 +845,24 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
               {fmtPrice(exit.stopLoss, market.tickSize)} {market.quote}
             </dd>
           </div>
+          {exit.stopLossLimit ? (
+            <div>
+              <dt>{t('Review stop loss limit')}</dt>
+              <dd className="if-num">
+                {fmtPrice(exit.stopLossLimit, market.tickSize)} {market.quote}
+              </dd>
+            </div>
+          ) : null}
           <div>
             <dt>{t('Review exit note label')}</dt>
             <dd>
               {exit.kind === 'oco'
-                ? t('Review exit note oco', { asset: market.base })
-                : t('Review exit note bracket', { asset: market.base })}
+                ? draft.side === 'buy'
+                  ? t('Review exit note oco buy', { asset: market.base })
+                  : t('Review exit note oco', { asset: market.base })
+                : draft.type === 'limit' && draft.timeInForce === 'GTC'
+                  ? t('Review exit note bracket resting', { asset: market.base })
+                  : t('Review exit note bracket', { asset: market.base })}
             </dd>
           </div>
         </>
