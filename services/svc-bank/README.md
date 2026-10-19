@@ -579,3 +579,7 @@ Code for loans, cards (ledger half), ramps (crypto half), and standing-order pau
 | **Fiat**   | A bank/PSP partner and money-transmission permission    | **Refused.** Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. Partner is §13 |
 
 `BANK_RAMP_MODE=crypto-ledger` books crypto deposits and withdrawals against rail `bank-crypto-ledger` — deliberately distinct from svc-pay's `crypto-native` boundary so an operator credit here cannot desync pay's chain reconciliation. `simulated: true` is never omitted. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. Live broadcast and inbound confirmation stay in svc-pay; Class X is pointing working code at real money.
+
+## Service keys (S2S v3)
+
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, every call to svc-ledger (posts, reads and history) is signed with svc-bank's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
