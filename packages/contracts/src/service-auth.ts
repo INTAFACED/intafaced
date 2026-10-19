@@ -181,7 +181,7 @@ export function serviceBodyDigest(body?: string | Buffer | null): string {
 }
 
 /** `<byteLength>:<value>\n` — injective regardless of what `value` contains. */
-function lengthPrefixed(value: string): string {
+export function lengthPrefixed(value: string): string {
   return `${Buffer.byteLength(value, 'utf8')}:${value}\n`;
 }
 
