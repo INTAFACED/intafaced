@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema, internalServiceEnvSchema } from '@intafaced/config';
 
 /**
  * svc-agents environment.
@@ -82,6 +82,7 @@ const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-agents'),

@@ -1,4 +1,4 @@
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { s2sFetch, serviceAuthHeadersForBody, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { CoachCatalogItem, CoachGrounding } from './grounded-session.js';
 
 /**
@@ -68,6 +68,8 @@ export function createAcademyCurriculumSource(
   baseUrl: string,
   internalSecret: string,
   fetchImpl: typeof fetch = fetch,
+  /** svc-agents' own key. With it the call is key-signed; `dual` also sends the shared-secret form, `keypair` does not. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): CoachCurriculumSource {
   const url = baseUrl.replace(/\/$/, '');
 
@@ -75,10 +77,18 @@ export function createAcademyCurriculumSource(
     async load(): Promise<CoachGrounding> {
       let response: Response;
       try {
-        response = await fetchImpl(`${url}/internal/curriculum`, {
-          method: 'GET',
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-agents', internalSecret, '') },
-        });
+        response = s2s
+          ? await s2sFetch(
+              s2s.signer,
+              'svc-academy',
+              new URL(`${url}/internal/curriculum`),
+              { method: 'GET', headers: { 'content-type': 'application/json' } },
+              { legacySecret: s2s.mode === 'dual' ? internalSecret : undefined, fetchImpl },
+            )
+          : await fetchImpl(`${url}/internal/curriculum`, {
+              method: 'GET',
+              headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-agents', internalSecret, '') },
+            });
       } catch {
         return EMPTY;
       }
