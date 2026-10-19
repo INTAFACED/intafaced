@@ -253,6 +253,21 @@ describe('customer step-up binding', () => {
       fields: { phone: '+14155552671' },
     });
     expect(remove.ok).toBe(true);
+    const close = bindCustomerStepUp(ACTOR, {
+      scope: 'identity.step_up.close_account',
+      purpose: 'account.close',
+      target: '11111111-1111-4111-8111-111111111111',
+      fields: { intent: 'request', clientRequestId: '11111111-1111-4111-8111-111111111111' },
+    });
+    expect(close.ok).toBe(true);
+    if (!close.ok) return;
+    expect(close.payloadHash).toBe(
+      customerStepUpPayloadHash('identity.step_up.close_account', {
+        actor: ACTOR,
+        intent: 'request',
+        clientRequestId: '11111111-1111-4111-8111-111111111111',
+      }),
+    );
     if (!email.ok) return;
     expect(email.payloadHash).toBe(
       customerStepUpPayloadHash('identity.step_up.email_change', { actor: ACTOR, newEmail: 'next@example.com' }),
