@@ -75,9 +75,16 @@ describe('native transactional P2P counter down', () => {
         feeBps: 100,
       });
       const claim = (service as unknown as { claimEscrowLockAttempt(id: string): Promise<string | null> }).claimEscrowLockAttempt(TRADE);
+      let claimSettled = false;
+      void claim.then(
+        () => (claimSettled = true),
+        () => (claimSettled = true),
+      );
       try {
+        // Wait for the condition, not a fixed 1s: under CI load the claim can take longer than that just to reach the
+        // database. A claim that finished without ever blocking is the real failure, so it ends the wait at once.
         let blocked = false;
-        for (let i = 0; i < 100 && !blocked; i++) {
+        for (let i = 0; i < 2000 && !blocked && !claimSettled; i++) {
           const [row] = await db.sql<
             { blocked: number }[]
           >`SELECT count(*)::int AS blocked FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%p2p_trades%'`;
