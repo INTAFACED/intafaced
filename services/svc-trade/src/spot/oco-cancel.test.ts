@@ -156,41 +156,42 @@ describe('svc-trade oco-cancel (H8a PG-hard)', () => {
       } as Parameters<TradeService['placeOrder']>[1]);
     }
 
-    it('cancels both siblings through matching — no invented trigger', async () => {
+    it('cancels both legs one by one — never through the order intake that needs a PLACE proof', async () => {
       const placed = await placeLinked();
       const [tp, sl] = ocoSiblingIds(placed.id);
       matching.scriptLive(tp, btcusdt.id);
       matching.scriptLive(sl, btcusdt.id);
-      matching.script1((request, next) => {
-        const sequence = next();
-        return {
-          accepted: true,
-          sequence,
-          fills: [],
-          resting: null,
-          rejected: null,
-          cancellations: [
-            { orderId: tp, accountId: ALICE, remainingQty: request.qty, sequence, reason: 'requested' },
-            { orderId: sl, accountId: ALICE, remainingQty: request.qty, sequence: next(), reason: 'requested' },
-          ],
-          triggered: [],
-        };
-      });
 
       const cancelled = await trade.cancelOrder(principalFor(ALICE), placed.id);
       expect(cancelled.status).toBe('cancelled');
-      const req = matching.submitted[1]?.request as {
-        cancel?: boolean;
-        oco?: boolean;
-        mark?: string | null;
-        takeProfit?: string | null;
-        stopLoss?: string | null;
+      // Only the placement was submitted; the cancel went leg by leg.
+      expect(matching.submitted).toHaveLength(1);
+      expect(matching.cancelledOrders).toEqual([tp, sl]);
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).toBe('2');
+    });
+
+    it('a retry after the second leg pull failed finishes the cancel and releases the hold', async () => {
+      const placed = await placeLinked();
+      const [tp, sl] = ocoSiblingIds(placed.id);
+      matching.scriptLive(tp, btcusdt.id);
+      matching.scriptLive(sl, btcusdt.id);
+      const realCancel = matching.cancel.bind(matching);
+      let failSl = true;
+      matching.cancel = async (marketId: string, orderId: string) => {
+        if (orderId === sl && failSl) {
+          failSl = false;
+          throw new Error('matching down');
+        }
+        return realCancel(marketId, orderId);
       };
-      expect(req?.cancel).toBe(true);
-      expect(req?.oco).toBe(true);
-      expect(req?.mark).toBeUndefined();
-      expect(req?.takeProfit).toBeUndefined();
-      expect(req?.stopLoss).toBeUndefined();
+
+      await expect(trade.cancelOrder(principalFor(ALICE), placed.id)).rejects.toThrow();
+      // The tp leg is off the book; the hold is still whole because the sl leg may yet fill.
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('1');
+
+      const cancelled = await trade.cancelOrder(principalFor(ALICE), placed.id);
+      expect(cancelled.status).toBe('cancelled');
       expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('0');
       expect(await avail(ALICE, 'BTC')).toBe('2');
     });
