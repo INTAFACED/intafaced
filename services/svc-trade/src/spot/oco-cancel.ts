@@ -66,7 +66,12 @@ export function installOcoCancel(ctor: typeof TradeService): void {
       } catch {
         return origCancel.call(this, principal, orderId);
       }
-      if (ocoSiblingsLive(listed.orders, orderId)) {
+      // An OCO with no leg resting but a recorded leg end is still this flow's (a crash after the pulls): it must not
+      // fall through to the ordinary cancel, which would release over a fill that left the book unsettled.
+      const hasLegEnd =
+        ocoSiblingsLive(listed.orders, orderId) ||
+        (await host.sql`SELECT 1 FROM trade.oco_leg_end WHERE parent_id = ${orderId} LIMIT 1`).length > 0;
+      if (hasLegEnd) {
         requireScope(principal, 'trade:write');
         // The engine rests an OCO as its legs, and a cancel submitted to its order intake needs a PLACE lifecycle
         // proof (matching answers 400 without one, and a halted market could never be cancelled). Cancel the legs
@@ -74,16 +79,18 @@ export function installOcoCancel(ctor: typeof TradeService): void {
         const legs = ocoSiblingIds(orderId).filter((id) => listed.orders.some((row) => row.orderId === id));
         // One leg gone with no fill recorded is unexplained: refuse and keep the hold. After a partial fill the
         // engine has cancelled the sibling itself, and the remainder is what the user is cancelling.
-        const pulledBefore =
-          legs.length < 2 && peek.filledQty <= 0n
-            ? (
-                await host.sql<Array<{ leg: string }>>`
-                  SELECT leg FROM trade.oco_leg_end WHERE parent_id = ${orderId} AND reason = ${PULL_REASON} LIMIT 1
-                `
-              ).length > 0
-            : false;
-        if (legs.length < 2 && peek.filledQty <= 0n && !pulledBefore) {
-          throw new TradeError('an OCO sibling is already terminal; trade does not invent a trigger', 'trade.oco_sibling_terminal');
+        // Every leg that is gone must be one THIS flow pulled (its own user_pull row): a different leg that left the
+        // book unfilled-and-unrecorded may have filled, and that fill may not be settled yet.
+        if (legs.length < 2 && peek.filledQty <= 0n) {
+          const missing = ocoSiblingIds(orderId)
+            .filter((id) => !legs.includes(id))
+            .map((id) => id.slice(-2));
+          const pulledRows = await host.sql<Array<{ leg: string }>>`
+            SELECT leg FROM trade.oco_leg_end WHERE parent_id = ${orderId} AND reason = ${PULL_REASON}
+          `;
+          if (!missing.every((leg) => pulledRows.some((row) => row.leg === leg))) {
+            throw new TradeError('an OCO sibling is already terminal; trade does not invent a trigger', 'trade.oco_sibling_terminal');
+          }
         }
         for (const leg of legs) {
           const pulled = await host.matching.cancel(peek.marketId, leg);

@@ -211,6 +211,16 @@ describe('svc-trade oco-cancel (H8a PG-hard)', () => {
       expect(tp).toBeDefined();
     });
 
+    it('a remembered pull of one leg does not explain the OTHER leg being gone: the hold stays', async () => {
+      const placed = await placeLinked();
+      // tp was pulled by an earlier attempt; sl is off the book with no fill recorded here (it may have filled).
+      await sql`INSERT INTO trade.oco_leg_end (parent_id, leg, remaining_qty, reason) VALUES (${placed.id}, 'tp', 1, 'user_pull')`;
+
+      await expect(trade.cancelOrder(principalFor(ALICE), placed.id)).rejects.toMatchObject({ code: 'trade.oco_sibling_terminal' });
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('1');
+      expect((await trade.findOrder(placed.id))?.status).toBe('open');
+    });
+
     it('refuses when either sibling is already terminal — remaining hold stays', async () => {
       const placed = await placeLinked();
       const [tp] = ocoSiblingIds(placed.id);
