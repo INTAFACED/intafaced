@@ -293,3 +293,7 @@ Failure branches covered: an unrouted task, a route naming an unregistered provi
 ## Service keys: ledger calls
 
 The ledger client signs with svc-agents' own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: inbound doors
+
+`/trpc` names the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Usage settle still runs only for a call named svc-agents. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

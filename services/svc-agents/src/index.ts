@@ -189,7 +189,10 @@ const appRouter = createAgentsRouter({
 
 // Built before the listener opens: a service that cannot authenticate the edge
 // must fail to start, not start and serve every request as anonymous.
-const edgeContext = buildEdgeContext(env);
+const edgeContext = buildEdgeContext(
+  env,
+  s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined,
+);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
