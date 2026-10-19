@@ -99,6 +99,17 @@ export function affectedFilters(files, edges = readEdges(), base = 'origin/main'
   return filters;
 }
 
+export const SHARD_COUNT = 4;
+
+/**
+ * The test job's matrix. A run-everything run is split SHARD_COUNT ways (tooling/ci/test-shards.mjs); an affected run is
+ * one job, `changed`. The seal reads the matrix as one job: it is green only when every shard is.
+ */
+export function shardMatrix(flags) {
+  if (flags.full) return Array.from({ length: SHARD_COUNT }, (_, i) => `${i + 1}/${SHARD_COUNT}`);
+  return ['changed'];
+}
+
 export function sealNeeded(flags, results) {
   const problems = [];
   const always = ['changes', 'gates', 'format', 'build'];
@@ -202,7 +213,9 @@ function selfTest() {
   );
   assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
-  console.log('✓ ci-affected --self-test OK (' + (cases.length + 10) + ' fixtures)');
+  assert(same(shardMatrix({ full: true }), ['1/4', '2/4', '3/4', '4/4']), 'a full run is split four ways');
+  assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 12) + ' fixtures)');
 }
 
 function githubOutput(flags) {
@@ -210,6 +223,9 @@ function githubOutput(flags) {
   const dest = process.env.GITHUB_OUTPUT;
   if (dest) writeFileSync(dest, `${lines.join('\n')}\n`, { flag: 'a' });
   for (const line of lines) console.log(line);
+  const shards = `shards=${JSON.stringify(shardMatrix(flags))}`;
+  if (dest) writeFileSync(dest, `${shards}\n`, { flag: 'a' });
+  console.log(shards);
 }
 
 function runSeal() {

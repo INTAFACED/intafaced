@@ -58,15 +58,15 @@ Run these on your machine before you push: affected tests, typecheck, and `pnpm 
 
 CI job names, so you can find a failure fast:
 
-| Check                           | What it protects                                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------------------ |
-| `Doctrine gates`                | the scans in `tooling/ci/gates.mjs`: brand, custody, secrets, migrations                   |
-| `Format`                        | prettier                                                                                   |
-| `Typecheck & build`             | the whole monorepo compiles                                                                |
-| `Tests (full)`                  | the changed packages, their dependents and readers; everything for a run-everything change |
-| `CI merge seal`                 | one result for the checks the changed paths call for                                       |
-| `Definition of Done`            | the per-service gate (`pnpm gate`)                                                         |
-| `Gitleaks` / `Dependency audit` | secrets and known vulnerabilities                                                          |
+| Check                                        | What it protects                                                                                                |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `Doctrine gates`                             | the scans in `tooling/ci/gates.mjs`: brand, custody, secrets, migrations                                        |
+| `Format`                                     | prettier                                                                                                        |
+| `Typecheck & build`                          | the whole monorepo compiles                                                                                     |
+| `Tests (changed)` / `Tests (1/4)` to `(4/4)` | the changed packages, their dependents and readers; a run-everything change runs the whole suite in four shards |
+| `CI merge seal`                              | one result for the checks the changed paths call for                                                            |
+| `Definition of Done`                         | the per-service gate (`pnpm gate`)                                                                              |
+| `Gitleaks` / `Dependency audit`              | secrets and known vulnerabilities                                                                               |
 
 The merge gate blocks on failures your PR introduces; the rules are in AGENTS.md ("Check, then merge"). GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass; a gate PASS does not override them, and you never bypass them.
 
