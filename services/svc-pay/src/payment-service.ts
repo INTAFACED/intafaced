@@ -3688,6 +3688,23 @@ export class PayService {
    * admission row exists, so treasury exposure does not keep a pending payout
    * the rail will never be asked to send.
    */
+  /**
+   * A payment stays `disputed` after a lost or accepted case, so the status alone cannot tell an open
+   * dispute from a closed one. Only an open or contested case (or a disputed payment with no case row
+   * yet) can still hand money back.
+   */
+  private async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
+    const disputed = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.payments
+       WHERE merchant_id = ${merchantId}::uuid AND currency = ${assetId} AND status = 'disputed'
+    `;
+    for (const { id } of disputed) {
+      const cases = await this.disputeCases.listForPayment(id);
+      if (cases.length === 0 || cases.some((c) => c.status === 'open' || c.status === 'contested')) return true;
+    }
+    return false;
+  }
+
   private async recognisedPayoutBook(input: {
     settlementId: string;
     merchantId: string;
@@ -4875,11 +4892,6 @@ export class PayService {
                 // A refund or a chargeback that may still be reversed (a refund the rail refuses, a won
                 // dispute) would put its money back after the cut and strand it.
                 const inFlight = await connection`
-                  SELECT 1 FROM pay.payments d
-                   WHERE d.merchant_id = ${settlement.merchantId}::uuid
-                     AND d.currency = ${settlement.assetId}
-                     AND d.status = 'disputed'
-                  UNION ALL
                   SELECT 1
                     FROM pay.payments p
                     JOIN pay.payment_events r ON r.payment_id = p.id AND r.event = 'refund.posted'
@@ -4892,7 +4904,7 @@ export class PayService {
                      )
                    LIMIT 1
                 `;
-                if (inFlight[0]) {
+                if (inFlight[0] || (await this.hasUnresolvedDispute(connection, settlement.merchantId, settlement.assetId))) {
                   throw new PayError(
                     `Settlement ${settlement.id} cannot be paid out while a refund or dispute for this merchant is unresolved`,
                     'pay.refund_in_flight',

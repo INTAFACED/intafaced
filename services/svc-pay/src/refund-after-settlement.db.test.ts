@@ -12,6 +12,7 @@ import {
   parseAmount as amt,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import { PostgresDisputeCaseStore } from './fraud/dispute-case-store.js';
 import { PayService, type PaymentView } from './payment-service.js';
 import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { truncatePayForTest } from './payment-events-test-reset.js';
@@ -92,6 +93,7 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
       new BankPayoutAbsentAdapter(),
     ]);
     pay = new PayService(sql, ledger as LedgerClient, rails, {
+      disputeCases: new PostgresDisputeCaseStore(sql),
       payoutDestinations: memoryPayoutDestinations(),
       checkoutRiskBand: 'low',
       routingProfiles: REFERENCE_RAIL_ROUTING_PROFILES.map((p) =>
@@ -200,5 +202,28 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
     await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
     expect(await payoutHoldsAndAdmissions()).toBe(0);
     expect(formatAmount((await pay.getSettlement(settlement.id)).net)).toBe('10');
+  });
+
+  it('cuts the net once the only dispute is lost, but not while it is open', async () => {
+    const { merchant, payment, settlement } = await settledPayment();
+    const store = new PostgresDisputeCaseStore(sql);
+    await pay.openChargeback({ disputeId: 'd-2', paymentId: payment.id, merchantId: merchant.id, amount: '4', assetId: 'USDT' });
+    await pay.markDisputed(payment.id, { disputeId: 'd-2' });
+    await store.open({
+      disputeId: 'd-2',
+      paymentId: payment.id,
+      merchantId: merchant.id,
+      amount: '4',
+      assetId: 'USDT',
+      paymentMarkedDisputed: true,
+    });
+    await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+
+    await store.markLost('d-2');
+    expect((await pay.getPayment(payment.id)).status).toBe('disputed');
+
+    const paid = await payoutOf(settlement.id);
+    expect(paid.status).toBe('paid_out');
+    expect(formatAmount(paid.net)).toBe('6');
   });
 });
