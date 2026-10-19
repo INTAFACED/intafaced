@@ -391,10 +391,14 @@ jobs:
         run: pnpm build
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
+      # --concurrency=3: turbo's default is 10 packages at once, each with its own vitest worker pool, on a 4-core
+      # runner sharing one Postgres, Redis, NATS and anvil. Under that load a different package timed out at vitest's
+      # 5 s default on each run (svc-p2p, svc-ws, svc-pay, the svc-protocol lending test), none of them touched by the
+      # PRs that went red. Fewer packages at a time removes the contention; no timeout is raised.
       - name: Run pnpm test --continue
         run: |
           set -o pipefail
-          pnpm test --continue 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          pnpm test --continue --concurrency=3 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
