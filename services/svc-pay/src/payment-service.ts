@@ -4872,8 +4872,14 @@ export class PayService {
               // and its hold could never post. Gross falls with net; the fee is not returned on a refund.
               const available = (await this.ledger.balance(merchantProceeds(merchant.id, settlement.assetId))).amount;
               if (available < settlement.net) {
-                // A refund that may still be reversed would put its money back after the cut and strand it.
+                // A refund or a chargeback that may still be reversed (a refund the rail refuses, a won
+                // dispute) would put its money back after the cut and strand it.
                 const inFlight = await connection`
+                  SELECT 1 FROM pay.payments d
+                   WHERE d.merchant_id = ${settlement.merchantId}::uuid
+                     AND d.currency = ${settlement.assetId}
+                     AND d.status = 'disputed'
+                  UNION ALL
                   SELECT 1
                     FROM pay.payments p
                     JOIN pay.payment_events r ON r.payment_id = p.id AND r.event = 'refund.posted'
@@ -4888,7 +4894,7 @@ export class PayService {
                 `;
                 if (inFlight[0]) {
                   throw new PayError(
-                    `Settlement ${settlement.id} cannot be paid out while a refund for this merchant is in flight`,
+                    `Settlement ${settlement.id} cannot be paid out while a refund or dispute for this merchant is unresolved`,
                     'pay.refund_in_flight',
                     { settlementId: settlement.id },
                   );

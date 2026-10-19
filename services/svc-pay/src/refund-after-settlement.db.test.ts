@@ -190,4 +190,15 @@ describe('refund of a settled payment before its payout', { timeout: 30_000 }, (
     expect(formatAmount(unchanged.net)).toBe('10');
     expect(unchanged.status).toBe('posted');
   });
+
+  it('does not cut the net while a dispute is open, since a won dispute returns the money', async () => {
+    const { merchant, payment, settlement } = await settledPayment();
+    await pay.openChargeback({ disputeId: 'd-1', paymentId: payment.id, merchantId: merchant.id, amount: '4', assetId: 'USDT' });
+    await pay.markDisputed(payment.id, { disputeId: 'd-1' });
+    expect(formatAmount((await ledger.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe('6');
+
+    await expect(payoutOf(settlement.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+    expect(await payoutHoldsAndAdmissions()).toBe(0);
+    expect(formatAmount((await pay.getSettlement(settlement.id)).net)).toBe('10');
+  });
 });
