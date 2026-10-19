@@ -51,7 +51,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 
 The owner's standing green light (2026-10-19): agents need no one's go-ahead for the work below, and should not stop to ask for it.
 
-1. Allowed: push branches (`claude/*` or your task's branch) and open PRs; delete files and folders through a reviewed PR; merge a PR once the required checks pass and the review comment from item 8 of "Check, then merge" is posted for the exact head.
+1. Allowed: push branches (`claude/*` or your task's branch) and open PRs; delete files and folders through a reviewed PR; merge a PR once the checks in items 2 and 3 of "Check, then merge" pass and the review comment from item 8 of "Check, then merge" is posted for the exact head.
 2. Never, with or without a green light: force-push or delete `main`, touch secrets or keys, move real money, deploy money paths to production, or weaken a test or safeguard. These stay with the owner.
 
 ## Skills and status files
