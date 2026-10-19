@@ -73,7 +73,7 @@ export function patchId(diff, blobs = {}) {
       h.update(`${line}\n`);
     } else if (line.startsWith('@@')) inHunk = true;
     else if (inHunk) {
-      if (/^[+\-\\]/.test(line)) h.update(`${line.trimEnd()}\n`);
+      if (/^[+\-\\]/.test(line)) h.update(`${line}\n`);
     } else if (line.startsWith('index ')) continue;
     else if (line.startsWith('Binary files ') || line.startsWith('GIT binary patch')) {
       if (!blobs[section]) return null;
@@ -133,12 +133,15 @@ async function prFiles(repo, n) {
   return (await prFileList(repo, n)).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
 }
 
-async function currentPatchId(repo, n) {
+async function currentPatchId(repo, n, sha) {
   const r = await gh('GET', `/repos/${repo}/pulls/${n}`, undefined, 'application/vnd.github.v3.diff');
   if (r.status !== 200 || !r.text) return null; // too large or unavailable: nothing is carried
   const blobs = {};
   if (/^(Binary files |GIT binary patch)/m.test(r.text)) for (const f of await prFileList(repo, n)) blobs[f.filename] = f.sha;
-  return patchId(r.text, blobs);
+  const id = patchId(r.text, blobs);
+  // The diff is of whatever the head was when it was fetched; a push in between would put another patch's id on this sha.
+  const after = (await gh('GET', `/repos/${repo}/pulls/${n}`)).json;
+  return after?.head?.sha === sha ? id : null;
 }
 
 async function postStatus(repo, sha, description) {
@@ -208,6 +211,8 @@ function selfTest() {
   const mv = (to) => `diff --git a/old.ts b/${to}\nsimilarity index 100%\nrename from old.ts\nrename to ${to}\n`;
   assert(patchId(mv('a/x.ts')) !== patchId(mv('evil/x.ts')), 'a pure rename to another path changes the patch id');
   const hunk = (body) => `diff --git a/c.ts b/c.ts\nindex 1..2 100644\n--- a/c.ts\n+++ b/c.ts\n@@ -1 +1 @@\n${body}`;
+  assert(patchId(hunk('+x\n')) !== patchId(hunk('+x \n')), 'trailing whitespace counts');
+  assert(patchId(hunk('+x\n')) !== patchId(hunk('+x\r\n')), 'a line-ending change counts');
   assert(patchId(hunk('+x\n')) !== patchId(hunk('+x\n+++i;\n')), 'an added "++i;" line counts');
   assert(patchId(hunk('-x\n')) !== patchId(hunk('-x\n---j;\n')), 'a removed "--j;" line counts');
   assert(
@@ -248,7 +253,7 @@ async function main() {
     const pr = (await gh('GET', `/repos/${repo}/pulls/${n}`)).json;
     const verdict = judgeComment({ commenter: payload.comment.user.login, body: payload.comment.body, pr }, config);
     if (!verdict.ok) return console.log(`no sign-off: ${verdict.reason}`);
-    const pid = await currentPatchId(repo, n);
+    const pid = await currentPatchId(repo, n, verdict.sha);
     await postStatus(repo, verdict.sha, `PASS by ${verdict.reviewer}${pid ? `; patch ${pid.slice(0, 12)}` : ''}`);
     console.log(`signed off ${verdict.sha} for #${n} (${verdict.reviewer})`);
     console.log(await rerunSeal(repo, verdict.sha));
@@ -260,7 +265,7 @@ async function main() {
     const pr = (await gh('GET', `/repos/${repo}/pulls/${n}`)).json;
     if (payload.action === 'synchronize' && payload.before) {
       const { json } = await gh('GET', `/repos/${repo}/commits/${payload.before}/statuses?per_page=100`);
-      const pid = await currentPatchId(repo, n);
+      const pid = await currentPatchId(repo, n, pr.head.sha);
       const prev = pid ? carryFrom(json ?? [], pid) : null;
       if (prev) {
         await postStatus(
