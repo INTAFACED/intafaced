@@ -174,3 +174,7 @@ Failure branches covered: staking more than you hold, unstaking while locked, un
 ## Service keys: ledger calls
 
 The ledger client signs with svc-token's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: inbound doors
+
+The four internal doors (stake read, emission mint, yield window, buyback window) and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors still run only for a call named svc-token. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

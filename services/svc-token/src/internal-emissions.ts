@@ -16,9 +16,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
@@ -26,6 +27,8 @@ import { authorizeTokenJobHttp } from './job-hmac.js';
 
 export interface InternalEmissionsDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   /** When false every mint path fails closed — inflation cannot be un-minted. */
   readonly emissionsEnabled: boolean;
   readonly mintNextEpoch: () => Promise<{ epoch: number; minted: Amount }>;
@@ -42,7 +45,14 @@ export function registerInternalEmissions(app: FastifyInstance, deps: InternalEm
   if (deps.installRawBody !== false) retainRawBody(app);
   const mode = deps.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
   app.post('/internal/emissions/mint-next', async (req, reply) => {
-    const auth = authorizeTokenJobHttp(verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode }).service);
+    const auth = authorizeTokenJobHttp(
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: mode,
+      }).service,
+    );
     if (!auth.ok) {
       return reply.code(auth.status).send({ error: auth.error, code: auth.code });
     }

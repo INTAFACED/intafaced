@@ -125,7 +125,8 @@ export const appRouter = createTokenRouter(token, {
 });
 export type AppRouter = typeof appRouter;
 
-const edgeContext = buildEdgeContext(env);
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
+const edgeContext = buildEdgeContext(env, doorS2s);
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
@@ -152,6 +153,7 @@ app.get('/ready', async () =>
 // internal-stake.ts for what breaks when money is serialised wrong here.
 registerInternalStake(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   accessOf: (userId) => token.accessOf(userId),
   bodyBind,
   installRawBody: false,
@@ -161,6 +163,7 @@ registerInternalStake(app, {
 // see internal-emissions.ts (same extract pattern as internal-stake).
 registerInternalEmissions(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   emissionsEnabled: env.EMISSIONS_ENABLED,
   mintNextEpoch: () => token.mintNextEpoch(),
   bodyBind: 'require',
@@ -169,6 +172,7 @@ registerInternalEmissions(app, {
 
 registerInternalYield(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   yieldJobEnabled: env.YIELD_JOB_ENABLED,
   runWindow: (input) => runYieldWindow(yieldJob, input),
   bodyBind: 'require',
@@ -177,6 +181,7 @@ registerInternalYield(app, {
 
 registerInternalBuyback(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   buybackJobEnabled: env.BUYBACK_JOB_ENABLED,
   runWindow: (input) => runBuybackWindow(buybackJob, input),
   bodyBind: 'require',
