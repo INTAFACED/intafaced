@@ -309,6 +309,7 @@ export type PayErrorCode =
   | 'pay.settlement_book_unrecognised'
   | 'pay.settlement_not_pending'
   | 'pay.settlement_released'
+  | 'pay.settlement_exceeds_proceeds'
   | 'pay.rail_declined'
   | 'pay.rail_failed'
   | 'pay.rail_outcome_unknown'
@@ -4864,6 +4865,19 @@ export class PayService {
               window: settlement.window,
               assetId: settlement.assetId,
             });
+            if (payoutBook === 'proceeds') {
+              // A refund drawn on the proceeds after the settlement posted leaves the frozen net larger
+              // than the balance behind it. Refuse before any admission exists: an admitted payout is
+              // immutable and its hold could never post, so every retry would loop on the same row.
+              const available = (await this.ledger.balance(merchantProceeds(merchant.id, settlement.assetId))).amount;
+              if (available < settlement.net) {
+                throw new PayError(
+                  `Settlement ${settlement.id} net exceeds the merchant proceeds behind it (a refund drew on them)`,
+                  'pay.settlement_exceeds_proceeds',
+                  { settlementId: settlement.id },
+                );
+              }
+            }
             const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);
             admission = await insertPayoutAdmission(
               connection,
