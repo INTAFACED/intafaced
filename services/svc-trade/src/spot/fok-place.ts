@@ -1,8 +1,8 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place an FOK through the matching door that just landed.
@@ -12,48 +12,22 @@ import type { EngineSubmitRequest } from './matching-client.js';
 type PlaceWithFok = PlaceOrderInput & { tif?: string };
 
 const FLAG = Symbol.for('intafaced.trade.fokPlace');
-const fokByClient = new Map<string, true>();
 
 export const FOK_UNFILLABLE = 'fok_unfillable' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__fok:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function isFok(tif: unknown): boolean {
   return tif === 'FOK';
 }
 
-export function attachFokStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (isFok(rec.timeInForce) || isFok(rec.tif)) {
-        fokByClient.set(stashKey(rec), true);
-      }
-    }
-    done();
-  });
+/** True when this request's own body asks for it. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): boolean {
+  return body !== null && (isFok(body.timeInForce) || isFok(body.tif));
 }
 
 export function bindFok(input: PlaceOrderInput): PlaceWithFok {
   const extra = input as PlaceWithFok;
   if (isFok(extra.tif)) return { ...extra, tif: 'FOK' };
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: rec.price,
-  });
-  if (!fokByClient.has(key)) return extra;
-  fokByClient.delete(key);
+  if (!stashedFor(carriedPlacementBody(extra))) return extra;
   return { ...extra, tif: 'FOK' };
 }
 

@@ -56,6 +56,9 @@ import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
 import { AdlDisclosureError } from './futures/adl-disclosure.js';
 import { refuseArmById } from './ccxt-capability-matrix.js';
+import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
+import { readBracketFromBody } from './spot/bracket-place.js';
+import { readOcoFromBody } from './spot/oco-place.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 
 /**
@@ -686,6 +689,18 @@ export function mapCreateOrderBody(body: CreateOrderRequest): PlaceOrderInput {
     clientOrderId: body.clientOrderId,
     subAccountId: body.subAccountId,
   };
+}
+
+/**
+ * Attach the request's own placement options to its order input. Refuses a bracket or OCO the body cannot carry
+ * here, before any hold. Called only once the caller is signed in and the body has passed the typed schema.
+ */
+function carryPlacement(input: PlaceOrderInput, body: unknown): PlaceOrderInput {
+  if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+    readBracketFromBody(body as Record<string, unknown>);
+    readOcoFromBody(body as Record<string, unknown>);
+  }
+  return carryPlacementBody(input, body);
 }
 
 export type AmendBodyParse = { ok: true; input: AmendOrderInput } | { ok: false; message: string };
@@ -2160,7 +2175,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     if (!requireTradeJurisdiction(req, reply, principal)) return;
 
-    const parsed = createOrderRequestSchema.safeParse(req.body);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
     if (!parsed.success) {
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
@@ -2174,7 +2189,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     let displayQty: string | null = null;
     try {
-      input = mapCreateOrderBody(parsed.data);
+      input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
       displayQty = attached.displayQty;
@@ -2345,7 +2360,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       return reply.code(503).send({ error: 'order replacement is not configured', code: 'trade.replace_unconfigured' });
     }
 
-    const parsed = createOrderRequestSchema.safeParse(req.body);
+    const parsed = createOrderRequestSchema.safeParse(schemaBodyOf(req.body));
     if (!parsed.success) {
       return reply.code(400).send({
         ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid replacement order body').body,
@@ -2355,7 +2370,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
-      input = mapCreateOrderBody(parsed.data);
+      input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

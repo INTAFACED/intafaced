@@ -1,11 +1,11 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import './oco-cancel.js';
 import './bracket-place.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a trailing stop through the matching door that landed in #3294.
@@ -20,16 +20,9 @@ type PlaceWithTrail = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.trailingStopPlace');
-const stash = new Map<string, { trail: string | null; mark: string | null }>();
 
 export const TRAIL_MISSING = 'missing_trail' as const;
 export const MARK_MISSING = 'missing_mark' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__ts:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsTrailing(rec: Record<string, unknown>): boolean {
   return rec.trail !== undefined;
@@ -59,20 +52,13 @@ export function markRefuse(mark: Amount | null): TradeError | null {
   return null;
 }
 
-export function attachTrailingStopStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsTrailing(rec)) {
-        stash.set(stashKey(rec), {
-          trail: rec.trail == null || rec.trail === '' ? null : String(rec.trail),
-          mark: rec.mark == null || rec.mark === '' ? null : String(rec.mark),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { trail: string | null; mark: string | null } | null {
+  if (!body || !wantsTrailing(body)) return null;
+  return {
+    trail: body.trail == null || body.trail === '' ? null : String(body.trail),
+    mark: body.mark == null || body.mark === '' ? null : String(body.mark),
+  };
 }
 
 export function bindTrailingStop(input: PlaceOrderInput): PlaceWithTrail {
@@ -81,19 +67,8 @@ export function bindTrailingStop(input: PlaceOrderInput): PlaceWithTrail {
     const placeType = extra.type === 'stop' ? 'limit' : extra.type;
     return { ...extra, type: placeType, trail: readTrail(extra), mark: readMark(extra) };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     type: extra.type === 'stop' ? 'limit' : extra.type,

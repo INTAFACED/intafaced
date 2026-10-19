@@ -1,10 +1,10 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest, EngineSubmitResult } from './matching-client.js';
 import type { Market } from './types.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a price collar through the matching door that landed in #3410.
@@ -19,19 +19,12 @@ type PlaceWithCollar = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.collarPlace');
-const stash = new Map<string, { collar: boolean | null; min: string | null; max: string | null }>();
 
 export const COLLAR_MISSING = 'missing_collar' as const;
 export const COLLAR_OUTSIDE = 'outside_collar' as const;
 
 const MISSING_MESSAGE = 'collar requires caller min and max; trade does not invent last or mid';
 const OUTSIDE_MESSAGE = 'submit price is outside the caller collar; trade does not invent last or mid';
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__col:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsCollar(rec: Record<string, unknown>): boolean {
   return rec.collar !== undefined || rec.min !== undefined || rec.max !== undefined;
@@ -131,21 +124,16 @@ function collarRejectResult(code: typeof COLLAR_MISSING | typeof COLLAR_OUTSIDE,
   };
 }
 
-export function attachCollarStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsCollar(rec)) {
-        stash.set(stashKey(rec), {
-          collar: rec.collar === undefined ? null : flagFromRaw(rec.collar),
-          min: rec.min == null || rec.min === '' ? null : String(rec.min),
-          max: rec.max == null || rec.max === '' ? null : String(rec.max),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(
+  body: Readonly<Record<string, unknown>> | null,
+): { collar: boolean | null; min: string | null; max: string | null } | null {
+  if (!body || !wantsCollar(body)) return null;
+  return {
+    collar: body.collar === undefined ? null : flagFromRaw(body.collar),
+    min: body.min == null || body.min === '' ? null : String(body.min),
+    max: body.max == null || body.max === '' ? null : String(body.max),
+  };
 }
 
 export function bindCollar(input: PlaceOrderInput): PlaceWithCollar {
@@ -153,19 +141,8 @@ export function bindCollar(input: PlaceOrderInput): PlaceWithCollar {
   if (wantsCollar(extra as unknown as Record<string, unknown>)) {
     return { ...extra, collar: extra.collar ?? null, min: extra.min ?? null, max: extra.max ?? null };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     collar: hit.collar,
