@@ -10,7 +10,8 @@ import { loadWithdrawalLimitMode, loadWithdrawalLimits, type WithdrawalLimitMode
  *
  * The rolling sum counts every non-failed withdrawal of the same asset created in
  * the last 24 hours (`pending`, `held` and `sent`), except the claim being
- * retried. A per-customer advisory lock is taken before the sum is read, so two
+ * retried. The window runs on `updated_at`, not `created_at`: reopening a failed
+ * claim resets it, so an old reference retried today counts as today. A per-customer advisory lock is taken before the sum is read, so two
  * parallel requests cannot both read the same headroom.
  *
  * Fail closed: no limit for the customer's tier and asset refuses
@@ -54,7 +55,7 @@ export function createWithdrawalLimitGuards(deps: WithdrawalLimitGuardDeps): Par
           FROM pay.withdrawals
          WHERE user_id = ${ctx.userId} AND asset_id = ${ctx.assetId}
            AND status IN ('pending', 'held', 'sent')
-           AND created_at > now() - interval '24 hours'
+           AND updated_at > now() - interval '24 hours'
            AND client_ref <> ${ctx.clientRef}
       `;
       const used: Amount = parseAmount(rows[0]?.used ?? '0');

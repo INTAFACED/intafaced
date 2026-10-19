@@ -167,11 +167,21 @@ describe('D-148 per-customer withdrawal limits (real Postgres)', () => {
     expect(hit.remaining).toEqual({ perTx: '10', rolling24h: '5' });
     expect((await service.withdraw(request('5', 'c'))).status).toBe('sent');
 
-    await sql`UPDATE pay.withdrawals SET created_at = now() - interval '25 hours' WHERE client_ref = 'a'`;
+    await sql`UPDATE pay.withdrawals SET created_at = now() - interval '25 hours', updated_at = now() - interval '25 hours' WHERE client_ref = 'a'`;
     expect((await service.withdraw(request('10', 'd'))).status).toBe('sent');
     await sql`UPDATE pay.withdrawals SET status = 'failed' WHERE client_ref = 'c'`;
     const left = await refusal(service.withdraw(request('6', 'e')));
     expect(left.remaining).toEqual({ perTx: '10', rolling24h: '5' });
+  });
+
+  it('a failed claim reopened by a retry counts from the retry, not from when it was first made', async () => {
+    const service = money(REQUIRED, basic);
+    await fund(service);
+    expect((await service.withdraw(request('10', 'old'))).status).toBe('sent');
+    await sql`UPDATE pay.withdrawals SET status = 'failed', created_at = now() - interval '30 hours', updated_at = now() - interval '30 hours' WHERE client_ref = 'old'`;
+    expect((await service.withdraw(request('10', 'old'))).status).toBe('sent');
+    const hit = await refusal(service.withdraw(request('6', 'next')));
+    expect(hit.remaining).toEqual({ perTx: '10', rolling24h: '5' });
   });
 
   it('one customer reaching their limit does not touch another', async () => {
