@@ -26,6 +26,11 @@ export const identityOperationAuthoritySchema = z.discriminatedUnion('kind', [
   // Hosted checkout and provider events have no merchant browser session. The
   // owning payment service proves the merchant policy before requesting this.
   z.object({ kind: z.literal('merchant_policy'), merchantId: id }).strict(),
+  // An unattended customer schedule (auto-invest) has no session or API key.
+  // svc-bank proves its own instruction is active before asking; identity still
+  // checks the user is active and not frozen, and the owner's restriction guard
+  // still applies. It names one spot placement and never widens to other kinds.
+  z.object({ kind: z.literal('standing_instruction'), instructionId: id, ownerService: z.literal('svc-bank') }).strict(),
   // svc-pay proves current tree ownership/grant under its own cutoff guard.
   // Identity independently checks both the child owner and original actor.
   z
@@ -64,6 +69,13 @@ export const identityOperationIntentSchema = operationAdmissionInputSchema
       (input.operation.service !== 'svc-trade' || !['algo.child', 'copy.mirror'].includes(input.operation.kind))
     ) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['authority'], message: 'Delegation is limited to fresh trading children' });
+    }
+    if (authority.kind === 'standing_instruction' && (input.operation.service !== 'svc-trade' || input.operation.kind !== 'order.place')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['authority'],
+        message: 'A standing instruction is limited to one spot order placement',
+      });
     }
     if (
       authority.kind === 'merchant_policy' &&

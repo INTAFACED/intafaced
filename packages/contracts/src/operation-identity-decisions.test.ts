@@ -75,6 +75,31 @@ describe('identity operation decision wire shapes', () => {
     ).toBe(false);
   });
 
+  it('binds a standing customer instruction to svc-bank and one spot order placement', () => {
+    const standing = {
+      ...tradeIntent,
+      businessId: 'auto-invest:plan-42:2026-10-19',
+      authority: { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-bank' },
+    } as const;
+    expect(identityOperationIntentSchema.safeParse(standing).success).toBe(true);
+    for (const authority of [
+      { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-pay' },
+      { kind: 'standing_instruction', instructionId: 'not-a-uuid', ownerService: 'svc-bank' },
+      { kind: 'standing_instruction', instructionId: GRANT, ownerService: 'svc-bank', userId: OTHER },
+      { kind: 'standing_instruction', ownerService: 'svc-bank' },
+    ]) {
+      expect(identityOperationIntentSchema.safeParse({ ...standing, authority }).success).toBe(false);
+    }
+    for (const operation of [
+      { service: 'svc-trade', kind: 'order.increase', userId: USER },
+      { service: 'svc-trade', kind: 'strategy.start', userId: USER },
+      { service: 'svc-trade', kind: 'algo.child', userId: USER },
+      { service: 'svc-pay', kind: 'payout', userId: USER, merchantId: MERCHANT },
+    ]) {
+      expect(identityOperationIntentSchema.safeParse({ ...standing, operation }).success).toBe(false);
+    }
+  });
+
   it('rejects unknown fields and caller-supplied completion, recovery, or permission claims', () => {
     expect(identityOperationIntentSchema.safeParse({ ...tradeIntent, actorUserId: USER }).success).toBe(false);
     expect(identityOperationIntentSchema.safeParse({ ...tradeIntent, completed: true }).success).toBe(false);
