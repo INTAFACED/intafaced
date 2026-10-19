@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { DEFAULT_SMS_MAX_CHARS, GATEWAY_ENV, parseRequiredChannels } from './channels/registry.js';
 import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
 
@@ -76,6 +76,7 @@ const ENFORCED_APP_ENVS = ['staging', 'prod'] as const;
 
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-notify'),

@@ -571,3 +571,7 @@ Actual SQL/HTTP fixtures and pg_dump/restore demonstrate this ordering and stabl
 ## Port
 
 `4015` · schema `notify` · role `svc_notify`
+
+## Service keys: guest ingress door
+
+The guest notification procedures name the producer from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the pairwise `NOTIFY_OPS_SERVICE_SECRET`, `keypair` the key only. Unset, the pairwise secret works exactly as before. A key-signed call that fails is refused and never retried against the secret. The procedures still run only for a call named svc-ops. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
