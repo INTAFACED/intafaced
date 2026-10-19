@@ -109,7 +109,7 @@ describe('pro trader: sell OCO', () => {
     expect(await ledgerAvailable(seller.userId, BASE)).toBe('0.96');
   });
 
-  it('refuses a buy-side OCO and a bracket with a typed reason and holds nothing', async () => {
+  it('refuses a buy-side OCO with no stop-loss limit and a bracket with a typed reason and holds nothing', async () => {
     const trader = await newCustomer();
     await fund(trader.userId, QUOTE, '1000');
     await fund(trader.userId, BASE, '1');
@@ -119,7 +119,8 @@ describe('pro trader: sell OCO', () => {
       body: ocoBody({ side: 'buy', price: '80', takeProfit: { stopPrice: '90' }, stopLoss: { stopPrice: '70' } }),
     });
     expect(buyOco.ok).toBe(false);
-    if (!buyOco.ok) expect(buyOco.code).toBe('trade.order_type_unsupported');
+    // A buy OCO places only with a stop-loss limit (stopLoss.price); without it the single hold has no worst price.
+    if (!buyOco.ok) expect(buyOco.code).toBe('trade.oco_stop_limit_required');
 
     const bracket = await trader.api.rest('/orders', orderSchema, {
       method: 'POST',
