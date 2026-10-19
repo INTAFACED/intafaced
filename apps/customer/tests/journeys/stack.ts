@@ -65,7 +65,9 @@ export type Onboarding = 'signed_up' | 'kyc_pending' | 'kyc_approved';
  * different one approves, each on an MFA session), and the customer signs in again, so the tier trade sees is the one in the
  * access token identity issued. Nothing is forwarded or forced.
  */
-export async function newCustomer(opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding } = {}) {
+export async function newCustomer(
+  opts: Parameters<typeof customerFetch>[1] & { onboarding?: Onboarding; kycTier?: 'basic' | 'full' } = {},
+) {
   const onboarding = opts.onboarding ?? 'kyc_approved';
   const handle = randomHandle('journey');
   const email = `${handle}@example.test`;
@@ -74,7 +76,11 @@ export async function newCustomer(opts: Parameters<typeof customerFetch>[1] & { 
   let claims = claimsOf(issued.accessToken);
   let recordId: string | null = null;
   if (onboarding !== 'signed_up') {
-    const record = await identityCall<{ id: string }>('kyc.submit', { tier: 'basic', jurisdiction: stack.region() }, claims);
+    const record = await identityCall<{ id: string }>(
+      'kyc.submit',
+      { tier: opts.kycTier ?? 'basic', jurisdiction: stack.region() },
+      claims,
+    );
     recordId = record.id;
   }
   const customer = {
