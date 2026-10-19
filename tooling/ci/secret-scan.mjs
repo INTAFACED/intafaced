@@ -423,60 +423,10 @@ const SECRET_BY_CONVENTION = [
  * un-disclose it; only the owner's rotation does.
  */
 const KNOWN_DISCLOSED = [
-  {
-    file: 'vendor/upstream-exchange/00_framework/admin/src/main/resources/dev/application.properties',
-    line: 58,
-    check: 'committed-credential',
-    action: 'OWNER-9 — PENDING OWNER DECISION, not accepted. docs/SECRET-ROTATION-READINESS-2026-08-03.md §5',
-    reason:
-      'The admin console password/signature factor (`spark.system.md5.key`), injected by `@Value("${spark.system.md5.key}")` into eight admin controllers — ' +
-      'including WithdrawRecordController, EmployeeController and the CTC order and acceptor controllers. ' +
-      'FOUND ON 2026-08-07 BY WIDENING THIS GATE, not by a human: `key` was not a credential word on its own, so every `*_KEY` name was invisible here. ' +
-      'It is registered rather than exempted because it is a real disclosure and the fix is a rotation inside unreviewed third-party code — an owner action, not an agent edit. ' +
-      'Recorded as PENDING so nobody reads it as reviewed-and-accepted the way the captcha pair above was.',
-  },
-  {
-    file: 'vendor/upstream-exchange/00_framework/ucenter-api/src/main/java/com/bizzan/bitrade/controller/RegisterController.java',
-    line: 102,
-    check: 'source-credential-literal',
-    action: 'ACCEPTED 2026-08-03 by the repo owner — not treated as a risk',
-    reason:
-      'Third-party captcha key pair, hard-coded in a controller of a packaged, running, 0.0.0.0-published jar. ' +
-      'The repo owner reviewed this on 2026-08-03 and accepted it — it is not treated as a risk, so it is NOT pending rotation. ' +
-      'Recorded rather than deleted: the scan finds it on every run, and an unexplained hit trains people to ignore the register. ' +
-      'This entry is the explanation. It says nothing about the ECT withdrawal seeds or the actuator password, which are separate items.',
-  },
-  {
-    file: 'vendor/upstream-exchange/00_framework/ucenter-api/src/main/java/com/bizzan/bitrade/controller/RegisterController.java',
-    line: 103,
-    check: 'source-credential-literal',
-    action: 'ACCEPTED 2026-08-03 by the repo owner — not treated as a risk',
-    reason: 'the secret half of the pair on line 102.',
-  },
-  {
-    file: 'vendor/upstream-exchange/00_framework/ucenter-api/src/main/java/com/bizzan/bitrade/system/GeetestLib.java',
-    line: 54,
-    check: 'source-credential-literal',
-    action: 'OWNER-3 — geetest captcha private key',
-    reason:
-      'field-initialiser copy of the geetest private key that A1.4 already told the owner to rotate as `geetest.privateKey`. GeetestConfig overrides it from ${GEETEST_PRIVATE_KEY}, so it is unreachable in the Spring path — but rotating the env var does NOT remove this second copy, and that is the point of listing it.',
-  },
-  {
-    file: 'vendor/upstream-exchange/00_framework/core/src/main/java/com/bizzan/bitrade/util/GoogleAuthenticatorUtil.java',
-    line: 25,
-    check: 'source-credential-literal',
-    action: 'OWNER-6 — dead 2FA demo constant',
-    reason:
-      'hard-coded base32 TOTP seed in the 2FA utility of `core`, which both `admin` and `ucenter-api` depend on. Referenced nowhere — an upstream demo constant. Lowest severity here, listed because "dead" should be a recorded judgement rather than an omission.',
-  },
-  {
-    file: 'vendor/upstream-exchange/01_wallet_rpc/act/src/test/java/ActClientTest.java',
-    line: 10,
-    check: 'inline-url-credential',
-    action: 'OWNER-4 — ACT node credential',
-    reason:
-      'ACT node RPC credential inside a URL against a third-party public IP. Known disclosed. The module does not compile from this tree, so an edit here is unverifiable.',
-  },
+  // 2026-10-19: the six vendored-tree rows (admin console key, captcha pair, geetest key,
+  // 2FA demo seed, ACT node credential) left this register because vendor/ was deleted,
+  // not because the RISK is gone. The values stay disclosed in git history; their owner
+  // rotations remain open in docs/SECRET-ROTATION-READINESS-2026-08-03.md.
   // NOT listed, and the omission is a checked result rather than an oversight:
   // `01_wallet_rpc/usdt/.../JsonrpcClient.java:163` also embeds a credentialled
   // URL in a `main()`, but its password is IDENTICAL to its username and the

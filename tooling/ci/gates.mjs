@@ -104,102 +104,24 @@ export const GATES = [
       'reason, and that list may only shrink.',
   },
   {
-    id: 'notice-pin',
-    script: 'tooling/ci/notice-pin.mjs',
-    doctrine: 'D26-P3-04 / NOTICE freshness',
-    why:
-      'root NOTICE was compiled 2026-07-29 against 4311cff and can silently diverge from the vendor Apache pin, ' +
-      'compose image tags, jar count, and the Path A charting working tree. This gate fails on that silent drift; ' +
-      'named divergences must be written in NOTICE §11. It does not purchase licences and is not legal advice.',
-  },
-  {
     id: 'brand',
     script: 'tooling/ci/brand-scan.mjs',
     doctrine: '§0.7',
     why:
-      'a partner or model-vendor name in user-facing copy. D26-P2-14: also walks discovered vendor Vue shell ' +
-      'project roots (incl. `.vue`) and Java `src/main/resources` — bulk `vendor/` stays skipped so load-bearing ' +
-      'package/groupId lines do not drown the gate; partner names cannot hide in the product shell or Java resource catalogues.',
-  },
-  {
-    id: 'shell-brand',
-    script: 'tooling/ci/shell-brand-scan.mjs',
-    doctrine: '§0.7',
-    why:
-      'relaxed-boundary ratchet over the vendored Java CORS surface (same FORBIDDEN list parsed from brand-scan.mjs): ' +
-      'CorsConfig / CorsAllowlist / CORS ApplicationConfig, where `\\b` cannot see a name welded into an identifier. ' +
-      'NARROWED 2026-10-13, DELETED 2026-10-19: the legacy Vue customer site (vendor 05_Web_Front, replaced by ' +
-      'apps/customer) is gone from the tree, so only the Java CORS surface is walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
+      'a partner or model-vendor name in user-facing copy. D26-P2-14: also walks discovered project roots ' +
+      '(incl. `.vue`) and Java `src/main/resources`, so partner names cannot hide in a shell or resource catalogue.',
   },
   {
     id: 'custody',
     script: 'tooling/ci/custody-scan.mjs',
     doctrine: '§16.10',
-    why:
-      'a Protocol Plane service importing a ledger write recipe, plus D26-P2-08: Java money/custody surface is in ' +
-      'the scan object via vendor-java-money-scan successor (fail closed if unscanned). Dual-book rules stay in that ' +
-      'file — custody-scan composes it, it does not fork a third scanner. See the header of custody-scan.mjs',
+    why: 'a Protocol Plane service importing a ledger write recipe or a contract with platform withdrawal power; also fails if the deleted vendor/ Java exchange and wallet tree returns',
   },
   {
     id: 'secrets',
     script: 'tooling/ci/secret-scan.mjs',
     doctrine: '§16',
     why: 'a committed credential is invisible in review — it reads as a config line',
-  },
-  {
-    id: 'wallet-rpc-auth',
-    script: 'tooling/ci/wallet-rpc-auth-scan.mjs',
-    doctrine: '§16 / A1.4',
-    why: 'a wallet RPC module must authenticate /rpc/** — the guard on one module is not the guard on every classpath that can boot',
-  },
-  {
-    id: 'wallet-rpc-mainnet',
-    script: 'tooling/ci/wallet-rpc-mainnet-scan.mjs',
-    doctrine: '§16 / ADR 2026-07-28',
-    why:
-      'the wallet RPC tree is barred from live value until the security review the vendored-exchange ADR makes a ' +
-      'precondition of adoption has happened — and until this gate that bar existed only in prose. What stopped ' +
-      'mainnet was incidental: no Dockerfile, no compose service, no CI job, and env placeholders that decide whether ' +
-      'a service STARTS, not which chain it talks to. Supply the environment and every other gate here still printed ' +
-      'clean. Ordered next to wallet-rpc-auth because they fence the same tree and answer different questions: auth ' +
-      'asks whether a bootable module authenticates, this asks whether anything can boot one at all, and whether a ' +
-      'new mainnet constant appeared. 38 existing constants are frozen by exact text AND by how many times each ' +
-      'appears, so the baseline can only shrink — text alone left the gate blind to an unused mainnet import becoming ' +
-      'a live selector, and to a deleted broadcast being pasted back. Rules that match nothing in the tree (the ' +
-      'wss:// scheme, ChainId.NONE, RawTransactionManager, an EVM address under a non-address key) have no baseline ' +
-      'to prove them alive, so 47 fixtures run through the real matchers on every invocation instead. Two of those ' +
-      'rules exist because a value that LOOKS undecided is not: `${VAR}` is the environment’s decision and is ' +
-      'skipped, `${VAR:0xdac17…}` resolves without an environment and is the pin it defaults to.',
-  },
-  {
-    id: 'wallet-rpc-mainnet-mutation',
-    script: 'tooling/ci/wallet-rpc-mainnet-scan.mutation.mjs',
-    doctrine: '§16 / §14',
-    why:
-      'the mutation proof for the gate above, and it mutates the CHECKER rather than the subject — RULE_PROBES ' +
-      'already answers "does the rule still fire" on every invocation. This answers the question that harness could ' +
-      'not ask about itself. Deleting the probe loop used to exit 0 while still printing "0 rule probe(s) executed … ' +
-      '(24 must fire, -24 must not)", and deleting the occurrence comparison used to exit 0 still printing "none ' +
-      'gained a copy" over a tree that had just gained one: both numbers were read off source text, so removing the ' +
-      'work left the claim standing. Every summary clause is now minted by the check that establishes it and ' +
-      'reconciled before printing; deletions must each be detected, and a mutant whose anchor has moved fails ' +
-      'rather than skips.',
-  },
-  {
-    id: 'wallet-rpc-perimeter-refuse',
-    script: 'tooling/ci/wallet-rpc-perimeter-refuse.mjs',
-    doctrine: '§16 / D26-P2-09',
-    why:
-      'continuous perimeter regression for 01_wallet_rpc — mainnet / sign / width refuse classes must each keep ' +
-      'firing + silent probe halves, and chain-id / RPC / key-width / disclosed-secret-width axes must fail closed ' +
-      'independently. Deleting the class or axis register, counters, claim mint, a class rule binding, or a named ' +
-      'axis must go red. Complements wallet-rpc-mainnet (subject + probes) and its checker-mutation suite.',
-  },
-  {
-    id: 'vendor-shell',
-    script: 'tooling/ci/vendor-shell-scan.mjs',
-    doctrine: 'vendor residue',
-    why: 'mass-credit endpoints and CORS * inherited from the vendored shell',
   },
   {
     id: 'invitation-outreach-golden',
@@ -210,32 +132,6 @@ export const GATES = [
       'outreach-draft-storage, outreach-countries, config/intafaced.js), vendored in apps/invitation/src/vendored since ' +
       'D-140. The goldens next to them (intake, review, draft-storage) only prove anything if CI runs them. Narrowed from the retired ' +
       'shell-golden gate; refuses when it finds no outreach goldens.',
-  },
-  {
-    id: 'vendor-java-money',
-    script: 'tooling/ci/vendor-java-money-scan.mjs',
-    doctrine: 'dual-book Option B',
-    why: 'a Java money mutator is a second book, and there is only one book',
-  },
-  {
-    id: 'vendor-java-jar-truth',
-    script: 'tooling/ci/vendor-java-jar-truth.mjs',
-    doctrine: 'D-S-17 / D26-P2-07 jar truth',
-    why:
-      'Grade D ungated mints must stay deleted, a green source scan must not be read as runtime safety, and the ' +
-      'compose-jar rebuild path (tooling/scripts/vendor-java-rebuild.mjs + vendor-compile package job) must stay real.',
-  },
-  {
-    id: 'dual-book-door',
-    script: 'tooling/ci/dual-book-door-scan.mjs',
-    doctrine: 'Architect A1',
-    why: 'the door-kill interceptor must be registered on every vendored app',
-  },
-  {
-    id: 'dual-book-door-paths',
-    script: 'tooling/ci/dual-book-door-path-unit.mjs',
-    doctrine: 'Architect A1',
-    why: 'proves the door-kill path fragments actually block what they claim, without a JVM',
   },
   {
     id: 'test-db',
@@ -338,8 +234,8 @@ export const GATES = [
     why:
       'rotation readiness is a runbook plus the gates that prove a disclosed or unwired secret is refused. ' +
       'A missing inventory prints as nothing-to-rotate. This gate holds docs/SECRET-ROTATION-READINESS.md, ' +
-      'the OWNER-ACTIONS-WALLET-RPC-SECRETS.md citation (that file is not edited here), EctWithdrawSecretConfig, ' +
-      'and compose-secret-parity / wallet-rpc-auth / secrets remaining in GATES. It never reads secret values.',
+      'the OWNER-ACTIONS-WALLET-RPC-SECRETS.md citation (that file is not edited here), ' +
+      'and compose-secret-parity / secrets remaining in GATES. It never reads secret values.',
   },
   {
     id: 'secret-scan-mutation',

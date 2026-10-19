@@ -4,7 +4,7 @@
  *
  * The tip runbook must exist, name the rotatable classes, cite
  * OWNER-ACTIONS-WALLET-RPC-SECRETS.md (without that file being edited here),
- * and the parity / disclosed-refuse gates must stay wired.
+ * and the secret and parity gates must stay wired.
  *
  * This scan never reads a secret value. It asserts inventory + citations +
  * that the code guards named in the runbook are still present.
@@ -16,7 +16,7 @@
  *   node tooling/ci/secret-rotation-readiness-scan.mjs
  *   node tooling/ci/secret-rotation-readiness-scan.mjs --self-test
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -25,26 +25,8 @@ const ROOT = join(HERE, '..', '..');
 
 export const RUNBOOK_REL = 'docs/SECRET-ROTATION-READINESS.md';
 export const OWNER_ACTIONS_REL = 'docs/OWNER-ACTIONS-WALLET-RPC-SECRETS.md';
-/** Filename only — do not embed the Java package path (brand-scan forbids the vendor identity). */
-export const ECT_CONFIG_FILE = 'EctWithdrawSecretConfig.java';
-export const ECT_MODULE_REL = join('vendor', 'upstream-exchange', '01_wallet_rpc', 'ect');
 export const GATES_REL = 'tooling/ci/gates.mjs';
 export const PARITY_REL = 'tooling/ci/compose-secret-parity.mjs';
-
-function findNamedFile(dir, name) {
-  if (!existsSync(dir)) return null;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'target') continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      const hit = findNamedFile(full, name);
-      if (hit) return hit;
-    } else if (entry.name === name) {
-      return full;
-    }
-  }
-  return null;
-}
 
 /** Env names the runbook must mention. Values must never appear in the runbook. */
 export const REQUIRED_ENV_NAMES = [
@@ -57,13 +39,7 @@ export const REQUIRED_ENV_NAMES = [
   'WALLET_RPC_AUTH_TOKEN',
 ];
 
-export const REQUIRED_RUNBOOK_PHRASES = [
-  'OWNER-ACTIONS-WALLET-RPC-SECRETS.md',
-  'EctWithdrawSecretConfig',
-  'compose-secret-parity',
-  'wallet-rpc-auth',
-  'Class X',
-];
+export const REQUIRED_RUNBOOK_PHRASES = ['OWNER-ACTIONS-WALLET-RPC-SECRETS.md', 'compose-secret-parity', 'Class X'];
 
 const HEX64 = /\b[0-9a-f]{64}\b/i;
 const PEM_OR_HEX_KEY = /-----BEGIN |0x[0-9a-fA-F]{64}/;
@@ -72,7 +48,6 @@ const PEM_OR_HEX_KEY = /-----BEGIN |0x[0-9a-fA-F]{64}/;
  * @param {{
  *   runbook?: string | null,
  *   ownerActionsExists?: boolean,
- *   ectConfig?: string | null,
  *   gatesSource?: string | null,
  *   parityExists?: boolean,
  * }} files
@@ -111,26 +86,8 @@ export function evaluate(files) {
     failures.push(`${RUNBOOK_REL} must not contain 64-hex digests, PEM, or 0x hot keys`);
   }
 
-  const ect = files.ectConfig;
-  if (ect == null || ect.trim() === '') {
-    failures.push(`${ECT_CONFIG_FILE} is missing — cannot prove disclosed ECT secret is refused at boot`);
-  } else {
-    if (!ect.includes('DISCLOSED_SECRET_SHA256')) {
-      failures.push('EctWithdrawSecretConfig no longer carries DISCLOSED_SECRET_SHA256');
-    }
-    if (!ect.includes('SHA-256') && !ect.includes('SHA256')) {
-      failures.push('EctWithdrawSecretConfig no longer hashes the env value');
-    }
-    if (!ect.includes('ECT_WITHDRAW_WALLET_SECRET')) {
-      failures.push('EctWithdrawSecretConfig no longer names ECT_WITHDRAW_WALLET_SECRET');
-    }
-    if (!ect.includes('OWNER-ACTIONS-WALLET-RPC-SECRETS.md')) {
-      failures.push('EctWithdrawSecretConfig must keep the owner-actions citation');
-    }
-  }
-
   const gates = files.gatesSource ?? '';
-  for (const id of ['compose-secret-parity', 'wallet-rpc-auth', 'secrets', 'secret-rotation-readiness']) {
+  for (const id of ['compose-secret-parity', 'secrets', 'secret-rotation-readiness']) {
     if (!gates.includes(`id: '${id}'`)) {
       failures.push(`${GATES_REL} must keep GATES id '${id}'`);
     }
@@ -158,14 +115,13 @@ function selfTest() {
     'EDGE_PRINCIPAL_SECRET INTERNAL_SERVICE_SECRET',
     'NOTIFY_EMAIL_GATEWAY_TOKEN NOTIFY_PUSH_GATEWAY_TOKEN NOTIFY_SMS_GATEWAY_TOKEN',
     'ECT_WITHDRAW_WALLET_SECRET WALLET_RPC_AUTH_TOKEN',
-    'EctWithdrawSecretConfig compose-secret-parity wallet-rpc-auth Class X',
+    'compose-secret-parity Class X',
   ].join('\n');
-  const okEct = ['DISCLOSED_SECRET_SHA256', 'SHA-256', 'ECT_WITHDRAW_WALLET_SECRET', 'OWNER-ACTIONS-WALLET-RPC-SECRETS.md'].join('\n');
-  const okGates = ["id: 'compose-secret-parity'", "id: 'wallet-rpc-auth'", "id: 'secrets'", "id: 'secret-rotation-readiness'"].join('\n');
+  const okGates = ["id: 'compose-secret-parity'", "id: 'secrets'", "id: 'secret-rotation-readiness'"].join('\n');
 
   cases.push({
     name: 'missing runbook refuses',
-    files: { runbook: null, ownerActionsExists: true, ectConfig: okEct, gatesSource: okGates, parityExists: true },
+    files: { runbook: null, ownerActionsExists: true, gatesSource: okGates, parityExists: true },
     expectFail: true,
     needle: 'missing',
   });
@@ -174,7 +130,6 @@ function selfTest() {
     files: {
       runbook: okRunbook.replace('EDGE_PRINCIPAL_SECRET ', ''),
       ownerActionsExists: true,
-      ectConfig: okEct,
       gatesSource: okGates,
       parityExists: true,
     },
@@ -186,7 +141,6 @@ function selfTest() {
     files: {
       runbook: `${okRunbook}\n${'ab'.repeat(32)}`,
       ownerActionsExists: true,
-      ectConfig: okEct,
       gatesSource: okGates,
       parityExists: true,
     },
@@ -198,7 +152,6 @@ function selfTest() {
     files: {
       runbook: okRunbook,
       ownerActionsExists: true,
-      ectConfig: okEct,
       gatesSource: okGates,
       parityExists: true,
     },
@@ -237,11 +190,9 @@ function main() {
     process.exit(1);
   }
 
-  const ectPath = findNamedFile(join(ROOT, ECT_MODULE_REL), ECT_CONFIG_FILE);
   const failures = evaluate({
     runbook: readFileSync(runbookPath, 'utf8'),
     ownerActionsExists: existsSync(join(ROOT, OWNER_ACTIONS_REL)),
-    ectConfig: ectPath ? readFileSync(ectPath, 'utf8') : null,
     gatesSource: readOptional(GATES_REL),
     parityExists: existsSync(join(ROOT, PARITY_REL)),
   });
@@ -254,7 +205,7 @@ function main() {
 
   console.log(
     'secret-rotation-readiness: runbook names rotatable classes, cites OWNER-ACTIONS-WALLET-RPC-SECRETS.md, ' +
-      'and disclosed-refuse / compose-parity gates remain wired (no secret values read).',
+      'and the secret and compose-parity gates remain wired (no secret values read).',
   );
 }
 

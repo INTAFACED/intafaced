@@ -112,17 +112,17 @@ describe('custody-scan derives its service list from the registry, faithfully', 
   });
 
   /**
-   * D26-P2-08 — custody-scan must open the Java runtime risk surface, not only
-   * Protocol Plane TS/Sol. The dual-book ratchet stays in vendor-java-money-scan;
-   * this asserts the named gate still walks Java (money-plane src/main + jars).
+   * The vendored Java exchange and wallet tree was deleted on 2026-10-19.
+   * custody-scan must keep refusing it, so the plaintext-key wallet code and
+   * its second money book cannot return without a reviewed change to the gate.
    */
-  it('walks the vendor Java runtime risk surface (D26-P2-08)', () => {
+  it('fails if the deleted vendor/ tree returns', () => {
     const source = readFileSync(scanPath, 'utf8');
 
-    expect(source, 'D26-P2-08 check id missing').toContain('java-runtime-risk-surface');
-    expect(source, 'runtime risk module list missing').toContain('RUNTIME_RISK_MODULES');
-    expect(source, 'must fail closed on empty Java walk').toContain('scanned 0 Java files on the runtime risk surface');
-    expect(source, 'must open committed classpath jars').toContain('java-runtime-jar');
+    expect(source, 'vendored-tree check id missing').toContain('vendored-tree-returned');
+    expect(source, 'must not shell out to the deleted Java successor scan').not.toContain('vendor-java-money-scan.mjs');
+    expect(source, 'Protocol Plane import check (check 1) must stay').toContain('ledger-write-on-protocol-plane');
+    expect(source, 'a present vendor/ tree must be a violation').toMatch(/if \(existsSync\(VENDOR\)\) \{[\s\S]{0,200}violations\.push/);
   });
 });
 

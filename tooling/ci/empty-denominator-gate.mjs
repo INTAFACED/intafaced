@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  'notice-pin': {
-    kind: 'guard',
-    must: /NOTICE PIN FAILED — missing required file/,
-    note: 'denominator is a fixed required-file list (NOTICE, vendor NOTICE, LICENSE, compose); with the tree gone every entry is missing and it refuses by name.',
-  },
   tracker: {
     kind: 'guard',
     must: /TRACKER REGISTRY INVALID/,
@@ -171,15 +166,6 @@ export const ENFORCED = {
     must: /BRAND SCAN FAILED — 0 files were read\. NOTHING WAS SCANNED\./,
     note: 'the canonical implementation of this law (brand-scan.mjs `scanned === 0`) and the reason the rule is worth generalising.',
   },
-  'shell-brand': {
-    kind: 'guard',
-    tree: 'tooling-only',
-    must: /NOTHING WAS SCANNED/,
-    note:
-      'needs `tooling/` on cwd because it parses brand-scan.mjs for the forbidden names rather than restating them ' +
-      '(so the two cannot drift). Under a bare cwd it dies on that read — still a refusal, but not its own guard, so ' +
-      'this row tests the guard instead of the read.',
-  },
   custody: {
     kind: 'guard',
     must: /CUSTODY SCAN FAILED — cannot read the module registry/,
@@ -190,47 +176,10 @@ export const ENFORCED = {
     must: /not a git repository/,
     note: 'enumerates via `git ls-files`, which fails hard outside a repo. Refuses, but by throw — no zero-file branch of its own.',
   },
-  'wallet-rpc-mainnet': {
-    kind: 'guard',
-    must: /the wallet RPC tree is not in this checkout/,
-    note: 'says the quiet part out loud — "this gate cannot assert the prohibition it exists to assert" — and exits 1.',
-  },
-  'wallet-rpc-mainnet-mutation': {
-    kind: 'guard',
-    must: /the unmutated scan does not pass/,
-    note: 'checks its control run first, so an unrunnable subject cannot be reported as mutants-all-caught.',
-  },
-  'wallet-rpc-perimeter-refuse': {
-    kind: 'guard',
-    must: /unmutated scan does not pass/,
-    note:
-      'D26-P2-09 continuous perimeter suite — control is the real mainnet scan; if the tree (or the scan) is gone the ' +
-      'control fails first, so class/register deletions cannot be reported as caught over an unrunnable subject.',
-  },
   'invitation-outreach-golden': {
     kind: 'guard',
     must: /no outreach-\*\.golden\.js under/,
     note: 'a golden suite that finds no goldens is the textbook version of this defect; it refuses instead.',
-  },
-  'vendor-java-money': {
-    kind: 'guard',
-    must: /vendor\/ tree missing — cannot prove dual-book mutators banned/,
-    note: 'phrases the refusal as an inability to PROVE, which is the correct epistemics.',
-  },
-  'vendor-java-jar-truth': {
-    kind: 'guard',
-    must: /vendor\/ tree missing — cannot prove Grade D empty or jar posture/,
-    note: 'D26-P2-07 sibling of vendor-java-money: without vendor/ it cannot prove Grade D empty or jar truth.',
-  },
-  'dual-book-door': {
-    kind: 'guard',
-    must: /vendor\/ tree missing — dual-book door cannot be verified/,
-    note: 'same shape as its sibling above; both fence vendor/ and both decline to certify an absent tree.',
-  },
-  'dual-book-door-paths': {
-    kind: 'uncaught',
-    must: /ENOENT[\s\S]*scandir/,
-    note: 'walks vendor/ unguarded. Refuses, by throw.',
   },
   killswitch: {
     kind: 'guard',
@@ -351,16 +300,6 @@ export const EXEMPT_MAX = 2;
 // The list can only shrink; that is the ratchet.
 // ───────────────────────────────────────────────────────────────────────────
 export const BLIND = {
-  'wallet-rpc-auth': {
-    observed: /no vendored 01_wallet_rpc tree — skip/,
-    reason:
-      'skips clean on the missing tree. Its own sibling wallet-rpc-mainnet fences the SAME tree and REFUSES on it — two ' +
-      'gates, one subject, opposite verdicts on absence. The sharpest single finding of this change.',
-  },
-  'vendor-shell': {
-    observed: /no vendor\/ tree — skip/,
-    reason: 'skips clean on absent vendor/, where vendor-java-money and dual-book-door both refuse on exactly that condition.',
-  },
   'test-db': {
     observed: /0 Postgres-capable test file\(s\) of 0 scanned/,
     reason: 'prints its zero denominator inside a ✓ line: "0 … of 0 scanned, all on *_test databases". All of nothing.',
@@ -370,7 +309,8 @@ export const BLIND = {
     reason: 'clean on "no services yet" — true of a scaffold, indistinguishable from a services/ directory that stopped resolving.',
   },
 };
-export const BLIND_MAX = 4;
+// Lowered 4 → 2 (2026-10-19) with the vendor removal: wallet-rpc-auth and vendor-shell went with their subject.
+export const BLIND_MAX = 2;
 
 // ───────────────────────────────────────────────────────────────────────────
 // 4. SELF — this gate, which cannot run inside its own fixture without
