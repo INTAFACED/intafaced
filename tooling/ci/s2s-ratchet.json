@@ -184,10 +184,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-mining-pool/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-notify/src/guests/router.ts": {
       "sign": 0,
       "caller": 1

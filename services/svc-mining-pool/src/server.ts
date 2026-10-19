@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { miningHealthHonesty } from './health-honesty.js';
 import { createMiningRequestHandler } from './http.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -14,8 +15,12 @@ const ledgerUrl = process.env.LEDGER_URL?.trim();
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET?.trim();
 const databaseUrl = process.env.DATABASE_URL?.trim();
 const edgeSecret = process.env.EDGE_PRINCIPAL_SECRET;
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+const s2s = s2sFromEnv(process.env, 'svc-mining-pool');
 const ledger: (Pick<LedgerClient, 'post'> & Pick<LedgerClient, 'getTxByKey'>) | null =
-  ledgerUrl && internalSecret ? createLedgerClient(ledgerUrl, internalSecret) : null;
+  ledgerUrl && internalSecret
+    ? createLedgerClient(ledgerUrl, internalSecret, s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined)
+    : null;
 const sql = databaseUrl
   ? postgres(databaseUrl, {
       max: 8,
