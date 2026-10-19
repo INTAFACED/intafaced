@@ -932,6 +932,9 @@ services:
       # nothing. `required` finishes payments whose ledger capture key already
       # exists, and does not post again. env.ts default is the same `off`.
       PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
+      # Merchant controls. No default: blank or `off` refuses boot unless APP_ENV is
+      # exactly dev or test. `required` for every real deployment.
+      PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
       PAY_DEFAULT_FEE_BPS: ${PAY_DEFAULT_FEE_BPS:-}
       # Open-session cap + operator risk band. env.ts already names these;
       # blank risk band refuses — never invent `low`. Open-session cap: no git
