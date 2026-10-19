@@ -196,6 +196,31 @@ describe('svc-trade oco-cancel (H8a PG-hard)', () => {
       expect(await avail(ALICE, 'BTC')).toBe('2');
     });
 
+    it('a retry after a restart finishes a half-done cancel: the first pull is remembered in the database', async () => {
+      const placed = await placeLinked();
+      const [tp, sl] = ocoSiblingIds(placed.id);
+      // A previous process pulled the tp leg and died before pulling the sl leg: only sl rests, nothing filled.
+      await sql`INSERT INTO trade.oco_leg_end (parent_id, leg, remaining_qty, reason) VALUES (${placed.id}, 'tp', 1, 'user_pull')`;
+      matching.scriptLive(sl, btcusdt.id);
+
+      const cancelled = await trade.cancelOrder(principalFor(ALICE), placed.id);
+      expect(cancelled.status).toBe('cancelled');
+      expect(matching.cancelledOrders).toEqual([sl]);
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('0');
+      expect(await avail(ALICE, 'BTC')).toBe('2');
+      expect(tp).toBeDefined();
+    });
+
+    it('a remembered pull of one leg does not explain the OTHER leg being gone: the hold stays', async () => {
+      const placed = await placeLinked();
+      // tp was pulled by an earlier attempt; sl is off the book with no fill recorded here (it may have filled).
+      await sql`INSERT INTO trade.oco_leg_end (parent_id, leg, remaining_qty, reason) VALUES (${placed.id}, 'tp', 1, 'user_pull')`;
+
+      await expect(trade.cancelOrder(principalFor(ALICE), placed.id)).rejects.toMatchObject({ code: 'trade.oco_sibling_terminal' });
+      expect(await heldFor(ALICE, 'BTC', placed.id)).toBe('1');
+      expect((await trade.findOrder(placed.id))?.status).toBe('open');
+    });
+
     it('refuses when either sibling is already terminal — remaining hold stays', async () => {
       const placed = await placeLinked();
       const [tp] = ocoSiblingIds(placed.id);
