@@ -18,7 +18,7 @@
 | `svc-indexer` | Chain → Postgres read models for `apps/web` — books, fills, positions (§17.5). | 4013 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INDEXER_BATCH_SIZE`, `INDEXER_CHAIN_ID`, `INDEXER_FINALITY_DEPTH`, `INDEXER_RPC_URL`, `INDEXER_START_HEIGHT`, `INDEXER_VENUE_ADDRESS` |
 | `svc-ledger` | THE BALANCE (§4.2). The single wallet graph for the entire OS. | 4001 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `INTERNAL_SERVICE_SECRET`, `JWT_ACCESS_SECRET`, `RECONCILE_CRON_MINUTES` |
 | `svc-market` | Vendor lifecycle for `market.vendors` (§8.7) plus listings and one-time purchase for `market.commerce`. | 4018 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
-| `svc-matching` | THE ENGINE (§5.1). Orderbooks and matching. | 4005 | compose network only | `INTERNAL_SERVICE_SECRET`, `MATCHING_OPERATOR_IDS`, `MATCHING_SNAPSHOT_EVERY` |
+| `svc-matching` | THE ENGINE (§5.1). Orderbooks and matching. | 4005 | compose network only | `EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS`, `EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS`, `EDGE_PRINCIPAL_PUBLIC_KEY`, `INTERNAL_SERVICE_SECRET`, `MATCHING_OPERATOR_IDS`, `MATCHING_SNAPSHOT_EVERY` |
 | `svc-matching-rust-stage1` | No README. | - | not in compose | see `src/env.ts` |
 | `svc-mining-pool` | No README. | 4023 | compose network only | see `src/env.ts` |
 | `svc-notify` | Event-driven notification fan-out for `ops.notifications`. | 4015 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
