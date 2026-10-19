@@ -72,7 +72,7 @@ describe('a dispute on a payment frozen into a pending settlement', { timeout: 3
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
   let base: MemoryLedger;
-  let gate: { blockSettle: boolean };
+  let gate: { blockSettle: boolean; lostReply?: boolean };
   let pay: PayService;
 
   beforeAll(async () => {
@@ -92,6 +92,10 @@ describe('a dispute on a payment frozen into a pending settlement', { timeout: 3
     gate = { blockSettle: true };
     const ledger: LedgerClient = {
       post: async (request: PostRequest) => {
+        if (gate.lostReply && request.reason === 'pay.settled') {
+          await base.post(request);
+          throw new Error('simulated lost reply after the settlement post committed');
+        }
         if (gate.blockSettle && request.reason === 'pay.settled') throw new Error('simulated ledger outage during settlement post');
         return base.post(request);
       },
@@ -179,5 +183,34 @@ describe('a dispute on a payment frozen into a pending settlement', { timeout: 3
     expect(formatAmount((await base.balance(merchantClearing(merchant.id, 'USDT'))).amount)).toBe('150');
     expect(formatAmount((await base.balance(merchantProceeds(merchant.id, 'USDT'))).amount)).toBe('0');
     expect(base.reconcile()).toEqual({ ok: true });
+  });
+
+  it('adopts a settlement the ledger already booked, so release cannot pay the window twice', async () => {
+    const merchant = await pay.createMerchant({ userId: MERCHANT_USER, pricing: { feeBps: 0 } });
+    const disputed = await captured(merchant.id, '100');
+    await captured(merchant.id, '50');
+
+    // The ledger books the settlement, but the reply is lost, so the window stays pending.
+    gate.blockSettle = false;
+    gate.lostReply = true;
+    await expect(pay.settleWindow({ merchantId: merchant.id, ...window() })).rejects.toThrow(/lost reply/);
+    expect(base.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(1);
+
+    await pay.handleWebhook(
+      'card-sandbox',
+      signed({
+        id: 'evt-booked-open',
+        type: 'dispute.opened',
+        ref: disputed.railRef,
+        assetId: 'USDT',
+        disputeId: 'dp-booked-1',
+        amount: '100',
+      }),
+    );
+
+    gate.lostReply = false;
+    const settlement = await pay.settleWindow({ merchantId: merchant.id, ...window() });
+    expect(settlement.status).toBe('posted');
+    expect(base.journal().filter((tx) => tx.reason === 'pay.settled')).toHaveLength(1);
   });
 });
