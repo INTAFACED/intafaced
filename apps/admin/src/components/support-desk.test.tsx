@@ -146,6 +146,11 @@ describe('a ticket', () => {
     expect(html).toContain('opened');
     expect(html).toContain('Nobody yet');
   });
+  it('labels the customer as an account id and says why no handle is shown', () => {
+    const html = open();
+    expect(html).toContain('<dt>Customer account id</dt>');
+    expect(html).toContain('No handle: svc-identity has no operator read that names an account from its id (back-end need 47).');
+  });
   it('an unowned ticket can be claimed, after a second click that says there is no release', () => {
     expect(open()).toContain('Claim this ticket');
     const armed = open({ arming: true });

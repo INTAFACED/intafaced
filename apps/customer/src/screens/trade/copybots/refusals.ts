@@ -147,6 +147,34 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'The disclosure has changed',
     body: 'Accept the current version before new copies. Nothing was placed.',
   },
+  'trade.copy_trail_window_unset': {
+    title: 'Choose a start and end',
+    body: 'The copy history needs both dates. Nothing was exported.',
+  },
+  'trade.copy_trail_window_too_wide': {
+    title: 'That date range is too long',
+    body: 'Ask for 92 days or less at a time. This limit protects the database.',
+  },
+  'trade.copy_trail_limit_unset': {
+    title: 'Choose how many rows',
+    body: 'The copy history needs a page size. Nothing was listed.',
+  },
+  'trade.copy_trail_cursor_invalid': {
+    title: 'That page link is not valid',
+    body: 'Start the list again from the first page.',
+  },
+  'trade.copy_divergence_basis_unset': {
+    title: 'The price difference has no basis points',
+    body: 'The leader price was zero, so the difference in basis points is not shown.',
+  },
+  'trade.mark_unavailable': {
+    title: 'No fresh reference price',
+    body: 'Open profit is hidden until a current price is available. Closed profit is unchanged.',
+  },
+  fee_lookup_unwired: {
+    title: 'Trading fees aren’t available',
+    body: 'The fee lookup is not connected, so the fee line is empty. Nothing was charged.',
+  },
 };
 
 const DEVICE: Readonly<Record<string, Words>> = {

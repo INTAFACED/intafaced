@@ -14,8 +14,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
-import type { Principal } from '@intafaced/auth';
+import { requireScope, type Principal } from '@intafaced/auth';
+import type { AlgoQuotedMark } from '../algo/types.js';
 import {
   copyLimitPriceFromPlan,
   copyMirrorClientOrderId,
@@ -83,6 +85,16 @@ import {
   UNPUBLISHED_COPY_DISCLOSURE_LAW,
   type CopyDisclosureLaw,
 } from './disclosure.js';
+import { readFollowResult, type FollowResult } from './follow-result.js';
+import {
+  MemoryMirrorEventLog,
+  observeCopyMirrorFill,
+  recordPlaceMirrorEvents,
+  recordPlanMirrorEvents,
+  type CopyMirrorFillNotice,
+  type MirrorEventLog,
+} from './mirror-events.js';
+import { exportMirrorTrail, listMirrorTrail, type MirrorTrailPage, type MirrorTrailQuery } from './mirror-trail.js';
 import {
   LeaderDirectory,
   memoryLeaderDirectory,
@@ -160,6 +172,15 @@ export interface CopyServiceOptions {
    * this. Absent → copy.flatten refuses rather than invent a close.
    */
   flattenCopyPosition?: FlattenCopyPositionPort;
+  /** Append-only mirror trail. Production wires SqlMirrorEventLog. */
+  mirrorEvents?: MirrorEventLog;
+  /** Spot tables for the result and the trail. Absent → those reads refuse. */
+  sql?: Sql;
+  /**
+   * Book mid the algo engine's markFor reads, then gated by acceptableForAlgo.
+   * Absent → unrealised P&L is null with trade.mark_unavailable.
+   */
+  lookupMark?: (marketId: string) => Promise<AlgoQuotedMark | null>;
   /** Operator-published leader directory. Omitted → in-memory, empty until an operator writes. */
   directory?: LeaderDirectory;
 }
@@ -232,6 +253,9 @@ export class CopyService {
   private readonly lookupFollowerFillFee: LookupFollowerFillFeePort | null;
   private readonly lookupLeaderFill: LookupLeaderFillPort | null;
   private readonly flattenCopyPosition: FlattenCopyPositionPort | null;
+  private readonly mirrorEvents: MirrorEventLog;
+  private readonly sql: Sql | null;
+  private readonly lookupMark: ((marketId: string) => Promise<AlgoQuotedMark | null>) | null;
   private readonly directory: LeaderDirectory;
 
   constructor(
@@ -250,6 +274,9 @@ export class CopyService {
     this.lookupFollowerFillFee = options.lookupFollowerFillFee ?? null;
     this.lookupLeaderFill = options.lookupLeaderFill ?? null;
     this.flattenCopyPosition = options.flattenCopyPosition ?? null;
+    this.mirrorEvents = options.mirrorEvents ?? new MemoryMirrorEventLog();
+    this.sql = options.sql ?? null;
+    this.lookupMark = options.lookupMark ?? null;
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -308,103 +335,105 @@ export class CopyService {
    * Flag off / blank §8 / paper→live refuse by name. Idempotent on fillId.
    */
   async placeMirrorForFollow(principal: Principal, input: { followId: string; fillId: string; leaderPaper: boolean }) {
-    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), async (store) => {
-      let follow: CopyFollow;
-      try {
-        follow = await this.requireOwnedFollow(store, principal, input.followId);
-      } catch (err) {
-        // Flag off stays the public door: a missing follow must not become "not found".
-        if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+    return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
+      recordPlaceMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), async () => {
+        let follow: CopyFollow;
+        try {
+          follow = await this.requireOwnedFollow(store, principal, input.followId);
+        } catch (err) {
+          // Flag off stays the public door: a missing follow must not become "not found".
+          if (!this.placeMirrorEnabled && err instanceof CopyError && err.code === 'trade.copy_not_following') {
+            throw new CopyError(
+              'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
+              'trade.copy_place_disabled',
+              COPY_PLACE_DISABLED_RESIDUAL,
+            );
+          }
+          throw err;
+        }
+        await this.directory.refuseNewMirror(follow.leaderId);
+        if (!this.placeMirrorEnabled) {
           throw new CopyError(
             'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
             'trade.copy_place_disabled',
             COPY_PLACE_DISABLED_RESIDUAL,
           );
         }
-        throw err;
-      }
-      await this.directory.refuseNewMirror(follow.leaderId);
-      if (!this.placeMirrorEnabled) {
-        throw new CopyError(
-          'copy.placeMirror is refuse-closed until TRADE_COPY_PLACE_MIRROR is on',
-          'trade.copy_place_disabled',
-          COPY_PLACE_DISABLED_RESIDUAL,
-        );
-      }
-      requirePublishedCopyFeeShareLaw(this.feeShareLaw);
+        requirePublishedCopyFeeShareLaw(this.feeShareLaw);
 
-      await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
-      await this.refuseIfFollowRegionClosed(store, follow);
-      if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
-        throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
-      }
-      requireNewCopyIntentAllowed(follow);
-      requireUnrevokedCopySessionKey(follow);
-      const prior = await store.getMirroredFill(follow.followId, canonicalizeCopyFillId(input.fillId));
-      if (!prior) {
-        throw new CopyError(
-          'No durable mirror plan for this fillId — planMirror first',
-          'trade.copy_auto_mirror_place_socket',
-          COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-        );
-      }
-      if (!this.placeFollowerOrder) {
-        throw new CopyError(
-          `Auto-mirror place into spot is refuse-closed (${COPY_AUTO_MIRROR_PLACE_SOCKET}) — planMirror claimed fill ${prior.fillId}; never invent a spot fill`,
-          'trade.copy_auto_mirror_place_socket',
-          COPY_AUTO_MIRROR_PLACE_RESIDUAL,
-        );
-      }
-
-      const market = this.inspectMarket ? await this.inspectMarket(prior.marketId) : null;
-      if (input.leaderPaper) {
-        if (!market || market.paper !== true) {
+        await requireCopyDisclosureForMirror(this.disclosureLaw, store, follow.followerId);
+        await this.refuseIfFollowRegionClosed(store, follow);
+        if (follow.envelope.expiresAt.getTime() <= this.now().getTime()) {
+          throw new CopyError('Copy session envelope has expired', 'trade.copy_key_expired');
+        }
+        requireNewCopyIntentAllowed(follow);
+        requireUnrevokedCopySessionKey(follow);
+        const prior = await store.getMirroredFill(follow.followId, canonicalizeCopyFillId(input.fillId));
+        if (!prior) {
           throw new CopyError(
-            'Paper leader fill cannot place a live follower order',
+            'No durable mirror plan for this fillId — planMirror first',
+            'trade.copy_auto_mirror_place_socket',
+            COPY_AUTO_MIRROR_PLACE_RESIDUAL,
+          );
+        }
+        if (!this.placeFollowerOrder) {
+          throw new CopyError(
+            `Auto-mirror place into spot is refuse-closed (${COPY_AUTO_MIRROR_PLACE_SOCKET}) — planMirror claimed fill ${prior.fillId}; never invent a spot fill`,
+            'trade.copy_auto_mirror_place_socket',
+            COPY_AUTO_MIRROR_PLACE_RESIDUAL,
+          );
+        }
+
+        const market = this.inspectMarket ? await this.inspectMarket(prior.marketId) : null;
+        if (input.leaderPaper) {
+          if (!market || market.paper !== true) {
+            throw new CopyError(
+              'Paper leader fill cannot place a live follower order',
+              'trade.copy_paper_live_forbidden',
+              COPY_PAPER_LIVE_RESIDUAL,
+            );
+          }
+        } else if (market?.paper === true) {
+          throw new CopyError(
+            'Live leader fill cannot place onto a paper market',
             'trade.copy_paper_live_forbidden',
             COPY_PAPER_LIVE_RESIDUAL,
           );
         }
-      } else if (market?.paper === true) {
-        throw new CopyError(
-          'Live leader fill cannot place onto a paper market',
-          'trade.copy_paper_live_forbidden',
-          COPY_PAPER_LIVE_RESIDUAL,
-        );
-      }
 
-      const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
-      const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
-        const clientOrderId = copyMirrorClientOrderId(follow.followId, prior.fillId);
-        const placed = await this.placeFollowerOrder!(principal, {
-          followId: follow.followId,
-          symbol: prior.marketId,
-          marketId: prior.marketId,
-          side: prior.side,
-          qty: prior.qty,
-          price,
-          clientOrderId,
+        const price = copyLimitPriceFromPlan(prior.qty, prior.notional);
+        const once = await store.runPlaceMirrorOnce(follow.followId, prior.fillId, async () => {
+          const clientOrderId = copyMirrorClientOrderId(follow.followId, prior.fillId);
+          const placed = await this.placeFollowerOrder!(principal, {
+            followId: follow.followId,
+            symbol: prior.marketId,
+            marketId: prior.marketId,
+            side: prior.side,
+            qty: prior.qty,
+            price,
+            clientOrderId,
+          });
+          return {
+            followId: follow.followId,
+            fillId: prior.fillId,
+            orderId: placed.orderId,
+            clientOrderId,
+            price,
+          };
         });
+
         return {
           followId: follow.followId,
           fillId: prior.fillId,
-          orderId: placed.orderId,
-          clientOrderId,
-          price,
+          orderId: once.record.orderId,
+          marketId: prior.marketId,
+          side: prior.side,
+          qty: formatAmount(prior.qty),
+          price: formatAmount(price),
+          duplicate: once.status === 'duplicate',
         };
-      });
-
-      return {
-        followId: follow.followId,
-        fillId: prior.fillId,
-        orderId: once.record.orderId,
-        marketId: prior.marketId,
-        side: prior.side,
-        qty: formatAmount(prior.qty),
-        price: formatAmount(price),
-        duplicate: once.status === 'duplicate',
-      };
-    });
+      }),
+    );
   }
 
   /**
@@ -721,7 +750,9 @@ export class CopyService {
    */
   async planMirrorForFollow(principal: Principal, input: PlanMirrorInput) {
     return this.store.runFollowExclusive(requireCopyFollowId(input.followId), (store) =>
-      this.planMirrorForFollowExclusive(store, principal, input),
+      recordPlanMirrorEvents(this.mirrorEvents, store, principal, input, this.now(), () =>
+        this.planMirrorForFollowExclusive(store, principal, input),
+      ),
     );
   }
 
@@ -1091,6 +1122,41 @@ export class CopyService {
       }),
       settled: record.settled,
     };
+  }
+
+  /** Caller's own follow. Another account's id is not found. */
+  async result(principal: Principal, followId: string): Promise<FollowResult> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy result is not mounted', 'trade.copy_unavailable');
+    const follow = await this.requireOwnedFollow(this.store, principal, followId);
+    return readFollowResult(this.sql, follow, {
+      lookupFollowerFillFee: this.lookupFollowerFillFee,
+      lookupMark: this.lookupMark,
+      now: this.now(),
+    });
+  }
+
+  /** Oldest first. Window and limit are required; a blank limit is refused. */
+  async mirrorTrail(principal: Principal, input: MirrorTrailQuery): Promise<MirrorTrailPage> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy trail is not mounted', 'trade.copy_unavailable');
+    await this.requireOwnedFollow(this.store, principal, input.followId);
+    return listMirrorTrail(this.sql, principal, input);
+  }
+
+  /** Same rows as the trail, as CSV. Session scope is trade:read. */
+  async exportMirrorTrail(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string> {
+    requireScope(principal, 'trade:read');
+    if (!this.sql) throw new CopyError('copy trail is not mounted', 'trade.copy_unavailable');
+    const followId = requireCopyFollowId(query.followId);
+    await this.requireOwnedFollow(this.store, principal, followId);
+    return exportMirrorTrail(this.sql, principal, { followId, from: query.from, to: query.to });
+  }
+
+  /** One-line spot hook after a follower fill is stored. Not a mirror order → no row. */
+  async observeFollowerFill(notice: CopyMirrorFillNotice): Promise<void> {
+    if (!this.sql) return;
+    await observeCopyMirrorFill(this.sql, this.mirrorEvents, notice, this.now());
   }
 
   /** Forbidden surfaces — explicit refuse for honesty tests. */

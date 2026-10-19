@@ -1923,7 +1923,7 @@ services:
   # one front-end in this repo that is deliberately not served.
   #
   # It is a decision, not an oversight, and it was taken in
-  # `docs/ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md`: that console speaks
+  # `docs/ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md` (removed): that console speaks
   # to the legacy Java backend over its own HTTP API, not to svc-edge, so
   # starting it in this fleet would either 404 against a backend that is not
   # here or — worse — reach one that is, unauthenticated. Hard block 1 of that

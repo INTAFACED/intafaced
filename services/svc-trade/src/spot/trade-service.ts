@@ -344,6 +344,12 @@ export interface TradeServiceOptions {
    */
   dropCopyIngest?: DropCopyIngestPort;
   /**
+   * After a spot fill is stored. Copy records a partial or filled trail row
+   * when the order is a placed mirror. A throwing sink is logged and does
+   * not unwind the fill.
+   */
+  onCopyMirrorFill?: (notice: { orderId: string; fillId: string; side: 'buy' | 'sell'; price: Amount; qty: Amount }) => Promise<void>;
+  /**
    * Fired when an `order.hold` reply stays unknown, and when the sweep
    * resolves a `hold_unknown` row. A throwing sink does not change the money
    * decision.
@@ -731,6 +737,13 @@ export class TradeService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   /** Best-effort FIX drop-copy hitch after settle (never fails the fill). */
   private readonly dropCopyIngest: DropCopyIngestPort;
+  private onCopyMirrorFill?: (notice: {
+    orderId: string;
+    fillId: string;
+    side: 'buy' | 'sell';
+    price: Amount;
+    qty: Amount;
+  }) => Promise<void>;
   private readonly onHoldUnknownAlert?: (alert: HoldUnknownAlert) => void;
   private readonly holdUnknownTakerMaxAgeMs: number;
 
@@ -770,6 +783,7 @@ export class TradeService {
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
     this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.dropCopyIngest = options.dropCopyIngest ?? new NoopDropCopyIngest();
+    this.onCopyMirrorFill = options.onCopyMirrorFill;
     this.onHoldUnknownAlert = options.onHoldUnknownAlert;
     const takerMaxAge = options.holdUnknownTakerMaxAgeMs ?? 30_000;
     this.holdUnknownTakerMaxAgeMs = Number.isInteger(takerMaxAge) && takerMaxAge >= 1_000 && takerMaxAge <= 600_000 ? takerMaxAge : 30_000;
@@ -3121,6 +3135,13 @@ export class TradeService {
         makerFeeAsset,
         takerFeeAsset,
       });
+      await this.notifyCopyMirrorFill({
+        orderId: taker.id,
+        fillId: fillLegIdFor(market.id, fill.sequence, 'taker'),
+        side: fill.takerSide,
+        price,
+        qty,
+      });
 
       const takerSettledAt = new Date().toISOString();
       await this.bus.publish(
@@ -3325,6 +3346,13 @@ export class TradeService {
         ts: settledAt,
         order: leg.order,
       });
+      await this.notifyCopyMirrorFill({
+        orderId: leg.order.id,
+        fillId: fillLegIdFor(market.id, fill.sequence, leg.role),
+        side: leg.side,
+        price,
+        qty,
+      });
       const latest = await this.findOrder(leg.order.id);
       if (latest) await this.publishOrderUpdated(latest);
     }
@@ -3344,6 +3372,29 @@ export class TradeService {
     takerFeeAsset: string;
   }): Promise<void> {
     await fireAffiliateAccrue(this.affiliateAccrue, affiliateLegsAfterFill({ ...input, houseMmUserId: HOUSE_MM_USER_UUID }));
+  }
+
+  /** After the fill is stored. Failure is logged; the settled fill stays settled. */
+  bindCopyMirrorFill(observe: NonNullable<TradeServiceOptions['onCopyMirrorFill']>): void {
+    this.onCopyMirrorFill = observe;
+  }
+
+  private async notifyCopyMirrorFill(notice: {
+    orderId: string;
+    fillId: string;
+    side: 'buy' | 'sell';
+    price: Amount;
+    qty: Amount;
+  }): Promise<void> {
+    if (!this.onCopyMirrorFill) return;
+    try {
+      await this.onCopyMirrorFill(notice);
+    } catch (err) {
+      console.warn(
+        `svc-trade: copy mirror fill event failed orderId=${notice.orderId} — fill already settled`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   /**

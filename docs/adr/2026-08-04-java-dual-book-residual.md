@@ -65,7 +65,7 @@ Debits were never done through a mutator. They were done as `setBalance(x.subtra
 
 ## Corrections to the record
 
-- **Jar count is 32, not 31.** The "31" at `vendor/.gitignore:11` and in the adoption ADR is wrong; `docs/UPSTREAM-ADOPTION-QUEUE-2026-08-02.md` already carries the right figure. Eighteen sit inside `01_wallet_rpc`, including **`bitcoinj-core-0.13-alice-SNAPSHOT.jar`** — a snapshot build of an unnamed fork, on the classpath of the two modules that mint keys with `new ECKey()`.
+- **Jar count is 32, not 31.** The "31" at `vendor/.gitignore:11` and in the adoption ADR is wrong; `docs/UPSTREAM-ADOPTION-QUEUE-2026-08-02.md` (removed) already carries the right figure. Eighteen sit inside `01_wallet_rpc`, including **`bitcoinj-core-0.13-alice-SNAPSHOT.jar`** — a snapshot build of an unnamed fork, on the classpath of the two modules that mint keys with `new ECKey()`.
 - **`*.jar` is not marked binary** in `.gitattributes`; `git check-attr` returns `text: auto` on a wallet jar.
 - **The adoption ADR's "32 call sites are all of this grade" is an overcount.** The Grade B budget is 29; 32 is reached only by including the three Grade A declarations. The new ratchet arithmetic should reconcile to 29.
 - **`core` did not compile from source — CONFIRMED 2026-08-04, and it was three errors, not one.** All in `MemberApplicationService`:
@@ -93,7 +93,7 @@ In order. Each step is independently landable.
 
 ## A stale instruction in a live law document
 
-[`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §4 made this decision ("**DECIDED. Option B**") and named two enforcement gaps that must close with it. The first reads:
+`DIRECTION-2026-07-31.md` (removed) §4 made this decision ("**DECIDED. Option B**") and named two enforcement gaps that must close with it. The first reads:
 
 > "**`custody-scan` walks `.ts`/`.tsx` only — it has never read a line of Java.** Fix it, or this decision is unenforced."
 

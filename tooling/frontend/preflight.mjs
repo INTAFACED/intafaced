@@ -54,19 +54,7 @@ function git(cmd) {
 console.log(`frontend:preflight  type=${SLICE_TYPE}  slice=${SLICE_ID || '(none)'}`);
 console.log('— law files —');
 
-const LAW = [
-  ['docs/FRONTEND-AUTONOMOUS-OPERATING-SYSTEM-2026-08-02.md', 'AOS architecture'],
-  ['docs/FRONTEND-LEVEL-RECOVERY-AND-GO-READY-2026-08-02.md', 'level bar'],
-  ['docs/FRONTEND-GO-READY-BRIEF-2026-08-02.md', 'go paste'],
-  ['docs/FRONTEND-STATE-OF-TRUTH-2026-07-31.md', 'live status'],
-  ['docs/FRONTEND-MASTER-METHODOLOGY-2026-07-31.md', 'scorecard law'],
-  ['docs/FRONTEND-MASTER-PLAN-WAVE-A-B-2026-07-31.md', 'wave plan'],
-  ['docs/STREAM-A-DESIGN-BAR.md', 'PR reject bar'],
-  ['docs/FRONTEND-OPS-NOW-2026-07-30.md', 'Orca eyes'],
-  ['docs/NITRO-STREAM-A-CLAIM.md', 'territory'],
-  ['docs/COLOR-LOCK-P21-PROVISIONAL-2026-07-31.md', 'palette'],
-  ['tooling/frontend/residual-register.json', 'completeness register'],
-];
+const LAW = [['tooling/frontend/residual-register.json', 'completeness register']];
 
 for (const [f, why] of LAW) mustFile(f, why);
 
@@ -162,17 +150,6 @@ if (SLICE_ID) {
 } else if (SLICE_TYPE === 'CRAFT' || SLICE_TYPE === 'HONESTY') {
   warn('set SLICE_ID=... to enforce docs/refs/<slice>/ artifacts');
 }
-
-console.log('— scorecard —');
-const scorecards = ['docs/FRONTEND-BASELINE-SCORECARD-A0-2026-07-31.md', 'docs/FRONTEND-SCORECARD-LIVE.md'];
-let anyScore = false;
-for (const s of scorecards) {
-  if (existsSync(join(ROOT, s))) {
-    ok(s);
-    anyScore = true;
-  }
-}
-if (!anyScore) err('no scorecard file — cannot falsify better');
 
 console.log('');
 if (errors.length) {

@@ -18,7 +18,6 @@
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/ui": "workspace:*",
-    "@tanstack/react-table": "9.2.8",
     "@tanstack/react-virtual": "3.14.14",
     "lucide-react": "1.55.0",
     "react": "^19.0.0",

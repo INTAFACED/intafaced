@@ -60,10 +60,10 @@ export const GATES = [
     why:
       'the only tool in this repo that deletes another agent’s working state, and until this entry nothing ran its ' +
       'proof. #1151 fixed three ways it did exactly that — it read no claim board, so a worktree named **live** in ' +
-      'docs/LIVE-LANES.md was garbage on its first clean minute (docs/LANE-CLOSEOUT-OPS-2026-08-08.md:333 records ' +
+      'docs/LIVE-LANES.md was garbage on its first clean minute (docs/LANE-CLOSEOUT-OPS-2026-08-08.md (removed):333 records ' +
       'another lane losing two worktrees mid-edit and an unpushed branch to that); it had no mtime signal; and it ' +
       'found MAIN via `rev-parse --show-toplevel`, so run from a linked worktree the real main checkout was just ' +
-      'another cherry-empty row and `git branch -D main` was in the plan (MEGA-AUDIT-2026-08-07-FINDINGS.md:887, ' +
+      'another cherry-empty row and `git branch -D main` was in the plan (MEGA-AUDIT-2026-08-07-FINDINGS.md (removed):887, ' +
       'severity high, recorded and unfixed for a day). #1151 also shipped 15 classifier fixtures that go red if any ' +
       'of the three is reverted — and wired them to nothing, so a revert broke no check that verify or CI ran. That ' +
       'is the shape of the six guards this repo has already built correct and left unreachable. Cheap enough to sit ' +

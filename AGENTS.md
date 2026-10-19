@@ -4,7 +4,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 
 ## The product
 
-1. The front end is React: `apps/customer` (Vite and React) and `apps/admin` (Next.js). Vue (`vendor/upstream-exchange/05_Web_Front`) is history. Never build on it.
+1. The front end is React: `apps/customer` (Vite and React) and `apps/admin` (Next.js). The old Vue front end was deleted; never reintroduce it.
 2. Find code with `rg` and `rg --files`. Read the target service's `README.md` before you edit it. Start any product path whose dependencies are met without waiting for a tracker claim, an audit seal or a person.
 3. Product law:
    - "Parked" means visible with the real blocker named. Never hide a room, route or control.
@@ -39,12 +39,13 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
 6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response. Do not retry in a loop, switch accounts or create a token. Keep working locally.
 7. Never push `main`.
+8. The independent review's PASS for the exact head sha is posted as a comment on the PR before you merge.
+9. `main` must stay green: a red `main` (other than the accepted reds in item 3) is fixed or reverted before any other merge.
 
 ## Git
 
-1. Work in a worktree, never the main checkout. `pnpm wt <branch>` creates one in a `<checkout-folder>-worktrees` folder beside the checkout (`sovereign-worktrees` for the Sovereign checkout).
-2. When your task is merged or handed off, stop any service you started, then remove your own worktree with `git worktree remove <path>`. Never use `--force`.
-3. Never delete a branch. Never run `pnpm wt:rm`, `pnpm wt:gc:apply` or `orca worktree rm`. Leave other agents' worktrees and running work alone.
+1. Work on a branch in a worktree or your own clone, not a shared checkout; one PR per concern. Never push `main`. Never delete a branch. Never force-push someone else's branch.
+2. When your task is merged or handed off, stop any service you started. If you used a git worktree, remove only your own with `git worktree remove <path>`, never `--force`. Leave other agents' work alone.
 
 ## Skills and status files
 
@@ -56,8 +57,8 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 1. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): apps, services, packages, money flow, how to run.
 2. [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations procedures.
 3. [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape and money-path rules. [`INTAFACED_DEFINITIVE_BUILD.md`](INTAFACED_DEFINITIVE_BUILD.md) is the original product spec. Where it disagrees with the code or this file, the code and this file win.
-4. Current truth is this file, `docs/ARCHITECTURE.md` and the generated `docs/SERVICES.md`, plus `docs/adr/`, `docs/runbooks/`, `docs/refs/` (measured front-end references) and `docs/agents/`. Everything else under `docs/` is history: each file opens with a "Not current rules" banner, and `docs/archive/` is history too. [`docs/README.md`](docs/README.md) lists what is kept and why. Where an ADR or any other doc disagrees with this file, this file wins.
-5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.
-6. Active work and owners: open GitHub PRs and issues (`gh pr list`, `gh issue list`). `docs/TRACKER.md`, `docs/LIVE-LANES.md` and `docs/ops/claims` are history.
-7. Services, ports and required env: the generated `docs/SERVICES.md`. Read the target service's `README.md` first.
-8. Customer front end: a top-level screen whose id is in `apps/customer/src/app/screens.ts` goes in `apps/customer/src/screens/<id>/index.tsx`. Every other room goes in `apps/customer/src/features/<area>/`, routed from that area's routes file (`rooms.tsx` in money, `<Area>Routes.tsx` elsewhere); feature-registry status is proof state (blocked = reachable, not yet proven live), never visibility. The merchant portal is `apps/customer/src/features/pay/portal/`. Add a new screen id to `ScreenId` in `apps/customer/src/app/screen-types.ts` first.
+4. Current truth is this file, `docs/ARCHITECTURE.md` and the generated `docs/SERVICES.md`, plus `docs/adr/`, `docs/runbooks/`, `docs/refs/` (measured front-end references) and `docs/agents/`. Material removed from the tree lives in git history. Where an ADR or any other doc disagrees with this file, this file wins.
+5. Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`. Active work and owners: open GitHub PRs and issues; use the GitHub tools or the GitHub UI.
+6. Services, ports and required env: the generated `docs/SERVICES.md`. Read the target service's `README.md` first. Most services and apps, and some packages, also have a short `CLAUDE.md` that points back here.
+7. Customer front end: a top-level screen whose id is in `apps/customer/src/app/screens.ts` goes in `apps/customer/src/screens/<id>/index.tsx`. Every other room goes in `apps/customer/src/features/<area>/`, routed from that area's routes file (`rooms.tsx` in money, `<Area>Routes.tsx` elsewhere); feature-registry status is proof state (blocked = reachable, not yet proven live), never visibility. The merchant portal is `apps/customer/src/features/pay/portal/`. Add a new screen id to `ScreenId` in `apps/customer/src/app/screen-types.ts` first.
+8. Why the agent files look like this (checked 2026-10-19; the pages show no publish date, so this is our check date): keep each CLAUDE.md under 200 lines, because longer files cost context and adherence, and `@AGENTS.md` imports do not reduce that cost; subdirectory CLAUDE.md files load only when a file in that folder is read or edited ([Claude Code memory](https://code.claude.com/docs/en/memory)). The nearest AGENTS.md to the edited file wins ([agents.md](https://agents.md)); Codex layers root-down and stops at 32 KiB by default ([OpenAI Codex AGENTS.md guide](https://developers.openai.com/codex/guides/agents-md)). Recheck these before changing the layout.

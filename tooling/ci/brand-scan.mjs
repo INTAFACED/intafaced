@@ -44,7 +44,7 @@ export function isInternalPastePath(relPath) {
   const p = relPath.replace(/\\/g, '/');
   // docs/paste-w6, docs/paste-w7/L09.md, docs/paste-w10/...
   if (/^docs\/paste-w\d+(\/|$)/.test(p)) return true;
-  // docs/PASTE-BUILD-WAVE-6-2026-08-09.md, WAVE-7, …
+  // docs/PASTE-BUILD-WAVE-6-2026-08-09.md (removed), WAVE-7, …
   if (/^docs\/PASTE-BUILD-WAVE-\d+/.test(p)) return true;
   // docs/PASTE-W6-AUDIT-…, PASTE-W7-DEPTH-…
   if (/^docs\/PASTE-W\d+/.test(p)) return true;
@@ -62,7 +62,7 @@ const FORBIDDEN = [
   { pattern: /\bG-?Master\s*Neural\b/i, reason: 'engine vendor name' },
   {
     pattern: /\bFincept\b/i,
-    reason: 'licensed terminal vendor — the desktop client ships fully rebranded (docs/TERMINAL_INTEGRATION.md §8)',
+    reason: 'licensed terminal vendor — the desktop client ships fully rebranded (docs/TERMINAL_INTEGRATION.md (removed) §8)',
   },
   { pattern: /\bSettleTX\b/i, reason: 'rail partner name' },
   { pattern: /\bPayKwik\b/i, reason: 'rail partner name' },
@@ -188,21 +188,12 @@ const ALLOWLIST = [
   { path: 'AGENTS.md', reason: 'internal agent brief — not shipped to users' },
   { path: '.github', reason: 'internal repo templates and workflows' },
   {
-    path: join('docs', 'TERMINAL_INTEGRATION.md'),
-    reason: 'internal architecture + licensing record; names the vendor deliberately so the rebrand scope is auditable',
-  },
-  {
     path: join('docs', 'adr'),
-    reason:
-      'internal architecture decision records — must be free to name upstream vendors so quarantine and rebrand scope stay auditable (same rationale as TERMINAL_INTEGRATION.md)',
+    reason: 'internal architecture decision records — must be free to name upstream vendors so quarantine and rebrand scope stay auditable',
   },
   {
     path: join('docs', 'audit'),
     reason: 'internal audit work product; may cite vendor paths when describing CI/brand failures',
-  },
-  {
-    path: join('docs', 'COORDINATOR-PASTE-SKELETON.md'),
-    reason: 'internal coordinator paste skeleton; must show the exact agent product line operators paste. Not shipped to users.',
   },
   // Wave paste dirs (docs/paste-wN, PASTE-BUILD-WAVE-N*, PASTE-W*) and
   // docs/paste/** are covered by isInternalPastePath() — do not re-list each
@@ -211,10 +202,6 @@ const ALLOWLIST = [
     path: join('docs', 'ops'),
     reason:
       'internal swarm FREEZE/report board; must list real shell paths so agents can claim work without paraphrasing territory. Not user-facing product copy. Remove once the vendor directory is renamed.',
-  },
-  {
-    path: join('docs', 'archive'),
-    reason: 'historical documents fenced off from current instructions. Not shipped to users; old audits may still quote vendor paths.',
   },
   // REMOVED 2026-08-05, both on the terms their own reasons set:
   //
@@ -231,29 +218,9 @@ const ALLOWLIST = [
   // same test and are deliberately NOT pruned here — mixing a policy tightening
   // into a 1,764-file move would make a red CI ambiguous. See the PR for the list.
   {
-    path: join('docs', 'NITRO-AGENT-PACKAGES-2026-07-30.md'),
-    reason:
-      'agent work packages; must name the exact shell paths an agent may touch, or the territory boundary is unenforceable and someone edits the wrong stream. Not shipped to users. Remove this entry once the vendor directory is renamed.',
-  },
-  {
-    path: join('docs', 'HANDOVER-2026-07-29.md'),
-    reason:
-      'internal handover; quotes real on-disk paths and package roots verbatim, which a developer needs in order to act on it. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'STATUS-2026-07-29-EVENING.md'),
-    reason:
-      'internal status handover; its whole purpose is telling a developer which directory the product lives in, so it must name that path verbatim. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'SPLIT-BOARD.md'),
-    reason:
-      'internal work split; quotes real worktree paths and the Java package root verbatim. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
     path: join('docs', 'LICENCE-POSITION.md'),
     reason:
-      'internal licence audit; must name the exact vendor paths and Maven groupIds an unlicensed component sits at, or an engineer cannot act on it without first asking which path was meant. Same rationale as TERMINAL_INTEGRATION.md and docs/adr. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
+      'internal licence audit; must name the exact vendor paths and Maven groupIds an unlicensed component sits at, or an engineer cannot act on it without first asking which path was meant. Same rationale as TERMINAL_INTEGRATION.md (removed) and docs/adr. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
   },
   {
     path: join('docs', 'A1.4-WALLET-SECRETS-PERIMETER-2026-07-30.md'),
@@ -276,103 +243,14 @@ const ALLOWLIST = [
       'internal custody runbook; an operator following it must be able to copy the real module paths and MongoDB collection names verbatim. A runbook that paraphrases the path it wants you to act on is how the wrong directory gets re-encrypted. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
   },
   {
-    path: join('docs', 'VENDORED-OVERLAP-AUDIT.md'),
-    reason:
-      'internal overlap audit; its entire product is a per-capability decision about which vendored module we adopt, rebuild or delete, and that decision cannot be taken against paraphrased paths. It cites the exact controller files whose money paths are in scope, the exact schema the balances sit in, and the exact module jars that are and are not running — the same rationale as docs/adr and LICENCE-POSITION.md. Seven occurrences, all of them a path or a database name an engineer must be able to copy. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'MEGA-AUDIT-2026-08-07-FINDINGS.md'),
-    reason:
-      'internal code + systems audit; a finding that cannot name the file and line it sits at is not a finding, it is a rumour. Every occurrence here is a vendored Java path, a package root or a quoted source line inside a defect report — including the dual-book door registration and the wallet-RPC modules, which are the two places where a paraphrased path would send an engineer to the wrong file on a money guard. Same rationale as VENDORED-OVERLAP-AUDIT.md and LICENCE-POSITION.md. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'MEGA-AUDIT-2026-08-07-PLAN.md'),
-    reason:
-      'the scope and lens map for the findings document above; it names the vendored trees by path because the audit targets are chosen by path. Not shipped to users. Remove with its findings entry once the vendor directory and Java package root are renamed.',
-  },
-  {
-    path: join('docs', 'BIZZAN-ADOPTION-QUEUE-2026-08-02.md'),
-    reason:
-      'internal adoption-queue audit; decide adopt/rebuild/delete per vendored module by citing exact paths (wallet_rpc, DualBookMoneyDoor, package roots). Same rationale as VENDORED-OVERLAP-AUDIT.md and LICENCE-POSITION.md — paraphrased paths make the queue unactionable. Not shipped to users. Remove this entry once the vendor directory and Java package root are renamed.',
-  },
-  {
     path: 'NOTICE',
     reason:
       'root third-party attribution record; an attribution that omits the upstream it attributes is a false legal statement, so this file must name upstreams verbatim. It has no file extension and so currently falls outside EXTENSIONS below — this entry is deliberate belt-and-braces, so that widening EXTENSIONS later cannot silently fail CI on the one file whose whole job is naming upstreams accurately.',
   },
   { path: 'CLAUDE.md', reason: 'internal agent instructions' },
   { path: '.claude', reason: 'internal tooling config' },
-  {
-    path: join('docs', 'COORDINATION-TRUTH-LAYERS.md'),
-    reason: 'internal multi-dev agent law; must name AGENTS.md/CLAUDE.md auto-load paths. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'COORDINATION-FINISH-AUDIT-2026-08-02.md'),
-    reason: 'internal agent finish audit for multi-dev law. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'COORDINATION-STRESS-TEST-USER-CLAIMS-2026-08-02.md'),
-    reason: 'internal agent stress-test of multi-dev law. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'TRACKER-COORDINATION-PROPER-PLAN-2026-08-02.md'),
-    reason: 'internal planning for multi-dev coordination. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'DENON-TRACKER-TRUTH-AUDIT-2026-08-02.md'),
-    reason: 'internal audit of tracker multi-dev intent. Not shipped to users.',
-  },
   // Stream A agent law / handoffs — name planner vs implementer roles and on-disk
   // shell paths so territory is enforceable. Not user-facing product copy.
-  {
-    path: join('docs', 'FRONTEND-MASTER-METHODOLOGY-2026-07-31.md'),
-    reason: 'internal Stream A methodology law; must name agent roles and tooling for operators. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-MASTER-PLAN-WAVE-A-B-2026-07-31.md'),
-    reason: 'internal Stream A wave plan; agent/tooling names are process, not product. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-OPS-NOW-2026-07-30.md'),
-    reason: 'internal Stream A ops runbook; names agent runtimes and sandbox limits. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-AUTONOMOUS-OPERATING-SYSTEM-2026-08-02.md'),
-    reason: 'internal AOS architecture for agents. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-LEVEL-RECOVERY-AND-GO-READY-2026-08-02.md'),
-    reason: 'internal go-ready hole-poke for agents. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-GO-READY-BRIEF-2026-08-02.md'),
-    reason: 'internal paste brief for go sessions. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-STATE-OF-TRUTH-2026-07-31.md'),
-    reason: 'internal SoT for Stream A sessions. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'FRONTEND-CLAUDE-ENHANCE-RETURN-2026-07-31.md'),
-    reason: 'internal agent return pack filename is historical evidence; content is process not product. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'NITRO-SESSION-PROMPT.md'),
-    reason: 'internal session paste for Nitro/agents. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'NITRO-FRONTEND-NEW-CHAT-HANDOFF-2026-07-31.md'),
-    reason: 'internal chat handoff. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'NITRO-STREAM-A-CLAIM.md'),
-    reason: 'internal claim/territory brief. Not shipped to users.',
-  },
-  {
-    path: join('docs', 'BOARD-CLEAR-AGENT-BACKLOG-2026-08-02.md'),
-    reason:
-      'internal board backlog; must name exact shell paths an agent may touch or territory is unenforceable. Not shipped to users. Remove once vendor dir is renamed.',
-  },
   // D26-P2-14 — vendor product-surface allowlist. Prefer deleting the name in
   // the tree; these rows exist only where the hit is upstream attribution that
   // is not shipped to customers and must not force a FE craft edit under the
@@ -424,8 +302,6 @@ function selfTest() {
   assert(isInternalPastePath('services/svc-pay/src/x.ts') === false, 'services not paste');
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
-  assert(isAllowlisted('docs/archive/README.md') === true, 'archive readme allowed');
-  assert(isAllowlisted('docs/archive/ops/old.md') === true, 'archive child allowed');
   assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.

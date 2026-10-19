@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-10, **completing** it rather than opening it.
-**Builds on:** [`SPEC-PAY-VERTICALS-2026-08-02.md`](../SPEC-PAY-VERTICALS-2026-08-02.md), which already decided the licence line for all six verticals — _"whose money is it while we are touching it, and are we ever the counterparty?"_ That spec stands unchanged and is the senior document. It did not cover the board's remaining column: **what Nitro may ship after #346, merchant durability, and card sandbox vs go-live.** That is what this adds, plus the Hyperswitch answer.
+**Builds on:** `SPEC-PAY-VERTICALS-2026-08-02.md` (removed), which already decided the licence line for all six verticals — _"whose money is it while we are touching it, and are we ever the counterparty?"_ That spec stands unchanged and is the senior document. It did not cover the board's remaining column: **what Nitro may ship after #346, merchant durability, and card sandbox vs go-live.** That is what this adds, plus the Hyperswitch answer.
 **Answers:** the standing question of whether to adopt [Hyperswitch](https://github.com/juspay/hyperswitch).
 
 ---
@@ -58,7 +58,7 @@ Two structural gaps, both ours, neither solved by any vendor.
 
 ## PR #346 lands. It is not closed.
 
-Its conflicts are **entirely in generated board files** — `features.mjs` (1 hunk), `docs/TRACKER.md` (4), `README.md` (2), `docs/BOARD-CLEAR-SCOREBOARD.md` (3). **Zero source conflicts**, confirmed by running the real merge rather than `merge-tree` alone.
+Its conflicts are **entirely in generated board files** — `features.mjs` (1 hunk), `docs/TRACKER.md` (4), `README.md` (2), `docs/BOARD-CLEAR-SCOREBOARD.md` (removed) (3). **Zero source conflicts**, confirmed by running the real merge rather than `merge-tree` alone.
 
 State that precisely, because a looser version of it is wrong: main **has** changed `svc-pay` since the merge base — `evm-chain.live.test.ts` and `user-money-service.test.ts` both moved. The conclusion survives because **#346 does not touch either file**. The intersection of "what #346 changed" and "what main changed" is exactly the four board files. It is not that svc-pay stood still.
 

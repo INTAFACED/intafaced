@@ -12,7 +12,7 @@ const refused = (message: string, status = 412, code: string | null = null): Fou
 describe('a forbidden answer', () => {
   it('is the support-operations message, said the same way everywhere, and nothing changed', () => {
     const view = explainSupportFailure({ kind: 'forbidden', refusal: refusal('scope.denied', 403), requestId: null });
-    expect(view.title).toBe('Your console session does not have support operations permission yet');
+    expect(view.title).toBe('Your console session does not have support operations permission');
     expect(SUPPORT_OPS_FORBIDDEN).toBe(view.title);
     expect(view.changed).toBe('no');
     expect(view.body).toContain('support:ops');
