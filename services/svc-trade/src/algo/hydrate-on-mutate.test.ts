@@ -20,6 +20,7 @@ function baseInput(): CreateTwapInput {
     sliceIntervalMs: 2_000,
     limitPrice: parseAmount('100'),
     subAccountId: null,
+    clientAlgoId: 'fixture-algo',
   };
 }
 

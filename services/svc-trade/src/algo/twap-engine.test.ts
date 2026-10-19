@@ -21,6 +21,7 @@ function baseInput(over: Partial<CreateTwapInput> = {}): CreateTwapInput {
     sliceIntervalMs: 2_000,
     limitPrice: parseAmount('100'),
     subAccountId: null,
+    clientAlgoId: 'fixture-algo',
     ...over,
   };
 }
@@ -613,12 +614,26 @@ describe('TwapEngine — tickAll isolation (W4 C2)', () => {
     const engine = new TwapEngine(ports);
     engine.create(
       USER,
-      baseInput({ totalQty: parseAmount('0.004'), durationMs: 8_000, sliceIntervalMs: 2_000, marketId: 'm-bad', symbol: 'BAD/USDT' }),
+      baseInput({
+        totalQty: parseAmount('0.004'),
+        durationMs: 8_000,
+        sliceIntervalMs: 2_000,
+        marketId: 'm-bad',
+        symbol: 'BAD/USDT',
+        clientAlgoId: 'bad',
+      }),
       LOT,
     );
     const good = engine.create(
       USER,
-      baseInput({ totalQty: parseAmount('0.004'), durationMs: 8_000, sliceIntervalMs: 2_000, marketId: 'm-good', symbol: 'GOOD/USDT' }),
+      baseInput({
+        totalQty: parseAmount('0.004'),
+        durationMs: 8_000,
+        sliceIntervalMs: 2_000,
+        marketId: 'm-good',
+        symbol: 'GOOD/USDT',
+        clientAlgoId: 'good',
+      }),
       LOT,
     );
     await engine.tickAll();
