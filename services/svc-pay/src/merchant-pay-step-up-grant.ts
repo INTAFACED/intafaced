@@ -8,12 +8,14 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import type { MerchantRole } from './merchant-ops/roles.js';
 import { payStepUpPermissions } from './merchant-ops/roles.js';
 
 export interface PayStepUpGrantRouteDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly installRawBody?: boolean;
   readonly findRole: (userId: string, merchantId: string) => Promise<MerchantRole | null>;
 }
@@ -24,7 +26,12 @@ export function registerPayStepUpGrantRoute(app: FastifyInstance, deps: PayStepU
   if (deps.installRawBody !== false) retainRawBody(app);
 
   app.post('/internal/merchant-pay-step-up-grant', async (req, reply) => {
-    const verified = verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' });
+    const verified = verifyServiceRequest(req, {
+      verifier: deps.s2s?.verifier,
+      mode: deps.s2s?.mode,
+      legacySecret: deps.internalSecret,
+      bodyBindMode: 'require',
+    });
     if (verified.service === null) {
       return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
     }

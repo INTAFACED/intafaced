@@ -638,13 +638,13 @@ describe('index.ts mounts the runner rather than keeping its own copy', () => {
     expect(getAt).toBeGreaterThan(postAt);
     const postSlice = routes.slice(postAt, getAt);
     const getSlice = routes.slice(getAt);
-    expect(postSlice).toMatch(/mode:\s*'require'/);
+    expect(postSlice).toMatch(/bodyBindMode:\s*'require'/);
     expect(postSlice).not.toMatch(/INTERNAL_SERVICE_BODY_BIND/);
-    expect(getSlice).toMatch(/mode:\s*journalMode/);
+    expect(getSlice).toMatch(/bodyBindMode:\s*journalMode/);
     expect(routes).toMatch(/const journalMode = deps\.bodyBind \?\? DEFAULT_SERVICE_BODY_BIND_MODE/);
 
     expect(merchant).toMatch(/const mode = deps\.bodyBind \?\? DEFAULT_SERVICE_BODY_BIND_MODE/);
-    expect(merchant).not.toMatch(/mode:\s*'require'/);
+    expect(merchant).not.toMatch(/bodyBindMode:\s*'require'/);
     expect(index).toMatch(/registerMerchantWatchMetricsRoutes\(app, \{[\s\S]*?bodyBind: env\.INTERNAL_SERVICE_BODY_BIND/);
   });
 });

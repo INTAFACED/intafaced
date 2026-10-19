@@ -439,3 +439,7 @@ The PostgreSQL suite injects a SQL failure after successful rail and ledger comp
 ## Service keys: ledger calls
 
 The ledger client signs with svc-pay's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: inbound doors
+
+The internal doors (due-subscription run, subscription cycle journal, capture reconcile, merchant team email claim, owner pay scopes, pay step-up grant, merchant watch metrics) name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

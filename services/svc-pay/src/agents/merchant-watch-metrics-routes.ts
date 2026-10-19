@@ -8,9 +8,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import type { MerchantWatchMetricsStore } from './merchant-watch-metrics-store.js';
@@ -58,6 +59,8 @@ export type MerchantWatchMetricsBody = MerchantWatchMetricsRefuse | MerchantWatc
 
 export type MerchantWatchMetricsRouteDeps = {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly store?: MerchantWatchMetricsStore;
   /** `INTERNAL_SERVICE_BODY_BIND`. Isolated tests default to accept-both. */
   readonly bodyBind?: ServiceBodyBindMode;
@@ -93,8 +96,9 @@ function parsePublishBody(raw: unknown): MerchantWatchMetricsOk['points'][number
 export function registerMerchantWatchMetricsRoutes(app: FastifyInstance, deps: MerchantWatchMetricsRouteDeps): void {
   if (deps.installRawBody !== false) retainRawBody(app);
   const mode = deps.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
-  const authorised = (req: { headers: Record<string, string | string[] | undefined> }): boolean =>
-    verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode }).service !== null;
+  const authorised = (req: Parameters<typeof verifyServiceRequest>[0]): boolean =>
+    verifyServiceRequest(req, { verifier: deps.s2s?.verifier, mode: deps.s2s?.mode, legacySecret: deps.internalSecret, bodyBindMode: mode })
+      .service !== null;
 
   app.get(MERCHANT_WATCH_METRICS_PATH, async (req, reply) => {
     if (!authorised(req)) {

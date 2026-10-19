@@ -9,12 +9,14 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody, verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 import { CaptureReconcileError, captureReconcileInputFromBody, type CaptureReconcileMode } from './capture-reconcile.js';
 import { PayError, type PayService } from './payment-service.js';
 
 export interface CaptureReconcileRouteDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly pay: Pick<PayService, 'reconcileAuthorizedCaptures'>;
   readonly mode: CaptureReconcileMode;
   /** Isolated tests install retention. Production index already called `retainRawBody`. */
@@ -25,7 +27,14 @@ export function registerCaptureReconcileRoutes(app: FastifyInstance, deps: Captu
   if (deps.installRawBody !== false) retainRawBody(app);
 
   app.post('/internal/jobs/reconcile-authorized-captures', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: 'require',
+      }).service === null
+    ) {
       return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
     }
     try {
