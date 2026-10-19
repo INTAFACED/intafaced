@@ -58,6 +58,7 @@ import { AdlDisclosureError } from './futures/adl-disclosure.js';
 import { refuseArmById } from './ccxt-capability-matrix.js';
 import { assertStopTrigger, SPOT_ORDER_TYPES, TRADE_STOP_TRIGGER_INVALID, type StopTriggerStore } from './spot/stop-trigger-door.js';
 import { orderIdFor } from './spot/ids.js';
+import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import { readOcoFromBody } from './spot/oco-place.js';
@@ -126,6 +127,7 @@ function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number
 export interface PrivateRestDeps {
   /** Shared EDGE_PRINCIPAL_SECRET — same value tRPC uses. */
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
@@ -938,7 +940,7 @@ function sameOrderRequest(input: PlaceOrderInput, order: OrderRecord, symbol: st
  * same boot bar as tRPC via `createEdgeContext`.
  */
 export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   function contextFrom(req: FastifyRequest): Context {
     const edgeReq: EdgeRequest = {

@@ -8,11 +8,13 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { checkAutoDeltaHedge, DELTA_HEDGE_PATH } from './delta-hedge.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export { DELTA_HEDGE_PATH };
 
 export interface DeltaHedgeRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   /** Owner sockets from boot env. Blank refuses. */
   target?: string;
@@ -26,7 +28,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 
 /** Preview-only auto delta-hedge. This route never receives a ledger port. */
 export function registerDeltaHedgeRest(app: FastifyInstance, deps: DeltaHedgeRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(DELTA_HEDGE_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };

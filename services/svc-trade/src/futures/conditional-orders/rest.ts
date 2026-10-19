@@ -11,6 +11,7 @@ import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import { FuturesError } from '../position-service.js';
 import type { ConditionalOrderService } from './service.js';
 import { FUTURES_RESTING_UNSUPPORTED } from './resting.js';
+import type { EdgeTrust } from '../../edge-trust.js';
 
 export const CONDITIONAL_ORDERS_PATH = '/api/v1/futures/conditional-orders';
 export const PROTECTION_PATH = '/api/v1/positions/:id/protection';
@@ -18,6 +19,7 @@ export const RESTING_ORDERS_PATH = '/api/v1/futures/orders';
 
 export interface ConditionalOrdersRestDeps {
   readonly edgeSecret: string;
+  readonly edgeTrust?: EdgeTrust;
   readonly serviceName: string;
   readonly orders: Pick<ConditionalOrderService, 'create' | 'list' | 'get' | 'cancel' | 'replaceProtection' | 'placeResting'>;
 }
@@ -27,7 +29,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 }
 
 export function registerConditionalOrdersRest(app: FastifyInstance, deps: ConditionalOrdersRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   function principalOf(req: { headers: Record<string, string | string[] | undefined>; id: string }): Principal | null {
     const edgeReq: EdgeRequest = { headers: req.headers, id: req.id };

@@ -8,11 +8,13 @@ import { AuthError, requireScope } from '@intafaced/auth';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { GreeksAdapter, VanillaEuropeanInput } from '@intafaced/greeks-adapter';
 import { GREEKS_WHAT_IF_PATH, whatIfVanillaGreeks } from './what-if.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 export { GREEKS_WHAT_IF_PATH };
 
 export interface GreeksWhatIfRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   /** Injected in tests. Production uses createGreeksAdapter() (env-linked). */
   adapter?: GreeksAdapter;
@@ -24,7 +26,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 
 /** Read-only QuantLib what-if. This route never receives a ledger port. */
 export function registerGreeksWhatIfRest(app: FastifyInstance, deps: GreeksWhatIfRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(GREEKS_WHAT_IF_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };

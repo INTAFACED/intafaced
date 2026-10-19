@@ -5,6 +5,7 @@ import { formatAmount, LedgerError, parseAmount, recipes, type Amount, type Ledg
 import { mul } from '@intafaced/ledger-client/money';
 import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { env } from '../env.js';
 import { classifyHoldPostError } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
@@ -14,6 +15,7 @@ import { assertMarketOpen, assertSettlementRails, assertTradable, holdFor } from
 import { TradeService } from './trade-service.js';
 import { attributionFromPrincipal, withLedgerAttribution } from './auth-attribution.js';
 import { TradeError, type Market, type OrderRecord, type OrderSide } from './types.js';
+import type { EdgeTrust } from '../edge-trust.js';
 
 /**
  * Close a spot position through the matching flatten that landed in #3249.
@@ -227,6 +229,7 @@ export function installClosePosition(ctor: typeof TradeService): void {
 
 export interface ClosePositionRestDeps {
   edgeSecret: string;
+  edgeTrust?: EdgeTrust;
   serviceName: string;
   closeSpotPosition: (principal: Principal, input: CloseSpotPositionInput) => Promise<OrderRecord>;
 }
@@ -236,7 +239,7 @@ function sendError(reply: FastifyReply, status: number, code: string, message: s
 }
 
 export function attachClosePosition(app: FastifyInstance, deps: ClosePositionRestDeps): void {
-  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, serviceName: deps.serviceName });
+  const edgeContext = createEdgeContext({ secret: deps.edgeSecret, ...deps.edgeTrust, serviceName: deps.serviceName });
 
   app.post(SPOT_CLOSE_POSITION_PATH, async (req, reply) => {
     const edgeReq: EdgeRequest = { headers: req.headers as Record<string, string | string[] | undefined>, id: req.id };
@@ -288,6 +291,7 @@ export function attachBoundClosePosition(app: FastifyInstance): void {
   const trade = boundTrade;
   attachClosePosition(app, {
     edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+    edgeTrust: edgeTrustFromEnv(env),
     serviceName: env.SERVICE_NAME,
     closeSpotPosition: (principal, input) => closeSpotPosition(trade, principal, input),
   });
