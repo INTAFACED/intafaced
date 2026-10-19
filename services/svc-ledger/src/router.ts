@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
 import {
   formatAmount,
   parseAmount,
@@ -24,6 +24,7 @@ import {
   type ActionApprovalConsumer,
 } from './ledger/action-approval-consume.js';
 import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
@@ -153,7 +154,7 @@ export function createLedgerRouter(
      * `serviceProcedure` requires the caller to prove it is a service holding
      * the internal secret (§2).
      */
-    post: serviceProcedure
+    post: serviceProcedureFor(LEDGER_DOOR_CALLERS.post)
       .input(postRequestSchema)
       .output(
         z.object({
@@ -176,11 +177,11 @@ export function createLedgerRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           // Same allowlist as the mounted HTTP door. That door is what proves
-          // the key. Here the name is verified only when the context says the
-          // HMAC matched that service's own secret. A name from the shared
-          // secret, or a name with no proof, is a claim, and enforce refuses it.
+          // the key. Here the name is verified only when the context says a
+          // service key matched. A name from the shared secret, or a name with
+          // no proof, is a claim and is only counted.
           const caller: PostCaller =
-            ctx.service && ctx.serviceAuth === 'dedicated'
+            ctx.service && ctx.serviceAuth === 'keypair'
               ? { kind: 'bound', service: ctx.service }
               : { kind: 'legacy', claimed: ctx.service };
           applyCallerBinding(caller, input, binding);
@@ -316,7 +317,7 @@ export function createLedgerRouter(
      * same service-credential guard. This entry exists so the two describe one
      * API — it is not what makes the route safe.
      */
-    history: serviceProcedure
+    history: serviceProcedureFor(LEDGER_DOOR_CALLERS.history)
       .input(z.unknown())
       .output(
         z.array(
@@ -356,7 +357,7 @@ export function createLedgerRouter(
      * the cursor is a position inside that scope, never an account. Served,
      * like `history`, through `registerS2sHttp` (`/trpc/historyPage`).
      */
-    historyPage: serviceProcedure
+    historyPage: serviceProcedureFor(LEDGER_DOOR_CALLERS.historyPage)
       .input(z.unknown())
       .output(
         z.object({

@@ -498,7 +498,10 @@ describe('s2s history — the shape svc-bank already parses', () => {
 describe('s2s HTTP — service credentials', () => {
   const SECRET = 'ledger-internal-service-secret-32ch!';
 
-  async function mount(service?: LedgerService, options?: { bodyBind?: 'accept-both' | 'require' }) {
+  async function mount(
+    service?: LedgerService,
+    options?: Pick<NonNullable<Parameters<typeof registerS2sHttp>[3]>, 'bodyBind' | 'doorCallers'>,
+  ) {
     const app = Fastify({ logger: false });
     registerS2sHttp(app, service ?? stubService(), SECRET, options ?? {});
     await app.ready();
@@ -708,7 +711,7 @@ describe('s2s HTTP — service credentials', () => {
   // guard in this file was already written, and Fastify still answered 404.
 
   it('ANSWERS a signed statementPnl call with a typed refuse, never 0', async () => {
-    const app = await mount();
+    const app = await mount(undefined, { doorCallers: { statementPnl: ['svc-bank'], reportExport: ['svc-bank'], custody: ['svc-bank'] } });
     const payload = wire({ ownerType: 'user', ownerId: USER, reportingAssetId: 'USDT' });
 
     const res = await send(app, '/trpc/statementPnl', serviceAuthHeadersForBody('svc-bank', SECRET, payload), payload);
@@ -725,7 +728,7 @@ describe('s2s HTTP — service credentials', () => {
   });
 
   it('ANSWERS a signed reportExport call with a completeness refuse, never a 0 NAV', async () => {
-    const app = await mount();
+    const app = await mount(undefined, { doorCallers: { statementPnl: ['svc-bank'], reportExport: ['svc-bank'], custody: ['svc-bank'] } });
     const payload = wire({ kind: 'nav', complete: true, reportingPeriod: '2026-Q3' });
 
     const res = await send(app, '/trpc/reportExport', serviceAuthHeadersForBody('svc-bank', SECRET, payload), payload);
@@ -742,7 +745,7 @@ describe('s2s HTTP — service credentials', () => {
   });
 
   it('ANSWERS a signed custody call with an off-exchange OWNER refuse', async () => {
-    const app = await mount();
+    const app = await mount(undefined, { doorCallers: { statementPnl: ['svc-bank'], reportExport: ['svc-bank'], custody: ['svc-bank'] } });
     const payload = wire({ kind: 'off_exchange' });
 
     const res = await send(app, '/trpc/custody', serviceAuthHeadersForBody('svc-bank', SECRET, payload), payload);
@@ -967,6 +970,7 @@ describe('s2s HTTP — service credentials', () => {
           throw new Error('connect ECONNREFUSED');
         },
       }),
+      { doorCallers: { statementPnl: ['svc-bank'], reportExport: ['svc-bank'], custody: ['svc-bank'] } },
     );
     const payload = wire({ ownerType: 'user', ownerId: USER, reportingAssetId: 'USDT' });
     const res = await send(app, '/trpc/statementPnl', serviceAuthHeadersForBody('svc-bank', SECRET, payload), payload);

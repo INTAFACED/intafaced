@@ -175,24 +175,6 @@ services:
       # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
-      # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
-      # still posts. Every shared-secret post is counted as unbound, and a
-      # recipe or module outside the claim is counted too. The warning is
-      # rate-limited, so a quiet log is not a zero count. Set enforce only when
-      # unbound is 0 for every posting service and allowlist violations are 0
-      # for a full business cycle. Per-service secrets are optional
-      # pass-through (empty = unset). A pull with no new .env keys must keep
-      # booting. Do not use :? here.
-      # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
-      LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
-      LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}
-      LEDGER_CALLER_SECRET_SVC_BANK: ${LEDGER_CALLER_SECRET_SVC_BANK:-}
-      LEDGER_CALLER_SECRET_SVC_IDENTITY: ${LEDGER_CALLER_SECRET_SVC_IDENTITY:-}
-      LEDGER_CALLER_SECRET_SVC_MARKET: ${LEDGER_CALLER_SECRET_SVC_MARKET:-}
-      LEDGER_CALLER_SECRET_SVC_P2P: ${LEDGER_CALLER_SECRET_SVC_P2P:-}
-      LEDGER_CALLER_SECRET_SVC_PAY: ${LEDGER_CALLER_SECRET_SVC_PAY:-}
-      LEDGER_CALLER_SECRET_SVC_TOKEN: ${LEDGER_CALLER_SECRET_SVC_TOKEN:-}
-      LEDGER_CALLER_SECRET_SVC_TRADE: ${LEDGER_CALLER_SECRET_SVC_TRADE:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
