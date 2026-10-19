@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { retainRawBody } from '@intafaced/contracts';
+import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
 import { buildEdgeContext } from './edge-context.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { formatAmount } from '@intafaced/ledger-client';
@@ -67,7 +67,13 @@ const bus = await JetStreamEventBus.connect({
 
 // Value moves through svc-ledger, never through this service's own tables
 // (Doctrine §0.6). This client is the only path.
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-token');
+const ledger = createLedgerClient(
+  env.LEDGER_URL,
+  env.INTERNAL_SERVICE_SECRET,
+  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+);
 
 const governanceBps = readGovernanceParams({
   TOKEN_GOVERNANCE_QUORUM_BPS: env.TOKEN_GOVERNANCE_QUORUM_BPS,

@@ -256,10 +256,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-token/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-token/src/router.ts": {
       "sign": 0,
       "caller": 1
