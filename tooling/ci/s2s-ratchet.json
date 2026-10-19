@@ -60,10 +60,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-bank/src/ledger-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-bank/src/personal-pay/router.ts": {
       "sign": 0,
       "caller": 1

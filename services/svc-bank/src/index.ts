@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { createEdgeContext, rawBodyOf, retainRawBody, s2sFromEnv, verifyServiceHeaders } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
@@ -76,8 +76,11 @@ await sql`SELECT 1 FROM bank.spaces LIMIT 1`.catch(() => {
 
 // Value moves through svc-ledger, never through this service's own tables
 // (Doctrine §0.6). This client is the only path.
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
-const history = createLedgerHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-bank');
+const ledgerS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
+const history = createLedgerHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
 
 /**
  * `ownedStreams: ['bank']` — this process is responsible for creating
@@ -108,7 +111,10 @@ const bank = createBankServices(sql, ledger, history, {
     ? createIdentityBusinessDirectory(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
-  activity: { pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET), cursorSecret: env.INTERNAL_SERVICE_SECRET },
+  activity: {
+    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    cursorSecret: env.INTERNAL_SERVICE_SECRET,
+  },
   loans: {
     // Marks are READ from svc-trade's public REST. svc-trade belongs to another
     // stream; nothing here imports it, shares a table with it, or writes to it.

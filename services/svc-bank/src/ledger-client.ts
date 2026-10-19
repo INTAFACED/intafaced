@@ -7,7 +7,7 @@ import {
   type HttpLedgerOptions,
   type LedgerClient,
 } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { HistoryRange, LedgerEntryRecord, LedgerHistory } from './analytics/ledger-history.js';
 import type { LedgerHistoryPages, LedgerPageRequest } from './activity/activity-service.js';
 
@@ -48,13 +48,16 @@ const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const
 const HISTORY_BUDGET = { timeoutMs: 8_000, retries: 1, deadlineMs: 12_000 } as const;
 
 /** What every svc-bank call shares: where, who is calling (signed over the exact bytes), and a per-call `fetch`. */
-function sharedOptions(baseUrl: string, internalSecret: string): Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> {
+/** Own-key signing (S2S v3). Unset: every call is signed with the shared secret as before. */
+export type LedgerS2s = { signer: ServiceSigner; mode: ServiceAuthMode };
+
+function sharedOptions(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): Pick<HttpLedgerOptions, 'baseUrl' | 'sign' | 'fetch'> {
   return {
     baseUrl,
     // Body-bound service credentials (T-04 / L2-6). svc-ledger's `post` is a `serviceProcedure`; signing identity and
     // timestamp alone left a captured signature replayable against ANY body for ~300s. The shared transport signs the
     // exact bytes it sends, once per attempt, so a retry carries a fresh timestamp.
-    sign: (payload) => serviceAuthHeadersForBody('svc-bank', internalSecret, payload),
+    sign: serviceCallSigner({ service: 'svc-bank', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     // Resolved per call, not captured at construction: whatever instruments or replaces the global `fetch` after this
     // client is built (telemetry, a test door) still sees every ledger call.
     fetch: (input, init) => globalThis.fetch(input, init),
@@ -73,8 +76,8 @@ function sharedOptions(baseUrl: string, internalSecret: string): Pick<HttpLedger
  * Because it is the shared client, a post returns the entries the ledger actually booked, and `getTxByKey` returns the
  * real entries too (it chains to `/trpc/txById`), so receipt checks such as `postedPayrollMatches` compare real legs.
  */
-export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
-  const shared = sharedOptions(baseUrl, internalSecret);
+export function createLedgerClient(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): LedgerClient {
+  const shared = sharedOptions(baseUrl, internalSecret, s2s);
   const writer = createHttpLedgerClient({ ...shared, ...POST_BUDGET });
   const reader = createHttpLedgerClient({ ...shared, ...READ_BUDGET });
 
@@ -97,8 +100,8 @@ export function createLedgerClient(baseUrl: string, internalSecret: string): Led
  * Reads are service-to-service too: same signing and transport as every other call here, so a read client that cannot
  * identify itself does not need changing the moment the procedure becomes a `serviceProcedure`.
  */
-export function createLedgerHistory(baseUrl: string, internalSecret: string): LedgerHistory {
-  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret), ...HISTORY_BUDGET });
+export function createLedgerHistory(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): LedgerHistory {
+  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...HISTORY_BUDGET });
 
   return {
     async entriesFor(account: AccountRef, range: HistoryRange): Promise<LedgerEntryRecord[]> {
@@ -125,8 +128,8 @@ export function createLedgerHistory(baseUrl: string, internalSecret: string): Le
  * exactly `{ownerType, ownerId, kind, assetId?, limit, cursor?}` and never `purpose`, `before` or anything else. A
  * failure is thrown, never turned into an empty page: "no activity" and "we could not ask" must not look alike.
  */
-export function createLedgerHistoryPages(baseUrl: string, internalSecret: string): LedgerHistoryPages {
-  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret), ...HISTORY_BUDGET });
+export function createLedgerHistoryPages(baseUrl: string, internalSecret: string, s2s?: LedgerS2s): LedgerHistoryPages {
+  const call = createLedgerTransport({ ...sharedOptions(baseUrl, internalSecret, s2s), ...HISTORY_BUDGET });
 
   return {
     async page(request: LedgerPageRequest) {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
@@ -11,6 +11,7 @@ import { RAMP_SETTINGS } from './ramps/rails.js';
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-bank'),
