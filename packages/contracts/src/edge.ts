@@ -236,6 +236,12 @@ export interface EdgeVerifyResult {
   rejected: 'bad-signature' | 'malformed' | 'expired' | 'unconfigured' | null;
 }
 
+/** What the shared-secret form can return. Exactly the original shape; it never returns 'unconfigured'. */
+export interface EdgeLegacyVerifyResult {
+  principal: Principal | null;
+  rejected: 'bad-signature' | 'malformed' | 'expired' | null;
+}
+
 /**
  * Verify a forwarded principal.
  *
@@ -244,6 +250,20 @@ export interface EdgeVerifyResult {
  * caller — rather than a partially-trusted one. There is no branch in which a
  * principal survives with some of its claims unverified.
  */
+export function verifyForwardedPrincipal(
+  raw: string | undefined,
+  signature: string | undefined,
+  trust: string,
+  now?: Date,
+  region?: string,
+): EdgeLegacyVerifyResult;
+export function verifyForwardedPrincipal(
+  raw: string | undefined,
+  signature: string | undefined,
+  trust: EdgePrincipalTrust,
+  now?: Date,
+  region?: string,
+): EdgeVerifyResult;
 export function verifyForwardedPrincipal(
   raw: string | undefined,
   signature: string | undefined,

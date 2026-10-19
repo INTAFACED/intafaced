@@ -624,3 +624,11 @@ describe('edge principal — only svc-edge can sign (Ed25519)', () => {
     expect(() => createEdgeContext({ secret: SECRET, serviceName: 'svc-test' })).not.toThrow();
   });
 });
+
+describe('verifyForwardedPrincipal return types', () => {
+  it('a string secret keeps the original result type (no unconfigured value)', () => {
+    const r = verifyForwardedPrincipal(undefined, undefined, SECRET);
+    const rejected: 'bad-signature' | 'malformed' | 'expired' | null = r.rejected;
+    expect(rejected).toBeNull();
+  });
+});
