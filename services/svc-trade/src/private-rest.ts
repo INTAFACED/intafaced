@@ -718,8 +718,15 @@ export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLi
  */
 function carryPlacement(input: PlaceOrderInput, body: unknown): PlaceOrderInput {
   if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
-    readBracketFromBody(body as Record<string, unknown>);
-    readOcoFromBody(body as Record<string, unknown>);
+    const rec = body as Record<string, unknown>;
+    // Parked with a named blocker: svc-matching's order intake does not carry bracket / OCO exit legs,
+    // so an accepted request would rest a bare entry and silently drop the stop-loss and take-profit.
+    if (readBracketFromBody(rec) !== null || readOcoFromBody(rec) !== null) {
+      throw new TradeError(
+        'bracket and OCO orders are not available yet: the matching service does not accept exit legs, so the stop-loss and take-profit would be dropped',
+        'trade.order_type_unsupported',
+      );
+    }
   }
   return carryPlacementBody(input, body);
 }
