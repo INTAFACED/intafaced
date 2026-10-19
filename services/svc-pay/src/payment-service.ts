@@ -308,6 +308,7 @@ export type PayErrorCode =
    */
   | 'pay.settlement_book_unrecognised'
   | 'pay.settlement_not_pending'
+  | 'pay.settlement_released'
   | 'pay.rail_declined'
   | 'pay.rail_failed'
   | 'pay.rail_outcome_unknown'
@@ -4705,6 +4706,13 @@ export class PayService {
           if (settlement.status === 'paid_out') return settlement;
           if (settlement.status !== 'posted' && settlement.status !== 'failed')
             throw new PayError('Settlement is not payable', 'pay.invalid_transition');
+          if (settlement.status === 'failed') {
+            // A window released before it posted has no proceeds behind it; only a failed payout may retry.
+            const [released] = await connection`
+              SELECT 1 FROM pay.settlements WHERE id = ${settlement.id} AND failure_code = 'pay.settlement_released'
+            `;
+            if (released) throw new PayError('Settlement was released before it posted; nothing to pay out', 'pay.settlement_released');
+          }
           if (input.keyEnv === 'sandbox' || (await this.settlementIncludesSandbox(connection, settlement.id))) {
             // Before the admission and before the hold. Both payout books name a live account.
             this.refuseSandboxLive(

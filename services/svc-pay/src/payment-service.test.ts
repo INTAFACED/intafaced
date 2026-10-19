@@ -3066,6 +3066,24 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
 
+    it('refuses to pay out a window that was released before it posted', async () => {
+      const m = await merchant(0);
+      const payment = await cryptoPayment(m.id, '10');
+      await pay.capture(payment.id);
+      const settlement = await settle(m.id, 'w-released-payout');
+      // The state releasePendingSettlement leaves on a window that never posted.
+      await sql`UPDATE pay.settlements SET status='failed', failure_code='pay.settlement_released' WHERE id=${settlement.id}`;
+      await expect(
+        pay.payoutSettlement({
+          settlementId: settlement.id,
+          railId: 'crypto-native',
+          destination: { kind: 'crypto', ref: '0x000000000000000000000000000000000000dEaD' },
+        }),
+      ).rejects.toMatchObject({ code: 'pay.settlement_released' });
+      expect(chain.totalSent('USDT')).toBe('0');
+      expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
     it('moves a settled window out of the book to a chain address', async () => {
       const m = await merchant(0);
       const payment = await cryptoPayment(m.id, '10');

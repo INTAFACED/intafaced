@@ -1,77 +1,91 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request is sealed only when a comment on it says
- * `Independent review: PASS <full head sha>` for the PR's current head.
+ * Merge-seal step: a pull request is sealed only when the commit status `Independent review` is a success on its
+ * current head. That status is posted by .github/workflows/review-signoff.yml (tooling/ci/review-signoff.mjs) when a
+ * listed reviewer (tooling/ci/reviewers.json) comments `Independent review: PASS <full head sha>`, or when the same
+ * patch is carried across a clean rebase. A comment by anyone else, or for another sha, creates no status.
  *
  *   node tooling/ci/review-marker.mjs --self-test
- *   GH_TOKEN=... PR_NUMBER=1 HEAD_SHA=... REPO=owner/name node tooling/ci/review-marker.mjs
+ *   GH_TOKEN=... HEAD_SHA=... REPO=owner/name node tooling/ci/review-marker.mjs
  *
- * The comment is a record the reviewer posts after an independent review of
- * that exact head; anyone who can comment can write it, so it enforces the
- * habit, not identity. A new push needs a new review and a new comment. After
- * posting it, re-run the failed "CI merge seal" job.
+ * The sign-off workflow re-runs a failed seal after it posts the status, so nobody re-runs it by hand. The seal also
+ * looks a few times, for the seconds between a comment and its status.
  */
-const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
+/** The comment line the sign-off workflow accepts, on its own line. */
+export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
 
-/** True when any comment carries the marker for exactly `sha`. */
-export function hasReviewMarker(comments, sha) {
-  const want = String(sha).toLowerCase();
-  return comments.some((c) => {
-    const m = MARKER.exec(c?.body ?? '');
-    return m !== null && m[1].toLowerCase() === want;
-  });
+export const STATUS_CONTEXT = 'Independent review';
+
+/** True when the newest status of the review context on this head is a success. */
+export function hasSignoff(statuses) {
+  const mine = statuses.filter((s) => s?.context === STATUS_CONTEXT);
+  return mine.length > 0 && mine[0].state === 'success'; // the API lists newest first
 }
 
 function selfTest() {
-  const sha = 'a'.repeat(40);
-  const ok = [
-    [[{ body: `Independent review: PASS ${sha}` }], sha, true],
-    [[{ body: `notes\nIndependent review: PASS ${sha}\nmore` }], sha, true],
-    [[{ body: `Independent review: PASS ${'b'.repeat(40)}` }], sha, false],
-    [[{ body: 'Independent review: PASS aaaaaaaaa' }], sha, false],
-    [[{ body: `Independent review: FAIL ${sha}` }], sha, false],
-    [[{ body: `Independent review: PASS for head ${sha}` }], sha, false],
-    [[{ body: `Independent review: PASS ${sha}` }], sha, true],
-    [[{ body: `Independent review: PASS ${sha} but not really` }], sha, false],
-    [[{ body: `Independent review: PASS ${sha.toUpperCase()}` }], sha, true],
-    [[], sha, false],
+  const ok = { context: STATUS_CONTEXT, state: 'success' };
+  const cases = [
+    [[ok], true],
+    [[], false],
+    [[{ context: 'other', state: 'success' }], false],
+    [[{ context: STATUS_CONTEXT, state: 'failure' }, ok], false],
+    [[{ context: STATUS_CONTEXT, state: 'pending' }], false],
+    [[ok, { context: STATUS_CONTEXT, state: 'failure' }], true],
   ];
-  for (const [comments, s, want] of ok) {
-    if (hasReviewMarker(comments, s) !== want) {
-      console.error('review-marker self-test failed for', JSON.stringify(comments));
+  for (const [statuses, want] of cases) {
+    if (hasSignoff(statuses) !== want) {
+      console.error('review-marker self-test failed for', JSON.stringify(statuses));
+      process.exit(1);
+    }
+  }
+  const sha = 'a'.repeat(40);
+  const markers = [
+    [`Independent review: PASS ${sha}`, true],
+    [`notes\nIndependent review: PASS ${sha}\nmore`, true],
+    [`Independent review: PASS ${sha} but not really`, false],
+    [`Independent review: FAIL ${sha}`, false],
+    [`Independent review: PASS for head ${sha}`, false],
+    ['Independent review: PASS aaaaaaaaa', false],
+    [`Independent review: PASS ${sha.toUpperCase()}`, true],
+  ];
+  for (const [body, want] of markers) {
+    if (MARKER.test(body) !== want) {
+      console.error('review-marker self-test failed for', JSON.stringify(body));
       process.exit(1);
     }
   }
   console.log('review-marker self-test ok');
 }
 
-async function main() {
-  if (process.argv.includes('--self-test')) return selfTest();
-  const { GH_TOKEN, PR_NUMBER, HEAD_SHA, REPO } = process.env;
-  if (!GH_TOKEN || !PR_NUMBER || !HEAD_SHA || !REPO) {
-    console.error('::error::review-marker needs GH_TOKEN, PR_NUMBER, HEAD_SHA and REPO');
+async function readStatuses(repo, sha, token) {
+  const res = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}/statuses?per_page=100`, {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+  });
+  if (!res.ok) {
+    console.error(`::error::could not read commit statuses (HTTP ${res.status}); sealing fails closed`);
     process.exit(1);
   }
-  const comments = [];
-  for (let page = 1; page <= 20; page++) {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments?per_page=100&page=${page}`, {
-      headers: { authorization: `Bearer ${GH_TOKEN}`, accept: 'application/vnd.github+json' },
-    });
-    if (!res.ok) {
-      console.error(`::error::could not read PR comments (HTTP ${res.status}); sealing fails closed`);
-      process.exit(1);
-    }
-    const batch = await res.json();
-    comments.push(...batch);
-    if (batch.length < 100) break;
-  }
-  if (!hasReviewMarker(comments, HEAD_SHA)) {
-    console.error(
-      `::error title=Review marker missing::No comment "Independent review: PASS ${HEAD_SHA}" on this PR. Get an independent review of this exact head, post that comment, then re-run this job.`,
-    );
-    process.exit(1);
-  }
-  console.log(`review marker found for ${HEAD_SHA}`);
+  return res.json();
 }
 
-main();
+async function main() {
+  if (process.argv.includes('--self-test')) return selfTest();
+  const { GH_TOKEN, HEAD_SHA, REPO } = process.env;
+  if (!GH_TOKEN || !HEAD_SHA || !REPO) {
+    console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
+    process.exit(1);
+  }
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    if (hasSignoff(await readStatuses(REPO, HEAD_SHA, GH_TOKEN))) {
+      console.log(`review sign-off found for ${HEAD_SHA}`);
+      return;
+    }
+    if (attempt < 4) await new Promise((r) => setTimeout(r, 20_000));
+  }
+  console.error(
+    `::error title=Review sign-off missing::No success status "${STATUS_CONTEXT}" on ${HEAD_SHA}. Get an independent review of this exact head; a listed reviewer comments "Independent review: PASS ${HEAD_SHA}" and the status follows (see AGENTS.md).`,
+  );
+  process.exit(1);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) main();
