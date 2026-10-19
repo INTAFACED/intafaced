@@ -482,8 +482,8 @@ After a consumer is attached, **nats.js owns TCP reconnect** for that connection
 
 Pin: `src/env.isolation.test.ts` + `FORBIDDEN_SERVICE_CREDENTIALS` in `env.ts`.
 
-**How the browser reaches this:** the vendor shell nginx proxies same-origin `/ws/` → `svc-ws:4014/`
-(`vendor/upstream-exchange/05_Web_Front/nginx.conf`). Compose: `vendor-shell` on `:8090` depends on `svc-ws`.
+**How the browser reaches this:** the customer site nginx proxies same-origin `/ws/` → `svc-ws:4014/`
+(`apps/customer/nginx.conf`). Compose: `vendor-shell` (the apps/customer image) on `:8090` depends on `svc-ws`.
 Direct `NEXT_PUBLIC_WS_URL` / `apps/web` wiring is not the compose path for the live terminal.
 
 ---

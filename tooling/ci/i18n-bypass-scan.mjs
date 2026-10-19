@@ -69,8 +69,8 @@ const SKIP_DIRS = new Set(['node_modules', '.next', 'dist', '.turbo', 'coverage'
  *
  * The scan still runs and the queue is now CLOSED: any `.ts`/`.tsx` file under a
  * scanned root that introduces a `copy` object is a new bypass and fails. What it
- * does NOT cover is the product surface, which is Vue under `vendor/` and outside
- * this walk — the shell keys its copy through `assets/lang/`. Reading a green
+ * does NOT cover is anything outside the scanned roots (the old Vue shell under
+ * `vendor/` that this sentence once described was deleted 2026-10-19). Reading a green
  * result here as "the product has no hardcoded copy" is exactly the inference
  * this file exists to prevent.
  */

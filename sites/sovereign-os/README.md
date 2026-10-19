@@ -17,7 +17,7 @@ python3 -m http.server 8765 --directory .
 
 1. **Interim (live):** mirror or publish this folder to any static HTTPS host (current: GitHub Pages on the ZenYoda3 mirror).
 2. **Custom domain (Nitro Class X):** CNAME `trade.intafaced.com` → host — see `../../docs/TV-DNS-HOST-RUNBOOK.md` (removed).
-3. **Never** dual-write into `vendor/**/05_Web_Front` (HUMAN product shell).
+3. **Never** dual-write into `apps/customer` (HUMAN product shell; the old Vue shell under `vendor/**/05_Web_Front` was deleted 2026-10-19).
 
 ## Stack
 

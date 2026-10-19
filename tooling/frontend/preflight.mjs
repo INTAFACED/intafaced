@@ -91,14 +91,12 @@ ok(`HEAD ${head.slice(0, 10)} on ${branch || '(detached)'}`);
 if (branch === 'main') err('on main branch — Stream A requires worktree feat/app-* or docs/*');
 
 console.log('— tooling paths —');
-mustFile('tooling/uiproof/boot.mjs', 'ui:boot');
-mustFile('tooling/uiproof/matrix.mjs', 'ui:proof matrix');
 mustFile('tooling/ci/brand-scan.mjs', 'brand-scan');
 mustFile('package.json', 'scripts');
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
 const scripts = pkg.scripts || {};
-for (const s of ['ui:boot', 'ui:proof', 'scan:brand']) {
+for (const s of ['scan:brand']) {
   if (!scripts[s]) err(`package.json missing script ${s}`);
   else ok(`script ${s}`);
 }
