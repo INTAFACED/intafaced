@@ -137,7 +137,17 @@ describe('BinanceSpotMarketData — public data, no credentials', () => {
             { filterType: 'NOTIONAL', minNotional: '5' },
           ],
         },
-        { symbol: 'DEADUSDT', status: 'BREAK', baseAsset: 'DEAD', quoteAsset: 'USDT', filters: [] },
+        {
+          symbol: 'DEADUSDT',
+          status: 'BREAK',
+          baseAsset: 'DEAD',
+          quoteAsset: 'USDT',
+          filters: [
+            { filterType: 'PRICE_FILTER', tickSize: '0.01' },
+            { filterType: 'LOT_SIZE', stepSize: '0.00001', minQty: '0.00001', maxQty: '9000' },
+            { filterType: 'NOTIONAL', minNotional: '5' },
+          ],
+        },
       ],
     });
 
@@ -156,6 +166,75 @@ describe('BinanceSpotMarketData — public data, no credentials', () => {
     // A halted market is marked inactive rather than dropped, so a caller can
     // say WHY there is no liquidity instead of showing an empty list.
     expect(markets[1]!.active).toBe(false);
+  });
+
+  it('refuses a symbol missing PRICE_FILTER, LOT_SIZE, or NOTIONAL/MIN_NOTIONAL instead of inventing a tick or a zero minimum', async () => {
+    const trading = (symbol: string, base: string, filters: Record<string, unknown>[]): Record<string, unknown> => ({
+      symbol,
+      status: 'TRADING',
+      baseAsset: base,
+      quoteAsset: 'USDT',
+      filters,
+    });
+    const price = (tickSize: string) => ({ filterType: 'PRICE_FILTER', tickSize });
+    const lot = (stepSize: string, minQty: string) => ({
+      filterType: 'LOT_SIZE',
+      stepSize,
+      minQty,
+      maxQty: '9000',
+    });
+    const notional = (minNotional: string, filterType: 'NOTIONAL' | 'MIN_NOTIONAL' = 'NOTIONAL') => ({
+      filterType,
+      minNotional,
+    });
+
+    const http = new FakeHttp().queue({
+      symbols: [
+        trading('BTCUSDT', 'BTC', [price('0.01'), lot('0.00001', '0.00001'), notional('5')]),
+        trading('ETHUSDT', 'ETH', [lot('0.0001', '0.0001'), notional('5')]),
+        trading('SOLUSDT', 'SOL', [price('0.01'), notional('5')]),
+        trading('XRPUSDT', 'XRP', [price('0.0001'), lot('0.1', '0.1')]),
+        trading('ADAUSDT', 'ADA', [price('0.0001'), lot('0.1', '1'), notional('10', 'MIN_NOTIONAL')]),
+      ],
+    });
+
+    const markets = await adapter(http, new FakeStream()).markets();
+    const symbols = markets.map((market) => market.symbol);
+
+    expect(symbols).toEqual(['BTC/USDT', 'ADA/USDT']);
+
+    const btc = markets[0]!;
+    expect(btc.active).toBe(true);
+    expect(formatAmount(btc.precision.price)).toBe('0.01');
+    expect(formatAmount(btc.precision.amount)).toBe('0.00001');
+    expect(formatAmount(btc.limits.minAmount)).toBe('0.00001');
+    expect(formatAmount(btc.limits.minCost)).toBe('5');
+
+    const ada = markets[1]!;
+    expect(ada.active).toBe(true);
+    expect(formatAmount(ada.precision.price)).toBe('0.0001');
+    expect(formatAmount(ada.precision.amount)).toBe('0.1');
+    expect(formatAmount(ada.limits.minAmount)).toBe('1');
+    expect(formatAmount(ada.limits.minCost)).toBe('10');
+
+    for (const market of markets) {
+      expect(formatAmount(market.precision.price)).not.toBe('0.00000001');
+      expect(formatAmount(market.precision.amount)).not.toBe('0.00000001');
+      expect(market.limits.minAmount).not.toBe(0n);
+      expect(market.limits.minCost).not.toBe(0n);
+    }
+
+    const blank = new FakeHttp().queue({
+      symbols: [trading('ETHUSDT', 'ETH', [lot('0.0001', '0.0001'), notional('5')])],
+    });
+    try {
+      await adapter(blank, new FakeStream()).markets();
+      expect.unreachable('a TRADING symbol missing PRICE_FILTER must be refused');
+    } catch (error) {
+      expect(error).toBeInstanceOf(VenueUnavailableError);
+      expect((error as VenueUnavailableError).venueId).toBe('binance-spot');
+      expect((error as VenueUnavailableError).reason).toBe('malformed');
+    }
   });
 
   it('reads a snapshot with our clock, not the venue’s', async () => {
