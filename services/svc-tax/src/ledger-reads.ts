@@ -1,5 +1,5 @@
 import { parseAmount, rehydrateLedgerHttpError, type AccountRef, type Amount } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { TAX_LEDGER_HISTORY_UNAVAILABLE, TAX_LEDGER_UNWIRED, TaxError } from './codes.js';
 
 export interface HistoryRange {
@@ -54,9 +54,13 @@ export function unwiredLedgerReads(): TaxLedgerReads {
   return { balances: refuse, history: refuse };
 }
 
-export function createTaxLedgerReads(baseUrl: string, internalSecret: string): TaxLedgerReads {
+export function createTaxLedgerReads(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): TaxLedgerReads {
   const url = baseUrl.replace(/\/$/, '');
-  const authHeaders = (payload: string) => serviceAuthHeadersForBody('svc-tax', internalSecret, payload);
+  const authHeaders = serviceCallSigner({ service: 'svc-tax', audience: 'svc-ledger', legacySecret: internalSecret, s2s });
 
   return {
     async balances(ownerType, ownerId) {
@@ -100,11 +104,17 @@ export function createTaxLedgerReads(baseUrl: string, internalSecret: string): T
   };
 }
 
-async function call<T>(base: string, path: string, body: unknown, auth: (payload: string) => Record<string, string>): Promise<T> {
+type LedgerSigner = ReturnType<typeof serviceCallSigner>;
+
+async function call<T>(base: string, path: string, body: unknown, auth: LedgerSigner): Promise<T> {
   const payload = JSON.stringify(body);
-  const response = await fetch(`${base}${path}`, {
+  const target = `${base}${path}`;
+  const response = await fetch(target, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...auth(payload) },
+    headers: {
+      'content-type': 'application/json',
+      ...auth(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
+    },
     body: payload,
   });
 

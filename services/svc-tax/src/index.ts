@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { env } from './env.js';
 import { createTaxLedgerReads } from './ledger-reads.js';
@@ -24,9 +24,15 @@ registerProcessHooks(
  * Blank TAX_JURISDICTION_MAP_JSON boots and refuses by name at the door.
  * Blank TAX_HISTORY_YEARS boots and refuses `tax.history_years_unset` at export.
  */
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger reads on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-tax');
 const tax = new TaxService({
   mapRaw: env.TAX_JURISDICTION_MAP_JSON,
-  reads: createTaxLedgerReads(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET),
+  reads: createTaxLedgerReads(
+    env.LEDGER_URL,
+    env.INTERNAL_SERVICE_SECRET,
+    s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+  ),
   lake: lakeStatusFromUrl(env.CONNECT_DATA_LAKE_TSDB_URL),
   indexer: indexerStatusFromUrl(env.INDEXER_URL),
   historyYears: env.TAX_HISTORY_YEARS,

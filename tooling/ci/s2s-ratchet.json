@@ -248,10 +248,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-tax/src/ledger-reads.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-token/src/router.ts": {
       "sign": 0,
       "caller": 1
