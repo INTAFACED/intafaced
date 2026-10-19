@@ -56,16 +56,29 @@ export function judgeComment({ commenter, body, pr }, config) {
   return { ok: true, sha, reviewer: commenter };
 }
 
-/** Hash of the changed lines of a unified diff: file names plus every +/- line, in order. No hunk headers or context. */
-export function patchId(diff) {
+/**
+ * Hash of what a pull request changes: per file section, every header line except `index` (renames, modes, the
+ * `---`/`+++` names and `Binary files` lines count), then every added or removed line, with no hunk positions and no
+ * context, so a clean rebase keeps it. A binary file adds its blob sha (`blobs`: path -> sha), since the diff text does
+ * not show its content. Returns null when a binary file has no blob sha: nothing is carried then.
+ */
+export function patchId(diff, blobs = {}) {
   const h = createHash('sha1');
-  let file = '';
+  let inHunk = false;
+  let section = '';
   for (const line of String(diff).split('\n')) {
     if (line.startsWith('diff --git ')) {
-      file = line;
-      h.update(`F ${file.replace(/^diff --git a\/(.*) b\/.*$/, '$1')}\n`);
-    } else if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('index ')) continue;
-    else if (line.startsWith('+') || line.startsWith('-')) h.update(`${line.trimEnd()}\n`);
+      inHunk = false;
+      section = (/ b\/(.*)$/.exec(line) ?? [])[1] ?? line;
+      h.update(`${line}\n`);
+    } else if (line.startsWith('@@')) inHunk = true;
+    else if (inHunk) {
+      if (/^[+\-\\]/.test(line)) h.update(`${line.trimEnd()}\n`);
+    } else if (line.startsWith('index ')) continue;
+    else if (line.startsWith('Binary files ') || line.startsWith('GIT binary patch')) {
+      if (!blobs[section]) return null;
+      h.update(`${line}\nblob ${blobs[section]}\n`);
+    } else if (line) h.update(`${line}\n`);
   }
   return h.digest('hex');
 }
@@ -106,19 +119,26 @@ async function gh(method, path, body, accept = 'application/vnd.github+json') {
   return { status: res.status, json, text };
 }
 
-async function prFiles(repo, n) {
+async function prFileList(repo, n) {
   const files = [];
   for (let page = 1; page <= 30; page++) {
     const { json } = await gh('GET', `/repos/${repo}/pulls/${n}/files?per_page=100&page=${page}`);
-    files.push(...(json ?? []).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)));
+    files.push(...(json ?? []));
     if ((json ?? []).length < 100) break;
   }
   return files;
 }
 
+async function prFiles(repo, n) {
+  return (await prFileList(repo, n)).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
+}
+
 async function currentPatchId(repo, n) {
   const r = await gh('GET', `/repos/${repo}/pulls/${n}`, undefined, 'application/vnd.github.v3.diff');
-  return r.status === 200 && r.text ? patchId(r.text) : null; // too large or unavailable: nothing is carried
+  if (r.status !== 200 || !r.text) return null; // too large or unavailable: nothing is carried
+  const blobs = {};
+  if (/^(Binary files |GIT binary patch)/m.test(r.text)) for (const f of await prFileList(repo, n)) blobs[f.filename] = f.sha;
+  return patchId(r.text, blobs);
 }
 
 async function postStatus(repo, sha, description) {
@@ -146,7 +166,8 @@ async function enforceAutoMerge(repo, pr) {
   const verdict = autoMergeVerdict({ pr, files: await prFiles(repo, pr.number) }, readConfig());
   if (verdict.allowed) return 'auto-merge allowed';
   const q = 'mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}';
-  await gh('POST', '/graphql', { query: q, variables: { id: pr.node_id } });
+  const g = await gh('POST', '/graphql', { query: q, variables: { id: pr.node_id } });
+  if (g.status !== 200 || g.json?.errors) throw new Error(`could not switch auto-merge off: ${JSON.stringify(g.json?.errors ?? g.status)}`);
   await gh('POST', `/repos/${repo}/issues/${pr.number}/comments`, {
     body: `Auto-merge was switched off: ${verdict.why}. Merge this one by hand once the checks and the review are green.\n\n_Opened by tooling/ci/review-signoff.mjs._`,
   });
@@ -180,6 +201,22 @@ function selfTest() {
   assert(patchId(d1) === patchId(d2), 'a clean rebase (new line numbers, context, index) keeps the patch id');
   assert(patchId(d1) !== patchId(d3), 'a changed line changes the patch id');
   assert(patchId(d1) !== patchId(d1.replace('x.ts', 'y.ts')), 'a different file changes the patch id');
+
+  const section = (extra) => `diff --git a/s.sh b/s.sh\n${extra}`;
+  const base0 = patchId(section(''));
+  assert(base0 !== patchId(section('old mode 100644\nnew mode 100755\n')), 'a mode change changes the patch id');
+  const mv = (to) => `diff --git a/old.ts b/${to}\nsimilarity index 100%\nrename from old.ts\nrename to ${to}\n`;
+  assert(patchId(mv('a/x.ts')) !== patchId(mv('evil/x.ts')), 'a pure rename to another path changes the patch id');
+  const hunk = (body) => `diff --git a/c.ts b/c.ts\nindex 1..2 100644\n--- a/c.ts\n+++ b/c.ts\n@@ -1 +1 @@\n${body}`;
+  assert(patchId(hunk('+x\n')) !== patchId(hunk('+x\n+++i;\n')), 'an added "++i;" line counts');
+  assert(patchId(hunk('-x\n')) !== patchId(hunk('-x\n---j;\n')), 'a removed "--j;" line counts');
+  assert(
+    patchId(hunk(' c\n+x\n')) === patchId(hunk(' other\n+x\n').replace('@@ -1 +1 @@', '@@ -9 +9 @@')),
+    'context and hunk positions do not count',
+  );
+  const bin = 'diff --git a/i.png b/i.png\nindex 1..2 100644\nBinary files a/i.png and b/i.png differ\n';
+  assert(patchId(bin, {}) === null, 'a binary file without a blob sha is not carried');
+  assert(patchId(bin, { 'i.png': 'aaa' }) !== patchId(bin, { 'i.png': 'bbb' }), 'a swapped binary changes the patch id');
 
   const p = patchId(d1).slice(0, 12);
   const prev = { context: STATUS_CONTEXT, state: 'success', description: `PASS by nino; patch ${p}` };

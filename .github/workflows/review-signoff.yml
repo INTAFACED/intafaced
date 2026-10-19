@@ -13,9 +13,7 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: review-signoff-${{ github.event.issue.number || github.event.pull_request.number }}
-  cancel-in-progress: false
+# No concurrency group: GitHub keeps one pending run per group and would drop a queued sign-off. Every step is idempotent.
 
 jobs:
   signoff:
