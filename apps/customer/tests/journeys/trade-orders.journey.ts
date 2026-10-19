@@ -40,11 +40,18 @@ describe('pro trader: change an open order', () => {
   });
 
   it('refuses to raise the quantity of an open order, with a typed reason, and leaves the order and hold untouched', async () => {
+    await until('earlier holds released', async () => ((await balance(trader.trade, QUOTE)).used === '0' ? true : undefined));
     const order = await placed(trader, { price: '69', amount: '0.1' });
     const held = (await balance(trader.trade, QUOTE)).used;
     const raised = await trader.api.rest(`/orders/${order.id}`, z.any(), { method: 'PATCH', body: { qty: '0.2' } });
     expect(raised.ok).toBe(true);
-    if (raised.ok) expect(raised.data).toMatchObject({ accepted: false, reconciliationRequired: false });
+    if (raised.ok)
+      expect(raised.data).toMatchObject({
+        accepted: false,
+        code: 'NOT_AMENDABLE',
+        reasonCode: 'trade.amend_qty_up',
+        reconciliationRequired: false,
+      });
     const after = await trader.trade.order(order);
     expect(after.ok && after.data).toMatchObject({ amount: '0.1', status: 'open', recoveryRequired: false });
     expect((await balance(trader.trade, QUOTE)).used).toBe(held);
@@ -227,7 +234,8 @@ describe('pro trader: stop-limit', () => {
     expect((await balance(trader.trade, QUOTE)).used).toBe('15');
 
     const book = await trader.trade.book(SYMBOL);
-    expect(book.ok && book.data.bids.some(([price]) => price === '150')).toBe(false);
+    expect(book.ok, 'the order book read').toBe(true);
+    if (book.ok) expect(book.data.bids.some(([price]) => price === '150')).toBe(false);
 
     const again = await trader.api.rest('/orders', orderSchema, { method: 'POST', body });
     expect(again.ok && again.data.id).toBe(result.data.id);
