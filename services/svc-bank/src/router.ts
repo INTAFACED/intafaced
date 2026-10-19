@@ -93,6 +93,23 @@ const portfolioSummaryOutput = z.object({
   windowStart: z.number().int().nullable(),
 });
 
+const balanceBreakdownOutput = z.object({
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      total: signedAmountString,
+      available: signedAmountString,
+      locked: z.array(
+        z.object({
+          kind: z.string(),
+          amount: signedAmountString,
+          claims: z.array(z.object({ purpose: z.string(), amount: signedAmountString })),
+        }),
+      ),
+    }),
+  ),
+});
+
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an unsigned decimal string (max 18dp)');
 
 /**
@@ -1481,6 +1498,13 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     summary: scopedProcedure('bank:read', { module: 'bank' })
       .output(portfolioSummaryOutput)
       .query(async ({ ctx }) => guard(async () => bank.portfolio.summary(ctx.principal.userId))),
+    /**
+     * Each asset split into spendable and every lock kind with the claim behind it (PF-balances-01). Read-only, self-only,
+     * ledger reads only; the parts add up to the total exactly.
+     */
+    balanceBreakdown: scopedProcedure('bank:read', { module: 'bank' })
+      .output(balanceBreakdownOutput)
+      .query(async ({ ctx }) => guard(async () => bank.portfolio.balanceBreakdown(ctx.principal.userId))),
   });
 
   /**

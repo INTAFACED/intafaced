@@ -1,4 +1,13 @@
-import { parseAmount, type Amount, type Balance, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  LOCK_KIND_LIST,
+  LOCK_KINDS,
+  accountPurpose,
+  formatAmount,
+  parseAmount,
+  type Amount,
+  type Balance,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import {
@@ -28,6 +37,21 @@ import {
  * number with a plausible face. A user who holds only USDT, USDC or USD needs
  * no price, so that case is answered even while svc-trade is down.
  */
+
+/** One lock kind of one asset: its total and the claims (order, escrow, stake, loan) that make it up. */
+export interface LockBreakdown {
+  readonly kind: string;
+  readonly amount: string;
+  readonly claims: Array<{ readonly purpose: string; readonly amount: string }>;
+}
+
+/** One asset, split exactly: total = available + the sum of every lock. */
+export interface AssetBreakdown {
+  readonly assetId: string;
+  readonly total: string;
+  readonly available: string;
+  readonly locked: LockBreakdown[];
+}
 
 /** The port. One method: current prices. Throws on any failure. */
 export interface TickerSource {
@@ -143,6 +167,43 @@ export class PortfolioService {
       }
     }
     return valuePortfolio({ holdings, tickers: prices.tickers, listed: prices.listed, nowMs: this.now().getTime() });
+  }
+
+  /**
+   * Where each asset's balance sits: spendable, and each lock kind apart with the claim behind it. The same accounts as
+   * `summary` (main plus named Spaces), read from the ledger and nothing else. The headline valuation still folds the locks
+   * into one "used" figure; this read keeps them apart and never rounds or nets them. An asset whose accounts are all zero
+   * is absent. A negative amount is shown as it is, so a broken book is seen and not hidden.
+   */
+  async balanceBreakdown(userId: string): Promise<{ assets: AssetBreakdown[] }> {
+    const rows = await this.everythingOwnedBy(userId);
+    const assets = [...new Set(rows.map((r) => r.account.assetId))].sort();
+    const out: AssetBreakdown[] = [];
+    for (const assetId of assets) {
+      const mine = rows.filter((r) => r.account.assetId === assetId && r.amount !== 0n);
+      if (mine.length === 0) continue;
+      const sum = (list: readonly Balance[]) => list.reduce<Amount>((acc, r) => acc + r.amount, 0n);
+      const locked: LockBreakdown[] = [];
+      for (const kind of LOCK_KIND_LIST) {
+        const ofKind = mine.filter((r) => r.account.kind === kind && LOCK_KINDS.has(r.account.kind));
+        if (ofKind.length === 0) continue;
+        const byPurpose = new Map<string, Amount>();
+        for (const r of ofKind) {
+          const purpose = accountPurpose(r.account);
+          byPurpose.set(purpose, (byPurpose.get(purpose) ?? 0n) + r.amount);
+        }
+        const claims = [...byPurpose]
+          .filter(([, amount]) => amount !== 0n)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([purpose, amount]) => ({ purpose, amount: formatAmount(amount) }));
+        const amount = sum(ofKind);
+        if (claims.length > 0) locked.push({ kind, amount: formatAmount(amount), claims });
+      }
+      const available = sum(mine.filter((r) => r.account.kind === 'available'));
+      const total = available + locked.reduce<Amount>((acc, l) => acc + parseAmount(l.amount), 0n);
+      out.push({ assetId, total: formatAmount(total), available: formatAmount(available), locked });
+    }
+    return { assets: out };
   }
 
   /**
