@@ -1,11 +1,10 @@
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 
 export type PplnsShare = { shareId: string; minerId: string; weight: bigint };
 export type PplnsInput = { windowId: string; epoch?: number; assetId: string; reward: string; feeBps: number; shares: PplnsShare[] };
 export type Payout = { minerId: string; amount: string };
 export type PplnsPlan = { windowId: string; assetId: string; gross: string; fee: string; net: string; retained: string; payouts: Payout[] };
 
-const BPS = 10_000n;
 function positive(name: string, value: Amount): void {
   if (value <= 0n) throw new Error(`${name}_unconfigured`);
 }
@@ -20,7 +19,8 @@ export function planPplns(input: PplnsInput): PplnsPlan {
   const shares = input.shares.filter((s) => s.weight > 0n);
   const totalWeight = shares.reduce((sum, s) => sum + s.weight, 0n);
   if (totalWeight <= 0n) throw new Error('shares_empty');
-  const fee = (gross * BigInt(input.feeBps)) / BPS;
+  // Floor: the pool never charges a miner a unit more than the published rate. Same result as the old inline math.
+  const fee = mulBps(gross, input.feeBps, 'floor');
   const net = gross - fee;
   const byMiner = new Map<string, Amount>();
   for (const share of shares) byMiner.set(share.minerId, (byMiner.get(share.minerId) ?? 0n) + share.weight);
