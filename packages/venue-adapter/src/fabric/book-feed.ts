@@ -214,8 +214,12 @@ export class MaintainedBook {
   }
 
   #stop(reason: string): BookFeedStatus {
+    // The first reason stands. Closing the subscription is what unblocks run()
+    // on a quiet book; a later stream error or end must not replace it.
+    if (this.#status.kind === 'stopped') return this.#status;
     this.#stopped = true;
     this.#status = { kind: 'stopped', reason };
+    void this.#subscription?.close().catch(() => undefined);
     return this.#status;
   }
 }
