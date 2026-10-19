@@ -47,6 +47,7 @@
     "coverage:report": "node tooling/ci/coverage-check.mjs --report",
     "scan:brand": "node tooling/ci/brand-scan.mjs",
     "scan:custody": "node tooling/ci/custody-scan.mjs",
+    "scan:s2s": "node tooling/ci/s2s-scan.mjs",
     "scan:secrets": "node tooling/ci/secret-scan.mjs",
     "scan:gitleaks": "gitleaks detect --source . --no-git --config .gitleaks.toml",
     "scan:deps": "node tooling/ci/dependency-audit.mjs",

@@ -127,6 +127,15 @@ export const GATES = [
     why: 'a Protocol Plane service importing a ledger write recipe or a contract with platform withdrawal power; also fails if the deleted vendor/ Java exchange and wallet tree returns',
   },
   {
+    id: 's2s',
+    script: 'tooling/ci/s2s-scan.mjs',
+    doctrine: 'service-to-service auth',
+    why:
+      'every service signs its calls with the one shared internal secret, so any service can pose as any other. ' +
+      'Services are moving to per-service keys; this holds hand-signed calls (serviceAuthHeaders*) and ctx.service ' +
+      'name comparisons to a per-file baseline that may only shrink, so the move cannot be undone one file at a time.',
+  },
+  {
     id: 'secrets',
     script: 'tooling/ci/secret-scan.mjs',
     doctrine: '§16',
