@@ -175,8 +175,9 @@ export class PortfolioService {
    * into one "used" figure; this read keeps them apart and never rounds or nets them. An asset whose accounts are all zero
    * is absent. A negative amount is shown as it is, so a broken book is seen and not hidden.
    */
-  async balanceBreakdown(userId: string): Promise<{ assets: AssetBreakdown[] }> {
-    const rows = await this.everythingOwnedBy(userId);
+  async balanceBreakdown(userId: string, scope: 'all' | 'main' = 'all'): Promise<{ assets: AssetBreakdown[] }> {
+    // `main` is the person's own accounts only, the same figure as the exchange balance; `all` adds every named Space.
+    const rows = scope === 'main' ? await this.ledger.balances('user', userId) : await this.everythingOwnedBy(userId);
     const assets = [...new Set(rows.map((r) => r.account.assetId))].sort();
     const out: AssetBreakdown[] = [];
     for (const assetId of assets) {

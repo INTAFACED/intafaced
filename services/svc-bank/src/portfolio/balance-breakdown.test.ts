@@ -157,6 +157,17 @@ describe('bank.portfolio.balanceBreakdown', () => {
     expect(asked.some(([, id]) => id === BOB)).toBe(false);
   });
 
+  it("with scope 'main' leaves the named spaces out and never asks for them", async () => {
+    const { portfolio, asked } = service(
+      [row(ALICE, 'USDT', 'available', '100'), row(SPACE, 'USDT', 'available', '40', undefined, 'subaccount')],
+      [named(SPACE, ALICE)],
+    );
+    const out = await callerFor(portfolio, ALICE).portfolio.balanceBreakdown({ scope: 'main' });
+    expect(out.assets).toEqual([{ assetId: 'USDT', total: '100', available: '100', locked: [] }]);
+    expect(asked).toEqual([['user', ALICE]]);
+    await expect(callerFor(portfolio, ALICE).portfolio.balanceBreakdown({ scope: 'someone-else' } as never)).rejects.toBeDefined();
+  });
+
   it('shows an asset that holds nothing as absent, not as a zero row, and an empty account as an empty list', async () => {
     const { portfolio } = service([row(ALICE, 'ETH', 'available', '0'), row(ALICE, 'ETH', 'hold', '0', 'order:o-4')]);
     expect(await callerFor(portfolio, ALICE).portfolio.balanceBreakdown()).toEqual({ assets: [] });

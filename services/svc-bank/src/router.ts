@@ -1503,8 +1503,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * ledger reads only; the parts add up to the total exactly.
      */
     balanceBreakdown: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          .object({ scope: z.enum(['all', 'main']).optional() })
+          .strict()
+          .optional(),
+      )
       .output(balanceBreakdownOutput)
-      .query(async ({ ctx }) => guard(async () => bank.portfolio.balanceBreakdown(ctx.principal.userId))),
+      .query(async ({ ctx, input }) => guard(async () => bank.portfolio.balanceBreakdown(ctx.principal.userId, input?.scope ?? 'all'))),
   });
 
   /**
