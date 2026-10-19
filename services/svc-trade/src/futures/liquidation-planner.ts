@@ -9,7 +9,7 @@
  * or below a **named** maintenance threshold. There is no product default of
  * 50% — omitted `maintenanceBps` is D3 unset, not an invented table.
  */
-import { formatAmount, parseAmount, recipes, type Amount, type PostRequest } from '@intafaced/ledger-client';
+import { formatAmount, mul, mulBps, parseAmount, recipes, type Amount, type PostRequest } from '@intafaced/ledger-client';
 
 const SCALE = 10n ** 18n;
 
@@ -55,7 +55,7 @@ export type LiquidationDecision = LiquidationPlan | { liquidate: false; equity: 
 
 /** Quote notional: size * price / SCALE. */
 export function notionalAt(size: Amount, price: Amount): Amount {
-  return (size * price) / SCALE;
+  return mul(size, price, 'floor');
 }
 
 /**
@@ -63,7 +63,8 @@ export function notionalAt(size: Amount, price: Amount): Amount {
  */
 export function unrealizedPnl(side: 'long' | 'short', size: Amount, entry: Amount, mark: Amount): Amount {
   const diff = side === 'long' ? mark - entry : entry - mark;
-  return (size * diff) / SCALE;
+  // Floor on the true value: a gain is credited down, a loss is charged up.
+  return mul(size, diff, 'floor');
 }
 
 export function planLiquidation(input: LiquidationPlanInput): LiquidationDecision {
@@ -84,7 +85,7 @@ export function planLiquidation(input: LiquidationPlanInput): LiquidationDecisio
   if (maintNamed !== undefined && (maintNamed < 0 || maintNamed > 10_000)) {
     return { liquidate: false, equity, unrealizedPnl: uPnL, reason: 'invalid_maintenance_bps' };
   }
-  const maintenance = maintNamed === undefined ? null : (position.margin * BigInt(maintNamed)) / 10_000n;
+  const maintenance = maintNamed === undefined ? null : mulBps(position.margin, maintNamed, 'ceil');
 
   let should = equity <= 0n || (maintenance !== null && equity <= maintenance);
   let reason = equity <= 0n ? 'equity_non_positive' : 'below_maintenance';

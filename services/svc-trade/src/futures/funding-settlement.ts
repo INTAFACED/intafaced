@@ -84,7 +84,7 @@ const SCALE = 10n ** 18n;
 
 /** Notional in quote scaled units: size * entry / SCALE. */
 export function notionalQuote(size: Amount, entryPrice: Amount): Amount {
-  return (size * entryPrice) / SCALE;
+  return mul(size, entryPrice, 'floor');
 }
 
 /**
@@ -93,7 +93,7 @@ export function notionalQuote(size: Amount, entryPrice: Amount): Amount {
  */
 export function fundingAmount(notional: Amount, rateAbs: Amount): Amount {
   if (notional <= 0n || rateAbs <= 0n) return 0n;
-  return (notional * rateAbs) / SCALE;
+  return mul(notional, rateAbs, 'floor');
 }
 
 /**

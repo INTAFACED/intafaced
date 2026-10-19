@@ -45,7 +45,7 @@
  * An absent owner/listing cap is not permission to choose one. It disables
  * position opens and re-leverage while leaving the rest of svc-trade serving.
  */
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
 
 /** Preserve an explicitly named positive cap. Missing stays missing. */
 export function resolveMaxLeverage(configured?: Amount | null): Amount | null {
@@ -106,11 +106,9 @@ export function initialMargin(input: { size: Amount; entryPrice: Amount; leverag
   if (input.size <= 0n) throw new Error('size must be positive');
   if (input.entryPrice <= 0n) throw new Error('entryPrice must be positive');
   if (input.leverage <= 0n) throw new Error('leverage must be positive');
-  // Amounts are scaled integers (18dp). notional = size * entry / SCALE;
-  // leverage is also scaled, so margin = notional * SCALE / leverage.
-  const SCALE = 10n ** 18n;
-  const notional = (input.size * input.entryPrice) / SCALE;
-  const margin = (notional * SCALE) / input.leverage;
+  // Margin the house requires rounds up, and rounds once on the true value: notional rounds up too, then the division
+  // by leverage, so a trader is never asked for less than notional / leverage.
+  const margin = div(mul(input.size, input.entryPrice, 'ceil'), input.leverage, 'ceil');
   if (margin <= 0n) throw new Error('initial margin rounds to zero — raise size/price or lower leverage');
   return margin;
 }
