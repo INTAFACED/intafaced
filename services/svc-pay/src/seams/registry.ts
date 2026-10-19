@@ -3,6 +3,7 @@ import type { Sql } from 'postgres';
 import { createConversionInventory } from '../conversion/inventory.js';
 import type { MerchantControlsMode } from '../control/mode.js';
 import { composeGuards, type PayGuards } from './guards.js';
+import { createWithdrawalLimitGuards, type KycTierOf } from '../limits/guards.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
 import { createW6ConversionGuards } from './slots/w6-conversion.js';
@@ -15,11 +16,18 @@ import { createW10B2bRampGuards } from './slots/w10-b2b-ramp.js';
  *
  * ORDER IS A SAFETY DECISION. Halts run first (cheapest refusal, nothing else
  * should be consulted while a scope is stopped), then screening, then the
+ * per-customer withdrawal limits (D-148; one advisory lock, taken after the
+ * treasury lock), then the
  * per-merchant control room (caps take row locks, so they come last and hold
  * them for the shortest time), then the conversion and B2B-ramp slots, which
  * only matter on their own paths.
  */
-export function buildPayGuards(deps: { sql: Sql; ledger?: LedgerClient; merchantControls?: MerchantControlsMode }): PayGuards {
+export function buildPayGuards(deps: {
+  sql: Sql;
+  ledger?: LedgerClient;
+  merchantControls?: MerchantControlsMode;
+  kycTierOf?: KycTierOf;
+}): PayGuards {
   return composeGuards(
     createW5HaltsGuards({
       sql: deps.sql,
@@ -27,6 +35,7 @@ export function buildPayGuards(deps: { sql: Sql; ledger?: LedgerClient; merchant
       conversionInventory: createConversionInventory(deps.sql, deps.ledger),
     }),
     createW9ScreeningGuards(deps),
+    createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf }),
     createW1ControlGuards(deps),
     createW6ConversionGuards(deps),
     createW10B2bRampGuards(deps),
