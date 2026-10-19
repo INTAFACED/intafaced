@@ -724,7 +724,8 @@ export function parseClosedFilters(query: {
     out.side = query.side;
   }
   if (query.status !== undefined && query.status !== '') {
-    const mapped = typeof query.status === 'string' ? CLOSED_STATUS_WORDS[query.status] : undefined;
+    const mapped =
+      typeof query.status === 'string' && Object.hasOwn(CLOSED_STATUS_WORDS, query.status) ? CLOSED_STATUS_WORDS[query.status] : undefined;
     if (!mapped) return { ok: false, message: 'status must be closed, canceled, rejected or expired' };
     out.status = mapped;
   }

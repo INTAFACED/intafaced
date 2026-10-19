@@ -83,7 +83,16 @@ describe('GET /api/v1/orders/closed filters', () => {
   });
 
   it('refuses a bad side, status or until before orderHistory runs', async () => {
-    for (const q of ['side=up', 'status=open', 'status=filled', 'until=-1', 'until=soon', 'since=5000&until=4000']) {
+    for (const q of [
+      'side=up',
+      'status=open',
+      'status=filled',
+      'status=toString',
+      'status=constructor',
+      'until=-1',
+      'until=soon',
+      'since=5000&until=4000',
+    ]) {
       const { res, seen } = await get(`?limit=10&${q}`);
       expect(res.statusCode, q).toBe(400);
       expect(res.json().code, q).toBe('BadRequest');
