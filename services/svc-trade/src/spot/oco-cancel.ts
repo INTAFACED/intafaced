@@ -81,7 +81,11 @@ export function installOcoCancel(ctor: typeof TradeService): void {
           // With no fill recorded a missing sibling is unexplained, and the refusal below stands.
           for (const row of listed.orders) {
             if (!ocoSiblingIds(orderId).includes(row.orderId)) continue;
-            await host.matching.cancel(peek.marketId, row.orderId);
+            const pulled = await host.matching.cancel(peek.marketId, row.orderId);
+            // A refused pull means the leg moved (it may have filled): do not release over an unsettled fill.
+            if (!pulled.cancelled) {
+              throw new TradeError('an OCO leg changed while cancelling; retry', 'trade.matching_unavailable');
+            }
           }
           await host.finalize(orderId, 'cancelled');
           const closed = await host.findOrder(orderId);

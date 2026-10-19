@@ -2678,12 +2678,12 @@ export class TradeService {
       const out: OrderRecord[] = [];
       for (const cancellation of result.cancellations) {
         if (cancellation.accountId !== accountId) continue;
-        const order = await this.findOrder(cancellation.orderId);
+        const order = await this.findOrder(settlementOrderId(cancellation.orderId));
         if (!order || order.userId !== principal.userId) continue;
         if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') continue;
-        await this.finalize(order.id, 'cancelled');
+        await this.finalize(cancellation.orderId, 'cancelled');
         const settled = await this.findOrder(order.id);
-        if (settled) out.push(settled);
+        if (settled && !out.some((o) => o.id === settled.id)) out.push(settled);
       }
       return out;
     });
@@ -2771,13 +2771,8 @@ export class TradeService {
     // self-trade prevention. §5.1 unifies them because this service does the
     // same thing with all three: the order is done, release what is left.
     for (const cancellation of cancellations) {
-      const parentId = ocoLegParent(cancellation.orderId);
-      if (parentId !== null) {
-        if (await this.finalizeOcoWhenNoLegLive(market.id, cancellation.orderId, cancellation.reason)) touched.delete(parentId);
-        continue;
-      }
       await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
-      touched.delete(cancellation.orderId);
+      touched.delete(settlementOrderId(cancellation.orderId));
     }
 
     // A maker that filled completely leaves the book without a cancellation —
@@ -2796,7 +2791,12 @@ export class TradeService {
    * and a later leg event (or the fill that completes the order) closes it.
    * Returns true when the parent was closed.
    */
-  private async finalizeOcoWhenNoLegLive(marketId: string, legId: string, reason?: string | null): Promise<boolean> {
+  private async finalizeOcoWhenNoLegLive(
+    marketId: string,
+    legId: string,
+    reason?: string | null,
+    status: 'cancelled' | 'expired' = 'cancelled',
+  ): Promise<boolean> {
     const parentId = ocoLegParent(legId);
     if (parentId === null) return false;
     let listed: Awaited<ReturnType<MatchingClient['listOrders']>>;
@@ -2807,7 +2807,7 @@ export class TradeService {
     }
     const live = new Set(listed.orders.map((row) => row.orderId));
     if (live.has(`${parentId}:tp`) || live.has(`${parentId}:sl`)) return false;
-    await this.finalize(parentId, 'cancelled', reason);
+    await this.finalize(parentId, status, reason);
     return true;
   }
 
@@ -3604,6 +3604,14 @@ export class TradeService {
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
   ): Promise<void> {
+    // An engine OCO leg is not an order row: it closes its parent, and only once no leg is left resting.
+    if (ocoLegParent(orderId) !== null) {
+      const parent = await this.findOrder(settlementOrderId(orderId));
+      if (parent) {
+        await this.finalizeOcoWhenNoLegLive(parent.marketId, orderId, reason, status === 'expired' ? 'expired' : 'cancelled');
+      }
+      return;
+    }
     const outcome = await transaction(
       this.sql,
       async (tx): Promise<{ order: OrderRecord; status: OrderStatus } | null> => {
@@ -4253,11 +4261,10 @@ export class TradeService {
    */
   async releaseOnCancelEvent(orderId: string): Promise<void> {
     await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
-      if (ocoLegParent(orderId) !== null) {
-        const parent = await this.findOrder(settlementOrderId(orderId));
-        if (parent) await this.finalizeOcoWhenNoLegLive(parent.marketId, orderId);
-        return;
-      }
+      // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
+      // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
+      // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
+      if (ocoLegParent(orderId) !== null) return;
       await this.finalize(orderId, 'cancelled');
     });
   }
