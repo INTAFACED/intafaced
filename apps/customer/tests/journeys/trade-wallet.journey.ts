@@ -80,11 +80,13 @@ describe('pro trader: wallet view', () => {
     const { placed } = await reviewAndPlace(person.trade, draft({ price: '80', amount: '0.1' }));
     orderOf(placed);
     const held = (await balance(person.trade, QUOTE)).used;
+    expect(Number(held)).toBeGreaterThan(0);
 
     const open = groups((await bankCall('portfolio.allocation', undefined, claims)).data);
     const locked = open.types.find((t) => t.type === 'locked')!;
     const available = open.types.find((t) => t.type === 'available')!;
     expect(locked.valueUsd).toBe(held);
+    expect(available.valueUsd).not.toBe('500');
     expect(open.totalValueUsd).toBe('500');
     expect(Number(available.valueUsd) + Number(locked.valueUsd)).toBe(500);
     expect(open.classes.map((c) => [c.class, c.valueUsd])).toEqual([['stablecoin', '500']]);
