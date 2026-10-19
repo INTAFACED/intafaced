@@ -1,15 +1,6 @@
 import { z } from 'zod';
 import { envScreeningList, SHIPPED_BUSINESS_BLOCKS } from '@intafaced/config';
-import {
-  router,
-  publicProcedure,
-  scopedProcedure,
-  TRPCError,
-  encodePrincipal,
-  signPrincipalHeader,
-  EDGE_PRINCIPAL_HEADER,
-  EDGE_SIGNATURE_HEADER,
-} from '@intafaced/contracts';
+import { router, publicProcedure, scopedProcedure, TRPCError, forwardedPrincipalHeaders } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { AgentError, assertOpsSessionsLimit, assertSessionLogPageLimit, assertSessionMineLimit, assertUserLogPageLimit } from './errors.js';
@@ -303,8 +294,6 @@ export interface AgentsRouterDeps {
   readonly loadCoachGrounding?: () => Promise<CoachGrounding>;
   /** Live ops.support desk. Absent → support live tools refuse `no_live_kb`. */
   readonly supportDesk?: SupportDeskPort | null;
-  /** Signs forwarded principal for support ticket `get`. */
-  readonly edgePrincipalSecret?: string;
   /**
    * Live pay approval-rate samples. Unset in production (Class X) — live
    * merchant.runSession then refuses `no_live_metrics` rather than invent rates.
@@ -352,7 +341,6 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     feeAssetId,
     loadCoachGrounding,
     supportDesk,
-    edgePrincipalSecret,
     payMetricsPort,
     spotTickersPort,
     copyLeaderFixturesPort,
@@ -2495,14 +2483,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           }),
         )
         .query(async ({ ctx, input }) => {
-          const deskHeaders =
-            edgePrincipalSecret === undefined
-              ? undefined
-              : {
-                  [EDGE_PRINCIPAL_HEADER]: encodePrincipal(ctx.principal),
-                  [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(encodePrincipal(ctx.principal), edgePrincipalSecret, ctx.region),
-                  'x-intafaced-region': ctx.region,
-                };
+          const deskHeaders = forwardedPrincipalHeaders(ctx);
           const result = await invokeSupportDataTool({
             tool: input.tool,
             plane: input.plane,
@@ -2511,7 +2492,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
             tierLaw: input.law ?? null,
             userTier: input.userTier ?? '',
             desk: supportDesk ?? null,
-            ...(deskHeaders === undefined ? {} : { deskHeaders }),
+            deskHeaders,
             articles: input.articles ?? null,
             kbSearchLimit: input.limit,
             ticket: input.ticket ?? null,
@@ -2810,15 +2791,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               ...(signal === undefined ? {} : { signal }),
               kbCatalog: input.kbCatalog ?? null,
               desk: supportDesk ?? null,
-              ...(edgePrincipalSecret === undefined
-                ? {}
-                : {
-                    deskHeaders: {
-                      [EDGE_PRINCIPAL_HEADER]: encodePrincipal(ctx.principal),
-                      [EDGE_SIGNATURE_HEADER]: signPrincipalHeader(encodePrincipal(ctx.principal), edgePrincipalSecret, ctx.region),
-                      'x-intafaced-region': ctx.region,
-                    },
-                  }),
+              deskHeaders: forwardedPrincipalHeaders(ctx),
               asks: input.asks.map((ask) => ({
                 tool: ask.tool,
                 articles: ask.articles ?? null,

@@ -3807,7 +3807,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       });
       const cutoff = await beginMerchantCutoff(m.id, 'rejected');
       const authorizing = pay.authorize(payment.id);
-      // A rejection that lands before the assertion below attaches must not surface as unhandled.
+      // Observe the outcome now: the call can reject while the cutoff commit is still in flight, before the assertion below attaches.
       authorizing.catch(() => undefined);
 
       await expectEligibilityReadWaiting();
@@ -3823,7 +3823,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const authorized = await cardPayment(m.id, '25');
       const cutoff = await beginMerchantCutoff(m.id, 'suspended');
       const capturing = pay.capture(authorized.id);
-      // A rejection that lands before the assertion below attaches must not surface as unhandled.
+      // Observe the outcome now: the call can reject while the cutoff commit is still in flight, before the assertion below attaches.
       capturing.catch(() => undefined);
 
       await expectEligibilityReadWaiting();
@@ -4370,7 +4370,7 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       const { merchant: m, link } = await linked({ amount: '10', currency: 'USDT' });
       const cutoff = await beginMerchantCutoff(m.id, 'rejected');
       const opening = pay.openCheckoutSession({ linkToken: link.token, ...geo });
-      // A rejection that lands before the assertion below attaches must not surface as unhandled.
+      // Observe the outcome now: the call can reject while the cutoff commit is still in flight, before the assertion below attaches.
       opening.catch(() => undefined);
 
       await expectEligibilityReadWaiting();

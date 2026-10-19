@@ -88,7 +88,6 @@ const appRouter = createOpsRouter(
     authority: createFounderAuthority({
       identityUrl: env.IDENTITY_URL,
       serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
-      principalSecret: env.EDGE_PRINCIPAL_SECRET,
     }),
   },
   {

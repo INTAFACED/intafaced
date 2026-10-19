@@ -57,6 +57,16 @@ where the ledger reconciles.
 | `orders.history` | `trade:read`                 | `{ limit, marketId? }`                                                             | `Order[]`  |
 | `fills.mine`     | `trade:read`                 | `{ limit }`                                                                        | `Fill[]`   |
 
+**Dead-man switch.** `POST /api/v1/orders/cancel-all-after {timeout}` (seconds) arms a countdown for the caller; re-send it to push
+the deadline out, `timeout: 0` disarms. When the deadline passes, a sweep (every `TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS`) cancels
+every open order of that user through `cancelAllOrders`. Allowed timeouts are `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC` (blank = arming
+refuses `trade.cancel_all_after_unset`); the credential must outlive the deadline. The countdown is the durable row
+`trade.cancel_all_after`, holding the caller's own claims, never a token.
+
+**Batch cancel.** `POST /api/v1/orders/batch-cancel` takes up to 100 order ids (`{ids}`, `{orders:[{id}]}` or a bare array) and cancels them one by
+one through the same path as `DELETE /api/v1/orders/:id`. Results are per item (`success`, `refused`, `unknown`), never atomic; scope and jurisdiction
+are checked before any item, and a repeated id is refused.
+
 `trade:withdraw` appears nowhere, deliberately: it is an `INTERACTIVE_ONLY_SCOPE` that no API key may hold, which
 is what protects a leaked bot key from moving value off the platform.
 

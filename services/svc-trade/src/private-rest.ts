@@ -72,10 +72,14 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
  *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms)
+ *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
+ *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch    scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch-amend scope: trade:write + jurisdiction(module=trade)  (sequential native amend)
+ *   POST   /api/v1/orders/batch-cancel scope: trade:write + jurisdiction(module=trade)  (sequential cancel by order id list)
+ *   POST   /api/v1/orders/cancel-all-after scope: trade:write + jurisdiction(module=trade)  (dead-man switch; timeout 0 disarms)
  *   POST   /api/v1/orders/:id/replace scope: trade:write + jurisdiction(module=trade)
  *   PATCH  /api/v1/orders/:id      scope: trade:write + jurisdiction(module=trade)  (native amend)
  *   DELETE /api/v1/orders/:id      scope: trade:write + jurisdiction(module=trade)
@@ -158,6 +162,8 @@ export interface PrivateRestDeps {
   amendOrder?(principal: Principal, orderId: string, input: AmendOrderInput): Promise<AmendOrderOutcome>;
   /** Cancel every open/pending order (optional market). Sequential money path. */
   cancelAllOrders(principal: Principal, marketId?: string): Promise<OrderRecord[]>;
+  /** Dead-man switch: arm (or with 0 disarm) the user's cancel-all-after countdown. Absent = door not mounted. */
+  armCancelAllAfter?(principal: Principal, timeoutSec: number): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   /** Matching mass-cancel for the authenticated account on one market. */
   massCancelOrders(principal: Principal, marketId: string): Promise<OrderRecord[]>;
   /**
@@ -2226,6 +2232,99 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return reply.code(200).send({ atomic: false, results });
   });
 
+  /**
+   * POST /api/v1/orders/batch-cancel — bounded, sequential cancel of an id list.
+   *
+   * Auth, scope and jurisdiction are request-wide, checked before any item. Each id then takes the same
+   * TradeService.cancelOrder path as DELETE /orders/:id (engine first, hold release second). Results are ordered
+   * and independent: a refusal or unresolved cancel never rewrites an earlier item and there is no rollback or
+   * atomicity promise. Body: `{ ids: [...] }`, `{ orders: [{ id }|"id"] }`, or a bare array of ids.
+   */
+  app.post('/api/v1/orders/batch-cancel', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    try {
+      requireScope(principal, 'trade:write');
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+
+    const body = req.body as unknown;
+    const container =
+      body !== null && typeof body === 'object' && !Array.isArray(body) ? (body as { ids?: unknown; orders?: unknown }) : null;
+    const rawItems = Array.isArray(body)
+      ? body
+      : Array.isArray(container?.ids)
+        ? container.ids
+        : Array.isArray(container?.orders)
+          ? container.orders
+          : null;
+    if (rawItems === null) {
+      return reply
+        .code(400)
+        .send(invalidOrder('batch cancel body must be an array or an object with an ids array', 'trade.batch_body_invalid').body);
+    }
+    if (rawItems.length === 0) {
+      return reply.code(400).send(invalidOrder('batch cancel ids must be non-empty', 'trade.batch_empty').body);
+    }
+    if (rawItems.length > MAX_BATCH_ORDERS) {
+      return reply.code(400).send(invalidOrder(`batch cancel may contain at most ${MAX_BATCH_ORDERS} items`, 'trade.batch_too_large').body);
+    }
+
+    const results: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const [index, rawItem] of rawItems.entries()) {
+      const idRaw =
+        typeof rawItem === 'string'
+          ? rawItem
+          : rawItem !== null && typeof rawItem === 'object'
+            ? ((rawItem as { id?: unknown; orderId?: unknown }).id ?? (rawItem as { orderId?: unknown }).orderId)
+            : null;
+      const orderId = typeof idRaw === 'string' && idRaw.length > 0 ? idRaw : null;
+      const base = { index, orderId };
+      if (orderId === null) {
+        results.push({ ...base, status: 'refused', error: invalidOrder('id must be a non-empty order id', 'trade.invalid_order_id').body });
+        continue;
+      }
+      if (seen.has(orderId)) {
+        results.push({ ...base, status: 'refused', error: invalidOrder('order id repeated in this batch', 'trade.batch_duplicate').body });
+        continue;
+      }
+      seen.add(orderId);
+      try {
+        const order = await deps.cancelOrder(principal, orderId);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const wire = presentCcxtOrder(order, symbol);
+        if (wire.executionOutcome !== null) {
+          results.push({ ...base, status: 'unknown', order: wire, evidence: wire.executionOutcome });
+        } else {
+          results.push({ ...base, status: 'success', order: wire });
+        }
+      } catch (err) {
+        const mapped = toCcxtError(err);
+        if (mapped) {
+          results.push({ ...base, status: 'refused', error: mapped.body });
+        } else {
+          results.push({
+            ...base,
+            status: 'unknown',
+            error: {
+              code: 'ExchangeError',
+              message: 'batch item outcome is unknown; read the order to reconcile',
+              intafacedCode: 'trade.batch_outcome_unknown',
+            },
+          });
+        }
+      }
+    }
+
+    return reply.code(200).send({ atomic: false, results });
+  });
+
   app.post('/api/v1/orders', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
@@ -2398,6 +2497,41 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
+  // ── Cancel-all-after (dead-man switch) ────────────────────────────────────
+
+  /**
+   * POST /api/v1/orders/cancel-all-after { timeout: <whole seconds> }.
+   *
+   * Arms the caller's countdown; calling again before the deadline pushes it out, and `timeout: 0` disarms it.
+   * When the deadline passes the sweep cancels every open order of the caller. The allowed timeouts are the
+   * owner's published set (blank = typed refusal); the credential must outlive the deadline.
+   */
+  app.post('/api/v1/orders/cancel-all-after', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    if (!deps.armCancelAllAfter) {
+      return sendCcxt(reply, badRequest('cancel-all-after is not available on this venue', 'trade.cancel_all_after_unset'));
+    }
+    const body = req.body as { timeout?: unknown } | null;
+    const timeout = body?.timeout;
+    if (typeof timeout !== 'number' || !Number.isSafeInteger(timeout)) {
+      return reply.code(400).send(invalidOrder('timeout must be a whole number of seconds', 'trade.cancel_all_after_rejected').body);
+    }
+    try {
+      const out = await deps.armCancelAllAfter(principal, timeout);
+      return reply.code(200).send({
+        armed: out.armed,
+        timeout: out.timeoutSec,
+        triggerTime: out.deadline ? out.deadline.toISOString() : null,
+      });
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
   // ── Cancel all (static path — before :id is fine; Fastify matches exact) ──
 
   /**
@@ -2521,6 +2655,82 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       throw err;
     }
   });
+
+  // ── By client order id ────────────────────────────────────────────────────
+  // A client id is unique per market (it keys the order id with the user and the market), so the symbol is required.
+
+  async function orderByClientId(
+    principal: Principal,
+    req: { params: { clientOrderId: string }; query: { symbol?: string } },
+    reply: FastifyReply,
+  ): Promise<OrderRecord | null> {
+    const symbolRaw = req.query.symbol;
+    if (symbolRaw === undefined || symbolRaw === '') {
+      sendCcxt(reply, badRequest('symbol is required: a clientOrderId is unique per market', 'trade.order_symbol_required'));
+      return null;
+    }
+    const symbol = decodeURIComponent(symbolRaw);
+    const market = await deps.marketBySymbol(symbol);
+    if (!market) {
+      sendCcxt(reply, badSymbol(symbol));
+      return null;
+    }
+    const order = deps.findClientOrder
+      ? await deps.findClientOrder(principal, { marketId: market.id, symbol, clientOrderId: req.params.clientOrderId })
+      : null;
+    if (!order) {
+      throw new TradeError('order not found', 'trade.order_not_found');
+      return null;
+    }
+    return order;
+  }
+
+  app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
+    '/api/v1/orders/by-client-id/:clientOrderId',
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      try {
+        requireScope(principal, 'trade:read');
+        const found = await orderByClientId(principal, req, reply);
+        if (!found) return reply;
+        const order = await deps.getOrder(principal, found.id);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const withStop = await withStopTriggers(deps, [order]);
+        const withExit = await withOcoExit(deps, [order]);
+        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
+
+  app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
+    '/api/v1/orders/by-client-id/:clientOrderId',
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!requireTradeJurisdiction(req, reply, principal)) return;
+      try {
+        requireScope(principal, 'trade:write');
+        const found = await orderByClientId(principal, req, reply);
+        if (!found) return reply;
+        const order = await deps.cancelOrder(principal, found.id);
+        const market = await deps.marketById(order.marketId);
+        const symbol = market?.symbol ?? order.marketId;
+        const withStop = await withStopTriggers(deps, [order]);
+        const withExit = await withOcoExit(deps, [order]);
+        return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+      } catch (err) {
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
 
   // ── By id ─────────────────────────────────────────────────────────────────
 
