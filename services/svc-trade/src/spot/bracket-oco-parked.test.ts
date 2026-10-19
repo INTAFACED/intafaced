@@ -46,7 +46,15 @@ async function build() {
     marketById: async (id: string) => (id === market.id ? market : null),
     placeOrder: async (_p: Principal, input: PlaceOrderInput) => {
       placed.push(input);
-      return fakeOrder({ marketId: market.id });
+      return fakeOrder({
+        marketId: market.id,
+        clientOrderId: input.clientOrderId,
+        side: input.side,
+        type: 'limit',
+        price: input.price,
+        qty: input.qty,
+        tif: input.tif ?? 'GTC',
+      });
     },
   } as unknown as PrivateRestDeps);
   await app.ready();
@@ -65,6 +73,26 @@ describe('bracket and OCO are refused until matching carries exit legs', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().intafacedCode).toBe('trade.order_type_unsupported');
     expect(placed).toHaveLength(0);
+    await app.close();
+  });
+
+  it('a batch item with exit legs is refused per item and the plain item is still placed', async () => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/batch',
+      headers: signed(),
+      payload: {
+        orders: [
+          { ...BASE, clientOrderId: 'b-2', bracket: true, takeProfit: '110', stopLoss: '90' },
+          { ...BASE, clientOrderId: 'b-3' },
+        ],
+      },
+    });
+    const results = res.json().results as Array<{ status: string; error?: { intafacedCode?: string } }>;
+    expect(results[0]).toMatchObject({ status: 'refused', error: { intafacedCode: 'trade.order_type_unsupported' } });
+    expect(results[1]?.status).not.toBe('refused');
+    expect(placed.map((p) => p.clientOrderId)).toEqual(['b-3']);
     await app.close();
   });
 
