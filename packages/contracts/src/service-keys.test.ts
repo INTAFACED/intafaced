@@ -230,3 +230,14 @@ describe('createServiceVerifier', () => {
     expect(nonce.size()).toBe(1);
   });
 });
+
+describe('keyring hardening', () => {
+  it('refuses the same public key listed twice, across services or uses', () => {
+    const x = pair().x;
+    const entry = (svc: string, use: string) => ({ kid: `${svc}.a`, svc, use, x });
+    expect(() => parseKeyring(JSON.stringify({ keys: [entry('svc-trade', 's2s'), entry('svc-pay', 's2s')] }))).toThrow();
+    expect(() =>
+      parseKeyring(JSON.stringify({ keys: [entry('svc-edge', 's2s'), { ...entry('svc-edge', 'principal'), kid: 'svc-edge.p' }] })),
+    ).toThrow();
+  });
+});

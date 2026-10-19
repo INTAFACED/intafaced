@@ -116,6 +116,7 @@ export function parseKeyring(json: string): Keyring {
   if (!Array.isArray(keys)) throw new ServiceKeyError('S2S keyring must be {"keys":[...]}');
   const entries: KeyringEntry[] = [];
   const seenKids = new Set<string>();
+  const seenKeys = new Set<string>();
   const perOwner = new Map<string, number>();
   for (const raw of keys) {
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new ServiceKeyError('S2S keyring entry must be an object');
@@ -131,6 +132,8 @@ export function parseKeyring(json: string): Keyring {
     if (!isCanonicalKey(entry.x)) throw new ServiceKeyError('S2S public key must be canonical base64url of exactly 32 bytes');
     if (seenKids.has(entry.kid)) throw new ServiceKeyError('S2S keyring has a duplicate key id');
     seenKids.add(entry.kid);
+    if (seenKeys.has(entry.x)) throw new ServiceKeyError('S2S keyring lists the same public key twice');
+    seenKeys.add(entry.x);
     const owner = `${entry.svc}/${entry.use}`;
     const count = (perOwner.get(owner) ?? 0) + 1;
     if (count > MAX_KEYS_PER_SERVICE_AND_USE) throw new ServiceKeyError('S2S keyring allows at most two keys per service and use');

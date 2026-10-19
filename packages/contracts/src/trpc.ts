@@ -60,7 +60,7 @@ export interface Context {
    * produced by a verifier that distinguishes them. svc-ledger post treats
    * anything other than `dedicated` as a claim.
    */
-  serviceAuth?: 'dedicated' | 'shared';
+  serviceAuth?: 'dedicated' | 'shared' | 'keypair';
   /** Resolved at the edge from IP / account region. Drives the matrix. */
   region: string;
   /**
@@ -375,6 +375,26 @@ export const serviceProcedure = t.procedure.use(({ ctx, next }) => {
   requireServiceCaller(ctx.service);
   return next({ ctx });
 });
+
+/**
+ * A procedure only the listed services may call. No caller is UNAUTHORIZED; a
+ * caller that is not listed is FORBIDDEN. When the caller was verified by its own
+ * key (`serviceAuth: 'keypair'`) the name is proven; under the shared secret it is
+ * a claim, which is why the list is still enforced either way.
+ */
+export function serviceProcedureFor(callers: readonly string[]) {
+  return t.procedure.use(({ ctx, next }) => {
+    requireServiceCaller(ctx.service);
+    if (!callers.includes(ctx.service)) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'This service is not allowed to call this procedure',
+        cause: Object.assign(new Error('s2s.caller_forbidden'), { code: 's2s.caller_forbidden' }),
+      });
+    }
+    return next({ ctx });
+  });
+}
 
 /**
  * Jurisdiction gate for procedures with no principal — public checkout pages,
