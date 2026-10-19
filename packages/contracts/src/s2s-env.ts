@@ -25,9 +25,15 @@ export interface S2sFromEnv {
   signer?: ServiceSigner;
 }
 
-type Env = Record<string, string | undefined>;
+/** Structural, so a service can pass its parsed env object (which also holds booleans and numbers) as it is. */
+export interface S2sEnv {
+  S2S_AUTH_MODE?: string | undefined;
+  S2S_KEYRING?: string | undefined;
+  S2S_SIGNING_KID?: string | undefined;
+  S2S_SIGNING_KEY?: string | undefined;
+}
 
-export function s2sFromEnv(env: Env, self: ServiceName): S2sFromEnv {
+export function s2sFromEnv(env: S2sEnv, self: ServiceName): S2sFromEnv {
   const mode = env.S2S_AUTH_MODE;
   if (mode === undefined || mode === 'off') return {};
   if (mode !== 'dual' && mode !== 'keypair') {
