@@ -3,9 +3,9 @@
 **Status:** **Accepted — 2026-08-15 (D26-P0-07 freeze bound to liquidation proof).**  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-07.  
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-07.  
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-07.  
 **Prior seal:** [`2026-08-13-leverage-defaults-frozen.md`](2026-08-13-leverage-defaults-frozen.md) (#1787) — §1 table is live. This ADR does not re-open that table.  
-**Law:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §1.  
+**Law:** `DIRECTION-2026-07-31.md` (removed) §1.  
 **Does not invent:** 20×, D3 ladder rungs, dust floors (D26-P0-14), market overrides, or cross-margin.  
 **Does not edit:** `services/svc-trade` — [#1946](https://github.com/Phantom-X-007/intafaced/pull/1946) publishes the sealed 10× on futures listings.
 

@@ -10,14 +10,14 @@
  * status/disk is memory, context death is expected, resume from the ledger
  * (~/projects/OS/graph-engineering/CRAFT.md #10).
  *
- * WHY NOT docs/AUTONOMOUS-RUN.md
+ * WHY NOT docs/AUTONOMOUS-RUN.md (removed)
  * ------------------------------
  * That file already tried this on 2026-07-27 and has the right shape - id,
  * status, proof, terminal-only stop rule. It failed for one reason: it was
  * MAINTAINED BY THE MODEL BY HAND, and nothing has written it since the day it
  * was created. The failure autopsy records it as "lagged / lied mid-flight".
  * So this ledger is written by CODE at every transition, never by an agent
- * deciding to remember. AUTONOMOUS-RUN.md stays as the historical record of
+ * deciding to remember. AUTONOMOUS-RUN.md (removed) stays as the historical record of
  * that run and points here.
  *
  * WHY THE FILE IS GITIGNORED

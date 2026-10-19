@@ -189,4 +189,4 @@ The disagreement stays visible in normal test output. It cannot be shipped furth
 
 ## A note on where these belong
 
-`docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` contains **zero token rows.** No token number has ever been queued to the owner inbox, despite four `token.*` rows sitting at `socket` for exactly that reason. The enumerated list above should be filed there, or it will keep being rediscovered.
+`docs/BOARD-CLEAR-HUMAN-BLOCKERS.md` (removed) contains **zero token rows.** No token number has ever been queued to the owner inbox, despite four `token.*` rows sitting at `socket` for exactly that reason. The enumerated list above should be filed there, or it will keep being rediscovered.

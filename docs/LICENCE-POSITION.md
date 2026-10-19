@@ -34,7 +34,7 @@ lists what was checked. `NOTICE` §10 indexes all 23 such entries.
 
 ### 1.1 · TradingView Charting Library is proprietary and we have no licence
 
-**DECISION 2026-07-29 — Path A.** Hold TERMINAL.md (lightweight-charts). Charting Library purged from the product shell; chart rewired to lightweight-charts. See `docs/OWNER-DECISIONS-OPEN.md`. History rewrite (optional): `tooling/scripts/purge-charting-library-history.sh`.
+**DECISION 2026-07-29 — Path A.** Hold TERMINAL.md (removed) (lightweight-charts). Charting Library purged from the product shell; chart rewired to lightweight-charts. See `docs/OWNER-DECISIONS-OPEN.md` (removed). History rewrite (optional): `tooling/scripts/purge-charting-library-history.sh`.
 
 **What.** `vendor/upstream-exchange/05_Web_Front/src/assets/js/charting_library/` — 85 files, 5.4 MB, all
 git-tracked. Version string read from the artefact: `1.11 (internal id fe319232 @ 2017-11-14)`.
@@ -61,7 +61,7 @@ our chart. This is a security finding that happens to have been found during a l
 
 **Action, in order.**
 
-1. **Decide whether we want it at all.** [`docs/TERMINAL.md`](TERMINAL.md) already specifies the
+1. **Decide whether we want it at all.** `docs/TERMINAL.md` (removed) already specifies the
    INTAFACED pro terminal charting on **lightweight-charts, Apache-2.0** — a different TradingView
    product with a genuinely permissive licence, and no application required. If that decision holds,
    the Charting Library is not needed and 1.1 collapses into 1.2 (purge). This is the cheapest path
@@ -73,7 +73,7 @@ our chart. This is a security finding that happens to have been found during a l
    way 1.1 goes, because the answer to "how long does it take" is itself unknown.
 3. **Regardless of 1 and 2:** cut the runtime OSS-bucket fetch today. It needs no legal input.
 
-**Who acts.** Denon decides 1 (it is an architecture call already made in `TERMINAL.md`). Nitro or
+**Who acts.** Denon decides 1 (it is an architecture call already made in `TERMINAL.md (removed)`). Nitro or
 Denon submits 2 — it is a commercial application, not an engineering task. Engineering does 3 now.
 
 ### 1.1a · Owner 2026-08-31 — Advanced Charts is the intended host (approval pending)
@@ -351,6 +351,6 @@ path was meant. The root `NOTICE` has no file extension and so falls outside the
 `EXTENSIONS` set; it is allowlisted anyway, so that a future change to that set does not silently
 break CI on a file whose entire purpose is to name upstreams accurately.
 
-Both entries follow the same rationale already established for `docs/TERMINAL_INTEGRATION.md` and
+Both entries follow the same rationale already established for `docs/TERMINAL_INTEGRATION.md` (removed) and
 `docs/adr/`: internal records must be free to name upstream vendors so that licensing and quarantine
 scope stay auditable. Neither file is shipped to users.

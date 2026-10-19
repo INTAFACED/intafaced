@@ -22,7 +22,7 @@
  * it passes on (1) - that is exactly what separates the nine kept
  * `*-honesty.ts` files from the 151 deleted ones. A feature that is built but
  * not yet wired imports real code too, so it passes as well: this gate catches
- * MANUFACTURED code, not unfinished code. Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md.
+ * MANUFACTURED code, not unfinished code. Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md (removed).
  *
  * ponytail: importer detection is a basename match over import specifiers, not
  * a module resolver. It errs toward finding an importer, so the failure mode is
@@ -121,7 +121,7 @@ for (const f of sources) {
  * KEEPERS - files a cleanup sweep must never remove, asserted by machine.
  *
  * #953 deleted 151 `*-honesty.ts` modules and kept 9. The keep-list existed only
- * as prose in docs/NITRO-L3-SLICE-FACTORY-LAW.md, so nothing mechanically stopped
+ * as prose in docs/NITRO-L3-SLICE-FACTORY-LAW.md (removed), so nothing mechanically stopped
  * the next sweep from globbing `*-honesty.ts` and taking the survivors with it.
  * Four of these guard the agent money-tool deny lists: deleting one silently
  * removes a safety property while every other gate stays green - the exact shape
@@ -150,7 +150,7 @@ if (missingKeepers.length) {
   console.error('\n  These import a live source and assert against it. Four guard agent money-tool');
   console.error('  deny lists - removing one drops a safety property with every other gate green.');
   console.error('  Never sweep by filename pattern. Restore them, or retire a line here with a reason.');
-  console.error('  Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md, protected keep-list.\n');
+  console.error('  Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md (removed), protected keep-list.\n');
   process.exit(1);
 }
 
@@ -188,7 +188,7 @@ if (failures.length) {
       '    - guard something real: import the live source it mirrors, assert on that;',
       '    - delete it.',
       '',
-      '  Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md, Reachability law',
+      '  Law: docs/NITRO-L3-SLICE-FACTORY-LAW.md (removed), Reachability law',
       '',
     ].join('\n'),
   );

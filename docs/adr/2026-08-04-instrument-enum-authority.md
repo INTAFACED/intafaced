@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-04.** Owner decision, stated and confirmed.
 **Decision owner:** repo owner. **Written by:** Denon.
 **Spec id:** D-S-05, **completing** it.
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §2, which decided the instrument model and the listing rule. Both stand. This adds the **enum authority** the board's column asked for, and corrects one instruction in §2 that has gone stale.
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §2, which decided the instrument model and the listing rule. Both stand. This adds the **enum authority** the board's column asked for, and corrects one instruction in §2 that has gone stale.
 
 ---
 
@@ -108,6 +108,6 @@ This is the second stale instruction found in a live law document today — the 
 
 ## Housekeeping: stale instructions in live law documents
 
-Two have now been found in `DIRECTION-2026-07-31.md` — §2's resume instruction and §4's custody-scan instruction. Both were accurate when written. Both would cause real damage if followed today, and **an agent reading the law document rather than the code would follow them in good faith.**
+Two have now been found in `DIRECTION-2026-07-31.md` (removed) — §2's resume instruction and §4's custody-scan instruction. Both were accurate when written. Both would cause real damage if followed today, and **an agent reading the law document rather than the code would follow them in good faith.**
 
 The fix is not to stop writing instructions into law documents. It is that **a law document naming a specific branch, file or gate is making a claim about the code, and that claim ages.** Where this ADR series finds one, it says so at the point of correction rather than quietly working around it.

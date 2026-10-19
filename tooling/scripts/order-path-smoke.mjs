@@ -8,7 +8,7 @@
  * L4 Stress — TRADE_SMOKE_STRESS_N sequential place+cancel + clientOrderId idempotent
  *
  * Never invent fills or balances. STRICT=1 fails closed on missing proof.
- * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md
+ * REQs: PC-L2-1 · PC-L3-1..5 · PC-L4-1..2 — docs/ORDER-ROUTE-PROD-CLAIM-AGENT-MAX-2026-08-02.md (removed)
  */
 import { randomUUID } from 'node:crypto';
 

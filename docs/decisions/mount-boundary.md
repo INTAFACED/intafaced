@@ -113,4 +113,4 @@ Per service, copy `services/svc-agents/src/index.ts`:
 - Implementation: `packages/contracts/src/edge.ts`
 - Tests: `packages/contracts/src/edge.test.ts`
 - Reference mount: `services/svc-agents/src/index.ts`
-- P0-3 (blocks public money env): [`P0-3-purpose-keyed-holds.md`](P0-3-purpose-keyed-holds.md)
+- P0-3 (blocks public money env): `P0-3-purpose-keyed-holds.md` (removed)

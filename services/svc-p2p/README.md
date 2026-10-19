@@ -84,7 +84,7 @@ The three states that hold escrow are also **exactly** the three in which the se
 
 `disputed` deliberately does **not** terminate on a clock, and this is the one behaviour in the service that changed rather than being added to.
 
-It used to. A 7-day timer called `backstop_resolve` refunded the buyer and attributed the refund to `system:p2p-backstop` — an automated resolution of a disputed release, which [SPEC-OTC-RFQ-AND-EARN](../../docs/archive/SPEC-OTC-RFQ-AND-EARN-2026-08-02.md) says is the one place in the platform where a human decision is the design rather than the fallback. It fired while there was **no queue** to find a dispute in, **no way to read the evidence** filed on it, and **no session that could hold `admin:compliance`**. A timer that acts because nobody could have looked is not a fallback; it is the only path.
+It used to. A 7-day timer called `backstop_resolve` refunded the buyer and attributed the refund to `system:p2p-backstop` — an automated resolution of a disputed release, which SPEC-OTC-RFQ-AND-EARN (removed) says is the one place in the platform where a human decision is the design rather than the fallback. It fired while there was **no queue** to find a dispute in, **no way to read the evidence** filed on it, and **no session that could hold `admin:compliance`**. A timer that acts because nobody could have looked is not a fallback; it is the only path.
 
 Past its SLA a dispute now **escalates**: `escalated_at` is stamped, the count goes up, the dispute keeps its (now past) deadline so the moderator queue's "most overdue first" ordering keeps telling the truth, and the trade's own `deadline_at` re-arms on `P2P_DISPUTE_ESCALATION_RECHECK_SECONDS` so it stays visible to the sweeper. The escrow does not move.
 

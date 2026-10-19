@@ -390,7 +390,7 @@
       "wave": "Admin",
       "title": "Inventory 04_Web_Admin vs apps/admin",
       "status": "done",
-      "evidence": "docs/ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md",
+      "evidence": "docs/ADMIN-0-INVENTORY-VENDOR-VS-APPS-2026-08-02.md (removed)",
       "proof_missing": "",
       "next_action": "A1 apps/admin reconcile stub only (separate PR)",
       "blocker": "",
@@ -593,7 +593,7 @@
   "campaign": {
     "id": "FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02",
     "standing_order": "drain afk_safe until empty; never wait for continue",
-    "doc": "docs/FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02.md"
+    "doc": "docs/FRONTEND-AFK-AUTONOMOUS-CAMPAIGN-2026-08-02.md (removed)"
   },
   "closure_rule": "docs/ops/claims/<id>.md is spawn authority; residual-register advisory, synced on residual-own/merge"
 }

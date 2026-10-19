@@ -4,8 +4,8 @@ Static marketing site for the TradingView Advanced Charts application path.
 
 **Monorepo SoT:** this directory (`sites/sovereign-os/`).  
 **Live interim HTTPS:** https://zenyoda3.github.io/intafaced-sovereign-os/  
-**Apply pack:** [`../../docs/TV-APPLY-PACK.md`](../../docs/TV-APPLY-PACK.md)  
-**Scoreboard:** [`../../docs/ops/TV-SITE-SCOREBOARD.md`](../../docs/ops/TV-SITE-SCOREBOARD.md)
+**Apply pack:** `../../docs/TV-APPLY-PACK.md` (removed)  
+**Scoreboard:** `../../docs/ops/TV-SITE-SCOREBOARD.md` (removed)
 
 ```bash
 # local preview
@@ -16,7 +16,7 @@ python3 -m http.server 8765 --directory .
 ## Deploy
 
 1. **Interim (live):** mirror or publish this folder to any static HTTPS host (current: GitHub Pages on the ZenYoda3 mirror).
-2. **Custom domain (Nitro Class X):** CNAME `trade.intafaced.com` → host — see [`../../docs/TV-DNS-HOST-RUNBOOK.md`](../../docs/TV-DNS-HOST-RUNBOOK.md).
+2. **Custom domain (Nitro Class X):** CNAME `trade.intafaced.com` → host — see `../../docs/TV-DNS-HOST-RUNBOOK.md` (removed).
 3. **Never** dual-write into `vendor/**/05_Web_Front` (HUMAN product shell).
 
 ## Stack

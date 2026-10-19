@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-09-03.** Nitro human decision.  
 **Decision owner:** Nitro.  
 **Does not replace:** `INTAFACED_DEFINITIVE_BUILD.md` §16–§17 (end-state still own L1).  
-**Supersedes for _timing_ only:** `docs/LAST-MVP-BOARDS-2026-08-23.md` §4 “INTACHAIN GO / start P1 now” and the 2026-08-23 GO delta on the Shehzad board.  
+**Supersedes for _timing_ only:** `docs/LAST-MVP-BOARDS-2026-08-23.md` (removed) §4 “INTACHAIN GO / start P1 now” and the 2026-08-23 GO delta on the Shehzad board.  
 **Companion:** P0 rails [`2026-08-08-protocol-plane-p0-handshake-and-rails.md`](2026-08-08-protocol-plane-p0-handshake-and-rails.md) (Base Sepolia → Base; anvil = CI). Matching dual-target [`2026-08-04-matching-dual-target.md`](2026-08-04-matching-dual-target.md).
 
 ---

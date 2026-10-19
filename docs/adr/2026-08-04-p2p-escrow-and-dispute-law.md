@@ -11,8 +11,8 @@
 
 The board's column reads _"escrow handoff to chain plane."_ That phrase appears **exactly once in the repo — in the board cell itself.** Nothing implements it, and two accepted specs appear to contradict the doctrine that inspired it:
 
-- `SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md:29,32` — _"OTC escrow | Fiat | escrow **is** custody, by definition"_ … _"A spec that claims escrow is non-custodial is lying about the word."_
-- `SPEC-OTC-RFQ-AND-EARN-2026-08-02.md:29` — _"**Escrow is custody.** Fiat Plane, no argument."_
+- `SPEC-SOVEREIGN-ROUTING-AND-COPY-2026-08-01.md (removed):29,32` — _"OTC escrow | Fiat | escrow **is** custody, by definition"_ … _"A spec that claims escrow is non-custodial is lying about the word."_
+- `SPEC-OTC-RFQ-AND-EARN-2026-08-02.md (removed):29` — _"**Escrow is custody.** Fiat Plane, no argument."_
 - Doctrine §19 — _"the P2P escrow runs custodial (ledger) or sovereign (contract) at the user's choice."_
 
 > **The specs are right and the doctrine is right, and the error is the word "the".**
@@ -29,7 +29,7 @@ This is settled. Agents and engineers implement it; they do not re-litigate it.
 
 ## Decision 2 — a human adjudicates. The timer never does.
 
-`SPEC-OTC-RFQ-AND-EARN-2026-08-02.md:33` says:
+`SPEC-OTC-RFQ-AND-EARN-2026-08-02.md (removed):33` says:
 
 > "**No automated resolution of a disputed release** — this is the one place in the platform where a human decision is the correct design, not a fallback."
 
