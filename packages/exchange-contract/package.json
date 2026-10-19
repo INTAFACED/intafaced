@@ -17,13 +17,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "pnpm --filter @intafaced/exchange-contract^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['config','contracts','safe-regex'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/exchange-contract^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "tsc -p tsconfig.json && vitest run",
     "test:watch": "vitest",
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
     "@intafaced/safe-regex": "workspace:^",
     "zod": "^3.24.1"

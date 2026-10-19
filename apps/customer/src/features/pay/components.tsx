@@ -45,13 +45,34 @@ export function PayFailure({ result, retry }: { result: Extract<ApiResult<unknow
   );
 }
 
+/**
+ * "17 Oct, 21:43 UTC" ("17 Oct 2025, 21:43 UTC" in another year): the same day-month and 24-hour clock as the rest of the app,
+ * always in UTC and always naming it, since Pay services record UTC. English uses day-month order, never "10/17/2026, 9:43 PM".
+ */
+export function payTimeText(value: string, locale: string, now: number = Date.now()): string | null {
+  const at = Date.parse(value);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(at)) return null;
+  const tag = locale.toLowerCase() === 'en' || locale.toLowerCase() === 'en-us' ? 'en-GB' : locale;
+  const year = (ms: number) => new Date(ms).getUTCFullYear();
+  const text = new Intl.DateTimeFormat(tag, {
+    day: 'numeric',
+    month: 'short',
+    ...(year(at) === year(now) ? {} : { year: 'numeric' }),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: 'UTC',
+  }).format(at);
+  return `${text} UTC`;
+}
+
 export function PayTime({ value }: { value: string }) {
   const { requestedLocale } = payCopy.useCopy();
-  const date = new Date(value);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(date.getTime())) return <span lang="zxx">{value}</span>;
+  const text = payTimeText(value, requestedLocale);
+  if (text === null) return <span lang="zxx">{value}</span>;
   return (
     <time dateTime={value} title={value} lang={requestedLocale}>
-      {date.toLocaleString(requestedLocale, { timeZone: 'UTC', timeZoneName: 'short' })}
+      {text}
     </time>
   );
 }
@@ -120,24 +141,29 @@ export function PayPagination({
   limit,
   max = 200,
   setLimit,
+  fetched = count,
 }: {
+  /** Rows shown on screen. */
   count: number;
   limit: number;
   max?: number;
   setLimit: (limit: number) => void;
+  /** Rows the read returned, when the screen shows fewer (a client-side filter such as "your offers"). A full read means more may exist. */
+  fetched?: number;
 }) {
+  const full = fetched === limit;
   return (
     <div className="pay-pagination">
       <p className="muted">
         <PayCopy k="recordsWindow" params={{ count, limit }} />
-        {count === limit ? payCopy.t('moreRecordsMayExist') : ''}
+        {full ? payCopy.t('moreRecordsMayExist') : ''}
       </p>
-      {count === limit && limit < max && (
+      {full && limit < max && (
         <Button variant="secondary" onClick={() => setLimit(max)}>
           <PayCopy k="showRecords" params={{ max }} />
         </Button>
       )}
-      {count === limit && limit === max && (
+      {full && limit === max && (
         <p className="muted">
           <PayCopy k="thisServiceHasNoContinuationCursorThis" />
         </p>

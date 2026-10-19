@@ -47,6 +47,7 @@ import { createTradeApi } from '../../features/trade/trade-api';
 import { useSession } from '../../features/session/session';
 import { normalizePair } from '../../app/navigation';
 import { savePreferences, usePreferences } from '../../shared/preferences';
+import { HOME_LINKS } from './links';
 
 /** How many markets and assets Home Pro lists before it points to the full screen. */
 const MARKET_ROWS = 10;
@@ -56,9 +57,10 @@ const ORDERS_PAGE = 100;
 /** The pair the Trade button opens for an asset, as the desk's address. Cash (USDT, USDC) has no market to open. */
 const deskFor = (holding: HomeHolding) => (holding.priceSymbol ? `/trade/spot/${normalizePair(holding.priceSymbol)}` : null);
 
-type ActionLabel = 'Buy' | 'Sell' | 'Convert' | 'Send' | 'Receive';
+type ActionLabel = 'Add money' | 'Buy' | 'Sell' | 'Convert' | 'Send' | 'Receive';
 /** Same addresses as the Simple pills. Only the ones the registry shows are drawn. */
 const ACTIONS: readonly { label: ActionLabel; href: string }[] = [
+  { label: 'Add money', href: HOME_LINKS.deposit },
   { label: 'Buy', href: '/trade/spot/BTC-USDT' },
   { label: 'Sell', href: '/trade/spot/BTC-USDT?side=sell' },
   { label: 'Convert', href: '/trade/convert' },
@@ -69,12 +71,12 @@ type ActionMode = 'normal' | 'empty' | 'noMarkets' | 'emptyNoMarkets' | 'refused
 /** Which actions make sense for the account: nothing to spend, nothing to trade, or a paused account. */
 const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
   normal: null,
-  empty: ['Receive', 'Buy'],
+  empty: ['Add money', 'Receive', 'Buy'],
   noMarkets: ['Send', 'Receive'],
   emptyNoMarkets: ['Receive'],
   refused: ['Receive'],
 };
-const ACTION_WIDTH: Record<ActionLabel, number> = { Buy: 56, Sell: 56, Convert: 80, Send: 64, Receive: 80 };
+const ACTION_WIDTH: Record<ActionLabel, number> = { 'Add money': 104, Buy: 56, Sell: 56, Convert: 80, Send: 64, Receive: 80 };
 
 /** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
 function cents(value: string | null): string | null {
@@ -122,10 +124,10 @@ function ActionRow({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
   const { t: tp } = proCopy.useCopy();
   const wanted = ACTIONS_FOR[mode];
-  const live = (wanted ? ACTIONS.filter((action) => wanted.includes(action.label)) : [...ACTIONS]).filter(
-    (action) => !isHiddenPath(action.href.split('?')[0]!),
-  );
-  // Receive and Buy come in the order of the mode's list, as in Simple.
+  const live = (
+    wanted ? ACTIONS.filter((action) => wanted.includes(action.label)) : ACTIONS.filter((action) => action.label !== 'Add money')
+  ).filter((action) => !isHiddenPath(action.href.split('?')[0]!));
+  // The actions come in the order of the mode's list, as in Simple.
   const ordered = wanted ? [...live].sort((a, b) => wanted.indexOf(a.label) - wanted.indexOf(b.label)) : live;
   return (
     <nav className="hp-actions" aria-label={tp('Quick actions')}>

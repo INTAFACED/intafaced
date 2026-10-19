@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError, assertDelegateCannotGrant, type AuthService } from './auth/auth-service.js';
+import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { ATTRIBUTION_MISSING, AttributionError, attributedSurfaces, requireAttribution } from './auth/four-eyes.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { userCopy } from './user-copy.js';
@@ -87,6 +88,7 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
             scopes: z.array(z.string()).min(1),
             domainWhitelist: z.array(z.string()).optional(),
             mode: z.enum(['live', 'sandbox']).optional(),
+            factorProof: optionalFactorProof,
           }),
         )
         .output(
@@ -101,20 +103,28 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
         .mutation(async ({ ctx, input }) => {
           try {
             assertDelegateCannotGrant(ctx.principal.kid);
-            const minted = await auth.createApiKey({
-              userId: ctx.principal.userId,
-              name: input.name,
-              scopes: input.scopes,
-              domainWhitelist: input.domainWhitelist,
-              mode: input.mode,
-              grantorScopes: ctx.principal.scopes,
-              grantorKid: ctx.principal.kid,
-            });
-            const stamp = requireAttribution({
-              sessionId: ctx.principal.sid,
-              apiKeyId: minted.id,
-            });
-            return { ...minted, attribution: attributedSurfaces(stamp) };
+            return await guardedApiKeyAction(
+              auth,
+              ctx.principal,
+              input.factorProof,
+              { action: 'create', scopes: input.scopes },
+              async (scope) => {
+                const minted = await scope.createApiKey({
+                  userId: ctx.principal.userId,
+                  name: input.name,
+                  scopes: input.scopes,
+                  domainWhitelist: input.domainWhitelist,
+                  mode: input.mode,
+                  grantorScopes: ctx.principal.scopes,
+                  grantorKid: ctx.principal.kid,
+                });
+                const stamp = requireAttribution({
+                  sessionId: ctx.principal.sid,
+                  apiKeyId: minted.id,
+                });
+                return { ...minted, attribution: attributedSurfaces(stamp) };
+              },
+            );
           } catch (err) {
             mapAttributionErr(err);
           }

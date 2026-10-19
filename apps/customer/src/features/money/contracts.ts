@@ -166,6 +166,16 @@ export const analyticsSchema = z.object({
   net: signedDecimalSchema,
   movements: z.number().int().nonnegative(),
 });
+export const destinationSchema = z.object({
+  destinationId: z.string(),
+  label: z.string().nullable(),
+  kind: z.enum(['crypto', 'bank']),
+  ref: z.string(),
+  addedAt: z.string(),
+  coolingOffEndsAt: z.string().nullable(),
+  coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+});
+export type Destination = z.infer<typeof destinationSchema>;
 export const bankReads = {
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
@@ -210,6 +220,8 @@ export const bankReads = {
   'ramps.fiatSettle': z.object({ canSettle: z.literal(true), onrampRailId: z.string(), offrampRailId: z.string() }),
   'ramps.onramps': z.array(onrampSchema),
   'ramps.offramps': z.array(offrampSchema),
+  // svc-bank `bank.ramps.destinations.list`: the customer's own saved wallets and bank accounts. No asset or network field.
+  'ramps.destinations.list': z.array(destinationSchema),
   'autoInvest.policy': z.object({
     enabled: z.boolean(),
     convertWired: z.boolean(),

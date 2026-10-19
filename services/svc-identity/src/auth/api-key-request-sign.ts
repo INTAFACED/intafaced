@@ -214,6 +214,15 @@ export function assertEdgeSignedRequest(service: string | null, request: unknown
   }
 }
 
+/**
+ * Run `fn` in a transaction. When `sql` is already a transaction (a guarded API-key action hands one in)
+ * it has no `begin`, so `fn` runs on it directly and commits or rolls back with the caller.
+ */
+export async function inTransaction<T>(sql: Sql, fn: (tx: Sql) => Promise<T>): Promise<T> {
+  if (typeof (sql as { begin?: unknown }).begin === 'function') return (await sql.begin((tx) => fn(tx as unknown as Sql))) as T;
+  return fn(sql);
+}
+
 export async function setApiKeyRequestSigning(
   sql: Sql,
   userId: string,
@@ -226,7 +235,7 @@ export async function setApiKeyRequestSigning(
   requireNonEmptyIpAllowlist: boolean;
   signingSecret: string | null;
 }> {
-  return sql.begin(async (tx) => {
+  return inTransaction(sql, async (tx) => {
     const current = await tx<Array<{ id: string; request_signing_secret: string | null }>>`
       SELECT id, request_signing_secret FROM api_keys
       WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
@@ -274,7 +283,7 @@ export async function rotateSigningSecret(
   keyId: string,
   encKey: Buffer | null,
 ): Promise<{ id: string; signingSecret: string }> {
-  return sql.begin(async (tx) => {
+  return inTransaction(sql, async (tx) => {
     const current = await tx<Array<{ id: string; require_signature: boolean }>>`
       SELECT id, require_signature FROM api_keys
       WHERE id = ${keyId} AND user_id = ${userId} AND revoked = false
