@@ -13,6 +13,8 @@ import { accessClaimsSchema, type Principal } from '@intafaced/auth';
 import type { Context } from './trpc.js';
 import { inboundRawBodyOf } from './raw-body.js';
 import { verifyServiceHeaders, type ServiceBodyBindMode } from './service-auth.js';
+import { verifyServiceRequest, type ServiceAuthMode } from './service-auth-http.js';
+import type { ServiceVerifier } from './service-keys.js';
 
 /** The tRPC door has no v1 callers; see `EdgeContextOptions.bodyBindMode`. */
 const EDGE_CONTEXT_BODY_BIND_MODE: ServiceBodyBindMode = 'require';
@@ -355,6 +357,14 @@ export interface EdgeContextOptions {
    * the package-wide `DEFAULT_SERVICE_BODY_BIND_MODE`.
    */
   bodyBindMode?: ServiceBodyBindMode;
+  /**
+   * Verifier for key-signed service calls (S2S v3). When set, a call signed with a
+   * service's own key is accepted and the caller is named by that key; the
+   * shared-secret form keeps working under `internalSecret` unless `s2sMode` is
+   * `keypair`. Omitted: behaviour is exactly the shared-secret path.
+   */
+  serviceVerifier?: ServiceVerifier;
+  s2sMode?: ServiceAuthMode;
 }
 
 /**
@@ -374,6 +384,9 @@ export class EdgeTrustError extends Error {
 
 export interface EdgeRequest {
   headers: Record<string, string | string[] | undefined>;
+  /** Method and raw target (path and query). Needed to verify a key-signed service call. */
+  method?: string;
+  url?: string;
   id?: string | number;
   /**
    * The request body as the HTTP adapter left it. The tRPC Fastify plugin keeps
@@ -458,16 +471,27 @@ export function createEdgeContext(options: EdgeContextOptions): (req: EdgeReques
     // text is `req.body`, and `inboundRawBodyOf` binds exactly that (or the
     // retained bytes on a root route). A plain object with neither reports
     // not-retained, which `require` refuses with body-unavailable.
-    const service = options.internalSecret
-      ? verifyServiceHeaders(req.headers, options.internalSecret, {
-          rawBody: inboundRawBodyOf(req),
-          mode: options.bodyBindMode ?? EDGE_CONTEXT_BODY_BIND_MODE,
-        }).service
+    const keyed = options.serviceVerifier
+      ? verifyServiceRequest(req, {
+          verifier: options.serviceVerifier,
+          legacySecret: options.internalSecret,
+          mode: options.s2sMode,
+          bodyBindMode: options.bodyBindMode ?? EDGE_CONTEXT_BODY_BIND_MODE,
+        })
       : null;
+    const service = keyed
+      ? keyed.service
+      : options.internalSecret
+        ? verifyServiceHeaders(req.headers, options.internalSecret, {
+            rawBody: inboundRawBodyOf(req),
+            mode: options.bodyBindMode ?? EDGE_CONTEXT_BODY_BIND_MODE,
+          }).service
+        : null;
 
     return {
       principal,
       service,
+      ...(keyed?.scheme ? { serviceAuth: keyed.scheme } : {}),
       region,
       requestId: String(req.id ?? ''),
       ...(traceparent ? { traceparent } : {}),
