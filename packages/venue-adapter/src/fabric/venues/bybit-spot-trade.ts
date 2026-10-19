@@ -252,6 +252,9 @@ export class BybitSpotTrade implements TradeAdapter {
     } catch (error) {
       rethrowWithSent(error, false);
     }
+    if (request.type === 'market' && request.postOnly) {
+      unavailable('malformed', 'post-only is a limit-order instruction; a market order cannot be post-only', false);
+    }
     if (request.reduceOnly) unavailable('not_ready', 'spot has no reduceOnly', false);
     if (request.type === 'limit' && (request.price === undefined || request.price === null)) {
       unavailable('malformed', 'limit order requires price', false);
