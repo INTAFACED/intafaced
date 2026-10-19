@@ -18,6 +18,11 @@ export const TAX_EXPORT_INCOMPLETE = 'tax.export_incomplete' as const;
 /** Ledger history window is OWNER env. Blank never invents 10 years. */
 export const TAX_HISTORY_YEARS_UNSET = 'tax.history_years_unset' as const;
 
+/** Part of the fill history could not be read, so the book may miss lots. Named, never silently short. */
+export const TAX_LOT_BOOK_INCOMPLETE = 'tax.lot_book_incomplete' as const;
+/** More is open in lots than the customer holds: coins left another way, so their cost is unknown. */
+export const TAX_LOT_BOOK_UNRECONCILED = 'tax.lot_book_unreconciled' as const;
+
 export type TaxRefuseCode =
   | typeof TAX_JURISDICTION_UNMAPPED
   | typeof TAX_JURISDICTION_MAP_INVALID
@@ -32,7 +37,9 @@ export type TaxRefuseCode =
   | typeof TAX_CLOSED_LOTS_UNINDEXED
   | typeof TAX_LOT_UNDERFLOW
   | typeof TAX_EXPORT_INCOMPLETE
-  | typeof TAX_HISTORY_YEARS_UNSET;
+  | typeof TAX_HISTORY_YEARS_UNSET
+  | typeof TAX_LOT_BOOK_INCOMPLETE
+  | typeof TAX_LOT_BOOK_UNRECONCILED;
 
 export class TaxError extends Error {
   readonly code: TaxRefuseCode;

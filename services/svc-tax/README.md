@@ -8,11 +8,16 @@ A year pack lists each sub-account's fills and converts with `fee` and `makerReb
 
 ## API
 
-| Procedure       | Scope      | Input           | Output                                            |
-| --------------- | ---------- | --------------- | ------------------------------------------------- |
-| `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim |
-| `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                       |
-| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts` |
+| Procedure       | Scope      | Input           | Output                                                            |
+| --------------- | ---------- | --------------- | ----------------------------------------------------------------- |
+| `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim                 |
+| `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                                       |
+| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts`                 |
+| `lotBook`       | `tax:read` | `{ method? }`   | profit and loss indicator from the caller's own fills (see below) |
+
+## Lot book (profit and loss indicator)
+
+`lotBook` is a self-only read of the caller's own trade fills, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Each fill is joined from two ledger reads: the received leg (from the `available` account) and the paying leg (from that order's `hold` account), on the transaction. A coin bought or sold against USDT, USDC or USD has a real dollar cost or proceeds (the fee is already out of the received leg). A trade between two other coins has no dollar figure; coins that arrived by deposit or transfer have no lot, and a sale that reaches them is `unmatchedQty` with `realizedUsd: null` (`tax.lot_underflow`). More open in lots than held makes that coin's cost unknown (`tax.lot_book_unreconciled`). Hitting the read ceiling is named `tax.lot_book_incomplete`. The method defaults to FIFO (a product default, changeable per call); unrealised value is the caller's to join with current prices.
 
 ## Events
 
