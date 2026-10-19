@@ -16,7 +16,7 @@
  *
  * Idempotent on settlement id (`dated-settle:${positionId}`).
  */
-import type { LedgerClient, PostRequest } from '@intafaced/ledger-client';
+import { InsufficientFundsError, type LedgerClient, type PostRequest } from '@intafaced/ledger-client';
 import { planClose, type ClosePosition } from './close-planner.js';
 import {
   DATED_FUTURES_SETTLEMENT_PRICE_UNSET,
@@ -43,7 +43,18 @@ export type DatedFuturesSettlementJobResult =
       readonly posts: readonly PostRequest[];
       readonly settlementIds: readonly string[];
       readonly settledPositionIds: readonly string[];
+      /** Positions that could not be settled this run; they stay open and are replayed next run. */
+      readonly unsettled: readonly DatedFuturesUnsettled[];
     };
+
+export const DATED_FUTURES_SETTLEMENT_UNPAID = 'trade.dated_futures_settlement_unpaid';
+export const DATED_FUTURES_SETTLEMENT_FAILED = 'trade.dated_futures_settlement_failed';
+
+export interface DatedFuturesUnsettled {
+  readonly positionId: string;
+  readonly code: typeof DATED_FUTURES_SETTLEMENT_UNPAID | typeof DATED_FUTURES_SETTLEMENT_FAILED;
+  readonly message: string;
+}
 
 export interface DatedSettlementMarket {
   readonly marketId: string;
@@ -71,6 +82,8 @@ export async function runDatedFuturesSettlementJob(input: {
   readonly markPrice?: string | null;
   readonly positions: readonly DatedFuturesSettlementPosition[];
   readonly ledger: Pick<LedgerClient, 'post'>;
+  /** Called as soon as one position is settled, so a later failure never leaves it open. */
+  readonly markClosed?: (positionId: string) => Promise<void>;
 }): Promise<DatedFuturesSettlementJobResult> {
   void input.lastTradePrice;
   void input.markPrice;
@@ -88,6 +101,7 @@ export async function runDatedFuturesSettlementJob(input: {
 
   const posts: PostRequest[] = [];
   const settlementIds: string[] = [];
+  const unsettled: DatedFuturesUnsettled[] = [];
   for (const position of input.positions) {
     const settlementId = datedSettlementIdFor(position.positionId);
     const plan = planClose({
@@ -96,10 +110,25 @@ export async function runDatedFuturesSettlementJob(input: {
       exitPrice: resolved.settlementPrice,
     });
     if (!plan.close) continue;
-    for (const req of plan.recipes) {
-      await input.ledger.post(req);
-      posts.push(req);
+    // One position per try: a winner the pot cannot pay stays open (keys are stable, so the
+    // next run replays it) and must not strand the positions behind it.
+    const posted: PostRequest[] = [];
+    try {
+      for (const req of plan.recipes) {
+        await input.ledger.post(req);
+        posted.push(req);
+      }
+      await input.markClosed?.(position.positionId);
+    } catch (err) {
+      posts.push(...posted);
+      unsettled.push({
+        positionId: position.positionId,
+        code: err instanceof InsufficientFundsError ? DATED_FUTURES_SETTLEMENT_UNPAID : DATED_FUTURES_SETTLEMENT_FAILED,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      continue;
     }
+    posts.push(...posted);
     settlementIds.push(settlementId);
   }
 
@@ -110,6 +139,7 @@ export async function runDatedFuturesSettlementJob(input: {
     posts,
     settlementIds,
     settledPositionIds: settlementIds.map((id) => id.slice('dated-settle:'.length)),
+    unsettled,
   };
 }
 
@@ -157,12 +187,8 @@ export async function runDatedFuturesSettlementScan(input: {
       markPrice: input.markPrice,
       positions,
       ledger: input.ledger,
+      markClosed: input.markClosed,
     });
-    if (result.status === 'settled' && input.markClosed) {
-      for (const positionId of result.settledPositionIds) {
-        await input.markClosed(positionId);
-      }
-    }
     results.push(result);
   }
   return results;
