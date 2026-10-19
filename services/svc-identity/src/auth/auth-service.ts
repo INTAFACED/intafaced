@@ -113,6 +113,7 @@ export class AuthError extends Error {
       | 'auth.session_revoked'
       | 'auth.totp_key_missing'
       | 'auth.delegate_cannot_grant'
+      | 'auth.sandbox_scope_not_pay'
       | 'auth.password_unchanged'
       | 'auth.password_policy'
       | 'auth.reset_proof_invalid'
@@ -1634,6 +1635,11 @@ export class AuthService {
     assertDelegateCannotGrant(input.grantorKid);
     assertDelegatableScopes(input.scopes, input.grantorScopes, { payStepUp: input.payStepUp === true });
     const mode = input.mode === 'sandbox' ? 'sandbox' : 'live';
+    // Only svc-pay honours sandbox mode; every other door treats a sandbox key as an ordinary key,
+    // so a sandbox key may hold pay scopes and nothing else.
+    if (mode === 'sandbox' && input.scopes.some((scope) => !scope.startsWith('pay:'))) {
+      throw new AuthError('A sandbox key can only hold pay scopes', 'auth.sandbox_scope_not_pay');
+    }
     const { key, hash, prefix } = generateApiKey(mode);
     const insert = async (tx: Sql) => {
       const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;

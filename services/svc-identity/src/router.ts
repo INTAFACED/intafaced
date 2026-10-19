@@ -293,6 +293,7 @@ function toTrpcError(err: unknown): TRPCError {
       // Operator/agent refuse — keep the reviewed_by sentence. Not user catalog copy.
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.delegate_cannot_grant':
+    case 'auth.sandbox_scope_not_pay':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
