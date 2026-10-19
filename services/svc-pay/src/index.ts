@@ -23,7 +23,7 @@ import { assertConversionBoot, openConversionVenue, readConversionConfig } from 
 import { createRegistryReader } from './registries/read-api.js';
 import { buildPayGuards } from './seams/registry.js';
 import { resolveMerchantControlsMode } from './control/mode.js';
-import { assertNoLocalTestFixtures, isExplicitDevOrTestEnv } from '@intafaced/config';
+import { assertNoLocalTestFixtures, edgeTrustFromEnv, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
@@ -537,7 +537,7 @@ retainRawBody(app);
  * Built before the listener opens: a service that cannot authenticate the edge
  * must fail to start, not start and serve every caller as anonymous.
  */
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
 
@@ -681,6 +681,7 @@ registerMerchantWatchMetricsRoutes(app, {
  */
 await registerPublicPayRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   pay,
   idempotency: new PostgresRestIdempotencyStore(sql),
