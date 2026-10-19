@@ -1865,16 +1865,20 @@ export class TokenService {
 
     const revenueTotal = normaliseRevenueTotal(input.revenueTotal);
     const buyback = await this.buybackParams();
-    const { toBurn, toRewards } = splitBuyback(input.tokensBought, buyback);
+    const planned = splitBuyback(input.tokensBought, buyback);
 
     const claimed = await this.claimBuybackWindow({
       runId: input.runId,
       window: input.revenueWindow,
       revenueTotal,
       tokensBought: input.tokensBought,
-      toBurn,
-      toRewards,
+      toBurn: planned.toBurn,
+      toRewards: planned.toRewards,
     });
+    // A resumed claim keeps the split it was made with. The params may have moved since, and the burn key is the run id,
+    // so posting a different amount would either conflict with an earlier attempt or burn more than the row records.
+    const toBurn = claimed.burned;
+    const toRewards = claimed.toRewards;
 
     if (claimed.status === 'settled') {
       return { runId: claimed.id, burned: claimed.burned, toRewards: claimed.toRewards };
