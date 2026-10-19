@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { nodeHTTPRequestHandler } from '@trpc/server/adapters/node-http';
-import { createEdgeContext, EdgeTrustError } from '@intafaced/contracts';
+import { createEdgeContext, EdgeTrustError, type EdgeContextOptions } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { JobSource } from './job-source.js';
@@ -14,6 +14,8 @@ export type MiningHttpDeps = {
   readonly sql: Sql | null;
   readonly internalSecret: string | undefined;
   readonly edgeSecret: string | undefined;
+  /** Optional edge public key and limits (`edgeTrustFromProcessEnv`): verify the edge's public-key signature as well. */
+  readonly edgeTrust?: Pick<EdgeContextOptions, 'edgePublicKey' | 'principalLimits'>;
   readonly ledger: Pick<LedgerClient, 'getTxByKey'> | null;
   readonly jobSource?: JobSource | null;
 };
@@ -44,6 +46,7 @@ export function createMiningRequestHandler(deps: MiningHttpDeps): (request: Inco
     try {
       edge = createEdgeContext({
         secret,
+        ...deps.edgeTrust,
         serviceName: 'svc-mining-pool',
         ...(deps.internalSecret && deps.internalSecret.trim().length >= 32 ? { internalSecret: deps.internalSecret.trim() } : {}),
       });
