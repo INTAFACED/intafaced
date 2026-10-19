@@ -75,7 +75,7 @@ import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscrip
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient } from '@intafaced/contracts';
+import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';
@@ -134,7 +134,13 @@ await sql`SELECT 1 FROM pay.merchants LIMIT 1`.catch(() => {
 
 // Value moves through svc-ledger, never through this service's own tables
 // (Doctrine §0.6). This client is the only path.
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-pay');
+const ledger = createLedgerClient(
+  env.LEDGER_URL,
+  env.INTERNAL_SERVICE_SECRET,
+  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
+);
 
 /**
  * The chain behind `crypto-native`.

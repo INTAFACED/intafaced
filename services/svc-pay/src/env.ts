@@ -1,10 +1,11 @@
 import { z } from 'zod';
-import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 
 const schema = serviceEnvSchema
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(edgeEnvSchema)
   .merge(
     z.object({
