@@ -151,6 +151,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.product_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.matching_market_missing': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.matching_unavailable': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  /** The bracket entry filled but its exit was not placed; the same request retried places it. */
+  'trade.bracket_exit_failed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Matching 404 MarketNotFound. Listed here, engine holds no book.
    * Not BadSymbol (do not drop the listing) and not 5xx (engine answered).
