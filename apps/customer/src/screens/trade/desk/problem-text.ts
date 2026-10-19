@@ -11,6 +11,10 @@ export function problemText(problem: Problem, market: DeskMarket, t: ReturnType<
       return t('Enter an amount');
     case 'priceEmpty':
       return t('Enter a price');
+    case 'stopEmpty':
+      return t('Enter a stop price');
+    case 'stopTick':
+      return t('Stop price must be a whole number of steps', { tick: fmtPrice(problem.tick, problem.tick), asset: market.quote });
     case 'amountLot':
       return t('Amount must be a whole number of steps', {
         lot: fmtAmount(problem.lot, { places: placesOf(problem.lot) }),

@@ -43,7 +43,7 @@ describe('time in force on the ticket', () => {
     expect(tifLabelKey('limit', 'PO')).toBe('Tif PO');
   });
   it('lists every order kind the market refuses, none of them as working', () => {
-    expect(UNSUPPORTED_TYPES).toEqual(['stopLimit', 'takeProfitStopLoss', 'oco', 'trailingStop']);
+    expect(UNSUPPORTED_TYPES).toEqual(['takeProfitStopLoss', 'oco', 'trailingStop']);
   });
 });
 
