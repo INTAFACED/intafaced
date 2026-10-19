@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { refuseLiveOmsPeg, type OmsPegRefusal } from './oms-peg-refuse.js';
-import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
+import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type OmsPegDoorBody = {
   readonly peg?: boolean;
@@ -21,6 +21,7 @@ export type OmsPegDoorDeps = {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
   readonly internalSecret?: string | null;
+  readonly s2s?: OmsWriteS2s;
 };
 
 const ALWAYS_REFUSE: OmsPegRefusal = {
@@ -37,7 +38,7 @@ export function handleOmsPegDoor(body: OmsPegDoorBody): OmsPegRefusal {
 
 export function registerOmsPegDoor(app: FastifyInstance, deps: OmsPegDoorDeps): void {
   app.post('/execution/oms/peg', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsPegDoorBody;
     return reply.send(handleOmsPegDoor(body));

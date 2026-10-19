@@ -29,3 +29,7 @@ This service does not publish bus events. Venue results and the local EMS acknow
 ## Money and ledger
 
 This service holds no balances and posts no ledger recipes. Venue balance observations are external evidence only. All value movement remains in existing `packages/ledger-client` recipes and the canonical ledger; this service never assembles a second book.
+
+## Service keys: inbound doors
+
+The OMS write doors and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The write doors still run only for a call named svc-execution. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

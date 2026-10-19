@@ -16,7 +16,7 @@ import { confirmChildFill, type OmsFillConfirmResult } from './oms-fill-confirm.
 import { assignChildFill, type OmsAssignFillResult } from './oms-fill-assign.js';
 import { recordManualChildFill, type OmsManualFillResult } from './oms-manual-fill.js';
 import { abandonStagedParent, type OmsAbandonResult } from './oms-abandon.js';
-import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
+import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type OmsCareDoorBody = {
   readonly discretionCap?: string | null;
@@ -58,6 +58,7 @@ export type OmsCareDoorDeps = {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
   readonly internalSecret?: string | null;
+  readonly s2s?: OmsWriteS2s;
 };
 
 function millManualFill(body: OmsCareDoorBody): OmsManualFillResult {
@@ -99,14 +100,14 @@ export function handleOmsCareDoor(body: OmsCareDoorBody): OmsCareDoorResult {
 
 export function registerOmsCareDoor(app: FastifyInstance, deps: OmsCareDoorDeps): void {
   app.post('/execution/oms/care', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsCareDoorBody;
     return reply.send(handleOmsCareDoor(body));
   });
 
   app.post('/execution/oms/care-manual-fill', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsCareDoorBody;
     const cap = refuseUnsetDiscretionCap(body.discretionCap);

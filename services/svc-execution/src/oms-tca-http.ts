@@ -11,7 +11,7 @@ import { runTcaRun, type TcaObservation, type TcaEntitlements, type TcaRunResult
 import { runTcaForParent, type TcaParentResult } from './oms-tca-parent.js';
 import { recordMarkoutsForParent, type OmsMarkoutsResult } from './oms-tca-markouts.js';
 import type { EmsOrderStore } from './oms-ems-store.js';
-import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
+import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type OmsTcaDoorBody = {
   readonly parentClientOrderId?: string;
@@ -32,6 +32,7 @@ export type OmsTcaDoorDeps = {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
   readonly internalSecret?: string | null;
+  readonly s2s?: OmsWriteS2s;
   readonly emsStore?: EmsOrderStore;
   readonly captureLake?: Pick<CaptureLake, 'records'>;
 };
@@ -96,28 +97,28 @@ export function handleOmsTcaMarkoutsDoor(body: OmsTcaDoorBody): OmsMarkoutsResul
 
 export function registerOmsTcaDoor(app: FastifyInstance, deps: OmsTcaDoorDeps): void {
   app.post('/execution/oms/tca', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsTcaDoorBody;
     return reply.send(handleOmsTcaRunDoor(withStores(body, deps)));
   });
 
   app.post('/execution/oms/tca-claim', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsTcaDoorBody;
     return reply.send(handleOmsTcaClaimDoor(withStores(body, deps)));
   });
 
   app.post('/execution/oms/tca-parent', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsTcaDoorBody;
     return reply.send(handleOmsTcaParentDoor(withStores(body, deps)));
   });
 
   app.post('/execution/oms/tca-markouts', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsTcaDoorBody;
     return reply.send(handleOmsTcaMarkoutsDoor(withStores(body, deps)));

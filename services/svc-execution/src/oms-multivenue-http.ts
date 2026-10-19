@@ -7,7 +7,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { refuseLiveOmsMultivenue, type OmsMultivenueRefusal } from './oms-multivenue-refuse.js';
 import { planOmsRoute, type OmsPlanInput, type OmsPlanResult } from './oms-plan.js';
-import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
+import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type OmsMultivenueDoorBody = {
   readonly kind?: string | null;
@@ -32,6 +32,7 @@ export type OmsMultivenueDoorDeps = {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
   readonly internalSecret?: string | null;
+  readonly s2s?: OmsWriteS2s;
   readonly wiredVenueIds?: readonly string[];
 };
 
@@ -123,21 +124,21 @@ export async function handleOmsPlanDoor(body: OmsMultivenueDoorBody): Promise<Om
 
 export function registerOmsMultivenueDoor(app: FastifyInstance, deps: OmsMultivenueDoorDeps): void {
   app.post('/execution/oms/best-ex-claim', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsMultivenueDoorBody;
     return reply.send(handleOmsBestExClaimDoor(withWired(body, deps)));
   });
 
   app.post('/execution/oms/dex-route', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsMultivenueDoorBody;
     return reply.send(handleOmsDexRouteDoor(withWired(body, deps)));
   });
 
   app.post('/execution/oms/plan', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     const body = (req.body ?? {}) as OmsMultivenueDoorBody;
     return reply.send(await handleOmsPlanDoor(withWired(body, deps)));

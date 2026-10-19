@@ -5,7 +5,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { refuseUnsetBuyingPower, type OmsBuyingPowerRefusal } from './oms-buying-power.js';
-import { authorizeOmsWriteRequest } from './oms-write-hmac.js';
+import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type OmsBuyingPowerDoorBody = {
   readonly buyingPower?: unknown;
@@ -31,6 +31,7 @@ export type OmsBuyingPowerDoorDeps = {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
   readonly internalSecret?: string | null;
+  readonly s2s?: OmsWriteS2s;
 };
 
 /** Pure door — tests call this. Missing/blank/invalid buying power refuses. Never slices. */
@@ -40,7 +41,7 @@ export function handleOmsBuyingPowerDoor(body: OmsBuyingPowerDoorBody): OmsBuyin
 
 export function registerOmsBuyingPowerDoor(app: FastifyInstance, deps: OmsBuyingPowerDoorDeps): void {
   app.post('/execution/oms/buying-power', async (req, reply) => {
-    const auth = authorizeOmsWriteRequest(req, deps.internalSecret);
+    const auth = authorizeOmsWriteRequest(req, deps.internalSecret, deps.s2s);
     if (!auth.ok) return reply.code(auth.status).send(auth.body);
     return reply.send(handleOmsBuyingPowerDoor(buyingPowerDoorBody(req.body)));
   });
