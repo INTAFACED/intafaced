@@ -313,6 +313,33 @@ if (!available) {
       await expect(c.apiKeys.revoke({ keyId: created.id })).resolves.toEqual({ revoked: true });
     });
 
+    it('concurrent narrowing requests cannot add up to an open allowlist without a factor', async () => {
+      const session = await register();
+      await enrolTotp(session.userId);
+      const c = await caller(session);
+      const rounds = 25;
+      for (let i = 0; i < rounds; i++) {
+        const created = await c.apiKeys.create({ name: `bot-${i}`, scopes: ['trade:read'], factorProof: await freshProof(session) });
+        await c.bindApiKeyIpAllowlist({ keyId: created.id, ips: ['203.0.113.1'] });
+        await c.bindApiKeyIpAllowlist({
+          keyId: created.id,
+          ips: ['203.0.113.1', '203.0.113.2'],
+          factorProof: await freshProof(session, 'ip_allowlist_widen', { keyId: created.id }),
+        });
+        const auditBefore = await auditCount(session.userId);
+        const results = await Promise.allSettled([
+          c.unbindApiKeyIpAllowlist({ keyId: created.id, ip: '203.0.113.1' }),
+          c.unbindApiKeyIpAllowlist({ keyId: created.id, ip: '203.0.113.2' }),
+        ]);
+        const rows = await db.sql<Array<{ ip_allowlist: string[] }>>`SELECT ip_allowlist FROM api_keys WHERE id = ${created.id}`;
+        // One request narrows; the other would empty the list, which needs a factor and is refused.
+        expect(rows[0]!.ip_allowlist).toHaveLength(1);
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+        expect(await auditCount(session.userId)).toBe(auditBefore);
+      }
+    });
+
     it('refuses the other mint, rotate and secret doors without a factor', async () => {
       const session = await register();
       await enrolTotp(session.userId);

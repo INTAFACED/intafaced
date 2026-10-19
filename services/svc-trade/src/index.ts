@@ -16,6 +16,7 @@ import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createLedgerClient } from './ledger-client.js';
+import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
@@ -115,6 +116,7 @@ import { parseCopyFeeShareLawJson, parseCopyJurisdictionLawJson } from './copy/f
 import { parseCopyDisclosureLawJson } from './copy/disclosure.js';
 import { CopyService } from './copy/copy-service.js';
 import { SqlCopyFollowStore } from './copy/follow-store.js';
+import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
@@ -180,6 +182,7 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
+registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET });
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
@@ -307,6 +310,15 @@ const copy = new CopyService(ledger, {
     const createdAt = row.created_at instanceof Date ? row.created_at : new Date(row.created_at);
     return { fillId: row.id, userId: row.user_id, feeAsset: row.fee_asset, feeAmount: parseAmount(row.fee_amount), createdAt };
   },
+  sql,
+  mirrorEvents: new SqlMirrorEventLog(sql),
+  lookupMark: async (marketId) => {
+    const depth = await matching.depth(marketId, 1);
+    const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
+    const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
+    if (bid === null || ask === null || bid <= 0n || ask <= 0n) return null;
+    return { marketId, price: (bid + ask) / 2n, asOf: new Date(), quality: 'mid' as const };
+  },
   lookupLeaderFill: async (fillId) => {
     const id = canonicalizeCopyFillId(fillId);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
@@ -333,6 +345,7 @@ const copy = new CopyService(ledger, {
     };
   },
 });
+trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -884,6 +897,7 @@ registerPrivateRest(app, {
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
+  copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   icebergDisplay: sqlIcebergDisplay(sql),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

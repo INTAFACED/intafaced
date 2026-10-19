@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "pnpm --filter @intafaced/svc-trade^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
+    "typecheck": "node --input-type=module -e \"import {existsSync} from 'node:fs'; process.exit(['auth','config','contracts','db','events','exchange-contract','greeks-adapter','ledger-client','telemetry','venue-adapter','venue-contracts'].some((n)=>!existsSync('../../packages/'+n+'/dist/index.d.ts'))?1:0)\" || pnpm --filter @intafaced/svc-trade^... run --if-present build && tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
