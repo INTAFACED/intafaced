@@ -243,5 +243,22 @@ describe('pay action-approval consume', () => {
         globalThis.fetch = realFetch;
       }
     });
+
+    it('through the identity client: a 200 reply for a different payload than the request is refused', async () => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        const input = JSON.parse(String(init?.body)) as ActionApprovalConsumeInput;
+        const other = { ...input, payloadHash: 'sha256:someone-elses-action' };
+        return new Response(JSON.stringify({ result: { data: consumeResult(other, 'CONSUMED', 'founder-b', FOUNDERS, 'founder-a') } }), {
+          status: 200,
+        });
+      }) as typeof fetch;
+      try {
+        const client = createIdentityApprovalClient('http://identity.test', 'test-internal-service-secret-32ch!!');
+        await expect(consume(client)).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+      } finally {
+        globalThis.fetch = realFetch;
+      }
+    });
   });
 });
