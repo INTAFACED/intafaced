@@ -7,33 +7,18 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
-import type { FastifyInstance } from 'fastify';
 import { type PlaceOrderInput } from './trade-service.js';
-import { attachReduceOnlyStash, installReduceOnlyPlace } from './reduce-only-place.js';
-import { bindBracket } from './bracket-place.js';
-import { bindOco } from './oco-place.js';
+import { bindReduceOnly, installReduceOnlyPlace } from './reduce-only-place.js';
+import { carryPlacementBody } from './placement-extras.js';
+import { bindBracket, readBracketFromBody } from './bracket-place.js';
+import { bindOco, readOcoFromBody } from './oco-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
-import { TradeError, type Market } from './types.js';
+import type { Market } from './types.js';
 
 installReduceOnlyPlace(TradeService);
 
-describe('reduce-only hitch mounts bracket stash', () => {
-  it('pins stashBracketFromBody next to stashOcoFromBody (bracket first)', () => {
-    const src = readFileSync(fileURLToPath(new URL('./reduce-only-place.ts', import.meta.url)), 'utf8');
-    expect(src).toMatch(/stashBracketFromBody\(rec\)/);
-    expect(src).toMatch(/stashOcoFromBody\(rec\)/);
-    expect(src.indexOf('stashBracketFromBody(rec)')).toBeLessThan(src.indexOf('stashOcoFromBody(rec)'));
-  });
-
-  it('preValidation stashes a bracket body so bindBracket restores legs', () => {
-    const hooks: Array<(req: { body: unknown }, _reply: unknown, done: (err?: Error) => void) => void> = [];
-    const app = {
-      addHook: (_name: string, fn: (typeof hooks)[number]) => {
-        hooks.push(fn);
-      },
-    } as unknown as FastifyInstance;
-    attachReduceOnlyStash(app);
-    expect(hooks.length).toBeGreaterThanOrEqual(1);
+describe('a request carries its bracket and OCO legs to the order', () => {
+  it('a bracket body restores its legs through bindBracket and is not also read as an OCO', () => {
     const body: Record<string, unknown> = {
       bracket: true,
       takeProfit: '110',
@@ -45,75 +30,36 @@ describe('reduce-only hitch mounts bracket stash', () => {
       amount: '1',
       price: '100',
     };
-    let doneErr: Error | undefined;
-    hooks[0]!({ body }, {}, (err) => {
-      doneErr = err;
-    });
-    expect(doneErr).toBeUndefined();
-    expect(body.bracket).toBeUndefined();
-    expect(body.takeProfit).toBeUndefined();
-    expect(body.stopLoss).toBeUndefined();
-    const bound = bindBracket({
-      clientOrderId: 'brkt-hitch',
-      side: 'buy',
-      type: 'limit',
-      qty: amt('1'),
-    } as PlaceOrderInput);
+    const carried = carryPlacementBody({ clientOrderId: 'brkt-hitch', side: 'buy', type: 'limit', qty: amt('1') } as PlaceOrderInput, body);
+    const bound = bindBracket(carried);
     expect(bound.bracket).toBe(true);
     expect(bound.takeProfit).toEqual({ stopPrice: '110' });
     expect(bound.stopLoss).toEqual({ stopPrice: '90' });
+    expect(readOcoFromBody(body)).toBeNull();
+    expect(bindOco(carried).oco).toBeUndefined();
   });
 
-  it('preValidation refuses IEEE 0.1 on a bracket body instead of placing GTC', () => {
-    const hooks: Array<(req: { body: unknown }, _reply: unknown, done: (err?: Error) => void) => void> = [];
-    const app = {
-      addHook: (_name: string, fn: (typeof hooks)[number]) => {
-        hooks.push(fn);
-      },
-    } as unknown as FastifyInstance;
-    attachReduceOnlyStash(app);
-    const body: Record<string, unknown> = {
-      bracket: true,
-      takeProfit: 0.1,
-      stopLoss: '90',
-      clientOrderId: 'brkt-hitch-ieee',
-    };
-    let doneErr: Error | undefined;
-    hooks[0]!({ body }, {}, (err) => {
-      doneErr = err;
-    });
-    expect(doneErr).toBeInstanceOf(TradeError);
-    expect((doneErr as TradeError).code).toBe('trade.ieee_money');
+  it('refuses IEEE 0.1 on a bracket body instead of placing GTC', () => {
+    const body: Record<string, unknown> = { bracket: true, takeProfit: 0.1, stopLoss: '90', clientOrderId: 'brkt-hitch-ieee' };
+    expect(() => readBracketFromBody(body)).toThrow(expect.objectContaining({ code: 'trade.ieee_money' }));
     expect(body.bracket).toBe(true);
   });
 
-  it('preValidation still stashes OCO after the bracket hitch', () => {
-    const hooks: Array<(req: { body: unknown }, _reply: unknown, done: (err?: Error) => void) => void> = [];
-    const app = {
-      addHook: (_name: string, fn: (typeof hooks)[number]) => {
-        hooks.push(fn);
-      },
-    } as unknown as FastifyInstance;
-    attachReduceOnlyStash(app);
-    const body: Record<string, unknown> = {
-      oco: true,
-      takeProfit: '110',
-      stopLoss: '90',
-      clientOrderId: 'oco-hitch',
-    };
-    let doneErr: Error | undefined;
-    hooks[0]!({ body }, {}, (err) => {
-      doneErr = err;
-    });
-    expect(doneErr).toBeUndefined();
-    const bound = bindOco({
-      clientOrderId: 'oco-hitch',
-      side: 'sell',
-      type: 'limit',
-      qty: amt('1'),
-    } as PlaceOrderInput);
+  it('an OCO body restores its legs through bindOco', () => {
+    const body: Record<string, unknown> = { oco: true, takeProfit: '110', stopLoss: '90', clientOrderId: 'oco-hitch' };
+    expect(readBracketFromBody(body)).toBeNull();
+    const bound = bindOco(
+      carryPlacementBody({ clientOrderId: 'oco-hitch', side: 'sell', type: 'limit', qty: amt('1') } as PlaceOrderInput, body),
+    );
     expect(bound.oco).toBe(true);
     expect(bound.takeProfit).toEqual({ stopPrice: '110' });
+  });
+
+  it('a reduce-only body reaches bindReduceOnly and nothing else does', () => {
+    const input = { clientOrderId: 'ro-1', side: 'sell', type: 'limit', qty: amt('1') } as PlaceOrderInput;
+    expect(bindReduceOnly(carryPlacementBody(input, { reduceOnly: true, clientOrderId: 'ro-1' })).reduceOnly).toBe(true);
+    expect(bindReduceOnly(carryPlacementBody(input, { clientOrderId: 'ro-1' })).reduceOnly).toBeUndefined();
+    expect(bindReduceOnly(input).reduceOnly).toBeUndefined();
   });
 });
 

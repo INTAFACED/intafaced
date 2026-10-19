@@ -1,9 +1,8 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a post-only through the matching door already on main.
@@ -24,27 +23,10 @@ import { attachStashRelease, stashSet } from './stash-scope.js';
 type PlaceWithPo = PlaceOrderInput & { postOnly?: boolean; price?: unknown };
 
 const FLAG = Symbol.for('intafaced.trade.postOnlyPlace');
-const poByClient = new Map<string, true>();
 
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__po:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
-
-export function attachPostOnlyStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (rec.postOnly === true || rec.timeInForce === 'PO' || rec.tif === 'PO') {
-        stashSet(req, poByClient, stashKey(rec), true);
-        delete rec.postOnly;
-      }
-    }
-    done();
-  });
+/** True when this request's own body asks for it. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): boolean {
+  return body !== null && (body.postOnly === true || body.timeInForce === 'PO' || body.tif === 'PO');
 }
 
 export function bindPostOnly(input: PlaceOrderInput): PlaceWithPo {
@@ -52,18 +34,7 @@ export function bindPostOnly(input: PlaceOrderInput): PlaceWithPo {
   if (extra.tif === 'PO' || extra.postOnly === true) {
     return { ...extra, tif: 'PO' };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: rec.price,
-  });
-  if (!poByClient.has(key)) return extra;
-  poByClient.delete(key);
+  if (!stashedFor(carriedPlacementBody(extra))) return extra;
   return { ...extra, tif: 'PO' };
 }
 

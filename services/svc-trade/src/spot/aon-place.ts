@@ -1,9 +1,8 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place all-or-none through the matching door that landed in #3312.
@@ -18,15 +17,8 @@ type PlaceWithAon = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.aonPlace');
-const stash = new Map<string, { aon: boolean | null }>();
 
 export const AON_ICEBERG = 'aon_iceberg' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__aon:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsAon(rec: Record<string, unknown>): boolean {
   return rec.aon !== undefined;
@@ -46,18 +38,10 @@ export function aonIcebergRefuse(aon: boolean, iceberg: boolean): TradeError | n
   return new TradeError('all-or-none cannot hide a stub behind a display; trade does not invent a fill', 'trade.aon_iceberg');
 }
 
-export function attachAonStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsAon(rec)) {
-        stashSet(req, stash, stashKey(rec), { aon: rec.aon === true ? true : rec.aon == null ? null : Boolean(rec.aon) });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { aon: boolean | null } | null {
+  if (!body || !wantsAon(body)) return null;
+  return { aon: body.aon === true ? true : body.aon == null ? null : Boolean(body.aon) };
 }
 
 export function bindAon(input: PlaceOrderInput): PlaceWithAon {
@@ -65,19 +49,8 @@ export function bindAon(input: PlaceOrderInput): PlaceWithAon {
   if (wantsAon(extra as unknown as Record<string, unknown>)) {
     return { ...extra, aon: extra.aon ?? null };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return { ...extra, aon: hit.aon };
 }
 

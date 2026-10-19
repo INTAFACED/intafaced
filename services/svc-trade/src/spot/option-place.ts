@@ -1,12 +1,11 @@
 import { requireScope, type Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError, type AmendOrderOutcome, type OrderRecord } from './types.js';
 import { TradeService, type AmendOrderInput, type PlaceOrderInput } from './trade-service.js';
 import { installNativeQtyUpAmend } from './qty-up-amend.js';
 import type { EngineAmendRequest, EngineCancellation, EngineFill, EngineSubmitRequest, MatchingClient } from './matching-client.js';
 import type { Market } from './types.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place an option through the matching door that landed in #3484.
@@ -43,30 +42,11 @@ type AmendWithOption = AmendOrderInput & {
 
 const FLAG = Symbol.for('intafaced.trade.optionPlace');
 const AMEND_FLAG = Symbol.for('intafaced.trade.optionAmend');
-const stash = new Map<
-  string,
-  {
-    strike: string | null;
-    expiry: string | null;
-    exercise?: boolean;
-    assign?: boolean;
-    cover?: boolean;
-    cancel?: boolean;
-    amend?: boolean;
-    now?: string | null;
-  }
->();
 
 export const STRIKE_MISSING = 'missing_strike' as const;
 export const EXPIRY_MISSING = 'missing_expiry' as const;
 export const QTY_MISSING = 'missing_qty' as const;
 export const PRICE_MISSING = 'missing_price' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__opt:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsOption(rec: Record<string, unknown>): boolean {
   return rec.type === 'option' || rec.strike !== undefined || rec.expiry !== undefined;
@@ -146,35 +126,38 @@ export function priceRefuse(price: Amount | null | undefined): TradeError | null
   return null;
 }
 
-export function attachOptionStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (
-        wantsOption(rec) ||
-        rec.exercise === true ||
-        rec.assign === true ||
-        rec.cover === true ||
-        rec.cancel === true ||
-        rec.amend === true ||
-        rec.now != null
-      ) {
-        stashSet(req, stash, stashKey(rec), {
-          strike: rec.strike == null || rec.strike === '' ? null : String(rec.strike),
-          expiry: rec.expiry == null || rec.expiry === '' ? null : String(rec.expiry),
-          exercise: rec.exercise === true,
-          assign: rec.assign === true,
-          cover: rec.cover === true,
-          cancel: rec.cancel === true,
-          amend: rec.amend === true,
-          now: rec.now == null || rec.now === '' ? null : String(rec.now),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): {
+  strike: string | null;
+  expiry: string | null;
+  exercise: boolean;
+  assign: boolean;
+  cover: boolean;
+  cancel: boolean;
+  amend: boolean;
+  now: string | null;
+} | null {
+  if (!body) return null;
+  if (!(
+    wantsOption(body) ||
+    body.exercise === true ||
+    body.assign === true ||
+    body.cover === true ||
+    body.cancel === true ||
+    body.amend === true ||
+    body.now != null
+  ))
+    return null;
+  return {
+    strike: body.strike == null || body.strike === '' ? null : String(body.strike),
+    expiry: body.expiry == null || body.expiry === '' ? null : String(body.expiry),
+    exercise: body.exercise === true,
+    assign: body.assign === true,
+    cover: body.cover === true,
+    cancel: body.cancel === true,
+    amend: body.amend === true,
+    now: body.now == null || body.now === '' ? null : String(body.now),
+  };
 }
 
 export function bindOption(input: PlaceOrderInput): PlaceWithOption {
@@ -202,19 +185,8 @@ export function bindOption(input: PlaceOrderInput): PlaceWithOption {
   if (extra.now != null) {
     return { ...extra, now: readNow(extra) };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     type: extra.type === 'option' ? 'limit' : extra.type,

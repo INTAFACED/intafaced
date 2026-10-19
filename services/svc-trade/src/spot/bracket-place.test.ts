@@ -8,11 +8,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import { type PlaceOrderInput } from './trade-service.js';
+import { carryPlacementBody } from './placement-extras.js';
 import {
   bindBracket,
   entryRefuse,
   installBracketPlace,
-  stashBracketFromBody,
+  readBracketFromBody,
   stopLossRefuse,
   takeProfitRefuse,
   wantsBracket,
@@ -48,14 +49,14 @@ describe('bracket place helpers', () => {
   });
 
   it('refuses a JSON number stopPrice — IEEE 0.1 is not a decimal string', () => {
-    const err = thrownTrade(() => stashBracketFromBody({ bracket: true, takeProfit: 0.1, stopLoss: '90', clientOrderId: 'brkt-ieee' }));
+    const err = thrownTrade(() => readBracketFromBody({ bracket: true, takeProfit: 0.1, stopLoss: '90', clientOrderId: 'brkt-ieee' }));
     expect(err.code).toBe('trade.ieee_money');
     expect(err.message).toMatch(/JSON number/);
   });
 
   it('refuses a JSON number nested stopPrice', () => {
     const err = thrownTrade(() =>
-      stashBracketFromBody({
+      readBracketFromBody({
         bracket: true,
         takeProfit: { stopPrice: 0.1 },
         stopLoss: { stopPrice: '90' },
@@ -67,7 +68,7 @@ describe('bracket place helpers', () => {
 
   it('refuses bracket when clientOrderId is missing — does not strip-and-place', () => {
     const rec: Record<string, unknown> = { bracket: true, takeProfit: '110', stopLoss: '90' };
-    const err = thrownTrade(() => stashBracketFromBody(rec));
+    const err = thrownTrade(() => readBracketFromBody(rec));
     expect(err.code).toBe('trade.client_order_id_required');
     expect(rec.bracket).toBe(true);
     expect(rec.takeProfit).toBe('110');
@@ -80,14 +81,15 @@ describe('bracket place helpers', () => {
     expect(src).not.toMatch(/String\(raw\)/);
   });
 
-  it('stashes a decimal-string 0.1 and bindBracket restores it', () => {
-    stashBracketFromBody({ bracket: true, takeProfit: '0.1', stopLoss: '90', clientOrderId: 'brkt-str-01' });
-    const bound = bindBracket({
-      clientOrderId: 'brkt-str-01',
-      side: 'buy',
-      type: 'limit',
-      qty: amt('1'),
-    } as PlaceOrderInput);
+  it('carries a decimal-string 0.1 and bindBracket restores it', () => {
+    const bound = bindBracket(
+      carryPlacementBody({ clientOrderId: 'brkt-str-01', side: 'buy', type: 'limit', qty: amt('1') } as PlaceOrderInput, {
+        bracket: true,
+        takeProfit: '0.1',
+        stopLoss: '90',
+        clientOrderId: 'brkt-str-01',
+      }),
+    );
     expect(bound.bracket).toBe(true);
     expect(bound.takeProfit).toEqual({ stopPrice: '0.1' });
     expect(bound.stopLoss).toEqual({ stopPrice: '90' });

@@ -1,10 +1,9 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { formatAmount, parseAmount, ZERO, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a min qty through the matching door that landed in #3305.
@@ -17,15 +16,8 @@ type PlaceWithMinQty = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.minQtyPlace');
-const stash = new Map<string, { minQty: string | null }>();
 
 export const MIN_QTY_EXCEEDS = 'min_qty_exceeds_qty' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__mq:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsMinQty(rec: Record<string, unknown>): boolean {
   return rec.minQty !== undefined;
@@ -45,20 +37,10 @@ export function minQtyRefuse(qty: Amount, minQty: Amount | null): TradeError | n
   return null;
 }
 
-export function attachMinQtyStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsMinQty(rec)) {
-        stashSet(req, stash, stashKey(rec), {
-          minQty: rec.minQty == null || rec.minQty === '' ? null : String(rec.minQty),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): { minQty: string | null } | null {
+  if (!body || !wantsMinQty(body)) return null;
+  return { minQty: body.minQty == null || body.minQty === '' ? null : String(body.minQty) };
 }
 
 export function bindMinQty(input: PlaceOrderInput): PlaceWithMinQty {
@@ -66,19 +48,8 @@ export function bindMinQty(input: PlaceOrderInput): PlaceWithMinQty {
   if (wantsMinQty(extra as unknown as Record<string, unknown>)) {
     return { ...extra, minQty: extra.minQty ?? null };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return {
     ...extra,
     minQty: hit.minQty == null ? null : parseAmount(hit.minQty),

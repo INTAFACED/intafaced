@@ -1,10 +1,9 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineCancellation, EngineFill, EngineSubmitRequest } from './matching-client.js';
 import type { Market } from './types.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place an IOC through the matching door that just landed.
@@ -14,50 +13,23 @@ import { attachStashRelease, stashSet } from './stash-scope.js';
 type PlaceWithIoc = PlaceOrderInput & { tif?: string };
 
 const FLAG = Symbol.for('intafaced.trade.iocPlace');
-const iocByClient = new Map<string, true>();
 
 export const IOC_REMAINDER = 'ioc_remainder' as const;
 export const MARKET_REMAINDER = 'market_remainder' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__ioc:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function isIoc(tif: unknown): boolean {
   return tif === 'IOC';
 }
 
-export function attachIocStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (isIoc(rec.timeInForce) || isIoc(rec.tif)) {
-        stashSet(req, iocByClient, stashKey(rec), true);
-      }
-    }
-    done();
-  });
+/** True when this request's own body asks for it. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): boolean {
+  return body !== null && (isIoc(body.timeInForce) || isIoc(body.tif));
 }
 
 export function bindIoc(input: PlaceOrderInput): PlaceWithIoc {
   const extra = input as PlaceWithIoc;
   if (isIoc(extra.tif)) return { ...extra, tif: 'IOC' };
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: rec.price,
-  });
-  if (!iocByClient.has(key)) return extra;
-  iocByClient.delete(key);
+  if (!stashedFor(carriedPlacementBody(extra))) return extra;
   return { ...extra, tif: 'IOC' };
 }
 

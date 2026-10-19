@@ -1,12 +1,7 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
-import { claimOcoStash, stashOcoFromBody } from './oco-place.js';
-import { stashBracketFromBody } from './bracket-place.js';
-import { attachBoundClosePosition } from './close-position.js';
-import { TradeError } from './types.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place a reduce-only through the matching door that landed in #3237.
@@ -24,53 +19,16 @@ import { attachStashRelease, stashSet } from './stash-scope.js';
 type PlaceWithRo = PlaceOrderInput & { reduceOnly?: boolean };
 
 const FLAG = Symbol.for('intafaced.trade.reduceOnlyPlace');
-const roByClient = new Map<string, true>();
 
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__ro:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
-
-export function attachReduceOnlyStash(app: FastifyInstance): void {
-  app.addHook('preValidation', (req, _reply, done) => {
-    try {
-      const body = req.body;
-      if (body && typeof body === 'object') {
-        const rec = body as Record<string, unknown>;
-        if (rec.reduceOnly === true) {
-          stashSet(req, roByClient, stashKey(rec), true);
-          delete rec.reduceOnly;
-        }
-        stashBracketFromBody(rec);
-        stashOcoFromBody(rec);
-        claimOcoStash(req, rec);
-      }
-      done();
-    } catch (err) {
-      if (err instanceof TradeError) Object.assign(err, { statusCode: 400 });
-      done(err as Error);
-    }
-  });
-  attachStashRelease(app);
-  attachBoundClosePosition(app);
+/** True when this request's own body asks for it. */
+function stashedFor(body: Readonly<Record<string, unknown>> | null): boolean {
+  return body !== null && body.reduceOnly === true;
 }
 
 export function bindReduceOnly(input: PlaceOrderInput): PlaceWithRo {
   const extra = input as PlaceWithRo;
   if (extra.reduceOnly === true) return extra;
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: rec.price,
-  });
-  if (!roByClient.has(key)) return extra;
-  roByClient.delete(key);
+  if (!stashedFor(carriedPlacementBody(extra))) return extra;
   return { ...extra, reduceOnly: true };
 }
 

@@ -1,9 +1,8 @@
 import type { Principal } from '@intafaced/auth';
-import type { FastifyInstance } from 'fastify';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
-import { attachStashRelease, stashSet } from './stash-scope.js';
+import { carriedPlacementBody } from './placement-extras.js';
 
 /**
  * Place peg / midpoint / relative through the matching door that landed in #3318.
@@ -18,17 +17,10 @@ type PlaceWithPeg = PlaceOrderInput & {
 };
 
 const FLAG = Symbol.for('intafaced.trade.pegPlace');
-const stash = new Map<string, { peg: boolean | null; midpoint: boolean | null; relative: boolean | null }>();
 
 export const PEG_UNSUPPORTED = 'peg_unsupported' as const;
 export const MIDPOINT_UNSUPPORTED = 'midpoint_unsupported' as const;
 export const RELATIVE_UNSUPPORTED = 'relative_unsupported' as const;
-
-function stashKey(rec: Record<string, unknown>): string {
-  const client = rec.clientOrderId;
-  if (typeof client === 'string' && client.length > 0) return client;
-  return `__peg:${String(rec.symbol ?? '')}:${String(rec.side ?? '')}:${String(rec.type ?? '')}:${String(rec.amount ?? rec.qty ?? '')}:${String(rec.price ?? '')}`;
-}
 
 function wantsPegIntent(rec: Record<string, unknown>): boolean {
   return rec.peg !== undefined || rec.midpoint !== undefined || rec.relative !== undefined;
@@ -77,22 +69,16 @@ export function pegIntentRefuse(order: {
   return pegRefuse(readPeg(order)) ?? midpointRefuse(readMidpoint(order)) ?? relativeRefuse(readRelative(order));
 }
 
-export function attachPegStash(app: FastifyInstance): void {
-  attachStashRelease(app);
-  app.addHook('preValidation', (req, _reply, done) => {
-    const body = req.body;
-    if (body && typeof body === 'object') {
-      const rec = body as Record<string, unknown>;
-      if (wantsPegIntent(rec)) {
-        stashSet(req, stash, stashKey(rec), {
-          peg: rec.peg === undefined ? null : flagFromRaw(rec.peg),
-          midpoint: rec.midpoint === undefined ? null : flagFromRaw(rec.midpoint),
-          relative: rec.relative === undefined ? null : flagFromRaw(rec.relative),
-        });
-      }
-    }
-    done();
-  });
+/** What this request's own body asks for; null when it asks for nothing. */
+function stashedFor(
+  body: Readonly<Record<string, unknown>> | null,
+): { peg: boolean | null; midpoint: boolean | null; relative: boolean | null } | null {
+  if (!body || !wantsPegIntent(body)) return null;
+  return {
+    peg: body.peg === undefined ? null : flagFromRaw(body.peg),
+    midpoint: body.midpoint === undefined ? null : flagFromRaw(body.midpoint),
+    relative: body.relative === undefined ? null : flagFromRaw(body.relative),
+  };
 }
 
 export function bindPeg(input: PlaceOrderInput): PlaceWithPeg {
@@ -105,19 +91,8 @@ export function bindPeg(input: PlaceOrderInput): PlaceWithPeg {
       relative: extra.relative ?? null,
     };
   }
-  const rec = extra as unknown as Record<string, unknown>;
-  const key = stashKey({
-    clientOrderId: extra.clientOrderId,
-    symbol: rec.symbol,
-    side: extra.side,
-    type: extra.type,
-    amount: rec.amount,
-    qty: rec.qty,
-    price: extra.price,
-  });
-  const hit = stash.get(key);
+  const hit = stashedFor(carriedPlacementBody(extra));
   if (!hit) return extra;
-  stash.delete(key);
   return { ...extra, peg: hit.peg, midpoint: hit.midpoint, relative: hit.relative };
 }
 
