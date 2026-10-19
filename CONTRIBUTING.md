@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after the required checks (`CI merge seal`, Gitleaks, Dependency audit) pass, or the seal failed only on checks that AGENTS.md ("Check, then merge", item 3) accepts, and the independent review passed that same head (AGENTS.md item 8). `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` is the local check; see AGENTS.md item 2. It never merges: run the merge as its own step.
+Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and passed, or failed only on checks that AGENTS.md ("Check, then merge", items 2 and 3) accepts, and the independent review passed that same head. The gate never merges: run the merge command it prints as its own step. GitHub itself requires the `CI merge seal` (which includes Doctrine gates), Gitleaks and Dependency audit, with no bypass; a red seal is re-run or fixed before the merge.
 
 ---
 
