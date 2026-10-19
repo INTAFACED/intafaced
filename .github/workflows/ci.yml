@@ -161,6 +161,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
       - run: node tooling/ci/review-marker.mjs --self-test
+      - run: node tooling/ci/main-trust.mjs --self-test
+      - run: node tooling/ci/test-diff-guard.mjs --self-test
+      - run: node tooling/ci/cross-package-reads.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
