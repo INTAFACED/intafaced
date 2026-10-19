@@ -23,6 +23,10 @@ function store(users: UserRow[], keys: KeyRow[]) {
       }
       return [];
     }
+    if (text.includes('update sessions')) {
+      writes += 1;
+      return [];
+    }
     if (text.includes('update api_keys')) {
       writes += 1;
       const named = values[0];
