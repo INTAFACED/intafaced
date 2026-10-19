@@ -9,12 +9,14 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { allocate, type PortfolioAllocation } from './allocation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import {
   PRICES_UNAVAILABLE_COPY,
   holdingsFromBalances,
   needsPrices,
   valuePortfolio,
+  type Holding,
   type PortfolioSummary,
   type PriceBook,
   type TickerMap,
@@ -155,6 +157,16 @@ export class PortfolioService {
 
   /** The caller's own total only: `userId` is the verified principal, never input. */
   async summary(userId: string): Promise<PortfolioSummary> {
+    return (await this.valued(userId)).summary;
+  }
+
+  /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
+  async allocation(userId: string): Promise<PortfolioAllocation> {
+    const { summary, holdings } = await this.valued(userId);
+    return allocate(summary, holdings);
+  }
+
+  private async valued(userId: string): Promise<{ summary: PortfolioSummary; holdings: Holding[] }> {
     const rows = await this.everythingOwnedBy(userId);
     const holdings = holdingsFromBalances(rows);
     let prices: PriceBook = { tickers: new Map() as TickerMap, listed: new Set() };
@@ -166,7 +178,7 @@ export class PortfolioService {
         throw err instanceof BankError ? err : unavailable();
       }
     }
-    return valuePortfolio({ holdings, tickers: prices.tickers, listed: prices.listed, nowMs: this.now().getTime() });
+    return { summary: valuePortfolio({ holdings, tickers: prices.tickers, listed: prices.listed, nowMs: this.now().getTime() }), holdings };
   }
 
   /**
