@@ -547,6 +547,7 @@ const holdUnknownSweep = startHoldUnknownSweepJobs({
     intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onBracketAlert: (r) => app.log.error(r, 'bracket exit sweep — a filled entry has no exit (grant gone) or an exit could not be placed'),
   onResult: (r) => {
     if (r.alerts.length === 0) return;
     app.log.error(

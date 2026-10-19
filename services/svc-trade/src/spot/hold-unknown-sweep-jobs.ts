@@ -19,10 +19,13 @@ export interface HoldUnknownSweepJobsConfig {
 export interface HoldUnknownSweepJobsDeps {
   trade: {
     sweepHoldUnknown(limit?: number): Promise<HoldUnknownSweepResult>;
+    /** Resting bracket entries: place exits for filled ones, cancel entries before their grant lapses. */
+    sweepBracketExits?(graceMs: number, limit?: number): Promise<{ unavailable: number; failed: number }>;
   };
   config: HoldUnknownSweepJobsConfig;
   onError?: (name: string, err: unknown) => void;
   onResult?: (result: HoldUnknownSweepResult) => void;
+  onBracketAlert?: (result: { unavailable: number; failed: number }) => void;
 }
 
 export interface HoldUnknownSweepJobsHandle {
@@ -42,6 +45,15 @@ export function startHoldUnknownSweepJobs(deps: HoldUnknownSweepJobsDeps): HoldU
     const result = await deps.trade.sweepHoldUnknown();
     deps.onResult?.(result);
   });
+
+  if (deps.trade.sweepBracketExits) {
+    const sweep = deps.trade.sweepBracketExits.bind(deps.trade);
+    // Cancel a resting entry two ticks before its grant lapses, so one missed tick cannot strand a fill.
+    host.every('trade.bracket_exit_sweep', deps.config.intervalMs, async () => {
+      const result = await sweep(deps.config.intervalMs * 2);
+      if (result.unavailable > 0 || result.failed > 0) deps.onBracketAlert?.(result);
+    });
+  }
 
   return { host, stop: () => host.stopAll() };
 }

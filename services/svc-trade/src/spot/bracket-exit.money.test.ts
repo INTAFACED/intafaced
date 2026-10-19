@@ -200,11 +200,130 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     expect(await avail(ALICE, 'USDT')).toBe('1000');
   });
 
-  it('refuses a resting entry: its exit could not be placed later without a stored grant', async () => {
-    await fund(ALICE, 'USDT', '1000');
-    await expect(trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }))).rejects.toMatchObject({
-      code: 'trade.order_type_unsupported',
+  /** Bob sells `qty` BTC into Alice's resting entry at 100: the engine prints the fill against her order id. */
+  async function bobSellsInto(entryId: string, qty: string, clientOrderId: string) {
+    await fund(BOB, 'BTC', '1');
+    matching.script1((request, next) => {
+      const sequence = next();
+      return {
+        accepted: true,
+        sequence,
+        fills: [
+          {
+            sequence: next(),
+            makerOrderId: entryId,
+            makerAccountId: ALICE,
+            takerOrderId: request.orderId,
+            takerAccountId: BOB,
+            takerSide: 'sell',
+            price: '100',
+            qty,
+          },
+        ],
+        resting: null,
+        rejected: null,
+        cancellations: [],
+        triggered: [],
+      };
     });
+    await trade.placeOrder(principalFor(BOB), {
+      marketId: btcusdt.id,
+      side: 'sell',
+      type: 'limit',
+      qty: amt(qty),
+      price: amt('100'),
+      clientOrderId,
+      tif: 'IOC',
+    });
+  }
+  const grantRow = async (entryId: string) =>
+    (
+      await sql<Array<{ grant_claims: unknown; exit_order_id: string | null }>>`
+        SELECT grant_claims, exit_order_id FROM trade.order_bracket_intent WHERE order_id = ${entryId}
+      `
+    )[0];
+  const sweepable = (service: TradeService) =>
+    service as unknown as { sweepBracketExits: (graceMs: number) => Promise<Record<string, number>> };
+
+  it('accepts a resting entry on a stored place grant and places no exit while it rests', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));
+    expect(entry.status).toBe('open');
+    const row = await grantRow(entry.id);
+    expect(row?.grant_claims).toMatchObject({ scopes: ['trade:write'] });
+    expect(row?.exit_order_id).toBeNull();
+    expect(exitSubmits()).toHaveLength(0);
+    // Far from lapsing: the sweep leaves it alone.
+    const swept = await sweepable(trade).sweepBracketExits(1_000);
+    expect(swept).toMatchObject({ placed: 0, cancelledEntries: 0 });
+  });
+
+  it('a resting entry that fills later gets its exit from the sweep, once, sized to what was received', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));
+    await bobSellsInto(entry.id, '1', 'bob-into-entry');
+    expect((await trade.findOrder(entry.id))?.status).toBe('filled');
+    expect(exitSubmits()).toHaveLength(0);
+
+    expect(await sweepable(trade).sweepBracketExits(1_000)).toMatchObject({ placed: 1, failed: 0 });
+    const exits = exitSubmits();
+    expect(exits).toHaveLength(1);
+    const req = exits[0]!.request as { qty: string; side: string };
+    expect(req.side).toBe('sell');
+    expect(Number(req.qty)).toBeGreaterThan(0.99);
+    expect(Number(req.qty)).toBeLessThanOrEqual(1);
+
+    expect(await sweepable(trade).sweepBracketExits(1_000)).toMatchObject({ placed: 0 });
+    expect(exitSubmits()).toHaveLength(1);
+  });
+
+  it('many resting entries far from their lapse never crowd out a later entry that filled', async () => {
+    await fund(ALICE, 'USDT', '100000');
+    for (let i = 0; i < 3; i += 1) {
+      await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC', clientOrderId: `br-rest-${i}`, qty: amt('0.1') }));
+    }
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC', clientOrderId: 'br-filled' }));
+    await bobSellsInto(entry.id, '1', 'bob-into-entry');
+    // A window of 2 rows: the three resting entries must not occupy it.
+    const swept = await (
+      trade as unknown as { sweepBracketExits: (g: number, l: number) => Promise<Record<string, number>> }
+    ).sweepBracketExits(1_000, 2);
+    expect(swept).toMatchObject({ placed: 1, cancelledEntries: 0 });
+    expect(exitSubmits()).toHaveLength(1);
+  });
+
+  it('cancels a resting entry before its grant lapses and protects only the part that filled', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));
+    await bobSellsInto(entry.id, '0.4', 'bob-into-entry');
+    expect((await trade.findOrder(entry.id))?.status).toBe('open');
+
+    // The credential lapses within the grace window (the test credential lives one hour).
+    expect(await sweepable(trade).sweepBracketExits(2 * 3_600_000)).toMatchObject({ cancelledEntries: 1, placed: 1 });
+    expect(matching.cancelledOrders).toContain(entry.id);
+    expect((await trade.findOrder(entry.id))?.status).toBe('cancelled');
+    const exits = exitSubmits();
+    expect(exits).toHaveLength(1);
+    expect(Number((exits[0]!.request as { qty: string }).qty)).toBeLessThanOrEqual(0.4);
+    expect(Number((exits[0]!.request as { qty: string }).qty)).toBeGreaterThan(0.39);
+  });
+
+  it('never mints a principal when the stored grant has lapsed: a filled entry with no exit is surfaced, not covered', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const entry = await trade.placeOrder(principalFor(ALICE), bracketReq({ tif: 'GTC' }));
+    await bobSellsInto(entry.id, '1', 'bob-into-entry');
+    await sql`UPDATE trade.order_bracket_intent SET grant_expires_at = now() - interval '1 minute' WHERE order_id = ${entry.id}`;
+
+    expect(await sweepable(trade).sweepBracketExits(1_000)).toMatchObject({ placed: 0, unavailable: 1 });
+    expect(exitSubmits()).toHaveLength(0);
+    // Counted once, then no longer swept.
+    expect(await sweepable(trade).sweepBracketExits(1_000)).toMatchObject({ unavailable: 0 });
+  });
+
+  it('refuses a resting entry from a credential with no known expiry: the grant could not be bounded', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const principal = { ...principalFor(ALICE), expiresAt: undefined } as never;
+    await expect(trade.placeOrder(principal, bracketReq({ tif: 'GTC' }))).rejects.toMatchObject({ code: 'trade.order_type_unsupported' });
     expect(matching.submitted).toHaveLength(0);
     expect(await avail(ALICE, 'USDT')).toBe('1000');
   });
