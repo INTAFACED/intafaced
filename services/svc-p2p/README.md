@@ -112,7 +112,7 @@ Every procedure is `scopedProcedure(scope, { module: 'p2p' })`, which checks the
 | `trades.take`                    | `p2p:write`              | **→ `escrowLock`.** Bounds, liquidity **and destination** before any lock                                          |
 | `trades.markFiatSent`            | `p2p:write`              | Buyer only                                                                                                         |
 | `trades.confirmReceived`         | `p2p:write`              | Seller only. **→ `escrowRelease`**                                                                                 |
-| `trades.cancel`                  | `p2p:write`              | **→ `escrowRefund`**, in full                                                                                      |
+| `trades.cancel`                  | `p2p:write`              | **→ `escrowRefund`**, in full; refused from `fiat_sent` (`p2p.cancel_after_paid`)                                  |
 | `trades.get` / `trades.list`     | `p2p:read`               | Never carry a payment instrument — see below                                                                       |
 | `trades.paymentInstrument`       | `p2p:read`               | **Where to send the money.** Party-or-moderator, live escrow only, logged                                          |
 | `disputes.open`                  | `p2p:write`              | Either party. Discloses `ifNobodyRules` + `moderationConfigured` (not reachable)                                   |
@@ -372,14 +372,14 @@ _If it crashes exactly here, whose funds are stranded?_
 
 Source of truth: `src/state.ts` (`timeoutActionFor`, `assertTransition`) + `src/state.test.ts` (full graph).
 
-| Status      | Holds escrow?        | Timeout action                                       | Moves value?       | Who can terminal without clock                                              |
-| ----------- | -------------------- | ---------------------------------------------------- | ------------------ | --------------------------------------------------------------------------- |
-| `created`   | not yet / re-drive   | `settle_or_void` (re-lock, then refund or void)      | yes if lock posted | —                                                                           |
-| `escrowed`  | yes                  | `refund`                                             | yes                | seller cancel; buyer mark fiat sent                                         |
-| `fiat_sent` | yes                  | `open_dispute` (never auto-release)                  | no                 | seller confirm → release; either open dispute; cancel refused once disputed |
-| `disputed`  | yes                  | `escalate_dispute` (re-arm SLA; **no** machine rule) | no                 | natural-person moderator only                                               |
-| `released`  | no (posted)          | none                                                 | —                  | terminal                                                                    |
-| `cancelled` | no (refunded/voided) | none                                                 | —                  | terminal                                                                    |
+| Status      | Holds escrow?        | Timeout action                                       | Moves value?       | Who can terminal without clock                                                                   |
+| ----------- | -------------------- | ---------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------ |
+| `created`   | not yet / re-drive   | `settle_or_void` (re-lock, then refund or void)      | yes if lock posted | —                                                                                                |
+| `escrowed`  | yes                  | `refund`                                             | yes                | seller cancel; buyer mark fiat sent                                                              |
+| `fiat_sent` | yes                  | `open_dispute` (never auto-release)                  | no                 | seller confirm → release; either open dispute; cancel refused from `fiat_sent` and once disputed |
+| `disputed`  | yes                  | `escalate_dispute` (re-arm SLA; **no** machine rule) | no                 | natural-person moderator only                                                                    |
+| `released`  | no (posted)          | none                                                 | —                  | terminal                                                                                         |
+| `cancelled` | no (refunded/voided) | none                                                 | —                  | terminal                                                                                         |
 
 Value-moving timeout actions are only `settle_or_void` and `refund`. `fiat_sent` and `disputed` deliberately do **not** move value on a clock.
 

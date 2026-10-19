@@ -678,13 +678,21 @@ describe('svc-p2p escrow', () => {
       expect(await escrowOf(MAKER)).toBe('100');
     });
 
-    it('lets the seller refund voluntarily after the buyer claims to have paid', async () => {
+    it('refuses to let the SELLER cancel after the buyer declared the fiat sent; the way out is a dispute', async () => {
+      // The buyer may already have paid off-platform. Refunding the seller here
+      // would be terminal, with no dispute route left for the buyer.
       const trade = await escrowedTrade('100');
       await p2p.markFiatSent(trade.id, TAKER);
 
-      const cancelled = await p2p.cancelTrade(trade.id, MAKER, 'payment_never_arrived');
-      expect(cancelled.resolution).toBe('refunded');
-      expect(await availableOf(MAKER)).toBe('1000');
+      await expect(p2p.cancelTrade(trade.id, MAKER, 'payment_never_arrived')).rejects.toMatchObject({ code: 'p2p.cancel_after_paid' });
+      expect(await escrowOf(MAKER)).toBe('100');
+      expect(await availableOf(MAKER)).toBe('900');
+      expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+
+      // A seller who was never paid opens a dispute, and the trade stays alive for a moderator.
+      await p2p.openDispute({ tradeId: trade.id, openedBy: MAKER, reason: 'payment_never_arrived' });
+      expect((await p2p.getTrade(trade.id)).status).toBe('disputed');
+      expect(await escrowOf(MAKER)).toBe('100');
       await expectBooksClosed();
     });
 
