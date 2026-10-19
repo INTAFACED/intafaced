@@ -9,7 +9,7 @@ import type { Principal } from '@intafaced/auth';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import { carriedPlacementBody } from './placement-extras.js';
+import { carriedPlacementBody, withoutCarriedBody } from './placement-extras.js';
 import { orderIdFor } from './ids.js';
 
 export type BracketLeg = {
@@ -260,7 +260,9 @@ export function installBracketPlace(ctor: typeof TradeService): void {
 
     // The entry is an ordinary order: the exit fields never reach it or the engine.
     const { bracket: _b, takeProfit: _tp, stopLoss: _sl, ...entryInput } = bound;
-    const entry = await origPlace.call(this, principal, entryInput as PlaceOrderInput);
+    // The request body is dropped from the entry: the inner installers must not re-read an option (an alias such as
+    // tif: 'PO') from it, so the entry is exactly the typed input this guard has checked.
+    const entry = await origPlace.call(this, principal, withoutCarriedBody(entryInput as PlaceOrderInput));
 
     const done = await host.sql<Array<{ exit_order_id: string | null }>>`
       SELECT exit_order_id FROM trade.order_bracket_intent WHERE order_id = ${entryId}

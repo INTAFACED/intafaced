@@ -8,6 +8,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable, orderHoldAccount } from '@intafaced/ledger-client';
 import './oco-place.js';
+// The inner installers run after the bracket wrapper in production (index.ts), so they load first here.
+import './post-only-place.js';
+import './iceberg-place.js';
+import './stop-limit-place.js';
 import './bracket-place.js';
 import './oco-cancel.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
@@ -234,6 +238,13 @@ describe('svc-trade bracket: entry, then one sell OCO for what was received (H8a
     });
     expect(matching.submitted).toHaveLength(0);
     expect(await avail(ALICE, 'USDT')).toBe('1000');
+  });
+
+  it('a carried tif alias cannot turn the entry into a resting post-only order', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const input = carryPlacementBody(bracketReq() as never, { ...bracketReq(), timeInForce: 'IOC', tif: 'PO' }) as never;
+    await trade.placeOrder(principalFor(ALICE), input);
+    expect(matching.submitted[0]?.request).toMatchObject({ tif: 'IOC' });
   });
 
   it('refuses a sell-side entry', async () => {
