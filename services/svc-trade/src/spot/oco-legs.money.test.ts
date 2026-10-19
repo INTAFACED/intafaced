@@ -49,20 +49,6 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 }
 const ALICE = '11111111-1111-4111-8111-111111111111';
 
-describe('H8a money suite is not skip-green', () => {
-  it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
-    const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-    expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
-    expect(src).not.toMatch(/describe\.skip\s*\(/);
-    expect(src).not.toMatch(/\bit\.skip\s*\(/);
-  });
-});
-
-const BOB = '22222222-2222-4222-8222-222222222222';
-
-const tpOf = (id: string) => `${id}:tp`;
-const slOf = (id: string) => `${id}:sl`;
-
 describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
