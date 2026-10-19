@@ -44,6 +44,7 @@ import { FounderControls, parseFounderPair } from './controls/founder-controls.j
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
@@ -484,6 +485,7 @@ const identityRequestContext = createIdentityRequestContext({
     'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET,
   },
   secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   // The tRPC door has no v1 callers (every outbound client signs v2), so it is
