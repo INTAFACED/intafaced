@@ -81,7 +81,7 @@ describe('stop-limit placement', () => {
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ type: 'stop_limit', stopPrice: '100', price: '95' });
     expect(seen[0]?.type).toBe('limit');
-    expect(seen[0]?.stopPx).toBe(parseAmount('100'));
+    expect((seen[0] as { stopPx?: bigint }).stopPx).toBe(parseAmount('100'));
     expect(await triggers!.read(orderIdFor(ALICE, market.id, 'stop-1'))).toBe('100');
     await app.close();
   });
@@ -169,6 +169,18 @@ describe('stop-limit placement', () => {
     const relabel = await post(app, BOB, { ...STOP, clientOrderId: 'plain-1' });
     expect(relabel.json().intafacedCode).toBe('trade.stop_trigger_invalid');
     expect(await triggers!.read(orderIdFor(BOB, market.id, 'plain-1'))).toBeNull();
+    await app.close();
+  });
+
+  it('refuses a raw stopPx on an order replacement', async () => {
+    const { app } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/o-1/replace',
+      headers: signed(ALICE),
+      payload: { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '1', price: '100', stopPx: '90', clientOrderId: 'rep-1' },
+    });
+    expect(res.json().intafacedCode).toBe('trade.stop_trigger_invalid');
     await app.close();
   });
 

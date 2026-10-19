@@ -2428,6 +2428,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
+      // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
+      if (hasRawStopPx(req.body)) {
+        throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
+      }
       input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
     } catch (err) {
       const sent = sendDomainError(reply, err);
