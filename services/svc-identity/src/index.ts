@@ -366,7 +366,7 @@ await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
 });
 await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
   throw new Error(
-    'identity schema is out of date: account_closures is missing — apply drizzle/0046_account_closures.sql before starting svc-identity',
+    'identity schema is out of date: account_closures is missing — apply drizzle/0048_account_closures.sql before starting svc-identity',
   );
 });
 const profile = new ProfileService(sql);

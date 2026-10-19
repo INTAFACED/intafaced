@@ -1,5 +1,5 @@
 -- Account closure request. One open request per user. History stays.
--- Reversal: 0046_account_closures.down.sql. No balances. No deletes of users.
+-- Reversal: 0048_account_closures.down.sql. No balances. No deletes of users.
 
 CREATE TABLE IF NOT EXISTS "identity"."account_closures" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),

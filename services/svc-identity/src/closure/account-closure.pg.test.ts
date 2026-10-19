@@ -63,7 +63,7 @@ describe('closure diff', () => {
     const files = ['closure-service.ts', 'closure-job.ts', 'closure-router.ts', 'closure-ops-router.ts', 'closure-client.ts'].map((name) =>
       readFileSync(join(here, name), 'utf8'),
     );
-    files.push(readFileSync(join(drizzleDir, '0046_account_closures.sql'), 'utf8'));
+    files.push(readFileSync(join(drizzleDir, '0048_account_closures.sql'), 'utf8'));
     const text = `${diff}\n${files.join('\n')}`;
     expect(text).not.toMatch(/DELETE\s+FROM\s+("?identity"?\.)?"?users"?/i);
     expect(text).not.toMatch(/DELETE\s+FROM\s+("?identity"?\.)?"?profiles"?/i);
