@@ -16,6 +16,7 @@ import {
   recipes,
   userAvailable,
 } from '@intafaced/ledger-client';
+import { reportDatedSettlement } from './futures-jobs.js';
 import { describe, expect, it } from 'vitest';
 import {
   runDatedFuturesSettlementJob,
@@ -110,5 +111,23 @@ describe('dated futures settlement isolates an unpayable winner', () => {
     expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('1010');
     expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('40');
     expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('the job reports every unsettled position so a stuck winner is not silent', async () => {
+    const ledger = new MemoryLedger();
+    await seed(ledger);
+    const results = await runDatedFuturesSettlementScan({
+      now: AFTER,
+      settlementFixingConfigured: 'owner',
+      ownerSettlementPriceFor: () => '110',
+      markets: { listExpiredDated: async () => [{ marketId: MARKET, style: 'dated', expiryAt: EXPIRY }] },
+      positions: { listOpenForMarket: async () => positions },
+      ledger,
+    });
+    const seen: Array<[string, string]> = [];
+    reportDatedSettlement(results, (name, err) => seen.push([name, (err as Error).message]));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]![0]).toBe('futures.dated_settlement');
+    expect(seen[0]![1]).toContain(`trade.dated_futures_settlement_unpaid positionId=${POS_WIN}`);
   });
 });

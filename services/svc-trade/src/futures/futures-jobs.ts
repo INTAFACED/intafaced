@@ -41,7 +41,12 @@ import {
   sqlPositionCloser,
   sqlPositionReducer,
 } from './tick-stores.js';
-import { runDatedFuturesSettlementScan, type DatedSettlementMarkets, type DatedSettlementPositions } from './dated-futures-settlement.js';
+import {
+  runDatedFuturesSettlementScan,
+  type DatedFuturesSettlementJobResult,
+  type DatedSettlementMarkets,
+  type DatedSettlementPositions,
+} from './dated-futures-settlement.js';
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import { sqlAcceptedMarkStore } from './accepted-mark.js';
 import { durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
@@ -242,6 +247,22 @@ export function reportLiquidationTick(tick: LiquidationTickResult, onError: (nam
 }
 
 /**
+ * A dated-settlement position that could not be settled stays open and is retried every
+ * tick; without this line the stuck winner would repeat silently.
+ */
+export function reportDatedSettlement(
+  results: readonly DatedFuturesSettlementJobResult[],
+  onError: (name: string, err: unknown) => void,
+): void {
+  for (const result of results) {
+    if (result.status !== 'settled') continue;
+    for (const item of result.unsettled) {
+      onError('futures.dated_settlement', new Error(`${item.code} positionId=${item.positionId}: ${item.message}`));
+    }
+  }
+}
+
+/**
  * Assemble futures jobs. Does not invent markets or rates.
  * When disabled, returns a stopped host (list empty) but still exposes markPrice.
  */
@@ -341,7 +362,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   const datedCloser = deps.datedSettlement?.markClosed ?? sqlDatedSettlementCloser(deps.sql);
 
   host.every('futures.dated_settlement', deps.config.liqIntervalMs, async () => {
-    await runDatedFuturesSettlementScan({
+    const results = await runDatedFuturesSettlementScan({
       now: deps.now ? deps.now() : new Date(),
       settlementFixingConfigured: deps.config.settlementFixing ?? '',
       ownerSettlementPriceFor: deps.ownerSettlementPriceFor,
@@ -352,6 +373,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       ledger: deps.ledger,
       markClosed: datedCloser,
     });
+    reportDatedSettlement(results, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });
 
   host.every('futures.liquidation', deps.config.liqIntervalMs, async () => {
