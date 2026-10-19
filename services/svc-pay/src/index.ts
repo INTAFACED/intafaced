@@ -551,6 +551,7 @@ retainRawBody(app);
  * Built before the listener opens: a service that cannot authenticate the edge
  * must fail to start, not start and serve every caller as anonymous.
  */
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
@@ -620,12 +621,14 @@ await registerCheckoutRoutes(app, pay, { basePath: env.PAY_PUBLIC_BASE_PATH });
  */
 registerPayStepUpGrantRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
 });
 
 registerOwnerPayScopeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   installRawBody: false,
   findOwnedMerchant: async (userId) => {
     const rows = await sql<
@@ -653,6 +656,7 @@ registerOwnerPayScopeRoute(app, {
 
 registerSubscriptionCycleRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   subscriptions,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   installRawBody: false,
@@ -660,6 +664,7 @@ registerSubscriptionCycleRoutes(app, {
 
 registerCaptureReconcileRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   pay,
   mode: env.PAY_CAPTURE_RECONCILE,
   installRawBody: false,
@@ -667,6 +672,7 @@ registerCaptureReconcileRoutes(app, {
 
 registerMerchantEmailInviteRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   claim: (input) => claimEmailTeamInvites(sql, input, teamEmailInvite?.ttlMs),
   installRawBody: false,
 });
@@ -674,6 +680,7 @@ registerMerchantEmailInviteRoutes(app, {
 const merchantWatchMetricsStore = createMerchantWatchMetricsStore(sql);
 registerMerchantWatchMetricsRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   store: merchantWatchMetricsStore,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   installRawBody: false,

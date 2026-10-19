@@ -23,9 +23,10 @@
 import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
@@ -34,6 +35,8 @@ import type { RunReport, SubscriptionService } from './subscription-service.js';
 
 export interface SubscriptionCycleRouteDeps {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset: the shared secret alone, as before. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly subscriptions: Pick<SubscriptionService, 'runDueSubscriptions' | 'listCycles'>;
   /**
    * Journal GET follows `INTERNAL_SERVICE_BODY_BIND` (compose stays accept-both).
@@ -61,7 +64,14 @@ export function registerSubscriptionCycleRoutes(app: FastifyInstance, deps: Subs
   const journalMode = deps.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
 
   app.post<{ Body: { limit?: number } }>('/internal/jobs/run-due-subscriptions', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: 'require' }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: 'require',
+      }).service === null
+    ) {
       return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
     }
 
@@ -88,7 +98,14 @@ export function registerSubscriptionCycleRoutes(app: FastifyInstance, deps: Subs
   });
 
   app.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/internal/subscriptions/:id/cycles', async (req, reply) => {
-    if (verifyServiceHeaders(req.headers, deps.internalSecret, { rawBody: rawBodyOf(req), mode: journalMode }).service === null) {
+    if (
+      verifyServiceRequest(req, {
+        verifier: deps.s2s?.verifier,
+        mode: deps.s2s?.mode,
+        legacySecret: deps.internalSecret,
+        bodyBindMode: journalMode,
+      }).service === null
+    ) {
       return reply.code(401).send({ error: 'pay.unauthenticated', message: 'service credentials required' });
     }
     try {
