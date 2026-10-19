@@ -17,6 +17,7 @@ import quickfix.field.ExecID;
 import quickfix.field.ExecType;
 import quickfix.field.MsgSeqNum;
 import quickfix.field.MsgType;
+import quickfix.field.OrdStatus;
 import quickfix.field.OrdType;
 import quickfix.field.OrderQty;
 import quickfix.field.OrigClOrdID;
@@ -135,6 +136,68 @@ class FixSessionNosMatchingTest {
     }
 
     @Test
+    void httpSentFailureIsExecutionRejectNotSessionReject() throws Exception {
+        AtomicInteger posts = new AtomicInteger();
+        MatchingSubmitPort port = new MatchingSubmitPort(
+                "http://matching.example", OWNER_MAP, "a".repeat(32), (url, json, headers) -> {
+                    posts.incrementAndGet();
+                    return new MatchingSubmitPort.Transport.Response(500, "");
+                });
+        FixSessionApplication app = new FixSessionApplication(new FixGatewayAdapter(), port);
+        app.fromApp(limitNos(), SESSION);
+
+        assertEquals(1, posts.get());
+        assertEquals(1, app.matchingPosts());
+        assertEquals(1, app.outbound().size());
+        Message er = app.outbound().get(0);
+        assertExecutionReject(er, "matching submit failed (500)");
+        assertEquals("clid-c2", er.getString(ExecID.FIELD));
+        assertFalse(er.isSetField(OrigClOrdID.FIELD));
+    }
+
+    @Test
+    void httpSentAckWithoutSequenceIsExecutionReject() throws Exception {
+        AtomicInteger posts = new AtomicInteger();
+        MatchingSubmitPort port = new MatchingSubmitPort(
+                "http://matching.example", OWNER_MAP, "a".repeat(32), (url, json, headers) -> {
+                    posts.incrementAndGet();
+                    return new MatchingSubmitPort.Transport.Response(200, "{\"accepted\":true,\"sequence\":null}");
+                });
+        FixSessionApplication app = new FixSessionApplication(new FixGatewayAdapter(), port);
+        app.fromApp(limitNos(), SESSION);
+
+        assertEquals(1, posts.get());
+        assertEquals(1, app.matchingPosts());
+        assertEquals(1, app.outbound().size());
+        Message er = app.outbound().get(0);
+        assertExecutionReject(er, "does not invent ExecID");
+        assertEquals("clid-c2", er.getString(ExecID.FIELD));
+        assertFalse(er.getString(ExecID.FIELD).chars().allMatch(Character::isDigit));
+        assertFalse(er.isSetField(OrigClOrdID.FIELD));
+    }
+
+    @Test
+    void matchingNotPostedStillSessionRejects() throws Exception {
+        AtomicInteger posts = new AtomicInteger();
+        MatchingSubmitPort port = new MatchingSubmitPort("", OWNER_MAP, "a".repeat(32), (url, json, headers) -> {
+            posts.incrementAndGet();
+            throw new AssertionError("must not POST");
+        });
+        FixSessionApplication app = new FixSessionApplication(new FixGatewayAdapter(), port);
+        app.fromApp(limitNos(), SESSION);
+
+        assertEquals(0, posts.get());
+        assertEquals(0, app.matchingPosts());
+        assertEquals(1, app.outbound().size());
+        Message reject = app.outbound().get(0);
+        assertEquals(MsgType.REJECT, reject.getHeader().getString(MsgType.FIELD));
+        assertEquals(MsgType.NEW_ORDER_SINGLE, reject.getString(RefMsgType.FIELD));
+        assertTrue(reject.getString(quickfix.field.Text.FIELD).contains("MATCHING_BASE_URL"));
+        assertFalse(reject.isSetField(ExecID.FIELD));
+        assertFalse(reject.isSetField(ExecType.FIELD));
+    }
+
+    @Test
     void executionReportDoesNotMintLastFromIeeeAck() throws Exception {
         Message er = ExecutionReportFactory.fromAck(
                 new MatchingOrderCommand(
@@ -143,6 +206,16 @@ class FixSessionNosMatchingTest {
         assertEquals("3", er.getString(ExecID.FIELD));
         assertFalse(er.isSetField(quickfix.field.LastPx.FIELD));
         assertFalse(er.toString().contains("100.25"));
+    }
+
+    private static void assertExecutionReject(Message er, String textPart) throws Exception {
+        assertEquals(MsgType.EXECUTION_REPORT, er.getHeader().getString(MsgType.FIELD));
+        assertEquals(ExecType.REJECTED, er.getChar(ExecType.FIELD));
+        assertEquals(OrdStatus.REJECTED, er.getChar(OrdStatus.FIELD));
+        assertEquals("clid-c2", er.getString(ClOrdID.FIELD));
+        assertTrue(er.getString(quickfix.field.Text.FIELD).contains(textPart), er.getString(quickfix.field.Text.FIELD));
+        assertFalse(er.isSetField(RefSeqNum.FIELD));
+        assertFalse(er.isSetField(RefMsgType.FIELD));
     }
 
     private static void assertUnsupportedReject(Message reject, String refMsgType, int refSeqNum) throws Exception {
