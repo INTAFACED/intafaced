@@ -16,6 +16,7 @@ type Armable = {
     principal: ReturnType<typeof principalFor>,
     timeoutSec: number,
     published: readonly number[] | null,
+    graceMs?: number,
   ): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   sweepCancelAllAfter(): Promise<{ examined: number; fired: number; unavailable: number; failed: number }>;
 };

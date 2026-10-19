@@ -6,7 +6,7 @@
  * `cancelAllOrders` path (engine first, one hold release per order), as the caller who armed it.
  *
  * Authority: the sweep has no caller, so the caller's own claims are stored with the countdown (as a bracket stores
- * its place grant) and arming is refused unless the credential outlives the deadline. A countdown whose stored
+ * its place grant) and arming is refused unless the credential outlives the deadline plus the sweep window. A countdown whose stored
  * authority has lapsed anyway is counted and dropped, never covered by minting a principal from a user id.
  *
  * Timeouts are the owner's published set; a blank set refuses arming. Timeout 0 always disarms, because turning
@@ -37,7 +37,12 @@ export interface ArmedCountdown {
 
 /** The two methods this module installs on TradeService. */
 export interface CancelAllAfterHost {
-  armCancelAllAfter(principal: Principal, timeoutSec: number, published: readonly number[] | null): Promise<ArmedCountdown>;
+  armCancelAllAfter(
+    principal: Principal,
+    timeoutSec: number,
+    published: readonly number[] | null,
+    graceMs?: number,
+  ): Promise<ArmedCountdown>;
   sweepCancelAllAfter(): Promise<CancelAllAfterSweep>;
 }
 
@@ -50,7 +55,13 @@ export interface CancelAllAfterSweep {
 
 const MAX_PER_PASS = 200;
 
-async function arm(host: Host, principal: Principal, timeoutSec: number, published: readonly number[] | null): Promise<ArmedCountdown> {
+async function arm(
+  host: Host,
+  principal: Principal,
+  timeoutSec: number,
+  published: readonly number[] | null,
+  graceMs: number,
+): Promise<ArmedCountdown> {
   requireScope(principal, 'trade:write');
   if (timeoutSec === 0) {
     await host.sql`DELETE FROM trade.cancel_all_after WHERE user_id = ${principal.userId}`;
@@ -74,9 +85,9 @@ async function arm(host: Host, principal: Principal, timeoutSec: number, publish
     throw new TradeError('that cancel-all-after timeout is not one of the published values', 'trade.cancel_all_after_rejected');
   }
   const deadline = new Date(planned.armed.deadlineMs);
-  if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() < deadline.getTime()) {
+  if (!(principal.expiresAt instanceof Date) || principal.expiresAt.getTime() < deadline.getTime() + graceMs) {
     throw new TradeError(
-      'cancel-all-after needs a credential with a known expiry at or after the deadline; renew the credential first',
+      'cancel-all-after needs a credential with a known expiry that outlasts the deadline plus the sweep window; renew the credential first',
       'trade.cancel_all_after_rejected',
     );
   }
@@ -145,8 +156,14 @@ export function installCancelAllAfter(ctor: typeof TradeService): void {
   };
   if (proto[FLAG]) return;
   proto[FLAG] = true;
-  proto.armCancelAllAfter = function (this: TradeService, principal: Principal, timeoutSec: number, published: readonly number[] | null) {
-    return arm(this as unknown as Host, principal, timeoutSec, published);
+  proto.armCancelAllAfter = function (
+    this: TradeService,
+    principal: Principal,
+    timeoutSec: number,
+    published: readonly number[] | null,
+    graceMs = 0,
+  ) {
+    return arm(this as unknown as Host, principal, timeoutSec, published, graceMs);
   };
   proto.sweepCancelAllAfter = function (this: TradeService) {
     return sweep(this as unknown as Host);

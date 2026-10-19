@@ -42,6 +42,16 @@ export interface HoldUnknownSweepJobsHandle {
 export function startHoldUnknownSweepJobs(deps: HoldUnknownSweepJobsDeps): HoldUnknownSweepJobsHandle {
   const host = createJobHost({ onError: deps.onError });
 
+  // The dead-man switch is not part of the recovery sweeps: their kill switch must never leave an armed countdown
+  // that nothing will fire.
+  if (deps.trade.sweepCancelAllAfter) {
+    const sweepCaa = deps.trade.sweepCancelAllAfter.bind(deps.trade);
+    host.every('trade.cancel_all_after_sweep', deps.config.cancelAllAfterIntervalMs ?? deps.config.intervalMs, async () => {
+      const result = await sweepCaa();
+      if (result.unavailable > 0 || result.failed > 0) deps.onCancelAllAfterAlert?.(result);
+    });
+  }
+
   if (!deps.config.enabled) {
     return { host, stop: () => host.stopAll() };
   }
@@ -57,14 +67,6 @@ export function startHoldUnknownSweepJobs(deps: HoldUnknownSweepJobsDeps): HoldU
     host.every('trade.bracket_exit_sweep', deps.config.intervalMs, async () => {
       const result = await sweep(deps.config.intervalMs * 2);
       if (result.unavailable > 0 || result.failed > 0) deps.onBracketAlert?.(result);
-    });
-  }
-
-  if (deps.trade.sweepCancelAllAfter) {
-    const sweepCaa = deps.trade.sweepCancelAllAfter.bind(deps.trade);
-    host.every('trade.cancel_all_after_sweep', deps.config.cancelAllAfterIntervalMs ?? deps.config.intervalMs, async () => {
-      const result = await sweepCaa();
-      if (result.unavailable > 0 || result.failed > 0) deps.onCancelAllAfterAlert?.(result);
     });
   }
 

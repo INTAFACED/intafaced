@@ -826,7 +826,12 @@ registerPrivateRest(app, {
   amendOrder: (principal, orderId, input) => trade.amendOrder(principal, orderId, input),
   cancelAllOrders: (principal, marketId) => trade.cancelAllOrders(principal, marketId),
   armCancelAllAfter: (principal, timeoutSec) =>
-    (trade as unknown as CancelAllAfterHost).armCancelAllAfter(principal, timeoutSec, env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC),
+    (trade as unknown as CancelAllAfterHost).armCancelAllAfter(
+      principal,
+      timeoutSec,
+      env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+      env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
+    ),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
