@@ -964,13 +964,13 @@ services:
       # applies (yes in dev/test, no in staging/prod). Do not use `${VAR:-}`.
       PAY_REGISTER_CARD_SANDBOX:
       # Optional live-crypto rail. env.ts types RPC as url().optional(),
-      # chain id as optional int, mnemonic min 20, hot key 0x hex, assets
+      # chain id as optional int, mnemonic min 20, signer enum (testnet), assets
       # min 1. `${VAR:-}` interpolates "" which fails those schemas.
       # Key-no-value forwards a host `.env` pin and omits when unset.
       PAY_CRYPTO_RPC_URL:
       PAY_CRYPTO_CHAIN_ID:
       PAY_CRYPTO_DEPOSIT_MNEMONIC:
-      PAY_CRYPTO_HOT_WALLET_KEY:
+      PAY_CRYPTO_SIGNER:
       PAY_CRYPTO_ASSETS:
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4006']

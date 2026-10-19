@@ -13,9 +13,10 @@ import {
   type PublicClient,
   type WalletClient,
 } from 'viem';
-import { mnemonicToAccount, privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts';
+import { mnemonicToAccount } from 'viem/accounts';
 import type { Amount } from '@intafaced/ledger-client';
 import type { BroadcastStore } from './broadcast-store.js';
+import { SignerChainRefusedError, type EvmSigner } from './evm-signer.js';
 import { runDurableBroadcast } from './durable-broadcast.js';
 import { ERC20_TRANSFER_TOPIC, fromChainUnits, requireAsset, toChainUnits, type EvmAsset } from './evm-assets.js';
 import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainPort } from './chain-port.js';
@@ -38,8 +39,8 @@ import type { ChainSendLookup, ChainSendRequest, ConfirmedTransfer, CryptoChainP
  * Occupancy is still process-local, so a clash between two payments in one
  * process (about 2^-62 per pair) refuses rather than walking to another index.
  *
- * Outbound sends go through a hot wallet (`PAY_CRYPTO_HOT_WALLET_KEY`) and the
- * `BroadcastStore`, so a retried business key never broadcasts twice.
+ * Outbound sends are signed by an injected `EvmSigner` (no key in settings) and
+ * journalled in the `BroadcastStore`, so a retried business key never broadcasts twice.
  */
 
 const ERC20_TRANSFER_ABI = [
@@ -61,8 +62,8 @@ export interface EvmLiveChainOptions {
   readonly chainName?: string;
   /** BIP-39 mnemonic that derives per-payment acceptance addresses. */
   readonly depositMnemonic: string;
-  /** Hex private key (0x…) for outbound payouts/refunds. */
-  readonly hotWalletKey: Hex;
+  /** Signs outbound payouts/refunds. The key lives behind this interface, never in settings. */
+  readonly signer: EvmSigner;
   readonly assets: ReadonlyMap<string, EvmAsset>;
   readonly broadcasts: BroadcastStore;
   /** How deep a transfer must be before we report it as finalized. Owner-published — never invent 6. */
@@ -118,7 +119,7 @@ export class EvmLiveChain implements CryptoChainPort {
 
   private readonly public: PublicClient;
   private readonly wallet: WalletClient;
-  private readonly hotAccount: PrivateKeyAccount;
+  private readonly signer: EvmSigner;
   private readonly depositMnemonic: string;
   private readonly assets: ReadonlyMap<string, EvmAsset>;
   private readonly broadcasts: BroadcastStore;
@@ -148,8 +149,11 @@ export class EvmLiveChain implements CryptoChainPort {
 
     const transport = http(options.rpcUrl, { timeout: options.requestTimeoutMs ?? 15_000 });
     this.public = createPublicClient({ chain, transport });
-    this.hotAccount = privateKeyToAccount(options.hotWalletKey);
-    this.wallet = createWalletClient({ account: this.hotAccount, chain, transport });
+    if (!options.signer.supportsChain(options.chainId)) {
+      throw new SignerChainRefusedError(options.signer.kind, options.chainId);
+    }
+    this.signer = options.signer;
+    this.wallet = createWalletClient({ account: options.signer.account(), chain, transport });
 
     // Validate mnemonic early — a typo here must fail boot, not the first payment.
     mnemonicToAccount(options.depositMnemonic);
@@ -160,11 +164,11 @@ export class EvmLiveChain implements CryptoChainPort {
     this.minConfirmations = options.minConfirmations;
     this.description =
       `live EVM chain id=${options.chainId} rpc=${redactRpc(options.rpcUrl)} ` +
-      `hot=${this.hotAccount.address} assets=[${[...this.assets.keys()].join(',')}]`;
+      `hot=${this.signer.address} signer=${this.signer.kind} assets=[${[...this.assets.keys()].join(',')}]`;
   }
 
   hotWalletAddress(): Address {
-    return this.hotAccount.address;
+    return this.signer.address;
   }
 
   /** Chain id only. Not `refresh()` — that scans blocks. */
@@ -237,7 +241,7 @@ export class EvmLiveChain implements CryptoChainPort {
         const chain = this.wallet.chain;
         if (asset.kind === 'native') {
           const prepared = await this.wallet.prepareTransactionRequest({
-            account: this.hotAccount,
+            account: this.signer.account(),
             to,
             value: units,
             chain,
@@ -245,7 +249,7 @@ export class EvmLiveChain implements CryptoChainPort {
           return this.wallet.signTransaction({ ...prepared, chain });
         }
         const prepared = await this.wallet.prepareTransactionRequest({
-          account: this.hotAccount,
+          account: this.signer.account(),
           to: asset.address,
           data: encodeFunctionData({
             abi: ERC20_TRANSFER_ABI,

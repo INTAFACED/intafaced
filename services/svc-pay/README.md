@@ -126,7 +126,7 @@ A user who can call the thing that credits their own balance does not need to de
 PAY_CRYPTO_RPC_URL=…          # archive-capable JSON-RPC
 PAY_CRYPTO_CHAIN_ID=…
 PAY_CRYPTO_DEPOSIT_MNEMONIC=… # HD acceptance addresses (not the hot wallet)
-PAY_CRYPTO_HOT_WALLET_KEY=0x… # outbound signing key
+PAY_CRYPTO_SIGNER=testnet     # test chains only; a provider signer is injected at boot
 PAY_CRYPTO_ASSETS=ETH:native  # or ETH:native,USDT:0x…:6
 ```
 

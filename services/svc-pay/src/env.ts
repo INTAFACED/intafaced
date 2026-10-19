@@ -128,11 +128,13 @@ const schema = serviceEnvSchema
        * Never the hot wallet — deposits land here; payouts leave from the hot key.
        */
       PAY_CRYPTO_DEPOSIT_MNEMONIC: z.string().min(20).optional(),
-      /** Hex private key (0x…) that signs outbound payouts and refunds. */
-      PAY_CRYPTO_HOT_WALLET_KEY: z
-        .string()
-        .regex(/^0x[0-9a-fA-F]{64}$/, 'must be 0x + 64 hex chars')
-        .optional(),
+      /**
+       * Which signer signs outbound payouts and refunds. Only `testnet` can be
+       * chosen here: a throwaway in-memory key that refuses any non-test chain
+       * and any staging/prod boot. No key is ever read from settings; a provider
+       * signer is injected by boot code.
+       */
+      PAY_CRYPTO_SIGNER: z.enum(['testnet']).optional(),
       /**
        * Asset map, e.g. `ETH:native` or `ETH:native,USDT:0xabc…:6`.
        * See `rails/evm-assets.ts`.

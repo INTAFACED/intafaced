@@ -1,8 +1,8 @@
-import { isHex, type Hex } from 'viem';
 import { MemoryBroadcastStore, type BroadcastStore } from './broadcast-store.js';
 import { MemoryChain, UnconfiguredChain, type CryptoChainPort } from './chain-port.js';
 import { parseEvmAssets } from './evm-assets.js';
 import { EvmLiveChain } from './evm-chain.js';
+import { SignerUnsetError, TestnetSigner, type EvmSigner } from './evm-signer.js';
 import { VALUE_LEAVING_CAPABILITIES, isUsable, type RailAdapter, type RailCapability } from './rail-adapter.js';
 import type { RailRegistry } from './registry.js';
 
@@ -537,7 +537,7 @@ export function selectPublicCheckoutRailDetailed(
  *
  * THREE STATES, still — but the live one is no longer missing from the tree:
  *
- *   1. `PAY_CRYPTO_RPC_URL` (+ chain id, mnemonic, hot key, assets) set →
+ *   1. `PAY_CRYPTO_RPC_URL` (+ chain id, mnemonic, assets, signer) set →
  *      `EvmLiveChain` with `posture: 'live'`. crypto-native becomes a live rail.
  *   2. Enforced env (`staging`/`prod`) with nothing set → `UnconfiguredChain`
  *      (refuses every call — never a quiet MemoryChain in production).
@@ -553,8 +553,12 @@ export function selectPublicCheckoutRailDetailed(
  *   REFUSES to build without one — two replicas on MemoryBroadcastStore can
  *   double-send. Production boot injects PostgresBroadcastStore.
  */
-export function defaultChainFor(env: Record<string, string | undefined> = process.env, broadcasts?: BroadcastStore): CryptoChainPort {
-  const live = tryLiveChainFromEnv(env, broadcasts);
+export function defaultChainFor(
+  env: Record<string, string | undefined> = process.env,
+  broadcasts?: BroadcastStore,
+  signer?: EvmSigner,
+): CryptoChainPort {
+  const live = tryLiveChainFromEnv(env, broadcasts, signer);
   if (live) return live;
 
   const appEnv = env.APP_ENV ?? 'dev';
@@ -580,9 +584,29 @@ export function shouldRegisterCardSandbox(env: Record<string, string | undefined
   return !(RAIL_POSTURE_ENFORCED_ENVS as readonly string[]).includes(appEnv);
 }
 
+/**
+ * The signer for the live rail when boot code did not inject one. Only the
+ * testnet signer can be chosen by setting; a key is never read from settings.
+ * A provider signer is injected by boot code once one is bought.
+ */
+function signerFromEnv(env: Record<string, string | undefined>, appEnv: string): EvmSigner {
+  const choice = env.PAY_CRYPTO_SIGNER?.trim();
+  if (!choice) {
+    throw new SignerUnsetError('no signer is chosen. Set PAY_CRYPTO_SIGNER=testnet on a test chain, or inject a provider signer at boot.');
+  }
+  if (choice !== 'testnet') {
+    throw new SignerUnsetError(`PAY_CRYPTO_SIGNER "${choice}" is not a signer this build ships. Only "testnet" is available.`);
+  }
+  if ((RAIL_POSTURE_ENFORCED_ENVS as readonly string[]).includes(appEnv)) {
+    throw new SignerUnsetError(`the testnet signer is refused in ${appEnv}. Inject a provider signer at boot.`);
+  }
+  return TestnetSigner.ephemeral();
+}
+
 export function tryLiveChainFromEnv(
   env: Record<string, string | undefined> = process.env,
   broadcasts?: BroadcastStore,
+  injectedSigner?: EvmSigner,
 ): EvmLiveChain | null {
   const rpcUrl = env.PAY_CRYPTO_RPC_URL?.trim();
   if (!rpcUrl) return null;
@@ -590,12 +614,10 @@ export function tryLiveChainFromEnv(
   const missing: string[] = [];
   const chainIdRaw = env.PAY_CRYPTO_CHAIN_ID?.trim();
   const mnemonic = env.PAY_CRYPTO_DEPOSIT_MNEMONIC?.trim();
-  const hotKey = env.PAY_CRYPTO_HOT_WALLET_KEY?.trim();
   const assetsRaw = env.PAY_CRYPTO_ASSETS?.trim();
 
   if (!chainIdRaw) missing.push('PAY_CRYPTO_CHAIN_ID');
   if (!mnemonic) missing.push('PAY_CRYPTO_DEPOSIT_MNEMONIC');
-  if (!hotKey) missing.push('PAY_CRYPTO_HOT_WALLET_KEY');
   if (!assetsRaw) missing.push('PAY_CRYPTO_ASSETS');
 
   if (missing.length > 0) {
@@ -612,9 +634,6 @@ export function tryLiveChainFromEnv(
   const chainId = Number(chainIdRaw);
   if (!Number.isInteger(chainId) || chainId <= 0) {
     throw new Error(`PAY_CRYPTO_CHAIN_ID must be a positive integer (got "${chainIdRaw}")`);
-  }
-  if (!hotKey || !isHex(hotKey) || hotKey.length !== 66) {
-    throw new Error('PAY_CRYPTO_HOT_WALLET_KEY must be a 32-byte hex private key (0x + 64 hex chars)');
   }
 
   const confirmationsRaw = env.PAY_MIN_CONFIRMATIONS?.trim();
@@ -638,11 +657,13 @@ export function tryLiveChainFromEnv(
     );
   }
 
+  const signer = injectedSigner ?? signerFromEnv(env, appEnv);
+
   return new EvmLiveChain({
     rpcUrl,
     chainId,
     depositMnemonic: mnemonic!,
-    hotWalletKey: hotKey as Hex,
+    signer,
     assets: parseEvmAssets(assetsRaw!),
     broadcasts: broadcasts ?? new MemoryBroadcastStore(),
     minConfirmations,
