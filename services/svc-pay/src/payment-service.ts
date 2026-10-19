@@ -4097,13 +4097,18 @@ export class PayService {
    * opening debit on the book; a lost or accepted one kept the money away.
    */
   private async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
-    await transaction(
+    // Read the cases before the transaction: the caller already holds a pooled connection for the dispute lock, and
+    // a read on the pool from inside a transaction would need a third one.
+    const allWon = async () => {
+      const cases = await this.disputeCases.listForPayment(paymentId);
+      return cases.length > 0 && cases.every((c) => c.status === 'won');
+    };
+    if (!(await allWon())) return;
+    const restored = await transaction(
       this.sql,
       async (tx) => {
         const row = await lockPayment(tx, paymentId);
-        if (row.status !== 'disputed') return;
-        const cases = await this.disputeCases.listForPayment(paymentId);
-        if (cases.length === 0 || cases.some((c) => c.status !== 'won')) return;
+        if (row.status !== 'disputed') return false;
         const settled = await tx<Array<{ ok: number }>>`
           SELECT 1 AS ok FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'settled' LIMIT 1
         `;
@@ -4111,9 +4116,12 @@ export class PayService {
         assertTransition(row, next);
         await appendEvent(tx, row.id, 'dispute.restored', { disputeId, status: next });
         await tx`UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id}`;
+        return true;
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+    // A dispute opened while this ran saw the payment still disputed and did not mark it again. Mark it now.
+    if (restored && !(await allWon())) await this.markDisputed(paymentId, { disputeId });
   }
 
   // ── Settlement (§6.1) ──────────────────────────────────────────────────────
