@@ -38,7 +38,8 @@ export const FULL_TRIGGERS = [
 ];
 
 /** Agent-rule and gate files are never docs-only, even though most of them are Markdown. */
-export const GATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursor/rules'];
+export const GATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursor/', '.agents/', 'tooling/', '.github/'];
+const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md']);
 
 const PRODUCT_DIRS = /^(apps|services|packages)\//;
 
@@ -79,7 +80,7 @@ export function classify(files, { forceFull = false } = {}) {
   const list = (files || []).map(posix).filter(Boolean);
   let affected = false;
   for (const file of list) {
-    if (GATE_FILES.some((g) => matchesPrefix(file, g))) return { full: true, affected: false };
+    if (GATE_FILES.some((g) => matchesPrefix(file, g)) || GATE_BASENAMES.has(file.split('/').pop())) return { full: true, affected: false };
     if (isDoc(file)) continue;
     if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
     if (PRODUCT_DIRS.test(file)) affected = true;
@@ -118,13 +119,13 @@ function gitChangedFiles() {
   const baseRef = process.env.GITHUB_BASE_REF;
   const base = baseRef ? `origin/${baseRef}` : 'origin/main';
   try {
-    const out = execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], { encoding: 'utf8' });
+    const out = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}...HEAD`], { encoding: 'utf8' });
     return out
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
   } catch {
-    const out = execFileSync('git', ['diff', '--name-only', `${base}`], { encoding: 'utf8' });
+    const out = execFileSync('git', ['diff', '--name-only', '--no-renames', `${base}`], { encoding: 'utf8' });
     return out
       .split('\n')
       .map((s) => s.trim())
@@ -160,6 +161,9 @@ function selfTest() {
     { files: ['CLAUDE.md'], expected: { full: true, affected: false } },
     { files: ['.cursor/rules/x.mdc'], expected: { full: true, affected: false } },
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false } },
+    { files: ['services/svc-trade/CLAUDE.md'], expected: { full: true, affected: false } },
+    { files: ['tooling/agent-protocol/AGENT_PROTOCOL.md'], expected: { full: true, affected: false } },
+    { files: ['.github/pull_request_template.md'], expected: { full: true, affected: false } },
     { files: ['docs/x.md'], expected: none },
     { files: ['services/svc-trade/README.md'], expected: none },
     { files: [], expected: none },
