@@ -109,6 +109,21 @@ export function edgeTrustFromEnv(env: {
 }
 
 /**
+ * Service-to-service key pairs (S2S v3). All optional, and `off` changes nothing: the shared secret stays the only form.
+ * `s2sFromEnv` in `@intafaced/contracts` turns these into a verifier and a signer and refuses a half-set configuration.
+ * The private key is a secret: it comes from the deploy environment, never from the repo.
+ */
+export const s2sEnvSchema = z.object({
+  S2S_AUTH_MODE: z.enum(['off', 'dual', 'keypair']).default('off'),
+  /** Public keyring JSON, the same in every service. Public keys only. */
+  S2S_KEYRING: z.string().min(2).optional(),
+  /** This service's own key id in the keyring. */
+  S2S_SIGNING_KID: z.string().min(3).max(64).optional(),
+  /** This service's private signing key (PKCS8, base64url). Secret. */
+  S2S_SIGNING_KEY: z.string().min(40).optional(),
+});
+
+/**
  * Shared secret for service-to-service calls (§2).
  *
  * Required by BOTH sides: a service exposing a `serviceProcedure` (svc-ledger)
