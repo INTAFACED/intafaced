@@ -62,6 +62,9 @@ async function build(opts: { triggers?: StopTriggerStore | null; failPlace?: () 
     },
     findClientOrder: async (p: Principal, input: { clientOrderId?: string }) =>
       stored.get(orderIdFor(p.userId, market.id, input.clientOrderId as string)) ?? null,
+    replaceOrder: async () => {
+      throw new Error('replace must not be reached');
+    },
     getOrder: async (_p: Principal, id: string) => stored.get(id)!,
     openOrders: async () => [...stored.values()],
     orderHistory: async () => [...stored.values()],
