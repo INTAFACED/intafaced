@@ -1,0 +1,77 @@
+name: Main bisect
+
+# Started by Main trust when a main run has failed twice. Walks the commits between the last green and the red one with
+# a binary search, running only the failing test files at each probe, and comments the first commit where they fail on
+# its pull request and on the "Main is red" issue. It reverts nothing and changes no test.
+# See tooling/ci/bisect-main.mjs. workflow_dispatch can only be started by a person with write access or by Main trust.
+on:
+  workflow_dispatch:
+    inputs:
+      good:
+        description: Last green commit (full sha)
+        required: true
+      bad:
+        description: Red commit (full sha)
+        required: true
+      tests:
+        description: Failing test files, one repo-relative path per line
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: main-bisect
+  cancel-in-progress: false
+
+jobs:
+  bisect:
+    name: Bisect main
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      issues: write # comment on the culprit's pull request and the red issue
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.bad }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/test-infra
+      # The search checks out older commits; keep this script (from the red commit, which is main) out of the way.
+      - name: Keep the bisect script outside the checkout
+        run: cp tooling/ci/bisect-main.mjs "$RUNNER_TEMP/bisect-main.mjs"
+      - name: Bisect
+        env:
+          GOOD: ${{ inputs.good }}
+          BAD: ${{ inputs.bad }}
+          TESTS: ${{ inputs.tests }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node "$RUNNER_TEMP/bisect-main.mjs"

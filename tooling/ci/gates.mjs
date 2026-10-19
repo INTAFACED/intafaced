@@ -395,6 +395,10 @@ export const GATES = [
 export const NOT_GATES = {
   'ci-affected.mjs':
     'path classifier for named CI test shards and the merge-seal aggregator. Invoked from ci.yml `changes` / `merge-seal` jobs and via `--self-test`. Not a doctrine gate: a laptop verify has no GitHub event payload, and reddening verify over missing GITHUB_OUTPUT is how a classifier gets deleted. Local pre-flight: `node tooling/ci/ci-affected.mjs --self-test`.',
+  'bisect-main.mjs':
+    'runs from main-bisect.yml, started by Main trust when a main run has failed twice: walks the commits since the last green and comments the first one where the failing test files fail. Needs a token, a red run and the test infrastructure, so a laptop verify has no input. `node tooling/ci/bisect-main.mjs --self-test` runs the search on fixtures and is wired in the `changes` job of ci.yml.',
+  'test-shards.mjs':
+    'splits the test suite into the four shards of the Tests job on a run-everything change. Not a doctrine gate: it prints package lists for turbo and asserts nothing about the code. `node tooling/ci/test-shards.mjs --self-test` proves every package with a test script lands in exactly one shard and is wired in the `changes` job of ci.yml.',
   'main-trust.mjs':
     'runs from main-trust.yml after a CI run on main finishes: re-runs a red run once, opens red / flaky issues, publishes the last-green branch. Needs a GitHub token and a finished run, so a laptop verify has no input. `node tooling/ci/main-trust.mjs --self-test` checks the decision table and parser.',
   'test-diff-guard.mjs':

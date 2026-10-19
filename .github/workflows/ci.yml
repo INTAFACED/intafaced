@@ -146,6 +146,7 @@ jobs:
     outputs:
       full: ${{ steps.cls.outputs.full }}
       affected: ${{ steps.cls.outputs.affected }}
+      shards: ${{ steps.cls.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -159,6 +160,8 @@ jobs:
       - run: node tooling/ci/ci-affected.mjs --self-test
       - run: node tooling/ci/review-marker.mjs --self-test
       - run: node tooling/ci/main-trust.mjs --self-test
+      - run: node tooling/ci/bisect-main.mjs --self-test
+      - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - id: cls
@@ -197,12 +200,17 @@ jobs:
       - run: pnpm typecheck
 
   test-full:
-    # One test job for every pull request. A run-everything change (full) runs the whole suite; any other change runs
-    # the changed packages, their dependents and the readers in tooling/ci/test-read-edges.json (affected).
-    # Main always runs full. The seal fails a skipped job unless the classifier said there was nothing to test.
-    name: Tests (full)
+    # A run-everything change (full, and every push to main) splits the suite four ways, one job each, by the package
+    # lists in tooling/ci/test-shards.mjs. Any other change is one job, `changed`: the changed packages, their
+    # dependents and the readers in tooling/ci/test-read-edges.json. The seal reads the matrix as one job (green only
+    # when every shard is) and fails a skipped one unless the classifier said there was nothing to test.
+    name: Tests (${{ matrix.shard }})
     if: needs.changes.outputs.full == 'true' || needs.changes.outputs.affected == 'true'
     needs: [changes]
+    strategy:
+      fail-fast: false # a red shard must not hide what the other three found
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45 # healthy run: 11-20 min
 
@@ -229,44 +237,6 @@ jobs:
           --health-timeout 3s
           --health-retries 20
 
-    env:
-      # Residual #9: every money suite must hit real Postgres on CI — not skip.
-      # Local defaults use :5433 + svc_* users; CI is :5432 after bootstrap.
-      # Use 127.0.0.1 (not localhost) so Node does not try IPv6 ::1 before PG is up.
-      CI: true
-      REQUIRE_POSTGRES: '1'
-      # Target `intafaced_test`, not `intafaced`, even though CI's Postgres is a
-      # throwaway container where nothing could be harmed. Two reasons it still
-      # matters: `assertTestDatabase` refuses any database not ending in `_test`,
-      # so CI must satisfy the same rule it enforces on developers; and CI is the
-      # only place that proves the isolated database is actually bootstrappable.
-      # A green CI on the shared name would tell us nothing about the path every
-      # developer runs.
-      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TOKEN: postgres://svc_token:svc_token@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_P2P: postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BANK: postgres://svc_bank:svc_bank@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BLUEPRINT: postgres://svc_blueprint:svc_blueprint@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT_ADMIN: postgres://intafaced:intafaced@127.0.0.1:5432/postgres
-      REDIS_URL: redis://127.0.0.1:6379
-      NATS_URL: nats://127.0.0.1:4222
-      # Same bargain as REQUIRE_POSTGRES, for the same reason. svc-protocol's
-      # CREATE2 cross-check is the one test that proves an address shown to a
-      # user is the address the factory will deploy to; it skips on a laptop
-      # with no chain and must NEVER skip here.
-      REQUIRE_EVM_CHAIN: '1'
-      PROTOCOL_RPC_URL: http://127.0.0.1:8545
-      # svc-indexer's non-destructive adapter suite shares 8545. Its reorg suite
-      # does not, and must not — see the `evm-reorg` step below.
-      INDEXER_RPC_URL: http://127.0.0.1:8545
-      INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
-
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -279,131 +249,33 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      - name: Bootstrap service schemas and roles
-        run: |
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
-            -f tooling/infra/postgres-init/01-service-schemas.sql
-          # ops role used by some ledger/indexer suites for CREATE SCHEMA
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
-            "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
+      - uses: ./.github/actions/test-infra
 
-      # Run the SAME init script the local docker fleet runs, rather than a CI
-      # transcription of it. That script shipped two silent bugs for a long time
-      # (an unquoted heredoc that let bash expand `DO $$` into the shell PID, and
-      # `CREATE ROLE IF NOT EXISTS`, which Postgres does not have). Both left
-      # `intafaced_test` created but EMPTY of service schemas — which is exactly
-      # what pushed suites back onto the shared database. CI never executed this
-      # file, so CI could not have caught either bug. Now it does.
-      - name: Create and bootstrap the isolated test database
+      - id: pick
+        name: Pick this job's packages
         env:
-          POSTGRES_USER: intafaced
-          POSTGRES_DB: intafaced
-          PGPASSWORD: intafaced
-          PGHOST: localhost
-        run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
-
-      - name: Prove the test database is actually populated
-        env:
-          PGPASSWORD: intafaced
+          SHARD: ${{ matrix.shard }}
         run: |
-          # "Created but empty" was the real failure mode, and it is
-          # indistinguishable from success unless something asserts on contents.
-          expected=14
-          count=$(psql -h localhost -U intafaced -d intafaced_test -tAc \
-            "SELECT count(*) FROM pg_namespace WHERE nspname IN ('identity','ledger','token','matching','trade','pay','p2p','blueprint','bank','agents','indexer','protocol','notify','support');")
-          echo "service schemas in intafaced_test: $count / $expected"
-          if [ "$count" -ne "$expected" ]; then
-            echo "::error::intafaced_test missing service schemas ($count/$expected) — 02-intafaced-test-db.sh did not do its job"
-            exit 1
+          if [ "$SHARD" = changed ]; then
+            node tooling/ci/ci-affected.mjs --filters > "$RUNNER_TEMP/filters.txt"
+            echo 'protocol=true' >> "$GITHUB_OUTPUT"
+          else
+            node tooling/ci/test-shards.mjs --shard "$SHARD" > "$RUNNER_TEMP/filters.txt"
+            if grep -qx '@intafaced/svc-protocol' "$RUNNER_TEMP/filters.txt"; then echo 'protocol=true' >> "$GITHUB_OUTPUT"; fi
           fi
-
-      - name: Prove money-test DB URLs resolve (residual #9)
-        run: node tooling/ci/assert-test-db-env.mjs
-
-      # NATS, with JetStream ON.
-      #
-      # It used to be a `services:` container, and GitHub gives those no way to
-      # pass a command — so it ran with JetStream OFF while every service in this
-      # repo publishes and consumes through JetStream. `nc.jetstreamManager()`
-      # answers 503 on such a server. Nothing noticed for as long as the container
-      # has existed, because no test connected to it; the first suite that did
-      # (packages/events) failed on exactly that.
-      #
-      # Same reason and same shape as the EVM chain below. Mirrors the `nats`
-      # service in docker-compose.yml, which has always passed `--jetstream`.
-      - name: Local NATS with JetStream (§10 event bus)
-        run: |
-          docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
-            --jetstream --http_port=8222 --name=intafaced-ci-nats
-          for _ in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
-              echo "nats answering on 4222, JetStream enabled"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::NATS never answered — the JetStream bus suite cannot run"
-          docker logs intafaced-ci-nats || true
-          exit 1
-
-      # A throwaway EVM for svc-protocol. Started with `docker run` rather than
-      # as a `services:` container because GitHub gives service containers no
-      # way to pass a command, and the foundry image's entrypoint needs one.
-      #
-      # DEV ONLY, and ephemeral by construction — the runner is destroyed with
-      # the job. Mirrors the `evm` service in docker-compose.yml.
-      - name: Local EVM dev chain (§13 socket.evm-rpc)
-        run: |
-          docker run -d --name intafaced-ci-evm -p 8545:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
-            "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
-          for _ in $(seq 1 30); do
-            if curl -sf -X POST -H 'content-type: application/json' \
-                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
-                 http://127.0.0.1:8545 | grep -q 0x7a69; then
-              echo "dev chain answering on 8545"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::the dev chain never answered — REQUIRE_EVM_CHAIN=1 will fail the protocol suite"
-          docker logs intafaced-ci-evm || true
-          exit 1
-
-      # A SECOND throwaway EVM, for svc-indexer's reorg suite only.
-      #
-      # That suite proves rows written from an orphaned block do not survive it,
-      # which means actually reorging — and `evm_snapshot`/`evm_revert` rewind the
-      # whole NODE, not one caller's view of it. Sharing 8545 would rewind
-      # svc-protocol's deployed factory out from under its own live tests, and
-      # `pnpm test` runs package tasks in parallel, so non-overlap is not
-      # something anyone gets to assume. Mirrors the `evm-reorg` service in
-      # docker-compose.yml.
-      - name: Local EVM dev chain for the reorg suite
-        run: |
-          docker run -d --name intafaced-ci-evm-reorg -p 8546:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
-            "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
-          for _ in $(seq 1 30); do
-            if curl -sf -X POST -H 'content-type: application/json' \
-                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
-                 http://127.0.0.1:8546 | grep -q 0x7a69; then
-              echo "reorg chain answering on 8546"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::the reorg chain never answered — REQUIRE_EVM_CHAIN=1 will fail the indexer suite"
-          docker logs intafaced-ci-evm-reorg || true
-          exit 1
+          echo "packages for $SHARD:"; cat "$RUNNER_TEMP/filters.txt"
 
       # Runs the compiled factory against the TypeScript derivation and prints
       # both. The suite re-proves this hermetically; this step also proves the
       # deploy script itself still works, which nothing else exercises.
       - name: Deploy the smart-account suite and cross-check CREATE2
+        if: steps.pick.outputs.protocol == 'true'
         run: pnpm --filter @intafaced/svc-protocol chain:deploy
 
       # S-A8 — forge fuzz + gas ceilings. Does not compile committed artefacts
       # (solc-js still owns contracts/out/). Uses the same foundry image as anvil.
       - name: Foundry fuzz (S-A8)
+        if: steps.pick.outputs.protocol == 'true'
         run: pnpm --filter @intafaced/svc-protocol test:forge
         env:
           CI: 'true'
@@ -417,18 +289,14 @@ jobs:
       # runner sharing one Postgres, Redis, NATS and anvil. Under that load a different package timed out at vitest's
       # 5 s default on each run (svc-p2p, svc-ws, svc-pay, the svc-protocol lending test), none of them touched by the
       # PRs that went red. Fewer packages at a time removes the contention; no timeout is raised.
-      # An affected run adds turbo filters from tooling/ci/ci-affected.mjs --filters (dependents of the changed
-      # packages plus the readers in test-read-edges.json); turbo builds what those tests depend on (^build).
+      # The filters are this shard's packages (test-shards.mjs) or, for a `changed` run, the dependents of the changed
+      # packages plus the readers in test-read-edges.json (ci-affected.mjs --filters); turbo builds what those tests
+      # depend on (^build).
       - name: Run pnpm test --continue
-        env:
-          RUN_FULL: ${{ needs.changes.outputs.full }}
         run: |
           set -o pipefail
           filters=()
-          if [ "$RUN_FULL" != 'true' ]; then
-            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
-            echo "affected run: ${filters[*]}"
-          fi
+          while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
           pnpm test --continue --concurrency=3 "${filters[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service

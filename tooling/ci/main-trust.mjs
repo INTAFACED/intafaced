@@ -3,7 +3,8 @@
  * MAIN TRUST — what runs after a CI run on main finishes (workflow: main-trust.yml).
  *
  *   red, first attempt   re-run the failed jobs once. Nothing is skipped or disabled.
- *   red, second attempt  the red is real: open (or update) one "Main is red" issue naming the failing tests.
+ *   red, second attempt  the red is real: open (or update) one "Main is red" issue naming the failing tests, and start
+ *                        main-bisect.yml to find the first commit since the last green where those files fail.
  *   green after a re-run the tests that failed on attempt 1 are flaky: open (or update) one
  *                        "Flaky on main: <test file>" issue each, naming the owner.
  *   green                move the `last-green` branch to this commit, never backwards.
@@ -137,6 +138,22 @@ async function publishLastGreen(repo, sha) {
   return `moved ${LAST_GREEN_BRANCH} ${have} -> ${sha}`;
 }
 
+/** Start the bisect between the last green and this red commit. Needs a last-green branch that is an ancestor. */
+async function startBisect(repo, sha, tests) {
+  if (!tests.length) return 'bisect not started: no failing test file was named';
+  const cur = await gh('GET', `/repos/${repo}/git/ref/heads/${LAST_GREEN_BRANCH}`);
+  if (cur.status !== 200) return `bisect not started: no ${LAST_GREEN_BRANCH} branch yet`;
+  const good = cur.json.object.sha;
+  const cmp = await gh('GET', `/repos/${repo}/compare/${good}...${sha}`);
+  if (cmp.json?.status !== 'ahead')
+    return `bisect not started: ${LAST_GREEN_BRANCH} (${good.slice(0, 10)}) is ${cmp.json?.status} of ${sha.slice(0, 10)}`;
+  const r = await gh('POST', `/repos/${repo}/actions/workflows/main-bisect.yml/dispatches`, {
+    ref: 'main',
+    inputs: { good, bad: sha, tests: tests.join('\n') },
+  });
+  return r.status === 204 ? `bisect started between ${good.slice(0, 10)} and ${sha.slice(0, 10)}` : `bisect not started: HTTP ${r.status}`;
+}
+
 function selfTest() {
   const eq = (got, want, m) => {
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`${m}: got ${JSON.stringify(got)} want ${JSON.stringify(want)}`);
@@ -192,6 +209,7 @@ async function main() {
       '_Opened by tooling/ci/main-trust.mjs._',
     ].join('\n');
     console.log(`opened or updated issue #${await upsertIssue(repo, 'Main is red', body)}`);
+    console.log(await startBisect(repo, sha, tests));
     return;
   }
 

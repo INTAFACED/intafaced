@@ -1,0 +1,134 @@
+name: Test infrastructure
+description: >-
+  The databases, bus and chains the suites need, set up the same way for the Tests job and the main bisect.
+  Expects a Postgres service on 5432 and a Redis service on 6379 (the calling job declares them) and a checkout
+  with dependencies installed. Writes the test environment to GITHUB_ENV for every later step.
+
+runs:
+  using: composite
+  steps:
+    - name: Test environment
+      shell: bash
+      run: |
+        # Residual #9: every money suite must hit real Postgres on CI, not skip.
+        # Target `intafaced_test`, not `intafaced`: `assertTestDatabase` refuses any database not ending in `_test`,
+        # so CI satisfies the rule developers live by, and CI is the only place that proves the isolated database
+        # can be bootstrapped. 127.0.0.1 (not localhost) so Node does not try IPv6 ::1 before Postgres is up.
+        {
+          echo 'CI=true'
+          echo 'REQUIRE_POSTGRES=1'
+          echo 'TEST_DATABASE_URL=postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test'
+          for pair in PAY:svc_pay IDENTITY:svc_identity TOKEN:svc_token TRADE:svc_trade P2P:svc_p2p BANK:svc_bank \
+                      BLUEPRINT:svc_blueprint AGENTS:svc_agents NOTIFY:svc_notify SUPPORT:svc_support; do
+            echo "TEST_DATABASE_URL_${pair%%:*}=postgres://${pair##*:}:${pair##*:}@127.0.0.1:5432/intafaced_test"
+          done
+          echo 'TEST_DATABASE_URL_SUPPORT_ADMIN=postgres://intafaced:intafaced@127.0.0.1:5432/postgres'
+          echo 'REDIS_URL=redis://127.0.0.1:6379'
+          echo 'NATS_URL=nats://127.0.0.1:4222'
+          # svc-protocol's CREATE2 cross-check proves an address shown to a user is the one the factory deploys to.
+          # It skips on a laptop with no chain and must never skip here.
+          echo 'REQUIRE_EVM_CHAIN=1'
+          echo 'PROTOCOL_RPC_URL=http://127.0.0.1:8545'
+          # svc-indexer's adapter suite shares 8545; its reorg suite must not (see the second chain below).
+          echo 'INDEXER_RPC_URL=http://127.0.0.1:8545'
+          echo 'INDEXER_REORG_RPC_URL=http://127.0.0.1:8546'
+        } >> "$GITHUB_ENV"
+
+    - name: Bootstrap service schemas and roles
+      shell: bash
+      run: |
+        PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
+          -f tooling/infra/postgres-init/01-service-schemas.sql
+        # ops role used by some ledger/indexer suites for CREATE SCHEMA
+        PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
+          "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
+
+    # Runs the SAME init script the local docker fleet runs, not a CI transcription of it. That script once shipped
+    # two silent bugs (an unquoted heredoc that expanded `DO $$` into the shell PID, and `CREATE ROLE IF NOT EXISTS`,
+    # which Postgres lacks); both left `intafaced_test` created but EMPTY of service schemas.
+    - name: Create and bootstrap the isolated test database
+      shell: bash
+      env:
+        POSTGRES_USER: intafaced
+        POSTGRES_DB: intafaced
+        PGPASSWORD: intafaced
+        PGHOST: localhost
+      run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
+
+    - name: Prove the test database is actually populated
+      shell: bash
+      env:
+        PGPASSWORD: intafaced
+      run: |
+        # "Created but empty" was the real failure mode, and it is indistinguishable from success unless
+        # something asserts on contents.
+        expected=14
+        count=$(psql -h localhost -U intafaced -d intafaced_test -tAc \
+          "SELECT count(*) FROM pg_namespace WHERE nspname IN ('identity','ledger','token','matching','trade','pay','p2p','blueprint','bank','agents','indexer','protocol','notify','support');")
+        echo "service schemas in intafaced_test: $count / $expected"
+        if [ "$count" -ne "$expected" ]; then
+          echo "::error::intafaced_test missing service schemas ($count/$expected) — 02-intafaced-test-db.sh did not do its job"
+          exit 1
+        fi
+
+    - name: Prove money-test DB URLs resolve (residual #9)
+      shell: bash
+      run: node tooling/ci/assert-test-db-env.mjs
+
+    # NATS with JetStream ON. A `services:` container cannot take a command, so it would run with JetStream off,
+    # while every service here publishes and consumes through JetStream. Mirrors `nats` in docker-compose.yml.
+    - name: Local NATS with JetStream (§10 event bus)
+      shell: bash
+      run: |
+        docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
+          --jetstream --http_port=8222 --name=intafaced-ci-nats
+        for _ in $(seq 1 30); do
+          if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
+            echo "nats answering on 4222, JetStream enabled"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::NATS never answered — the JetStream bus suite cannot run"
+        docker logs intafaced-ci-nats || true
+        exit 1
+
+    # A throwaway EVM for svc-protocol, started with `docker run` because service containers cannot take the
+    # command the foundry image needs. Dev only and ephemeral: the runner is destroyed with the job.
+    - name: Local EVM dev chain (§13 socket.evm-rpc)
+      shell: bash
+      run: |
+        docker run -d --name intafaced-ci-evm -p 8545:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
+          "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
+        for _ in $(seq 1 30); do
+          if curl -sf -X POST -H 'content-type: application/json' \
+               --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
+               http://127.0.0.1:8545 | grep -q 0x7a69; then
+            echo "dev chain answering on 8545"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::the dev chain never answered — REQUIRE_EVM_CHAIN=1 will fail the protocol suite"
+        docker logs intafaced-ci-evm || true
+        exit 1
+
+    # A SECOND throwaway EVM for svc-indexer's reorg suite only. It really reorgs, and `evm_snapshot`/`evm_revert`
+    # rewind the whole node, so sharing 8545 would rewind svc-protocol's deployed factory under its live tests.
+    - name: Local EVM dev chain for the reorg suite
+      shell: bash
+      run: |
+        docker run -d --name intafaced-ci-evm-reorg -p 8546:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
+          "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
+        for _ in $(seq 1 30); do
+          if curl -sf -X POST -H 'content-type: application/json' \
+               --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
+               http://127.0.0.1:8546 | grep -q 0x7a69; then
+            echo "reorg chain answering on 8546"
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "::error::the reorg chain never answered — REQUIRE_EVM_CHAIN=1 will fail the indexer suite"
+        docker logs intafaced-ci-evm-reorg || true
+        exit 1
