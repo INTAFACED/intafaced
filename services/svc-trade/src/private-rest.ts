@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachRfqExportRoute } from './otc/rfq-history-rest.js';
 import { attachIcebergDisplay, readRawDisplayQty, TRADE_ICEBERG_DISPLAY_INVALID, type IcebergDisplayStore } from './spot/iceberg-door.js';
 import { checkAccess } from '@intafaced/config';
@@ -122,6 +123,7 @@ export interface PrivateRestDeps {
   edgeSecret: string;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  copyExport?(principal: Principal, query: { followId?: string; from?: string; to?: string }): Promise<string>;
   rfqExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
   icebergDisplay?: IcebergDisplayStore;
   /**
@@ -905,6 +907,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
 
   /**

@@ -5,6 +5,7 @@ import { createEdgeContext } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { installP2pS2sRawBody, p2pInternalServiceOf } from './s2s-auth.js';
+import { registerClosureCheck } from './closure/closure-check.js';
 import {
   P2pService,
   publishedDisputeEscalationRecheckSeconds,
@@ -198,6 +199,7 @@ const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, servi
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 installP2pS2sRawBody(app);
+registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET });
 
 const moderationPublic = moderationOnPublicDoor(isModerationConfigured(moderatorUserIds));
 

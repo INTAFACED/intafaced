@@ -3,6 +3,7 @@ import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/
 import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
+import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
 import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
@@ -27,6 +28,7 @@ type AccountExchanger = ApiKeyMinter & {
 };
 
 function toAccountTrpc(err: unknown): never {
+  if (err instanceof TRPCError) throw err;
   if (err instanceof ApiKeyAccountError) {
     if (err.code === 'auth.not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -62,7 +64,7 @@ function toAccountTrpc(err: unknown): never {
  * so mergeRouters cannot replace apiKeys.exchange. identity:write except the
  * public named-account exchange. Empty account id refuses.
  */
-export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
+export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyAccount: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().uuid(), accountId: z.string().uuid() }))
@@ -81,6 +83,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
           name: z.string().min(1).max(64),
           scopes: z.array(z.string()).min(1),
           accountId: z.string().uuid(),
+          factorProof: optionalFactorProof,
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
         }),
@@ -97,16 +100,18 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger) {
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          return await mintApiKeyBoundToAccount(minter, sql, {
-            userId: ctx.principal.userId,
-            name: input.name,
-            scopes: input.scopes,
-            grantorScopes: ctx.principal.scopes,
-            grantorKid: ctx.principal.kid,
-            accountId: input.accountId,
-            domainWhitelist: input.domainWhitelist,
-            mode: input.mode,
-          });
+          return await guardedApiKeyAction(gate, ctx.principal, input.factorProof, { action: 'create', scopes: input.scopes }, (scope) =>
+            mintApiKeyBoundToAccount(scope, scope.tx, {
+              userId: ctx.principal.userId,
+              name: input.name,
+              scopes: input.scopes,
+              grantorScopes: ctx.principal.scopes,
+              grantorKid: ctx.principal.kid,
+              accountId: input.accountId,
+              domainWhitelist: input.domainWhitelist,
+              mode: input.mode,
+            }),
+          );
         } catch (err) {
           toAccountTrpc(err);
         }

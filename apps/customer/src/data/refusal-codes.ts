@@ -48,6 +48,7 @@ export type RefusalKind =
   | 'walletCap'
   | 'walletFields'
   | 'walletAddress'
+  | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
 
@@ -161,6 +162,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'pay.wallet_forbidden': 'noPermission',
   'pay.wallet_not_found': 'notFound',
   'pay.wallet_unconfigured': 'tryAgain',
+  'trade.candles_range_point_cap': 'chartRange',
 };
 
 /** Prefix rules, checked in order after the exact table. */

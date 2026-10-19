@@ -20,7 +20,6 @@
     "@intafaced/config": "workspace:*",
     "@intafaced/contracts": "workspace:*",
     "@intafaced/db": "workspace:*",
-    "@intafaced/events": "workspace:*",
     "@intafaced/i18n": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
     "@intafaced/telemetry": "workspace:*",
@@ -37,7 +36,6 @@
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",
     "@types/node": "^22.20.5",
-    "drizzle-kit": "^0.31.11",
     "rimraf": "^6.0.1",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
