@@ -1,4 +1,6 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createServiceSigner, createServiceVerifier, type Keyring } from '@intafaced/contracts';
 import {
   EmptyAcademyCurriculumSource,
   FixedAcademyCurriculumSource,
@@ -107,5 +109,70 @@ describe('createAcademyCurriculumSource — fail closed', () => {
     );
     const grounding = await createAcademyCurriculumSource('http://svc-academy:4016', SECRET).load();
     expect(grounding).toEqual({ items: [], licensedLibraryImported: false });
+  });
+});
+
+describe('createAcademyCurriculumSource — signs with svc-agents own key when it has one', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const keyring: Keyring = [
+    {
+      kid: 'svc-agents.a',
+      svc: 'svc-agents',
+      use: 's2s',
+      x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+    },
+  ];
+  const signer = createServiceSigner({
+    service: 'svc-agents',
+    kid: 'svc-agents.a',
+    privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+    keyring,
+  });
+
+  function capture() {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const fetchImpl = (async (url: string | URL, init?: RequestInit) => {
+      seen.push({ url: String(url), headers: init?.headers as Record<string, string> });
+      return new Response(JSON.stringify({ items: SPINE }), { status: 200 });
+    }) as typeof fetch;
+    return { seen, fetchImpl };
+  }
+
+  it('dual: sends a key-signed call that svc-academy would accept, beside the shared-secret form', async () => {
+    const { seen, fetchImpl } = capture();
+    const grounding = await createAcademyCurriculumSource('http://svc-academy:4016/', SECRET, fetchImpl, { signer, mode: 'dual' }).load();
+    expect(grounding.items).toEqual(SPINE);
+    const { headers, url } = seen[0]!;
+    const target = new URL(url);
+    const verdict = createServiceVerifier({ self: 'svc-academy', keyring }).verify({
+      method: 'GET',
+      url: target.pathname + target.search,
+      headers,
+      rawBody: { retained: true, bytes: Buffer.alloc(0) },
+    });
+    expect(verdict).toMatchObject({ status: 'accepted', service: 'svc-agents' });
+    expect(headers['x-intafaced-service-sig']).toBeDefined();
+  });
+
+  it('keypair: sends no shared-secret form at all', async () => {
+    const { seen, fetchImpl } = capture();
+    await createAcademyCurriculumSource('http://svc-academy:4016', SECRET, fetchImpl, { signer, mode: 'keypair' }).load();
+    expect(seen[0]!.headers['x-intafaced-s2s-sig']).toBeDefined();
+    expect(Object.keys(seen[0]!.headers).some((h) => h.startsWith('x-intafaced-service'))).toBe(false);
+  });
+
+  it('a transport failure is still the empty catalog', async () => {
+    const fetchImpl = (async () => {
+      throw new Error('socket hang up');
+    }) as typeof fetch;
+    const grounding = await createAcademyCurriculumSource('http://svc-academy:4016', SECRET, fetchImpl, { signer, mode: 'dual' }).load();
+    expect(grounding).toEqual({ items: [], licensedLibraryImported: false });
+  });
+
+  it('without a signer it is exactly the shared-secret call', async () => {
+    const { seen, fetchImpl } = capture();
+    await createAcademyCurriculumSource('http://svc-academy:4016', SECRET, fetchImpl).load();
+    expect(Object.keys(seen[0]!.headers).some((h) => h.startsWith('x-intafaced-s2s'))).toBe(false);
+    expect(seen[0]!.headers['x-intafaced-service']).toBe('svc-agents');
   });
 });
