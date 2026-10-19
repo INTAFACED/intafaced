@@ -190,8 +190,8 @@ export const GATES = [
     why:
       'relaxed-boundary ratchet over the vendored Java CORS surface (same FORBIDDEN list parsed from brand-scan.mjs): ' +
       'CorsConfig / CorsAllowlist / CORS ApplicationConfig, where `\\b` cannot see a name welded into an identifier. ' +
-      'NARROWED 2026-10-13: the retired legacy Vue customer site (vendor 05_Web_Front, replaced by apps/customer, ' +
-      'see its RETIRED.md) is no longer walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
+      'NARROWED 2026-10-13, DELETED 2026-10-19: the legacy Vue customer site (vendor 05_Web_Front, replaced by ' +
+      'apps/customer) is gone from the tree, so only the Java CORS surface is walked. Baseline is empty — any new hit fails until fixed; never re-freeze.',
   },
   {
     id: 'custody',

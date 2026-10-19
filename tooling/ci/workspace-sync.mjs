@@ -653,9 +653,9 @@ if (compose !== null) {
   //
   // The two directions are not the same fault and do not get the same answer:
   //
-  //  - `vendor/` is THERE and the walk found nothing in it — discovery is
-  //    broken, exactly as it was until today. Fail. The tree is what this check
-  //    was written for; being unable to see it is not a pass.
+  //  - `vendor/` is THERE and the walk found nothing in it — since the Vue
+  //    front end was deleted (2026-10-19) that is the expected state. Say so
+  //    out loud, as below, so nobody reads a tick as coverage.
   //  - `vendor/` is not there at all — a legitimate end state if the vendored
   //    shell is ever fully retired. Pass, but say so out loud, so nobody reads
   //    a tick as coverage. That is the `fabricated-money-scan` (deleted 2026-10-13) rule.
@@ -663,11 +663,10 @@ if (compose !== null) {
     console.log('  · workspace-sync check 7: no vendor/ directory — NO VENDORED FRONT-END WAS INSPECTED.');
     console.log('    If the vendored shell still exists, discovery is broken; fix vendoredPackages rather than ignoring this line.');
   } else if (vendored.length === 0) {
-    failures.push({
-      file: 'vendor/',
-      reason:
-        'vendor/ exists but no package.json was found anywhere beneath it, so check 7 inspected no vendored front-end at all. That is the exact state this check was in until 2026-08-03 — reporting clean while looking at nothing. Fix vendoredPackages, do not delete this failure',
-    });
+    // 2026-10-19: the vendored Vue front end was deleted; what remains under vendor/ is Java and
+    // scripts, with no package.json. That is the true state, not broken discovery. A vendored
+    // front end that returns carries a package.json and is walked again by `vendoredPackages`.
+    console.log('  · workspace-sync check 7: vendor/ holds no package.json (Java only) — NO VENDORED FRONT-END WAS INSPECTED.');
   }
   vendoredInspected = vendored.length;
 

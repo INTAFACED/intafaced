@@ -50,7 +50,7 @@ const SKIP_DIRS = new Set([
 const COPY_ROOT_GLOBS = [
   join('packages', 'i18n'),
   // The legacy Vue customer site's catalogue (vendor 05_Web_Front, assets/lang) was
-  // listed here until 2026-10-13, when the site was retired (see its RETIRED.md).
+  // listed here until 2026-10-13, when the site was retired; the site was deleted 2026-10-19.
   // Historical path — walk if a later drop puts catalogues here.
   join('vendor', 'upstream-exchange', '04_Web_Admin', 'src', 'assets', 'lang'),
   // Actual admin i18n tree on tip (locale.js / index.js). assets/lang does not exist.

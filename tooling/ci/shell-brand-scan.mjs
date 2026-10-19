@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * NARROWED 2026-10-13 (Nitro's decision): the legacy Vue customer site
- * (vendor 05_Web_Front, replaced by the React app apps/customer, #4511) is
- * retired — kept in the tree, no longer built, deployed or gated. This scan
+ * NARROWED 2026-10-13 (Nitro's decision), DELETED 2026-10-19: the legacy Vue customer
+ * site (vendor 05_Web_Front, replaced by the React app apps/customer, #4511) was retired,
+ * then removed from the tree; it is no longer built, deployed, gated or present. This scan
  * therefore no longer walks any Vue project root; it keeps only the vendored
  * Java CORS-adjacent half (CorsConfig / CorsAllowlist / CORS ApplicationConfig),
  * which is still shipped surface. The history below describes the original,

@@ -1,7 +1,7 @@
 /**
  * quant.studio mount vs tracker — contract/refusal boundary (D-S-18).
  *
- * Visual builder shipped at /quant/studio (Studio.vue + studio.save).
+ * Visual builder shipped at /quant/studio (the Quant room in apps/customer + studio.save).
  * Residual: sandbox-escape test suite.
  */
 import { existsSync, readFileSync } from 'node:fs';
@@ -34,7 +34,7 @@ export function quantStudioRefusalBoundaryInSource(): boolean {
 }
 
 export function quantStudioVisualBuilderPresent(): boolean {
-  return existsSync(join(ROOT, 'vendor/upstream-exchange/05_Web_Front/src/pages/intafaced/quant/Studio.vue'));
+  return existsSync(join(ROOT, 'apps/customer/src/features/more/Quant.tsx'));
 }
 
 export function quantStudioTrackerBackendDoneBarMet(): boolean {

@@ -1854,9 +1854,6 @@ services:
   # questionnaire uses the independent React/Vite app at apps/invitation;
   # current UI replacement is allowed by the 2026-10-02 redesign ADR.
   #
-  # no-deploy: 05_Web_Front — retained legacy Vue source, replaced by
-  # apps/customer in the existing vendor-shell slot. Not served.
-  #
   # no-deploy: invitation — the separate Vercel join project is configured to
   # build apps/invitation and serve its Vite dist. App-owned vercel.json supplies SPA rewrites;
   # its API and identity runtime still require the separately configured edge.
