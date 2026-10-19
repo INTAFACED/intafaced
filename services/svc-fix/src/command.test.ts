@@ -32,6 +32,13 @@ describe('matching order command — decimal strings, no book', () => {
     expect(r.success).toBe(false);
   });
 
+  it('refuses a limit new_order_single when price is null, blank, or whitespace', () => {
+    for (const price of [null, '', ' ', '\t', '\n']) {
+      const r = matchingOrderCommandSchema.safeParse({ ...valid, ordType: 'limit', price });
+      expect(r.success, `price ${JSON.stringify(price)}`).toBe(false);
+    }
+  });
+
   it('refuses IEEE-looking exponent qty', () => {
     const r = matchingOrderCommandSchema.safeParse({ ...valid, qty: '1e-2' });
     expect(r.success).toBe(false);
