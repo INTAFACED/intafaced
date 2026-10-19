@@ -171,6 +171,8 @@ const identityUrl = process.env.TEST_DATABASE_URL_IDENTITY ?? process.env.IDENTI
 // CX-8 smoke does not use it, so the CX-8 workflow need not build it.
 const WITH_PAY = Boolean(process.env.CX8_AFTER);
 const payUrl = process.env.TEST_DATABASE_URL_PAY ?? process.env.PAY_DATABASE_URL ?? PG;
+// The bank boots with the pay core, for the same journeys phase: the wallet view reads its balance breakdown.
+const bankUrl = process.env.TEST_DATABASE_URL_BANK ?? process.env.BANK_DATABASE_URL ?? PG;
 
 /**
  * Identity, as the rig boots it. `founderPair` is null on the first boot (no founders exist yet, enrolment
@@ -272,6 +274,10 @@ async function main() {
       DATABASE_URL: payUrl,
       ...common,
     });
+    await run('pnpm', ['--filter', '@intafaced/svc-bank', 'db:migrate'], {
+      DATABASE_URL: bankUrl,
+      ...common,
+    });
   }
 
   // Resolve `nats` from workspace package deps (not hoisted to monorepo root).
@@ -321,9 +327,30 @@ async function main() {
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
     });
 
+  // Bank, for the wallet-view journeys: balances read from the ledger, no rail, no card programme, no price feed. Every owner-set
+  // figure below is a throwaway for this rig, not a product value.
+  if (WITH_PAY)
+    start('bank', 'node', ['services/svc-bank/dist/index.js'], {
+      ...common,
+      SERVICE_NAME: 'svc-bank',
+      HTTP_HOST: '127.0.0.1',
+      HTTP_PORT: '4009',
+      DATABASE_URL: bankUrl,
+      LEDGER_URL: 'http://127.0.0.1:4001',
+      IDENTITY_URL: 'http://127.0.0.1:4002',
+      TRADE_URL: 'http://127.0.0.1:4004',
+      DATABASE_POOL_MAX: '5',
+      // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
+      TRANSFER_BATCH_SIZE: '10',
+      LOAN_SWEEP_BATCH_SIZE: '10',
+      LOAN_QUOTE_ASSET_ID: 'USDT',
+      INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
+    });
+
   await waitHealth('http://127.0.0.1:4001', 'ledger');
   await waitHealth('http://127.0.0.1:4002', 'identity');
   if (WITH_PAY) await waitHealth('http://127.0.0.1:4006', 'pay');
+  if (WITH_PAY) await waitHealth('http://127.0.0.1:4009', 'bank');
 
   // Opening a market is founder-only at identity: make the two smoke operators founders first.
   const founders = await enrolFoundersAndRestartIdentity();
@@ -444,7 +471,7 @@ async function main() {
       MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
       LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
       IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
-      ...(WITH_PAY ? { PAY_HTTP_URL: 'http://127.0.0.1:4006' } : {}),
+      ...(WITH_PAY ? { PAY_HTTP_URL: 'http://127.0.0.1:4006', BANK_HTTP_URL: 'http://127.0.0.1:4009' } : {}),
       CX8_FOUNDERS_JSON: JSON.stringify(founders),
       EDGE_PRINCIPAL_SECRET: EDGE,
       INTERNAL_SERVICE_SECRET: SECRET,
