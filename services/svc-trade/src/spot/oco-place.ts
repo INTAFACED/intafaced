@@ -9,6 +9,8 @@ import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
+import type { Sql } from 'postgres';
+import { rememberOcoIntent } from './oco-intent.js';
 
 export type OcoLeg = {
   readonly price?: string;
@@ -148,13 +150,36 @@ export function installOcoPlace(ctor: typeof TradeService): void {
     if (missingTp) throw missingTp;
     const missingSl = stopLossRefuse(triggerOf(bound.stopLoss));
     if (missingSl) throw missingSl;
+    const tp = triggerOf(bound.takeProfit)!;
+    const sl = triggerOf(bound.stopLoss)!;
     // A sell holds base once, whichever leg fills. A buy holds quote once, so it must be sized at the worse of
     // the two leg prices: the stop leg is a stop-limit and its limit is that worst price.
-    if (bound.side === 'buy') {
-      const worst = buyHoldPrice(triggerOf(bound.takeProfit)!, triggerOf(bound.stopLoss)!, stopLimitOf(bound.stopLoss));
-      return origPlace.call(this, principal, { ...bound, price: worst });
-    }
-    return origPlace.call(this, principal, bound);
+    const placed =
+      bound.side === 'buy'
+        ? (() => {
+            // A market buy is held at its protection price, not at the price handed in here.
+            if (bound.type !== 'limit') {
+              throw new TradeError(
+                'a buy OCO must be a limit order: its hold is sized at the stop-loss limit',
+                'trade.order_type_unsupported',
+              );
+            }
+            return { ...bound, price: buyHoldPrice(tp, sl, stopLimitOf(bound.stopLoss)) };
+          })()
+        : bound;
+    // Written before the hold: a resubmit from a booked hold_unknown row must send the same legs.
+    const host = this as unknown as { sql: Sql; requireMarket: (input: PlaceOrderInput) => Promise<{ id: string }> };
+    const market = await host.requireMarket(placed);
+    await rememberOcoIntent(
+      host.sql,
+      principal.userId,
+      market.id,
+      placed,
+      tp,
+      sl,
+      bound.side === 'buy' ? stopLimitOf(bound.stopLoss) : null,
+    );
+    return origPlace.call(this, principal, placed);
   };
 
   const origToEngine = proto.toEngineRequest;

@@ -263,4 +263,54 @@ describe('svc-trade buy OCO: one quote hold funds both legs at the worse price (
     // base received net of the published test fee schedule (20 bps taker)
     expect(await avail(ALICE, 'BTC')).toBe('0.998');
   });
+
+  it('refuses a market-type buy OCO: its hold would be sized at the protection price, not the stop limit', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    await expect(trade.placeOrder(principalFor(ALICE), buyOco({ type: 'market' }))).rejects.toMatchObject({
+      code: 'trade.order_type_unsupported',
+    });
+    expect(matching.submitted).toHaveLength(0);
+    expect(await avail(ALICE, 'USDT')).toBe('1000');
+  });
+
+  it('a buy OCO resubmitted from a booked hold_unknown row keeps its legs and stop limit', async () => {
+    await fund(ALICE, 'USDT', '1000');
+    const oco = await trade.placeOrder(principalFor(ALICE), buyOco());
+    await sql`UPDATE trade.orders SET status = 'hold_unknown' WHERE id = ${oco.id}`;
+    matching.submitted.length = 0;
+
+    const swept = await trade.sweepHoldUnknown();
+
+    expect(swept.booked).toEqual([oco.id]);
+    expect(matching.submitted).toHaveLength(1);
+    expect(matching.submitted[0]?.request).toMatchObject({ oco: true, takeProfit: '90', stopLoss: '120', stopLossLimit: '125' });
+  });
+
+  it('a sell OCO resubmitted from a booked hold_unknown row keeps its legs too', async () => {
+    await fund(ALICE, 'BTC', '1');
+    const oco = await trade.placeOrder(principalFor(ALICE), {
+      marketId: btcusdt.id,
+      side: 'sell',
+      type: 'limit',
+      qty: amt('1'),
+      price: amt('110'),
+      clientOrderId: 'oco-sell-resume',
+      takeProfit: { stopPrice: '110' },
+      stopLoss: { stopPrice: '90' },
+    } as Parameters<TradeService['placeOrder']>[1]);
+    await sql`UPDATE trade.orders SET status = 'hold_unknown' WHERE id = ${oco.id}`;
+    matching.submitted.length = 0;
+
+    await trade.sweepHoldUnknown();
+
+    expect(matching.submitted[0]?.request).toMatchObject({ oco: true, takeProfit: '110', stopLoss: '90' });
+  });
+
+  it('refuses the same clientOrderId reused for a buy OCO with different legs', async () => {
+    await fund(ALICE, 'USDT', '2000');
+    await trade.placeOrder(principalFor(ALICE), buyOco());
+    await expect(trade.placeOrder(principalFor(ALICE), buyOco({ takeProfit: { stopPrice: '80' } }))).rejects.toMatchObject({
+      code: 'trade.client_order_id_conflict',
+    });
+  });
 });
