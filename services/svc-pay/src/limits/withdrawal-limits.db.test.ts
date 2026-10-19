@@ -13,6 +13,7 @@ import { PayGuardRefusal, composeGuards } from '../seams/guards.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { loadWithdrawalLimitMode, loadWithdrawalLimits } from './config.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from './guards.js';
+import { createIdentityKycTierClient } from './identity-tier.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -182,6 +183,22 @@ describe('D-148 per-customer withdrawal limits (real Postgres)', () => {
     expect((await service.withdraw(request('10', 'old'))).status).toBe('sent');
     const hit = await refusal(service.withdraw(request('6', 'next')));
     expect(hit.remaining).toEqual({ perTx: '10', rolling24h: '5' });
+  });
+
+  it('with the identity tier client wired, required works end to end; an identity failure refuses with no claim', async () => {
+    let tier: string | undefined = 'basic';
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const userId = decodeURIComponent(String(input).split('/').pop() ?? '');
+      if (tier === undefined) return new Response('down', { status: 503 });
+      return new Response(JSON.stringify({ userId, status: 'active', kycTier: tier }), { status: 200 });
+    }) as typeof fetch;
+    const tierOf = createIdentityKycTierClient({ baseUrl: 'http://identity.test', internalSecret: 'x'.repeat(32), fetchImpl });
+    const service = money(REQUIRED, tierOf);
+    await fund(service);
+    expect((await service.withdraw(request('10', 'wired'))).status).toBe('sent');
+    tier = undefined;
+    expect((await refusal(service.withdraw(request('1', 'dark')))).code).toBe('pay.guard_unavailable');
+    expect(await sql`SELECT 1 FROM pay.withdrawals WHERE client_ref = 'dark'`).toHaveLength(0);
   });
 
   it('one customer reaching their limit does not touch another', async () => {

@@ -164,7 +164,7 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toContain('setAutoTripAccountErrorSink');
     expect(src).toContain('payHalts: { store: haltStore, merchants: pay, team: teamReadFromSql(sql) }');
     expect(src).toContain('control: new ControlService(sql, teamAccessPorts(sql))');
-    expect(src).toContain('const payGuards = buildPayGuards({ sql, ledger });');
+    expect(src).toMatch(/const payGuards = buildPayGuards\(\{\s*sql,\s*ledger,\s*kycTierOf:/);
     // One registry instance serves the payment service, the user-money service, and conversion.
     expect(src.match(/guards: payGuards,/g)).toHaveLength(3);
   });
