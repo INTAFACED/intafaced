@@ -1,3 +1,4 @@
+import { TestnetSigner } from './evm-signer.js';
 import { describe, expect, it, vi } from 'vitest';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 import { parseEvmAssets } from './evm-assets.js';
@@ -11,7 +12,7 @@ const mk = () =>
     rpcUrl: 'http://127.0.0.1:9',
     chainId: 31337,
     depositMnemonic: MNEMONIC,
-    hotWalletKey: HOT_KEY,
+    signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),
     minConfirmations: 1,

@@ -6,6 +6,7 @@ import { MemoryChain } from './rails/chain-port.js';
 import { MemoryBroadcastStore } from './rails/broadcast-store.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
+import { TestnetSigner } from './rails/evm-signer.js';
 import type { EvmLiveChainOptions } from './rails/evm-chain.js';
 import { verifyMerchantWebhook, signMerchantWebhook } from './plugins/reference-client.js';
 import { frozenWebhookVectors } from './plugins/webhook-vectors.js';
@@ -55,7 +56,7 @@ describe('svc-pay constructor unset refuse', () => {
       rpcUrl: 'http://127.0.0.1:1',
       chainId: 1,
       depositMnemonic: '',
-      hotWalletKey: '0x00',
+      signer: TestnetSigner.fromFixtureKey('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'),
       assets: new Map(),
       broadcasts: new MemoryBroadcastStore(),
       minConfirmations: undefined,

@@ -20,6 +20,7 @@ import {
   shouldRegisterCardSandbox,
   tryLiveChainFromEnv,
 } from './posture.js';
+import { TestnetSigner } from './evm-signer.js';
 import { EvmLiveChain } from './evm-chain.js';
 import { MemoryBroadcastStore } from './broadcast-store.js';
 
@@ -331,11 +332,11 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     };
-    const chain = defaultChainFor(env, new MemoryBroadcastStore());
+    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral());
     expect(chain).toBeInstanceOf(EvmLiveChain);
     expect(chain.posture).toBe('live');
     expect(new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 1, toleranceSeconds: 300 }).mode).toBe('live');
@@ -347,7 +348,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     };
@@ -362,7 +363,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     });
@@ -385,7 +386,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
     };
     expect(() => tryLiveChainFromEnv(env)).toThrow(/PAY_MIN_CONFIRMATIONS is unset/);
@@ -399,7 +400,7 @@ describe('defaultChainFor — what index.ts actually gets', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     });
@@ -427,11 +428,11 @@ describe('shouldRegisterCardSandbox', () => {
       PAY_CRYPTO_RPC_URL: 'http://127.0.0.1:8545',
       PAY_CRYPTO_CHAIN_ID: '31337',
       PAY_CRYPTO_DEPOSIT_MNEMONIC: 'test test test test test test test test test test test junk',
-      PAY_CRYPTO_HOT_WALLET_KEY: '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+      PAY_CRYPTO_SIGNER: 'testnet',
       PAY_CRYPTO_ASSETS: 'ETH:native',
       PAY_MIN_CONFIRMATIONS: '6',
     };
-    const chain = defaultChainFor(env, new MemoryBroadcastStore());
+    const chain = defaultChainFor(env, new MemoryBroadcastStore(), TestnetSigner.ephemeral());
     const rails = new RailRegistry([new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 1, toleranceSeconds: 300 })]);
     expect(rails.list()[0]!.mode).toBe('live');
     expect(() => assertRailPosture(rails, { APP_ENV: 'prod' })).not.toThrow();

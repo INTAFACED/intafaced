@@ -12,7 +12,7 @@
  *    PAY_CRYPTO_RPC_URL:
  *    PAY_CRYPTO_CHAIN_ID:
  *    PAY_CRYPTO_DEPOSIT_MNEMONIC:
- *    PAY_CRYPTO_HOT_WALLET_KEY:
+ *    PAY_CRYPTO_SIGNER:
  *    PAY_CRYPTO_ASSETS:
  *    (key, no value; unset omits). Do not bake true/false or `${VAR:-}`.
  * 4. Class N
@@ -50,7 +50,7 @@ const REGISTER = keyNoValue('PAY_REGISTER_CARD_SANDBOX');
 const RPC = keyNoValue('PAY_CRYPTO_RPC_URL');
 const CHAIN_ID = keyNoValue('PAY_CRYPTO_CHAIN_ID');
 const MNEMONIC = keyNoValue('PAY_CRYPTO_DEPOSIT_MNEMONIC');
-const HOT_KEY = keyNoValue('PAY_CRYPTO_HOT_WALLET_KEY');
+const SIGNER = keyNoValue('PAY_CRYPTO_SIGNER');
 const ASSETS = keyNoValue('PAY_CRYPTO_ASSETS');
 const OPERATOR_CREDIT = /^\s+PAY_OPERATOR_CREDIT_RAILS:\s*\$\{PAY_OPERATOR_CREDIT_RAILS:-\}\s*$/gm;
 const SANDBOX_ALLOW = /^\s+PAY_ALLOW_SANDBOX_RAILS:\s*\$\{PAY_ALLOW_SANDBOX_RAILS:-false\}\s*$/gm;
@@ -69,7 +69,7 @@ const KEY_NO_VALUE = [
   ['PAY_CRYPTO_RPC_URL', RPC],
   ['PAY_CRYPTO_CHAIN_ID', CHAIN_ID],
   ['PAY_CRYPTO_DEPOSIT_MNEMONIC', MNEMONIC],
-  ['PAY_CRYPTO_HOT_WALLET_KEY', HOT_KEY],
+  ['PAY_CRYPTO_SIGNER', SIGNER],
   ['PAY_CRYPTO_ASSETS', ASSETS],
 ] as const;
 
@@ -86,7 +86,7 @@ describe('compose PAY_REGISTER_CARD_SANDBOX for svc-pay', () => {
     expect(envTs).toMatch(/PAY_CRYPTO_RPC_URL:\s*z\.string\(\)\.url\(\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_CHAIN_ID:\s*z\.coerce\.number\(\)\.int\(\)\.positive\(\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_DEPOSIT_MNEMONIC:\s*z\.string\(\)\.min\(20\)\.optional\(\)/);
-    expect(envTs).toMatch(/PAY_CRYPTO_HOT_WALLET_KEY:\s*z[\s\S]*?\.optional\(\)/);
+    expect(envTs).toMatch(/PAY_CRYPTO_SIGNER:\s*z\.enum\(\['testnet'\]\)\.optional\(\)/);
     expect(envTs).toMatch(/PAY_CRYPTO_ASSETS:\s*z\.string\(\)\.min\(1\)\.optional\(\)/);
   });
 

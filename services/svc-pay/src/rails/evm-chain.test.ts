@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { TestnetSigner } from './evm-signer.js';
 import { pad, toHex, type Hex } from 'viem';
 import { parseAmount } from '@intafaced/ledger-client';
 import { MemoryBroadcastStore } from './broadcast-store.js';
@@ -81,7 +82,7 @@ function chainWith(): EvmLiveChain {
     rpcUrl: 'http://127.0.0.1:9',
     chainId: 31337,
     depositMnemonic: MNEMONIC,
-    hotWalletKey: HOT_KEY,
+    signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),
     minConfirmations: 1,
@@ -174,7 +175,7 @@ describe('EvmLiveChain inbound identity', () => {
         rpcUrl: 'http://127.0.0.1:9',
         chainId: 31337,
         depositMnemonic: MNEMONIC,
-        hotWalletKey: HOT_KEY,
+        signer: TestnetSigner.fromFixtureKey(HOT_KEY),
         assets: parseEvmAssets(`USDC:${token}:6`),
         broadcasts: new MemoryBroadcastStore(),
         minConfirmations: 1,
@@ -218,7 +219,7 @@ describe('EvmLiveChain inbound identity', () => {
       rpcUrl: 'http://127.0.0.1:9',
       chainId: 31337,
       depositMnemonic: MNEMONIC,
-      hotWalletKey: HOT_KEY,
+      signer: TestnetSigner.fromFixtureKey(HOT_KEY),
       assets: parseEvmAssets(`USDC:${token}:18`),
       broadcasts: new MemoryBroadcastStore(),
       minConfirmations: 2,
@@ -315,7 +316,7 @@ describe('EvmLiveChain ERC-20 scan cursor', () => {
         rpcUrl: 'http://127.0.0.1:9',
         chainId: 31337,
         depositMnemonic: MNEMONIC,
-        hotWalletKey: HOT_KEY,
+        signer: TestnetSigner.fromFixtureKey(HOT_KEY),
         assets: parseEvmAssets(`ETH:native,USDC:${tokenA}:6,USDT:${tokenB}:6`),
         broadcasts: new MemoryBroadcastStore(),
         minConfirmations: 1,
@@ -410,7 +411,7 @@ describe('EvmLiveChain ERC-20 scan cursor', () => {
       rpcUrl: 'http://127.0.0.1:9',
       chainId: 31337,
       depositMnemonic: MNEMONIC,
-      hotWalletKey: HOT_KEY,
+      signer: TestnetSigner.fromFixtureKey(HOT_KEY),
       assets: parseEvmAssets(`USDC:${token}:18`),
       broadcasts: new MemoryBroadcastStore(),
       minConfirmations,
@@ -476,7 +477,7 @@ function described(rpcUrl: string): string {
     rpcUrl,
     chainId: 31337,
     depositMnemonic: MNEMONIC,
-    hotWalletKey: HOT_KEY,
+    signer: TestnetSigner.fromFixtureKey(HOT_KEY),
     assets: parseEvmAssets('ETH:native'),
     broadcasts: new MemoryBroadcastStore(),
     minConfirmations: 1,
