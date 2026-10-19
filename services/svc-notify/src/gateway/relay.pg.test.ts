@@ -217,7 +217,9 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         if (scenario === 'lost upstream reply') res.destroy();
         if (scenario === 'unexpected successful status') res.writeHead(200).end('not a confirmed 204');
       });
-      const gateway = await relay(independent, wire.fetchImpl, 150);
+      // The budget covers the receipt claim as well as the send. 150 ms let a slow claim on a busy runner spend it all, so the
+      // relay (correctly) never sent and the mailbox saw nothing; 1 s leaves room and still expires for the hanging reply.
+      const gateway = await relay(independent, wire.fetchImpl);
       const key = `synthetic-unknown:${randomUUID()}`,
         body = envelope();
       const unknown = await request(gateway.url, key, body);
@@ -321,11 +323,11 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
   });
   it.each(['failed', 'late'] as const)('cannot manufacture acceptance after a %s SQL receipt', async (mode) => {
     await independent.sql.unsafe(`CREATE FUNCTION notify.test_receipt_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-      IF NEW.status='accepted' THEN ${mode === 'failed' ? "RAISE EXCEPTION 'synthetic receipt failure';" : 'PERFORM pg_sleep(0.3);'} END IF; RETURN NEW; END $$;
+      IF NEW.status='accepted' THEN ${mode === 'failed' ? "RAISE EXCEPTION 'synthetic receipt failure';" : 'PERFORM pg_sleep(1.5);'} END IF; RETURN NEW; END $$;
       CREATE TRIGGER zz_test_receipt_failure BEFORE UPDATE ON notify.mailbox_relay_receipts FOR EACH ROW EXECUTE FUNCTION notify.test_receipt_failure();`);
     try {
       const wire = await upstream(),
-        gateway = await relay(independent, wire.fetchImpl, mode === 'late' ? 150 : 1000);
+        gateway = await relay(independent, wire.fetchImpl);
       const key = `synthetic-sql:${randomUUID()}`,
         body = envelope();
       expect((await request(gateway.url, key, body)).status).toBe(503);
