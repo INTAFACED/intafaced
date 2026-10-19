@@ -1183,7 +1183,8 @@ const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   captured: ['settled', 'refunded', 'disputed'],
   settled: ['refunded', 'disputed'],
   refunded: [],
-  disputed: [],
+  // A won dispute returns the money, so the payment goes back to where it came from (see restoreAfterWonDispute).
+  disputed: ['captured', 'settled'],
   failed: [],
 };
 
@@ -3968,6 +3969,7 @@ export class PayService {
                   railEventId: deliveryKey,
                   outcome,
                 });
+                if (outcome === 'won') await this.restoreAfterWonDispute(payment.id, disputeId);
               }
               await recordRailDisputeDeadline(this.sql, {
                 merchantId: payment.merchant_id,
@@ -4086,6 +4088,34 @@ export class PayService {
     );
   }
 
+  /**
+   * A won dispute handed the money back (`reverseChargeback`), so a payment that
+   * `markDisputed` froze must not stay terminal: it returns to `settled` when a
+   * window already paid it, else to `captured` so a window can take it.
+   *
+   * Only when every case on the payment is won. An open case still has its
+   * opening debit on the book; a lost or accepted one kept the money away.
+   */
+  private async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
+    await transaction(
+      this.sql,
+      async (tx) => {
+        const row = await lockPayment(tx, paymentId);
+        if (row.status !== 'disputed') return;
+        const cases = await this.disputeCases.listForPayment(paymentId);
+        if (cases.length === 0 || cases.some((c) => c.status !== 'won')) return;
+        const settled = await tx<Array<{ ok: number }>>`
+          SELECT 1 AS ok FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'settled' LIMIT 1
+        `;
+        const next: PaymentStatus = settled.length > 0 ? 'settled' : 'captured';
+        assertTransition(row, next);
+        await appendEvent(tx, row.id, 'dispute.restored', { disputeId, status: next });
+        await tx`UPDATE pay.payments SET status = ${next}, updated_at = now() WHERE id = ${row.id}`;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
   // ── Settlement (§6.1) ──────────────────────────────────────────────────────
 
   /**
@@ -4163,7 +4193,20 @@ export class PayService {
         });
         const prepared = await this.prepareSettlement(input);
         if (prepared.status !== 'pending') return prepared;
-        return this.postPendingSettlement(prepared.id, prior ? rerun : FRESH, span);
+        try {
+          return await this.postPendingSettlement(prepared.id, prior ? rerun : FRESH, span);
+        } catch (err) {
+          // A payment in the frozen set was disputed after the freeze, so the post can never succeed. Free the
+          // window now (heal first, no ledger value moves) so its other payments reach a later window without
+          // an operator, then still refuse this run.
+          if (err instanceof PayError && err.code === 'pay.settlement_desynced') {
+            await this.releasePendingSettlement({
+              settlementId: prepared.id,
+              reason: 'automatic: the frozen set no longer matches live captured minus refunded',
+            });
+          }
+          throw err;
+        }
       },
     );
   }
@@ -4429,9 +4472,17 @@ export class PayService {
                        AND r.payload->>'settlementId' = s.payload->>'settlementId'
                   )
              )
-             AND EXISTS (
-               SELECT 1 FROM pay.payment_events c
-                WHERE c.payment_id = p.id AND c.event = 'captured' AND c.ts >= ${from} AND c.ts < ${to}
+             AND (
+               EXISTS (
+                 SELECT 1 FROM pay.payment_events c
+                  WHERE c.payment_id = p.id AND c.event = 'captured' AND c.ts >= ${from} AND c.ts < ${to}
+               )
+               -- A payment returned by a won dispute or freed by a released window is overdue, so it joins any
+               -- window that ends after it came back. Its capture time sits in a window that has already closed.
+               OR EXISTS (
+                 SELECT 1 FROM pay.payment_events c
+                  WHERE c.payment_id = p.id AND c.event IN ('dispute.restored', 'settlement.released') AND c.ts < ${to}
+               )
              )
              AND NOT EXISTS (
                SELECT 1 FROM pay.payment_events sb
