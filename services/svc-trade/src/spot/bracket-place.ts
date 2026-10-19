@@ -9,8 +9,8 @@ import type { Principal } from '@intafaced/auth';
 import { ZERO, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
-import { carriedPlacementBody } from './placement-extras.js';
+import { carriedPlacementBody, withoutCarriedBody } from './placement-extras.js';
+import { orderIdFor } from './ids.js';
 
 export type BracketLeg = {
   readonly price?: string;
@@ -111,10 +111,110 @@ export function bindBracket(input: PlaceOrderInput): PlaceWithBracket {
   return { ...extra, bracket: true, takeProfit: stashed.takeProfit, stopLoss: stashed.stopLoss };
 }
 
+/**
+ * Bracket = an ordinary BUY entry, then one sell OCO for the base actually received.
+ *
+ * The engine's own bracket path rests the exits at entry fill with no hold behind them, so it is not used.
+ * Here the exit is a normal order: its own base hold, placed after the entry fill is settled and the base is
+ * in the account. Only an entry that resolves inside the request (market, IOC or FOK) is accepted: a resting
+ * entry would fill later on someone else's request, when no caller identity exists to place the exit, and the
+ * repo rule is never to mint one from a user id (a durable place grant is the follow-up).
+ *
+ * Crash safety: the exit prices are stored before the entry (trade.order_bracket_intent). If the exit fails
+ * after the entry filled, the caller gets `trade.bracket_exit_failed` naming the entry, and a retry of the same
+ * client order id replays the entry (idempotent) and places the exit with the same key.
+ */
+type BracketHost = {
+  sql: import('postgres').Sql;
+  placeOrder: (
+    principal: Principal,
+    input: PlaceOrderInput,
+  ) => Promise<{ id: string; status: string; filledQty: bigint; marketId: string }>;
+  requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<{ id: string; baseAsset: string; lotSize: Amount }>;
+};
+
+export function exitClientOrderId(entryId: string): string {
+  return `bracket:${entryId}:exit`;
+}
+
+async function writeIntent(host: BracketHost, entryId: string, userId: string, takeProfit: Amount, stopLoss: Amount): Promise<void> {
+  await host.sql`
+    INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss)
+    VALUES (${entryId}, ${userId}, ${formatAmount(takeProfit)}::numeric, ${formatAmount(stopLoss)}::numeric)
+    ON CONFLICT (order_id) DO NOTHING
+  `;
+  const rows = await host.sql<Array<{ take_profit: string; stop_loss: string }>>`
+    SELECT take_profit::text, stop_loss::text FROM trade.order_bracket_intent WHERE order_id = ${entryId}
+  `;
+  const stored = rows[0];
+  if (!stored || parseAmount(stored.take_profit) !== takeProfit || parseAmount(stored.stop_loss) !== stopLoss) {
+    throw new TradeError('clientOrderId was already used for a bracket with different exit prices', 'trade.client_order_id_conflict');
+  }
+}
+
+// The only fields a plain entry carries. Anything else with a value (stopPx, trailing, peg, iceberg, AON, GTD
+// expiry, auction, post-only, ...) can leave the entry resting or dormant, so no exit could be placed on its fill.
+const PLAIN_ENTRY_FIELDS = new Set([
+  'symbol',
+  'marketId',
+  'side',
+  'type',
+  'qty',
+  'price',
+  'tif',
+  'clientOrderId',
+  'subAccountId',
+  'maxProtectionPrice',
+  'minProtectionPrice',
+  'bracket',
+  'takeProfit',
+  'stopLoss',
+]);
+
+// The same allow-list over the request's own body, which travels on the input under a symbol: the inner installers
+// (stop-limit, iceberg, post-only, ...) re-read their options from it, so a field only the body carries would still
+// reach the engine even though the input itself looks plain.
+const PLAIN_BODY_FIELDS = new Set([
+  'symbol',
+  'marketId',
+  'side',
+  'type',
+  'amount',
+  'qty',
+  'price',
+  'timeInForce',
+  'tif',
+  'clientOrderId',
+  'subAccountId',
+  'maxProtectionPrice',
+  'minProtectionPrice',
+  'bracket',
+  'takeProfit',
+  'stopLoss',
+]);
+
+function firstExtra(rec: Readonly<Record<string, unknown>>, allowed: ReadonlySet<string>): string | null {
+  for (const [key, value] of Object.entries(rec)) {
+    if (allowed.has(key)) continue;
+    if (value === undefined || value === null || value === false) continue;
+    return key;
+  }
+  return null;
+}
+
+export function deferredEntryField(input: PlaceOrderInput): string | null {
+  if (input.type !== 'market' && input.type !== 'limit') return `type ${String(input.type)}`;
+  const own = firstExtra(input as unknown as Record<string, unknown>, PLAIN_ENTRY_FIELDS);
+  if (own !== null) return own;
+  const body = carriedPlacementBody(input);
+  if (body === null) return null;
+  if (body.type !== undefined && body.type !== 'market' && body.type !== 'limit') return `type ${String(body.type)}`;
+  return firstExtra(body, PLAIN_BODY_FIELDS);
+}
+
 export function installBracketPlace(ctor: typeof TradeService): void {
   const proto = ctor.prototype as unknown as {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string; rejectCode?: string }>;
-    toEngineRequest: (...args: unknown[]) => EngineSubmitRequest;
     [FLAG]?: true;
   };
   if (proto[FLAG]) return;
@@ -126,26 +226,79 @@ export function installBracketPlace(ctor: typeof TradeService): void {
     if (!wantsBracket(bound)) return origPlace.call(this, principal, bound);
     const missingEntry = entryRefuse(bound);
     if (missingEntry) throw missingEntry;
-    const missingTp = takeProfitRefuse(triggerOf(bound.takeProfit));
+    const takeProfit = triggerOf(bound.takeProfit);
+    const missingTp = takeProfitRefuse(takeProfit);
     if (missingTp) throw missingTp;
-    const missingSl = stopLossRefuse(triggerOf(bound.stopLoss));
+    const stopLoss = triggerOf(bound.stopLoss);
+    const missingSl = stopLossRefuse(stopLoss);
     if (missingSl) throw missingSl;
-    return origPlace.call(this, principal, bound);
-  };
+    if (bound.side !== 'buy') {
+      throw new TradeError('a bracket entry must be a buy for now', 'trade.order_type_unsupported');
+    }
+    const deferred = deferredEntryField(bound);
+    if (deferred !== null) {
+      throw new TradeError(
+        `a bracket entry must resolve inside the request: ${deferred} defers or conditions execution`,
+        'trade.order_type_unsupported',
+      );
+    }
+    if (bound.type !== 'market' && bound.tif !== 'IOC' && bound.tif !== 'FOK') {
+      throw new TradeError(
+        'a bracket entry must be market, IOC or FOK for now: a resting entry needs a stored place grant to place its exit',
+        'trade.order_type_unsupported',
+      );
+    }
+    if ((takeProfit as Amount) <= (stopLoss as Amount)) {
+      throw new TradeError('a bracket take-profit must be above its stop-loss', 'trade.invalid_price');
+    }
 
-  const origToEngine = proto.toEngineRequest;
-  proto.toEngineRequest = function (this: TradeService, ...args: unknown[]) {
-    const req = origToEngine.apply(this, args);
-    const extra = args[2] as PlaceWithBracket | undefined;
-    if (!extra || !wantsBracket(extra)) return req;
-    const takeProfit = triggerOf(extra.takeProfit);
-    const stopLoss = triggerOf(extra.stopLoss);
-    return {
-      ...req,
-      bracket: true,
-      takeProfit: takeProfit == null ? null : formatAmount(takeProfit),
-      stopLoss: stopLoss == null ? null : formatAmount(stopLoss),
-    } as EngineSubmitRequest;
+    const host = this as unknown as BracketHost;
+    const market = await host.requireMarket({ symbol: bound.symbol, marketId: bound.marketId });
+    const clientOrderId = bound.clientOrderId as string;
+    const entryId = orderIdFor(principal.userId, market.id, clientOrderId);
+    await writeIntent(host, entryId, principal.userId, takeProfit as Amount, stopLoss as Amount);
+
+    // The entry is an ordinary order: the exit fields never reach it or the engine.
+    const { bracket: _b, takeProfit: _tp, stopLoss: _sl, ...entryInput } = bound;
+    // The request body is dropped from the entry: the inner installers must not re-read an option (an alias such as
+    // tif: 'PO') from it, so the entry is exactly the typed input this guard has checked.
+    const entry = await origPlace.call(this, principal, withoutCarriedBody(entryInput as PlaceOrderInput));
+
+    const done = await host.sql<Array<{ exit_order_id: string | null }>>`
+      SELECT exit_order_id FROM trade.order_bracket_intent WHERE order_id = ${entryId}
+    `;
+    if (done[0]?.exit_order_id) return entry;
+
+    // Base received = filled qty minus fees charged in the base asset, floored to the lot grid.
+    const got = await host.sql<Array<{ qty: string; fee: string }>>`
+      SELECT COALESCE(SUM(qty), 0)::text AS qty,
+             COALESCE(SUM(CASE WHEN fee_asset = ${market.baseAsset} THEN fee_amount ELSE 0 END), 0)::text AS fee
+        FROM trade.fills WHERE order_id = ${entryId}
+    `;
+    const received = parseAmount(got[0]?.qty ?? '0') - parseAmount(got[0]?.fee ?? '0');
+    const qty = received - (received % market.lotSize);
+    if (qty <= ZERO) return entry;
+
+    try {
+      const exit = await this.placeOrder(principal, {
+        marketId: market.id,
+        side: 'sell',
+        type: 'limit',
+        qty,
+        price: takeProfit as Amount,
+        clientOrderId: exitClientOrderId(entryId),
+        oco: true,
+        takeProfit: { stopPrice: formatAmount(takeProfit as Amount) },
+        stopLoss: { stopPrice: formatAmount(stopLoss as Amount) },
+      } as PlaceOrderInput);
+      await host.sql`UPDATE trade.order_bracket_intent SET exit_order_id = ${exit.id} WHERE order_id = ${entryId}`;
+    } catch (err) {
+      throw new TradeError(
+        `the bracket entry ${entryId} filled but its exit could not be placed (${err instanceof Error ? err.message : String(err)}); retry the same request to place it`,
+        'trade.bracket_exit_failed',
+      );
+    }
+    return entry;
   };
 }
 
