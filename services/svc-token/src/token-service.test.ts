@@ -1208,6 +1208,32 @@ describe('svc-token money PG-hard', () => {
       expect(await sql`SELECT id FROM token.buyback_runs`).toHaveLength(0);
     });
 
+    it("resumes a pending claim with the burn it recorded, not one recomputed from today's split", async () => {
+      await ledger.post(recipes.mintEmission({ epoch: 0, assetId: 'IFC', amount: amt('1000'), destination: rewardsEngine('IFC') }));
+      const runId = crypto.randomUUID();
+      const window = { from: new Date('2026-09-01'), to: new Date('2026-09-07') };
+      // Claimed when the split was 60%: 300 of 500 to burn, 200 to rewards.
+      await seedBuybackRun({ runId, window, tokensBought: '500', toBurn: '300', toRewards: '200', status: 'pending', ageSeconds: 3600 });
+
+      // The split has since moved to 80%. The resume must not burn 400 against a row that says 300.
+      const moved = new TokenService(sql, ledger, bus, { ...options, buyback: { buybackBps: 5_000, burnSplitBps: 8_000 } });
+      const result = await moved.settleBuybackFill({
+        runId,
+        revenueWindow: window,
+        revenueTotal: { IFC: '1000' },
+        tokensBought: amt('500'),
+      });
+
+      expect(result).toEqual({ runId, burned: amt('300'), toRewards: amt('200') });
+      expect(await burnIfC()).toBe(amt('300'));
+      const rows = await sql<Array<{ status: string; tokens_burned: string }>>`
+        SELECT status, tokens_burned::text FROM token.buyback_runs WHERE id = ${runId}
+      `;
+      expect(rows[0]?.status).toBe('settled');
+      expect(amt(rows[0]!.tokens_burned)).toBe(amt('300'));
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
     it('retries a settled run without re-posting', async () => {
       const runId = crypto.randomUUID();
       const window = { from: new Date('2026-08-01'), to: new Date('2026-08-07') };
