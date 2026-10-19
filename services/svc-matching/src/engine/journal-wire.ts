@@ -38,6 +38,7 @@ export interface WireOrder {
   readonly oco?: boolean;
   readonly takeProfit?: string | null;
   readonly stopLoss?: string | null;
+  readonly stopLossLimit?: string | null;
   readonly takeProfitOrderId?: string | null;
   readonly stopLossOrderId?: string | null;
   readonly expireAt?: string;
@@ -161,6 +162,9 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     ...(order.oco === true ? { oco: true } : {}),
     ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : formatAmount(order.takeProfit) } : {}),
     ...(order.stopLoss !== undefined ? { stopLoss: order.stopLoss === null ? null : formatAmount(order.stopLoss) } : {}),
+    ...(order.stopLossLimit !== undefined
+      ? { stopLossLimit: order.stopLossLimit === null ? null : formatAmount(order.stopLossLimit) }
+      : {}),
     ...(order.takeProfitOrderId !== undefined ? { takeProfitOrderId: order.takeProfitOrderId } : {}),
     ...(order.stopLossOrderId !== undefined ? { stopLossOrderId: order.stopLossOrderId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),
@@ -216,6 +220,7 @@ export function fromWire(order: WireOrder): EngineOrder {
     ...(order.oco === true ? { oco: true } : {}),
     ...(order.takeProfit !== undefined ? { takeProfit: order.takeProfit === null ? null : parseAmount(order.takeProfit) } : {}),
     ...(order.stopLoss !== undefined ? { stopLoss: order.stopLoss === null ? null : parseAmount(order.stopLoss) } : {}),
+    ...(order.stopLossLimit !== undefined ? { stopLossLimit: order.stopLossLimit === null ? null : parseAmount(order.stopLossLimit) } : {}),
     ...(order.takeProfitOrderId !== undefined ? { takeProfitOrderId: order.takeProfitOrderId } : {}),
     ...(order.stopLossOrderId !== undefined ? { stopLossOrderId: order.stopLossOrderId } : {}),
     ...(order.expireAt ? { expireAt: order.expireAt } : {}),

@@ -79,6 +79,8 @@ export interface EngineOrder {
   readonly oco?: boolean;
   readonly takeProfit?: Amount | null;
   readonly stopLoss?: Amount | null;
+  /** Limit price of the stop-loss leg. Absent = the stop leg is a market stop (a sell has no worst price to fund). */
+  readonly stopLossLimit?: Amount | null;
   readonly takeProfitOrderId?: OrderId | null;
   readonly stopLossOrderId?: OrderId | null;
   /**

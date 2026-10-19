@@ -251,6 +251,7 @@ export function encode(record: JournalRecord): string {
         ...(o.oco === true ? { oco: true } : {}),
         ...(o.takeProfit !== undefined ? { takeProfit: o.takeProfit } : {}),
         ...(o.stopLoss !== undefined ? { stopLoss: o.stopLoss } : {}),
+        ...(o.stopLossLimit !== undefined ? { stopLossLimit: o.stopLossLimit } : {}),
         ...(o.takeProfitOrderId !== undefined ? { takeProfitOrderId: o.takeProfitOrderId } : {}),
         ...(o.stopLossOrderId !== undefined ? { stopLossOrderId: o.stopLossOrderId } : {}),
         ...(o.expireAt ? { expireAt: o.expireAt } : {}),
