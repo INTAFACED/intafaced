@@ -87,6 +87,26 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'Nothing was saved. A schedule placed now would stay open and send no orders.',
   },
   unknown: { title: "This can't be done right now", body: 'Try again later. If it keeps happening, contact support.' },
+  walletPaused: {
+    title: 'Withdrawal was not sent',
+    body: 'A new withdrawal cannot be sent right now. Your balance is unchanged.',
+  },
+  walletFee: {
+    title: 'Network fee is not set',
+    body: 'The fee for this withdrawal is not published, so nothing was held.',
+  },
+  walletCap: {
+    title: 'Above the remaining limit',
+    body: 'That amount is above the remaining withdrawal limit. Nothing was held.',
+  },
+  walletFields: {
+    title: 'Withdrawal was unsuccessful',
+    body: 'Add the missing recipient details and submit the withdrawal again. Nothing was sent.',
+  },
+  walletAddress: {
+    title: 'Use the saved destination',
+    body: 'That address was not sent. Nothing was held.',
+  },
 };
 
 /** What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). */

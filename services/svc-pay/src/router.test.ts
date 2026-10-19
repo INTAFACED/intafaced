@@ -319,6 +319,18 @@ function stubUserMoney(): MoneyStub {
     getWithdrawal: record('getWithdrawal', withdrawal),
     listWithdrawals: record('listWithdrawals', () => [withdrawal()]),
     availableBalance: record('availableBalance', () => amt('60.5')),
+    // Mirrors the real read: the owner it is given must match the row's owner.
+    supportReadWithdrawal: record('supportReadWithdrawal', (withdrawalId: string, ownerUserId: string) => {
+      if (owner !== ownerUserId) throw new PayError('This withdrawal belongs to another account', 'pay.wallet_forbidden');
+      return {
+        withdrawalId,
+        userId: owner,
+        label: 'irreversible' as const,
+        controls: [] as string[],
+        attempts: [{ outcome: 'accepted', railRef: 'po_1' }],
+        status: 'sent',
+      };
+    }),
   } as unknown as UserMoneyService;
 
   return {
@@ -1670,6 +1682,29 @@ describe('withdrawal reads', () => {
   it('report the withdrawable balance from the ledger, as a decimal string', async () => {
     const api = await caller(['ledger:read'], { tier: 'basic' });
     await expect(api.withdrawal.balance({ assetId: 'USDT' })).resolves.toEqual({ available: '60.5' });
+  });
+
+  it('serve the owner their own withdrawal through the support read', async () => {
+    const api = await caller(['support:read'], { tier: 'basic' });
+    await expect(api.withdrawal.supportRead({ withdrawalId: WITHDRAWAL })).resolves.toMatchObject({
+      withdrawalId: WITHDRAWAL,
+      userId: USER,
+    });
+  });
+
+  it('REFUSE ANOTHER ACCOUNT’S WITHDRAWAL on the support read, and never take the owner from the request', async () => {
+    money.ownedBy('88888888-8888-4888-8888-888888888888');
+    const api = await caller(['support:read'], { tier: 'basic' });
+
+    const err = await api.withdrawal.supportRead({ withdrawalId: WITHDRAWAL }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('FORBIDDEN');
+
+    // An extra owner field is ignored, so naming the real owner changes nothing.
+    const relabelled = await api.withdrawal
+      .supportRead({ withdrawalId: WITHDRAWAL, ownerUserId: '88888888-8888-4888-8888-888888888888' } as never)
+      .catch((e: unknown) => e);
+    expect(codeOf(relabelled)).toBe('FORBIDDEN');
+    expect(money.calls.filter((c) => c.method === 'supportReadWithdrawal').every((c) => c.args[1] === USER)).toBe(true);
   });
 
   it('do not let a bare merchant scope read a user’s withdrawals', async () => {
