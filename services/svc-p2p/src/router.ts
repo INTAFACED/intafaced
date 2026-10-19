@@ -413,6 +413,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.merchant_exists':
       case 'p2p.merchant_transition_invalid':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'p2p.cancel_after_paid':
       case 'p2p.dispute_already_open':
       case 'p2p.dispute_already_resolved':
       case 'p2p.dispute_resolve_approval_consumed':

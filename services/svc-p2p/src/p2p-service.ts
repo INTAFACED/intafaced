@@ -123,6 +123,7 @@ export type P2pErrorCode =
   | 'p2p.trade_id_required'
   | 'p2p.not_a_party'
   | 'p2p.not_the_seller'
+  | 'p2p.cancel_after_paid'
   | 'p2p.not_the_buyer'
   | 'p2p.dispute_not_found'
   | 'p2p.dispute_already_open'
@@ -1625,20 +1626,27 @@ export class P2pService {
   /**
    * Cancel → `escrowRefund`, in full, to the seller.
    *
-   * Who may cancel, and why the rule is asymmetric:
+   * Who may cancel:
    *   · from `escrowed`  — either party. The buyer has not claimed to have paid,
    *     so nobody is out of pocket off-platform.
-   *   · from `fiat_sent` — the SELLER only. A buyer who says they have paid and
-   *     can then cancel would be able to take back their claim after the seller
-   *     acted on it; their route is `openDispute`. The seller cancelling here is
-   *     just the seller giving the asset back, which needs no protection.
+   *   · from `fiat_sent` — nobody. The buyer may already have paid off-platform, and
+   *     `cancelled` is terminal, so a refund here would leave the buyer no dispute
+   *     route. The seller confirms receipt or opens a dispute (a moderator decides);
+   *     the buyer's route is `openDispute` too. The `fiat_sent` clock opens a dispute
+   *     as well, never a refund.
    */
   async cancelTrade(tradeId: string, actorId: string, reason = 'cancelled'): Promise<TradeRecord> {
     return withMoneySpan('p2p.cancel', { operation: 'escrow.refund', tradeId }, async () => {
       const current = await this.getTrade(tradeId);
       if (current.sellerId !== actorId && current.buyerId !== actorId) throw unknownTrade(tradeId);
-      if (current.status === 'fiat_sent' && current.sellerId !== actorId) {
-        throw new P2pError('The buyer has declared the fiat sent — open a dispute rather than cancelling', 'p2p.not_the_seller');
+      if (current.status === 'fiat_sent') {
+        if (current.sellerId !== actorId) {
+          throw new P2pError('The buyer has declared the fiat sent — open a dispute rather than cancelling', 'p2p.not_the_seller');
+        }
+        throw new P2pError(
+          'The buyer has declared the fiat sent — confirm receipt, or open a dispute if you were not paid',
+          'p2p.cancel_after_paid',
+        );
       }
       if (current.status === 'disputed') {
         throw new P2pError('A disputed trade is resolved by a moderator, not cancelled', 'p2p.dispute_already_open');
@@ -1647,7 +1655,7 @@ export class P2pService {
       const actor: Actor = current.sellerId === actorId ? 'seller' : 'buyer';
       // The reason string carries the actor, so the refund event and the audit
       // trail both say who unwound the trade without a second column.
-      return this.unwind(tradeId, `${actor}.${reason}`);
+      return this.unwind(tradeId, `${actor}.${reason}`, current.status);
     });
   }
 
