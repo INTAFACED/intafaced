@@ -319,7 +319,7 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
     expect(await avail(ALICE, 'BTC')).toBe('1');
   });
 
-  it('refuses a buy-side OCO: one hold cannot cover both legs at their worst price yet', async () => {
+  it('refuses a buy OCO with no stop-loss limit (the old blanket buy refusal is gone)', async () => {
     await fund(ALICE, 'USDT', '1000');
     await expect(
       trade.placeOrder(principalFor(ALICE), {
@@ -332,7 +332,7 @@ describe('svc-trade sell OCO legs draw on one hold (H8a PG-hard)', () => {
         takeProfit: { stopPrice: '90' },
         stopLoss: { stopPrice: '110' },
       } as Parameters<TradeService['placeOrder']>[1]),
-    ).rejects.toMatchObject({ code: 'trade.order_type_unsupported' });
+    ).rejects.toMatchObject({ code: 'trade.oco_stop_limit_required' });
     expect(matching.submitted).toHaveLength(0);
     expect(await avail(ALICE, 'USDT')).toBe('1000');
   });
