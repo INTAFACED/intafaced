@@ -128,6 +128,11 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
               ))}
             </tbody>
           </table>
+          {grouping !== 'coin' && server.status === 'ready' && server.data.unpriced.length > 0 ? (
+            <p className="money-alloc__note">
+              {server.data.unpriced.length === 1 ? t('Asset not counted') : t('Assets not counted', { count: server.data.unpriced.length })}
+            </p>
+          ) : null}
         </>
       )}
     </section>
