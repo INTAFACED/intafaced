@@ -42,20 +42,13 @@ class FixDropCopyIngestTest {
         assertEquals("1.50", er.getString(LastQty.FIELD));
         assertFalse(er.toString().toLowerCase().contains("ledger"));
 
-        DropCopyFill.ParseResult noLast = DropCopyFill.parse(
-                "{\"fillId\":\"fill-8\",\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"sequence\":12,\"source\":\"ws\"}");
-        assertTrue(noLast.ok, noLast.errorMessage);
-        Message without = ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, noLast.fill);
-        assertEquals("fill-8", without.getString(ExecID.FIELD));
-        assertFalse(without.isSetField(LastPx.FIELD));
-        assertFalse(without.isSetField(LastQty.FIELD));
-        assertFalse(without.isSetField(AvgPx.FIELD));
-
         DropCopyFill.ParseResult seqOnly = DropCopyFill.parse(
-                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"sequence\":44,\"source\":\"algo\"}");
+                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"price\":\"100.25\",\"qty\":\"1.50\",\"sequence\":44,\"source\":\"algo\"}");
         assertTrue(seqOnly.ok, seqOnly.errorMessage);
         assertEquals("44", ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, seqOnly.fill)
                 .getString(ExecID.FIELD));
+        assertEquals("100.25", seqOnly.fill.price);
+        assertEquals("1.50", seqOnly.fill.qty);
 
         DropCopyFill.ParseResult missing = DropCopyFill.parse(
                 "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"source\":\"rest\"}");
@@ -67,6 +60,41 @@ class FixDropCopyIngestTest {
         assertFalse(ieee.ok);
         assertEquals("invalid_decimal", ieee.errorCode);
         assertNull(ExecutionReportFactory.fromFill(FixVersions.BEGINSTRING_FIX44, null));
+    }
+
+    @Test
+    void fillWithMissingNullOrNonStringPriceOrQtyIsRefused() {
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"qty\":\"1.50\",\"source\":\"rest\"}", "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"source\":\"rest\"}", "dropcopy_qty_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":null,\"qty\":\"1.50\",\"source\":\"rest\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":null,\"source\":\"rest\"}",
+                "dropcopy_qty_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-8\",\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"buy\",\"sequence\":12,\"source\":\"ws\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"orderId\":\"ord-1\",\"marketId\":\"BTC/USDT\",\"side\":\"sell\",\"sequence\":44,\"source\":\"algo\"}",
+                "dropcopy_price_missing");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":true,\"qty\":\"1.50\",\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":{},\"qty\":\"1.50\",\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":false,\"source\":\"rest\"}", "invalid_decimal");
+        assertFillRefused(
+                "{\"fillId\":\"fill-7\",\"price\":\"100.25\",\"qty\":[],\"source\":\"rest\"}", "invalid_decimal");
+    }
+
+    private static void assertFillRefused(String raw, String code) {
+        DropCopyFill.ParseResult parsed = DropCopyFill.parse(raw);
+        assertFalse(parsed.ok, raw);
+        assertNull(parsed.fill, raw);
+        assertEquals(code, parsed.errorCode, raw);
     }
 
     @Test
