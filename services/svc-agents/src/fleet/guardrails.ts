@@ -105,8 +105,9 @@ export const guardrailLimitsSchema = z.object({
   /** Ceiling applied on top of whatever the route allows. The tighter wins. */
   maxOutputTokensPerCall: z.number().int().min(1).max(1_000_000),
   /**
-   * Metered spend ceiling for the session, in the fee asset. Null = uncapped,
-   * which is legitimate for an internal operator agent and never for a user's.
+   * Metered spend ceiling for the session, in the fee asset. The caller
+   * supplies a decimal string. Null or omitted stays null, and
+   * evaluateCompletion refuses the call.
    */
   maxSpendPerSession: amountString.nullable().default(null),
   /** Modules the agent may act in at all. Empty = none. */
@@ -143,7 +144,7 @@ export interface ToolGrant {
 export interface GuardrailLimits {
   readonly maxActionsPerSession: number;
   readonly maxOutputTokensPerCall: number;
-  /** Parsed to `Amount`; null means uncapped. */
+  /** Scaled bigint when the caller supplied a decimal string. Null means none was given. */
   readonly maxSpendPerSession: Amount | null;
   readonly allowedModules: readonly ModuleId[];
   readonly allowedTasks: readonly string[];
@@ -284,6 +285,7 @@ export const REFUSAL_CODES = [
   'agents.task_not_allowed',
   'agents.action_limit',
   'agents.spend_limit',
+  'agents.spend_limit_unset',
   'agents.output_limit',
   'agents.approval_required',
   'agents.session_closed',
@@ -386,6 +388,13 @@ export function evaluateToolCall(guardrail: Guardrail, state: SessionState, requ
     return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
   }
 
+  if (isProductAgentId(guardrail.agentId) && isFleetHardMoneyWriteTool(request.tool)) {
+    // parseGuardrail rejects this grant. A snapshot that skipped the parser
+    // must not dispatch it: capacity mode is not consulted for every money
+    // write, and withdraw scope must not reopen cash-out on a product agent.
+    return refuse('agents.tool_not_declared', 'agents.refused.tool_not_declared', { tool: request.tool });
+  }
+
   if (!guardrail.limits.allowedModules.includes(grant.module)) {
     // Unreachable via `parseGuardrail`, which rejects this combination — kept
     // because a guardrail can also arrive as a jsonb snapshot written by an
@@ -451,13 +460,15 @@ export function evaluateCompletion(
   }
 
   const cap = guardrail.limits.maxSpendPerSession;
-  if (cap !== null) {
-    // Checked against the call's WORST CASE, not its expected cost. A ceiling
-    // that can be exceeded by one unlucky generation is not a ceiling, and the
-    // cost is only knowable after the tokens have already been spent.
-    if (state.spend + attempt.worstCaseCost > cap) {
-      return refuse('agents.spend_limit', 'agents.refused.spend_limit', { limit: formatAmount(cap), asset: feeAssetId });
-    }
+  if (cap === null) {
+    return refuse('agents.spend_limit_unset', 'agents.refused.spend_limit_unset');
+  }
+
+  // Checked against the call's WORST CASE, not its expected cost. A ceiling
+  // that can be exceeded by one unlucky generation is not a ceiling, and the
+  // cost is only knowable after the tokens have already been spent.
+  if (state.spend + attempt.worstCaseCost > cap) {
+    return refuse('agents.spend_limit', 'agents.refused.spend_limit', { limit: formatAmount(cap), asset: feeAssetId });
   }
 
   return ALLOWED;
