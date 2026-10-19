@@ -188,18 +188,45 @@ jobs:
   build:
     name: Typecheck & build
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # healthy run: 6-8 min
+    timeout-minutes: 20 # healthy run: 4-11 min
     needs: [changes]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 — an affected run diffs against origin/main (turbo --filter '...[origin/main]').
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm typecheck
+      # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
+      # builds and typechecks the whole repo; any other change builds and typechecks the changed packages and their
+      # dependents, turbo's ^build covering their dependencies; docs only has nothing to build. Measured: the whole
+      # repo took 3m50s to build plus 5m50s to typecheck, the slowest job of a PR run.
+      - name: Build
+        env:
+          FULL: ${{ needs.changes.outputs.full }}
+          AFFECTED: ${{ needs.changes.outputs.affected }}
+        run: |
+          if [ "$FULL" = true ]; then pnpm build
+          elif [ "$AFFECTED" = true ]; then
+            filters=()
+            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
+            pnpm turbo run build "${filters[@]}"
+          else echo "docs only: nothing to build"; fi
+      - name: Typecheck
+        env:
+          FULL: ${{ needs.changes.outputs.full }}
+          AFFECTED: ${{ needs.changes.outputs.affected }}
+        run: |
+          if [ "$FULL" = true ]; then pnpm typecheck
+          elif [ "$AFFECTED" = true ]; then
+            filters=()
+            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
+            pnpm turbo run typecheck "${filters[@]}"
+          else echo "docs only: nothing to typecheck"; fi
 
   test-full:
     # A run-everything change (full, and every push to main) splits the suite four ways, one job each, by the package
