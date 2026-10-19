@@ -16,6 +16,7 @@ import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createLedgerClient } from './ledger-client.js';
+import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
@@ -181,6 +182,7 @@ const bus = await JetStreamEventBus.connect({
 const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
+registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET });
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   accountAdmission: tradingControls,
   marketLifecycle,
