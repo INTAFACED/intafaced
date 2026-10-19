@@ -57,6 +57,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Read-only by default; a job that needs more declares its own block.
+permissions:
+  contents: read
+
 env:
   TURBO_TELEMETRY_DISABLED: 1
 
@@ -97,7 +101,7 @@ jobs:
       # `tooling/ci/gates.mjs` is that list. It fails if this workflow stops
       # calling it, and it fails if a scan appears in tooling/ci/ that neither
       # the gate list nor the documented exclusions claim — which is how
-      # i18n-scan.mjs sat wired to nothing for weeks. Individual scans keep
+      # a scan once sat wired to nothing for weeks. Individual scans keep
       # their `pnpm scan:*` scripts for running one at a time.
       #
       # It also de-duplicates: six of these scans used to run twice per CI run,
@@ -110,8 +114,20 @@ jobs:
       - name: Doctrine gates (the same list `pnpm verify` runs)
         run: pnpm gates
 
-      - name: worktree-gc self-test
-        run: node tooling/scripts/worktree-gc.mjs --self-test
+      # Runs main's copy of the guard, never the PR's, so a PR cannot loosen
+      # the rules it is judged by. Falls back to the PR copy only while main
+      # has none (the PR that introduces it).
+      - name: Test-diff guard (rules from main)
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if git cat-file -e origin/main:tooling/ci/test-diff-guard.mjs 2>/dev/null; then
+            git show origin/main:tooling/ci/test-diff-guard.mjs > "$RUNNER_TEMP/test-diff-guard.mjs"
+          else
+            cp tooling/ci/test-diff-guard.mjs "$RUNNER_TEMP/test-diff-guard.mjs"
+          fi
+          node "$RUNNER_TEMP/test-diff-guard.mjs"
 
       # The per-service Definition of Done (`pnpm gate`) used to be its own
       # `dod` job: a second runner and a second install for a two-second
@@ -132,7 +148,6 @@ jobs:
       money: ${{ steps.cls.outputs.money }}
       trade: ${{ steps.cls.outputs.trade }}
       paybank: ${{ steps.cls.outputs.paybank }}
-      rest: ${{ steps.cls.outputs.rest }}
       full: ${{ steps.cls.outputs.full }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -251,6 +266,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 — the diff-based steps read origin/main history.
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -623,6 +641,9 @@ jobs:
       INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth: 0 — the diff-based steps read origin/main history.
+          fetch-depth: 0
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -901,7 +922,6 @@ jobs:
           MONEY: ${{ needs.changes.outputs.money }}
           TRADE: ${{ needs.changes.outputs.trade }}
           PAYBANK: ${{ needs.changes.outputs.paybank }}
-          REST: ${{ needs.changes.outputs.rest }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}

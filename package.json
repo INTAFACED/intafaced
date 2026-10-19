@@ -69,8 +69,6 @@
     "scan:test-db": "node tooling/ci/test-db-scan.mjs",
     "scan:skip-honesty": "node tooling/ci/skip-honesty-scan.mjs",
     "scan:money-skip-honesty": "node tooling/ci/money-skip-honesty-scan.mjs",
-    "scan:i18n": "node tooling/ci/i18n-scan.mjs",
-    "scan:i18n-bypass": "node tooling/ci/i18n-bypass-scan.mjs",
     "order-path-smoke": "node tooling/scripts/order-path-smoke.mjs",
     "local:stack": "node tooling/scripts/local-test-stack.mjs start",
     "local:stack:stop": "node tooling/scripts/local-test-stack.mjs stop",
@@ -103,13 +101,10 @@
     "dual-book:classify": "node tooling/scripts/dual-book-setbalance-classify.mjs",
     "order-path-cx8": "node tooling/scripts/order-path-cx8-boot.mjs",
     "journeys:trade": "CX8_AFTER='[\"pnpm\",\"--filter\",\"@intafaced/customer\",\"run\",\"test:journeys\"]' node tooling/scripts/order-path-cx8-boot.mjs",
-    "claim:check": "node tooling/ci/claim-check.mjs",
-    "claim:self-test": "node tooling/ci/claim-check.mjs --self-test",
     "wt:gc": "node tooling/scripts/worktree-gc.mjs",
     "wt:gc:check": "node tooling/scripts/worktree-gc.mjs --check",
     "wt:gc:self-test": "node tooling/scripts/worktree-gc.mjs --self-test",
-    "wt:self-test": "node tooling/scripts/worktree.mjs --self-test",
-    "path-collide:self-test": "node tooling/scripts/path-collide.mjs --self-test"
+    "wt:self-test": "node tooling/scripts/worktree.mjs --self-test"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
