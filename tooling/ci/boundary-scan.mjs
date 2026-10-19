@@ -14,6 +14,8 @@
  *   M-entries no `entries: [` literal in non-test code outside packages/ledger-client and services/svc-ledger.
  *   M-balance no service migration creates a balance, available or held column outside svc-ledger. Immutable order
  *             state svc-trade already holds is allowlisted by name.
+ *   M-client  outside packages/ledger-client and services/svc-ledger, no `implements LedgerClient` and no `fetch` of
+ *             `/trpc/post`: the ledger is posted to only through the shared client from `createHttpLedgerClient`.
  *   M-key     no `randomUUID()` or `Date.now()` inside an `idempotencyKey` expression in service or ledger-client code.
  *
  * Known exceptions live in `tooling/ci/boundary-allow.json`, each with a written reason. An entry that no longer
@@ -97,6 +99,12 @@ export function checkSource(text, ctx, schemas) {
   const ledgerOwner = ctx.rel.startsWith('packages/ledger-client/') || ctx.rel.startsWith('services/svc-ledger/');
   // A ledger entry carries `direction`; audit logs and lists also have an `entries` field and are not ledger postings.
   if (!ledgerOwner && /\bentries\s*:\s*\[[^\]]{0,300}?\bdirection\s*:/.test(code)) add('M-entries', 'assembles ledger entries inline');
+
+  if (!ledgerOwner) {
+    if (/\bimplements\s+(?:[\w.]+\s*,\s*)*LedgerClient\b/.test(code))
+      add('M-client', 'implements LedgerClient outside the ledger packages');
+    if (/\bfetch\([^)]*\/trpc\/post\b/.test(code)) add('M-client', 'posts to the ledger path directly');
+  }
 
   if (ctx.group === 'services' || ctx.rel.startsWith('packages/ledger-client/')) {
     for (const m of code.matchAll(/idempotencyKey\s*[:=][^\n;]*/g)) {
@@ -203,6 +211,14 @@ function selfTest() {
     }),
     [],
     'ledger-client owns entries',
+  );
+  eq(t('export class MyLedger implements LedgerClient {}'), ['M-client'], 'own ledger client');
+  eq(t("await fetch(`${base}/trpc/post`, { method: 'POST' });"), ['M-client'], 'direct ledger post');
+  eq(t('const c = createHttpLedgerClient({ baseUrl });'), [], 'shared client');
+  eq(
+    t('class L implements LedgerClient {}', { rel: 'services/svc-ledger/src/s.ts', service: 'svc-ledger' }),
+    [],
+    'ledger service owns the interface',
   );
   eq(t('post({ idempotencyKey: `x:${randomUUID()}` })'), ['M-key'], 'random key');
   eq(t('post({ idempotencyKey: `x:${order.id}` })'), [], 'business key');
