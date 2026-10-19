@@ -74,6 +74,7 @@ export interface CryptoNativeOptions {
 export class CryptoNativeAdapter implements RailAdapter {
   readonly id = 'crypto-native';
   readonly capabilities: readonly RailCapability[] = ['authorize', 'capture', 'refund', 'payout', 'webhook'];
+  readonly refundIsIdempotentByRefundId = true;
 
   /**
    * DERIVED FROM THE CHAIN, never configured.
