@@ -304,7 +304,11 @@ export function buildBlockQuote(input: {
 }
 
 export function acceptBlockQuote(input: { quote: BlockQuote; now: Date; assertedPrice?: Amount | null }): BlockQuote {
-  if (input.quote.lifecycle === 'expired' || Date.parse(input.quote.expiresAt) < input.now.getTime()) {
+  // A bound quote is a firm accept that already happened; expiry must not turn its replay into a refusal.
+  if (
+    input.quote.lifecycle !== 'bound' &&
+    (input.quote.lifecycle === 'expired' || Date.parse(input.quote.expiresAt) < input.now.getTime())
+  ) {
     throw new BlockRfqError('Block/RFQ quote expired — refuse rather than requote', 'p2p.rfq_expired');
   }
   if (input.quote.lifecycle === 'bound') {
