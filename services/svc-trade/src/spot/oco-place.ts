@@ -184,7 +184,7 @@ export function installOcoPlace(ctor: typeof TradeService): void {
     } catch (err) {
       // A refusal before any order row exists leaves no order to resubmit: drop the intent so a retry with
       // corrected legs is not locked out, and so the id cannot later attach these legs to a plain order.
-      await forgetOcoIntentWithoutOrder(host.sql, principal.userId, market.id, placed);
+      await forgetOcoIntentWithoutOrder(host.sql, principal.userId, market.id, placed).catch(() => undefined);
       throw err;
     }
   };
