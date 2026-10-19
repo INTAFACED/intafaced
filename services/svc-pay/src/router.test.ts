@@ -2,10 +2,12 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { formatAmount, InsufficientFundsError, parseAmount as amt } from '@intafaced/ledger-client';
+import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { createPayRouter } from './router.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { MemoryDisputeCaseStore, defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { defaultFraudReviewQueue } from './fraud/review-queue.js';
+import { PayGuardRefusal } from './seams/guards.js';
 import { PayError, assertPaymentHistoryLimit, type PayService, type PaymentView, type SettlementRecord } from './payment-service.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { setPaymentFactsReadFailureSink } from './payment-facts-log.js';
@@ -1583,6 +1585,41 @@ describe('withdrawal.create is the interactive, 2FA-backed path off the platform
 
     const call = money.calls.find((c) => c.method === 'withdraw')!;
     expect((call.args[0] as { userId: string }).userId).toBe(USER);
+  });
+
+  it('a limit refusal reaches the client with the remaining allowance, over the real wire', async () => {
+    money.fail(new PayGuardRefusal('pay.guard_withdrawal_limit_exceeded', 'refused', { perTx: '10', rolling24h: '5.5' }));
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/withdrawal.create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      router,
+      createContext: async () => ctx(['trade:withdraw'], { tier: 'basic' }),
+    });
+    expect(res.status).toBe(403);
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: 'pay.guard_withdrawal_limit_exceeded' });
+    expect(data.allowance).toEqual({ perTx: '10', rolling24h: '5.5' });
+  });
+
+  it('a refusal that is not a limit carries no allowance', async () => {
+    money.fail(new PayGuardRefusal('pay.guard_withdrawal_limit_unset', 'refused', { perTx: '10', rolling24h: '5.5' }));
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/withdrawal.create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      router,
+      createContext: async () => ctx(['trade:withdraw'], { tier: 'basic' }),
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: 'pay.guard_withdrawal_limit_unset' });
+    expect(data.allowance).toBeUndefined();
   });
 
   it('REQUIRES clientRef — without one a retry is a second debit', async () => {
