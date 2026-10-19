@@ -1072,7 +1072,15 @@ export const OrderPanel = memo(function OrderPanel({
     tif,
   } as const;
   return (
-    <Tabs value={type} onValueChange={(value) => setType(value as OrderType)} className="dk-panel dk-order">
+    <Tabs
+      value={type}
+      onValueChange={(value) => {
+        setType(value as OrderType);
+        // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
+        if (value === 'bracket') setTif('IOC');
+      }}
+      className="dk-panel dk-order"
+    >
       <div className="dk-order-head">
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
