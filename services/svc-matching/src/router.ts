@@ -8,7 +8,11 @@ import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
   rawBodyOf,
   retainRawBody,
+  assertEdgePrincipalLimits,
+  edgePrincipalPublicKey,
+  EdgeTrustError,
   verifyForwardedPrincipal,
+  type EdgePrincipalLimits,
   verifyServiceHeaders,
   type ServiceBodyBindMode,
 } from '@intafaced/contracts';
@@ -519,6 +523,13 @@ export interface MatchingRouteOptions {
    * S2S halt stays on the HMAC routes. This door does not read a bearer.
    */
   edgePrincipalSecret?: string;
+  /**
+   * The edge's Ed25519 public key (`EDGE_PRINCIPAL_PUBLIC_KEY`). With it the founder door also accepts
+   * public-key signatures; the shared secret above stays accepted too. A key without `principalLimits`
+   * refuses the boot with `EdgeTrustError` rather than inventing a lifetime.
+   */
+  edgePublicKey?: string;
+  principalLimits?: EdgePrincipalLimits;
 }
 
 export function registerRoutes(
@@ -1507,6 +1518,23 @@ export function registerRoutes(
     });
   });
 
+  if (options.edgePublicKey !== undefined) {
+    try {
+      edgePrincipalPublicKey(options.edgePublicKey);
+    } catch {
+      throw new EdgeTrustError('svc-matching: EDGE_PRINCIPAL_PUBLIC_KEY must be a raw 32-byte Ed25519 public key, base64url.');
+    }
+    try {
+      assertEdgePrincipalLimits(options.principalLimits);
+    } catch (e) {
+      throw new EdgeTrustError(`svc-matching: ${(e as Error).message}`, (e as EdgeTrustError).code);
+    }
+  }
+  const edgeTrust = {
+    ...(options.edgePrincipalSecret ? { hmacSecret: options.edgePrincipalSecret } : {}),
+    ...(options.edgePublicKey !== undefined ? { publicKey: options.edgePublicKey, limits: options.principalLimits } : {}),
+  };
+
   const founderIdem = new Map<string, { fingerprint: string; value: unknown }>();
 
   const headerValue = (req: FastifyRequest, name: string): string | undefined => {
@@ -1522,10 +1550,10 @@ export function registerRoutes(
     | {
         ok: false;
         status: number;
-        body: { code: string; message: string; rejected?: 'bad-signature' | 'malformed' | 'expired' | null };
+        body: { code: string; message: string; rejected?: 'bad-signature' | 'malformed' | 'expired' | 'unconfigured' | null };
       }
   > => {
-    if (!options.edgePrincipalSecret) {
+    if (!options.edgePrincipalSecret && options.edgePublicKey === undefined) {
       return {
         ok: false,
         status: 503,
@@ -1539,7 +1567,7 @@ export function registerRoutes(
     const verified = verifyForwardedPrincipal(
       headerValue(req, 'x-intafaced-principal'),
       headerValue(req, 'x-intafaced-principal-sig'),
-      options.edgePrincipalSecret,
+      edgeTrust,
       new Date(),
       region,
     );
