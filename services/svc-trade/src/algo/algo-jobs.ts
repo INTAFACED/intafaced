@@ -48,6 +48,8 @@ export interface AlgoJobsDeps {
   /** Usually the TradeService. Narrow on purpose — this job drives, it does not decide. */
   trade: { tickAllAlgos(): Promise<unknown> };
   config: AlgoJobsConfig;
+  /** Durable "the loop ticked" write. Omitted in unit tests that only count ticks. */
+  recordHeartbeat?: () => Promise<void>;
   onError?: (name: string, err: unknown) => void;
 }
 
@@ -70,7 +72,10 @@ export function startAlgoJobs(deps: AlgoJobsDeps): AlgoJobsHandle {
   // here would silently strand the orders of anyone trading a market the
   // operator forgot to name.
   host.every('algo.twap', deps.config.intervalMs, async () => {
+    // Beat before and after: a slow tick must not read as a dead loop.
+    await deps.recordHeartbeat?.();
     await deps.trade.tickAllAlgos();
+    await deps.recordHeartbeat?.();
   });
 
   return { host, stop: () => host.stopAll() };

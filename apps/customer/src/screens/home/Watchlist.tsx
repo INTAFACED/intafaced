@@ -29,6 +29,7 @@ export function Watchlist({
         <h2 id="home-watch-title">{popular ? t('Popular') : t('Watchlist')}</h2>
         {/* No Edit button: the stars on each row edit the watchlist; a markets screen comes in M2 (critic N6). */}
       </div>
+      {popular && !loading ? <p className="home-side__empty home-side__empty--hint">{t('Watchlist hint')}</p> : null}
       {loading ? (
         <div aria-hidden="true">
           {[0, 1, 2, 3, 4, 5].map((index) => (
