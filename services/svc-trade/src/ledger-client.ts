@@ -1,5 +1,5 @@
 import { createHttpLedgerClient, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { installPreTradeCredit } from './futures/pretrade-credit.js';
 import { installPositionMode } from './futures/position-mode.js';
 import { installCollateralHaircut } from './futures/collateral-haircut.js';
@@ -28,10 +28,14 @@ installOverload();
  */
 export const LEDGER_CALL_DEADLINE_MS = 25_000;
 
-export function createLedgerClient(baseUrl: string, internalSecret: string): LedgerClient {
+export function createLedgerClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): LedgerClient {
   return createHttpLedgerClient({
     baseUrl,
-    sign: (payload) => serviceAuthHeadersForBody('svc-trade', internalSecret, payload),
+    sign: serviceCallSigner({ service: 'svc-trade', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
     timeoutMs: LEDGER_CALL_DEADLINE_MS,
     deadlineMs: LEDGER_CALL_DEADLINE_MS,
   });
