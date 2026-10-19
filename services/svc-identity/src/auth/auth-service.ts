@@ -2355,6 +2355,8 @@ export class AuthService {
     const result = await transaction(this.sql, async (tx) => {
       const users = await tx<Array<{ id: string; status: string }>>`SELECT id, status FROM users WHERE id = ${userId} LIMIT 1 FOR UPDATE`;
       if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
+      // A closed account stays closed: freezing it would let a later unfreeze reopen it.
+      if (users[0].status === 'closed') throw new AuthError('Closed accounts cannot be frozen', 'auth.account_frozen');
       await tx`UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${userId}`;
       await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
       const revokedRows = await tx<

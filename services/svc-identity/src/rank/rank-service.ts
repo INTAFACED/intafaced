@@ -185,13 +185,15 @@ export class RankService {
   }
 
   private async lockRankState(tx: Sql, userId: string): Promise<{ rank: number; xp: bigint; seasonXp: bigint; updatedAt: Date }> {
+    // A first award has no row to lock, so concurrent first awards would each
+    // read xp 0 and overwrite one another. Create the zero row (a no-op when it
+    // exists), then lock it: awards for one user serialise from the first one.
+    await tx`INSERT INTO rank_state (user_id) VALUES (${userId}) ON CONFLICT (user_id) DO NOTHING`;
     const rows = await tx<Array<{ rank: number; xp: string; season_xp: string; updated_at: Date }>>`
       SELECT rank, xp, season_xp, updated_at FROM rank_state WHERE user_id = ${userId} FOR UPDATE
     `;
-    const row = rows[0];
-    return row
-      ? { rank: row.rank, xp: BigInt(row.xp), seasonXp: BigInt(row.season_xp), updatedAt: row.updated_at }
-      : { rank: 0, xp: 0n, seasonXp: 0n, updatedAt: new Date() };
+    const row = rows[0]!;
+    return { rank: row.rank, xp: BigInt(row.xp), seasonXp: BigInt(row.season_xp), updatedAt: row.updated_at };
   }
 
   private snapshotOf(userId: string, xp: bigint, seasonXp: bigint, updatedAt: Date): RankSnapshot {
