@@ -350,12 +350,15 @@ export interface LockSplit {
 }
 
 /** Reshape the bank's answer into one `LockSplit` per coin. Sums are exact (scaled integers), never floating point. */
-export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> {
+export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<string, LockSplit> | null {
   const out: Record<string, LockSplit> = {};
   for (const asset of answer.assets) {
+    // One amount that does not parse makes the whole answer unusable: never turn an unknown figure into a shown zero.
+    const amounts = [asset.available, ...asset.locked.flatMap((lock) => [lock.amount, ...lock.claims.map((claim) => claim.amount)])];
+    if (amounts.some((amount) => dec(amount) === null)) return null;
     const hold = asset.locked.filter((lock) => lock.kind === 'hold');
     const other = asset.locked.filter((lock) => lock.kind !== 'hold');
-    const sum = (locks: typeof asset.locked) => sumOf(locks.map((lock) => dec(lock.amount) ?? 0n));
+    const sum = (locks: typeof asset.locked) => sumOf(locks.map((lock) => dec(lock.amount)!));
     out[asset.assetId] = {
       available: asset.available,
       inOrders: str(sum(hold)),
@@ -371,7 +374,9 @@ export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<stri
 export function breakdownFetcher(env: DataEnv): Fetcher<Record<string, LockSplit>> {
   return async (signal) => {
     const result = await env.api.query('bank', 'portfolio.balanceBreakdown', { scope: 'main' }, breakdownSchema, { signal });
-    return result.ok ? { ok: true, data: lockSplits(result.data) } : result;
+    if (!result.ok) return result;
+    const splits = lockSplits(result.data);
+    return splits ? { ok: true, data: splits } : { ok: false, reason: 'invalid_response', code: 'money.breakdown_invalid' };
   };
 }
 
