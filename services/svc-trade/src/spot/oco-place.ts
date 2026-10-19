@@ -10,7 +10,7 @@ import { TradeService, type PlaceOrderInput } from './trade-service.js';
 import type { EngineSubmitRequest } from './matching-client.js';
 import { carriedPlacementBody } from './placement-extras.js';
 import type { Sql } from 'postgres';
-import { rememberOcoIntent } from './oco-intent.js';
+import { forgetOcoIntentWithoutOrder, rememberOcoIntent } from './oco-intent.js';
 
 export type OcoLeg = {
   readonly price?: string;
@@ -179,7 +179,14 @@ export function installOcoPlace(ctor: typeof TradeService): void {
       sl,
       bound.side === 'buy' ? stopLimitOf(bound.stopLoss) : null,
     );
-    return origPlace.call(this, principal, placed);
+    try {
+      return await origPlace.call(this, principal, placed);
+    } catch (err) {
+      // A refusal before any order row exists leaves no order to resubmit: drop the intent so a retry with
+      // corrected legs is not locked out, and so the id cannot later attach these legs to a plain order.
+      await forgetOcoIntentWithoutOrder(host.sql, principal.userId, market.id, placed);
+      throw err;
+    }
   };
 
   const origToEngine = proto.toEngineRequest;

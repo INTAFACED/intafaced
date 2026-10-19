@@ -84,7 +84,7 @@ describe('svc-trade buy OCO: one quote hold funds both legs at the worse price (
     formatAmount((await ledger.balance(orderHoldAccount(userId, assetId, orderId))).amount);
 
   beforeEach(async () => {
-    await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE trade.order_replace_requests, trade.fills, trade.orders, trade.markets, trade.order_oco_intent RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     matching = new StubMatching();
     trade = new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
@@ -312,5 +312,19 @@ describe('svc-trade buy OCO: one quote hold funds both legs at the worse price (
     await expect(trade.placeOrder(principalFor(ALICE), buyOco({ takeProfit: { stopPrice: '80' } }))).rejects.toMatchObject({
       code: 'trade.client_order_id_conflict',
     });
+  });
+
+  it('a refused buy OCO leaves no intent behind: a retry with corrected legs is accepted, and the id cannot attach legs to a plain order', async () => {
+    await fund(ALICE, 'USDT', '100');
+    // 125 of quote is needed; only 100 is funded, so the hold is refused after the intent is written.
+    await expect(trade.placeOrder(principalFor(ALICE), buyOco())).rejects.toBeInstanceOf(Error);
+    const left = await sql`SELECT 1 FROM trade.order_oco_intent`;
+    expect(left).toHaveLength(0);
+    const retry = await trade.placeOrder(
+      principalFor(ALICE),
+      buyOco({ stopLoss: { stopPrice: '95', price: '99' }, takeProfit: { stopPrice: '80' } }),
+    );
+    expect(retry.status).toBe('open');
+    expect(await heldFor(ALICE, 'USDT', retry.id)).toBe('99');
   });
 });

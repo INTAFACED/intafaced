@@ -63,3 +63,19 @@ export async function readOcoIntent(
     },
   };
 }
+
+/** Remove the intent for this parent id when no order row exists under it. A real order keeps its intent. */
+export async function forgetOcoIntentWithoutOrder(
+  sql: Sql,
+  userId: string,
+  marketId: string,
+  input: { readonly clientOrderId?: unknown },
+): Promise<void> {
+  const clientOrderId = typeof input.clientOrderId === 'string' ? input.clientOrderId : '';
+  if (clientOrderId.length === 0) return;
+  const orderId = orderIdFor(userId, marketId, clientOrderId);
+  await sql`
+    DELETE FROM trade.order_oco_intent
+     WHERE order_id = ${orderId} AND NOT EXISTS (SELECT 1 FROM trade.orders WHERE id = ${orderId})
+  `;
+}
