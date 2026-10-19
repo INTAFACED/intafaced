@@ -123,6 +123,17 @@ const open = async (page, path = '/money') => {
   await page.goto(path);
   await page.locator('.if-money').waitFor();
 };
+// A first visit lands on Pro (PLT-0009, shared/preferences.ts), so a case about Simple says so.
+const PREFERENCES_KEY = 'intafaced.customer.view.v1';
+const layout = (page, layoutMode, extra = {}) =>
+  // Runs on every load, so it keeps what the page saved meanwhile (a case that reloads checks the saved choice).
+  page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? '{}'), ...value })),
+    [PREFERENCES_KEY, { layoutMode, ...extra }],
+  );
+const pro = (page, extra = {}) => layout(page, 'pro', extra);
+const simple = (page, extra = {}) => layout(page, 'simple', extra);
+
 /** "$12,481.91": NumberFlow draws digit strips in a shadow root, so read the figure's accessible name. */
 const heroText = (page) =>
   page.locator('[data-slot="hero-number"]').evaluate((node) => {
@@ -131,6 +142,8 @@ const heroText = (page) =>
   });
 const expectHero = (page, text) => expect.poll(() => heroText(page).catch(() => null), { timeout: 7000 }).toBe(text);
 const texts = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.textContent.trim().replace(/\s+/g, ' ')));
+/** What a person reads: the phone-only Value line under Amount is display:none on desktop, which textContent would count. */
+const seen = (locator) => locator.evaluateAll((nodes) => nodes.map((node) => node.innerText.trim().replace(/\s+/g, ' ')));
 const snap = async (page, name) => {
   await page.mouse.move(0, 0);
   await page.screenshot({ path: join(shots, `${name}.png`) });
@@ -151,6 +164,7 @@ async function shootBoth(page, name, prepare) {
 // ── portfolio ────────────────────────────────────────────────────────────────
 
 test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path', async ({ page }) => {
+  await simple(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
@@ -193,7 +207,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
     'ZED',
   ]);
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
-  expect(await texts(btc.locator('td').nth(1))).toEqual(['0.1 BTC']);
+  expect(await seen(btc.locator('td').nth(1))).toEqual(['0.1 BTC']);
   expect(await texts(btc.locator('td').nth(2))).toEqual(['$6,781.24']);
   expect(await texts(btc.locator('td').nth(3))).toEqual(['▲+$181.24 (+2.75%)']);
   // No link to the old coin page (critic H3): the row's own buttons are the way on.
@@ -336,6 +350,7 @@ test('a dropped bank connection also falls back', async ({ page }) => {
 });
 
 test('prices down: the bank refusal reads in plain words, with no fallback guess', async ({ page }) => {
+  await simple(page);
   const api = await mock(page, { bank: { 'portfolio.summary': pricesDown } });
   await open(page);
   const block = page.locator('[data-slot="state-block"][data-kind="refused"]');
@@ -379,6 +394,7 @@ test('loading shows final-size skeletons and nothing moves when data arrives', a
 });
 
 test('an account with nothing in it: zero is right here, and there is a way forward', async ({ page }) => {
+  await simple(page);
   await mock(page, { bank: { 'portfolio.summary': emptySummary, 'spaces.list': [] }, rest: { balance: emptyBalances } });
   await open(page);
   await expectHero(page, '$0.00');
@@ -425,6 +441,7 @@ test('the bank cannot list accounts: the page carries on without that section', 
 });
 
 test('hidden balances show bullets, prices and shares stay, and the choice is remembered', async ({ page }) => {
+  await simple(page);
   await mock(page);
   await open(page);
   await page.getByRole('button', { name: 'Hide balances' }).click();
@@ -432,7 +449,7 @@ test('hidden balances show bullets, prices and shares stay, and the choice is re
   await expectHero(page, '$••••');
   await expect(page.locator('.money-change [data-slot="change-text"]')).toContainText('••••');
   await expect(page.locator('.money-change')).not.toContainText('206');
-  expect(await texts(page.locator('#cash [data-slot="money"], #cash [data-slot="amount"]'))).toEqual(['••••', '••••', '••••']);
+  expect(await texts(page.locator('#cash [data-slot="money"], #cash [data-slot="amount"]'))).toEqual(['••••', '••••', '••••', '••••']);
   for (const value of await texts(page.locator('[data-slot="money"], [data-slot="amount"]'))) expect(value).toMatch(moneyShape);
   await expect(page.locator('.money-alloc__legend')).toContainText('54.33%');
   await snap(page, 'portfolio-hidden-1440x900');
@@ -443,6 +460,7 @@ test('hidden balances show bullets, prices and shares stay, and the choice is re
 });
 
 test('/money#crypto scrolls to the Crypto card', async ({ page }) => {
+  await simple(page);
   await mock(page);
   await page.setViewportSize({ width: 1440, height: 500 });
   await open(page, '/money#crypto');
@@ -474,13 +492,6 @@ test('portfolio responsive: no horizontal page scroll at 1280, 1180, 768 and 390
 });
 
 // ── pro ──────────────────────────────────────────────────────────────────────
-
-const PREFERENCES_KEY = 'intafaced.customer.view.v1';
-const pro = (page, extra = {}) =>
-  page.addInitScript(
-    ([key, value]) => localStorage.setItem(key, JSON.stringify(value)),
-    [PREFERENCES_KEY, { layoutMode: 'pro', ...extra }],
-  );
 
 test('Pro Money: stake and collateral are in Locked, not in In orders, when the bank splits the locks', async ({ page }) => {
   const api = await mock(page, {
@@ -533,7 +544,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
       .locator('[data-slot="hero-number"]')
       .evaluate((node) => getComputedStyle(node).fontSize + '/' + getComputedStyle(node).lineHeight),
   ).toBe('32px/40px');
-  expect(await texts(page.locator('#crypto > .money-table thead th'))).toEqual([
+  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual([
     'Coin',
     'Amount',
     'Value',
@@ -612,9 +623,10 @@ test('Pro Money with the bank summary missing: In spaces is a dash, never 0, and
 });
 
 test('Simple Money has no Available and In orders columns', async ({ page }) => {
+  await simple(page);
   await mock(page);
   await open(page);
-  expect(await texts(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Value', 'Today', 'Actions']);
+  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Value', 'Today', 'Actions']);
 });
 
 test('Money lists the named accounts only when one of them holds something (critic M9)', async ({ page }) => {
@@ -639,6 +651,7 @@ test('activity opens on All, with Trades one tab along', async ({ page }) => {
 });
 
 test('activity Trades tab is built from fills: one row per trade with price, total and fee (critic H2)', async ({ page }) => {
+  await simple(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
@@ -673,6 +686,7 @@ test('activity Trades tab is built from fills: one row per trade with price, tot
 });
 
 test('activity ?asset= narrows Trades and All to one coin, shows a removable chip, and unknown coins read as empty', async ({ page }) => {
+  await simple(page);
   await mock(page);
   const chip = (name) => page.getByRole('button', { name: `Remove ${name} filter` });
   // Trades: fills whose base or quote is the coin.
@@ -689,7 +703,7 @@ test('activity ?asset= narrows Trades and All to one coin, shows a removable chi
   await open(page, '/money/activity?tab=trades&asset=ZZZ');
   await expect(page.locator('.money-state')).toContainText('No ZZZ trades yet');
   await chip('ZZZ').click();
-  await expect(page).toHaveURL(/\/money\/activity$/);
+  await expect(page).toHaveURL(/\/money\/activity\?tab=trades$/);
   await expect(chip('ZZZ')).toHaveCount(0);
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
   // All: a whole order stays together when any of its lines is in the coin (the BTC buy keeps its USDT lines).
@@ -731,11 +745,12 @@ test('activity Orders tab shows open orders with Cancel and the order history (c
 });
 
 test('every link that means "my orders" lands on the Orders tab', async ({ page }) => {
+  await simple(page);
   await mock(page);
   await open(page, '/money/activity?tab=orders');
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Orders');
   await open(page, '/money/activity?tab=nonsense');
-  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('Trades');
+  await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
 });
 
 test('All: the lines of one order share an orderId and are one row; a cancelled order is one row (critic H2, N2)', async ({ page }) => {
@@ -793,6 +808,7 @@ test('Pro Activity rows are 40 px', async ({ page }) => {
 });
 
 test('activity: rows in plain words, signed amounts, local time, completed', async ({ page }) => {
+  await simple(page);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
@@ -888,6 +904,7 @@ test('activity screenshots at both sizes, and side by side with the OKX order ce
 });
 
 test('activity tabs filter the rows, keep the address in step, and look further back when a tab is thin', async ({ page }) => {
+  await simple(page);
   const api = await mock(page);
   await open(page, ALL);
   await expect(page.locator('.money-act')).toHaveCount(10);
@@ -909,7 +926,7 @@ test('activity tabs filter the rows, keep the address in step, and look further 
     'Received from @sam',
   ]);
   await page.getByRole('tab', { name: 'Trades' }).click();
-  await expect(page).toHaveURL(/\/money\/activity$/);
+  await expect(page).toHaveURL(/\/money\/activity\?tab=trades$/);
   await expect(page.locator('.money-trade-tab tbody tr')).toHaveCount(2);
 
   // Back and forward follow the tabs.
@@ -993,13 +1010,14 @@ test('activity empty: a way forward', async ({ page }) => {
 });
 
 test('Trades with no trades says so, and Orders with no orders says so', async ({ page }) => {
+  await simple(page);
   await mock(page, { rest: { 'account/trades': () => [], 'orders/open': () => [], 'orders/closed': () => [] } });
   await open(page, '/money/activity?tab=trades');
   await expect(page.locator('[data-slot="state-block"][data-kind="empty"]')).toContainText('No trades yet');
   await open(page, '/money/activity?tab=orders');
   const blocks = page.locator('[data-slot="state-block"][data-kind="empty"]');
   await expect(blocks).toHaveCount(2);
-  expect(await texts(blocks)).toEqual(['No open orders.', 'No past orders yet.']);
+  expect(await texts(blocks)).toEqual(['No open orders.', 'No past orders.']);
 });
 
 test('a tab with nothing of its kind says so without a button', async ({ page }) => {
