@@ -388,6 +388,23 @@ async function main() {
     TRADE_SMOKE_FILL_WAIT_MS: '25000',
   });
 
+  // Optional second phase on the same stack: CX8_AFTER is a JSON array, the command to run once the smoke has passed
+  // (`pnpm journeys:trade` sets it to the customer journeys). The stack is still up, the market is open, and the
+  // service addresses and secrets are passed in the same names the smoke reads.
+  if (process.env.CX8_AFTER) {
+    const [cmd, ...args] = JSON.parse(process.env.CX8_AFTER);
+    await run(cmd, args, {
+      TRADE_HTTP_URL: 'http://127.0.0.1:4004',
+      MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
+      LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
+      IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+      EDGE_PRINCIPAL_SECRET: EDGE,
+      INTERNAL_SERVICE_SECRET: SECRET,
+      TRADE_SMOKE_SYMBOL: 'BTC/USDT',
+      TRADE_SMOKE_REGION: process.env.TRADE_SMOKE_REGION ?? 'DE',
+    });
+  }
+
   log('CX-8 boot + smoke complete');
   killAll();
   process.exit(0);
