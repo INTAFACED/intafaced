@@ -716,11 +716,23 @@ export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLi
  * Attach the request's own placement options to its order input. Refuses a bracket or OCO the body cannot carry
  * here, before any hold. Called only once the caller is signed in and the body has passed the typed schema.
  */
-function carryPlacement(input: PlaceOrderInput, body: unknown): PlaceOrderInput {
-  if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
-    readBracketFromBody(body as Record<string, unknown>);
-    readOcoFromBody(body as Record<string, unknown>);
+/**
+ * Parked with a named blocker: svc-matching's order intake does not carry bracket / OCO exit legs,
+ * so an accepted request would rest a bare entry and silently drop the stop-loss and take-profit.
+ */
+function refuseExitLegs(body: unknown): void {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
+  const rec = body as Record<string, unknown>;
+  if (readBracketFromBody(rec) !== null || readOcoFromBody(rec) !== null) {
+    throw new TradeError(
+      'bracket and OCO orders are not available yet: the matching service does not accept exit legs, so the stop-loss and take-profit would be dropped',
+      'trade.order_type_unsupported',
+    );
   }
+}
+
+function carryPlacement(input: PlaceOrderInput, body: unknown): PlaceOrderInput {
+  refuseExitLegs(body);
   return carryPlacementBody(input, body);
 }
 
@@ -2021,6 +2033,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
       let input: PlaceOrderInput;
       try {
+        refuseExitLegs(rawItem);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
