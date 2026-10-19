@@ -373,6 +373,9 @@ async function main() {
     // defaults — never restore compose invented spread/cap.
     TRADE_CONVERT_SPREAD_BPS: '25',
     TRADE_MARKET_SLIPPAGE_CAP_BPS: '150',
+    // SMOKE RIG fixture, not a product default: dead-man switch timeouts (seconds) and a 1 s sweep for the trade journeys.
+    TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: '10,30,60,120',
+    TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: '1000',
     // Fee schedule (PTX-M21). Place and fill refuse while it is unpublished, and
     // blank is not zero. This is a published schedule whose maker and taker fees
     // are both 0 bps, in the exact JSON shape parseFeeScheduleJson reads

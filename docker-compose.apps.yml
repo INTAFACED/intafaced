@@ -768,6 +768,10 @@ services:
       # for rows left in hold_unknown. Does not release a hold it has not seen.
       TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
       TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
+      # Dead-man switch (cancel-all-after). Timeouts in seconds, owner-published, comma separated.
+      # Compose ships empty: blank refuses arming (trade.cancel_all_after_unset). Local rigs set test values.
+      TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: ${TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC:-}
+      TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: ${TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS:-5000}
       # Market, IOC, and FOK rows older than this are released, not submitted.
       TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: ${TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS:-30000}
     # L5-7: S2S — not published on host (compose network only)

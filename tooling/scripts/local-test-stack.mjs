@@ -786,6 +786,11 @@ function serviceDefs(secrets) {
         TRADE_CONVERT_SPREAD_BPS: '20',
         // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
         TRADE_CONVERT_QUOTE_TTL_MS: '15000',
+        // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
+        // seconds, as retail exchanges publish them (OKX accepts 10 to 120). Without them arming refuses
+        // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.
+        TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: '10,30,60,120',
+        TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: '1000',
         // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
         // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
         // Without it trade refuses every order with 400 trade.fee_schedule_blank
