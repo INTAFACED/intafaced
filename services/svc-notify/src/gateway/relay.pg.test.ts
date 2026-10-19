@@ -217,7 +217,9 @@ describe('independent mailbox receipt restore boundary (actual SQL + HTTP)', () 
         if (scenario === 'lost upstream reply') res.destroy();
         if (scenario === 'unexpected successful status') res.writeHead(200).end('not a confirmed 204');
       });
-      const gateway = await relay(independent, wire.fetchImpl, 150);
+      // The budget covers the receipt claim as well as the send. 150 ms let a slow claim on a busy runner spend it all, so the
+      // relay (correctly) never sent and the mailbox saw nothing; 1 s leaves room and still expires for the hanging reply.
+      const gateway = await relay(independent, wire.fetchImpl);
       const key = `synthetic-unknown:${randomUUID()}`,
         body = envelope();
       const unknown = await request(gateway.url, key, body);
