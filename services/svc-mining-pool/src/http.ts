@@ -1,6 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { nodeHTTPRequestHandler } from '@trpc/server/adapters/node-http';
-import { createEdgeContext, EdgeTrustError, type EdgeContextOptions } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  EdgeTrustError,
+  type EdgeContextOptions,
+  type ServiceAuthMode,
+  type ServiceVerifier,
+} from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { JobSource } from './job-source.js';
@@ -13,6 +19,8 @@ export type MiningHttpDeps = {
   readonly health: () => MiningHealthHonesty;
   readonly sql: Sql | null;
   readonly internalSecret: string | undefined;
+  /** Per-service keys (S2S v3) for the share-ingest door. Unset keeps the shared secret alone. */
+  readonly s2s?: { readonly verifier: ServiceVerifier; readonly mode: ServiceAuthMode };
   readonly edgeSecret: string | undefined;
   /** Optional edge public key and limits (`edgeTrustFromProcessEnv`): verify the edge's public-key signature as well. */
   readonly edgeTrust?: Pick<EdgeContextOptions, 'edgePublicKey' | 'principalLimits'>;
@@ -71,6 +79,7 @@ export function createMiningRequestHandler(deps: MiningHttpDeps): (request: Inco
         headers: request.headers,
         rawBody,
         secret: deps.internalSecret,
+        ...(deps.s2s ? { s2s: { ...deps.s2s, method: request.method, url: request.url } } : {}),
         sql: deps.sql,
         jobSource: deps.jobSource ?? null,
       });

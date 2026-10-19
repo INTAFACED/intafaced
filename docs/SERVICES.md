@@ -19,7 +19,7 @@
 | `svc-ledger` | THE BALANCE (§4.2). The single wallet graph for the entire OS. | 4001 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `INTERNAL_SERVICE_SECRET`, `JWT_ACCESS_SECRET`, `RECONCILE_CRON_MINUTES` |
 | `svc-market` | Vendor lifecycle for `market.vendors` (§8.7) plus listings and one-time purchase for `market.commerce`. | 4018 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
 | `svc-matching` | THE ENGINE (§5.1). Orderbooks and matching. | 4005 | compose network only | `EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS`, `EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS`, `EDGE_PRINCIPAL_PUBLIC_KEY`, `INTERNAL_SERVICE_SECRET`, `MATCHING_OPERATOR_IDS`, `MATCHING_SNAPSHOT_EVERY` |
-| `svc-mining-pool` | No README. | 4023 | compose network only | see `src/env.ts` |
+| `svc-mining-pool` | Mining pool: share ingest, PPLNS payout planning and epoch payouts. | 4023 | compose network only | see `src/env.ts` |
 | `svc-notify` | Event-driven notification fan-out for `ops.notifications`. | 4015 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
 | `svc-ops` | Thin operator surfaces for CRM, team directory, warehouse revenue, projects, and custody tiers. | 4022 | compose network only | `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
 | `svc-p2p` | Peer-to-peer trading with escrow (§6.2). | 4007 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |

@@ -1,5 +1,11 @@
 import type { Sql } from 'postgres';
-import { ServiceAuthError, verifyServiceHeaders } from '@intafaced/contracts';
+import {
+  ServiceAuthError,
+  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
+  type ServiceVerifier,
+} from '@intafaced/contracts';
 import { MiningError } from './errors.js';
 import { resolveJob, type JobSource } from './job-source.js';
 import { planPplns, type PplnsInput, type PplnsPlan, type PplnsShare } from './pplns.js';
@@ -37,18 +43,30 @@ function unauthenticated(rejected: string): MiningShareAuthRefuse {
  * Edge mounts `/api/mining` — unsigned was a public payout ingest.
  * Same HMAC helper as ledger/token/matching. Blank secret is a typed refuse.
  */
+/** Per-service keys (S2S v3): the request line is signed too, so it travels with the keys. Unset keeps the shared secret alone. */
+export type SubmitShareS2s = {
+  readonly verifier: ServiceVerifier;
+  readonly mode: ServiceAuthMode;
+  readonly method: string | undefined;
+  readonly url: string | undefined;
+};
+
 export function authorizeSubmitShare(
   headers: Record<string, string | string[] | undefined>,
   secret: string | undefined,
   rawBody: Buffer,
+  s2s?: SubmitShareS2s,
 ): { readonly ok: true; readonly service: string } | MiningShareAuthRefuse {
   const trimmed = secret?.trim() ?? '';
   if (trimmed.length < 32) return unauthenticated('unset');
   try {
-    const { service, rejected } = verifyServiceHeaders(headers, trimmed, {
-      rawBody: { retained: true, bytes: rawBody },
-      mode: 'require',
-    });
+    // A failed key-signed call is refused and never retried on the shared secret.
+    const { service, rejected } = s2s
+      ? verifyServiceRequest(
+          { method: s2s.method, url: s2s.url, headers, body: rawBody },
+          { verifier: s2s.verifier, mode: s2s.mode, legacySecret: trimmed, bodyBindMode: 'require' },
+        )
+      : verifyServiceHeaders(headers, trimmed, { rawBody: { retained: true, bytes: rawBody }, mode: 'require' });
     if (service === null) return unauthenticated(rejected ?? 'unauthenticated');
     return { ok: true, service };
   } catch (err) {
@@ -61,11 +79,12 @@ export async function handleSubmitSharePost(input: {
   readonly headers: Record<string, string | string[] | undefined>;
   readonly rawBody: Buffer;
   readonly secret: string | undefined;
+  readonly s2s?: SubmitShareS2s;
   readonly sql: Sql | null;
   /** Test adapter only. Production leaves this unset. */
   readonly jobSource?: JobSource | null;
 }): Promise<{ readonly status: number; readonly body: unknown }> {
-  const auth = authorizeSubmitShare(input.headers, input.secret, input.rawBody);
+  const auth = authorizeSubmitShare(input.headers, input.secret, input.rawBody, input.s2s);
   if (!auth.ok) return { status: auth.status, body: auth.body };
   try {
     if (!input.sql) throw new Error(PG_UNAVAILABLE);

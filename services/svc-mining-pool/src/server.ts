@@ -48,6 +48,7 @@ const handler = createMiningRequestHandler({
     }),
   sql,
   internalSecret,
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
   edgeSecret,
   edgeTrust: edgeTrustFromProcessEnv(process.env),
   ledger,
