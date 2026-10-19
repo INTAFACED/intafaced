@@ -309,6 +309,11 @@ book that moved up simply fills less. Anything the fill did not spend comes back
 
 A market **sell** needs none of this: the hold is base quantity, which is known exactly whatever the price does.
 
+**Per-order tolerance.** A market order on the create-order route may carry `maxSlippageBps` (a whole number from 1
+up to the owner cap). It only tightens: the buy is funded and sent at the tighter of the two prices, and a sell's
+floor is the higher of the two. A value above the owner cap, a non-integer, or one on a limit order is refused with
+`trade.slippage_tolerance_invalid` before any hold; it never stands in for an unpublished owner cap.
+
 ## Rounding, stated
 
 | Quantity               | Direction | Why                                                                                                                                                                                        |
