@@ -316,6 +316,9 @@ async function main() {
       PAY_LINK_MAX_TTL_DAYS: '30',
       PAY_OPERATOR_CREDIT_RAILS: 'crypto-native',
       PAY_CRYPTO_WATCHER_ENABLED: 'false',
+      // The same local-test stand-in the trade service gets below (Nino, 2026-10-19: yes to the sanctions switch for svc-pay). Counsel's list is not ours
+      // to invent. Honoured only while APP_ENV is dev/test; svc-pay refuses to BOOT with this fixture elsewhere (assertNoLocalTestFixtures).
+      INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
     });
 
   await waitHealth('http://127.0.0.1:4001', 'ledger');

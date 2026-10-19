@@ -3,6 +3,7 @@ import { placeInstruction } from '../../src/screens/trade/desk/ticket/scale-flow
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { orderSchema } from '../../src/features/trade/trade-api';
+import { resendOrder } from '../../src/screens/trade/desk/resend';
 import { BASE, QUOTE, SYMBOL, balance, draft, orderOf, reviewAndPlace } from './desk';
 import { newCustomer, fund, ledgerAvailable, until, type Customer } from './stack';
 
@@ -205,8 +206,8 @@ describe('pro trader: stop-limit', () => {
     await fund(trader.userId, QUOTE, '1000');
   });
 
-  // The desk does not offer stop-limit yet (UNSUPPORTED_TYPES in screens/trade/desk/tif.ts), so this goes through the app's
-  // ApiClient directly with the body the service documents.
+  // The desk offers stop-limit (#5130): the ticket's draft carries a stop price and the review echoes it. The refusal below goes
+  // to the service directly with the body the desk would refuse to build, so the service's own reason is the one proven.
   const stopBody = (extra: Record<string, unknown> = {}) => ({
     symbol: SYMBOL,
     side: 'buy',
@@ -220,16 +221,16 @@ describe('pro trader: stop-limit', () => {
   });
 
   it('stores the trigger, holds the funds, does not rest on the book, and cancels cleanly', async () => {
-    const body = stopBody();
-    const result = await trader.api.rest('/orders', orderSchema, { method: 'POST', body });
-    expect(result.ok, result.ok ? '' : `${result.code} ${result.message}`).toBe(true);
-    if (!result.ok) return;
-    expect(result.data).toMatchObject({
+    const d = draft({ type: 'stop_limit', price: '150', stopPrice: '149' });
+    const { review, placed } = await reviewAndPlace(trader.trade, d);
+    expect(review).toMatchObject({ type: 'stop_limit', price: '150', stopPrice: '149' });
+    const order = orderOf(placed);
+    expect(order).toMatchObject({
       type: 'stop_limit',
       stopPrice: '149',
       price: '150',
       status: 'open',
-      clientOrderId: body.clientOrderId,
+      clientOrderId: d.clientOrderId,
     });
     expect((await balance(trader.trade, QUOTE)).used).toBe('15');
 
@@ -237,10 +238,10 @@ describe('pro trader: stop-limit', () => {
     expect(book.ok, 'the order book read').toBe(true);
     if (book.ok) expect(book.data.bids.some(([price]) => price === '150')).toBe(false);
 
-    const again = await trader.api.rest('/orders', orderSchema, { method: 'POST', body });
-    expect(again.ok && again.data.id).toBe(result.data.id);
+    const again = await resendOrder(trader.api, d);
+    expect(again.ok && again.order.id).toBe(order.id);
 
-    const cancelled = await trader.trade.cancel(result.data);
+    const cancelled = await trader.trade.cancel(order);
     expect(cancelled.ok && cancelled.data.status).toBe('canceled');
     await until('hold released', async () => ((await balance(trader.trade, QUOTE)).used === '0' ? true : undefined));
   });

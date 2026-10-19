@@ -7,8 +7,7 @@ import { fund, ledgerAvailable, newCustomer } from './stack';
 /**
  * Money in and money out of the pro trader's account. Funds arrive through the ledger's deposit recipe (the one custodial
  * book); the desk and the ledger must tell the same story. Money out goes through the payments core's own door. No payout
- * rail is configured in the rig and counsel's sanctions list is unset, so the withdrawal must refuse with the named reason
- * before anything is held.
+ * rail or wallet is configured in the rig, so the withdrawal must refuse with the named reason before anything is held.
  */
 const withdrawal = (clientRef: string) => ({
   assetId: QUOTE,
@@ -49,21 +48,28 @@ describe('pro trader: funding and withdrawal', () => {
     const refused = await payCall('withdrawal.create', withdrawal('journey-nostepup'), plain);
     expect(refused.status).toBeGreaterThanOrEqual(400);
     expect(refused.status).toBeLessThan(500);
-    expect(refused.body).not.toContain('Sanctions screening');
+    expect(refused.body).not.toContain('pay.wallet_withdraw_unavailable');
     expect(await ledgerAvailable(person.userId, QUOTE)).toBe('300');
   });
 
-  it('refuses a stepped-up withdrawal with the named blocker, holds nothing and records no withdrawal', async () => {
+  it('refuses a stepped-up withdrawal on every rail with the named blocker, holds nothing and records no withdrawal', async () => {
     const person = await newCustomer();
     await fund(person.userId, QUOTE, '300');
     const elevated = await person.account.stepUp();
     expect(elevated.scopes).toContain('trade:withdraw');
 
-    // The same client reference twice: the refusal is repeatable and the second ask opens nothing.
-    for (const clientRef of ['journey-w1', 'journey-w1']) {
-      const refused = await payCall('withdrawal.create', withdrawal(clientRef), elevated);
-      expect(refused.status).toBe(403);
-      expect(refused.body).toContain('Sanctions screening list is unset');
+    // No payout rail or wallet is wired in the rig: an absent rail, an unknown one and the sandbox rails all refuse alike, before
+    // anything is claimed or held. The same client reference twice shows the refusal is repeatable and the second ask opens nothing.
+    const asks = [
+      ['bank-payout', 'journey-w1'],
+      ['bank-payout', 'journey-w1'],
+      ['no-such-rail', 'journey-w2'],
+      ['crypto-native', 'journey-w3'],
+    ] as const;
+    for (const [railId, clientRef] of asks) {
+      const refused = await payCall('withdrawal.create', { ...withdrawal(clientRef), railId }, elevated);
+      expect(refused.status).toBe(400);
+      expect(refused.body).toContain('pay.wallet_withdraw_unavailable');
     }
     expect(await ledgerAvailable(person.userId, QUOTE)).toBe('300');
     expect((await balance(person.trade, QUOTE)).used).toBe('0');
