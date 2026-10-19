@@ -169,7 +169,7 @@ const appRouter = createAgentsRouter({
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
-  ...(supportDesk ? { supportDesk, edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
+  ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),
