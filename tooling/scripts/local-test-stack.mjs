@@ -634,9 +634,8 @@ function commonEnv(secrets, name, port) {
     NATS_STREAM_PREFIX: STREAM_PREFIX,
     EDGE_PRINCIPAL_SECRET: secrets.edgePrincipal,
     INTERNAL_SERVICE_SECRET: secrets.internal,
-    // OPS-0001: do not set LEDGER_CALLER_BINDING here. Unset means report, so
-    // this shared secret still posts. Per-service secrets are optional and
-    // stay unset. See services/svc-ledger/CALLER-BINDING.md.
+    // S2S_AUTH_MODE stays unset here: svc-ledger then accepts this shared secret
+    // and counts each post as unbound. See services/svc-ledger/CALLER-BINDING.md.
     INTERNAL_SERVICE_BODY_BIND: 'accept-both',
     JWT_ACCESS_SECRET: secrets.jwt,
     // Every service that consults packages/config's screening reads the same pass-through

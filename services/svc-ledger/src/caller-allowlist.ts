@@ -126,51 +126,6 @@ export type LedgerCallerService = keyof typeof LEDGER_POST_ALLOWLIST;
 
 export const LEDGER_CALLER_SERVICES = Object.keys(LEDGER_POST_ALLOWLIST) as LedgerCallerService[];
 
-/** `svc-pay` → `LEDGER_CALLER_SECRET_SVC_PAY`. The env name is the key id. */
-export function callerSecretEnvName(service: string): string {
-  return `LEDGER_CALLER_SECRET_${service.toUpperCase().replace(/-/g, '_')}`;
-}
-
-/**
- * Dedicated-secret env names, as a tuple so each field stays typed on the
- * ledger env object. The test checks this list against `LEDGER_CALLER_SERVICES`.
- */
-export const CALLER_SECRET_ENV_NAMES = [
-  'LEDGER_CALLER_SECRET_SVC_AGENTS',
-  'LEDGER_CALLER_SECRET_SVC_BANK',
-  'LEDGER_CALLER_SECRET_SVC_IDENTITY',
-  'LEDGER_CALLER_SECRET_SVC_MARKET',
-  'LEDGER_CALLER_SECRET_SVC_P2P',
-  'LEDGER_CALLER_SECRET_SVC_PAY',
-  'LEDGER_CALLER_SECRET_SVC_TOKEN',
-  'LEDGER_CALLER_SECRET_SVC_TRADE',
-] as const;
-
-export type CallerSecretEnvName = (typeof CALLER_SECRET_ENV_NAMES)[number];
-
-/**
- * A dedicated secret that copies `INTERNAL_SERVICE_SECRET`, or another
- * service's secret, makes the binding meaningless. Refuse boot. The message
- * names the env var and never the value.
- */
-export function assertDistinctCallerSecrets(namedSecrets: readonly (readonly [string, string])[], sharedSecret: string): void {
-  const shared = sharedSecret.trim();
-  const seen = new Map<string, string>();
-  for (const [envName, raw] of namedSecrets) {
-    if (typeof raw !== 'string') continue;
-    const secret = raw.trim();
-    if (secret.length === 0) continue;
-    if (secret === shared) {
-      throw new Error(`${envName} must not equal INTERNAL_SERVICE_SECRET`);
-    }
-    const prior = seen.get(secret);
-    if (prior !== undefined) {
-      throw new Error(`${envName} must not equal ${prior}`);
-    }
-    seen.set(secret, envName);
-  }
-}
-
 export function grantFor(service: string, recipe: RecipeName): RecipeGrant | undefined {
   if (!Object.hasOwn(LEDGER_POST_ALLOWLIST, service)) return undefined;
   const grants = LEDGER_POST_ALLOWLIST[service as LedgerCallerService] as Grants;

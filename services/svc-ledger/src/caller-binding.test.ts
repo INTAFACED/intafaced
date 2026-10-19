@@ -1,12 +1,20 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import {
+  createServiceSigner,
+  createServiceVerifier,
+  serviceAuthHeadersForBody,
+  type Keyring,
+  type ServiceName,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes, type PostRequest } from '@intafaced/ledger-client';
-import { CALLER_SECRET_ENV_NAMES, LEDGER_CALLER_SERVICES, LEDGER_POST_ALLOWLIST, callerSecretEnvName } from './caller-allowlist.js';
+import { LEDGER_POST_ALLOWLIST } from './caller-allowlist.js';
+import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { callerBindingCounts, callerBindingViolationCount, resetCallerBindingViolations } from './caller-binding.js';
 import { createLedgerRouter } from './router.js';
 import { registerS2sHttp } from './s2s-http.js';
@@ -15,17 +23,6 @@ import type { LedgerService } from './service.js';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SHARED = 'ledger-shared-internal-secret-32chars!';
-const TRADE_SECRET = 'ledger-caller-secret-svc-trade-32ch!';
-const PAY_SECRET = 'ledger-caller-secret-svc-pay-32chars!';
-const AGENTS_SECRET = 'ledger-caller-secret-svc-agents-32ch!';
-const BANK_SECRET = 'ledger-caller-secret-svc-bank-32ch!';
-
-const SECRETS = {
-  'svc-trade': TRADE_SECRET,
-  'svc-pay': PAY_SECRET,
-  'svc-agents': AGENTS_SECRET,
-  'svc-bank': BANK_SECRET,
-};
 
 function toWire(req: PostRequest) {
   return {
@@ -79,7 +76,29 @@ function stub(posted: { value: boolean }) {
   } as unknown as LedgerService;
 }
 
-async function mount(options: { mode: 'report' | 'enforce'; posted: { value: boolean }; lines?: string[]; onViolation?: () => void }) {
+function pair() {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  return {
+    privateKey: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+    x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+  };
+}
+
+/** Real generated keys for the callers, and the ledger's verifier built from the public keyring only. */
+function kit() {
+  const callers: ServiceName[] = ['svc-trade', 'svc-pay', 'svc-agents', 'svc-bank', 'svc-edge'];
+  const keys = callers.map((svc) => ({ svc, ...pair() }));
+  const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
+  const signer = (svc: ServiceName) =>
+    createServiceSigner({ service: svc, kid: `${svc}.a`, privateKey: keys.find((k) => k.svc === svc)!.privateKey, keyring });
+  return { keyring, signer, verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring }) };
+}
+
+type Kit = ReturnType<typeof kit>;
+type Mode = 'dual' | 'keypair';
+
+async function mount(options: { mode: Mode; posted: { value: boolean }; k?: Kit; lines?: string[]; onViolation?: () => void }) {
+  const k = options.k ?? kit();
   const stream = new Writable({
     write(chunk, _encoding, callback) {
       options.lines?.push(String(chunk));
@@ -89,20 +108,35 @@ async function mount(options: { mode: 'report' | 'enforce'; posted: { value: boo
   const app = Fastify({ logger: { level: 'warn', stream } });
   registerS2sHttp(app, stub(options.posted), SHARED, {
     bodyBind: 'require',
-    callerBinding: options.mode,
-    callerSecrets: SECRETS,
+    s2s: { verifier: k.verifier(), mode: options.mode },
     onCallerViolation: options.onViolation,
   });
   await app.ready();
-  return app;
+  return { app, k };
 }
 
-function send(app: Awaited<ReturnType<typeof mount>>, service: string, secret: string, body: unknown) {
+type Mounted = Awaited<ReturnType<typeof mount>>;
+
+/** Signed by the named service's own key. */
+function sendKeyed(m: Mounted, service: ServiceName, body: unknown, path = '/trpc/post', audience: ServiceName = 'svc-ledger') {
   const payload = JSON.stringify(body);
-  return app.inject({
+  const headers = m.k.signer(service).headers({
+    audience,
+    method: 'POST',
+    url: new URL(`http://svc-ledger.internal${path}`),
+    body: payload,
+    context: { contentType: 'application/json' },
+  });
+  return m.app.inject({ method: 'POST', url: path, headers: { 'content-type': 'application/json', ...headers }, payload });
+}
+
+/** Signed with the shared secret, claiming a name. */
+function sendShared(m: Mounted, service: string, body: unknown) {
+  const payload = JSON.stringify(body);
+  return m.app.inject({
     method: 'POST',
     url: '/trpc/post',
-    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody(service, secret, payload) },
+    headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody(service, SHARED, payload) },
     payload,
   });
 }
@@ -125,10 +159,6 @@ describe('ledger post allowlist cites real callers', () => {
   it('does not grant subAccountTransfer — identity only mentions it in a comment', () => {
     const granted = Object.values(LEDGER_POST_ALLOWLIST).flatMap((grants) => Object.keys(grants));
     expect(granted).not.toContain('subAccountTransfer');
-  });
-
-  it('names one secret env var per allowlisted service', () => {
-    expect([...CALLER_SECRET_ENV_NAMES].sort()).toEqual(LEDGER_CALLER_SERVICES.map((service) => callerSecretEnvName(service)).sort());
   });
 
   it('grants every production recipes.<name>( pair', () => {
@@ -173,150 +203,238 @@ function productionSources(dir: string): string[] {
 }
 
 describe('POST /trpc/post caller binding', () => {
-  it('posts an allowed pair when the key id matches that service secret', async () => {
-    const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
-    const before = callerBindingViolationCount();
+  for (const mode of ['dual', 'keypair'] as const) {
+    it(`${mode}: posts an allowed pair signed by that service's own key`, async () => {
+      const posted = { value: false };
+      const m = await mount({ mode, posted });
+      const before = callerBindingViolationCount();
 
-    const res = await send(app, 'svc-trade', TRADE_SECRET, orderHold);
+      const res = await sendKeyed(m, 'svc-trade', orderHold);
 
-    expect(res.statusCode).toBe(200);
-    expect(posted.value).toBe(true);
-    expect(callerBindingViolationCount()).toBe(before);
-    await app.close();
-  });
+      expect(res.statusCode).toBe(200);
+      expect(posted.value).toBe(true);
+      expect(callerBindingViolationCount()).toBe(before);
+      await m.app.close();
+    });
 
-  it('refuses a different service posting that recipe in enforce, and books nothing', async () => {
-    const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
+    it(`${mode}: refuses a different service posting that recipe, and books nothing`, async () => {
+      const posted = { value: false };
+      const m = await mount({ mode, posted });
 
-    const res = await send(app, 'svc-pay', PAY_SECRET, orderHold);
+      const res = await sendKeyed(m, 'svc-pay', orderHold);
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().code).toBe('ledger.caller_forbidden');
-    expect(posted.value).toBe(false);
-    await app.close();
-  });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('ledger.caller_forbidden');
+      expect(posted.value).toBe(false);
+      await m.app.close();
+    });
+  }
 
   it('refuses a spoofed module on a body the caller is otherwise allowed to shape', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
+    const m = await mount({ mode: 'keypair', posted });
 
-    const res = await send(app, 'svc-agents', AGENTS_SECRET, feeCharge('trade'));
+    const res = await sendKeyed(m, 'svc-agents', feeCharge('trade'));
 
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe('ledger.caller_forbidden');
     expect(String(res.json().message)).toContain('module trade');
     expect(posted.value).toBe(false);
-    await app.close();
+    await m.app.close();
   });
 
   it('posts the same fee when the module is the one svc-agents actually sends', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
+    const m = await mount({ mode: 'keypair', posted });
 
-    const res = await send(app, 'svc-agents', AGENTS_SECRET, feeCharge('agents'));
+    const res = await sendKeyed(m, 'svc-agents', feeCharge('agents'));
 
     expect(res.statusCode).toBe(200);
     expect(posted.value).toBe(true);
-    await app.close();
+    await m.app.close();
   });
 
-  it('logs and counts a mismatch in report mode, and still posts', async () => {
+  it('counts and logs an off-list key-signed post, and refuses it in dual mode too', async () => {
     const posted = { value: false };
     const lines: string[] = [];
     let reported = 0;
-    const app = await mount({
-      mode: 'report',
+    const m = await mount({
+      mode: 'dual',
       posted,
       lines,
       onViolation: () => {
         reported += 1;
       },
     });
-    const before = callerBindingViolationCount();
 
-    const res = await send(app, 'svc-pay', PAY_SECRET, orderHold);
+    const res = await sendKeyed(m, 'svc-pay', orderHold);
 
-    expect(res.statusCode).toBe(200);
-    expect(posted.value).toBe(true);
+    expect(res.statusCode).toBe(403);
+    expect(posted.value).toBe(false);
     expect(reported).toBe(1);
-    expect(callerBindingViolationCount()).toBe(before + 1);
+    expect(callerBindingViolationCount()).toBe(1);
     expect(lines.join('\n')).toContain('ledger caller binding violation');
-    await app.close();
+    await m.app.close();
   });
 
-  it('refuses the shared secret in enforce — that signature does not name a service', async () => {
+  it('keypair refuses the shared secret before anything is judged', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
+    const m = await mount({ mode: 'keypair', posted });
 
-    const res = await send(app, 'svc-trade', SHARED, orderHold);
+    const res = await sendShared(m, 'svc-trade', orderHold);
 
     expect(res.statusCode).toBe(401);
-    expect(res.json().code).toBe('ledger.caller_unbound');
+    expect(res.json().code).toBe('ledger.unauthenticated');
     expect(posted.value).toBe(false);
-    await app.close();
+    await m.app.close();
   });
 
-  it('still posts a shared-secret call for an allowed claim while the mode is report', async () => {
+  it('dual still posts a shared-secret call for an allowed claim and counts it as unbound', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'report', posted });
+    const m = await mount({ mode: 'dual', posted });
 
-    const res = await send(app, 'svc-trade', SHARED, orderHold);
+    const res = await sendShared(m, 'svc-trade', orderHold);
 
     expect(res.statusCode).toBe(200);
     expect(posted.value).toBe(true);
     expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 1 }]);
-    await app.close();
+    await m.app.close();
   });
 
   it('warns once and counts three legacy posts from the same claimed service', async () => {
     const posted = { value: false };
     const lines: string[] = [];
-    const app = await mount({ mode: 'report', posted, lines });
+    const m = await mount({ mode: 'dual', posted, lines });
 
     for (let i = 0; i < 3; i += 1) {
-      const res = await send(app, 'svc-trade', SHARED, orderHold);
+      const res = await sendShared(m, 'svc-trade', orderHold);
       expect(res.statusCode).toBe(200);
     }
 
-    expect(posted.value).toBe(true);
     const warns = lines.join('').match(/ledger caller binding violation/g) ?? [];
     expect(warns).toHaveLength(1);
     expect(callerBindingCounts()).toEqual([{ reason: 'unbound', service: 'svc-trade', count: 3 }]);
-    await app.close();
+    await m.app.close();
   });
 
-  it('posts an interest-only loan repayment from bound svc-bank in enforce', async () => {
+  it('does not fall back to the shared secret when a key-signed call fails', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
-    const before = callerBindingViolationCount();
+    const m = await mount({ mode: 'dual', posted });
+    const payload = JSON.stringify(orderHold);
+    const headers = m.k.signer('svc-trade').headers({
+      audience: 'svc-bank',
+      method: 'POST',
+      url: new URL('http://svc-ledger.internal/trpc/post'),
+      body: payload,
+      context: { contentType: 'application/json' },
+    });
 
-    const res = await send(app, 'svc-bank', BANK_SECRET, interestOnlyRepay());
+    const res = await m.app.inject({
+      method: 'POST',
+      url: '/trpc/post',
+      headers: { 'content-type': 'application/json', ...headers, ...serviceAuthHeadersForBody('svc-trade', SHARED, payload) },
+      payload,
+    });
 
-    expect(res.statusCode).toBe(200);
-    expect(posted.value).toBe(true);
-    expect(callerBindingViolationCount()).toBe(before);
-    await app.close();
+    expect(res.statusCode).toBe(401);
+    expect(posted.value).toBe(false);
+    await m.app.close();
   });
 
-  it('refuses that interest-only repayment from bound svc-pay in enforce', async () => {
+  it('refuses a replay of the same signed post', async () => {
     const posted = { value: false };
-    const app = await mount({ mode: 'enforce', posted });
+    const m = await mount({ mode: 'keypair', posted });
+    const payload = JSON.stringify(orderHold);
+    const headers = m.k.signer('svc-trade').headers({
+      audience: 'svc-ledger',
+      method: 'POST',
+      url: new URL('http://svc-ledger.internal/trpc/post'),
+      body: payload,
+      context: { contentType: 'application/json' },
+    });
+    const call = () =>
+      m.app.inject({ method: 'POST', url: '/trpc/post', headers: { 'content-type': 'application/json', ...headers }, payload });
 
-    const res = await send(app, 'svc-pay', PAY_SECRET, interestOnlyRepay());
+    expect((await call()).statusCode).toBe(200);
+    expect((await call()).statusCode).toBe(401);
+    await m.app.close();
+  });
+
+  it('refuses a call signed for another audience', async () => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'keypair', posted });
+
+    const res = await sendKeyed(m, 'svc-trade', orderHold, '/trpc/post', 'svc-bank');
+
+    expect(res.statusCode).toBe(401);
+    expect(posted.value).toBe(false);
+    await m.app.close();
+  });
+
+  it('posts an interest-only loan repayment from svc-bank and refuses it from svc-pay', async () => {
+    const posted = { value: false };
+    const m = await mount({ mode: 'keypair', posted });
+
+    expect((await sendKeyed(m, 'svc-bank', interestOnlyRepay())).statusCode).toBe(200);
+    posted.value = false;
+    const res = await sendKeyed(m, 'svc-pay', interestOnlyRepay());
 
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe('ledger.caller_forbidden');
     expect(posted.value).toBe(false);
-    await app.close();
+    await m.app.close();
+  });
+});
+
+describe('every door names its callers', () => {
+  const READ_BODY = { ownerType: 'treasury', ownerId: 'rail:crypto-native' };
+
+  it('declares exactly the 13 doors registerS2sHttp serves', () => {
+    const source = readFileSync(join(ROOT, 'services/svc-ledger/src/s2s-http.ts'), 'utf8');
+    const served = [...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]).sort();
+    expect(Object.keys(LEDGER_DOOR_CALLERS).sort()).toEqual([...new Set(served)]);
+    expect(served).toHaveLength(13);
+  });
+
+  it('refuses a key-verified service that a read door does not list', async () => {
+    const m = await mount({ mode: 'keypair', posted: { value: false } });
+
+    const res = await sendKeyed(m, 'svc-edge', READ_BODY, '/trpc/balance');
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('ledger.caller_forbidden');
+    await m.app.close();
+  });
+
+  it('refuses every caller on a door with no named caller', async () => {
+    const m = await mount({ mode: 'keypair', posted: { value: false } });
+
+    for (const door of ['portfolio', 'statementPnl', 'reportExport', 'custody', 'financeClose', 'resilience'] as const) {
+      expect(LEDGER_DOOR_CALLERS[door]).toEqual([]);
+      const res = await sendKeyed(m, 'svc-bank', READ_BODY, `/trpc/${door}`);
+      expect(res.statusCode, door).toBe(403);
+    }
+    await m.app.close();
+  });
+
+  it('lets a listed service reach a read door and rejects an unsigned one', async () => {
+    const m = await mount({ mode: 'keypair', posted: { value: false } });
+
+    expect((await sendKeyed(m, 'svc-bank', READ_BODY, '/trpc/balance')).statusCode).not.toBe(403);
+    const anon = await m.app.inject({
+      method: 'POST',
+      url: '/trpc/balance',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(READ_BODY),
+    });
+    expect(anon.statusCode).toBe(401);
+    await m.app.close();
   });
 });
 
 describe('tRPC post applies the same allowlist', () => {
-  function caller(service: string | null, mode: 'report' | 'enforce', posted: { value: boolean }, serviceAuth?: 'dedicated' | 'shared') {
-    const serviceStub = stub(posted);
-    return createLedgerRouter(serviceStub, undefined, undefined, { mode }).createCaller({
+  function caller(service: string | null, posted: { value: boolean }, serviceAuth?: 'keypair' | 'shared') {
+    return createLedgerRouter(stub(posted)).createCaller({
       principal: null,
       service,
       serviceAuth,
@@ -325,32 +443,32 @@ describe('tRPC post applies the same allowlist', () => {
     });
   }
 
-  it('refuses svc-pay posting a trade recipe in enforce, and books nothing', async () => {
+  it('refuses svc-pay posting a trade recipe when its key verified, and books nothing', async () => {
     const posted = { value: false };
-    await expect(caller('svc-pay', 'enforce', posted, 'dedicated').post(orderHold)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller('svc-pay', posted, 'keypair').post(orderHold)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(posted.value).toBe(false);
   });
 
-  it('accepts svc-trade posting its own order hold when that service secret matched', async () => {
+  it('accepts svc-trade posting its own order hold when its key verified', async () => {
     const posted = { value: false };
-    await expect(caller('svc-trade', 'enforce', posted, 'dedicated').post(orderHold)).resolves.toMatchObject({ txId: 'tx-bind' });
+    await expect(caller('svc-trade', posted, 'keypair').post(orderHold)).resolves.toMatchObject({ txId: 'tx-bind' });
     expect(posted.value).toBe(true);
   });
 
-  it('refuses a service name that was not proven with that service secret', async () => {
+  it('refuses a missing service name', async () => {
     const posted = { value: false };
-    await expect(caller('svc-trade', 'enforce', posted, 'shared').post(orderHold)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller(null, posted).post(orderHold)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     expect(posted.value).toBe(false);
   });
 
-  it('refuses a missing service name in enforce', async () => {
+  it('refuses a service that holds no grant on the post door at all', async () => {
     const posted = { value: false };
-    await expect(caller(null, 'enforce', posted).post(orderHold)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(caller('svc-edge', posted, 'keypair').post(orderHold)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(posted.value).toBe(false);
   });
 });
 
-describe('LEDGER_CALLER_BINDING boot default', () => {
+describe('service-call settings at boot', () => {
   const base = {
     DATABASE_URL: 'postgres://u:p@localhost:5432/db',
     DATABASE_POOL_MAX: '10',
@@ -364,85 +482,23 @@ describe('LEDGER_CALLER_BINDING boot default', () => {
     vi.resetModules();
   });
 
-  async function load(overrides: Record<string, string | undefined> = {}) {
+  async function load(overrides: Record<string, string> = {}) {
     vi.resetModules();
-    for (const [key, value] of Object.entries({ ...base, ...overrides })) {
-      if (value === undefined) vi.stubEnv(key, '');
-      else vi.stubEnv(key, value);
-    }
-    const loaded = await import('./env.js');
-    return loaded.env;
+    for (const [key, value] of Object.entries({ ...base, ...overrides })) vi.stubEnv(key, value);
+    return (await import('./env.js')).env;
   }
 
-  it('defaults a blank flag to report and treats a blank per-service secret as unset', async () => {
-    const parsed = await load({ LEDGER_CALLER_BINDING: '', LEDGER_CALLER_SECRET_SVC_PAY: '' });
-    expect(parsed.LEDGER_CALLER_BINDING).toBe('report');
-    expect(parsed.LEDGER_CALLER_SECRET_SVC_PAY).toBeUndefined();
+  it('boots with no service-call settings, and with a mode set', async () => {
+    expect((await load()).S2S_AUTH_MODE).toBe('off');
+    expect((await load({ S2S_AUTH_MODE: 'dual' })).S2S_AUTH_MODE).toBe('dual');
   });
 
-  it('refuses a per-service secret shorter than 32 characters', async () => {
-    await expect(load({ LEDGER_CALLER_SECRET_SVC_TRADE: 'too-short' })).rejects.toThrow(/LEDGER_CALLER_SECRET_SVC_TRADE/);
-  });
-
-  it('refuses a per-service secret equal to INTERNAL_SERVICE_SECRET', async () => {
-    const err = await load({ LEDGER_CALLER_SECRET_SVC_PAY: `  ${SHARED}  ` }).then(
-      () => null,
-      (caught: unknown) => caught,
-    );
-    expect(err).toBeInstanceOf(Error);
-    const message = err instanceof Error ? err.message : '';
-    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_PAY/);
-    expect(message).toMatch(/INTERNAL_SERVICE_SECRET/);
-    expect(message).not.toContain(SHARED);
-  });
-
-  it('refuses two per-service secrets that trim to the same value', async () => {
-    const dup = 'ledger-caller-secret-duplicated-32ch!';
-    const err = await load({
-      LEDGER_CALLER_SECRET_SVC_PAY: dup,
-      LEDGER_CALLER_SECRET_SVC_TRADE: `  ${dup}`,
-    }).then(
-      () => null,
-      (caught: unknown) => caught,
-    );
-    expect(err).toBeInstanceOf(Error);
-    const message = err instanceof Error ? err.message : '';
-    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_PAY/);
-    expect(message).toMatch(/LEDGER_CALLER_SECRET_SVC_TRADE/);
-    expect(message).not.toContain(dup);
-  });
-
-  it('boots when per-service secrets differ from each other and from the shared secret', async () => {
-    const parsed = await load({
-      LEDGER_CALLER_SECRET_SVC_PAY: PAY_SECRET,
-      LEDGER_CALLER_SECRET_SVC_TRADE: TRADE_SECRET,
-    });
-    expect(parsed.LEDGER_CALLER_SECRET_SVC_PAY).toBe(PAY_SECRET);
-    expect(parsed.LEDGER_CALLER_SECRET_SVC_TRADE).toBe(TRADE_SECRET);
-  });
-});
-
-describe('registerS2sHttp refuses secrets that void the binding', () => {
-  it('refuses a dedicated secret equal to the shared secret', () => {
-    const app = Fastify();
-    expect(() => registerS2sHttp(app, stub({ value: false }), SHARED, { callerSecrets: { 'svc-pay': ` ${SHARED} ` } })).toThrow(
-      /LEDGER_CALLER_SECRET_SVC_PAY must not equal INTERNAL_SERVICE_SECRET/,
-    );
-  });
-
-  it('refuses two dedicated secrets that are equal', () => {
-    const app = Fastify();
-    const dup = 'ledger-caller-secret-duplicated-32ch!';
-    expect(() =>
-      registerS2sHttp(app, stub({ value: false }), SHARED, {
-        callerSecrets: { 'svc-pay': dup, 'svc-trade': dup },
-      }),
-    ).toThrow(/LEDGER_CALLER_SECRET_SVC_TRADE must not equal LEDGER_CALLER_SECRET_SVC_PAY/);
-  });
-
-  it('boots when the dedicated secrets are distinct', async () => {
-    const app = Fastify();
-    expect(() => registerS2sHttp(app, stub({ value: false }), SHARED, { callerSecrets: SECRETS })).not.toThrow();
-    await app.close();
+  it('no longer reads the report/enforce knob or per-service secrets', async () => {
+    const parsed = (await load({ LEDGER_CALLER_BINDING: 'enforce', LEDGER_CALLER_SECRET_SVC_PAY: 'x'.repeat(40) })) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed).not.toHaveProperty('LEDGER_CALLER_BINDING');
+    expect(parsed).not.toHaveProperty('LEDGER_CALLER_SECRET_SVC_PAY');
   });
 });

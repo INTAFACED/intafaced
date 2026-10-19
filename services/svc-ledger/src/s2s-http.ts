@@ -1,10 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   DEFAULT_SERVICE_BODY_BIND_MODE,
-  rawBodyOf,
   retainRawBody,
-  verifyServiceHeaders,
+  verifyServiceRequest,
+  type ServiceAuthMode,
   type ServiceBodyBindMode,
+  type ServiceVerifier,
 } from '@intafaced/contracts';
 import {
   formatAmount,
@@ -30,17 +31,13 @@ import { handleStatementPnlHappyOrRefuse } from './ledger/statement-pnl-reproduc
 import {
   CALLER_FORBIDDEN,
   CALLER_UNBOUND,
-  authenticatePostCaller,
   applyCallerBinding,
   callerBindingCount,
   callerBindingWarnAllowed,
-  callerSecretsFromEnv,
-  callerSecretsFromRecord,
-  readCallerBindingMode,
-  type CallerBindingMode,
   type CallerBindingOptions,
   type PostCaller,
 } from './caller-binding.js';
+import { LEDGER_DOOR_CALLERS, type LedgerDoor } from './door-callers.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
@@ -397,23 +394,19 @@ export interface S2sHttpOptions {
   indexerUrl?: string;
   indexerFetch?: typeof globalThis.fetch;
   /**
-   * OPS-0001. Omitted reads `LEDGER_CALLER_BINDING` (default `report`) so a
-   * pull with only `INTERNAL_SERVICE_SECRET` still posts.
+   * Per-service keys (S2S v3). Unset leaves every door on the shared secret
+   * alone. `dual` accepts a key-signed call or the shared secret; `keypair`
+   * refuses the shared secret.
    */
-  callerBinding?: CallerBindingMode;
-  /** Per-service HMAC secrets, keyed by the service name (the key id). */
-  callerSecrets?: Readonly<Record<string, string>>;
+  s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode };
+  /** Test seam: replaces the caller list of the named doors. Production passes nothing. */
+  doorCallers?: Partial<Record<LedgerDoor, readonly string[]>>;
   onCallerViolation?: CallerBindingOptions['onViolation'];
 }
 
 export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, internalSecret: string, options: S2sHttpOptions = {}): void {
   const mode = options.bodyBind ?? DEFAULT_SERVICE_BODY_BIND_MODE;
-  const bindingMode = options.callerBinding ?? readCallerBindingMode();
-  const callerSecrets = options.callerSecrets
-    ? callerSecretsFromRecord(options.callerSecrets, internalSecret)
-    : callerSecretsFromEnv(process.env, internalSecret);
   const bindingOptions: CallerBindingOptions = {
-    mode: bindingMode,
     onViolation: (violation) => {
       options.onCallerViolation?.(violation);
       if (violation.reason === 'unbound' && !callerBindingWarnAllowed(violation.service)) return;
@@ -426,7 +419,7 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
           service: violation.service,
           module: violation.module,
           recipe: violation.recipe,
-          mode: bindingMode,
+          mode: options.s2s?.mode ?? 'dual',
           count,
         },
         `ledger caller binding violation count=${count}`,
@@ -447,40 +440,39 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   /**
    * Refuse before the handler runs, so an unauthenticated request never reaches
    * `ledger.post` at all — not even to be rejected by it later.
+   *
+   * The caller is the owner of the key that verified, or, while the service is
+   * in `dual` mode, the name claimed under the shared secret. Either way the
+   * door's caller list is enforced; a door with an empty list refuses everyone.
    */
-  const authenticate = (req: FastifyRequest): string => {
-    const { service, rejected, scheme } = verifyServiceHeaders(req.headers, internalSecret, { rawBody: rawBodyOf(req), mode });
+  const authenticate = (req: FastifyRequest, door: LedgerDoor): PostCaller => {
+    const { service, rejected, scheme } = verifyServiceRequest(req, {
+      verifier: options.s2s?.verifier,
+      mode: options.s2s?.mode,
+      legacySecret: internalSecret,
+      bodyBindMode: mode,
+    });
 
     if (!service) {
       // The reason travels to the caller. None of them disclose secret material,
       // and `body-mismatch` versus `stale` is the difference between diagnosing
       // an incident and guessing at one.
-      throw new LedgerError(`Service credentials are required on the internal ledger API (§2): ${rejected}`, 'ledger.unauthenticated');
-    }
-
-    // THE MIGRATION SIGNAL (L2-6).
-    //
-    // A v1 accept is an authenticated caller that has NOT bound its body, so its
-    // signature is still replayable against any body on any of these three
-    // routes for 300 seconds. It is tolerated only so the fleet can roll one
-    // service at a time. This warning naming the caller is what makes
-    // `INTERNAL_SERVICE_BODY_BIND=require` a decision an operator can justify:
-    // when it has gone quiet for every caller, flipping is safe.
-    if (scheme === 'v1') {
-      app.log.warn(
-        { callingService: service, scheme, bodyBind: mode },
-        's2s caller did not bind its request body (L2-6) — its signature is replayable; redeploy it before setting INTERNAL_SERVICE_BODY_BIND=require',
+      throw new LedgerError(
+        `Service credentials are required on the internal ledger API (§2): ${rejected ?? 'missing'}`,
+        'ledger.unauthenticated',
       );
     }
-
-    return service;
+    if (!(options.doorCallers?.[door] ?? (LEDGER_DOOR_CALLERS[door] as readonly string[])).includes(service)) {
+      throw new LedgerError(`Caller ${service} may not call ${door}.`, CALLER_FORBIDDEN);
+    }
+    return scheme === 'keypair' ? { kind: 'bound', service } : { kind: 'legacy', claimed: service };
   };
 
   const guarded =
-    <T>(handle: (ledger: LedgerService, body: unknown) => Promise<T>) =>
+    <T>(door: LedgerDoor, handle: (ledger: LedgerService, body: unknown) => Promise<T>) =>
     async (req: FastifyRequest, reply: FastifyReply) => {
       try {
-        authenticate(req);
+        authenticate(req, door);
         return await handle(ledger, req.body);
       } catch (err) {
         const { status, body } = httpError(err);
@@ -488,40 +480,38 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
       }
     };
 
-  // Post keeps the verified key id. The other routes only need "a service
-  // signed this", which the shared secret still answers. Enforce refuses a
-  // post signed only with that shared secret.
+  // Post keeps the proven caller, because the recipe allowlist judges it.
   app.post('/trpc/post', async (req, reply) => {
     try {
-      const caller = authenticatePostCaller(req.headers, internalSecret, callerSecrets, { rawBody: rawBodyOf(req), mode });
+      const caller = authenticate(req, 'post');
       return await handleS2sPost(ledger, req.body, caller, bindingOptions);
     } catch (err) {
       const { status, body } = httpError(err);
       return reply.code(status).send(body);
     }
   });
-  app.post('/trpc/balance', guarded(handleS2sBalance));
-  app.post('/trpc/balances', guarded(handleS2sBalances));
+  app.post('/trpc/balance', guarded('balance', handleS2sBalance));
+  app.post('/trpc/balances', guarded('balances', handleS2sBalances));
   // Read-only existence check by idempotency key; same `guarded` door.
-  app.post('/trpc/txByKey', guarded(handleS2sTxByKey));
+  app.post('/trpc/txByKey', guarded('txByKey', handleS2sTxByKey));
   // Read-only fetch by tx id; same `guarded` door.
-  app.post('/trpc/txById', guarded(handleS2sTxById));
+  app.post('/trpc/txById', guarded('txById', handleS2sTxById));
   // Guarded by the same `authenticate` as the other three, and that is the point
   // of registering it here rather than anywhere else: an entry history is a
   // record of what a person or the house did with their money, at least as
   // sensitive as the balance it sums to. A read route mounted outside `guarded`
   // would have been unauthenticated exactly as the money plane once was. There
   // is one door, and every route goes through it.
-  app.post('/trpc/history', guarded(handleS2sHistory));
+  app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
-  app.post('/trpc/historyPage', guarded(handleS2sHistoryPage));
+  app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
   app.post(
     '/trpc/portfolio',
-    guarded((svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),
+    guarded('portfolio', (svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),
   );
-  app.post('/trpc/statementPnl', guarded(handleS2sStatementPnl));
-  app.post('/trpc/reportExport', guarded(handleS2sReportExport));
-  app.post('/trpc/custody', guarded(handleS2sCustody));
-  app.post('/trpc/financeClose', guarded(handleS2sFinanceClose));
-  app.post('/trpc/resilience', guarded(handleS2sResilience));
+  app.post('/trpc/statementPnl', guarded('statementPnl', handleS2sStatementPnl));
+  app.post('/trpc/reportExport', guarded('reportExport', handleS2sReportExport));
+  app.post('/trpc/custody', guarded('custody', handleS2sCustody));
+  app.post('/trpc/financeClose', guarded('financeClose', handleS2sFinanceClose));
+  app.post('/trpc/resilience', guarded('resilience', handleS2sResilience));
 }
