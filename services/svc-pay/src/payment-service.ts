@@ -4224,29 +4224,6 @@ export class PayService {
            ORDER BY payment_id
         `;
 
-        // Re-check live nets under payment row locks before the ledger
-        // moves. The freeze promised these numbers; if a concurrent path
-        // (or an operator) changed captured/refunded, posting the frozen
-        // gross would take someone else's clearing.
-        let liveGross = 0n;
-        for (const { payment_id } of included) {
-          await lockPayment(tx, payment_id);
-          const totals = await totalsFor(tx, payment_id);
-          const net = totals.captured - totals.refunded;
-          if (net > 0n) liveGross += net;
-        }
-        if (liveGross !== gross) {
-          throw new PayError(
-            `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
-            'pay.settlement_desynced',
-            {
-              settlementId: row.id,
-              frozenGross: formatAmount(gross),
-              liveGross: formatAmount(liveGross),
-            },
-          );
-        }
-
         const settlementPost = recipes.merchantSettlement({
           merchantId: row.merchant_id,
           merchantUserId: merchant.userId,
@@ -4255,6 +4232,36 @@ export class PayService {
           gross,
           fee: fees,
         });
+        // A settlement the ledger already booked (the app transaction rolled back after the post) is adopted below, not
+        // rechecked: a dispute opened since then must not turn an already-paid window into a refusal that release can re-pay.
+        // Otherwise re-check live nets under payment row locks before the ledger moves. The freeze promised these numbers;
+        // if a concurrent path (or an operator) changed captured/refunded, posting the frozen gross would take someone
+        // else's clearing.
+        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
+        if (!existing) {
+          let liveGross = 0n;
+          for (const { payment_id } of included) {
+            const locked = await lockPayment(tx, payment_id);
+            // A dispute opened after the freeze took this payment's clearing back through the opening post, so its
+            // captured amount no longer sits in the pool. Counting it would post other payments' money to the merchant.
+            if (locked.status === 'disputed') continue;
+            const totals = await totalsFor(tx, payment_id);
+            const net = totals.captured - totals.refunded;
+            if (net > 0n) liveGross += net;
+          }
+          if (liveGross !== gross) {
+            throw new PayError(
+              `Settlement ${row.id} frozen gross ${formatAmount(gross)} no longer matches live captured−refunded ${formatAmount(liveGross)} — refusing to post`,
+              'pay.settlement_desynced',
+              {
+                settlementId: row.id,
+                frozenGross: formatAmount(gross),
+                liveGross: formatAmount(liveGross),
+              },
+            );
+          }
+        }
+
         if (await this.settlementIncludesSandbox(tx, row.id)) this.refuseSandboxLive(true, settlementPost);
         const bookInput = {
           merchantId: row.merchant_id,
@@ -4264,7 +4271,6 @@ export class PayService {
         // A window posted before proceeds existed already holds this key, debiting
         // userAvailable. Posting the proceeds body would conflict. Adopt that
         // transaction: the ledger post is the legacy mark, and this row becomes posted.
-        const existing = await this.ledger.getTxByKey(settlementPost.idempotencyKey);
         if (!existing) {
           await postPayLedger(this.ledger, settlementPost);
         } else {
