@@ -108,7 +108,6 @@ describe('merchant team reads, list pages, and stored detail', () => {
       createFounderAuthority({
         identityUrl: 'https://identity.invalid',
         serviceSecret: 's'.repeat(32),
-        principalSecret: 'p'.repeat(32),
         fetcher: async () => new Response('{}', { status: 403 }),
       }),
       {

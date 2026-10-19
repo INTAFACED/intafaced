@@ -444,7 +444,6 @@ const actionApprovals = env.IDENTITY_URL
 const founderAuthority = createFounderAuthority({
   identityUrl: env.IDENTITY_URL,
   serviceSecret: env.INTERNAL_SERVICE_SECRET,
-  principalSecret: env.EDGE_PRINCIPAL_SECRET,
 });
 
 /** W2 metrics read model: reads, authority, and the projection refresher (started below, once `app` exists). */

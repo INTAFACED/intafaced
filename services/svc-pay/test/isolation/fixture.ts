@@ -188,6 +188,7 @@ export const ctxOf = (p: Principal | null, service: string | null = null): Conte
   service,
   region: 'DE',
   requestId: randomUUID(),
+  forwardedPrincipal: p ? { raw: 'test-principal', signature: 'test-signature', region: 'DE' } : undefined,
 });
 
 /** Signed edge headers, so REST sees exactly what svc-edge would forward. */
@@ -328,7 +329,6 @@ export async function createWorld(): Promise<World> {
   const founderAuthority = createFounderAuthority({
     identityUrl: 'https://identity.invalid',
     serviceSecret: 's'.repeat(32),
-    principalSecret: EDGE_SECRET,
     fetcher: identity.fetcher,
   });
   const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });

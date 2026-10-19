@@ -198,7 +198,13 @@ const principal = (userId: string, extra: Partial<Principal> = {}): Principal =>
   expiresAt: new Date(Date.now() + 60_000),
   ...extra,
 });
-const ctxOf = (p: Principal | null): Context => ({ principal: p, service: null, region: 'DE', requestId: randomUUID() });
+const ctxOf = (p: Principal | null): Context => ({
+  principal: p,
+  service: null,
+  region: 'DE',
+  requestId: randomUUID(),
+  forwardedPrincipal: p ? { raw: 'test-principal', signature: 'test-signature', region: 'DE' } : undefined,
+});
 
 /**
  * 30 s per test, not vitest's 5 s default. Measured on CI (runs 38718530279 to
@@ -760,7 +766,7 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
 
   describe('isolation through the router', () => {
     const founderUser = userOf();
-    const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
+    const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) };
     const entitled = (status: string) =>
       vi.fn<typeof fetch>(
         async () =>

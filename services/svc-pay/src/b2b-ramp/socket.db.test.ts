@@ -125,7 +125,6 @@ describe('W10 bank-statement reconciliation (Postgres)', () => {
   const authority = createFounderAuthority({
     identityUrl: 'https://identity.invalid',
     serviceSecret: 's'.repeat(32),
-    principalSecret: 'p'.repeat(32),
     fetcher: async () => new Response('{}', { status: 403 }),
   });
   const routerFor = (env: Record<string, string>) => createB2bRampRouter({ founderAuthority: authority, sql: db.sql, env });
