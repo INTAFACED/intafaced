@@ -103,4 +103,13 @@ describe('p2p action-approval consume', () => {
       approverId: 'approver',
     });
   });
+
+  it('refuses a reply that is not the approval asked for', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ result: { data: { ...CONSUMED, approvalId: 'appr-OTHER' } } }), { status: 200 })),
+    );
+    const client = createIdentityApprovalClient('http://identity.example', 'p2p-internal-secret-at-least-32-chars');
+    await expect(client.consume(CONSUME_INPUT)).rejects.toMatchObject({ code: 'action_approval.consume_failed' });
+  });
 });
