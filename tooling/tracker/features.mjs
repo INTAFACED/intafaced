@@ -160,7 +160,7 @@ export const FEATURES = [
     status: 'done',
     requires: ['packages/i18n'],
     dependsOn: ['infra.ui-tokens'],
-    note: 'Vendor shell keyed: 100+ locale codes in @intafaced/i18n (empty catalogs fall back to en so $t never shows raw keys). The apps/customer header switcher offers en/es/fr with distinct /bank titles; persist via localStorage; missing/broken catalogue stays en (no footer.gsmc). apps/web and the Vue shell (vendor/upstream-exchange/05_Web_Front) are gone — the surface is apps/customer.',
+    note: 'Vendor shell keyed: 100+ locale codes in @intafaced/i18n (empty catalogs fall back to en so $t never shows raw keys). The apps/customer Settings switcher offers en/es/fr with distinct /bank titles; persist via localStorage; missing/broken catalogue stays en (no footer.gsmc). apps/web and the Vue shell (vendor/upstream-exchange/05_Web_Front) are gone — the surface is apps/customer.',
   }),
 
   // ── PHASE 1 · THE CORE ───────────────────────────────────────────────────
@@ -644,7 +644,7 @@ export const FEATURES = [
     dependsOn: ['trade.spot', 'infra.ui-tokens', 'ws.depth'],
     requires: ['apps/customer/src/screens/trade/desk/OrderBook.tsx', 'apps/customer/src/screens/trade/desk/book-math.ts'],
     note:
-      '**Done 2026-08-22:** depth feed wired in the customer desk; feedLive only after snapshot; ix-wire refuses float decimals. Evidence here covers depth only. ' +
+      '**Done 2026-08-22:** depth feed wired in the customer desk. Evidence here covers depth only. ' +
       'Residuals: brand drain / depth number refuse / snapshot provenance (Nitro craft L11).',
   }),
   f('web.shell', 'Product shell — the served customer surface', {
