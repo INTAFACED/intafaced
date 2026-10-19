@@ -284,6 +284,15 @@ jobs:
       - name: Build full-test dependencies
         if: needs.changes.outputs.full == 'true'
         run: pnpm build
+      # A `changed` run tests dependents and readers, and some of their tests start their own compiled output
+      # (svc-notify's relay boot, svc-ops, svc-trade, svc-pay, telemetry). turbo's ^build builds only a test's
+      # dependencies, so build the selected packages themselves too. Apps are left out: their tests run from source.
+      - name: Build the changed run's packages
+        if: matrix.shard == 'changed'
+        run: |
+          filters=()
+          while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
+          pnpm turbo run build "${filters[@]}" '--filter=!./apps/*'
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
       # --concurrency=3: turbo's default is 10 packages at once, each with its own vitest worker pool, on a 4-core
