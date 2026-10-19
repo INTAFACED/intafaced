@@ -2,13 +2,17 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify from 'fastify';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { createAdminApi, type LedgerOperatorCall } from './admin-api.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes } from './control-plane.js';
 import { EdgeComplianceQueue } from './compliance-honesty.js';
 import { KillSwitchState } from './kill-switch.js';
+
+// These suites read the live process env for the sanctions-screening posture. An
+// unset APP_ENV is production-like and refuses by design, so they declare the test env.
+vi.stubEnv('APP_ENV', 'test');
 
 const tokens: TokenConfig = {
   secret: 'test-only-signing-secret-at-least-32-characters-long',

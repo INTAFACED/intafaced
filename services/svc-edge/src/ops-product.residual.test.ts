@@ -1,11 +1,15 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, type TokenConfig } from '@intafaced/auth';
 import { NETWORK_SIGNAL_CONFIGURED_ENV, NETWORK_SIGNAL_FAIL_CLOSED_ENV } from '@intafaced/config';
 import { createAdminApi } from './admin-api.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { registerAdminRoutes, registerKillSwitchGuard, registerNetworkAccessGuard } from './control-plane.js';
 import { KillSwitchState } from './kill-switch.js';
+
+// These suites read the live process env for the sanctions-screening posture. An
+// unset APP_ENV is production-like and refuses by design, so they declare the test env.
+vi.stubEnv('APP_ENV', 'test');
 
 /**
  * Wave 13 L05 product Done bars beyond #1551/#1582 status-surface seals.
