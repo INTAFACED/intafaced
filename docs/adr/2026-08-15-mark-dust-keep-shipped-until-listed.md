@@ -3,7 +3,7 @@
 **Status:** **Accepted — 2026-08-15 (D26-P0-14).** Shipped constants stay until a market lists with observed depth.  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-14 — `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` + mark dust floor.  
-**Packet (part one item 4):** [`OWNER-DECISION-PACKET-2026-08-09.md`](../OWNER-DECISION-PACKET-2026-08-09.md) §B · [Two depth numbers on the futures mark path](../OWNER-DECISION-PACKET-2026-08-09.md#4--two-depth-numbers-on-the-futures-mark-path).  
+**Packet (part one item 4):** `OWNER-DECISION-PACKET-2026-08-09.md` (removed) §B · Two depth numbers on the futures mark path (removed).  
 **Prior dual-floor seal:** [`2026-08-13-mark-dust-floor.md`](2026-08-13-mark-dust-floor.md).  
 **P0-01 Q3:** [`2026-08-08-house-desk-and-market-making-fairness.md`](2026-08-08-house-desk-and-market-making-fairness.md) — hard exclusion; **no second % cap**.  
 **Does not edit:** `services/svc-trade` (numeric defaults stay as shipped). Sibling P0-07 ADR is out of scope.

@@ -155,7 +155,7 @@ That builds `EvmLiveChain` (`src/rails/evm-chain.ts`, `posture: 'live'`), starts
 
 ### PayFac — sub-merchant trees (§6.1)
 
-A merchant may now have children. `merchants.parent_merchant_id` is the tree (NULL = top of its own tree, which is what every merchant already was), and `merchants.settling_party` is the spec's one hard design constraint made a column rather than an assumption — `docs/SPEC-PAY-VERTICALS-2026-08-02.md` §2: _"model the sub-merchant relationship so the settling party is a field, not an assumption."_
+A merchant may now have children. `merchants.parent_merchant_id` is the tree (NULL = top of its own tree, which is what every merchant already was), and `merchants.settling_party` is the spec's one hard design constraint made a column rather than an assumption — `docs/SPEC-PAY-VERTICALS-2026-08-02.md` (removed) §2: _"model the sub-merchant relationship so the settling party is a field, not an assumption."_
 
 **This slice moves no value.** No ledger client, no recipe, no balance, no amount. A sub-merchant is a sovereign account exactly as a merchant is; the tree decides **who may ask**, never where money sits (Doctrine §0.6).
 
@@ -183,15 +183,15 @@ A merchant may now have children. `merchants.parent_merchant_id` is the tree (NU
 
 #### The "14 permission areas" — said out loud
 
-The tracker row is titled _"PayFac mode — sub-merchant trees, 14 permission areas"_. **That list has never existed.** The phrase is one title string copied between `tooling/tracker/features.mjs`, `tooling/coverage.yaml`, `INTAFACED_DEFINITIVE_BUILD.md` and three board renders derived from them; `docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` §2 found the same thing independently and §6.3 puts _"enumerate them, or drop the claim from the title"_ on the owner's list.
+The tracker row is titled _"PayFac mode — sub-merchant trees, 14 permission areas"_. **That list has never existed.** The phrase is one title string copied between `tooling/tracker/features.mjs`, `tooling/coverage.yaml`, `INTAFACED_DEFINITIVE_BUILD.md` and three board renders derived from them; `docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` (removed) §2 found the same thing independently and §6.3 puts _"enumerate them, or drop the claim from the title"_ on the owner's list.
 
 So this ships the **mechanism**, and `PERMISSION_AREAS` in `src/submerchants.ts` is **eleven** areas — every one that names a surface this service actually has: `merchant.profile`, `checkout.profile`, `payment.link`, `payment`, `payment.refund`, `settlement`, `settlement.payout`, `webhook`, `kyb`, `submerchant`, `permission`. Padding the list to hit a number in a title would be inventing product law inside an implementation. `area` is stored as text, so the twelfth is a one-line change and no migration.
 
 #### What is deliberately NOT here
 
-- **Settling a sub-merchant out of our account.** `settlingParty` accepts `'self'` only and refuses everything else by name (`pay.submerchant_settling_party_unsupported`). That is acquiring — a sponsor bank and an acquiring BIN, which `docs/SPEC-PAY-VERTICALS-2026-08-02.md` §8 puts on the owner's list and `socket.psp-partners` tracks. The column exists so adopting a partner later is configuration rather than a rewrite; it is not a switch this service can throw.
+- **Settling a sub-merchant out of our account.** `settlingParty` accepts `'self'` only and refuses everything else by name (`pay.submerchant_settling_party_unsupported`). That is acquiring — a sponsor bank and an acquiring BIN, which `docs/SPEC-PAY-VERTICALS-2026-08-02.md` (removed) §8 puts on the owner's list and `socket.psp-partners` tracks. The column exists so adopting a partner later is configuration rather than a rewrite; it is not a switch this service can throw.
 - **Areas on the gateway surface (W5).** Money and merchant procedures in `router.ts` / `public-rest.ts` call `assertMerchantAreaAccess` with the matching area (`payment`, `payment.refund`, `settlement`, `settlement.payout`, `payment.link`, `webhook`, `kyb`, …). Self still holds every area. A parent without a grant is `pay.submerchant_permission_denied`; a stranger stays `pay.merchant_forbidden`. Pins: `merchant-ownership.test.ts`.
-- **Split payments and sub-merchant fee routing.** Ledger recipes, Class M, and the owner's sign-off (`docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` §6.4).
+- **Split payments and sub-merchant fee routing.** Ledger recipes, Class M, and the owner's sign-off (`docs/PAY-LANE-HARVEST-AND-BUILD-PLAN-2026-08-08.md` (removed) §6.4).
 - **Sub-merchant KYB workflow and document capture.** Top-level merchant digital KYB (submit + operator decide + history) ships under `kyb.*` / mig 0013; document-capture vendor integration and sub-merchant KYB remain residual. Card acquiring stays `socket.psp-partners`.
 
 ### Error codes

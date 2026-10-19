@@ -3,8 +3,8 @@
 **Status:** **Accepted — 2026-08-15 (law catalog + refuse).** Magnitudes remain **unpublished**. This ADR does **not** invent raise math.
 **Decision owner (magnitudes):** Nitro (authority store). **Law catalog owner:** Denon.
 **On-chain implement:** Shehzad (`launch.launchpad` · S-G2 / escrow / vesting). Agents babysit only.
-**Board:** [`DENON-HARD-PARALLEL-BOARD-2026-08-09.md`](../archive/DENON-HARD-PARALLEL-BOARD-2026-08-09.md) **D26-P0-13**.
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) P0-13.
+**Board:** `DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) **D26-P0-13**.
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) P0-13.
 **Prior seal (still binds):** [`2026-08-14-remaining-p0-money-law.md`](2026-08-14-remaining-p0-money-law.md) § D26-P0-13 — empty store → typed refuse, not a default curve.
 **Research pack:** [`docs/ops/trk/launch.launchpad.md`](../ops/trk/launch.launchpad.md) (Stage 0 law). Tracker owner remains `shehzad002` for contracts.
 **Law cited:** [`INTAFACED_DEFINITIVE_BUILD.md`](../../INTAFACED_DEFINITIVE_BUILD.md) §0.6 · §8.4 · §35.
@@ -28,7 +28,7 @@ Done bar for **D26-P0-13:** this catalog is on tip; every magnitude is explicit 
 | **Law (already settled, not numeric)**        | Two-plane settlement honesty; vesting must be enforced (contract or ledger lock), never a UI countdown over free balance; house take (if any) is a disclosed ledger recipe (§0.6); stake eligibility reads canonical `launchpadAllocationTier` / `token.stakeOf` and fails closed if stake is down; no second stake ladder. | Doctrine + this ADR.                                                              | Binding now.                                                                         |
 | **Socket (implement hole)**                   | Contracts, recipes, factory address, product shell, Class X offer content. Named so nobody “closes” them by inventing law.                                                                                                                                                                                                  | Shehzad (chain). Agents (Fiat recipes **after** magnitudes). Class X (offer/geo). | Stay socket. Scaffold that **refuses** is allowed; scaffold that **accepts** is not. |
 
-`spine-academy-launch` is **prior art to avoid** ([`SPINE-BRANCH-DISPOSITION-2026-08-09.md`](../archive/ops/SPINE-BRANCH-DISPOSITION-2026-08-09.md) §6.1): it invented oversubscription, refund-on-dust, fee-on-fail, house rounding, and a **second** stake-tier system. Do not reuse those numbers or that ladder.
+`spine-academy-launch` is **prior art to avoid** (`SPINE-BRANCH-DISPOSITION-2026-08-09.md` (removed) §6.1): it invented oversubscription, refund-on-dust, fee-on-fail, house rounding, and a **second** stake-tier system. Do not reuse those numbers or that ladder.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR: PAYOUT-01 affiliate payout handoff — v1 defaults sealed
 
-**Status:** **Accepted — 2026-08-15 (PAYOUT-01).** Recommended defaults from [`OWNER-RULINGS-FROM-DENON-PAYOUT-2026-08-09.md`](../OWNER-RULINGS-FROM-DENON-PAYOUT-2026-08-09.md) are clicked as v1 law. No override.
+**Status:** **Accepted — 2026-08-15 (PAYOUT-01).** Recommended defaults from `OWNER-RULINGS-FROM-DENON-PAYOUT-2026-08-09.md` (removed) are clicked as v1 law. No override.
 **Decision owner:** Denon.
 **Packet:** `PAYOUT-01` in [`ops/owner-ruling-packet.json`](../ops/owner-ruling-packet.json).
 **Lane:** `denon-payout-01-handoff`.

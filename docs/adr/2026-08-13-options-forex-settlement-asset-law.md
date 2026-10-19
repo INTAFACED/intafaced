@@ -3,8 +3,8 @@
 **Status:** **Accepted freeze — 2026-08-15 (D26-P0-05 sealed).** Shape from 2026-08-13 still binds. This freeze **names** the live set and the settlement asset as empty/unset so engines cannot invent a catalogue.
 **Decision owner:** repo owner (Denon). **Written by:** Denon.
 **Board:** D26-P0-05 — Options / forex settlement asset law.
-**Packet:** [`OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md`](../OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md) §P0-05.
-**Builds on:** [`DIRECTION-2026-07-31.md`](../DIRECTION-2026-07-31.md) §2 (instrument model; forex/commodities do not production-list until fiat rails exist) and §8 item 5 (agents do not decide the catalogue); [`2026-08-12-listing-delisting-policy.md`](2026-08-12-listing-delisting-policy.md) (D26-P0-06); D-S-06 one matching book; D26-P1-T6 refuse-close already on tip.
+**Packet:** `OWNER-DECISION-PACKET-PART-TWO-2026-08-09.md` (removed) §P0-05.
+**Builds on:** `DIRECTION-2026-07-31.md` (removed) §2 (instrument model; forex/commodities do not production-list until fiat rails exist) and §8 item 5 (agents do not decide the catalogue); [`2026-08-12-listing-delisting-policy.md`](2026-08-12-listing-delisting-policy.md) (D26-P0-06); D-S-06 one matching book; D26-P1-T6 refuse-close already on tip.
 **Does not invent:** option underlyings, FX pairs, a cash payoff coin, D7 fixing source/window/payor, fee bps, or a euro-stablecoin standing in for fiat.
 
 ---

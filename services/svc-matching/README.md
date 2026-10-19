@@ -287,8 +287,8 @@ of the same idempotency key. `POST /reconcile` remains the operator report; it i
 
 > **SOCKET §13 — the scheduled cross-service sweep.** `POST /reconcile` is reachable and authenticated, and the
 > engine half is done. The caller is not: **svc-trade owns the counterpart view** (`trade.orders` + ledger hold
-> balances), and `services/svc-trade/**` is a human mountain (M3/M4, `docs/SHEHZAD-HARD-OWNERSHIP-2026-08-01.md`).
-> Caller landed on svc-trade (A10): `TRADE_RECONCILE_JOBS_ENABLED` default OFF — see `docs/ENGINE-LEDGER-RECONCILE-HANDOFF.md` §4.4.
+> balances), and `services/svc-trade/**` is a human mountain (M3/M4, `docs/SHEHZAD-HARD-OWNERSHIP-2026-08-01.md (removed)`).
+> Caller landed on svc-trade (A10): `TRADE_RECONCILE_JOBS_ENABLED` default OFF — see `docs/ENGINE-LEDGER-RECONCILE-HANDOFF.md` (removed) §4.4.
 
 ---
 

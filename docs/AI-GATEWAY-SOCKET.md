@@ -3,7 +3,7 @@
 > **Not current rules (2026-10-17).** This file stays only because tooling reads its path. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
 **Status:** operator runbook · **Date:** 2026-08-07
-**Law:** [`INTERNET-LEVERAGE-PHASE-C-GATEWAY-SOCKETS-2026-08-06.md`](INTERNET-LEVERAGE-PHASE-C-GATEWAY-SOCKETS-2026-08-06.md) §1
+**Law:** `INTERNET-LEVERAGE-PHASE-C-GATEWAY-SOCKETS-2026-08-06.md` (removed) §1
 **Code:** [`services/svc-agents/src/providers/upstream.ts`](../services/svc-agents/src/providers/upstream.ts) · [`services/svc-agents/src/env.ts`](../services/svc-agents/src/env.ts)
 
 ---

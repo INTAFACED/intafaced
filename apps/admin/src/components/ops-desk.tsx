@@ -19,7 +19,7 @@ import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
 import { ownServerFailureText } from '@/lib/ops-desk/own-server';
 import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
 import { downloadCsv } from '@/lib/ops-desk/csv-browser';
-import { displayCell, rowCountText, tableCells } from '@/lib/ops-desk/model';
+import { displayCell, rowCountText, tableCells, withNames } from '@/lib/ops-desk/model';
 import type { Cell, DeskSection, DeskSpec, DeskView, ReadData, ReadOutcome, ReadSpec, Row } from '@/lib/ops-desk/types';
 import './desk.css';
 import { formatAsOf } from '@/lib/as-of';
@@ -146,46 +146,58 @@ export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewPro
     );
   }
   const head = tableCells(data.rows[0]!);
+  const table = (
+    <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
+      <table className="adm-table">
+        <thead>
+          <tr>
+            {head.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+            <th>
+              <span className="adm-sr-only">Open</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.rows.map((row) => {
+            const key = `${spec.id}:${row.id}`;
+            const open = openKey === key;
+            return (
+              <RowFragment key={row.id} columns={head.length + 1} open={open} detail={<DetailPanel spec={spec} row={row} ctx={ctx} />}>
+                {tableCells(row).map((c) => (
+                  <td key={c.key} className={c.kind === 'text' && c.label.toLowerCase().includes('id') ? 'dk-packet' : undefined}>
+                    <CellValueView cell={c} />
+                  </td>
+                ))}
+                <td>
+                  <button type="button" className="adm-btn" aria-expanded={open} onClick={() => onOpen(open ? null : key)}>
+                    {open ? 'Close' : 'Open'}
+                  </button>
+                </td>
+              </RowFragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
   return (
     <div className="dk-stack" data-testid="list">
       <p className="dk-muted" data-testid="list-count">
         {rowCountText(data.rows.length, data.pageFull, spec.page, data.nextCursor !== undefined)}
       </p>
       {asOf !== undefined && <ExportCsv spec={spec} data={data} asOf={asOf} />}
-      <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
-        <table className="adm-table">
-          <thead>
-            <tr>
-              {head.map((c) => (
-                <th key={c.key}>{c.label}</th>
-              ))}
-              <th>
-                <span className="adm-sr-only">Open</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row) => {
-              const key = `${spec.id}:${row.id}`;
-              const open = openKey === key;
-              return (
-                <RowFragment key={row.id} columns={head.length + 1} open={open} detail={<DetailPanel spec={spec} row={row} ctx={ctx} />}>
-                  {tableCells(row).map((c) => (
-                    <td key={c.key} className={c.kind === 'text' && c.label.toLowerCase().includes('id') ? 'dk-packet' : undefined}>
-                      <CellValueView cell={c} />
-                    </td>
-                  ))}
-                  <td>
-                    <button type="button" className="adm-btn" aria-expanded={open} onClick={() => onOpen(open ? null : key)}>
-                      {open ? 'Close' : 'Open'}
-                    </button>
-                  </td>
-                </RowFragment>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {spec.collapsed ? (
+        <details data-testid="list-collapsed">
+          <summary>
+            Show all {data.rows.length} {data.rows.length === 1 ? 'row' : 'rows'}
+          </summary>
+          {table}
+        </details>
+      ) : (
+        table
+      )}
     </div>
   );
 }
@@ -269,9 +281,15 @@ export interface ReadBlockProps {
   readonly ctx: RowActionContext;
   readonly openKey: string | null;
   readonly onOpen: (key: string | null) => void;
+  /** The desk read that names this list's rows (`spec.namesFrom`), when it has one. */
+  readonly names?: ReadOutcome | undefined;
 }
 
-export function ReadBlock({ spec, outcome, ctx, openKey, onOpen }: ReadBlockProps) {
+export function ReadBlock({ spec, outcome: raw, ctx, openKey, onOpen, names }: ReadBlockProps) {
+  const outcome =
+    raw?.part.kind === 'ok' && raw.part.data.shape === 'list' && spec.namesFrom
+      ? { ...raw, part: { ...raw.part, data: withNames(spec, raw.part.data, names) } }
+      : raw;
   return (
     <section className="dk-stack" data-testid={`read-${spec.id}`} aria-label={spec.title}>
       <div>
@@ -320,7 +338,15 @@ export function SectionView({
         <p className="dk-muted">{section.intro}</p>
       </div>
       {section.reads.map((spec) => (
-        <ReadBlock key={spec.id} spec={spec} outcome={view?.reads[spec.id]} ctx={ctx} openKey={openKey} onOpen={onOpen} />
+        <ReadBlock
+          key={spec.id}
+          spec={spec}
+          outcome={view?.reads[spec.id]}
+          ctx={ctx}
+          openKey={openKey}
+          onOpen={onOpen}
+          names={spec.namesFrom ? view?.reads[spec.namesFrom.read] : undefined}
+        />
       ))}
       {section.panel === 'protocol.blockers' && <ProtocolBlockers view={view} />}
       {section.unavailable.length > 0 && (
