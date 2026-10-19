@@ -167,6 +167,26 @@ const COPY: Readonly<Record<string, Words>> = {
     title: 'The price difference has no basis points',
     body: 'The leader price was zero, so the difference in basis points is not shown.',
   },
+  'trade.copy_slippage_exceeded': {
+    title: 'That copy is too far from the leader’s price',
+    body: 'The price difference is above the slippage limit you set, so the order was not placed.',
+  },
+  'trade.copy_concurrency_exceeded': {
+    title: 'Too many copied orders are still open',
+    body: 'This follow already has as many open copied orders as you allowed. Nothing new was placed.',
+  },
+  'trade.copy_drawdown_stop': {
+    title: 'The drawdown limit stopped new copies',
+    body: 'The drop from this follow’s peak result is at the limit you set. New copies were not placed. Existing positions were not closed.',
+  },
+  'trade.copy_limit_unevaluable': {
+    title: 'That limit can’t be checked',
+    body: 'A figure this limit needs is missing, so the copy was not placed. Nothing was invented in its place.',
+  },
+  'trade.copy_leverage_unsupported': {
+    title: 'Leverage isn’t available for copy',
+    body: 'Copy places spot orders only. The follow was not created.',
+  },
   'trade.mark_unavailable': {
     title: 'No fresh reference price',
     body: 'Open profit is hidden until a current price is available. Closed profit is unchanged.',
