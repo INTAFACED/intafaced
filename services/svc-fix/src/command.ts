@@ -20,7 +20,7 @@ export const matchingOrderCommandSchema = z
     side: z.enum(['buy', 'sell']),
     ordType: z.enum(['market', 'limit']),
     qty: decimalString,
-    // Limit requires an explicit decimal price. Market may be null. Never invent one.
+    // Limit requires an explicit decimal price. Market forwards Price (44) when set, otherwise null. Never invent one.
     price: decimalString.nullable(),
     senderCompId: z.string().min(1).optional(),
     tif: matchingTifSchema.optional(),
@@ -50,6 +50,8 @@ export const adaptErrorSchema = z.object({
     'invalid_decimal',
     'invalid_message',
     'tif_missing',
+    'gtd_expiry_missing',
+    'unmapped_economic_tag',
     'matching_account_unmapped',
   ]),
   message: z.string().min(1),
