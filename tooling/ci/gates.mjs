@@ -57,8 +57,7 @@ export const GATES = [
     script: 'tooling/scripts/gate-tools.test.mjs',
     doctrine: 'merge condition (2026-10-13)',
     why:
-      'the unit tests of the tools that decide what may merge: merge-gate.mjs (the ratchet, including the id-by-id log ' +
-      'comparison inside already-red jobs), gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
+      'the unit tests of the tools that decide what may merge: gate-file-guard.mjs (a gate change must say so in the PR title), gate-gh.mjs ' +
       '(a 403 or 429 stops, every call has a timeout) and, once it lands, main-auto-revert.mjs. Fixture JSON and log ' +
       'excerpts for gh, no network, about two seconds. Lives in tooling/scripts/, so the manifest check below does not ' +
       'cover it: this entry is the only thing running the tests, and deleting it has to be a visible act.',

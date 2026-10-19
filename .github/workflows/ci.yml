@@ -140,15 +140,12 @@ jobs:
         run: pnpm gate
 
   changes:
-    name: Affected shards
+    name: Affected tests
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: under 1 min
     outputs:
-      protocol: ${{ steps.cls.outputs.protocol }}
-      money: ${{ steps.cls.outputs.money }}
-      trade: ${{ steps.cls.outputs.trade }}
-      paybank: ${{ steps.cls.outputs.paybank }}
       full: ${{ steps.cls.outputs.full }}
+      affected: ${{ steps.cls.outputs.affected }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -200,8 +197,11 @@ jobs:
       - run: pnpm typecheck
 
   test-full:
+    # One test job for every pull request. A run-everything change (full) runs the whole suite; any other change runs
+    # the changed packages, their dependents and the readers in tooling/ci/test-read-edges.json (affected).
+    # Main always runs full. The seal fails a skipped job unless the classifier said there was nothing to test.
     name: Tests (full)
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.full == 'true' || needs.changes.outputs.affected == 'true'
     needs: [changes]
     runs-on: ubuntu-latest
     timeout-minutes: 45 # healthy run: 11-20 min
@@ -409,6 +409,7 @@ jobs:
           CI: 'true'
 
       - name: Build full-test dependencies
+        if: needs.changes.outputs.full == 'true'
         run: pnpm build
       # --continue: keep running after a failing package so one run lists every
       # failure instead of stopping at the first (the job is still red if any fail).
@@ -416,10 +417,19 @@ jobs:
       # runner sharing one Postgres, Redis, NATS and anvil. Under that load a different package timed out at vitest's
       # 5 s default on each run (svc-p2p, svc-ws, svc-pay, the svc-protocol lending test), none of them touched by the
       # PRs that went red. Fewer packages at a time removes the contention; no timeout is raised.
+      # An affected run adds turbo filters from tooling/ci/ci-affected.mjs --filters (dependents of the changed
+      # packages plus the readers in test-read-edges.json); turbo builds what those tests depend on (^build).
       - name: Run pnpm test --continue
+        env:
+          RUN_FULL: ${{ needs.changes.outputs.full }}
         run: |
           set -o pipefail
-          pnpm test --continue --concurrency=3 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          filters=()
+          if [ "$RUN_FULL" != 'true' ]; then
+            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
+            echo "affected run: ${filters[*]}"
+          fi
+          pnpm test --continue --concurrency=3 "${filters[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job
@@ -470,432 +480,6 @@ jobs:
         if: always()
         run: node tooling/ci/infra-verdict.mjs
 
-  test-protocol:
-    name: Tests (protocol)
-    if: needs.changes.outputs.full != 'true' && needs.changes.outputs.protocol == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # healthy run: 3 min
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_PASSWORD: intafaced
-          POSTGRES_DB: intafaced
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U intafaced"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    env:
-      CI: true
-      REQUIRE_POSTGRES: '1'
-      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TOKEN: postgres://svc_token:svc_token@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_P2P: postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BANK: postgres://svc_bank:svc_bank@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BLUEPRINT: postgres://svc_blueprint:svc_blueprint@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
-      REDIS_URL: redis://127.0.0.1:6379
-      NATS_URL: nats://127.0.0.1:4222
-      REQUIRE_EVM_CHAIN: '1'
-      PROTOCOL_RPC_URL: http://127.0.0.1:8545
-      INDEXER_RPC_URL: http://127.0.0.1:8545
-      INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      - name: Bootstrap service schemas and roles
-        run: |
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
-            -f tooling/infra/postgres-init/01-service-schemas.sql
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
-            "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
-      - name: Create and bootstrap the isolated test database
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_DB: intafaced
-          PGPASSWORD: intafaced
-          PGHOST: localhost
-        run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
-      - name: Prove money-test DB URLs resolve (residual #9)
-        run: node tooling/ci/assert-test-db-env.mjs
-
-      - name: Local EVM dev chain (§13 socket.evm-rpc)
-        run: |
-          docker run -d --name intafaced-ci-evm -p 8545:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
-            "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
-          for _ in $(seq 1 30); do
-            if curl -sf -X POST -H 'content-type: application/json' \
-                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
-                 http://127.0.0.1:8545 | grep -q 0x7a69; then
-              echo "dev chain answering on 8545"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::the dev chain never answered — REQUIRE_EVM_CHAIN=1 will fail the protocol suite"
-          docker logs intafaced-ci-evm || true
-          exit 1
-      - name: Local EVM dev chain for the reorg suite
-        run: |
-          docker run -d --name intafaced-ci-evm-reorg -p 8546:8545 ghcr.io/foundry-rs/foundry:v1.5.1 \
-            "anvil --host 0.0.0.0 --port 8545 --chain-id 31337 --accounts 10 --balance 10000 --block-base-fee-per-gas 0 --silent"
-          for _ in $(seq 1 30); do
-            if curl -sf -X POST -H 'content-type: application/json' \
-                 --data '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' \
-                 http://127.0.0.1:8546 | grep -q 0x7a69; then
-              echo "reorg chain answering on 8546"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::the reorg chain never answered — REQUIRE_EVM_CHAIN=1 will fail the indexer suite"
-          docker logs intafaced-ci-evm-reorg || true
-          exit 1
-
-      - name: Deploy the smart-account suite and cross-check CREATE2
-        run: pnpm --filter @intafaced/svc-protocol chain:deploy
-      - name: Foundry fuzz (S-A8)
-        run: pnpm --filter @intafaced/svc-protocol test:forge
-        env:
-          CI: 'true'
-      - name: Build protocol test dependencies
-        run: pnpm --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... build
-      - name: Protocol package tests
-        run: pnpm --no-bail --filter @intafaced/svc-protocol... --filter @intafaced/svc-dex... --filter @intafaced/svc-indexer... test
-      - name: Annotate shard failure
-        if: failure()
-        run: echo "::error title=Tests (protocol)::Read this job log, not the merge seal. Fix this shard and re-push."
-
-  test-money:
-    name: Tests (money)
-    if: needs.changes.outputs.full != 'true' && needs.changes.outputs.money == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # healthy run: 1-5 min
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_PASSWORD: intafaced
-          POSTGRES_DB: intafaced
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U intafaced"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    env:
-      CI: true
-      REQUIRE_POSTGRES: '1'
-      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TOKEN: postgres://svc_token:svc_token@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_P2P: postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BANK: postgres://svc_bank:svc_bank@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BLUEPRINT: postgres://svc_blueprint:svc_blueprint@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
-      REDIS_URL: redis://127.0.0.1:6379
-      NATS_URL: nats://127.0.0.1:4222
-      REQUIRE_EVM_CHAIN: '1'
-      PROTOCOL_RPC_URL: http://127.0.0.1:8545
-      INDEXER_RPC_URL: http://127.0.0.1:8545
-      INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # fetch-depth: 0 — the diff-based steps read origin/main history.
-          fetch-depth: 0
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      - name: Bootstrap service schemas and roles
-        run: |
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
-            -f tooling/infra/postgres-init/01-service-schemas.sql
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
-            "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
-      - name: Create and bootstrap the isolated test database
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_DB: intafaced
-          PGPASSWORD: intafaced
-          PGHOST: localhost
-        run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
-      - name: Prove money-test DB URLs resolve (residual #9)
-        run: node tooling/ci/assert-test-db-env.mjs
-
-      - name: Local NATS with JetStream (§10 event bus)
-        run: |
-          docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
-            --jetstream --http_port=8222 --name=intafaced-ci-nats
-          for _ in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
-              echo "nats answering on 4222, JetStream enabled"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::NATS never answered — the JetStream bus suite cannot run"
-          docker logs intafaced-ci-nats || true
-          exit 1
-
-      # vitest resolves workspace packages via dist/ (issue #4554). Build exactly
-      # what these packages depend on, not the whole repo: `...` means "and its
-      # dependencies", and it keeps the mobile native staging step out of the run.
-      - name: Build money test dependencies
-        run: pnpm --filter @intafaced/ledger-client... --filter @intafaced/svc-ledger... --filter @intafaced/svc-identity... --filter @intafaced/svc-token... --filter @intafaced/config... build
-      - name: Money package tests
-        run: pnpm --no-bail --filter @intafaced/ledger-client --filter @intafaced/svc-ledger --filter @intafaced/svc-identity --filter @intafaced/svc-token --filter @intafaced/config test
-      - name: Annotate shard failure
-        if: failure()
-        run: echo "::error title=Tests (money)::Read this job log, not the merge seal. Fix this shard and re-push."
-
-  test-trade:
-    name: Tests (trade)
-    if: needs.changes.outputs.full != 'true' && needs.changes.outputs.trade == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # healthy run: 5 min
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_PASSWORD: intafaced
-          POSTGRES_DB: intafaced
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U intafaced"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    env:
-      CI: true
-      REQUIRE_POSTGRES: '1'
-      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TOKEN: postgres://svc_token:svc_token@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_P2P: postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BANK: postgres://svc_bank:svc_bank@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BLUEPRINT: postgres://svc_blueprint:svc_blueprint@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
-      REDIS_URL: redis://127.0.0.1:6379
-      NATS_URL: nats://127.0.0.1:4222
-      REQUIRE_EVM_CHAIN: '1'
-      PROTOCOL_RPC_URL: http://127.0.0.1:8545
-      INDEXER_RPC_URL: http://127.0.0.1:8545
-      INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      - name: Bootstrap service schemas and roles
-        run: |
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
-            -f tooling/infra/postgres-init/01-service-schemas.sql
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
-            "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
-      - name: Create and bootstrap the isolated test database
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_DB: intafaced
-          PGPASSWORD: intafaced
-          PGHOST: localhost
-        run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
-      - name: Prove money-test DB URLs resolve (residual #9)
-        run: node tooling/ci/assert-test-db-env.mjs
-
-      - name: Local NATS with JetStream (§10 event bus)
-        run: |
-          docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
-            --jetstream --http_port=8222 --name=intafaced-ci-nats
-          for _ in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
-              echo "nats answering on 4222, JetStream enabled"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::NATS never answered — the JetStream bus suite cannot run"
-          docker logs intafaced-ci-nats || true
-          exit 1
-
-      # vitest resolves workspace packages via dist/. Without this, the shard
-      # fails `Failed to resolve entry for package "@intafaced/ledger-client"`.
-      - run: pnpm build
-
-      - name: Trade package tests
-        run: pnpm --no-bail --filter @intafaced/svc-trade --filter @intafaced/svc-matching --filter @intafaced/svc-execution --filter @intafaced/venue-adapter --filter @intafaced/svc-ws test
-      - name: Annotate shard failure
-        if: failure()
-        run: echo "::error title=Tests (trade)::Read this job log, not the merge seal. Fix this shard and re-push."
-
-  test-paybank:
-    name: Tests (pay-bank)
-    if: needs.changes.outputs.full != 'true' && needs.changes.outputs.paybank == 'true'
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20 # healthy run: 6 min
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_PASSWORD: intafaced
-          POSTGRES_DB: intafaced
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U intafaced"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 20
-
-    env:
-      CI: true
-      REQUIRE_POSTGRES: '1'
-      TEST_DATABASE_URL: postgres://intafaced:intafaced@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TOKEN: postgres://svc_token:svc_token@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_P2P: postgres://svc_p2p:svc_p2p@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BANK: postgres://svc_bank:svc_bank@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_BLUEPRINT: postgres://svc_blueprint:svc_blueprint@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_AGENTS: postgres://svc_agents:svc_agents@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_NOTIFY: postgres://svc_notify:svc_notify@127.0.0.1:5432/intafaced_test
-      TEST_DATABASE_URL_SUPPORT: postgres://svc_support:svc_support@127.0.0.1:5432/intafaced_test
-      REDIS_URL: redis://127.0.0.1:6379
-      NATS_URL: nats://127.0.0.1:4222
-      REQUIRE_EVM_CHAIN: '1'
-      PROTOCOL_RPC_URL: http://127.0.0.1:8545
-      INDEXER_RPC_URL: http://127.0.0.1:8545
-      INDEXER_REORG_RPC_URL: http://127.0.0.1:8546
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      - name: Bootstrap service schemas and roles
-        run: |
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced \
-            -f tooling/infra/postgres-init/01-service-schemas.sql
-          PGPASSWORD=intafaced psql -h localhost -U intafaced -d intafaced -c \
-            "GRANT CREATE ON DATABASE intafaced TO intafaced_ops; ALTER ROLE intafaced_ops WITH CREATEDB;"
-      - name: Create and bootstrap the isolated test database
-        env:
-          POSTGRES_USER: intafaced
-          POSTGRES_DB: intafaced
-          PGPASSWORD: intafaced
-          PGHOST: localhost
-        run: bash tooling/infra/postgres-init/02-intafaced-test-db.sh
-      - name: Prove money-test DB URLs resolve (residual #9)
-        run: node tooling/ci/assert-test-db-env.mjs
-
-      - name: Local NATS with JetStream (§10 event bus)
-        run: |
-          docker run -d --name intafaced-ci-nats -p 4222:4222 -p 8222:8222 nats:2.10-alpine \
-            --jetstream --http_port=8222 --name=intafaced-ci-nats
-          for _ in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8222/healthz >/dev/null; then
-              echo "nats answering on 4222, JetStream enabled"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "::error::NATS never answered — the JetStream bus suite cannot run"
-          docker logs intafaced-ci-nats || true
-          exit 1
-
-      # vitest resolves workspace packages via dist/. Without this, the shard
-      # fails `Failed to resolve entry for package "@intafaced/ledger-client"`.
-      - run: pnpm build
-
-      - name: Pay/bank package tests
-        run: pnpm turbo run test --filter=@intafaced/svc-pay --filter=@intafaced/svc-bank --filter=@intafaced/svc-p2p --continue
-      - name: Annotate shard failure
-        if: failure()
-        run: echo "::error title=Tests (pay-bank)::Read this job log, not the merge seal. Fix this shard and re-push."
-
   merge-seal:
     name: CI merge seal
     runs-on: ubuntu-latest
@@ -904,36 +488,18 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    needs:
-      [
-        changes,
-        gates,
-        format,
-        build,
-        test-full,
-        test-protocol,
-        test-money,
-        test-trade,
-        test-paybank,
-      ]
+    needs: [changes, gates, format, build, test-full]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
         env:
           FULL: ${{ needs.changes.outputs.full }}
-          PROTOCOL: ${{ needs.changes.outputs.protocol }}
-          MONEY: ${{ needs.changes.outputs.money }}
-          TRADE: ${{ needs.changes.outputs.trade }}
-          PAYBANK: ${{ needs.changes.outputs.paybank }}
+          AFFECTED: ${{ needs.changes.outputs.affected }}
           CHANGES: ${{ needs.changes.result }}
           GATES: ${{ needs.gates.result }}
           FORMAT: ${{ needs.format.result }}
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
-          T_PROTOCOL: ${{ needs.test-protocol.result }}
-          T_MONEY: ${{ needs.test-money.result }}
-          T_TRADE: ${{ needs.test-trade.result }}
-          T_PAYBANK: ${{ needs.test-paybank.result }}
         run: node tooling/ci/ci-affected.mjs --seal
       - name: Require the independent review marker
         if: github.event_name == 'pull_request'

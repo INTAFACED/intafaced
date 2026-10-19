@@ -53,7 +53,6 @@ test('gate files: the four things the brief names, plus the tools themselves', (
   assert.ok(touched('.github/workflows/ci.yml'));
   assert.ok(touched('.github/workflows/new-one.yaml'));
   assert.ok(touched('.gitleaks.toml'));
-  assert.ok(touched('tooling/scripts/merge-gate.mjs'));
   assert.ok(touched('tooling/scripts/main-auto-revert.mjs'));
   assert.ok(touched('tooling/scripts/gate-file-guard.mjs'));
 });
@@ -146,7 +145,6 @@ test('gate files: the review additions (rules every agent loads, repo-wide confi
     'package.json',
     'tooling/scripts/github-refusal.mjs',
     'tooling/scripts/gate-gh.mjs',
-    'tooling/scripts/fixtures/merge-gate/main-runs.json',
   ]) {
     assert.equal(gateFilesTouched([f]).length, 1, f);
   }

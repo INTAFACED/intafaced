@@ -18,6 +18,14 @@ on:
       - 'packages/ledger-client/**'
       - 'packages/events/**'
       - 'packages/config/**'
+      # Trade journeys (pnpm journeys:trade) run in the same job, after the smoke.
+      - 'apps/customer/src/features/trade/**'
+      - 'apps/customer/src/shared/api.ts'
+      - 'apps/customer/src/screens/trade/desk/resend.ts'
+      - 'apps/customer/tests/journeys/**'
+      - 'apps/customer/vitest.journeys.config.ts'
+      - 'packages/exchange-contract/**'
+      - 'services/svc-pay/**'
 
 concurrency:
   group: order-path-cx8-${{ github.ref }}
@@ -84,15 +92,17 @@ jobs:
           bash tooling/infra/postgres-init/02-intafaced-test-db.sh
 
       - name: Build packages used by money path
-        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract
+        run: pnpm exec turbo run build --filter=@intafaced/svc-ledger --filter=@intafaced/svc-matching --filter=@intafaced/svc-trade --filter=@intafaced/svc-identity --filter=@intafaced/contracts --filter=@intafaced/ledger-client --filter=@intafaced/events --filter=@intafaced/config --filter=@intafaced/auth --filter=@intafaced/db --filter=@intafaced/exchange-contract --filter=@intafaced/svc-pay
 
-      - name: CX-8 boot + STRICT smoke
-        run: node tooling/scripts/order-path-cx8-boot.mjs
+      # The CX-8 smoke, then the customer trade journeys on the same stack (svc-pay boots for the withdrawal journeys).
+      - name: CX-8 boot + STRICT smoke + trade journeys
+        run: pnpm journeys:trade
         env:
           NATS_URL: nats://127.0.0.1:4222
           TEST_DATABASE_URL: postgres://svc_ledger:svc_ledger@127.0.0.1:5432/intafaced_test
           TEST_DATABASE_URL_TRADE: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
           TEST_DATABASE_URL_IDENTITY: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test
+          TEST_DATABASE_URL_PAY: postgres://svc_pay:svc_pay@127.0.0.1:5432/intafaced_test
           LEDGER_DATABASE_URL: postgres://svc_ledger:svc_ledger@127.0.0.1:5432/intafaced_test
           TRADE_DATABASE_URL: postgres://svc_trade:svc_trade@127.0.0.1:5432/intafaced_test
           IDENTITY_DATABASE_URL: postgres://svc_identity:svc_identity@127.0.0.1:5432/intafaced_test

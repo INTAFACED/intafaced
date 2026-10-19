@@ -2,28 +2,25 @@
 /**
  * CI affected-path classifier.
  *
- * Maps a changed-file list onto named test shards so a protocol PR fails as
- * `Tests (protocol)` instead of one 10-minute `Tests` blob.
+ * A pull request runs the tests of what it changed, not the whole suite:
+ *   full     — a change on the run-everything list (contracts, events, ledger-client, config, auth, lockfile,
+ *              turbo and tsconfig, tooling, workflows, gate files) or any path outside the product dirs;
+ *   affected — turbo runs the changed packages, their dependents and the readers listed in
+ *              tooling/ci/test-read-edges.json (`--filters` prints the turbo filters);
+ *   neither  — docs only; the seal then needs no test job.
  *
  *   node tooling/ci/ci-affected.mjs --self-test
  *   node tooling/ci/ci-affected.mjs --files services/svc-protocol/src/x.ts
  *   node tooling/ci/ci-affected.mjs --github-output
+ *   node tooling/ci/ci-affected.mjs --filters
  *   node tooling/ci/ci-affected.mjs --seal
  *
- * `push:main` always classifies as full (the trunk seal). Tooling / lockfile /
- * shared contracts/events/ledger-client/config also force full so a consumer shard cannot be skipped.
+ * `push:main` always classifies as full (the trunk seal).
  */
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
-export const SHARDS = {
-  protocol: ['services/svc-protocol/', 'services/svc-dex/', 'services/svc-indexer/'],
-  money: ['services/svc-ledger/', 'services/svc-identity/', 'services/svc-token/'],
-  trade: ['services/svc-trade/', 'services/svc-matching/', 'services/svc-execution/', 'packages/venue-adapter/', 'services/svc-ws/'],
-  paybank: ['services/svc-pay/', 'services/svc-bank/', 'services/svc-p2p/'],
-};
-
-/** Shared types / CI / lockfile — consumers live in every shard. */
+/** Run-everything list: a change here can break a consumer in any package, so the whole suite runs. */
 export const FULL_TRIGGERS = [
   'tooling/',
   '.github/',
@@ -31,15 +28,19 @@ export const FULL_TRIGGERS = [
   'pnpm-lock.yaml',
   'pnpm-workspace.yaml',
   'turbo.json',
+  'tsconfig.base.json',
   'packages/contracts/',
   'packages/events/',
-  // Imported by dozens of services across every shard (27 workspaces depend on
-  // ledger-client, 33 on config), so a change here must retest all of them.
+  // Imported by dozens of services (27 workspaces depend on ledger-client, 33 on config).
   'packages/ledger-client/',
   'packages/config/',
+  'packages/auth/',
 ];
 
-const SHARD_KEYS = /** @type {const} */ (['protocol', 'money', 'trade', 'paybank']);
+/** Agent-rule and gate files are never docs-only, even though most of them are Markdown. */
+export const GATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursor/rules'];
+
+const PRODUCT_DIRS = /^(apps|services|packages)\//;
 
 function posix(p) {
   return String(p || '')
@@ -54,48 +55,47 @@ function matchesPrefix(file, prefix) {
   return f === p || f.startsWith(`${p}/`);
 }
 
+const isDoc = (file) => file.startsWith('docs/') || file.endsWith('.md');
+
+/**
+ * `edges` is tooling/ci/test-read-edges.json: tests in <reader> read files of each listed package. turbo's
+ * dependents graph cannot see those reads, so the reader is selected whenever a package it reads changes.
+ */
+export function readEdges() {
+  try {
+    return JSON.parse(readFileSync(new URL('./test-read-edges.json', import.meta.url), 'utf8')).edges ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * full     — run every test (run-everything list, gate files, anything outside the product dirs, push to main).
+ * affected — run the tests of the changed packages, their dependents, and the readers of what they changed.
+ * Neither  — nothing to test (docs only); the seal then needs no test job.
+ */
 export function classify(files, { forceFull = false } = {}) {
-  const out = {
-    protocol: false,
-    money: false,
-    trade: false,
-    paybank: false,
-    full: Boolean(forceFull),
-  };
-  if (out.full) return out;
-
+  if (forceFull) return { full: true, affected: false };
   const list = (files || []).map(posix).filter(Boolean);
+  let affected = false;
   for (const file of list) {
-    if (file.startsWith('docs/') || file.endsWith('.md')) continue;
-    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) {
-      out.full = true;
-      return out;
-    }
+    if (GATE_FILES.some((g) => matchesPrefix(file, g))) return { full: true, affected: false };
+    if (isDoc(file)) continue;
+    if (FULL_TRIGGERS.some((t) => matchesPrefix(file, t))) return { full: true, affected: false };
+    if (PRODUCT_DIRS.test(file)) affected = true;
+    else return { full: true, affected: false }; // unknown root path: run everything, never a silent skip
   }
+  return { full: false, affected };
+}
 
-  let unknown = false;
-  for (const file of list) {
-    if (file.startsWith('docs/') || file.endsWith('.md')) continue;
-    let hit = false;
-    for (const key of SHARD_KEYS) {
-      if (SHARDS[key].some((p) => matchesPrefix(file, p))) {
-        out[key] = true;
-        hit = true;
-      }
-    }
-    if (!hit && /^(apps|services|packages)\//.test(file)) unknown = true;
+/** turbo filters for an affected run: changed packages plus dependents, plus the readers of changed packages. */
+export function affectedFilters(files, edges = readEdges(), base = 'origin/main') {
+  const list = (files || []).map(posix).filter(Boolean);
+  const filters = [`...[${base}]`];
+  for (const [reader, reads] of Object.entries(edges)) {
+    if (reads.some((dir) => list.some((f) => matchesPrefix(f, dir)))) filters.push(`./${reader}`);
   }
-
-  // Unknown product paths run the full suite — never a silent skip.
-  if (unknown) {
-    return { protocol: false, money: false, trade: false, paybank: false, full: true };
-  }
-
-  const shardHits = SHARD_KEYS.filter((k) => out[k]).length;
-  if (shardHits >= 3) {
-    return { protocol: false, money: false, trade: false, paybank: false, full: true };
-  }
-  return out;
+  return filters;
 }
 
 export function sealNeeded(flags, results) {
@@ -105,21 +105,11 @@ export function sealNeeded(flags, results) {
     const r = results[name];
     if (r !== 'success') problems.push(`${name} was ${r || 'missing'} (required)`);
   }
-  if (flags.full) {
+  // A skipped test job counts as a failure unless the classifier said there was nothing to test.
+  if (flags.full || flags.affected) {
     if (results['tests-full'] !== 'success') {
-      problems.push(`tests-full was ${results['tests-full'] || 'missing'} (full run required)`);
+      problems.push(`tests-full was ${results['tests-full'] || 'missing'} (${flags.full ? 'full run' : 'affected run'} required)`);
     }
-    return problems;
-  }
-  const map = {
-    protocol: 'tests-protocol',
-    money: 'tests-money',
-    trade: 'tests-trade',
-    paybank: 'tests-paybank',
-  };
-  for (const [flag, job] of Object.entries(map)) {
-    if (!flags[flag]) continue;
-    if (results[job] !== 'success') problems.push(`${job} was ${results[job] || 'missing'} (${flag} shard required)`);
   }
   return problems;
 }
@@ -151,83 +141,64 @@ function same(a, b) {
 }
 
 function selfTest() {
-  const empty = { protocol: false, money: false, trade: false, paybank: false, full: false };
+  const none = { full: false, affected: false };
   const cases = [
-    {
-      files: ['services/svc-protocol/src/audit/pipeline.ts'],
-      expected: { ...empty, protocol: true },
-    },
-    {
-      files: ['packages/ledger-client/src/index.ts'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['packages/config/src/index.ts'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['services/svc-token/src/token-service.ts'],
-      expected: { ...empty, money: true },
-    },
-    {
-      files: ['services/svc-protocol/x.ts', 'services/svc-ledger/src/x.ts'],
-      expected: { ...empty, protocol: true, money: true },
-    },
-    {
-      files: ['tooling/ci/gates.mjs'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['pnpm-lock.yaml'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['packages/contracts/src/x.ts'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['apps/web/src/x.ts'],
-      expected: { ...empty, full: true },
-    },
-    {
-      files: ['docs/x.md'],
-      expected: empty,
-    },
-    {
-      files: ['services/svc-protocol/a.ts', 'services/svc-ledger/a.ts', 'services/svc-trade/a.ts'],
-      expected: { ...empty, full: true },
-    },
+    { files: ['services/svc-protocol/src/audit/pipeline.ts'], expected: { full: false, affected: true } },
+    { files: ['services/svc-token/src/token-service.ts', 'apps/customer/src/x.tsx'], expected: { full: false, affected: true } },
+    { files: ['packages/ledger-client/src/index.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/config/src/index.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/auth/src/index.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/contracts/src/x.ts'], expected: { full: true, affected: false } },
+    { files: ['packages/events/src/catalog.ts'], expected: { full: true, affected: false } },
+    { files: ['tooling/ci/gates.mjs'], expected: { full: true, affected: false } },
+    { files: ['tooling/infra/postgres-init/01-service-schemas.sql'], expected: { full: true, affected: false } },
+    { files: ['.github/workflows/ci.yml'], expected: { full: true, affected: false } },
+    { files: ['pnpm-lock.yaml'], expected: { full: true, affected: false } },
+    { files: ['turbo.json'], expected: { full: true, affected: false } },
+    { files: ['tsconfig.base.json'], expected: { full: true, affected: false } },
+    { files: ['AGENTS.md'], expected: { full: true, affected: false } },
+    { files: ['CLAUDE.md'], expected: { full: true, affected: false } },
+    { files: ['.cursor/rules/x.mdc'], expected: { full: true, affected: false } },
+    { files: ['vendor/x/y.ts'], expected: { full: true, affected: false } },
+    { files: ['docs/x.md'], expected: none },
+    { files: ['services/svc-trade/README.md'], expected: none },
+    { files: [], expected: none },
+    { files: ['docs/x.md', 'services/svc-trade/src/a.ts'], expected: { full: false, affected: true } },
   ];
   for (const c of cases) {
     const got = classify(c.files);
     assert(same(got, c.expected), `classify(${JSON.stringify(c.files)}) => ${JSON.stringify(got)} expected ${JSON.stringify(c.expected)}`);
   }
   const forced = classify(['services/svc-protocol/x.ts'], { forceFull: true });
-  assert(forced.full === true && forced.protocol === false, 'forceFull must short-circuit to full');
+  assert(forced.full === true && forced.affected === false, 'forceFull must short-circuit to full');
 
-  const sealOk = sealNeeded(
-    { full: false, protocol: true, money: false, trade: false, paybank: false },
-    {
-      changes: 'success',
-      gates: 'success',
-      format: 'success',
-      build: 'success',
-      'tests-protocol': 'success',
-    },
+  // Filters: dependents of what changed, plus the readers of the changed package.
+  const edges = { 'apps/customer': ['services/svc-trade', 'services/svc-pay'], 'apps/admin': ['services/svc-bank'] };
+  assert(
+    same(affectedFilters(['services/svc-trade/src/a.ts'], edges), ['...[origin/main]', './apps/customer']),
+    'a reader of svc-trade is selected when svc-trade changes',
   );
-  assert(sealOk.length === 0, `seal ok: ${sealOk}`);
-  const sealFail = sealNeeded(
-    { full: false, protocol: true, money: false, trade: false, paybank: false },
-    {
-      changes: 'success',
-      gates: 'success',
-      format: 'success',
-      build: 'success',
-      'tests-protocol': 'failure',
-    },
+  assert(same(affectedFilters(['services/svc-ledger/src/a.ts'], edges), ['...[origin/main]']), 'unrelated change selects no reader');
+  assert(
+    same(affectedFilters(['services/svc-pay/a.ts', 'services/svc-bank/b.ts'], edges), [
+      '...[origin/main]',
+      './apps/customer',
+      './apps/admin',
+    ]),
+    'every reader of every changed package is selected',
   );
-  assert(sealFail.length === 1, `seal fail: ${sealFail}`);
-  console.log(`✓ ci-affected --self-test OK (${cases.length + 3} fixtures)`);
+  assert(!affectedFilters(['services/svc-trade-extra/a.ts'], edges).includes('./apps/customer'), 'a prefix sibling is not a match');
+
+  const ok = { changes: 'success', gates: 'success', format: 'success', build: 'success' };
+  assert(sealNeeded(none, ok).length === 0, 'docs only needs no test job');
+  assert(sealNeeded({ full: false, affected: true }, { ...ok, 'tests-full': 'success' }).length === 0, 'affected run green');
+  assert(
+    sealNeeded({ full: false, affected: true }, { ...ok, 'tests-full': 'skipped' }).length === 1,
+    'skipped test job is a failure when tests were needed',
+  );
+  assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
+  assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
+  console.log('✓ ci-affected --self-test OK (' + (cases.length + 10) + ' fixtures)');
 }
 
 function githubOutput(flags) {
@@ -240,10 +211,7 @@ function githubOutput(flags) {
 function runSeal() {
   const flags = {
     full: process.env.FULL === 'true',
-    protocol: process.env.PROTOCOL === 'true',
-    money: process.env.MONEY === 'true',
-    trade: process.env.TRADE === 'true',
-    paybank: process.env.PAYBANK === 'true',
+    affected: process.env.AFFECTED === 'true',
   };
   const results = {
     changes: process.env.CHANGES,
@@ -251,10 +219,6 @@ function runSeal() {
     format: process.env.FORMAT,
     build: process.env.BUILD,
     'tests-full': process.env.T_FULL,
-    'tests-protocol': process.env.T_PROTOCOL,
-    'tests-money': process.env.T_MONEY,
-    'tests-trade': process.env.T_TRADE,
-    'tests-paybank': process.env.T_PAYBANK,
   };
   const problems = sealNeeded(flags, results);
   if (problems.length) {
@@ -283,6 +247,10 @@ let files;
 let forceFull = process.env.GITHUB_REF === 'refs/heads/main' && process.env.GITHUB_EVENT_NAME === 'push';
 if (filesIdx >= 0) files = args.slice(filesIdx + 1);
 else files = gitChangedFiles();
+if (args.includes('--filters')) {
+  for (const f of affectedFilters(files)) console.log(f);
+  process.exit(0);
+}
 const flags = classify(files, { forceFull });
 if (args.includes('--github-output')) githubOutput(flags);
 else console.log(JSON.stringify({ files, flags }, null, 2));

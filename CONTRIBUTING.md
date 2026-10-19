@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only after `node tooling/scripts/merge-gate.mjs <pr> --head <sha>` was run on the exact head (from a clean, up-to-date `origin/main` checkout, not the PR's branch) and passed, or failed only on checks that AGENTS.md ("Check, then merge", items 2 and 3) accepts, and the independent review passed that same head. The gate never merges: run the merge command it prints as its own step. GitHub itself requires the `CI merge seal` (which includes Doctrine gates), Gitleaks and Dependency audit, with no bypass; a red seal is re-run or fixed before the merge.
+Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
 
 ---
 
@@ -58,16 +58,15 @@ Run these on your machine before you push: affected tests, typecheck, and `pnpm 
 
 CI job names, so you can find a failure fast:
 
-| Check                                                                       | What it protects                                                         |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `Doctrine gates`                                                            | the scans in `tooling/ci/gates.mjs`: brand, custody, secrets, migrations |
-| `Format`                                                                    | prettier                                                                 |
-| `Typecheck & build`                                                         | the whole monorepo compiles                                              |
-| `Tests (protocol)` / `Tests (money)` / `Tests (trade)` / `Tests (pay-bank)` | the shard for the services you touched                                   |
-| `Tests (full)`                                                              | the entire suite, for changes that reach everything                      |
-| `CI merge seal`                                                             | one result for the shards, so a skipped shard cannot hold a PR           |
-| `Definition of Done`                                                        | the per-service gate (`pnpm gate`)                                       |
-| `Gitleaks` / `Dependency audit`                                             | secrets and known vulnerabilities                                        |
+| Check                           | What it protects                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Doctrine gates`                | the scans in `tooling/ci/gates.mjs`: brand, custody, secrets, migrations                   |
+| `Format`                        | prettier                                                                                   |
+| `Typecheck & build`             | the whole monorepo compiles                                                                |
+| `Tests (full)`                  | the changed packages, their dependents and readers; everything for a run-everything change |
+| `CI merge seal`                 | one result for the checks the changed paths call for                                       |
+| `Definition of Done`            | the per-service gate (`pnpm gate`)                                                         |
+| `Gitleaks` / `Dependency audit` | secrets and known vulnerabilities                                                          |
 
 The merge gate blocks on failures your PR introduces; the rules are in AGENTS.md ("Check, then merge"). GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass; a gate PASS does not override them, and you never bypass them.
 
