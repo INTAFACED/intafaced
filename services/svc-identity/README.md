@@ -244,6 +244,14 @@ Its result describes authority at query time; it grants no account-change or
 future admission authority. Callers must reject invalid/unavailable/timed-out
 responses and must not cache enabled results.
 
+Service-only POST `/trpc/accountControls.serviceOperatorEntitlement` takes plain JSON
+`{"userId":"...","sessionId":"..."}` (both UUIDs, nothing else) and a v2 service signature
+over the exact body bytes from `svc-trade`, `svc-pay` or `svc-ops`; any other service
+is refused. No principal is forwarded or signed. It reads, fresh, the founder pair,
+the revocable entitlement, an active account with a verified second factor, and a
+live, unexpired, MFA session of that same user. The answer describes authority at
+query time and must not be cached when enabled. It is never part of a mixed batch.
+
 Service-only POST `accountControls.currentAuthority` checks credential and optional
 subaccount ownership against current identity state. Eligible snapshots expire no
 later than five seconds after the database check, or sooner with the credential.
@@ -261,6 +269,8 @@ authentication. `/ready.operationAdmission` reports these read-key configuration
 flags separately from the owner admission keys; configuration is not a live probe.
 
 Apply `drizzle/0026_operation_identity_decisions.sql` for owner operation decisions.
+
+A standing customer instruction (a scheduled spot order, `authority.kind: standing_instruction`) has no session or API key. Identity grants it only for an active, unfrozen user, only to the authenticated trade owner, and only for one `order.place`. It does not see the instruction itself: svc-bank proves it is active, and svc-trade must accept the call only from an authenticated svc-bank. The `ownerService` field is a label, not proof.
 Set independent `IDENTITY_TRADE_ADMISSION_SECRET` and
 `IDENTITY_PAY_ADMISSION_SECRET` keys, each at least 32 characters and distinct from
 the generic service-signing key and each other. The generic identity read key

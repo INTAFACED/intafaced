@@ -102,6 +102,8 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
+import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
+import './spot/cancel-all-after.js';
 import { startAlgoJobs } from './algo/algo-jobs.js';
 import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
@@ -155,7 +157,7 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
 const tradingControls = new TradingControls(
   sql,
-  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, edgeSecret: env.EDGE_PRINCIPAL_SECRET }),
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET }),
   createIdentityOperationDecisionClient({
     owner: 'svc-trade',
     identityUrl: env.IDENTITY_URL,
@@ -197,6 +199,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
+  standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
   convertQuoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
   algoEnabled: env.TRADE_ALGO_ENABLED,
@@ -363,7 +366,13 @@ export const appRouter = createTradeRouter(
   }),
 );
 export type AppRouter = typeof appRouter;
-const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
+const edgeContext = createEdgeContext({
+  secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBindMode: 'require',
+});
 if (venueBookPort && venuePublicAdapter) {
   for (const symbol of venueStreamSymbols) {
     const book = new MaintainedBook(venuePublicAdapter, symbol);
@@ -546,8 +555,11 @@ const holdUnknownSweep = startHoldUnknownSweepJobs({
   config: {
     enabled: env.TRADE_HOLD_UNKNOWN_SWEEP_ENABLED,
     intervalMs: env.TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS,
+    cancelAllAfterIntervalMs: env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'hold-unknown sweep tick failed'),
+  onCancelAllAfterAlert: (r) =>
+    app.log.error(r, 'cancel-all-after sweep — a countdown could not cancel (unresolved cancel, or its stored authority lapsed)'),
   onBracketAlert: (r) => app.log.error(r, 'bracket exit sweep — a filled entry has no exit (grant gone) or an exit could not be placed'),
   onResult: (r) => {
     if (r.alerts.length === 0) return;
@@ -820,6 +832,13 @@ registerPrivateRest(app, {
   replaceOrder: (principal, orderId, input) => trade.replaceOrder(principal, orderId, input),
   amendOrder: (principal, orderId, input) => trade.amendOrder(principal, orderId, input),
   cancelAllOrders: (principal, marketId) => trade.cancelAllOrders(principal, marketId),
+  armCancelAllAfter: (principal, timeoutSec) =>
+    (trade as unknown as CancelAllAfterHost).armCancelAllAfter(
+      principal,
+      timeoutSec,
+      env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+      env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
+    ),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

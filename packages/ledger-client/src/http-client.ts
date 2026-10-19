@@ -25,10 +25,20 @@ import type { AccountRef, Balance, LedgerTx, PostRequest, PostedEntry } from './
  * free of a dependency on `@intafaced/contracts`.
  */
 
+export interface LedgerSignRequest {
+  readonly method: 'POST';
+  readonly url: URL;
+  readonly contentType: 'application/json';
+}
+
 export interface HttpLedgerOptions {
   readonly baseUrl: string;
-  /** Headers proving who is calling, for exactly this payload string. */
-  readonly sign: (payload: string) => Record<string, string>;
+  /**
+   * Headers proving who is calling, for exactly this payload string. The second argument says what is being sent
+   * (method, the URL fetched, the content type), which a key-signed call covers. A callback that takes only the
+   * payload keeps working.
+   */
+  readonly sign: (payload: string, request: LedgerSignRequest) => Record<string, string>;
   /** Per-attempt transport budget. Default 15s. */
   readonly timeoutMs?: number;
   /** Extra attempts after the first, for network errors, timeouts and 502/503/504. Default 2, max 5. */
@@ -109,9 +119,13 @@ export function createLedgerTransport(options: HttpLedgerOptions): LedgerTranspo
       if (attemptTimeoutMs <= 0) throw new Error(`svc-ledger call to ${path} exceeded its ${deadlineMs}ms deadline`);
       let response: Response;
       try {
-        response = await doFetch(`${url}${path}`, {
+        const target = `${url}${path}`;
+        response = await doFetch(target, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', ...options.sign(payload) },
+          headers: {
+            'content-type': 'application/json',
+            ...options.sign(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
+          },
           body: payload,
           // Stays armed while the body is read below.
           signal: AbortSignal.timeout(attemptTimeoutMs),

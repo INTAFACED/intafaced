@@ -127,6 +127,15 @@ export const GATES = [
     why: 'a Protocol Plane service importing a ledger write recipe or a contract with platform withdrawal power; also fails if the deleted vendor/ Java exchange and wallet tree returns',
   },
   {
+    id: 's2s',
+    script: 'tooling/ci/s2s-scan.mjs',
+    doctrine: 'service-to-service auth',
+    why:
+      'every service signs its calls with the one shared internal secret, so any service can pose as any other. ' +
+      'Services are moving to per-service keys; this holds hand-signed calls (serviceAuthHeaders*) and ctx.service ' +
+      'name comparisons to a per-file baseline that may only shrink, so the move cannot be undone one file at a time.',
+  },
+  {
     id: 'secrets',
     script: 'tooling/ci/secret-scan.mjs',
     doctrine: '§16',
@@ -187,6 +196,16 @@ export const GATES = [
       'declaring it is invisible to that graph: change the other package and the test is not selected. MAINRED3 was ' +
       'exactly that — a svc-trade change broke an apps/customer test that reads svc-trade. Every cross-package read must ' +
       'be declared in tooling/ci/test-read-edges.json.',
+  },
+  {
+    id: 'boundary',
+    script: 'tooling/ci/boundary-scan.mjs',
+    doctrine: 'architecture refactor W7 (2026-10-19)',
+    why:
+      'services never reach into each other and money moves only through the ledger. Fails on an @intafaced/svc-* dependency ' +
+      'between workspace packages, an import that climbs into another service, SQL against another service’s schema, inline ' +
+      'ledger entries outside ledger-client and svc-ledger, a balance column in a service migration, and a randomUUID or ' +
+      'Date.now idempotency key. Green on main when added; exceptions are named with a reason in tooling/ci/boundary-allow.json.',
   },
   {
     id: 'workspace',

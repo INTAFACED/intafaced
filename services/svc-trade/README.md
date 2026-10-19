@@ -8,13 +8,14 @@ is allowed, funds it, hands it to the engine, and turns what comes back into led
 
 **Primary shipped surface here:** `trade.spot` + mounted Convert / OTC / CCXT REST / futures-orderable path (flagged).
 
-| Surface                                     | Mount            | Default                                                                       |
-| ------------------------------------------- | ---------------- | ----------------------------------------------------------------------------- |
-| Convert                                     | tRPC `convert.*` | ON (`TRADE_CONVERT_ENABLED`)                                                  |
-| OTC                                         | tRPC `otc.*`     | mounted; blank §8 law → refuse-closed                                         |
-| Algo TWAP create/ctrl                       | tRPC `algo.*`    | create ON; **scheduler job OFF** (`TRADE_ALGO_JOBS_ENABLED`, denylist enable) |
-| Copy                                        | tRPC `copy.*`    | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
-| Futures jobs / candle / MM seed / reconcile | job hosts        | **OFF**                                                                       |
+| Surface                                     | Mount             | Default                                                                       |
+| ------------------------------------------- | ----------------- | ----------------------------------------------------------------------------- |
+| Convert                                     | tRPC `convert.*`  | ON (`TRADE_CONVERT_ENABLED`)                                                  |
+| Convert for a bank schedule                 | tRPC `standing.*` | OFF (`TRADE_STANDING_INSTRUCTION_ENABLED`)                                    |
+| OTC                                         | tRPC `otc.*`      | mounted; blank §8 law → refuse-closed                                         |
+| Algo TWAP create/ctrl                       | tRPC `algo.*`     | create ON; **scheduler job OFF** (`TRADE_ALGO_JOBS_ENABLED`, denylist enable) |
+| Copy                                        | tRPC `copy.*`     | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
+| Futures jobs / candle / MM seed / reconcile | job hosts         | **OFF**                                                                       |
 
 Wave-3 sealed money on tip (#1193 TWAP respace+jobs OFF, #1191/#1199 copy races, #1202–#1207 funding/insurance/reconcile, #1211 margin-call). See tracker `trade.copy` / `trade.algo` and [Not in this PR](#not-in-this-pr).
 
@@ -56,6 +57,16 @@ where the ledger reconciles.
 | `orders.open`    | `trade:read`                 | `{ marketId? }`                                                                    | `Order[]`  |
 | `orders.history` | `trade:read`                 | `{ limit, marketId? }`                                                             | `Order[]`  |
 | `fills.mine`     | `trade:read`                 | `{ limit }`                                                                        | `Fill[]`   |
+
+**Dead-man switch.** `POST /api/v1/orders/cancel-all-after {timeout}` (seconds) arms a countdown for the caller; re-send it to push
+the deadline out, `timeout: 0` disarms. When the deadline passes, a sweep (every `TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS`) cancels
+every open order of that user through `cancelAllOrders`. Allowed timeouts are `TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC` (blank = arming
+refuses `trade.cancel_all_after_unset`); the credential must outlive the deadline. The countdown is the durable row
+`trade.cancel_all_after`, holding the caller's own claims, never a token.
+
+**Batch cancel.** `POST /api/v1/orders/batch-cancel` takes up to 100 order ids (`{ids}`, `{orders:[{id}]}` or a bare array) and cancels them one by
+one through the same path as `DELETE /api/v1/orders/:id`. Results are per item (`success`, `refused`, `unknown`), never atomic; scope and jurisdiction
+are checked before any item, and a repeated id is refused.
 
 `trade:withdraw` appears nowhere, deliberately: it is an `INTERACTIVE_ONLY_SCOPE` that no API key may hold, which
 is what protects a leaked bot key from moving value off the platform.
@@ -298,6 +309,11 @@ book that moved up simply fills less. Anything the fill did not spend comes back
 
 A market **sell** needs none of this: the hold is base quantity, which is known exactly whatever the price does.
 
+**Per-order tolerance.** A market order on the create-order route may carry `maxSlippageBps` (a whole number from 1
+up to the owner cap). It only tightens: the buy is funded and sent at the tighter of the two prices, and a sell's
+floor is the higher of the two. A value above the owner cap, a non-integer, or one on a limit order is refused with
+`trade.slippage_tolerance_invalid` before any hold; it never stands in for an unpublished owner cap.
+
 ## Rounding, stated
 
 | Quantity               | Direction | Why                                                                                                                                                                                        |
@@ -513,3 +529,11 @@ identical submissions.
 `ledger.reconcile()` and `ledger.verifyChain()` are clean after a run of mixed operations; `orders.filled_qty`
 always equals `SUM(fills.qty)`; the sum of open orders' `hold_amount` always equals the ledger's `hold` balance,
 per asset; no `available` or `hold` balance ever goes negative; and no terminal order consumed more than it held.
+
+## Standing-instruction convert (auto-invest)
+
+`standing.quote` and `standing.execute` let svc-bank run a customer's auto-invest schedule through the same firm quote, ledger recipes and idempotency as `convert.*`. There is no session or API key: the call is an authenticated service call (svc-bank only; the user and instruction ids come from the signed body), and admission names the `standing_instruction` authority, which svc-identity decides. The door is OFF by default (`TRADE_STANDING_INSTRUCTION_ENABLED`, refuses `trade.standing_instruction_disabled`); turn it on only once identity decides that authority. Limits to know: svc-bank and the other services share one `INTERNAL_SERVICE_SECRET` today, so the caller name is only as strong as that secret until per-service keys land; this path has no principal tier or region gate (svc-bank checks the instruction when it is created; identity checks the user is active and not frozen, and the restriction guard still applies).
+
+## Closed-order history filters
+
+`GET /api/v1/orders/closed` takes `side` (`buy` or `sell`), `status` (CCXT words `closed`, `canceled`, `rejected`, `expired`) and `until` (unix ms, inclusive) next to `symbol`, `limit` and `since`. All filters run in SQL on the caller's own orders, so `limit` stays honest. An unknown `side` or `status`, an `until` that is negative, not a number or before `since` is a 400, never a silent unfiltered page.

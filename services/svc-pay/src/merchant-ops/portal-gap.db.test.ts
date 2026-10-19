@@ -81,7 +81,6 @@ describe('merchant portal activity, exports, and webhooks (Postgres)', () => {
   const founderAuthority = createFounderAuthority({
     identityUrl: 'https://identity.invalid',
     serviceSecret: 's'.repeat(32),
-    principalSecret: 'p'.repeat(32),
     fetcher: (async () => new Response('{}', { status: 403 })) as typeof fetch,
   });
 

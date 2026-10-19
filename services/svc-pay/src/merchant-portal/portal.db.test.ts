@@ -267,7 +267,6 @@ describe('merchant portal procedures', () => {
       founderAuthority: createFounderAuthority({
         identityUrl: 'https://identity.invalid',
         serviceSecret: 's'.repeat(32),
-        principalSecret: 'p'.repeat(32),
         fetcher: vi.fn(async () => {
           throw new Error('founder lookup is not part of a merchant series read');
         }),

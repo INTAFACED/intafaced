@@ -14,8 +14,10 @@ const principal: Principal = {
   tier: 'full',
   expiresAt: new Date(Date.now() + 60000),
 };
-const ctx: Context = { principal, service: null, region: 'ID', requestId: randomUUID() };
-const options = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
+// The exact edge-signed bytes this request arrived with. Pay holds no key that could produce them.
+const forwardedPrincipal = { raw: JSON.stringify({ userId }), signature: `ed25519:${'A'.repeat(86)}`, region: 'ID' };
+const ctx: Context = { principal, service: null, region: 'ID', requestId: randomUUID(), forwardedPrincipal };
+const options = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) };
 const enabled = { status: 'enabled', userId, version: '1', changedAt: '2026-10-10T00:00:00Z' };
 const response = (data: unknown) =>
   new Response(JSON.stringify({ result: { data } }), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -30,10 +32,16 @@ describe('live founder merchant authority', () => {
     expect(init?.body).toBe(JSON.stringify({ userId }));
     expect(init?.headers).toMatchObject({
       'x-intafaced-service': 'svc-pay',
-      'x-intafaced-principal': expect.any(String),
-      'x-intafaced-principal-sig': expect.any(String),
+      'x-intafaced-principal': forwardedPrincipal.raw,
+      'x-intafaced-principal-sig': forwardedPrincipal.signature,
       'x-intafaced-region': 'ID',
     });
+  });
+  it('refuses when the request carries no edge-signed principal to pass on, instead of signing one itself', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response(enabled));
+    const { forwardedPrincipal: _dropped, ...unsigned } = ctx;
+    await expect(createFounderAuthority({ ...options, fetcher })(unsigned)).rejects.toMatchObject({ code: 'authority.unavailable' });
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('refuses unavailable, disabled, malformed and mismatched live authority', async () => {
     for (const data of [

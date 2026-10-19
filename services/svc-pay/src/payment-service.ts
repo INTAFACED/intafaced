@@ -309,6 +309,7 @@ export type PayErrorCode =
   | 'pay.settlement_book_unrecognised'
   | 'pay.settlement_not_pending'
   | 'pay.settlement_released'
+  | 'pay.settlement_exceeds_proceeds'
   | 'pay.rail_declined'
   | 'pay.rail_failed'
   | 'pay.rail_outcome_unknown'
@@ -3389,8 +3390,8 @@ export class PayService {
           );
         }
 
-        const inFlight = await tx<Array<{ refund_id: string }>>`
-          SELECT p.payload->>'refundId' AS refund_id
+        const inFlight = await tx<Array<{ refund_id: string; amount: string | null; source: string | null }>>`
+          SELECT p.payload->>'refundId' AS refund_id, p.payload->>'amount' AS amount, p.payload->>'source' AS source
             FROM pay.payment_events p
            WHERE p.payment_id = ${row.id} AND p.event = 'refund.posted'
              AND NOT EXISTS (
@@ -3401,11 +3402,43 @@ export class PayService {
              )
         `;
         if (inFlight.length > 0) {
-          throw new PayError(
-            `Refund ${inFlight[0]!.refund_id} is already in flight — reconcile it against the rail before refunding again`,
-            'pay.refund_in_flight',
-            { refundId: inFlight[0]!.refund_id },
-          );
+          const pending = inFlight[0]!;
+          // The same explicit refund id, asked again, is the retry of a refund whose rail reply was lost. The ledger
+          // already moved and says so (`refund.posted`), so book nothing: resume at the rail with the same id. Only a
+          // rail that answers a repeated id with its first result may be asked again; on any other this stays in flight
+          // for someone to reconcile, because asking it again could pay twice.
+          const resumable =
+            options.refundId !== undefined &&
+            inFlight.length === 1 &&
+            pending.refund_id === options.refundId &&
+            this.rails.require(row.rail_adapter, 'refund').refundIsIdempotentByRefundId === true;
+          if (!resumable) {
+            throw new PayError(
+              `Refund ${pending.refund_id} is already in flight — reconcile it against the rail before refunding again`,
+              'pay.refund_in_flight',
+              { refundId: pending.refund_id },
+            );
+          }
+          if (pending.amount !== formatAmount(amount)) {
+            throw new PayError(
+              `Refund id ${pending.refund_id} is in flight for ${pending.amount}; requested ${formatAmount(amount)} — use a new refundId for a different amount`,
+              'pay.refund_id_conflict',
+              { refundId: pending.refund_id, paymentId: row.id, inFlightAmount: pending.amount, requested: formatAmount(amount) },
+            );
+          }
+          const resumedMerchant = await this.getMerchant(row.merchant_id);
+          const resumedSource = pending.source === 'settled' ? ('settled' as const) : ('clearing' as const);
+          return {
+            replay: false as const,
+            row,
+            refundId: pending.refund_id,
+            source: resumedSource,
+            settledPot:
+              resumedSource === 'settled' ? await this.settledPotForPayment(tx, row.id, resumedMerchant.userId) : ('proceeds' as const),
+            merchant: resumedMerchant,
+            captured: totals.captured,
+            refunded: totals.refunded,
+          };
         }
 
         // BEFORE THE LEDGER MOVES, not at the rail call in Phase 2. This
@@ -3516,6 +3549,15 @@ export class PayService {
       this.sql,
       async (tx) => {
         const row = await lockPayment(tx, paymentId);
+        // A resumed refund can reach here twice (two retries of the same id). The first to commit decides; the other
+        // records nothing and answers with the same outcome.
+        const decided = await tx<Array<{ event: string }>>`
+          SELECT event FROM pay.payment_events
+           WHERE payment_id = ${row.id} AND event IN ('refunded', 'refund.reversed')
+             AND payload->>'refundId' = ${prepared.refundId}
+           LIMIT 1
+        `;
+        if (decided[0]) return { ok: decided[0].event === 'refunded', view: await this.view(tx, row) };
         await appendEvent(tx, row.id, 'rail.refund', { ...railPayload(result), refundId: prepared.refundId });
 
         const refundInput = {
@@ -3646,6 +3688,23 @@ export class PayService {
    * admission row exists, so treasury exposure does not keep a pending payout
    * the rail will never be asked to send.
    */
+  /**
+   * A payment stays `disputed` after a lost or accepted case, so the status alone cannot tell an open
+   * dispute from a closed one. Only an open or contested case (or a disputed payment with no case row
+   * yet) can still hand money back.
+   */
+  private async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
+    const disputed = await sql<Array<{ id: string }>>`
+      SELECT id FROM pay.payments
+       WHERE merchant_id = ${merchantId}::uuid AND currency = ${assetId} AND status = 'disputed'
+    `;
+    for (const { id } of disputed) {
+      const cases = await this.disputeCases.listForPayment(id);
+      if (cases.length === 0 || cases.some((c) => c.status === 'open' || c.status === 'contested')) return true;
+    }
+    return false;
+  }
+
   private async recognisedPayoutBook(input: {
     settlementId: string;
     merchantId: string;
@@ -4759,7 +4818,7 @@ export class PayService {
       { operation: 'payout', settlementId: input.settlementId, rail: input.railId },
       async () => {
         return withPayoutLock(this.sql, input.settlementId, async (connection) => {
-          const settlement = await this.getSettlement(input.settlementId, connection);
+          let settlement = await this.getSettlement(input.settlementId, connection);
           let admission = await loadPayoutAdmission(connection, settlement.id, settlement.payoutAttempts);
           if (admission) {
             if (
@@ -4823,6 +4882,53 @@ export class PayService {
               window: settlement.window,
               assetId: settlement.assetId,
             });
+            if (payoutBook === 'proceeds') {
+              // Refunds drawn on the proceeds after the settlement posted leave the frozen net larger than
+              // the balance behind it. The merchant is owed the net less those refunds, so a fresh payout
+              // is cut down to the balance before any admission exists: an admitted payout is immutable,
+              // and its hold could never post. Gross falls with net; the fee is not returned on a refund.
+              const available = (await this.ledger.balance(merchantProceeds(merchant.id, settlement.assetId))).amount;
+              if (available < settlement.net) {
+                // A refund or a chargeback that may still be reversed (a refund the rail refuses, a won
+                // dispute) would put its money back after the cut and strand it.
+                const inFlight = await connection`
+                  SELECT 1
+                    FROM pay.payments p
+                    JOIN pay.payment_events r ON r.payment_id = p.id AND r.event = 'refund.posted'
+                   WHERE p.merchant_id = ${settlement.merchantId}::uuid
+                     AND p.currency = ${settlement.assetId}
+                     AND NOT EXISTS (
+                       SELECT 1 FROM pay.payment_events d
+                        WHERE d.payment_id = p.id AND d.event IN ('refunded', 'refund.reversed')
+                          AND d.payload->>'refundId' = r.payload->>'refundId'
+                     )
+                   LIMIT 1
+                `;
+                if (inFlight[0] || (await this.hasUnresolvedDispute(connection, settlement.merchantId, settlement.assetId))) {
+                  throw new PayError(
+                    `Settlement ${settlement.id} cannot be paid out while a refund or dispute for this merchant is unresolved`,
+                    'pay.refund_in_flight',
+                    { settlementId: settlement.id },
+                  );
+                }
+                if (available <= 0n) {
+                  throw new PayError(
+                    `Settlement ${settlement.id} has nothing left to pay out (refunds drew on its proceeds)`,
+                    'pay.settlement_exceeds_proceeds',
+                    { settlementId: settlement.id },
+                  );
+                }
+                await connection`
+                  UPDATE pay.settlements
+                     SET net = ${formatAmount(available)}::numeric,
+                         gross = fees + ${formatAmount(available)}::numeric,
+                         updated_at = now()
+                   WHERE id = ${settlement.id}::uuid AND status IN ('posted', 'failed')
+                     AND payout_attempts = ${settlement.payoutAttempts}
+                `;
+                settlement = await this.getSettlement(settlement.id, connection);
+              }
+            }
             const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, connection);
             admission = await insertPayoutAdmission(
               connection,

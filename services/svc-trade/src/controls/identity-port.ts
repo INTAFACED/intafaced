@@ -1,9 +1,14 @@
-import { accountOperatorEntitlementSchema, encodePrincipal, signPrincipalHeader, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountOperatorEntitlementSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
 import type { LiveTradingOperatorPort } from './trading-controls.js';
 
-/** Owned bounded HTTP transport; never a positive cache or identity DB reader. */
+/**
+ * Owned bounded HTTP transport; never a positive cache or identity DB reader.
+ *
+ * Service-authenticated only: the body names the user and the session the edge authenticated, and identity checks
+ * both live. No principal is signed or forwarded, so nothing here holds the shared edge secret.
+ */
 export function createLiveTradingOperator(
-  config: { url: string; serviceSecret: string; edgeSecret: string },
+  config: { url: string; serviceSecret: string },
   fetcher: typeof fetch = fetch,
 ): LiveTradingOperatorPort | null {
   try {
@@ -12,8 +17,8 @@ export function createLiveTradingOperator(
   } catch {
     return null;
   }
-  if (config.serviceSecret.length < 32 || config.edgeSecret.length < 32) return null;
-  async function post(path: string, input: unknown, principalHeaders: Record<string, string> = {}): Promise<unknown> {
+  if (config.serviceSecret.length < 32) return null;
+  async function post(path: string, input: unknown): Promise<unknown> {
     const body = JSON.stringify(input);
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -28,7 +33,6 @@ export function createLiveTradingOperator(
               'content-type': 'application/json',
               'cache-control': 'no-store',
               ...serviceAuthHeadersForBody('svc-trade', config.serviceSecret, body),
-              ...principalHeaders,
             },
             body,
             signal: abort.signal,
@@ -54,17 +58,8 @@ export function createLiveTradingOperator(
   return {
     async check(context) {
       try {
-        const raw = encodePrincipal(context.principal);
         const entitlement = accountOperatorEntitlementSchema.parse(
-          await post(
-            'accountControls.operatorEntitlement',
-            { userId: context.principal.userId },
-            {
-              'x-intafaced-principal': raw,
-              'x-intafaced-principal-sig': signPrincipalHeader(raw, config.edgeSecret, context.region),
-              'x-intafaced-region': context.region,
-            },
-          ),
+          await post('accountControls.serviceOperatorEntitlement', { userId: context.principal.userId, sessionId: context.principal.sid }),
         );
         if (entitlement.userId.toLowerCase() !== context.principal.userId.toLowerCase()) return 'unavailable';
         if (entitlement.status === 'enabled') return 'enabled';

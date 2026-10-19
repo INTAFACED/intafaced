@@ -1,0 +1,344 @@
+{
+  "files": {
+    "services/svc-academy/src/host-rights.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-academy/src/stake-source.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/coach/academy-curriculum-source.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/copy-intel/copy-leader-fixtures-http-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/merchant/pay-metrics-http-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/navigator/identity-session-http-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-agents/src/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-agents/src/support-agent/desk-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/auto-invest/trade-convert-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/business/business-directory.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/personal-pay/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-bank/src/recipient-state.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-bank/src/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-bank/src/transfers/party-handles.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/api-key-revoked.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/identity-user-status.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/live-authority.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/matching-proxy.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/principal-exchange.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/session-passkey.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-edge/src/session-revoked.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-execution/src/oms-basket-matching.ts": {
+      "sign": 2,
+      "caller": 0
+    },
+    "services/svc-execution/src/oms-kill-parent-matching.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-execution/src/operator-desk.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-execution/src/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-fix/src/matching-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/action-approval-router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-identity/src/api-key-account-router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-identity/src/api-key-attribution-router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-identity/src/api-key-product-router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-identity/src/auth/merchant-email-invite-claim.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/auth/owner-pay-scopes.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/auth/pay-step-up-grant.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/closure/closure-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/controls/operation-identity-router.ts": {
+      "sign": 0,
+      "caller": 2
+    },
+    "services/svc-identity/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-identity/src/router.ts": {
+      "sign": 0,
+      "caller": 5
+    },
+    "services/svc-ledger/src/ledger/action-approval-consume.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-ledger/src/router.ts": {
+      "sign": 0,
+      "caller": 3
+    },
+    "services/svc-market/src/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-market/src/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-market/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-market/src/stake-source.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-matching/src/index.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-mining-pool/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-notify/src/guests/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-notify/src/notices/approval.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-ops/src/operator-desks.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-ops/src/outreach/authority.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-ops/src/outreach/notification-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-p2p/src/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-p2p/src/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-p2p/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-pay/src/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-pay/src/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-pay/src/founder-authority.ts": {
+      "sign": 1,
+      "caller": 1
+    },
+    "services/svc-pay/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-pay/src/limits/identity-tier.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-pay/src/merchant-account-controls.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-quant/src/studio/scope.ts": {
+      "sign": 0,
+      "caller": 2
+    },
+    "services/svc-support/src/account-state.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-support/src/ticket-order.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-tax/src/ledger-reads.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-token/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-token/src/router.ts": {
+      "sign": 0,
+      "caller": 1
+    },
+    "services/svc-trade/src/admin/identity-approval.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/controls/identity-port.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/ledger-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/otc/stake-source.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/router.ts": {
+      "sign": 0,
+      "caller": 2
+    },
+    "services/svc-trade/src/spot/affiliate-accrue.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/affiliate-payout.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/drop-copy-ingest.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/matching-client.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/matching-close.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/rank-perks.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-trade/src/spot/sub-account-ownership.ts": {
+      "sign": 1,
+      "caller": 0
+    },
+    "services/svc-ws/src/private/authority.ts": {
+      "sign": 2,
+      "caller": 0
+    },
+    "services/svc-ws/src/private/session-passkey.ts": {
+      "sign": 1,
+      "caller": 0
+    }
+  }
+}

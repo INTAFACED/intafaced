@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
+import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { SealedHouseTenantRegistry } from '@intafaced/execution-house-tenant';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -123,6 +124,7 @@ const appRouter = createExecutionRouter(
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
+  ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   ...(internalSecret && internalSecret.length >= 32 ? { internalSecret } : {}),
 });

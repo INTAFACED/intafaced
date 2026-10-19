@@ -493,6 +493,51 @@ if (!available) {
       expect(await controls.operatorStatus(first)).toMatchObject({ status: 'not_operator' });
     });
 
+    it('service-only entitlement read checks the named user and session live, with no forwarded principal', async () => {
+      const firstId = first.principal!.userId;
+      const service: Context = { ...first, service: 'svc-pay', principal: null };
+      const read = (ctx: Context, userId: string, sessionId: string) => controls.serviceOperatorEntitlement(ctx, { userId, sessionId });
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'enabled', userId: firstId });
+      expect(await read(service, firstId.toUpperCase(), first.principal!.sid.toUpperCase())).toMatchObject({ status: 'enabled' });
+      // Not a founder, or another user's session, or no such session: never enabled.
+      expect(await read(service, ordinary.principal!.userId, ordinary.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      expect(await read(service, firstId, second.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      expect(await read(service, firstId, randomUUID())).toMatchObject({ status: 'not_operator' });
+      // Only the reviewed readers, and only a verified service at all.
+      await expect(read({ ...service, service: 'svc-notify' }, firstId, first.principal!.sid)).rejects.toMatchObject({
+        code: 'operator.denied',
+      });
+      await expect(read({ ...service, service: null }, firstId, first.principal!.sid)).rejects.toMatchObject({ code: 'operator.denied' });
+      // A session that lost its second factor, expired or was revoked is not enough.
+      await db.sql`UPDATE sessions SET mfa = false WHERE id = ${first.principal!.sid}`;
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      await db.sql`UPDATE sessions SET mfa = true, revoked = true WHERE id = ${first.principal!.sid}`;
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      await db.sql`UPDATE sessions SET revoked = false, expires_at = now() - interval '1 minute' WHERE id = ${first.principal!.sid}`;
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      await db.sql`UPDATE sessions SET expires_at = now() + interval '1 hour' WHERE id = ${first.principal!.sid}`;
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'enabled' });
+      // A frozen account is not an operator even with a live session.
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${firstId}`;
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'not_operator' });
+      await db.sql`UPDATE users SET status = 'active' WHERE id = ${firstId}`;
+      // Revoking the entitlement shows as revoked on the next read.
+      await controls.changeEntitlement(second, {
+        requestId: randomUUID(),
+        userId: firstId,
+        action: 'revoke',
+        expectedVersion: '1',
+        reason: 'Lost operator device',
+      });
+      expect(await read(service, firstId, first.principal!.sid)).toMatchObject({ status: 'revoked' });
+      // Unconfigured controls answer unconfigured, never enabled.
+      const unconfigured = new FounderControls(db.sql, null);
+      expect(await unconfigured.serviceOperatorEntitlement(service, { userId: firstId, sessionId: first.principal!.sid })).toEqual({
+        userId: firstId,
+        status: 'unconfigured',
+      });
+    });
+
     it('returns bounded credential snapshots, then denies revoked credentials and frozen identities', async () => {
       const subject = { userId: target, credential: { kind: 'session' as const, sessionId: ordinary.principal!.sid } };
       const result = await controls.currentAuthority({

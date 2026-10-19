@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
@@ -84,10 +85,13 @@ registerLedgerStatusHttp(app, ledger, env.SERVICE_NAME);
 
 // Body digest is required on the live money plane. Isolated tests may still
 // mount accept-both; compose / config default stays accept-both.
-// Caller binding is read inside registerS2sHttp from LEDGER_CALLER_BINDING
-// (default report) and LEDGER_CALLER_SECRET_SVC_*. This call stays body-bind
-// only so a pull does not require new secrets.
-registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, { bodyBind: 'require' });
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every door on the
+// shared secret alone, and each door still names the services that may call it.
+const s2s = s2sFromEnv(env, 'svc-ledger');
+registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, {
+  bodyBind: 'require',
+  ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
+});
 
 /**
  * §14.6 — the operator surface: freeze, unfreeze, and on-demand reconcile.

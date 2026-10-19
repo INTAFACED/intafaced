@@ -238,6 +238,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.seed_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.seed_must_make': { ccxt: 'InvalidOrder', status: 400 },
   'trade.convert_disabled': { ccxt: 'OnMaintenance', status: 503 },
+  'trade.standing_instruction_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.convert_quote_missing': { ccxt: 'OrderNotFound', status: 404 },
   'trade.convert_quote_expired': { ccxt: 'InvalidOrder', status: 409 },
   'trade.convert_expiry_missing': { ccxt: 'InvalidOrder', status: 400 },
@@ -316,6 +317,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.convert_quote_ttl_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner market-buy cap unpublished — refuse-closed, not invent 200. */
   'trade.slippage_cap_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.slippage_tolerance_invalid': { ccxt: 'InvalidOrder', status: 400 },
   /** Owner market-sell / flatten floor unpublished — same cap, not an unbounded sell. */
   'trade.protection_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
@@ -376,6 +378,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.missing_oco_trigger': { ccxt: 'InvalidOrder', status: 400 },
   'trade.oco_stop_limit_required': { ccxt: 'InvalidOrder', status: 400 },
   'trade.oco_price_order': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.cancel_all_after_rejected': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.cancel_all_after_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.oco_sibling_terminal': { ccxt: 'InvalidOrder', status: 400 },
   'trade.position_flat': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_tif': { ccxt: 'InvalidOrder', status: 400 },

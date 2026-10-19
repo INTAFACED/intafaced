@@ -244,3 +244,7 @@ Workbook paper drills consume trade's `paper` market flag. **No prices invented 
 - `curriculumInventory` reports spine counts vs title 20 playbooks + 3 workbooks. `titlePromiseMet` is **true** on tip — met by platform-native content, **not** by a licensed library dump. Read it with `curriculumDepth`: the counts were met before any of the items were worth reading.
 - Import records validated by `validateImportRecord` / brand checklist (no outbound URLs, no empty stubs). The catalog holds itself to that same bar — `catalog.test.ts` runs every spine item through the validator.
 - Do **not** invent proprietary library titles as if the import landed.
+
+## Service-to-service calls to `GET /internal/curriculum`
+
+Only svc-agents may call this door. It accepts the shared service secret and, when `S2S_AUTH_MODE` is `dual` or `keypair`, a call signed with svc-agents' own key (`S2S_KEYRING` holds the public keys). `keypair` refuses the shared secret. Any other authenticated service is refused. Unset `S2S_AUTH_MODE` leaves the door on the shared secret alone. No key is committed; real keys are supplied by the deploy environment.

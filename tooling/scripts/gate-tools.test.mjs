@@ -4,3 +4,4 @@
  * Importing a node:test file registers its tests, so this file is just the list.
  */
 import './gate-file-guard.test.mjs';
+import './s2s-scan.test.mjs';

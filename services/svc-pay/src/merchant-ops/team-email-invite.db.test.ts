@@ -33,7 +33,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
 
 const id = () => randomUUID();
 const LIMIT = { maxPerWindow: 2, windowMs: 60_000, ttlMs: 86_400_000 };
-const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32), principalSecret: 'p'.repeat(32) };
+const identity = { identityUrl: 'https://identity.invalid', serviceSecret: 's'.repeat(32) };
 
 const principalOf = (userId: string, over: Partial<Principal> = {}): Principal => ({
   userId,

@@ -175,24 +175,6 @@ services:
       # detect = answer a reused key's different body with the original and log ledger.idempotency_mismatch;
       # refuse = 409 ledger.idempotency_conflict. Stays detect until the jobs that rebuild bodies on re-run are fixed.
       LEDGER_IDEMPOTENCY_CONFLICT_MODE: ${LEDGER_IDEMPOTENCY_CONFLICT_MODE:-detect}
-      # OPS-0001 caller binding. Default report: the shared INTERNAL_SERVICE_SECRET
-      # still posts. Every shared-secret post is counted as unbound, and a
-      # recipe or module outside the claim is counted too. The warning is
-      # rate-limited, so a quiet log is not a zero count. Set enforce only when
-      # unbound is 0 for every posting service and allowlist violations are 0
-      # for a full business cycle. Per-service secrets are optional
-      # pass-through (empty = unset). A pull with no new .env keys must keep
-      # booting. Do not use :? here.
-      # See services/svc-ledger/CALLER-BINDING.md before setting enforce.
-      LEDGER_CALLER_BINDING: ${LEDGER_CALLER_BINDING:-report}
-      LEDGER_CALLER_SECRET_SVC_AGENTS: ${LEDGER_CALLER_SECRET_SVC_AGENTS:-}
-      LEDGER_CALLER_SECRET_SVC_BANK: ${LEDGER_CALLER_SECRET_SVC_BANK:-}
-      LEDGER_CALLER_SECRET_SVC_IDENTITY: ${LEDGER_CALLER_SECRET_SVC_IDENTITY:-}
-      LEDGER_CALLER_SECRET_SVC_MARKET: ${LEDGER_CALLER_SECRET_SVC_MARKET:-}
-      LEDGER_CALLER_SECRET_SVC_P2P: ${LEDGER_CALLER_SECRET_SVC_P2P:-}
-      LEDGER_CALLER_SECRET_SVC_PAY: ${LEDGER_CALLER_SECRET_SVC_PAY:-}
-      LEDGER_CALLER_SECRET_SVC_TOKEN: ${LEDGER_CALLER_SECRET_SVC_TOKEN:-}
-      LEDGER_CALLER_SECRET_SVC_TRADE: ${LEDGER_CALLER_SECRET_SVC_TRADE:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4001']
     healthcheck: *healthcheck
@@ -677,6 +659,7 @@ services:
       # Convert RFQ kill + house spread + quote TTL (trade.convert). Spread/TTL
       # empty = refuse quote/execute. Never invent 10 bps or 15000 ms.
       TRADE_CONVERT_ENABLED: ${TRADE_CONVERT_ENABLED:-true}
+      TRADE_STANDING_INSTRUCTION_ENABLED: ${TRADE_STANDING_INSTRUCTION_ENABLED:-false}
       TRADE_CONVERT_SPREAD_BPS: ${TRADE_CONVERT_SPREAD_BPS:-}
       TRADE_CONVERT_QUOTE_TTL_MS: ${TRADE_CONVERT_QUOTE_TTL_MS:-}
       # Absolute max |period funding rate| — empty refuses publish/settle.
@@ -767,6 +750,10 @@ services:
       # for rows left in hold_unknown. Does not release a hold it has not seen.
       TRADE_HOLD_UNKNOWN_SWEEP_ENABLED: ${TRADE_HOLD_UNKNOWN_SWEEP_ENABLED:-true}
       TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS: ${TRADE_HOLD_UNKNOWN_SWEEP_INTERVAL_MS:-60000}
+      # Dead-man switch (cancel-all-after). Timeouts in seconds, owner-published, comma separated.
+      # Compose ships empty: blank refuses arming (trade.cancel_all_after_unset). Local rigs set test values.
+      TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: ${TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC:-}
+      TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: ${TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS:-5000}
       # Market, IOC, and FOK rows older than this are released, not submitted.
       TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS: ${TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS:-30000}
     # L5-7: S2S — not published on host (compose network only)

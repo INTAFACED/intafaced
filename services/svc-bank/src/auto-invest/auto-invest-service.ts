@@ -52,6 +52,8 @@ export interface ConvertPort {
    */
   convert(input: {
     userId: string;
+    /** The standing instruction (the rule) this spend runs under. */
+    instructionId: string;
     fromAsset: string;
     toAsset: string;
     fromAmount: Amount;
@@ -563,7 +565,12 @@ export class AutoInvestService {
            kind = 'threshold_sweep'
            OR (kind = 'dca' AND next_run_at IS NOT NULL AND next_run_at <= ${now})
          )
-       ORDER BY created_at ASC
+       -- A rule stuck on an unknown outcome sorts last: it is not re-driven, so it must not take a batch slot from a due rule.
+       ORDER BY EXISTS (
+                  SELECT 1 FROM bank.auto_invest_runs r
+                   WHERE r.rule_id = bank.auto_invest_rules.id AND r.status = 'pending'
+                ) ASC,
+                created_at ASC
        LIMIT ${limit}
     `;
 
@@ -711,6 +718,7 @@ export class AutoInvestService {
     try {
       const result = await this.convert.convert({
         userId: rule.userId,
+        instructionId: rule.id,
         fromAsset: rule.assetId,
         toAsset: buyAssetId,
         fromAmount: amount,

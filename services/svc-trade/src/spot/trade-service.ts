@@ -64,6 +64,7 @@ import {
   sellProtectionPriceFor,
   requireSupportedType,
 } from './risk.js';
+import { slippageToleranceFor } from './slippage-tolerance.js';
 import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
@@ -283,6 +284,11 @@ export interface TradeServiceOptions {
   feeSchedule?: OwnerFeeSchedule;
   /** Mirror of the `trade.convert` flag. OFF refuses convert quote + execute. */
   convertEnabled?: boolean;
+  /**
+   * Opens the svc-bank standing-instruction convert door. Default OFF: identity
+   * must be able to decide the `standing_instruction` authority first.
+   */
+  standingInstructionsEnabled?: boolean;
   /**
    * Extra house edge on convert quotes, in bps of book notional.
    * Disclosed on the firm quote; accept settles that number — never a second fee.
@@ -721,6 +727,7 @@ export class TradeService {
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
+  private readonly standingInstructionsEnabled: boolean;
   private readonly convertSpreadBps: number | null;
   private readonly convertQuoteTtlMs: number | null;
   private readonly convertStore: ConvertQuoteStore;
@@ -773,6 +780,7 @@ export class TradeService {
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
+    this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
     this.convertQuoteTtlMs = options.convertQuoteTtlMs ?? null;
     this.convertStore = options.convertStore ?? new SqlConvertQuoteStore(sql);
@@ -1132,9 +1140,38 @@ export class TradeService {
    */
   async convertQuote(principal: Principal, input: ConvertQuoteRequest) {
     requireScope(principal, 'trade:read');
-    const quote = await this.buildConvertQuote(principal.userId, input);
+    return this.convertQuoteFor(principal.userId, input);
+  }
+
+  private async convertQuoteFor(userId: string, input: ConvertQuoteRequest) {
+    const quote = await this.buildConvertQuote(userId, input);
     await this.convertStore.saveOpen(quote);
     return presentConvertQuote(quote);
+  }
+
+  private requireStandingInstructions() {
+    if (!this.standingInstructionsEnabled) {
+      throw new TradeError('standing-instruction convert is not enabled', 'trade.standing_instruction_disabled');
+    }
+  }
+
+  /** Quote for a user on behalf of a svc-bank schedule. The door has proved the caller. */
+  async standingConvertQuote(userId: string, _instructionId: string, input: ConvertQuoteRequest) {
+    this.requireStandingInstructions();
+    return this.convertQuoteFor(userId, input);
+  }
+
+  /**
+   * Settle a stored quote for a user on behalf of a svc-bank schedule. Same quote,
+   * ledger recipes and idempotency as the interactive door; only admission differs.
+   */
+  async standingConvertExecute(userId: string, instructionId: string, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
+    this.requireStandingInstructions();
+    return this.convertExecuteFor(userId, input, (businessId, payload) => {
+      if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
+      if (typeof this.accountAdmission.admitStanding !== 'function') throw new TradingControlError('authority.unavailable');
+      return this.accountAdmission.admitStanding(userId, instructionId, businessId, payload);
+    });
   }
 
   /**
@@ -1146,15 +1183,25 @@ export class TradeService {
   }
 
   async convertExecute(principal: Principal, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
+    requireScope(principal, 'trade:write');
+    return this.convertExecuteFor(principal.userId, input, (businessId, payload) =>
+      this.admitAccountOperation(principal, 'order.place', businessId, payload),
+    );
+  }
+
+  private async convertExecuteFor(
+    userId: string,
+    input: ConvertExecuteRequest,
+    admit: (businessId: string, payload: unknown) => Promise<unknown>,
+  ): Promise<ConvertTradeWire> {
     return withMoneySpan(
       'trade.convertExecute',
       {
         operation: 'convert',
-        userId: principal.userId,
+        userId,
         orderId: input.quoteId,
       },
       async (span) => {
-        requireScope(principal, 'trade:write');
         if (!this.convertEnabled) {
           throw new TradeError('convert is disabled by the operator kill-switch', 'trade.convert_disabled');
         }
@@ -1168,10 +1215,10 @@ export class TradeService {
         if (!stored) {
           throw new TradeError('convert quote not found', 'trade.convert_quote_missing');
         }
-        if (stored.quote.userId !== principal.userId) {
+        if (stored.quote.userId !== userId) {
           throw new TradeError('convert quote belongs to another user', 'trade.convert_not_owner');
         }
-        await bindConvertClientId(this.sql, principal.userId, stored.quote.quoteId, input.clientConvertId);
+        await bindConvertClientId(this.sql, userId, stored.quote.quoteId, input.clientConvertId);
 
         const ids = convertSettleIdsFor(stored.quote.quoteId);
         if (stored.lifecycle === 'settled') {
@@ -1189,7 +1236,7 @@ export class TradeService {
           throw new TradeError('convert accept must honour the quoted quantity', 'trade.convert_price_moved');
         }
 
-        const original = await this.accountAdmission?.original(principal.userId, `convert:${stored.quote.quoteId}`);
+        const original = await this.accountAdmission?.original(userId, `convert:${stored.quote.quoteId}`);
         const recordedBound = (original?.payload as { bound?: { fillPrice: string; fillNotional: string; acceptedAt: string } } | undefined)
           ?.bound;
         let bound: BoundConvertFill;
@@ -1239,12 +1286,7 @@ export class TradeService {
         // The quote's immutable original bound is the business payload. A retry
         // recovers this decision rather than sampling a new price or quantity.
         if (stored.lifecycle === 'open' || original) {
-          await this.admitAccountOperation(
-            principal,
-            'order.place',
-            `convert:${stored.quote.quoteId}`,
-            original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }),
-          );
+          await admit(`convert:${stored.quote.quoteId}`, original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }));
         }
         if (stored.lifecycle === 'open') {
           await this.convertStore.saveBound(stored.quote, bound);
@@ -1640,12 +1682,20 @@ export class TradeService {
     let marketSellLimitPrice: Amount | null = null;
 
     if (orderType === 'limit') {
+      slippageToleranceFor(input, orderType, null);
       if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
       assertPrice(market, input.price);
       assertNotional(market, input.price, input.qty);
       fundingPrice = input.price;
     } else if (input.side === 'buy') {
-      protectionPrice = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
+      const ask = await this.bestAsk(market.id);
+      const ownerCap = await this.slippageCap(market.id);
+      protectionPrice = protectionPriceFor(market, ask, ownerCap);
+      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
+      if (tolerance !== null) {
+        const tighter = protectionPriceFor(market, ask, tolerance);
+        if (tighter < protectionPrice) protectionPrice = tighter;
+      }
       if (input.maxProtectionPrice != null && input.maxProtectionPrice < protectionPrice) {
         if (input.maxProtectionPrice <= 0n) {
           throw new TradeError('maxProtectionPrice must be positive', 'trade.invalid_price');
@@ -1660,7 +1710,13 @@ export class TradeService {
       // through an unpublished or missing bid. The bid is read once and shared
       // with the owner-limit reference below.
       const bid = await this.bestBid(market.id);
-      let floor = sellProtectionPriceFor(market, bid, await this.slippageCap(market.id));
+      const ownerCap = await this.slippageCap(market.id);
+      let floor = sellProtectionPriceFor(market, bid, ownerCap);
+      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
+      if (tolerance !== null) {
+        const tighter = sellProtectionPriceFor(market, bid, tolerance);
+        if (tighter > floor) floor = tighter;
+      }
       if (input.minProtectionPrice != null) {
         if (input.minProtectionPrice <= 0n) {
           throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
@@ -4397,47 +4453,34 @@ export class TradeService {
    * non-integer / out of 1..500 refuses (never invent 100). Owner/query may pass
    * 100 explicitly.
    */
-  async orderHistory(principal: Principal, input: { marketId?: string; limit: number; sinceMs?: number }): Promise<OrderRecord[]> {
+  async orderHistory(
+    principal: Principal,
+    input: {
+      marketId?: string;
+      limit: number;
+      sinceMs?: number;
+      untilMs?: number;
+      side?: 'buy' | 'sell';
+      status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+    },
+  ): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:read');
     const limit = publishedOrderHistoryLimit(input.limit);
     // timestamptz compare: Date carries ms precision into postgres.js.
     const sinceDate = input.sinceMs !== undefined ? new Date(input.sinceMs) : undefined;
-    const rows =
-      input.marketId && sinceDate
-        ? await this.sql<OrderRow[]>`
-            SELECT * FROM trade.orders
-             WHERE user_id = ${principal.userId}
-               AND market_id = ${input.marketId}
-               AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-               AND created_at >= ${sinceDate}
-             ORDER BY created_at DESC
-             LIMIT ${limit}
-          `
-        : input.marketId
-          ? await this.sql<OrderRow[]>`
-              SELECT * FROM trade.orders
-               WHERE user_id = ${principal.userId}
-                 AND market_id = ${input.marketId}
-                 AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-               ORDER BY created_at DESC
-               LIMIT ${limit}
-            `
-          : sinceDate
-            ? await this.sql<OrderRow[]>`
-                SELECT * FROM trade.orders
-                 WHERE user_id = ${principal.userId}
-                   AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-                   AND created_at >= ${sinceDate}
-                 ORDER BY created_at DESC
-                 LIMIT ${limit}
-              `
-            : await this.sql<OrderRow[]>`
-                SELECT * FROM trade.orders
-                 WHERE user_id = ${principal.userId}
-                   AND status IN ('filled', 'cancelled', 'rejected', 'expired')
-                 ORDER BY created_at DESC
-                 LIMIT ${limit}
-              `;
+    const untilDate = input.untilMs !== undefined ? new Date(input.untilMs) : undefined;
+    const closed = ['filled', 'cancelled', 'rejected', 'expired'];
+    const rows = await this.sql<OrderRow[]>`
+      SELECT * FROM trade.orders
+       WHERE user_id = ${principal.userId}
+         AND status IN ${this.sql(input.status ? [input.status] : closed)}
+         ${input.marketId ? this.sql`AND market_id = ${input.marketId}` : this.sql``}
+         ${input.side ? this.sql`AND side = ${input.side}` : this.sql``}
+         ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
+         ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
+       ORDER BY created_at DESC
+       LIMIT ${limit}
+    `;
     return rows.map(toOrder);
   }
 

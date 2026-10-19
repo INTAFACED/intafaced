@@ -40,8 +40,13 @@ export class OperationIdentityDecisions {
       }
       subject = parent.data.intent.authority.subject;
     }
-    if (subject === null)
-      return { subject, expiresAt: null, refusal: intent.authority.kind === 'merchant_policy' ? null : 'auth.credential_denied' };
+    // Merchant policy and a standing customer instruction have no session or key to
+    // check. The owning service vouches for the policy or instruction; identity still
+    // requires an active, unfrozen user (checked by the caller) under the same lock.
+    if (subject === null) {
+      const unattended = intent.authority.kind === 'merchant_policy' || intent.authority.kind === 'standing_instruction';
+      return { subject, expiresAt: null, refusal: unattended ? null : 'auth.credential_denied' };
+    }
     if (subject.userId !== intent.operation.userId) {
       // PayFac evidence is vouched for by svc-pay. Identity still checks the
       // original parent's live identity and credential, alongside the child.

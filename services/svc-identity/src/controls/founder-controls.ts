@@ -26,6 +26,7 @@ import {
   type Context,
   type CurrentAuthorityInput,
   type CurrentAuthorityResult,
+  type ServiceOperatorEntitlementInput,
 } from '@intafaced/contracts';
 
 export class FounderControlError extends Error {
@@ -118,6 +119,32 @@ export function founderActorRefusal(
     return 'operator.denied';
   if (!session.mfa) return 'mfa.required';
   return null;
+}
+
+/** Services that gate an operator action on this read. A new reader is a reviewed change here, not a setting. */
+export const SERVICE_OPERATOR_READERS: readonly string[] = ['svc-trade', 'svc-pay', 'svc-ops'];
+
+/** The checks `founderActorRefusal` makes, minus the ones that need a forwarded principal (the caller made those). */
+function serviceOperatorLive(
+  userId: string,
+  user?: UserRow,
+  session?: SessionRow,
+  entitlement?: EntitlementRow,
+  now = new Date(),
+): boolean {
+  return (
+    !!user &&
+    user.id === userId &&
+    user.status === 'active' &&
+    hasVerifiedSecondFactor(user) &&
+    !!entitlement?.enabled &&
+    entitlement.user_id === userId &&
+    !!session &&
+    session.user_id === userId &&
+    !session.revoked &&
+    session.mfa &&
+    session.expires_at.getTime() > now.getTime()
+  );
 }
 
 const version = z
@@ -595,6 +622,59 @@ export class FounderControls {
       Array<{ enabled: boolean; status: string }>
     >`SELECT e.enabled, u.status FROM founder_operator_entitlements e JOIN users u ON u.id = e.user_id WHERE e.user_id = ${parsed.data}`;
     return rows[0]?.enabled === true && rows[0].status === 'active';
+  }
+
+  /**
+   * Service-only read for the services that gate an operator action (trade, pay, ops). The caller's service
+   * signature is the only credential; it names the user and the session it already authenticated at the edge.
+   * Pair membership, the revocable entitlement, an active account with a verified second factor, and a live,
+   * unexpired, MFA session of that same user are all read fresh. It carries no principal and grants no authority
+   * beyond answering the question, so a caller cannot mint a user by holding a key.
+   */
+  async serviceOperatorEntitlement(context: Context, input: ServiceOperatorEntitlementInput): Promise<AccountOperatorEntitlement> {
+    const userId = canonicalUuid.parse(input.userId);
+    const sessionId = canonicalUuid.parse(input.sessionId);
+    if (!context.service || !SERVICE_OPERATOR_READERS.includes(context.service))
+      throw new FounderControlError('operator.denied', 'Service is not allowed to read operator entitlement');
+    if (!this.configured || !this.pair) return { userId, status: 'unconfigured' };
+    if (!this.pair.includes(userId)) return { userId, status: 'not_operator' };
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const [session] = await tx<
+            SessionRow[]
+          >`SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} FOR UPDATE`;
+          const [user] = await tx<
+            UserRow[]
+          >`SELECT id, status, identity_control_version::text, totp_enrolled_at, totp_secret, webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
+          const [row] = await tx<
+            EntitlementRow[]
+          >`SELECT user_id, enabled, version::text, changed_at FROM founder_operator_entitlements WHERE user_id = ${userId} FOR UPDATE`;
+          if (!serviceOperatorLive(userId, user, session, row)) {
+            return row && !row.enabled
+              ? accountOperatorEntitlementSchema.parse({
+                  userId,
+                  status: 'revoked',
+                  version: row.version,
+                  changedAt: row.changed_at.toISOString(),
+                })
+              : { userId, status: 'not_operator' as const };
+          }
+          return accountOperatorEntitlementSchema.parse({
+            userId,
+            status: 'enabled',
+            version: row!.version,
+            changedAt: row!.changed_at.toISOString(),
+          });
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (storageError(error).code === 'identity.controls_unconfigured') return { userId, status: 'unconfigured' };
+      throw storageError(error);
+    }
   }
 
   async operatorStatus(context: Context): Promise<AccountOperatorEntitlement> {

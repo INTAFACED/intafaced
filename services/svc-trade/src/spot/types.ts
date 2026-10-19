@@ -441,6 +441,7 @@ export type TradeErrorCode =
    */
   | 'trade.reconcile_unknown_engine_miss'
   | 'trade.convert_disabled'
+  | 'trade.standing_instruction_disabled'
   | 'trade.convert_no_liquidity'
   /** House inventory short at settle. Customer hold was released; request a new quote. Never the customer's shortfall. */
   | 'trade.convert_liquidity_unavailable'
@@ -464,6 +465,7 @@ export type TradeErrorCode =
    * out of 1–5000. Never invent 200.
    */
   | 'trade.slippage_cap_unset'
+  | 'trade.slippage_tolerance_invalid'
   /**
    * Market sell or flatten with no owner protection floor. Preview and place
    * both refuse. Never `orderable: true` with a null protection price.
@@ -554,6 +556,10 @@ export type TradeErrorCode =
   | 'trade.missing_oco_trigger'
   | 'trade.oco_stop_limit_required'
   | 'trade.oco_price_order'
+  /** Cancel-all-after: timeout not one the owner published, or the credential would lapse before the deadline. */
+  | 'trade.cancel_all_after_rejected'
+  /** Cancel-all-after: the owner has published no timeouts. Trade does not invent one. */
+  | 'trade.cancel_all_after_unset'
   /** Matching refused: an OCO sibling is already terminal. Trade does not invent a trigger. */
   | 'trade.oco_sibling_terminal'
   /** Matching refused: account is flat on this book. Trade does not invent a mark. */

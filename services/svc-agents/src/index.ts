@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { ModelGateway } from './gateway/gateway.js';
@@ -131,7 +132,12 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 const bootAgents = await registerProductAgentsAtBoot(runtime);
 
 const academyUrl = env.ACADEMY_URL;
-const loadCoachGrounding = academyUrl ? () => createAcademyCurriculumSource(academyUrl, env.INTERNAL_SERVICE_SECRET).load() : undefined;
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE this is the shared-secret call it always was.
+const s2s = s2sFromEnv(env, 'svc-agents');
+const academyS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const loadCoachGrounding = academyUrl
+  ? () => createAcademyCurriculumSource(academyUrl, env.INTERNAL_SERVICE_SECRET, fetch, academyS2s).load()
+  : undefined;
 
 const supportDesk = env.SUPPORT_URL
   ? createHttpSupportDeskPort({
@@ -169,7 +175,7 @@ const appRouter = createAgentsRouter({
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
   ...(loadCoachGrounding ? { loadCoachGrounding } : {}),
-  ...(supportDesk ? { supportDesk, edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
+  ...(supportDesk ? { supportDesk } : {}),
   ...(spotTickersPort ? { spotTickersPort } : {}),
   ...(payMetricsPort ? { payMetricsPort } : {}),
   ...(copyLeaderFixturesPort ? { copyLeaderFixturesPort } : {}),

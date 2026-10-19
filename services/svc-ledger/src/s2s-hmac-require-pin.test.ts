@@ -40,9 +40,7 @@ describe('the deployed svc-ledger S2S mount requires body-bound HMAC', () => {
   it('calls registerS2sHttp with bodyBind: require on a live line before listen', () => {
     const live = liveLines(indexSource());
     const joined = live.map((l) => l.line).join('\n');
-    expect(joined).toMatch(
-      /registerS2sHttp\(\s*app\s*,\s*ledger\s*,\s*env\.INTERNAL_SERVICE_SECRET\s*,\s*\{\s*bodyBind:\s*'require'\s*\}\s*\)/,
-    );
+    expect(joined).toMatch(/registerS2sHttp\(\s*app\s*,\s*ledger\s*,\s*env\.INTERNAL_SERVICE_SECRET\s*,\s*\{\s*bodyBind:\s*'require'\s*,/);
 
     const call = live.find((l) => /registerS2sHttp\s*\(/.test(l.line));
     const listen = live.find((l) => /app\.listen\s*\(/.test(l.line));

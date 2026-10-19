@@ -155,7 +155,7 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 | `autoInvest.pause` / `resume`     | `bank:write` | Hold a rule without cancelling; resume applies normal due rules (no multi-fire invent)                                      |
 | `autoInvest.cancel`               | `bank:write` | Stop future firings. Does not reverse past runs                                                                             |
 
-`ops.runAutoInvest` (`admin:treasury`) and `POST /internal/jobs/run-auto-invest` fire due **threshold / DCA** rules. Card round-ups fire on `ops.cardCapture`, not the runner. Kill switch: `AUTO_INVEST_ENABLED` — same code `bank.auto_invest_disabled` on HTTP, tRPC runner, **and the capture hook**. Sovereign allowance plane is not here — P-plane is `protocol.smart-accounts` (Shehzad). No APY is invented; the destination is an existing earn pool.
+`ops.runAutoInvest` (`admin:treasury`) and `POST /internal/jobs/run-auto-invest` fire due **threshold / DCA** rules. Card round-ups fire on `ops.cardCapture`, not the runner. Kill switch: `AUTO_INVEST_ENABLED` — same code `bank.auto_invest_disabled` on HTTP, tRPC runner, **and the capture hook**. Sovereign allowance plane is not here — P-plane is `protocol.smart-accounts` (Shehzad). No APY is invented; the destination is an existing earn pool. DCA converts run as a standing instruction: bank calls svc-trade `standing.quote` / `standing.execute` as an authenticated svc-bank (body-bound service call, user and rule id in the signed body, no minted customer principal). The trade door is off until `TRADE_STANDING_INSTRUCTION_ENABLED`; while off, a DCA run refuses `bank.auto_invest_rate_unset`.
 
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 

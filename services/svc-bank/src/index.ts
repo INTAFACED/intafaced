@@ -184,7 +184,7 @@ const bank = createBankServices(sql, ledger, history, {
       ? {
           convert: tradeConvertPort({
             baseUrl: env.TRADE_URL,
-            edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+            serviceSecret: env.INTERNAL_SERVICE_SECRET,
             marketsLimit: env.CONVERT_MARKETS_LIMIT,
           }),
         }
