@@ -212,7 +212,12 @@ describe('crypto-native — finality is the whole rail', () => {
     localChain.failNextBroadcast();
     // A broadcast that throws is uncertainty, never a refusal: the caller must
     // not treat the refund as not sent.
-    await expect(adapter.refund(auth.railRef, amt('100'))).rejects.toBeInstanceOf(RailOutcomeUnknownError);
+    const outcome = await adapter.refund(auth.railRef, amt('100')).then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(outcome).toBeInstanceOf(RailOutcomeUnknownError);
+    expect(outcome).toMatchObject({ code: 'pay.rail_outcome_unknown' });
 
     // Here nothing left the chain, so the whole 100 is still refundable. If the
     // total had advanced, the buyer's money would be unreachable.
