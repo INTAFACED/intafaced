@@ -9,6 +9,7 @@ import {
   encodeForwardedPrincipal,
   encodePrincipal,
   createServiceSigner,
+  type Keyring,
   createServiceVerifier,
   generateEdgePrincipalKeyPair,
   signPrincipalHeader,
@@ -106,7 +107,7 @@ describe('service caller on /trpc', () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
     const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url');
     const x = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url');
-    const keyring = [{ kid: 'svc-trade.a', svc: 'svc-trade', use: 's2s' as const, x }];
+    const keyring: Keyring = [{ kid: 'svc-trade.a', svc: 'svc-trade', use: 's2s', x }];
     const signer = createServiceSigner({ service: 'svc-trade', kid: 'svc-trade.a', privateKey: pkcs8, keyring });
     const verifier = createServiceVerifier({ self: 'svc-token', keyring });
     const ctx = await contextWith({}, { verifier, mode: 'keypair' });

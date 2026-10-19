@@ -6,6 +6,7 @@ import {
   createServiceVerifier,
   serviceAuthHeadersForBody,
   type Keyring,
+  type ServiceName,
   type ServiceAuthMode,
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
@@ -20,7 +21,7 @@ import { accessTierFor, feeDiscountBps, DEFAULT_FEE_DISCOUNT_SCHEDULE } from './
 const SECRET = 'test-internal-secret-for-token-stake-gate';
 const USER = '11111111-1111-4111-8111-111111111111';
 
-function keyFor(service: string, kid = `${service}.a`) {
+function keyFor(service: ServiceName, kid = `${service}.a`) {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url');
   const x = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url');
