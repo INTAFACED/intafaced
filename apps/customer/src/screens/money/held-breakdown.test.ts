@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dec } from '../../data/decimal';
 import { allAdd, heldFor, spacesFor } from './held-breakdown';
-import type { NamedAccount } from './portfolio-source';
+import { lockSplits, type NamedAccount } from './portfolio-source';
 
 const space = (id: string, asset: string, balance: string): NamedAccount => ({ id, name: id, asset, balance });
 const ready = (data: NamedAccount[]) => ({ status: 'ready', data, asOf: 1 }) as const;
@@ -65,5 +65,53 @@ describe('Pro Money columns add up to Amount', () => {
     expect(spaces.state).toBe('not-in-amount');
     expect(heldFor('USDT', '554.62', balance, spaces)).toMatchObject({ inSpaces: null, adds: true });
     expect(heldFor('USDT', '1024.62', balance, spaces)).toMatchObject({ inSpaces: null, adds: false });
+  });
+});
+
+describe('Pro Money tells locks apart from open orders', () => {
+  // Illustrative test figures: 100 spendable, 30 in open orders, 20 staked, 10 collateral; 160 in the main account.
+  const answer = {
+    assets: [
+      {
+        assetId: 'USDT',
+        total: '160',
+        available: '100',
+        locked: [
+          { kind: 'hold', amount: '30', claims: [{ purpose: 'order:o-1', amount: '30' }] },
+          { kind: 'stake', amount: '20', claims: [{ purpose: 'token:stake:s-1', amount: '20' }] },
+          { kind: 'collateral', amount: '10', claims: [{ purpose: 'loan:l-1', amount: '10' }] },
+        ],
+      },
+    ],
+  };
+  const noSpaces = spacesFor({ status: 'empty' }, 'server');
+
+  it('In orders is the order holds only, Locked is everything else locked, and the four columns add up to Amount', () => {
+    const locks = lockSplits(answer)!;
+    // The exchange balance folds all three locks into used = 60; that is the figure the old column showed as "In orders".
+    const held = heldFor('USDT', '160', { free: '100', used: '60', total: '160' }, noSpaces, locks);
+    expect(held).toMatchObject({ available: '100', inOrders: '30', locked: '30', inSpaces: '0', adds: true });
+    expect(held.claims.map((claim) => claim.purpose)).toEqual(['order:o-1', 'token:stake:s-1', 'loan:l-1']);
+  });
+
+  it('a coin missing from a breakdown that arrived has nothing locked, and the row still adds up', () => {
+    const held = heldFor('BTC', '0', undefined, noSpaces, lockSplits(answer)!);
+    expect(held).toMatchObject({ available: '0', inOrders: '0', locked: '0', adds: true });
+  });
+
+  it('without the breakdown the old single figure stays, and Locked is a dash rather than an invented zero', () => {
+    const held = heldFor('USDT', '160', { free: '100', used: '60', total: '160' }, noSpaces);
+    expect(held).toMatchObject({ available: '100', inOrders: '60', locked: null, claims: [], adds: true });
+  });
+
+  it('one amount that does not parse makes the whole breakdown unusable, never a shown zero', () => {
+    const broken = { assets: [{ ...answer.assets[0]!, locked: [{ kind: 'hold', amount: 'oops', claims: [] }] }] };
+    expect(lockSplits(broken)).toBeNull();
+    expect(lockSplits({ assets: [{ ...answer.assets[0]!, available: '1e9' }] })).toBeNull();
+  });
+
+  it('a row whose parts do not add up is flagged, not forced to add', () => {
+    const held = heldFor('USDT', '161', { free: '100', used: '60', total: '160' }, noSpaces, lockSplits(answer)!);
+    expect(held.adds).toBe(false);
   });
 });

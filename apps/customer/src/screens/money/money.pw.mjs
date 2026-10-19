@@ -482,6 +482,41 @@ const pro = (page, extra = {}) =>
     [PREFERENCES_KEY, { layoutMode: 'pro', ...extra }],
   );
 
+test('Pro Money: stake and collateral are in Locked, not in In orders, when the bank splits the locks', async ({ page }) => {
+  const api = await mock(page, {
+    bank: {
+      'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })),
+      // Illustrative test figures: 4,095 spendable, 3 in open orders, 2 staked; 4,100 in the main account.
+      'portfolio.balanceBreakdown': () => ({
+        assets: [
+          {
+            assetId: 'USDT',
+            total: '4100',
+            available: '4095',
+            locked: [
+              { kind: 'hold', amount: '3', claims: [{ purpose: 'order:o-1', amount: '3' }] },
+              { kind: 'stake', amount: '2', claims: [{ purpose: 'token:stake:s-1', amount: '2' }] },
+            ],
+          },
+        ],
+      }),
+    },
+    rest: {
+      balance: () => balances({ USDT: { free: '4095', used: '5', total: '4100.00' }, BTC: { free: '0.1', used: '0', total: '0.1' } }),
+    },
+  });
+  await pro(page);
+  await open(page);
+  const usdt = page.locator('#cash tr[data-asset="USDT"]');
+  expect(await texts(usdt.locator('td[data-col="available"]'))).toEqual(['4,095']);
+  expect(await texts(usdt.locator('td[data-col="in-orders"]'))).toEqual(['3']);
+  expect(await texts(usdt.locator('td[data-col="locked"]'))).toEqual(['2']);
+  await expect(usdt.locator('td[data-col="locked"]')).toHaveAttribute('title', /stake token:stake:s-1: 2/);
+  const btc = page.locator('#crypto tr[data-asset="BTC"]');
+  expect(await texts(btc.locator('td[data-col="locked"]'))).toEqual(['0']);
+  expect(api.calls('portfolio.balanceBreakdown')[0].input).toEqual({ scope: 'main' });
+});
+
 test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy and Sell go to the desk (critic H4)', async ({ page }) => {
   await mock(page, {
     bank: { 'spaces.list': () => spaces().map((space) => ({ ...space, balance: '0' })) },
@@ -505,6 +540,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
     'Today',
     'Available',
     'In orders',
+    'Locked',
     'In spaces',
     'Actions',
   ]);
