@@ -15,6 +15,7 @@ import { getPreferences, PreferencesError, setPreferences } from '../preferences
 import { createPreferencesRouter } from '../preferences/preferences-router.js';
 import { PREFERENCES_VERSION_CONFLICT } from '../preferences/trade-views.js';
 import { ACCOUNT_DISPLAY_NAMESPACE } from '../preferences/account-display.js';
+import { UI_VIEW_NAMESPACE } from '../preferences/ui-view.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
 import { totp } from '../auth/totp.js';
@@ -377,6 +378,46 @@ if (!databaseUrl) {
         setPreferences(db.sql, callerA, { namespace: 'trade.views', value: fat, ifVersion: 1, clientRequestId: 'fat' }),
       ).rejects.toBeInstanceOf(PreferencesError);
       expect(await getPreferences(db.sql, callerA, 'trade.views')).toMatchObject({ version: 1, value: view });
+    });
+  });
+  describe('view record', () => {
+    it('follows the account to a second device, replays a request, refuses a stale version and stays per account', async () => {
+      const a = await register();
+      const b = await register();
+      const deviceA = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const deviceB = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const other = await ctx(b.userId, b.sessionId, ['identity:read', 'identity:write'], false);
+      const routerA = createPreferencesRouter(db.sql).createCaller(deviceA);
+      const routerB = createPreferencesRouter(db.sql).createCaller(deviceB);
+
+      expect(await routerB.preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({ version: 0, value: null });
+      const value = { layoutMode: 'simple', theme: 'dark', activeProfile: 'personal' };
+      expect(
+        await routerA.preferences.set({ namespace: UI_VIEW_NAMESPACE, value, ifVersion: 0, clientRequestId: 'ui-view:a:0' }),
+      ).toMatchObject({
+        namespace: UI_VIEW_NAMESPACE,
+        version: 1,
+        value,
+        outcome: 'stored',
+      });
+      expect(await routerB.preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({ version: 1, value });
+      const replay = await routerA.preferences.set({ namespace: UI_VIEW_NAMESPACE, value, ifVersion: 0, clientRequestId: 'ui-view:a:0' });
+      expect(replay.version).toBe(1);
+      // The same request id with other contents is an idempotency conflict; a stale version is a version conflict.
+      await expect(
+        routerA.preferences.set({ namespace: UI_VIEW_NAMESPACE, value: { theme: 'light' }, ifVersion: 0, clientRequestId: 'ui-view:a:0' }),
+      ).rejects.toMatchObject({ message: 'identity.preferences_idempotency_conflict' });
+      await expect(
+        routerB.preferences.set({ namespace: UI_VIEW_NAMESPACE, value: { theme: 'light' }, ifVersion: 0, clientRequestId: 'ui-view:b:0' }),
+      ).rejects.toMatchObject({ message: PREFERENCES_VERSION_CONFLICT });
+      await expect(
+        routerA.preferences.set({ namespace: UI_VIEW_NAMESPACE, value: { theme: 'sepia' }, ifVersion: 1, clientRequestId: 'ui-view:a:1' }),
+      ).rejects.toMatchObject({ message: 'identity.preferences_value_invalid' });
+      expect(await routerA.preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({ version: 1, value });
+      expect(await createPreferencesRouter(db.sql).createCaller(other).preferences.get({ namespace: UI_VIEW_NAMESPACE })).toMatchObject({
+        version: 0,
+        value: null,
+      });
     });
   });
   describe('account display', () => {
