@@ -11,6 +11,7 @@
  *   · money fields are always decimal strings
  */
 
+import { formatAmount, mul, MoneyError, parseAmount } from '@intafaced/ledger-client';
 import { ancestors, DEFAULT_MAX_REFERRAL_DEPTH } from './referral-tree.js';
 import { defaultTierCatalogBoardCard } from './commission-tier-honesty.js';
 
@@ -104,28 +105,17 @@ function assertRate(s: string): string {
   return t;
 }
 
-/** Multiply two non-negative decimal strings → decimal string (truncate to 18dp). */
-export function decimalMul(a: string, b: string, dp = 18): string {
+/** Multiply two non-negative decimal strings → decimal string (floor at 18dp, via the shared money module). */
+export function decimalMul(a: string, b: string): string {
   const aa = assertAmount(a, 'commission.fee');
   const bb = assertAmount(b, 'commission.rate');
-  // scale to bigint
-  const [aw, af = ''] = aa.split('.') as [string, string?];
-  const [bw, bf = ''] = bb.split('.') as [string, string?];
-  const as = aw + af.padEnd(18, '0').slice(0, 18);
-  const bs = bw + bf.padEnd(18, '0').slice(0, 18);
-  const prod = BigInt(as) * BigInt(bs); // scale 36
-  const scale = 36n;
-  const outScale = BigInt(dp);
-  const div = 10n ** (scale - outScale);
-  const whole = prod / div;
-  const neg = whole < 0n;
-  const abs = neg ? -whole : whole;
-  const str = abs.toString().padStart(dp + 1, '0');
-  const w = str.slice(0, str.length - dp) || '0';
-  const f = str.slice(str.length - dp);
-  const trimmed = f.replace(/0+$/, '');
-  const body = trimmed.length ? `${w}.${trimmed}` : w;
-  return neg ? `-${body}` : body;
+  try {
+    return formatAmount(mul(parseAmount(aa), parseAmount(bb), 'floor'));
+  } catch (error) {
+    // An amount wider than the ledger column is refused with the same typed error as a malformed one.
+    if (error instanceof MoneyError) throw new CommissionError(`Amount out of range: ${error.message}`, 'commission.fee');
+    throw error;
+  }
 }
 
 /**
