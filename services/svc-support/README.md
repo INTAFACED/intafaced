@@ -114,6 +114,13 @@ returns zero responses and the screen shows no average. A window that does not s
 refuses `support.rating_window_invalid`. The emailed rating request waits on the mail path
 (`vendor.email`); the in-app prompt does not.
 
+Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
+signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,
+number or hour is built in. `setContactChannels` (`support:ops`, staff lead only, until the `support:admin` scope
+exists) sets one or more from the revision it read, with a reason; `null` clears one. A change is logged
+append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
+first answer and a different change from a stale revision refuses `support.contact_revision_stale`.
+
 ## Migrations
 
 ```bash
