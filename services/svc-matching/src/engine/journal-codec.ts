@@ -22,6 +22,7 @@ import {
   persistTrail,
 } from './journal-persist.js';
 import type { AccountId, CancelReason, MarketId, OrderId, OrderSide } from './types.js';
+import type { WireSpreadInstrument } from './spread-instrument.js';
 
 /**
  * THE ENGINE JOURNAL (§5.1).
@@ -213,6 +214,15 @@ export type JournalCommand =
       readonly sessionId: string;
     }
   | {
+      /** Owner spread listing (CB-otc-16), consumed through dual-control approval. `marketId` is the spread id. */
+      readonly kind: 'spread_list';
+      readonly marketId: MarketId;
+      readonly at: string;
+      readonly operatorId: string;
+      readonly confirmOperatorId?: string;
+      readonly instrument: WireSpreadInstrument;
+    }
+  | {
       readonly kind: 'split_brain';
       readonly at: string;
       readonly operatorId: string;
@@ -233,6 +243,17 @@ export interface EngineJournal {
   read(): readonly JournalRecord[];
   readonly length: number;
   close(): void;
+}
+
+/** Fixed key order for a spread listing on disk. */
+function wireSpreadOrdered(instrument: WireSpreadInstrument): WireSpreadInstrument {
+  return {
+    spreadId: instrument.spreadId,
+    kind: instrument.kind,
+    legs: instrument.legs.map((leg) => ({ symbol: leg.symbol, side: leg.side, ratio: leg.ratio })),
+    tick: instrument.tick,
+    lot: instrument.lot,
+  };
 }
 
 /** Fixed key order — two equal records must serialise to identical bytes. */
@@ -288,6 +309,9 @@ export function encode(record: JournalRecord): string {
         ...(persistMinNotional(o) ? { minNotional: o.minNotional == null ? null : o.minNotional } : {}),
         ...(persistCombo(o) ? { combo: o.combo === true } : {}),
         ...(persistLegs(o) ? { legs: o.legs ?? null } : {}),
+        ...(o.spread !== undefined
+          ? { spread: { instrument: wireSpreadOrdered(o.spread.instrument), anchorReference: o.spread.anchorReference } }
+          : {}),
         lifecycleProof: o.lifecycleProof,
       },
     });
@@ -344,6 +368,18 @@ export function encode(record: JournalRecord): string {
       at: record.at,
       operatorId: record.operatorId,
       confirmOperatorId: record.confirmOperatorId,
+    });
+  }
+
+  if (record.kind === 'spread_list') {
+    return JSON.stringify({
+      seq: record.seq,
+      kind: record.kind,
+      marketId: record.marketId,
+      at: record.at,
+      operatorId: record.operatorId,
+      ...(record.confirmOperatorId ? { confirmOperatorId: record.confirmOperatorId } : {}),
+      instrument: wireSpreadOrdered(record.instrument),
     });
   }
 
