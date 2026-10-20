@@ -1,10 +1,10 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Fastify from 'fastify';
-import { s2sFromEnv, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { JetStreamEventBus } from '@intafaced/events';
-import { createHttpLedgerClient } from '@intafaced/ledger-client';
+import { createReplayLedgerClient } from './replay-ledger-client.js';
 import { env } from './env.js';
 import { MatchingEngine, MemorySnapshotSink } from './engine/engine.js';
 import { installCodFence } from './engine/cod-fence.js';
@@ -120,12 +120,13 @@ app.get('/ready', async (_req, reply) => {
   return { ready: true, sequence: engine.markets.length };
 });
 
-const actionApprovals = env.IDENTITY_URL
-  ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
-  : unwiredApprovalConsumer();
-
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE the doors stay on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-matching');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+
+const actionApprovals = env.IDENTITY_URL
+  ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+  : unwiredApprovalConsumer();
 
 registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
@@ -141,15 +142,7 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
 });
 
 const holds = env.LEDGER_URL
-  ? createReplayHoldLookup(
-      createHttpLedgerClient({
-        baseUrl: env.LEDGER_URL,
-        sign: (payload) => serviceAuthHeadersForBody('svc-matching', env.INTERNAL_SERVICE_SECRET, payload),
-        timeoutMs: 4_000,
-        retries: 1,
-        retryBaseDelayMs: 200,
-      }),
-    )
+  ? createReplayHoldLookup(createReplayLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey))
   : unwiredReplayHoldLookup();
 
 // Replay, confirm holds, then listen. A startup publish that keeps timing out
