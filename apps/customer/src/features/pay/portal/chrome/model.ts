@@ -1,6 +1,7 @@
 import { groups } from '../home-layout/Navigation';
+import { matchPersonalRoute } from '../../personal-room-routes';
 
-/** The personal Pay pages. Every other /pay address is the business area, known or not, so a wrong address stays in the frame. */
+/** The personal Pay pages: these five tabs, and the addresses in `personal-room-routes`. Every other /pay address is the business area, known or not, so a wrong address stays in the frame. */
 const PERSONAL = new Set(['/pay', '/pay/send', '/pay/receive', '/pay/request', '/pay/bills', '/pay/global']);
 
 /** A payer's hosted checkout carries a token or session in its address; without one, `/pay/checkout` is the merchant's checkout settings. */
@@ -13,6 +14,7 @@ function isPayerCheckout(): boolean {
 /** The merchant portal pages: every business address except the payer-facing checkout. */
 export function isMerchantArea(path: string): boolean {
   if (!path.startsWith('/pay/') || PERSONAL.has(path)) return false;
+  if (matchPersonalRoute(path.split('?')[0] ?? path)) return false;
   return path !== '/pay/checkout' || !isPayerCheckout();
 }
 

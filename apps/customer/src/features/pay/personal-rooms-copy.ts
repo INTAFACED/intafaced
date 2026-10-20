@@ -39,8 +39,8 @@ const en = {
   blockedClaim: 'No claim service exists for held payments, so a claim code is not looked up and nothing about it is shown.',
   blockedCases: 'No case service exists for personal payments, so no case can be opened and none is listed here.',
   blockedCase: 'No case service exists for personal payments, so this case is not looked up and nothing about it is shown.',
-  blockedLimits: 'No sending limit is published for personal Pay: the owner has set none.',
-  blockedFees: 'No personal Pay fee is published: the owner has set none.',
+  blockedLimits: 'No sending limit is published for personal Pay, so none is shown.',
+  blockedFees: 'No personal Pay fee is published, so none is shown.',
   blockedPreferences: 'No personal Pay preference is stored by any service, so there is nothing to change here.',
   blockedLink: 'Short payment links are not looked up: no service resolves them. Paste the full link in Scan to pay.',
   blockedInvoice:

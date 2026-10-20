@@ -16,6 +16,20 @@ describe('portal chrome', () => {
     // Without a token this is the merchant's checkout settings; a payer's link carries one (see chrome/model.ts).
     expect(isMerchantArea('/pay/checkout')).toBe(true);
     expect(isMerchantArea('/pay/send')).toBe(false);
+    // The personal addresses beyond the five tabs keep the personal frame (PP-order-02).
+    for (const path of [
+      '/pay/contacts',
+      '/pay/scan',
+      '/pay/history/tr_1',
+      '/pay/request/rq_1',
+      '/pay/cases/c1',
+      '/pay/send/limits',
+      '/pay/bills/invoices/i1',
+      '/pay/contacts?x=1',
+    ])
+      expect(isMerchantArea(path), path).toBe(false);
+    expect(isMerchantArea('/pay/limits')).toBe(true);
+    expect(isMerchantArea('/pay/invoices/i1')).toBe(true);
     expect(isMerchantArea('/pay/anything-else')).toBe(true);
     expect(isMerchantArea('/home')).toBe(false);
   });

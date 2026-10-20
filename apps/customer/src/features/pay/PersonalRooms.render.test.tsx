@@ -107,6 +107,10 @@ describe('personal Pay pages', () => {
     await type('https://elsewhere.test/pay/send?to=test_friend');
     expect(host.textContent).toContain('That text is not a payment link from here.');
     expect(navigate).not.toHaveBeenCalled();
+    for (const hostile of ['javascript:alert(1)', '//evil.test/pay/send?to=x', 'data:text/html,x']) {
+      await type(hostile);
+      expect(navigate, hostile).not.toHaveBeenCalled();
+    }
     await type(`${location.origin}/pay/send?to=test_friend&amount=5&asset=USDT`);
     expect(navigate).toHaveBeenCalledWith('/pay/send?to=test_friend&amount=5&asset=USDT');
   });
