@@ -192,6 +192,7 @@ export function moduleForPage(pathname: string): ModuleId | null {
     ].some((prefix) => under(path, `/${prefix}`))
   )
     return 'merchants';
+  if (under(path, '/compliance')) return 'jurisdiction';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }
