@@ -14,6 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { profileEnvFor } from './owner-settings.mjs';
 
 /**
  * D-44 smoke-rig integers. Product schemas refuse a blank value. Zod's
@@ -314,13 +315,8 @@ async function main() {
       // SMOKE RIG ONLY — throwaway secrets and owner integers, fresh each run; not production values
       PAY_CRYPTO_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
       PAY_CARD_SANDBOX_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
-      PAY_MIN_CONFIRMATIONS: '6',
-      PAY_WEBHOOK_TOLERANCE_SECONDS: '300',
-      PAY_CHECKOUT_SESSION_TTL_SECONDS: '900',
-      PAY_CHECKOUT_MAX_OPEN_SESSIONS: '10',
-      PAY_LINK_DEFAULT_TTL_DAYS: '7',
-      PAY_LINK_MAX_TTL_DAYS: '30',
-      PAY_OPERATOR_CREDIT_RAILS: 'crypto-native',
+      // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values.json)
+      ...profileEnvFor('pay', common.APP_ENV),
       PAY_CRYPTO_WATCHER_ENABLED: 'false',
       // The same local-test stand-in the trade service gets below (Nino, 2026-10-19: yes to the sanctions switch for svc-pay). Counsel's list is not ours
       // to invent. Honoured only while APP_ENV is dev/test; svc-pay refuses to BOOT with this fixture elsewhere (assertNoLocalTestFixtures).
@@ -341,9 +337,7 @@ async function main() {
       TRADE_URL: 'http://127.0.0.1:4004',
       DATABASE_POOL_MAX: '5',
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
-      TRANSFER_BATCH_SIZE: '10',
-      LOAN_SWEEP_BATCH_SIZE: '10',
-      LOAN_QUOTE_ASSET_ID: 'USDT',
+      ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
     });
 
@@ -408,33 +402,9 @@ async function main() {
     // (assertNoLocalTestFixtures, services/svc-trade/src/index.ts), and the
     // screening reader ignores 'off' there, so screening stays fail-closed.
     INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value, same as every service's vitest config; refused outside dev/test
-    // SMOKE RIG owner integers. Compose ships empty; blank refuses convert quote
-    // and market-buy hold. These are the fixture's published values, not product
-    // defaults — never restore compose invented spread/cap.
-    TRADE_CONVERT_SPREAD_BPS: '25',
-    TRADE_MARKET_SLIPPAGE_CAP_BPS: '150',
-    // SMOKE RIG fixture, not a product default: dead-man switch timeouts (seconds) and a 1 s sweep for the trade journeys.
-    TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: '10,30,60,120',
-    TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: '1000',
-    // Fee schedule (PTX-M21). Place and fill refuse while it is unpublished, and
-    // blank is not zero. This is a published schedule whose maker and taker fees
-    // are both 0 bps, in the exact JSON shape parseFeeScheduleJson reads
-    // (services/svc-trade/src/spot/fee-schedule.ts; bps are decimal STRINGS, the
-    // same shape the #3699 tests use). The smoke checks the order path, not fee
-    // revenue, so it posts no fee.
-    TRADE_FEE_SCHEDULE: JSON.stringify({ published: true, version: 'cx8-smoke-zero-fee', makerBps: '0', takerBps: '0' }), // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
-    // Pre-trade limits (services/svc-trade/src/futures/pretrade-limits.ts). Each is an
-    // owner integer: a plain base-10 integer string, parsed by parseOwnerIntegerEnv
-    // (owner-int-env.ts); blank or non-integer refuses every place with
-    // trade.max_{order,position,loss}_unset. They are ENFORCED, not just checked to be
-    // set: the unit is whole units of the market's quote asset (USDT here). MAX_ORDER
-    // caps one order's notional (price x qty), spot and futures; MAX_POSITION and
-    // MAX_LOSS gate futures opens only. At 1,000,000 this smoke's 10 USDT orders sit
-    // far below every cap, so no limit refusal is expected; a refusal here means a
-    // real regression.
-    TRADE_MAX_ORDER: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
-    TRADE_MAX_POSITION: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
-    TRADE_MAX_LOSS: '1000000', // SMOKE RIG ONLY — not a production value; Nitro 2026-10-13
+    // Owner values (convert spread, slippage cap, dead-man timeouts, fee schedule, pre-trade caps): the labelled TEST profile,
+    // tooling/profiles/test-owner-values.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
+    ...profileEnvFor('trade', common.APP_ENV),
     // NOT a boot requirement any more. svc-trade boots with this blank and logs
     // "FUTURES IS DISABLED" (optionalProfitSourceFromConfig in
     // services/svc-trade/src/index.ts): futures opens are refused until an account

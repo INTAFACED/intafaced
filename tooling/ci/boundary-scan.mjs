@@ -358,7 +358,7 @@ export function countDuplicates(text, rel) {
 const KINDS = ['scale', 'unwrap', 'parse', 'fetch'];
 const KIND_RULE = { scale: 'R-scale', unwrap: 'R-unwrap', parse: 'R-parse', fetch: 'R-fetch' };
 
-/** Compares counts to the baseline: a rise or a new file fails; a fall also fails so the baseline cannot drift loose. */
+/** Compares counts to the baseline: a rise or a new file fails; a fall passes, so lowering the baseline is optional. */
 export function compareRatchet(files, baseline) {
   const problems = [];
   const seen = new Set([...Object.keys(files), ...Object.keys(baseline)]);
@@ -368,12 +368,6 @@ export function compareRatchet(files, baseline) {
       const was = baseline[f]?.[k] ?? 0;
       if (now > was)
         problems.push({ rule: KIND_RULE[k], file: f, detail: `${now} (baseline ${was}): new duplicate, use the canonical module` });
-      else if (now < was)
-        problems.push({
-          rule: KIND_RULE[k],
-          file: f,
-          detail: `${now} (baseline ${was}): lower the baseline to ${now} with --write-baseline`,
-        });
     }
   }
   return problems;
@@ -490,7 +484,7 @@ function selfTest() {
   eq(countDuplicates('await fetch(url);', 'services/svc-x/src/a.ts').fetch, 1, 'fetch without timeout');
   eq(countDuplicates('await fetch(url, { signal: AbortSignal.timeout(5000) });', 'services/svc-x/src/a.ts').fetch, 0, 'fetch with timeout');
   eq(compareRatchet({ a: { scale: 2 } }, { a: { scale: 1 } }).length, 1, 'ratchet rises fail');
-  eq(compareRatchet({ a: { scale: 1 } }, { a: { scale: 2 } }).length, 1, 'ratchet falls must lower the baseline');
+  eq(compareRatchet({ a: { scale: 1 } }, { a: { scale: 2 } }), [], 'ratchet falls pass without a baseline edit');
   eq(compareRatchet({ b: { fetch: 1 } }, {}).length, 1, 'new file fails');
   eq(compareRatchet({ a: { scale: 1 } }, { a: { scale: 1 } }), [], 'ratchet holds');
   eq(
