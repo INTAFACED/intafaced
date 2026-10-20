@@ -28,7 +28,7 @@ const migrations = readdirSync(drizzle)
   .sort()
   .map((f) => readFileSync(join(drizzle, f), 'utf8'));
 
-export const SAGA_SECRET = 'svc-pay-saga-internal-secret-at-least-32';
+export const SAGA_SECRET = 'svc-pay-test-secret-saga-at-least-32';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
