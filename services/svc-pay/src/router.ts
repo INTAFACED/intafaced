@@ -2573,6 +2573,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
       case 'pay.withdrawal_not_cancellable':
+      case 'pay.withdrawal_not_reversible':
       case 'pay.withdrawal_canceled':
       case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for
