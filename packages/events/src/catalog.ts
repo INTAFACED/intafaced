@@ -1087,18 +1087,6 @@ export const WIRING_SOCKETS = [
     reason:
       'Declared ahead of its producer: svc-matching wires its SpreadFillPublisher to this subject in the PR after this one. No spread order can reach a book before then, so no fill goes unannounced.',
   },
-  {
-    event: 'spreadFilled',
-    missing: 'subscriber',
-    /**
-     * CLASS A. svc-trade consumes it with its spread place door and spread holds
-     * (CB-otc-16, svc-trade half). Until that door exists nothing can place a
-     * spread order, so no spread fill can exist without its consumer.
-     */
-    class: 'A',
-    reason:
-      'svc-trade subscribes when it gains the spread place door and spread holds; svc-matching only admits spread orders from svc-trade, so a fill cannot occur before its money consumer exists.',
-  },
   // ── no publisher ───────────────────────────────────────────────────────────
   //
   // `bankMarginCalled` was here, and was the reason this section existed: a
