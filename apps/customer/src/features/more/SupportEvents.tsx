@@ -6,7 +6,7 @@ import { Button, EmptyState, Failure, Loading } from '../../shared/ui';
 import { supportEventsCopy } from './support-events-copy';
 import './support-events.css';
 
-const statusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
+const statusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 // Local browser schema matches the mounted support.events output. No server
 // contract import, delivery state, or operator-only case-file read is needed.
 const eventSchema = z

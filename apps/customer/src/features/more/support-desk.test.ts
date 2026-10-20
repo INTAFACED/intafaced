@@ -34,6 +34,8 @@ describe('status filters', () => {
   it('treats open and in-progress as active, and keeps resolved and closed apart', () => {
     expect(matchesFilter('open', 'active')).toBe(true);
     expect(matchesFilter('pending', 'active')).toBe(true);
+    expect(matchesFilter('on_hold', 'active')).toBe(true);
+    expect(matchesFilter('on_hold', 'resolved')).toBe(false);
     expect(matchesFilter('resolved', 'active')).toBe(false);
     expect(matchesFilter('closed', 'active')).toBe(false);
     expect(matchesFilter('closed', 'all')).toBe(true);
@@ -46,8 +48,9 @@ describe('status filters', () => {
       row({ id: 'b', status: 'pending' }),
       row({ id: 'c', status: 'resolved' }),
       row({ id: 'd', status: 'closed' }),
+      row({ id: 'e', status: 'on_hold' }),
     ];
-    expect(statusCounts(rows)).toEqual({ all: 4, active: 2, resolved: 1, closed: 1 });
+    expect(statusCounts(rows)).toEqual({ all: 5, active: 3, resolved: 1, closed: 1 });
   });
 });
 
