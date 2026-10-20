@@ -171,6 +171,7 @@ import {
   type FillRecord,
   type Market,
   type MarketKind,
+  type OrderAmendment,
   type OrderRecord,
   type OrderSide,
   type OrderStatus,
@@ -4478,6 +4479,53 @@ export class TradeService {
       throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
     }
     return order;
+  }
+
+  /**
+   * Every amend and replace of one order, oldest first. Amends come from the append-only
+   * `order_events` rows; a replace is the order this one was replaced by, or the order it replaced.
+   * Nothing is derived for an order that was never changed: the list is empty, not invented.
+   */
+  async orderAmendments(principal: Principal, orderId: string): Promise<OrderAmendment[]> {
+    const order = await this.getOrder(principal, orderId);
+    const amends = await this.sql<Array<{ id: string; quantity: string | null; price: string | null; code: string; at: Date }>>`
+      SELECT id::text AS id, quantity::text AS quantity, price::text AS price, code, at
+      FROM trade.order_events
+      WHERE order_id = ${order.id} AND kind = 'amend'
+    `;
+    const links = await this.sql<Array<{ id: string; created_at: Date; direction: 'replaced_by' | 'replaces' }>>`
+      SELECT id, created_at, 'replaced_by' AS direction
+      FROM trade.orders WHERE replacement_of = ${order.id} AND user_id = ${principal.userId}::uuid
+      UNION ALL
+      SELECT id, created_at, 'replaces' AS direction
+      FROM trade.orders WHERE id = ${order.replacementOf ?? null} AND user_id = ${principal.userId}::uuid
+    `;
+    const rows: Array<OrderAmendment & { sort: number; tie: string }> = [
+      ...amends.map((a) => ({
+        kind: 'amend' as const,
+        at: new Date(a.at).toISOString(),
+        quantity: a.quantity,
+        price: a.price,
+        version: a.code.startsWith('amend:') ? a.code.slice('amend:'.length) : a.code,
+        relatedOrderId: null,
+        direction: null,
+        sort: new Date(a.at).getTime(),
+        tie: a.id.padStart(20, '0'),
+      })),
+      ...links.map((l) => ({
+        kind: 'replace' as const,
+        at: new Date(l.created_at).toISOString(),
+        quantity: null,
+        price: null,
+        version: null,
+        relatedOrderId: l.id,
+        direction: l.direction,
+        sort: new Date(l.created_at).getTime(),
+        tie: l.id,
+      })),
+    ];
+    rows.sort((x, y) => x.sort - y.sort || (x.tie < y.tie ? -1 : x.tie > y.tie ? 1 : 0));
+    return rows.map(({ sort: _s, tie: _t, ...rest }) => rest);
   }
 
   /**
