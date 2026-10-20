@@ -3,9 +3,12 @@ import { serviceAuthHeadersForBody } from './service-auth.js';
 import {
   PAY_CUSTODY_DEPOSIT_ADDRESS_PATH,
   PAY_CUSTODY_DEPOSIT_CATALOGUE_PATH,
+  PAY_CUSTODY_DEPOSIT_RECORDS_PATH,
   payCustodyDepositAddressInputSchema,
   payCustodyDepositAddressReplySchema,
   payCustodyDepositCatalogueSchema,
+  payCustodyDepositRecordsInputSchema,
+  payCustodyDepositRecordsReplySchema,
   type PayCustodyDepositPort,
 } from './pay-custody-deposit.js';
 
@@ -67,6 +70,12 @@ export function createPayCustodyDepositClient(options: {
       const parsed = payCustodyDepositAddressInputSchema.safeParse(raw);
       if (!parsed.success) return UNAVAILABLE;
       return (await post(PAY_CUSTODY_DEPOSIT_ADDRESS_PATH, parsed.data, payCustodyDepositAddressReplySchema)) ?? UNAVAILABLE;
+    },
+    async records(raw) {
+      const parsed = payCustodyDepositRecordsInputSchema.safeParse(raw);
+      if (!parsed.success) return UNAVAILABLE;
+      const records = await post(PAY_CUSTODY_DEPOSIT_RECORDS_PATH, parsed.data, payCustodyDepositRecordsReplySchema);
+      return records === null ? UNAVAILABLE : { state: 'ok', records };
     },
   };
 }

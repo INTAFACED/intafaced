@@ -15,6 +15,7 @@ import type { ServiceName } from './service-keys.js';
 /** The internal paths on svc-pay. */
 export const PAY_CUSTODY_DEPOSIT_CATALOGUE_PATH = '/internal/custody-deposits/catalogue' as const;
 export const PAY_CUSTODY_DEPOSIT_ADDRESS_PATH = '/internal/custody-deposits/address' as const;
+export const PAY_CUSTODY_DEPOSIT_RECORDS_PATH = '/internal/custody-deposits/records' as const;
 
 /** The only service allowed to call either path. */
 export const PAY_CUSTODY_DEPOSIT_CALLERS: readonly ServiceName[] = ['svc-bank'];
@@ -76,13 +77,98 @@ export const payCustodyDepositAddressReplySchema = z.discriminatedUnion('state',
 ]);
 export type PayCustodyDepositAddressReply = z.infer<typeof payCustodyDepositAddressReplySchema>;
 
+/**
+ * The states of a deposit record (W-deposit-05). `detected` and `confirming` are on the chain and not yet credited; `credited`
+ * is the one state that posted a `deposit`. `below_minimum`, `rejected` and `needs_review` never credit on their own;
+ * `held_for_screening` and `reversed` are written by the hold and reorg slice (W-deposit-06), and are listed here so a reader
+ * never meets a state it cannot name.
+ */
+export const PAY_CUSTODY_DEPOSIT_STATUSES = [
+  'detected',
+  'confirming',
+  'credited',
+  'below_minimum',
+  'held_for_screening',
+  'rejected',
+  'reversed',
+  'needs_review',
+] as const;
+export type PayCustodyDepositStatus = (typeof PAY_CUSTODY_DEPOSIT_STATUSES)[number];
+
+/** The states that are still on their way: the pending list. */
+export const PAY_CUSTODY_DEPOSIT_PENDING_STATUSES = ['detected', 'confirming'] as const satisfies readonly PayCustodyDepositStatus[];
+
+/**
+ * The reason a record is not credited, as a code the screen can say in words. Null while the record is on its way or credited.
+ * `amount_mismatch` is a finalized amount that differs from the one first seen; `unknown_asset` is a token the address was not
+ * issued for.
+ */
+export const PAY_CUSTODY_DEPOSIT_REASONS = [
+  'below_minimum',
+  'amount_mismatch',
+  'unknown_asset',
+  'minimum_unset',
+  'confirmations_unset',
+] as const;
+export type PayCustodyDepositReason = (typeof PAY_CUSTODY_DEPOSIT_REASONS)[number];
+
+/** One deposit to one customer address. Unique on (assetId, networkId, txHash, outputIndex). */
+export const payCustodyDepositRecordSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    assetId: assetIdSchema,
+    networkId: networkIdSchema,
+    address: z.string().min(1).max(256).regex(/^\S+$/),
+    txHash: z.string().min(1).max(128).regex(/^\S+$/),
+    outputIndex: z.number().int().min(0).max(1_000_000),
+    amount: decimalSchema,
+    confirmations: z.number().int().min(0).max(1_000_000),
+    /** Null when the network's count is blank: the record shows no target rather than an invented one. */
+    confirmationsRequired: z.number().int().min(1).max(100_000).nullable(),
+    status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES),
+    reason: z.enum(PAY_CUSTODY_DEPOSIT_REASONS).nullable(),
+    /** The minimum deposit in force when the record was judged. Null while it has not been judged. */
+    minimumDeposit: decimalSchema.nullable(),
+    detectedAt: z.string().datetime(),
+    creditedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+export type PayCustodyDepositRecord = z.infer<typeof payCustodyDepositRecordSchema>;
+
+/** The most records one call returns. A caller that needs more pages. */
+export const PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT = 200;
+
+export const payCustodyDepositRecordsInputSchema = z
+  .object({
+    userId: z.string().min(1).max(128),
+    assetId: assetIdSchema.optional(),
+    networkId: networkIdSchema.optional(),
+    statuses: z.array(z.enum(PAY_CUSTODY_DEPOSIT_STATUSES)).min(1).max(PAY_CUSTODY_DEPOSIT_STATUSES.length).optional(),
+    txHash: z.string().min(1).max(128).regex(/^\S+$/).optional(),
+    address: z.string().min(1).max(256).regex(/^\S+$/).optional(),
+    offset: z.number().int().min(0).max(1_000_000).default(0),
+    limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
+  })
+  .strict();
+export type PayCustodyDepositRecordsInput = z.input<typeof payCustodyDepositRecordsInputSchema>;
+
+/** `total` counts every match, so a caller can tell a full page from the last one and never drops the rest silently. */
+export const payCustodyDepositRecordsReplySchema = z
+  .object({ items: z.array(payCustodyDepositRecordSchema).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT), total: z.number().int().min(0) })
+  .strict();
+export type PayCustodyDepositRecordsReply = z.infer<typeof payCustodyDepositRecordsReplySchema>;
+
 export type PayCustodyDepositCatalogueResult =
   { state: 'ok'; catalogue: PayCustodyDepositCatalogue } | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
 export type PayCustodyDepositAddressResult =
   PayCustodyDepositAddressReply | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
 
+export type PayCustodyDepositRecordsResult =
+  { state: 'ok'; records: PayCustodyDepositRecordsReply } | { state: 'unavailable'; code: 'pay.custody_deposit_unavailable' };
+
 /** What svc-bank holds. The HTTP client below is the only implementation outside tests. */
 export interface PayCustodyDepositPort {
   catalogue(): Promise<PayCustodyDepositCatalogueResult>;
   address(input: PayCustodyDepositAddressInput): Promise<PayCustodyDepositAddressResult>;
+  records(input: PayCustodyDepositRecordsInput): Promise<PayCustodyDepositRecordsResult>;
 }
