@@ -57,9 +57,15 @@ const messages = {
   Time: 'Time',
   Status: 'Status',
   Settled: 'Settled',
-  'Recent parked title': 'Conversion history needs the trade history service, which is not connected on this server',
-  'Recent parked body':
-    'Your conversions are safe and show in Activity. Activity cannot tell a conversion from a spot order, so this list waits for that service instead of guessing.',
+  'Recent empty title': 'No conversions in the last 30 days',
+  'Recent empty body': 'Conversions you make show here.',
+  'Recent label': 'Your conversions from the last 30 days',
+  'Recent subtitle': 'Last 30 days',
+  'You paid': 'You paid',
+  'You received': 'You received',
+  'Recent accepted': 'Confirming',
+  'Recent refused': 'Refused',
+  'Recent unknown': 'Check in Activity',
   'Recent error title': 'Couldn’t load your conversions',
   'Recent error body': 'Nothing was changed. Try again.',
   // Review

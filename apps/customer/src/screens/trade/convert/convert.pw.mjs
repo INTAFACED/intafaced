@@ -113,6 +113,40 @@ test('convert 10 USDT to ETH: quote, countdown, review, convert, receipt, new ba
   expect(errors).toEqual([]);
 });
 
+test('Recent conversions lists the conversion just made, not the quotes that were never taken up', async ({ page }) => {
+  const api = await mock(page);
+  await open(page);
+  // Nothing taken up yet: an honest empty table, asked for with a window and a limit (the service refuses without them).
+  await expect(page.getByTestId('cvt-recent')).toContainText('No conversions in the last 30 days');
+  const asked = api.of('convertList')[0].input;
+  expect(asked.limit).toBeGreaterThan(0);
+  expect((Date.parse(asked.to) - Date.parse(asked.from)) / 86_400_000).toBe(30);
+
+  await amount(page).fill('10');
+  await expect(page.getByTestId('hold')).toHaveText(/^Price held for/);
+  await preview(page).click();
+  await dialog(page).getByRole('button', { name: 'Convert now' }).click();
+  await expect(page.getByTestId('cvt-receipt')).toContainText('Converted');
+
+  await open(page);
+  const table = page.getByTestId('cvt-recent').getByRole('table');
+  await expect(table.getByRole('row')).toHaveCount(2); // header + the one conversion
+  await expect(table).toContainText('USDT');
+  await expect(table).toContainText('ETH');
+  await expect(table).toContainText('Settled');
+  await shot(page, 'convert-1440x900-recent');
+});
+
+test('Recent conversions names a refused read and offers Retry on a failed one', async ({ page }) => {
+  const api = await mock(page, { convertList: () => trpcRefusal('trade.convert_list_window_too_wide', 'refused', 400) });
+  await open(page);
+  await expect(page.getByTestId('cvt-recent')).not.toContainText('No conversions');
+  api.set('convertList', 'error');
+  await open(page);
+  await expect(page.getByTestId('cvt-recent').getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByTestId('cvt-recent')).not.toContainText('No conversions');
+});
+
 test('buying with the typed spend: the quote costs at most what was typed', async ({ page }) => {
   const api = await mock(page);
   await open(page);
