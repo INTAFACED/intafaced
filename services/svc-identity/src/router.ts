@@ -26,6 +26,7 @@ import {
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
   KycRecordsListLimitUnsetError,
+  SELF_FREEZE_REASONS,
   SUB_ACCOUNT_KINDS,
   SubAccountsListLimitUnsetError,
   WebauthnListLimitUnsetError,
@@ -308,6 +309,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.mfa_already_enrolled':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
+    case 'identity.account_frozen_self':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.invite_invalid':
     case 'auth.invite_expired':
@@ -1015,6 +1017,37 @@ export function createIdentityRouter(
             }
             throw toFactorError(err);
           }
+        }),
+
+      /**
+       * Self-service freeze (I-account-lifecycle-08). Needs the current password; revokes every session and key.
+       * Not the staff freeze and not the ledger freeze.
+       */
+      selfFreeze: protectedProcedure
+        .input(z.object({ reason: z.enum(SELF_FREEZE_REASONS), password: z.string().min(1).max(200) }))
+        .output(z.object({ frozen: z.literal(true), reason: z.enum(SELF_FREEZE_REASONS), since: z.string(), changed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const done = await auth.selfFreeze({
+              userId: ctx.principal.userId,
+              actor: factorActor(ctx.principal, privilegedUserIds),
+              reason: input.reason,
+              password: input.password,
+            });
+            return { frozen: done.frozen, reason: done.reason, since: done.since.toISOString(), changed: done.changed };
+          } catch (err) {
+            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
+              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
+            }
+            throw toFactorError(err);
+          }
+        }),
+
+      selfFreezeStatus: protectedProcedure
+        .output(z.object({ frozen: z.boolean(), reason: z.enum(SELF_FREEZE_REASONS).nullable(), since: z.string().nullable() }))
+        .query(async ({ ctx }) => {
+          const s = await auth.selfFreezeStatus(ctx.principal.userId);
+          return { frozen: s.frozen, reason: s.reason, since: s.since ? s.since.toISOString() : null };
         }),
 
       /**
