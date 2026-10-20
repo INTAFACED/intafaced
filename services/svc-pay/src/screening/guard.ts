@@ -15,7 +15,15 @@ import {
 export type { ScreeningAnswer, ScreeningCaseRecord, ScreeningCaseStore, ScreeningSubjectKind };
 export { screeningSubjectKey };
 
-export type ScreeningScreener = () => Promise<ScreeningAnswer | null | undefined>;
+/** Who is being screened. A supplier is asked about this subject; the answer never leaves a name or address in a case. */
+export interface ScreeningSubject {
+  readonly kind: ScreeningSubjectKind;
+  readonly partyRef: string;
+  readonly assetId: string;
+  readonly amount: string;
+}
+
+export type ScreeningScreener = (subject?: ScreeningSubject) => Promise<ScreeningAnswer | null | undefined>;
 
 export interface ScreeningGuardDeps {
   readonly sql: Sql;
@@ -26,6 +34,8 @@ export interface ScreeningGuardDeps {
   readonly listPosture?: 'blank' | 'named';
   readonly env?: Record<string, string | undefined>;
   readonly timeoutMs?: number;
+  /** Which supplier the screener is, for the case record. Omitted: `none`. */
+  readonly providerLabel?: string;
 }
 
 const RETRYABLE_PG = new Set(['40001', '40P01']);
@@ -33,7 +43,7 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 
 const noSupplier: ScreeningScreener = async () => null;
 
-function listPostureOf(deps: ScreeningGuardDeps): 'blank' | 'named' {
+export function listPostureOf(deps: Pick<ScreeningGuardDeps, 'listPosture' | 'env'>): 'blank' | 'named' {
   if (deps.listPosture) return deps.listPosture;
   const grade = screeningMoneyGrade(envScreeningList(deps.env ?? process.env));
   return grade === 'counsel' ? 'named' : 'blank';
@@ -46,12 +56,16 @@ function refusalFor(decision: ScreeningDecision): PayGuardRefusal | null {
   return new PayGuardRefusal('pay.guard_screening_unavailable', 'unavailable');
 }
 
-async function answerFrom(screener: ScreeningScreener, timeoutMs: number): Promise<ScreeningAnswer | null | undefined> {
+export async function answerFrom(
+  screener: ScreeningScreener,
+  timeoutMs: number,
+  subject?: ScreeningSubject,
+): Promise<ScreeningAnswer | null | undefined> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return { category: 'unavailable', factors: [{ code: 'provider_down' }] };
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      screener(),
+      screener(subject),
       new Promise<ScreeningAnswer>((resolve) => {
         timer = setTimeout(() => resolve({ category: 'unavailable', factors: [{ code: 'provider_down' }] }), timeoutMs);
       }),
@@ -81,15 +95,27 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
     parts: readonly string[],
     replayKind: 'fresh' | 'replay' | 'recovery',
     party: { merchantId: string; amount: Amount; assetId: string },
+    /** The caller's own transaction, when it has one. Only a withdrawal does, and only it can spend a release. */
+    tx?: Sql,
   ): Promise<void> {
     if (replayKind === 'replay') return;
-    const answer = await answerFrom(screener, timeoutMs);
-    const decision = applyListPosture(screeningCaseFromAnswer(answer), posture);
+    const subjectKey = screeningSubjectKey(kind, parts);
+    const context = { partyRef: party.merchantId, amount: formatAmount(party.amount), assetId: party.assetId };
+    let released: ScreeningDecision | null = null;
+    // A fresh send may spend a compliance release (a person decided a held send of this party was fine). Never on a blank
+    // list: the list is the thing that cannot be argued with, and a release never touches the case it came from.
+    if (replayKind === 'fresh' && tx && posture === 'named' && store.spendRelease) {
+      const from = await store.spendRelease(tx, { ...context, exceptKey: subjectKey });
+      if (from !== null) released = { status: 'clear', factors: [{ code: 'compliance_release' }] };
+    }
+    const decision: ScreeningDecision =
+      released ?? applyListPosture(screeningCaseFromAnswer(await answerFrom(screener, timeoutMs, { kind, ...context })), posture);
     const record: ScreeningCaseRecord = {
       subjectKind: kind,
-      subjectKey: screeningSubjectKey(kind, parts),
+      subjectKey,
       status: decision.status,
       factors: decision.factors,
+      context: { ...context, provider: deps.providerLabel ?? 'none' },
     };
     const refusal = refusalFor(decision);
     if (refusal) {
@@ -128,10 +154,12 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
         assetId: ctx.assetId,
       }),
     beforeUserMoneyWithdrawal: (ctx: UserMoneyWithdrawalContext) =>
-      decide('withdrawal', [ctx.userId, ctx.clientRef], ctx.replay.kind, {
-        merchantId: ctx.userId,
-        amount: ctx.amount,
-        assetId: ctx.assetId,
-      }),
+      decide(
+        'withdrawal',
+        [ctx.userId, ctx.clientRef],
+        ctx.replay.kind,
+        { merchantId: ctx.userId, amount: ctx.amount, assetId: ctx.assetId },
+        ctx.tx,
+      ),
   };
 }
