@@ -6,6 +6,7 @@ import {
   personalRequestSettled,
   fillSettled,
   kycApproved,
+  ledgerFreezeUpdated,
   orderUpdated,
   p2pEscrowLocked,
   p2pEscrowRefunded,
@@ -21,6 +22,7 @@ import {
   type PayloadOf,
   type Subscription,
 } from '@intafaced/events';
+import { noticeFreezeChange } from './freeze-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
 import {
@@ -706,6 +708,13 @@ export async function subscribeNotificationEvents(
           sourceIdempotencyKey: payload.requestId,
         }),
       );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'ledgerFreezeUpdated', ledgerFreezeUpdated.subject, 'notify-ledger-freeze-updated', async (payload) => {
+      // Reason and actor stay behind: a customer notice says only that postings paused or resumed.
+      await noticeFreezeChange(notify, { frozen: payload.frozen, changedAt: payload.changedAt });
     }),
   );
 

@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { PayError, assertWithdrawalListLimit } from '../payment-service.js';
 import { failureReason } from './reasons.js';
-import { customerStatus, storedStatusesFor, type WithdrawalStatus } from './status.js';
+import { customerStatus, storedStatusesFor, WITHDRAWAL_CANCELED_CODE, type WithdrawalStatus } from './status.js';
 
 /**
  * The customer's withdrawal history (W-withdraw-06): one page of their own withdrawals in the customer status
@@ -32,6 +32,8 @@ export interface WithdrawalHistoryItem {
   readonly status: WithdrawalStatus;
   /** Plain words for the failure, or the raw code when it is not one we explain. `null` when nothing failed. */
   readonly failure: { code: string; known: boolean; message: string } | null;
+  /** True when the funds of a sent withdrawal came back from the outside. The balance is not re-credited until the returned-funds recipe exists. */
+  readonly returned: boolean;
   readonly createdAt: string;
 }
 
@@ -52,6 +54,7 @@ interface Row {
   attempts: number;
   failure_code: string | null;
   status: string;
+  returned: boolean;
   created_at: string;
 }
 
@@ -81,14 +84,19 @@ export function createWithdrawalHistory(sql: Sql) {
       // A status no stored value can mean yet matches nothing, so the page is empty rather than wrong.
       const stored = filter.status ? storedStatusesFor(filter.status) : null;
       if (stored !== null && stored.length === 0) return { items: [], next: null };
+      // `canceled` and `failed` share a stored value; the cancel code tells them apart.
+      const canceledOnly = filter.status === 'canceled' ? true : filter.status === 'failed' ? false : null;
       const cursor = filter.after ? decodeCursor(filter.after) : null;
       const rows = await sql<Row[]>`
         SELECT id, asset_id, amount::text AS amount, rail, destination, client_ref, rail_ref, attempts, failure_code,
-               status::text AS status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
+               status::text AS status,
+               EXISTS (SELECT 1 FROM pay.withdrawal_returns wr WHERE wr.withdrawal_id = pay.withdrawals.id) AS returned,
+               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
           FROM pay.withdrawals
          WHERE user_id = ${userId}
            AND (${filter.assetId ?? null}::text IS NULL OR asset_id = ${filter.assetId ?? null})
            AND (${stored}::text[] IS NULL OR status::text = ANY(${stored}::text[]))
+           AND (${canceledOnly}::boolean IS NULL OR (failure_code IS NOT DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}) = ${canceledOnly})
            AND (${filter.id ?? null}::uuid IS NULL OR id = ${filter.id ?? null})
            AND (${filter.since ?? null}::text IS NULL OR created_at >= ${filter.since ?? null}::text::timestamptz)
            AND (${filter.until ?? null}::text IS NULL OR created_at < ${filter.until ?? null}::text::timestamptz)
@@ -97,8 +105,9 @@ export function createWithdrawalHistory(sql: Sql) {
          LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       const items = page.map((r): WithdrawalHistoryItem => {
+        const status = customerStatus(r.status, r.failure_code);
         // Only a failed row has had its hold reversed; a held or pending row with a code must not claim funds came back.
-        const reason = r.status === 'failed' ? failureReason(r.failure_code) : null;
+        const reason = status === 'failed' ? failureReason(r.failure_code) : null;
         return {
           id: r.id,
           assetId: r.asset_id,
@@ -108,8 +117,9 @@ export function createWithdrawalHistory(sql: Sql) {
           clientRef: r.client_ref,
           railRef: r.rail_ref,
           attempts: r.attempts,
-          status: customerStatus(r.status),
+          status,
           failure: reason ? { code: reason.code, known: reason.known, message: reason.customer } : null,
+          returned: r.returned,
           createdAt: r.created_at,
         };
       });

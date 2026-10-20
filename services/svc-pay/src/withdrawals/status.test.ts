@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  WITHDRAWAL_CANCELED_CODE,
   WITHDRAWAL_STATUSES,
   WithdrawalStateError,
   assertStoredTransition,
@@ -103,8 +104,12 @@ describe('the stored values', () => {
   it('maps a filter back to the stored values, and to none for a status nothing stores yet', () => {
     expect(storedStatusesFor('settled')).toEqual(['sent']);
     expect(storedStatusesFor('requested')).toEqual(['pending']);
-    expect(storedStatusesFor('canceled')).toEqual([]);
+    // A cancelled row is a failed row with the cancel code, so the filter adds the code on top of this.
+    expect(storedStatusesFor('canceled')).toEqual(['failed']);
     expect(storedStatusesFor('broadcast')).toEqual([]);
+    expect(customerStatus('failed', WITHDRAWAL_CANCELED_CODE)).toBe('canceled');
+    expect(customerStatus('failed', 'rail.refused')).toBe('failed');
+    expect(customerStatus('pending', WITHDRAWAL_CANCELED_CODE)).toBe('requested');
   });
 
   it('allows exactly the four moves the code writes today', () => {

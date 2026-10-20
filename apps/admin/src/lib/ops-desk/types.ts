@@ -130,7 +130,7 @@ export type RowAction =
   | 'pay.transfer.detail';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
-export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup';
+export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup' | 'bank.customer.balances';
 
 /** A section that is drawn by its own component from the reads above it, not as a list or facts. */
 export type SectionPanel = 'protocol.blockers';

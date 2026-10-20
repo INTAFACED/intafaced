@@ -134,6 +134,11 @@ export async function consumeApproval(book: ApprovalBook, input: ApprovalConsume
 }
 
 export interface AuditWrite {
+  /**
+   * A business-key id for a row that must be stable on retry. When set, a second write of the same id is a no-op
+   * (the row is the same record). Omitted: a fresh id per write, the row being that write's own record.
+   */
+  readonly id?: string;
   readonly kind: string;
   readonly operatorId: string;
   readonly accountId: string | null;
@@ -144,13 +149,13 @@ export interface AuditWrite {
 }
 
 export async function writeOperatorAudit(sql: Sql, row: AuditWrite, at: Date = new Date()): Promise<string> {
-  const id = randomUUID();
+  const id = row.id ?? randomUUID();
   await sql`INSERT INTO trade.operator_audit (
     id, kind, operator_id, account_id, object_id, approver_id, reason, occurred_at, detail
   ) VALUES (
     ${id}, ${row.kind}, ${row.operatorId}, ${row.accountId}, ${row.objectId}, ${row.approverId},
     ${row.reason}, ${at.toISOString()}, ${sql.json((row.detail ?? {}) as never)}
-  )`;
+  ) ${row.id === undefined ? sql`` : sql`ON CONFLICT (id) DO NOTHING`}`;
   return id;
 }
 

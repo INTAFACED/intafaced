@@ -4,6 +4,8 @@ import { academyActionPayloadHash } from '../../../../../services/svc-academy/sr
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
 import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
+import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
+import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
 /**
@@ -179,5 +181,31 @@ describe('the identity approval is proposed against the target the service consu
       targetId: 'posting_unfreeze',
       expectedVersion: version,
     });
+  });
+});
+
+describe('identity signing-key changes', () => {
+  it('hash equals identity’s own function and is proposed against the target identity consumes', () => {
+    expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).toBe(
+      identityActionPayloadHash(AUTH_KEY_ROTATE_TARGET, { keyId: 'k2' }),
+    );
+    expect(payloadHashFor({ kind: 'identity.auth_key.remove_old', keyIds: 'k1,legacy' })).toBe(
+      identityActionPayloadHash(AUTH_KEY_REMOVE_OLD_TARGET, { keyIds: 'k1,legacy' }),
+    );
+    expect(proposeInputFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).toMatchObject({
+      actionType: AUTH_KEY_ROTATE_TARGET,
+      targetService: 'svc-identity',
+      targetId: AUTH_KEY_ROTATE_TARGET,
+      expectedVersion: '1',
+    });
+    expect(proposeInputFor({ kind: 'identity.auth_key.remove_old', keyIds: 'legacy' })).toMatchObject({
+      actionType: AUTH_KEY_REMOVE_OLD_TARGET,
+      targetId: AUTH_KEY_REMOVE_OLD_TARGET,
+    });
+  });
+  it('a different key id is a different hash', () => {
+    expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).not.toBe(
+      payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k3' }),
+    );
   });
 });

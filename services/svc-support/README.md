@@ -98,6 +98,21 @@ A lead can add themselves to any group, so group scope limits agents, not leads.
 Agent-set priority, type and labels (`setProperties`, `ticketProperties`) live in `ticket_properties`
 beside the ticket, never on it: the ticket owner reads the ticket and must not see them. Each change
 is logged in `ticket_property_log`; `listQueue` takes a `label` filter.
+A ticket can be put `on_hold` by an agent, with a reason (the status note, shown in the owner's history).
+On hold leaves the queue; a customer reply on `pending` or `on_hold` puts it back to `open` with one trail
+row. `ticket_lifecycle` (beside the ticket) keeps who it waits on, when the first public reply went out
+(every operator comment is public; there are no internal notes) and the closed request a new one follows
+(`create` with `followsTicketId`, the caller's own closed ticket, else `support.follow_up_invalid`);
+staff read it with `ticketLifecycle`. These facts are written just after the ticket write, so a crash
+between the two leaves them stale until the next reply or status change.
+
+Ratings: the owner rates a resolved or closed request once (`rate`, replay safe). `ratedMine` returns the ids of the caller's own rated requests, so a list can offer "rate this" on the rest. `ratingSummary`
+(`support:ops`) takes a stated window `[from, to)` with no default and covers the requests resolved or
+closed now whose last change falls in it: solved count, responses, count per score 1 to 5 and the rated
+share in basis points (null with nothing solved, so the screen shows no percentage). With no ratings it
+returns zero responses and the screen shows no average. A window that does not start before it ends
+refuses `support.rating_window_invalid`. The emailed rating request waits on the mail path
+(`vendor.email`); the in-app prompt does not.
 
 ## Migrations
 

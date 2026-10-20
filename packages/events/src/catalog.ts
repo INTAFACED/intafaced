@@ -295,6 +295,26 @@ export const bankMarginCalled = defineEvent(
   'A loan crossed the margin-call threshold. The call is durable at the producer whether or not anyone was reached (§8.1).',
 );
 
+/**
+ * A support request was resolved. The business key for at-least-once delivery is the ticket: a request
+ * asks for its rating once (`rating-request:<ticketId>`), however many times this is delivered.
+ *
+ * Carries no money and no request text, only who to ask and when it was solved.
+ */
+export const supportTicketResolved = defineEvent(
+  'support',
+  'ticket',
+  'resolved',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    /** The person who raised the request, i.e. whom to ask for a rating. */
+    userId: userIdSchema,
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -394,6 +414,47 @@ export const orderCancelled = defineEvent(
   1,
   z.object({ orderId: engineOrderIdSchema, marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
   'Order left the book — svc-trade releases the ledger hold.',
+);
+
+/**
+ * A spread order matched (CB-otc-16). One event per spread fill, carrying every
+ * leg, so svc-trade posts one hold release and one fill for the whole spread and
+ * never a partial leg. A spread fill is NOT an `orderFilled`: the spread price
+ * may be zero or negative, and the legs only mean something together.
+ *
+ * Idempotency key: `matching.spread.filled:<spreadId>:<sequence>`.
+ */
+export const spreadFilled = defineEvent(
+  'matching',
+  'spread',
+  'filled',
+  1,
+  z.object({
+    spreadId: z.string().min(1),
+    makerOrderId: engineOrderIdSchema,
+    takerOrderId: engineOrderIdSchema,
+    makerAccountId: z.string().min(1),
+    takerAccountId: z.string().min(1),
+    takerSide: z.enum(['buy', 'sell']),
+    /** Spread price: Σ side × ratio × leg price from the buyer's view. May be zero or negative. */
+    price: signedAmountSchema,
+    qty: amountSchema,
+    /** Engine book sequence of the spread's own book. */
+    sequence: z.number().int(),
+    ts: z.string().datetime({ offset: true }),
+    /** Every leg, filled in full at the listed ratio. Legs sum to the spread price exactly. */
+    legs: z
+      .array(
+        z.object({
+          symbol: z.string().min(1),
+          takerSide: z.enum(['buy', 'sell']),
+          qty: amountSchema,
+          price: amountSchema,
+        }),
+      )
+      .min(2),
+  }),
+  'A spread order matched with every leg filled at its ratio. svc-trade turns it into one hold release and one fill per side.',
 );
 
 /**
@@ -887,6 +948,7 @@ export const EVENT_CATALOG = {
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
+  supportTicketResolved,
   personalRequestCreated,
   personalRequestSettled,
   blueprintCreated,
@@ -895,6 +957,7 @@ export const EVENT_CATALOG = {
   orderAccepted,
   orderFilled,
   orderCancelled,
+  spreadFilled,
   orderUpdated,
   fillSettled,
   positionUpdated,
@@ -1012,6 +1075,30 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'spreadFilled',
+    missing: 'publisher',
+    /**
+     * CLASS A. svc-matching's spread book (CB-otc-16) emits it once this subject
+     * exists; until then it refuses every spread order (spread_fill_event_unwired),
+     * and only svc-trade can submit one, through a spread door it does not have yet.
+     */
+    class: 'A',
+    reason:
+      'Declared ahead of its producer: svc-matching wires its SpreadFillPublisher to this subject in the PR after this one. No spread order can reach a book before then, so no fill goes unannounced.',
+  },
+  {
+    event: 'spreadFilled',
+    missing: 'subscriber',
+    /**
+     * CLASS A. svc-trade consumes it with its spread place door and spread holds
+     * (CB-otc-16, svc-trade half). Until that door exists nothing can place a
+     * spread order, so no spread fill can exist without its consumer.
+     */
+    class: 'A',
+    reason:
+      'svc-trade subscribes when it gains the spread place door and spread holds; svc-matching only admits spread orders from svc-trade, so a fill cannot occur before its money consumer exists.',
+  },
   // ── no publisher ───────────────────────────────────────────────────────────
   //
   // `bankMarginCalled` was here, and was the reason this section existed: a
@@ -1041,6 +1128,18 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Publisher waits on a buyback ledger recipe. svc-token refuse-closes recordBuyback with token.buyback_tokens_unmoved rather than emit buybackExecuted for a buy that did not happen — no existing ledger-client recipe books tokensBought (burn spends fee-funded engine; mintEmission prints supply). Nothing observes a buy that did not happen; the recipe PR owns the publisher.',
+  },
+
+  {
+    event: 'supportTicketResolved',
+    missing: 'publisher',
+    /**
+     * CLASS A. The in-app rating prompt does not depend on this subject: it reads the request's own status.
+     * Only the emailed rating request does, and that already refuses until a mail sender is configured.
+     */
+    class: 'A',
+    reason:
+      'Declared first, as the events-then-service rule asks. svc-support publishes it when a request is resolved, in the next PR of SP-csat-01. The in-app rating prompt reads the request status and does not wait on it.',
   },
 
   // ── no subscriber ──────────────────────────────────────────────────────────
@@ -1094,17 +1193,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
-  },
-  {
-    event: 'ledgerFreezeUpdated',
-    missing: 'subscriber',
-    /**
-     * CLASS A. Freeze state is a durable row every replica reads, "which is
-     * precisely why nothing has to subscribe to stay correct".
-     */
-    class: 'A',
-    reason:
-      'Freeze state is DURABLE, not a process signal: every replica reads the same row, which is precisely why nothing has to subscribe to stay correct. The event exists so an operator console can react without polling. apps/admin does not yet make a network call of any kind (see tracker ops.admin-console), so there is no consumer to attach.',
   },
   {
     event: 'coreOpsAlertRuleUpdated',
@@ -1325,6 +1413,17 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'supportTicketResolved',
+    missing: 'subscriber',
+    /**
+     * CLASS A. svc-notify consumes it in the PR after the publisher; until then nothing depends on it, since
+     * the in-app prompt reads the request status.
+     */
+    class: 'A',
+    reason:
+      'svc-notify turns it into the rating request (an inbox row, and an email where an address is confirmed and the email gateway is configured) in the last PR of SP-csat-01. Nothing derives state from it before then; the in-app rating prompt reads the request status.',
   },
 ] satisfies readonly WiringSocket[];
 

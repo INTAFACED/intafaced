@@ -8,6 +8,7 @@ import * as killSwitch from './kill-switch/route';
 import * as ledgerFreeze from './ledger-freeze/route';
 import * as operatorTools from './operator-tools/route';
 import * as bankOps from './bank-ops/route';
+import * as bankOpsCustomer from './bank-ops/customer/route';
 import * as payOps from './pay-ops/route';
 import * as payOpsTransfer from './pay-ops/transfer/route';
 import * as payOpsPage from './pay-ops/page/route';
@@ -15,6 +16,7 @@ import * as p2pOps from './p2p-ops/route';
 import * as academyOps from './academy-ops/route';
 import * as moreOps from './more-ops/route';
 import * as protocolOps from './protocol-ops/route';
+import * as identityKeys from './identity-ops/keys/route';
 
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
@@ -30,12 +32,14 @@ const nonCrm = [
   ['accounts', accounts, '/api/accounts'],
   ['kill-switch', killSwitch, '/api/kill-switch'],
   ['ledger-freeze', ledgerFreeze, '/api/ledger-freeze'],
+  ['identity-ops keys', identityKeys, '/api/identity-ops/keys'],
   ['operator-tools', operatorTools, '/api/operator-tools'],
   ['analytics/warehouse', warehouse, '/api/analytics/warehouse'],
 ] as const;
 
 const readOnly = [
   ['bank-ops', bankOps, '/api/bank-ops'],
+  ['bank-ops customer', bankOpsCustomer, '/api/bank-ops/customer?user=11111111-1111-4111-8111-111111111111'],
   ['pay-ops', payOps, '/api/pay-ops'],
   ['pay-ops transfer', payOpsTransfer, '/api/pay-ops/transfer?id=abcdefgh'],
   ['pay-ops page', payOpsPage, '/api/pay-ops/page?read=pay.failed-standing&cursor=abc'],

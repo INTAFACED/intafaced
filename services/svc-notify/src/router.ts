@@ -41,7 +41,9 @@ import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
+import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
 import { TEMPLATE_KEYS } from './ops-config/templates.js';
 
 /**
@@ -194,7 +196,8 @@ function typedRefusal(err: unknown): never {
     err instanceof QuietHoursError ||
     err instanceof RecentDeliveriesError ||
     err instanceof NoticeError ||
-    err instanceof OpsConfigError
+    err instanceof OpsConfigError ||
+    err instanceof RecipientHealthError
   ) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -331,6 +334,35 @@ const statusFeedOutput = z.object({
   }),
 });
 
+const changelogArea = z.enum(CHANGELOG_AREAS);
+const changelogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const changelogOutput = z.object({
+  area: changelogArea,
+  breaking: z.boolean(),
+  endpoints: z.array(z.string()),
+  scopes: z.array(z.string()),
+  addedOn: changelogDay.nullable(),
+  releaseOn: changelogDay.nullable(),
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  migrationNote: z.string().nullable(),
+  retired: z.array(z.string()),
+});
+
+/** What an author sends for a changelog entry. Area, dates and the rest are validated again on the board. */
+const changelogInput = z.object({
+  area: z.string().max(32).nullable().optional(),
+  breaking: z.boolean().nullable().optional(),
+  endpoints: z.array(z.string().max(200)).max(50).nullable().optional(),
+  scopes: z.array(z.string().max(200)).max(50).nullable().optional(),
+  addedOn: changelogDay.nullable().optional(),
+  releaseOn: changelogDay.nullable().optional(),
+  before: z.string().max(4000).nullable().optional(),
+  after: z.string().max(4000).nullable().optional(),
+  migrationNote: z.string().max(4000).nullable().optional(),
+  retired: z.array(z.string().max(200)).max(50).nullable().optional(),
+});
+
 const noticeWireOutput = z.object({
   id: z.string().uuid(),
   kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
@@ -341,6 +373,7 @@ const noticeWireOutput = z.object({
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
   version: z.number().int(),
+  changelog: changelogOutput.nullable(),
 });
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
@@ -760,6 +793,70 @@ export function createNotifyRouter(
         )
         .query(() => providerHealth(process.env)),
 
+      /**
+       * Recipients by state (active, unconfirmed, quarantined), addresses masked.
+       * `thresholdCode` is `notify.quarantine_threshold_unset` until the owner sets
+       * the count: nothing is quarantined meanwhile and the page says so. Page size
+       * is owner-published like the deliveries list: omit refuses.
+       */
+      operatorRecipients: scopedProcedure('admin:read', { module: 'notify' })
+        .input(
+          z.object({
+            state: z.enum(RECIPIENT_STATES as unknown as [string, ...string[]]),
+            limit: z.number().int().min(1).max(200).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            threshold: z.number().int().nullable(),
+            thresholdCode: z.literal('notify.quarantine_threshold_unset').nullable(),
+            items: z.array(
+              z.object({
+                userId: z.string(),
+                channel: outOfAppChannelSchema,
+                address: z.string(),
+                state: z.enum(['active', 'unconfirmed', 'quarantined']),
+                consecutiveFailures: z.number().int(),
+                lastFailureAt: z.string().nullable(),
+                lastFailureCode: z.string().nullable(),
+                quarantinedAt: z.string().nullable(),
+                quarantineReason: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ input }) => {
+          const r = await notify.operatorRecipients(input.state as 'active' | 'unconfirmed' | 'quarantined', input.limit);
+          return {
+            threshold: r.threshold,
+            thresholdCode: r.thresholdCode,
+            items: r.items.map((i) => ({
+              ...i,
+              lastFailureAt: i.lastFailureAt?.toISOString() ?? null,
+              quarantinedAt: i.quarantinedAt?.toISOString() ?? null,
+            })),
+          };
+        }),
+
+      /** Lift a quarantine. Reason required; `reasonId` makes a replay a no-op; audited. */
+      operatorReleaseRecipient: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({
+            userId: z.string().min(1).max(128),
+            channel: outOfAppChannelSchema,
+            reason: z.string().max(500),
+            reasonId: z.string().min(1).max(128),
+          }),
+        )
+        .output(z.object({ released: z.literal(true), replayed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await notify.operatorReleaseRecipient(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
       ops: router({
         deliveries: scopedProcedure('admin:read', { module: 'notify' })
           .input(operatorDeliveriesInput)
@@ -952,6 +1049,50 @@ export function createNotifyRouter(
           }
         }),
 
+      /**
+       * Published changelog entries, newest first, optionally one area or breaking
+       * entries only. Signed-out. An entry with no release date reads `releaseOn: null`.
+       */
+      changelog: publicProcedure
+        .input(
+          z.object({
+            area: changelogArea.optional(),
+            breaking: z.boolean().optional(),
+            limit: z.number().int().min(1),
+          }),
+        )
+        .output(z.array(noticeWireOutput))
+        .query(async ({ input }) => {
+          if (!notify.notices) return [];
+          try {
+            return [
+              ...(await notify.notices.changelog({ area: input.area ?? null, breaking: input.breaking ?? null, limit: input.limit })),
+            ];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * Advance notice. Breaking entries whose release date has not passed, soonest
+       * first (an entry with no date is never listed), and every endpoint a published
+       * entry retires. Signed-out.
+       */
+      upcomingChanges: publicProcedure
+        .output(
+          z.object({
+            upcoming: z.array(noticeWireOutput),
+            retired: z.array(
+              z.object({ endpoint: z.string(), entryId: z.string().uuid(), title: z.string(), releaseOn: changelogDay.nullable() }),
+            ),
+          }),
+        )
+        .query(async () => {
+          if (!notify.notices) return { upcoming: [], retired: [] };
+          const read = await notify.notices.upcomingChanges();
+          return { upcoming: [...read.upcoming], retired: [...read.retired] };
+        }),
+
       /** Open published incidents and maintenance windows. Signed-out. */
       noticeStatus: publicProcedure
         .output(
@@ -991,6 +1132,7 @@ export function createNotifyRouter(
             components: z.array(statusComponentId).max(3).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
+            changelog: changelogInput.nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

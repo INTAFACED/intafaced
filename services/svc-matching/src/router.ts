@@ -52,6 +52,7 @@ import {
 } from './action-approval-consume.js';
 import { bindPostOnlyTif, postOnlyCannotRest } from './engine/post-only.js';
 import { reconcile } from './reconcile.js';
+import { readSpreadListing, spreadIdentity, toWireSpread } from './engine/spread-instrument.js';
 import { presentRulebook, readRulebook } from './rulebook.js';
 import { l4, nativeL3FromEngine, publicMakerIdentity } from './engine/l3-queue.js';
 import {
@@ -271,6 +272,47 @@ const amendBodySchema = z
 
 const markBodySchema = z.object({ mark: decimal });
 
+/**
+ * Owner spread listing (CB-otc-16). Fields are strings or blank so a blank owner value reaches the typed refusal
+ * instead of a generic 400. Consumed through the same dual-control approval as OPEN.
+ */
+const spreadListBodySchema = z.object({
+  kind: z.string().max(32).nullish(),
+  legs: z
+    .array(
+      z.object({
+        symbol: z.string().max(128).nullish(),
+        side: z.string().max(8).nullish(),
+        ratio: z.string().max(64).nullish(),
+      }),
+    )
+    .max(8)
+    .nullish(),
+  tick: z.string().max(64).nullish(),
+  lot: z.string().max(64).nullish(),
+  operatorId: z.string().min(1).max(128),
+  confirmOperatorId: z.string().max(128).nullish(),
+  approvalId: z.string().max(128).nullish(),
+  operationId: z.string().max(128).nullish(),
+});
+
+/** A spread order. GTC limit at a signed spread price; the engine stamps the listing itself. */
+const spreadOrderBodySchema = z.object({
+  orderId: z.string().uuid(),
+  accountId: z.string().min(1).max(128),
+  side: orderSideSchema,
+  qty: decimal,
+  /** Spread price: a weighted leg-price difference, so it may be zero or negative. */
+  price: signedDecimal,
+  tif: timeInForceSchema,
+  /** Caller reference for the anchor leg (leg 0). Missing refuses. The engine does not invent a mark. */
+  anchorReference: decimal.nullish(),
+  clientOrderId: z.string().min(1).max(128).optional(),
+  environment: z.string().max(64).optional(),
+  sessionId: z.string().max(128).optional(),
+  lifecycleProof: marketLifecycleAdmissionProofSchema,
+});
+
 const counterpartOrderSchema = z.object({
   orderId: z.string().min(1).max(128),
   marketId: z.string().min(1).max(128),
@@ -412,6 +454,16 @@ const presentFill = (fill: Fill) => ({
   takerSide: fill.takerSide,
   price: formatAmount(fill.price),
   qty: formatAmount(fill.qty),
+  ...(fill.legs !== undefined
+    ? {
+        legs: fill.legs.map((leg) => ({
+          symbol: leg.symbol,
+          takerSide: leg.takerSide,
+          qty: formatAmount(leg.qty),
+          price: formatAmount(leg.price),
+        })),
+      }
+    : {}),
 });
 
 const presentResting = (resting: RestingRef | null) =>
@@ -1484,6 +1536,126 @@ export function registerRoutes(
   });
 
   app.get('/markets', async () => publicMatchingBoard(engine));
+
+  // ── Spreads (CB-otc-16) ────────────────────────────────────────────
+  // Public reads, like depth and the market list: a listing and a spread price are not secrets.
+
+  app.get('/spreads', async () => ({ instruments: engine.spreadInstruments().map(toWireSpread) }));
+
+  app.get('/spreads/:spreadId/book', async (req, reply) => {
+    const limit = parsePublicL2QueryLimit((req.query as { limit?: string }).limit);
+    if (limit === undefined) {
+      return reply.code(400).send({ code: MATCHING_L2_LIMIT_UNSET, message: userCopy(MATCHING_L2_LIMIT_UNSET) });
+    }
+    const { spreadId } = req.params as { spreadId: string };
+    const view = engine.spreadBook(spreadId, limit);
+    if (view === null) {
+      return reply.code(404).send({ code: 'spread_unlisted', message: userCopy('matching.spread_unlisted') });
+    }
+    return reply.code(200).send({
+      spreadId,
+      instrument: toWireSpread(view.instrument),
+      bids: view.bids,
+      asks: view.asks,
+      sequence: view.sequence,
+      bestBid: view.bestBid,
+      bestAsk: view.bestAsk,
+      lastPrice: view.lastPrice,
+      ...publicMatchingFlags(engine, spreadId),
+    });
+  });
+
+  app.post('/spreads/:spreadId/list', async (req, reply) => {
+    try {
+      requireTradingService(req);
+    } catch (err) {
+      return authFailure(err, reply);
+    }
+
+    const { spreadId } = req.params as { spreadId: string };
+    const parsed = spreadListBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+
+    const refused = (code: string, message: string, operatorId: string | null, confirmOperatorId: string | null) =>
+      reply.code(200).send({
+        accepted: false,
+        spreadId,
+        instrument: null,
+        alreadyListed: false,
+        operatorId,
+        confirmOperatorId,
+        rejected: { code, message },
+      });
+
+    // Read the definition before the approval is spent: a blank owner field refuses and the approval stays unused.
+    const read = readSpreadListing({ ...parsed.data, spreadId });
+    if (!read.ok) return refused(read.rejected.code, read.rejected.message, parsed.data.operatorId, parsed.data.confirmOperatorId ?? null);
+
+    // The approval binds the exact definition, so a different ratio or tick needs a new approval.
+    const authz = await consumeVenueKill(
+      parsed.data,
+      'matching.spread_list',
+      { spreadId: read.instrument.spreadId, definition: spreadIdentity(read.instrument) },
+      `spread_list:${read.instrument.spreadId}`,
+    );
+    if (!authz.ok && authz.status === 400) return reply.code(400).send(authz.body);
+    if (!authz.ok) return refused(authz.rejected.code, authz.rejected.message, authz.operatorId, authz.confirmOperatorId);
+
+    const result = await engine.listSpread(
+      { ...parsed.data, spreadId },
+      { operatorId: authz.operatorId, confirmOperatorId: authz.confirmOperatorId },
+    );
+    return reply.code(200).send({
+      accepted: result.accepted,
+      spreadId: result.spreadId,
+      instrument: result.instrument === null ? null : toWireSpread(result.instrument),
+      alreadyListed: result.alreadyListed,
+      operatorId: authz.operatorId,
+      confirmOperatorId: authz.confirmOperatorId,
+      rejected: result.rejected ?? null,
+    });
+  });
+
+  app.post('/spreads/:spreadId/orders', async (req, reply) => {
+    try {
+      requireTradingService(req);
+    } catch (err) {
+      return authFailure(err, reply);
+    }
+
+    const { spreadId } = req.params as { spreadId: string };
+    const parsed = spreadOrderBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+    const proofIssues: string[] = [];
+    if (parsed.data.lifecycleProof.snapshot.marketId !== spreadId) {
+      proofIssues.push('lifecycleProof.snapshot.marketId: must match the route spreadId');
+    }
+    if (parsed.data.lifecycleProof.action !== 'PLACE') proofIssues.push('lifecycleProof.action: must be PLACE for a spread order');
+    if (proofIssues.length > 0) return reply.code(400).send({ code: 'BadRequest', issues: proofIssues });
+
+    const body = parsed.data;
+    const result = await engine.submitSpread(
+      spreadId,
+      {
+        orderId: body.orderId,
+        accountId: body.accountId,
+        side: body.side,
+        qty: parseAmount(body.qty),
+        price: parseAmount(body.price),
+        tif: body.tif,
+        anchorReference: body.anchorReference == null ? null : parseAmount(body.anchorReference),
+        clientOrderId: body.clientOrderId ?? null,
+        environment: body.environment ?? null,
+        sessionId: body.sessionId ?? null,
+      },
+      body.lifecycleProof,
+    );
+    return reply.code(200).send(presentSubmit(result));
+  });
 
   app.get('/rulebook', async () => presentRulebook(readRulebook(rulebookVersion)));
 

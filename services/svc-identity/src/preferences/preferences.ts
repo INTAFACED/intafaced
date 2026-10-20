@@ -7,6 +7,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
+import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
@@ -20,8 +21,8 @@ import {
   type TradeViewsValue,
 } from './trade-views.js';
 
-export type PreferenceNamespace = typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue;
+export type PreferenceNamespace = typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE | typeof UI_VIEW_NAMESPACE;
+export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = { readonly displayCurrencies: readonly string[] };
@@ -41,7 +42,8 @@ export class PreferencesError extends Error {
 /** Each namespace carries its own value shape. */
 export type PreferenceView =
   | { readonly namespace: typeof TRADE_VIEWS_NAMESPACE; readonly version: number; readonly value: TradeViewsValue | null }
-  | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null };
+  | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null }
+  | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -59,15 +61,22 @@ function callerId(context: Context): string {
   return principal.userId.toLowerCase();
 }
 
+/** Every namespace the door stores, each with the check that decides what its value may hold. */
+const NAMESPACES: Readonly<Record<PreferenceNamespace, (value: unknown, settings: PreferenceSettings) => PreferenceValue>> = {
+  [TRADE_VIEWS_NAMESPACE]: (value) => parseTradeViews(value),
+  [ACCOUNT_DISPLAY_NAMESPACE]: (value, settings) => parseAccountDisplay(value, settings.displayCurrencies),
+  [UI_VIEW_NAMESPACE]: (value) => parseUiView(value),
+};
+
 function requireNamespace(namespace: string): PreferenceNamespace {
-  if (namespace !== TRADE_VIEWS_NAMESPACE && namespace !== ACCOUNT_DISPLAY_NAMESPACE) {
+  if (!Object.prototype.hasOwnProperty.call(NAMESPACES, namespace)) {
     throw new PreferencesError(`${PREFERENCES_NAMESPACE_UNKNOWN}: ${namespace}`, PREFERENCES_NAMESPACE_UNKNOWN);
   }
-  return namespace;
+  return namespace as PreferenceNamespace;
 }
 
 function parseValue(namespace: PreferenceNamespace, value: unknown, settings: PreferenceSettings): PreferenceValue {
-  return namespace === ACCOUNT_DISPLAY_NAMESPACE ? parseAccountDisplay(value, settings.displayCurrencies) : parseTradeViews(value);
+  return NAMESPACES[namespace](value, settings);
 }
 
 export async function getPreferences(sql: Sql, context: Context, namespace: string): Promise<PreferenceView> {

@@ -1,4 +1,5 @@
 import type {
+  SupportTicketLifecycle,
   SupportTicketProperties,
   SupportCaseFile,
   SupportComment,
@@ -7,8 +8,9 @@ import type {
   SupportTicketEvent,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
+import type { SupportRatingSummary } from './ratings';
 
-export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
+export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 
 /** One row of svc-support's operator queue (open and pending tickets, ordered by score). */
 export interface QueueEntry {
@@ -71,6 +73,18 @@ export interface SupportKbView {
 export interface SupportPropertiesView {
   readonly asOf: string;
   readonly properties: Part<SupportTicketProperties>;
+}
+
+/** Who a ticket waits on, the first public reply and the request it follows. Staff only. */
+export interface SupportLifecycleView {
+  readonly asOf: string;
+  readonly lifecycle: Part<SupportTicketLifecycle>;
+}
+
+/** Satisfaction ratings for the requests solved in a window the caller stated. */
+export interface SupportRatingSummaryView {
+  readonly asOf: string;
+  readonly summary: Part<SupportRatingSummary>;
 }
 
 import type { StaffMemberView, StaffPolicyView } from './staff';

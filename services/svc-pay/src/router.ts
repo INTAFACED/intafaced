@@ -1,5 +1,8 @@
 import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
+import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
+import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
@@ -259,6 +262,8 @@ export function createPayRouter(
   portalSql: Sql | null = null,
   /** Local-test starter fee. Null means the product fee is not set yet. */
   starterFee: MerchantStarterFee | null = null,
+  /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
+  withdrawalQuotes: WithdrawalQuoteService | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2115,6 +2120,23 @@ export function createPayRouter(
         ),
 
       /**
+       * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
+       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. Only a withdrawal with no
+       * send attempt on record can be cancelled; `sent`, `held` and `failed` answer `pay.withdrawal_not_cancellable`, and
+       * cancelling twice returns the same cancelled record. The id is checked against the caller, so another account's
+       * id reads as `pay.withdrawal_not_found`.
+       */
+      cancel: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(z.object({ withdrawalId: z.string().uuid() }).strict())
+        .output(withdrawalView.extend({ customerStatus: z.literal('canceled') }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => ({
+            ...toWithdrawalOut(await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId })),
+            customerStatus: 'canceled' as const,
+          })),
+        ),
+
+      /**
        * `trade:read`, not `trade:withdraw`: checking whether a withdrawal landed
        * is something a user should be able to do from an ordinary session, long
        * after their five-minute elevation has expired.
@@ -2239,6 +2261,7 @@ export function createPayRouter(
                 attempts: z.number().int(),
                 status: z.enum(WITHDRAWAL_STATUSES),
                 failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+                returned: z.boolean(),
                 createdAt: z.string(),
               }),
             ),
@@ -2266,6 +2289,21 @@ export function createPayRouter(
           }),
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalEligibilityFor(ctx.principal.userId, input.assetId))),
+
+      /**
+       * A fee quote for one withdrawal (W-withdraw-04): fee parts, on top or deducted, net, total debit and expiry. `trade:write`
+       * (it stores a quote, moves nothing and needs no step-up). `quoteRef` is the caller's own key, kept across a retry.
+       * A blank fee, mode or lifetime refuses with a typed error; no figure is guessed. Create does not read the quote yet.
+       */
+      quote: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(quoteInputSchema)
+        .output(quoteViewSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            if (!withdrawalQuotes) throw new WithdrawalQuoteError('withdrawal_quote.unwired', 'quotes need the pay database');
+            return withdrawalQuotes.quote(ctx.principal.userId, input);
+          }),
+        ),
 
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
@@ -2389,6 +2427,7 @@ function toTrpcError(err: unknown): unknown {
   }
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
+  if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -2476,6 +2515,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.fee_bps_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
+      case 'pay.purchase_hold_period_unset':
       case 'pay.link_max_ttl_unset':
       case 'pay.checkout_session_ttl_unset':
       case 'pay.checkout_max_open_sessions_unset':
@@ -2522,6 +2562,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
       case 'pay.settlement_released':
+      case 'pay.withdrawal_amount_held':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':
@@ -2531,6 +2572,9 @@ function toTrpcError(err: unknown): unknown {
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
+      case 'pay.withdrawal_not_cancellable':
+      case 'pay.withdrawal_not_reversible':
+      case 'pay.withdrawal_canceled':
       case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for
         // different numbers; retrying repeats it. Nothing they can resend fixes

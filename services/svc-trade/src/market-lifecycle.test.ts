@@ -418,6 +418,21 @@ function appliedTransition(marketId: string, state: MarketLifecycleState): Marke
   };
 }
 
+describe('limit-only mode', () => {
+  it('lists placement and no request-for-quote, and is not a recovery state', () => {
+    const market = fakeMarket({ id: 'market-limit-only', status: 'active' });
+    const snapshot = deriveMarketLifecycleSnapshot(market, {
+      now: '2026-08-24T12:01:00.000Z',
+      evidence: { ...readyEvidence(market.id), transition: appliedTransition(market.id, 'LIMIT_ONLY') },
+    });
+    expect(snapshot.state).toBe('LIMIT_ONLY');
+    expect(snapshot.allowedActions).toContain('PLACE');
+    expect(snapshot.allowedActions).toContain('CANCEL');
+    expect(snapshot.allowedActions).not.toContain('RFQ');
+    expect(decideMarketAction(snapshot, 'PLACE')).toMatchObject({ decision: 'ELIGIBLE', recovery: false });
+  });
+});
+
 describe('named lifecycle state is the stored transition, not open-or-not', () => {
   it('keeps every applied state on an active listing and leaves the actor off the snapshot', () => {
     for (const state of marketLifecycleStateSchema.options) {

@@ -221,27 +221,29 @@ refuses `guest.delivery_in_progress`; settle it or let its bounded lease expire
 before retrying. Erased submissions cannot enqueue further messages. Erasure covers
 notify's owned records; ops owns submission/contact erasure and authorization.
 
-| Procedure                | Scope          | Input                                             | Output                                                                                                                                                             |
-| ------------------------ | -------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `health`                 | public         | —                                                 | `{ ok, service, fanoutEnabled, venueIncident }` — `ok` is liveness; `venueIncident.allFine` is the venue claim                                                     |
-| `notify.list`            | `notify:read`  | `{ cursor?, limit?, unreadOnly? }`                | `{ items, nextCursor }`                                                                                                                                            |
-| `notify.unreadCount`     | `notify:read`  | —                                                 | `{ count }`                                                                                                                                                        |
-| `notify.markRead`        | `notify:write` | `{ ids: uuid[] }`                                 | `{ marked }`                                                                                                                                                       |
-| `notify.markAllRead`     | `notify:write` | —                                                 | `{ marked }`                                                                                                                                                       |
-| `notify.channels`        | `notify:read`  | —                                                 | per-channel availability + missing env + §13 `socket` id (null for in-app)                                                                                         |
-| `notify.targets`         | `notify:read`  | —                                                 | the caller's registered addresses                                                                                                                                  |
-| `notify.registerTarget`  | `notify:write` | `{ channel, address, locale? }`                   | `{ status, channel, code, expiresAt }` — rate-limited (`channel.register_rate_limited`)                                                                            |
-| `notify.verifyTarget`    | `notify:write` | `{ channel, code }`                               | `{ verified, code }` — rate-limited (`channel.verify_rate_limited`)                                                                                                |
-| `notify.removeTarget`    | `notify:write` | `{ channel }`                                     | `{ removed }`                                                                                                                                                      |
-| `notify.deliveries`      | `notify:read`  | `{ notificationId }`                              | per-channel attempt + outcome                                                                                                                                      |
-| `notify.mutePrefs`       | `notify:read`  | —                                                 | per-channel mute flags (email/push/sms)                                                                                                                            |
-| `notify.setMute`         | `notify:write` | `{ channel, muted }`                              | updated mute flags                                                                                                                                                 |
-| `notify.categoryPrefs`   | `notify:read`  | —                                                 | category-by-channel grid; `security` and the inbox are `locked`; `notConnected` names the missing vendor (`vendor.email`, `vendor.push`, `vendor.sms`)             |
-| `notify.setCategoryPref` | `notify:write` | `{ category, channel, enabled, clientRequestId }` | `{ rows, locked }`; a locked cell stores nothing; each change is kept in `notify.category_pref_history`                                                            |
-| `notify.statusFeed`      | public         | `{ days }` (clamped to 90)                        | components (`unknown` unless a published notice says otherwise), incidents with update timelines, open maintenance, incident minutes per day; no uptime percentage |
-| `notify.alerts`          | `notify:read`  | —                                                 | caller's price watches (v22.alerts MVP)                                                                                                                            |
-| `notify.createAlert`     | `notify:write` | `{ marketId, direction, targetPrice }`            | active watch; price is a decimal string                                                                                                                            |
-| `notify.cancelAlert`     | `notify:write` | `{ id }`                                          | cancel an active watch                                                                                                                                             |
+| Procedure                | Scope          | Input                                             | Output                                                                                                                                                                                                               |
+| ------------------------ | -------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `health`                 | public         | —                                                 | `{ ok, service, fanoutEnabled, venueIncident }` — `ok` is liveness; `venueIncident.allFine` is the venue claim                                                                                                       |
+| `notify.list`            | `notify:read`  | `{ cursor?, limit?, unreadOnly? }`                | `{ items, nextCursor }`                                                                                                                                                                                              |
+| `notify.unreadCount`     | `notify:read`  | —                                                 | `{ count }`                                                                                                                                                                                                          |
+| `notify.markRead`        | `notify:write` | `{ ids: uuid[] }`                                 | `{ marked }`                                                                                                                                                                                                         |
+| `notify.markAllRead`     | `notify:write` | —                                                 | `{ marked }`                                                                                                                                                                                                         |
+| `notify.channels`        | `notify:read`  | —                                                 | per-channel availability + missing env + §13 `socket` id (null for in-app)                                                                                                                                           |
+| `notify.targets`         | `notify:read`  | —                                                 | the caller's registered addresses                                                                                                                                                                                    |
+| `notify.registerTarget`  | `notify:write` | `{ channel, address, locale? }`                   | `{ status, channel, code, expiresAt }` — rate-limited (`channel.register_rate_limited`)                                                                                                                              |
+| `notify.verifyTarget`    | `notify:write` | `{ channel, code }`                               | `{ verified, code }` — rate-limited (`channel.verify_rate_limited`)                                                                                                                                                  |
+| `notify.removeTarget`    | `notify:write` | `{ channel }`                                     | `{ removed }`                                                                                                                                                                                                        |
+| `notify.deliveries`      | `notify:read`  | `{ notificationId }`                              | per-channel attempt + outcome                                                                                                                                                                                        |
+| `notify.mutePrefs`       | `notify:read`  | —                                                 | per-channel mute flags (email/push/sms)                                                                                                                                                                              |
+| `notify.setMute`         | `notify:write` | `{ channel, muted }`                              | updated mute flags                                                                                                                                                                                                   |
+| `notify.categoryPrefs`   | `notify:read`  | —                                                 | category-by-channel grid; `security` and the inbox are `locked`; `notConnected` names the missing vendor (`vendor.email`, `vendor.push`, `vendor.sms`)                                                               |
+| `notify.setCategoryPref` | `notify:write` | `{ category, channel, enabled, clientRequestId }` | `{ rows, locked }`; a locked cell stores nothing; each change is kept in `notify.category_pref_history`                                                                                                              |
+| `notify.statusFeed`      | public         | `{ days }` (clamped to 90)                        | components (`unknown` unless a published notice says otherwise), incidents with update timelines, open maintenance, incident minutes per day; no uptime percentage                                                   |
+| `notify.changelog`       | public         | `{ area?, breaking?, limit }`                     | published changelog entries, newest first, each with `changelog` (area, breaking flag, endpoints, scopes, `addedOn`, `releaseOn` (null = date not set), before and after example, migration note, retired endpoints) |
+| `notify.upcomingChanges` | public         | —                                                 | `{ upcoming, retired }`: breaking entries not yet in effect, soonest first (an entry with no date is never listed), and every endpoint a published entry retires                                                     |
+| `notify.alerts`          | `notify:read`  | —                                                 | caller's price watches (v22.alerts MVP)                                                                                                                                                                              |
+| `notify.createAlert`     | `notify:write` | `{ marketId, direction, targetPrice }`            | active watch; price is a decimal string                                                                                                                                                                              |
+| `notify.cancelAlert`     | `notify:write` | `{ id }`                                          | cancel an active watch                                                                                                                                                                                               |
 
 **Mounted, and proven mounted.** `router.mount.test.ts` proves authorisation
 through `createCaller`, which is the right tool for that job and blind to a
@@ -284,23 +286,51 @@ _None._
 
 **Consumes**
 
-| Subject                                   | Consumer (durable)                | Effect                                                      |
-| ----------------------------------------- | --------------------------------- | ----------------------------------------------------------- |
-| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                |
-| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only            |
-| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only        |
-| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                             |
-| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                    |
-| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                    |
-| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)  |
-| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                 |
-| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                 |
-| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                            |
-| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called      |
-| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay |
-| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid    |
-| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action          |
-| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                |
+| Subject                                   | Consumer (durable)                | Effect                                                                  |
+| ----------------------------------------- | --------------------------------- | ----------------------------------------------------------------------- |
+| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                            |
+| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                        |
+| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                    |
+| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                         |
+| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                |
+| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                |
+| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)              |
+| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                             |
+| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                             |
+| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                        |
+| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                  |
+| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay             |
+| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                |
+| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                      |
+| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                            |
+| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared |
+
+### Posting-freeze notice (audience `all`)
+
+`ledger.freeze.updated` writes one row to `notify.system_notices` (migration 0016), keyed
+`freeze:{changedAt}:{frozen}`, and every user's inbox read merges it in with a per-user
+read mark in `notify.system_notice_reads`: `notify.list`, `unreadCount`, `markRead` and
+`markAllRead` all include it, so a freeze is one write and not one per account. It is
+inbox only (no out-of-app send). Copy keys `notify.ledger.freeze.set` and `.cleared`;
+if a key is missing from the catalog the consumer throws `notify.freeze_copy_unset`, writes
+nothing and the event is redelivered. The event's reason and actor are never read. It
+reports the svc-ledger posting freeze only, not the single-account freeze of svc-identity.
+
+### Recipient health and quarantine
+
+A send that ends `abandoned` (gateway rejected it for good, or the attempt budget was spent) adds one to that
+address's failure count in `notify.recipient_health` (migration 0017); an accepted send resets it. A `failed`
+attempt that will be retried does not count. When the count reaches `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` the
+address is quarantined: non-critical sends are refused `channel.recipient_quarantined` with the stored reason.
+Critical messages are still attempted. A blank threshold quarantines nobody, and `notify.operatorRecipients`
+returns `thresholdCode: notify.quarantine_threshold_unset`. The row is pinned to the address, so a changed
+address starts clean.
+
+- `notify.operatorRecipients` (`admin:read`): `{ state: active | unconfirmed | quarantined, limit }`, addresses masked.
+- `notify.operatorReleaseRecipient` (`admin:write`): reason required (`notify.release_reason_required`),
+  `reasonId` makes a replay a no-op, unknown recipient `notify.recipient_unknown`, not quarantined
+  `notify.recipient_not_quarantined`. Every release appends to the immutable `notify.recipient_release_audit`.
+- A provider outage that abandons many sends can quarantine many recipients; release and the threshold are the lever.
 
 ### Idempotency and backpressure
 
@@ -396,20 +426,21 @@ Codes, not sentences — clients render copy from `@intafaced/i18n`. Every code 
 row can carry is listed in `allRefusalCodes()` (`channels/channel.ts`); a pin
 test fails if production writes a string missing from that list.
 
-| Code                            | Means                                                                                                |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `channel.not_configured`        | No gateway credentials for this channel                                                              |
-| `channel.no_target`             | User has no address on this channel                                                                  |
-| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                             |
-| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                |
-| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                               |
-| `channel.muted`                 | User muted non-critical traffic on this channel                                                      |
-| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                  |
-| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                               |
-| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                             |
-| `channel.register_rate_limited` | Too many address registrations in the window                                                         |
-| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                          |
-| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row |
+| Code                            | Means                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `channel.not_configured`        | No gateway credentials for this channel                                                                                         |
+| `channel.no_target`             | User has no address on this channel                                                                                             |
+| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                                                        |
+| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                                           |
+| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                                                          |
+| `channel.muted`                 | User muted non-critical traffic on this channel                                                                                 |
+| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                                             |
+| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                                                          |
+| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                                                        |
+| `channel.register_rate_limited` | Too many address registrations in the window                                                                                    |
+| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                                                     |
+| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row                            |
+| `channel.recipient_quarantined` | Address failed terminally `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` times in a row; non-critical sends wait for an operator release |
 
 The table is the tip wire vocabulary — a pin test fails if it drifts from
 `allRefusalCodes()`.
@@ -587,6 +618,7 @@ is actually open.
 | `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
 | `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
 | `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
+| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).          |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail
