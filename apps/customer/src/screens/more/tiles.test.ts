@@ -56,7 +56,7 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
     for (const id of ['chain', 'dex', 'protocol']) {
       const tile = TILES.find((candidate) => candidate.id === id)!;
       expect(moreCopy.t(tile.line)).not.toMatch(/parked/i);
-      expect(findRoom(tile.href)?.area).toBe('parked');
+      expect(findRoom(tile.href)?.area).toBe('web3');
       expect(findRoom(tile.href)?.description).not.toMatch(/parked|not activated/i);
     }
   });
@@ -76,7 +76,7 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
     ]);
   });
 
-  it('every tile opens a real screen: not hidden, not an alias (no redirect), and only the Web3 tiles that are parked leave the shell', () => {
+  it('every tile opens a real screen: not hidden, not an alias (no redirect), and only the Web3 tiles leave the shell', () => {
     const shown = visibleSections().flatMap((group) => group.tiles);
     expect(shown.length).toBe(TILES.length);
     for (const tile of shown) {
@@ -84,7 +84,7 @@ describe('More tiles (UI-SPEC 5.11, IA-SPEC 1.4)', () => {
       expect(room, tile.href).toBeDefined();
       expect(room?.alias, `${tile.href} redirects`).toBeUndefined();
       expect(room?.area, tile.href).not.toBe('public');
-      expect(room?.area === 'parked', tile.href).toBe(['chain', 'dex', 'protocol'].includes(tile.id));
+      expect(room?.area === 'web3', tile.href).toBe(['chain', 'dex', 'protocol'].includes(tile.id));
       expect(isHiddenPath(tile.href), tile.href).toBe(false);
     }
   });
@@ -131,7 +131,7 @@ describe('All services (generated from the route table)', () => {
 
   it('puts the Web3 rooms under Web3, every tile of the curated list somewhere in the index, and nothing twice', () => {
     const groups = allServices(allLive);
-    expect(groups.find((group) => group.id === 'Web3')!.rooms.map((room) => room.path)).toEqual(['/chain', '/dex', '/protocol']);
+    expect(groups.find((group) => group.id === 'Web3')!.rooms.map((room) => room.path)).toEqual(['/dex', '/wallet', '/chain', '/protocol']);
     const paths = groups.flatMap((group) => group.rooms.map((room) => room.path));
     expect(new Set(paths).size).toBe(paths.length);
     for (const tile of TILES) expect(paths, tile.href).toContain(tile.href);

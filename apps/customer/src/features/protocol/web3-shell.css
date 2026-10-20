@@ -1,0 +1,49 @@
+/* The Web3 frame reuses the shell's .tb bar and .mobile-doors; only the switch and the chips are new. */
+@layer components {
+  .web3-bar {
+    flex-wrap: nowrap;
+  }
+  .web3-switch {
+    display: inline-flex;
+    border: 1px solid var(--tb-line);
+    border-radius: 999px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+  .web3-switch a {
+    padding: 4px 12px;
+    color: var(--tb-fg-2);
+  }
+  .web3-switch a[aria-current='page'] {
+    background: var(--tb-hover);
+    color: var(--tb-fg);
+  }
+  .web3-chips {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .web3-chip {
+    border: 1px solid var(--tb-line);
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 12px;
+    color: var(--tb-fg-2);
+    white-space: nowrap;
+  }
+  .web3-chip--pill {
+    color: var(--tb-fg);
+  }
+  @media (max-width: 767px) {
+    .web3-bar {
+      height: auto;
+      min-height: 48px;
+      padding-block: 6px;
+      flex-wrap: wrap;
+    }
+    .web3-chips {
+      flex-basis: 100%;
+      justify-content: flex-start;
+    }
+  }
+}
