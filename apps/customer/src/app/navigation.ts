@@ -530,7 +530,7 @@ export const rooms: readonly Room[] = [
     area: 'web3',
     ...(route.path === `/${route.room}` ? {} : { hidden: true }),
   })),
-  // Unknown sub-paths still open the room, which answers them with its own tab (never a white page).
+  // Unknown sub-paths open the room, which answers them with its not-found page.
   ...(['chain', 'dex', 'protocol', 'wallet'] as const).map((slug): Room => ({
     path: `/${slug}/*`,
     title: slug,

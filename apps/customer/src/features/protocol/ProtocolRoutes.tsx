@@ -1,5 +1,5 @@
 import { ParkedProtocolRoom } from './ParkedProtocolRoom';
-import { PendingRoute } from './PendingRoute';
+import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
 
@@ -9,7 +9,7 @@ import { SUBNAV } from './blockers';
  */
 export function ProtocolRoutes({ path }: { path: string }) {
   const found = matchWeb3Route(path);
-  if (!found) return null;
+  if (!found) return <NotFoundRoute path={path} />;
   const { route, params } = found;
   if (route.pending) {
     const { param } = route.pending;
@@ -24,7 +24,7 @@ export function ProtocolRoutes({ path }: { path: string }) {
       />
     );
   }
-  if (route.room === 'wallet' || !route.tab) return null;
+  if (route.room === 'wallet' || !route.tab) return <NotFoundRoute path={path} />;
   const slug = route.room;
   // The tab room reads the tab from the path; the first tab lives at the room root.
   const subPath = route.tab === SUBNAV[slug][0]!.id ? '' : route.tab;

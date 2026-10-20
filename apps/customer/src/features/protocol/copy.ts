@@ -227,6 +227,7 @@ const en = {
   pendingBlockedBy: 'Blocked by',
   pendingNotFoundTitle: 'Not found on this network',
   pendingNotFoundBody: 'That id is not a valid {what} on this network, so nothing is looked up.',
+  notFoundPage: 'There is no page at this address on this network.',
   pendingBack: 'Back to {room}',
   roomDex: 'DEX',
   roomChain: 'Chain',

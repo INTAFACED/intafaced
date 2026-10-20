@@ -111,3 +111,26 @@ export function PendingRoute({
     </div>
   );
 }
+
+const ROOT_OF = /^\/(dex|chain|protocol|wallet)(?:\/|$)/;
+
+/** A path under a Web3 room that no route claims: the room's own not-found page with a way back, never an empty page. */
+export function NotFoundRoute({ path }: { path: string }) {
+  const { language } = usePreferences();
+  const { t } = copy.forLocale(language);
+  const room = (ROOT_OF.exec(path)?.[1] ?? 'dex') as Web3Room;
+  return (
+    <div className="legacy-room protocol-room" lang={copy.forLocale(language).renderedLocale} data-route="not-found">
+      <Page title={t('pendingNotFoundTitle')} description={t('pendingNote')}>
+        <Panel title={t('pendingNotFoundTitle')}>
+          <div data-code="protocol.not_found" role="status">
+            <EmptyState title={t('notFoundPage')} />
+          </div>
+        </Panel>
+        <Button variant="secondary" onClick={() => navigate(ROOM_HOME[room])}>
+          {t('pendingBack', { room: t(ROOM_KEY[room]) })}
+        </Button>
+      </Page>
+    </div>
+  );
+}
