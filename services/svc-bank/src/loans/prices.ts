@@ -277,7 +277,10 @@ export function tickerPriceSource(options: { baseUrl: string; fetchImpl?: typeof
             if (!res.ok) return;
 
             const body = (await res.json()) as TickerResponse;
-            const asOf = typeof body.timestamp === 'number' ? new Date(body.timestamp) : new Date();
+            // No stated time, no mark. Stamping "now" on a quote of unknown age
+            // would let a stale price pass the staleness guard.
+            if (typeof body.timestamp !== 'number' || !Number.isFinite(body.timestamp)) return;
+            const asOf = new Date(body.timestamp);
 
             if (body.bid && body.ask) {
               const bid = parseAmount(body.bid);

@@ -1245,43 +1245,67 @@ export class LoanService {
             FROM bank.loan_collateral_events WHERE id = ${eventId}
         `;
         const prior = existing[0];
+
+        // The cap check, run for a new release and for a re-drive of one the
+        // ledger has not booked. `ownRow` leaves the retried row's own pending
+        // amount out of what is reserved, so it is not counted against itself.
+        const checkCap = async (ownRow: string | null) => {
+          const pendingRows = await tx<Array<{ pending: string }>>`
+            SELECT COALESCE(SUM(amount), 0)::text AS pending
+              FROM bank.loan_collateral_events
+             WHERE loan_id = ${loan.id}
+               AND direction = 'release'
+               AND status = 'pending'
+               AND (${ownRow}::uuid IS NULL OR id <> ${ownRow}::uuid)
+          `;
+          const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
+          const ledgerHeld = await this.collateralOf(loan);
+          const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
+          if (amount > held) {
+            throw new BankError(
+              `Loan ${loan.id} holds ${formatAmount(held)} ${loan.collateralAssetId}, not ${formatAmount(amount)}`,
+              'bank.loan_collateral_short',
+            );
+          }
+
+          const debt = await this.outstanding(loan.id, tx);
+          const remaining = held - amount;
+          const collateralMark = cap.marks.get(loan.collateralAssetId)!;
+          const debtMark = cap.marks.get(loan.debtAssetId)!;
+          const debtValue = quoteValue(debt.total, debtMark.price, 'ceil');
+          const collateralValue = quoteValue(remaining, collateralMark.price, 'floor');
+          const afterLtv = ltvBps(debtValue, collateralValue);
+          if (afterLtv > cap.maxLtvBps) {
+            throw new BankError(
+              `Release would put loan ${loan.id} at LTV ${describeLtv(afterLtv)} ` +
+                `above the ${describeLtv(cap.maxLtvBps)} limit for "${cap.productName}"`,
+              'bank.ltv_exceeded',
+            );
+          }
+        };
+
         if (prior) {
           this.assertCollateralRetryMatches(loan, eventId, amount, prior, 'release');
           postSequence = Number(prior.sequence);
+          if (!prior.ledger_tx_id) {
+            // A row with no ledger tx may still have committed (a lost reply).
+            // Re-driving a booked release is safe. Re-driving one that never
+            // booked is a new release and meets the cap at today's mark.
+            const booked = await this.ledger.getTxByKey(
+              recipes.loanCollateralRelease({
+                loanId: loan.id,
+                userId: loan.userId,
+                collateralAssetId: loan.collateralAssetId,
+                amount,
+                sequence: postSequence,
+              }).idempotencyKey,
+            );
+            if (!booked) await checkCap(prior.id);
+          }
           return { claimed: false as const, id: prior.id, ledgerTxId: prior.ledger_tx_id };
         }
 
-        const pendingRows = await tx<Array<{ pending: string }>>`
-          SELECT COALESCE(SUM(amount), 0)::text AS pending
-            FROM bank.loan_collateral_events
-           WHERE loan_id = ${loan.id}
-             AND direction = 'release'
-             AND status = 'pending'
-        `;
-        const reserved = parseAmount(pendingRows[0]?.pending ?? '0');
-        const ledgerHeld = await this.collateralOf(loan);
-        const held = ledgerHeld > reserved ? ledgerHeld - reserved : 0n;
-        if (amount > held) {
-          throw new BankError(
-            `Loan ${loan.id} holds ${formatAmount(held)} ${loan.collateralAssetId}, not ${formatAmount(amount)}`,
-            'bank.loan_collateral_short',
-          );
-        }
-
-        const debt = await this.outstanding(loan.id, tx);
-        const remaining = held - amount;
-        const collateralMark = cap.marks.get(loan.collateralAssetId)!;
-        const debtMark = cap.marks.get(loan.debtAssetId)!;
-        const debtValue = quoteValue(debt.total, debtMark.price, 'ceil');
-        const collateralValue = quoteValue(remaining, collateralMark.price, 'floor');
-        const afterLtv = ltvBps(debtValue, collateralValue);
-        if (afterLtv > cap.maxLtvBps) {
-          throw new BankError(
-            `Release would put loan ${loan.id} at LTV ${describeLtv(afterLtv)} ` +
-              `above the ${describeLtv(cap.maxLtvBps)} limit for "${cap.productName}"`,
-            'bank.ltv_exceeded',
-          );
-        }
+        await checkCap(null);
 
         const seqRows = await tx<Array<{ next: number | string | null }>>`
           SELECT COALESCE(MAX(sequence) + 1, 0) AS next
@@ -2114,7 +2138,7 @@ export class LoanService {
   }
 
   /**
-   * Raise (or refresh) a margin call.
+   * Raise a margin call. A call already open for the loan is reused, not repeated.
    *
    * A new row per call, and `marginCalledAt` set only if it is not already —
    * refreshing the figure must NOT restart the grace clock, or a borrower could
@@ -2143,6 +2167,37 @@ export class LoanService {
     const shortValue = neededValue > haveValue ? neededValue - haveValue : 0n;
     const cure = shortValue === 0n ? 0n : (shortValue * ONE + collateralMark.price - 1n) / collateralMark.price;
 
+    // A call already open for this loan is the call. A later sweep does not make
+    // a second row or send a second notice; it only re-sends a notice that
+    // never got out, on the same row, so the publisher key stays the same.
+    const open = await this.sql<
+      Array<{ sequence: number; ltv_bps: number; cure: string; called_at: Date; grace_expires_at: Date; notified_at: Date | null }>
+    >`
+      SELECT sequence, ltv_bps, cure_collateral_amount::text AS cure, called_at, grace_expires_at, notified_at
+        FROM bank.loan_margin_calls
+       WHERE loan_id = ${loan.id} AND cleared_at IS NULL
+       ORDER BY sequence DESC
+       LIMIT 1
+    `;
+    if (open[0]) {
+      // A crash between the call row and the loan update leaves the loan without
+      // its grace clock. Finish that update from the row's own call time.
+      await this.sql`
+        UPDATE bank.loans
+           SET status = 'margin_call', margin_called_at = COALESCE(margin_called_at, ${open[0].called_at}), updated_at = now()
+         WHERE id = ${loan.id} AND status IN ('active', 'margin_call')
+      `;
+      if (open[0].notified_at) return;
+      await this.deliverMarginCall(loan, {
+        sequence: Number(open[0].sequence),
+        ltvBps: Number(open[0].ltv_bps),
+        cure: parseAmount(open[0].cure),
+        calledAt: open[0].called_at,
+        graceExpiresAt: open[0].grace_expires_at,
+      });
+      return;
+    }
+
     const graceExpiresAt = new Date((loan.marginCalledAt ?? now).getTime() + product.policy.graceSeconds * 1_000);
     const sequence = await this.nextSequence('loan_margin_calls', loan.id);
 
@@ -2158,21 +2213,31 @@ export class LoanService {
        WHERE id = ${loan.id}
     `;
 
-    // Delivery is recorded separately from the call, and a delivery failure does
-    // NOT fail the call. A margin call that exists in the database with a grace
-    // clock running is a real margin call even if the notification bounced — and
-    // the borrower disputing the liquidation later can be shown exactly that:
-    // called at this time, delivery attempted, delivery failed with this error.
+    await this.deliverMarginCall(loan, { sequence, ltvBps: ltv, cure, calledAt: now, graceExpiresAt });
+  }
+
+  /**
+   * Delivery is recorded separately from the call, and a delivery failure does
+   * NOT fail the call. A margin call that exists in the database with a grace
+   * clock running is a real margin call even if the notification bounced — and
+   * the borrower disputing the liquidation later can be shown exactly that:
+   * called at this time, delivery attempted, delivery failed with this error.
+   */
+  private async deliverMarginCall(
+    loan: LoanRecord,
+    call: { sequence: number; ltvBps: number; cure: Amount; calledAt: Date; graceExpiresAt: Date },
+  ): Promise<void> {
+    const { sequence } = call;
     try {
       await this.marginCalls.send({
         loanId: loan.id,
         userId: loan.userId,
         sequence,
-        ltvBps: ltv,
-        cureCollateralAmount: cure,
+        ltvBps: call.ltvBps,
+        cureCollateralAmount: call.cure,
         collateralAssetId: loan.collateralAssetId,
-        calledAt: now,
-        graceExpiresAt,
+        calledAt: call.calledAt,
+        graceExpiresAt: call.graceExpiresAt,
       });
       await this.sql`
         UPDATE bank.loan_margin_calls SET notified_at = now() WHERE loan_id = ${loan.id} AND sequence = ${sequence}
