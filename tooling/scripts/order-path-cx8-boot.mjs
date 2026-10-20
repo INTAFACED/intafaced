@@ -347,10 +347,22 @@ async function main() {
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
     });
 
+  // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,
+  // history window and data lake stay unset; the lot book needs none of them.
+  if (WITH_PAY)
+    start('tax', 'node', ['services/svc-tax/dist/index.js'], {
+      ...common,
+      SERVICE_NAME: 'svc-tax',
+      HTTP_HOST: '127.0.0.1',
+      HTTP_PORT: '4020',
+      LEDGER_URL: 'http://127.0.0.1:4001',
+    });
+
   await waitHealth('http://127.0.0.1:4001', 'ledger');
   await waitHealth('http://127.0.0.1:4002', 'identity');
   if (WITH_PAY) await waitHealth('http://127.0.0.1:4006', 'pay');
   if (WITH_PAY) await waitHealth('http://127.0.0.1:4009', 'bank');
+  if (WITH_PAY) await waitHealth('http://127.0.0.1:4020', 'tax');
 
   // Opening a market is founder-only at identity: make the two smoke operators founders first.
   const founders = await enrolFoundersAndRestartIdentity();
@@ -471,7 +483,9 @@ async function main() {
       MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
       LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
       IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
-      ...(WITH_PAY ? { PAY_HTTP_URL: 'http://127.0.0.1:4006', BANK_HTTP_URL: 'http://127.0.0.1:4009' } : {}),
+      ...(WITH_PAY
+        ? { PAY_HTTP_URL: 'http://127.0.0.1:4006', BANK_HTTP_URL: 'http://127.0.0.1:4009', TAX_HTTP_URL: 'http://127.0.0.1:4020' }
+        : {}),
       CX8_FOUNDERS_JSON: JSON.stringify(founders),
       EDGE_PRINCIPAL_SECRET: EDGE,
       INTERNAL_SERVICE_SECRET: SECRET,
