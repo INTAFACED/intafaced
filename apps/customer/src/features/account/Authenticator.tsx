@@ -128,7 +128,8 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
         disabledAnswer,
         { keepSessionFor: ['auth.mfa_invalid'] },
       );
-      if (fail(answer)) return;
+      // The service spends the approval before it checks the code, so any refusal needs a fresh confirmation.
+      if (fail(answer)) return mounted.current ? setMode({ kind: 'confirm', action: 'disable' }) : undefined;
       if (mounted.current) done(answer.data.recoveryCodeSpent ? `${t('disabled')} ${t('spent')}` : t('disabled'));
     });
   }
@@ -148,7 +149,8 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
         replacedAnswer,
         { keepSessionFor: ['auth.mfa_invalid'] },
       );
-      if (fail(answer)) return;
+      // Same as turning off: a spent approval cannot be reused, so start the confirmation again (a new setup key follows).
+      if (fail(answer)) return mounted.current ? setMode({ kind: 'confirm', action: 'replace' }) : undefined;
       if (mounted.current) done(answer.data.recoveryCodeSpent ? `${t('replaced')} ${t('spent')}` : t('replaced'));
     });
   }
