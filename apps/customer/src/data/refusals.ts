@@ -125,6 +125,12 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Use the saved destination',
     body: 'That address was not sent. Nothing was held.',
   },
+  addressLabelTaken: { title: 'That name is taken', body: 'You already have a saved address with this name. Choose another name.' },
+  addressBookFull: { title: 'Your address book is full', body: 'Remove an address to save a new one.' },
+  activitySortBounded: {
+    title: 'Too many lines to sort oldest first',
+    body: 'Narrow the dates, the account or the filters, then try again.',
+  },
 };
 
 /** What a customer can quote to support instead of the raw service code (UI-SPEC 4.3: no internal terms on screen). */
