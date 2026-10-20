@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { attachLimitsView, canDownload, limitsValues, precheckFile, SCAN_STATE_KEY } from './support-attachments';
+import { attachLimitsView, canDownload, fileOriginKey, limitsValues, precheckFile, SCAN_STATE_KEY } from './support-attachments';
 import { deskCopy } from './support-desk-copy';
 
 const limits = (over: Record<string, unknown> = {}) => ({
@@ -50,5 +50,12 @@ describe('scan states', () => {
     expect(deskCopy.t(SCAN_STATE_KEY.clean)).toBe('Checked');
     expect(deskCopy.t(SCAN_STATE_KEY.blocked)).toBe('Not accepted');
     expect([canDownload('scanning'), canDownload('clean'), canDownload('blocked')]).toEqual([false, true, false]);
+  });
+});
+
+describe('where a file came from', () => {
+  it('names support for a file an operator added and nothing for the owner’s own', () => {
+    expect(fileOriginKey('44444444-4444-4444-8444-444444444444')).toBe('attachFromSupport');
+    expect(fileOriginKey(null)).toBeNull();
   });
 });
