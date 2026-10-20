@@ -54,3 +54,10 @@ describe('the activity read carries them', () => {
     expect(JSON.parse(decodeURIComponent(urls[0]!.split('input=')[1]!))).toEqual({ limit: 50 });
   });
 });
+
+describe('reordering alone', () => {
+  it('is not a narrowing, so an empty list still says there is no activity', () => {
+    expect(askedOfTheBank({ ...NO_FILTERS, sort: 'asc' })).toBe(false);
+    expect(askedOfTheBank({ ...NO_FILTERS, sort: 'asc', year: '2025' })).toBe(true);
+  });
+});

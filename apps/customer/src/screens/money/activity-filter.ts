@@ -34,6 +34,8 @@ export const NO_FILTERS: ActivityFilters = {
 };
 /** The shortest address the bank will search for. */
 export const ADDRESS_MIN = 4;
+/** The longest the bank accepts. */
+export const ADDRESS_MAX = 128;
 export const hasFilters = (f: ActivityFilters): boolean =>
   f.q.trim() !== '' ||
   f.dir !== 'all' ||
@@ -56,7 +58,11 @@ export function serverOptions(f: ActivityFilters): { sort?: 'asc'; accountId?: s
     ...(address.length >= ADDRESS_MIN ? { address } : {}),
   };
 }
-export const askedOfTheBank = (f: ActivityFilters): boolean => Object.keys(serverOptions(f)).length > 0;
+/** True when the bank was asked to narrow the list. Reordering alone does not narrow it. */
+export const askedOfTheBank = (f: ActivityFilters): boolean => {
+  const { sort: _order, ...narrowing } = serverOptions(f);
+  return Object.keys(narrowing).length > 0;
+};
 
 const hasWords = (item: ActivityItem): boolean => item.privateNote !== undefined || item.reportDescription !== undefined;
 

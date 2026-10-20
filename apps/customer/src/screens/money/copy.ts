@@ -268,7 +268,7 @@ const messages = {
   Year: 'Year',
   'Any year': 'Any year',
   'Tax year not set up': 'Tax year (not set up)',
-  'Tax year note': 'Tax years are not set up yet, so only calendar years (UTC) can be chosen.',
+  'Tax year note': 'Only calendar years (UTC) can be chosen. A tax year needs a start date that is not published.',
   'Withdrawal address': 'Withdrawal address',
   'Address hint': 'Part of an address, {min}+ characters',
   'Address too short': 'Type at least {min} characters to search by address.',

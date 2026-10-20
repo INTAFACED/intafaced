@@ -58,6 +58,7 @@ import {
 import { buyHref } from './links';
 import { detailHref } from './activity-detail';
 import {
+  ADDRESS_MAX,
   ADDRESS_MIN,
   askedOfTheBank,
   groupMatches,
@@ -193,6 +194,7 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
           placeholder={t('Address hint', { min: ADDRESS_MIN })}
           autoComplete="off"
           spellCheck={false}
+          maxLength={ADDRESS_MAX}
           onChange={(event) => onChange({ ...filters, address: event.target.value })}
         />
       </label>
