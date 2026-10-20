@@ -57,7 +57,7 @@ export const previewSchema = z.object({
   amount: positive,
   price: positive.nullable(),
   stopPrice: positive.nullable().optional(),
-  timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
+  timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD']),
   holdAsset: z.string().nullable(),
   holdAmount: decimalSchema.nullable(),
   protectionPrice: positive.nullable(),
@@ -86,8 +86,10 @@ export const draftSchema = z
     amount: positive,
     price: positive.optional(),
     stopPrice: positive.optional(),
-    timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO']),
+    timeInForce: z.enum(['GTC', 'IOC', 'FOK', 'PO', 'GTD']),
     postOnly: z.boolean(),
+    /** The instant a good-till-date order ends, as a UTC ISO string. Only a GTD order carries one. */
+    expireAt: z.string().datetime().optional(),
     clientOrderId: z.string().min(1).max(64),
     /**
      * An OCO or a buy bracket. A bracket: the order above is its entry. A sell OCO: the order above is its take-profit leg.
@@ -129,6 +131,10 @@ export const draftSchema = z
     if (draft.type !== 'market' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
     if (draft.type === 'market' && draft.price !== undefined)
       ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
+    if (draft.timeInForce === 'GTD' && (draft.type !== 'limit' || !draft.expireAt || draft.exit))
+      ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
+    if (draft.timeInForce !== 'GTD' && draft.expireAt !== undefined)
+      ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
     if (draft.postOnly && (draft.type === 'market' || !['GTC', 'PO'].includes(draft.timeInForce)))
       ctx.addIssue({ code: 'custom', path: ['postOnly'], message: copy.t('postOnlyRequiresALimitOrderWithGtc') });
   });

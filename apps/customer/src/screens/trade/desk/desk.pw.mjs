@@ -702,7 +702,13 @@ test('time in force: post only, IOC and FOK are what the order sends; a market o
   await ready(page);
   await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Good till cancelled');
   await page.getByRole('combobox', { name: 'Time in force' }).click();
-  await expect(page.getByRole('option')).toHaveText(['Good till cancelled', 'Post only', 'Immediate or cancel', 'Fill or kill']);
+  await expect(page.getByRole('option')).toHaveText([
+    'Good till cancelled',
+    'Good till date',
+    'Post only',
+    'Immediate or cancel',
+    'Fill or kill',
+  ]);
   await page.keyboard.press('Escape');
 
   await pickTif(page, 'Post only');
@@ -728,6 +734,35 @@ test('time in force: post only, IOC and FOK are what the order sends; a market o
   await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Post only');
   expect(m.errors).toEqual([]);
   await shotBoth(page, 'desk-tif-post-only', { full: true });
+});
+
+test('good till date: pick an expiry, the review shows it, the order sends it; a past time sends nothing', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await pickTif(page, 'Good till date');
+  const expires = page.getByLabel('Expires');
+  await fillBuy(page, { price: '63999.9', amount: '0.0001' });
+  // No expiry yet: nothing can be reviewed.
+  await expect(buyButton(page)).toBeDisabled();
+  await expires.fill('2020-01-01T00:00');
+  await expect(page.getByText('Pick a time in the future.')).toBeVisible();
+  await expect(buyButton(page)).toBeDisabled();
+  expect(m.requests('POST', 'orders/preview').filter((r) => r.body.timeInForce === 'GTD')).toHaveLength(0);
+  const future = new Date(Date.now() + 36 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  const local = `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T${pad(future.getHours())}:${pad(future.getMinutes())}`;
+  await expires.fill(local);
+  await expect(page.getByText('Pick a time in the future.')).toHaveCount(0);
+  await openReview(page);
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText('Good till date');
+  await expect(dialog).toContainText('Expires');
+  await dialog.getByRole('button', { name: 'Confirm buy' }).click();
+  await expect(buyForm(page)).toContainText('Your buy order is in');
+  const sent = m.requests('POST', 'orders');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].body).toMatchObject({ type: 'limit', timeInForce: 'GTD', postOnly: false, expireAt: new Date(local).toISOString() });
+  expect(m.errors).toEqual([]);
 });
 
 test('a post-only order that would match right away is refused in words, never called done, and nothing rests', async ({ page }) => {

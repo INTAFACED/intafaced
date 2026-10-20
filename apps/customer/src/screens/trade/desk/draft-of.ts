@@ -13,10 +13,12 @@ export function draftOf(args: {
   side: Side;
   type: OrderType;
   tif: Tif;
+  /** Carried only by a good-till-date pick. */
+  expireAt?: string | null;
   checked: Extract<Checked, { ok: true }>;
   clientOrderId: string;
 }): Draft {
-  const { market, side, type, tif, checked, clientOrderId } = args;
+  const { market, side, type, tif, expireAt, checked, clientOrderId } = args;
   const sent = serviceType(type, checked.price ?? '');
   // A bracket's market entry is already immediate; only fill-or-kill changes how it is sent.
   const sentTif: Tif = type === 'bracket' && sent === 'market' ? (tif === 'FOK' ? 'FOK' : 'GTC') : tif;
@@ -32,7 +34,7 @@ export function draftOf(args: {
         ? { price: checked.price }
         : {}),
     ...(checked.stopPrice ? { stopPrice: checked.stopPrice } : {}),
-    ...tifFields(sentTif),
+    ...tifFields(sentTif, expireAt ?? undefined),
     ...(checked.exit && hasExits(type) ? { exit: { kind: type as 'oco' | 'bracket', ...checked.exit } } : {}),
     clientOrderId,
   };
