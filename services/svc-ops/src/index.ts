@@ -18,6 +18,8 @@ import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
 import { createPgRestoreStore } from './restore-store.js';
 import { createPgVenueCostStore } from './venue-cost-store.js';
+import { createListingDesk } from './protocol-listing/wiring.js';
+import { createPgListingStore } from './protocol-listing/store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -100,6 +102,15 @@ const notificationPort = createOutreachNotificationClient({
 
 const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort, archivePublisher);
 const notificationWorker = crmSql ? new OutreachNotificationWorker(crmSql, notificationPort) : null;
+const approvalConsumer =
+  env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
+    ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+    : undefined;
+const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
+  ? env.OPS_PROTOCOL_REASON_CODES.split(',')
+      .map((code) => code.trim())
+      .filter(Boolean)
+  : null;
 const appRouter = createOpsRouter(
   ops,
   {
@@ -122,10 +133,15 @@ const appRouter = createOpsRouter(
     alertState: alertState ?? undefined,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
-    approvals:
-      env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
-        ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
-        : undefined,
+    approvals: approvalConsumer,
+    protocolListing: crmSql
+      ? createListingDesk({
+          store: createPgListingStore(crmSql),
+          approvals: approvalConsumer,
+          reasonCodes: () => protocolReasonCodes,
+          now: () => new Date().toISOString(),
+        })
+      : undefined,
   },
 );
 const edgeContext = buildEdgeContext(env);

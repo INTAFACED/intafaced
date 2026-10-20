@@ -87,6 +87,9 @@ export const OPS_ALERT_RULE_NOT_RETIRED = 'ops.alert_rule_not_retired' as const;
 export const OPS_ALERT_STORAGE_UNCONFIGURED = 'ops.alert_storage_unconfigured' as const;
 export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
 export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
+export const OPS_PROTOCOL_REASON_CODES_UNSET = 'owner.decision' as const;
+export const OPS_PROTOCOL_REASON_CODE_UNKNOWN = 'protocol.ops_reason_code_unknown' as const;
+export const OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED = 'ops.protocol_listing_storage_unconfigured' as const;
 export const OPS_IDEMPOTENCY_KEY_INVALID = 'ops.idempotency_key_invalid' as const;
 export const OPS_IDEMPOTENCY_CONFLICT = 'ops.idempotency_conflict' as const;
 export const OPS_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
@@ -155,6 +158,9 @@ export type OpsRefuseCode =
   | typeof COMPLIANCE_QUEUE_ENTITY_UNKNOWN
   | typeof COMPLIANCE_QUEUE_NAME_TAKEN
   | typeof OPS_COMPLIANCE_STORAGE_UNCONFIGURED
+  | typeof OPS_PROTOCOL_REASON_CODES_UNSET
+  | typeof OPS_PROTOCOL_REASON_CODE_UNKNOWN
+  | typeof OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED
   | typeof OPS_IDEMPOTENCY_KEY_INVALID
   | typeof OPS_IDEMPOTENCY_CONFLICT
   | typeof OPS_APPROVAL_UNWIRED
