@@ -105,3 +105,13 @@ describe('the panel', () => {
     expect(out).toContain('closed');
   });
 });
+
+describe('labels replace the whole set', () => {
+  it('cannot be edited while the current set is unread', () => {
+    const out = html(base({ view: null }));
+    expect(out).toMatch(/id="sd-prop-labels"[^>]*disabled/);
+  });
+  it('can be edited once read', () => {
+    expect(html(base())).not.toMatch(/id="sd-prop-labels"[^>]*disabled/);
+  });
+});

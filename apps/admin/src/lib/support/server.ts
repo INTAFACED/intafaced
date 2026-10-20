@@ -11,7 +11,15 @@ import { founderCall, parseWith, type FounderCallContext, type FounderCallResult
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
-import type { SupportKbView, SupportPropertiesView, SupportQueueView, SupportTicketView, TicketExtrasView } from './types';
+import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
+import type {
+  SupportKbView,
+  SupportPropertiesView,
+  SupportQueueView,
+  SupportStaffView,
+  SupportTicketView,
+  TicketExtrasView,
+} from './types';
 
 /**
  * svc-support's operator desk, read and used as the signed-in founder.
@@ -100,6 +108,20 @@ export async function loadTicketProperties(
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
 }
 
+/** Who is on the support staff and whether automatic offline is set. Two reads, each its own part. */
+export async function loadStaff(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportStaffView> {
+  const [roster, policy] = await Promise.all([
+    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
+    founderCall(ctx, 'support', 'staffAvailabilityPolicy', 'GET', {}, readStaffPolicy),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    meId: ctx.session.userId,
+    roster: partFrom(roster, (r) => r, LABELS),
+    policy: partFrom(policy, (p) => p, LABELS),
+  };
+}
+
 /** Published help articles, with the revision a publish or unpublish must quote. svc-support lists no unpublished ones. */
 export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportKbView> {
   const result = await founderCall(ctx, 'support', 'listKb', 'GET', { limit: 100 }, arrayOf(supportKbArticleSchema));
@@ -143,6 +165,19 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.citedArticleIds ? { citedArticleIds: request.citedArticleIds } : {}),
         },
         parseWith(supportCaseFileSchema),
+      );
+    case 'staff_availability':
+      return founderCall(
+        ctx,
+        'support',
+        'staffSetAvailability',
+        'POST',
+        {
+          availability: request.availability,
+          ...(request.userId ? { userId: request.userId } : {}),
+          ...(request.reason ? { reason: request.reason } : {}),
+        },
+        readStaffMember,
       );
     case 'properties':
       return founderCall(

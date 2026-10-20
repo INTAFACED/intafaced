@@ -2,7 +2,8 @@ import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { SupportDesk } from '@/components/support-desk';
 import { KbPanel } from '@/components/support-kb-panel';
-import { loadKb, loadQueue } from '@/lib/support/server';
+import { StaffPanel } from '@/components/support-staff-panel';
+import { loadKb, loadQueue, loadStaff } from '@/lib/support/server';
 
 /**
  * Support queue and help articles: list, ticket, claim, reply, set status, escalate, case file, rating, and publish or
@@ -12,9 +13,10 @@ import { loadKb, loadQueue } from '@/lib/support/server';
 export default async function SupportPage() {
   requireModulePage('support');
   const founder = await requireFounderPage();
-  const [initial, kb] = await Promise.all([loadQueue(founder), loadKb(founder)]);
+  const [initial, kb, staff] = await Promise.all([loadQueue(founder), loadKb(founder), loadStaff(founder)]);
   return (
     <SupportDesk initial={initial} userId={founder.session.userId}>
+      <StaffPanel initial={staff} />
       <KbPanel initial={kb} />
     </SupportDesk>
   );

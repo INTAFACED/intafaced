@@ -147,7 +147,8 @@ export function TicketPropertiesView(p: TicketPropertiesViewProps) {
           value={p.form.labels ?? (current?.labels ?? []).join(' ')}
           autoComplete="off"
           spellCheck={false}
-          disabled={disabled}
+          // Labels replace the whole set, so they are not editable while the current set is unread.
+          disabled={disabled || current === null}
           onChange={(e) => p.onField({ labels: e.target.value })}
         />
       </div>

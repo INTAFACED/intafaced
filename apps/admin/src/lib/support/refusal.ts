@@ -72,6 +72,21 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'A ticket escalated as a money request cannot be settled or closed from support. A support channel never moves money.',
     next: 'Nothing was changed. The money team owns this one.',
   },
+  'support.not_staff': {
+    title: 'You are not on the support staff list',
+    body: 'svc-support only lets people on its staff list set availability. Your sign-in has the support permission, but nobody has appointed you.',
+    next: 'Nothing was changed. A lead appoints staff.',
+  },
+  'support.not_lead': {
+    title: 'Only a lead can set someone else’s availability',
+    body: 'You can set your own. Setting another person’s needs the lead role.',
+    next: 'Nothing was changed.',
+  },
+  'support.availability_invalid': {
+    title: 'svc-support did not accept that availability',
+    body: 'Availability is online, busy or offline.',
+    next: 'Pick one of the three. Nothing was changed.',
+  },
   'support.property_invalid': {
     title: 'svc-support did not accept that priority or type',
     body: 'Priority is one of low, normal, high or urgent. Type is one of question, problem or incident.',
@@ -118,6 +133,9 @@ export function supportCodeOf(message: string, code: string | null): string | nu
 export function explainSupportFailure(result: FounderCallFailure<unknown>): RefusalView {
   switch (result.kind) {
     case 'forbidden': {
+      const staffCode = supportCodeOf(result.refusal.message, result.refusal.code);
+      if (staffCode === 'support.not_staff' || staffCode === 'support.not_lead')
+        return { ...BY_SUPPORT_CODE[staffCode]!, code: staffCode, changed: 'no' };
       if (result.refusal.status === 401) return explainRefusal('admin.session_required', 401, false);
       return {
         title: SUPPORT_OPS_FORBIDDEN,
