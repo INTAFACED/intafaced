@@ -38,6 +38,7 @@ import {
   type AmendOrderOutcome,
   type FillRecord,
   type Market,
+  type OrderAmendment,
   type OrderRecord,
   type OrderStatus,
   type ReplaceOrderOutcome,
@@ -77,6 +78,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
  *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
+ *   GET    /api/v1/orders/:id/amendments  scope: trade:read   (each amend and replace, oldest first)
  *   POST   /api/v1/orders          scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch    scope: trade:write + jurisdiction(module=trade)
  *   POST   /api/v1/orders/batch-amend scope: trade:write + jurisdiction(module=trade)  (sequential native amend)
@@ -183,6 +185,8 @@ export interface PrivateRestDeps {
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
+  /** Every amend and replace of one order, oldest first. Unset mounts a typed 503, never an empty list. */
+  orderAmendments?(principal: Principal, orderId: string): Promise<OrderAmendment[]>;
   placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord>;
   cancelOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
   /** Two-step cancel → finalized release → replacement submit saga. Never native amend. */
@@ -2881,6 +2885,22 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const withStop = await withStopTriggers(deps, [order]);
       const withExit = await withOcoExit(deps, [order]);
       return reply.code(200).send(withExit(order, withStop(order, presentCcxtOrder(order, symbol))));
+    } catch (err) {
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/v1/orders/:id/amendments', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.orderAmendments) {
+      return reply.code(503).send({ error: 'order amendments are not configured', code: 'trade.amendments_unconfigured' });
+    }
+    try {
+      const amendments = await deps.orderAmendments(principal, req.params.id);
+      return reply.code(200).send({ orderId: req.params.id, amendments });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
