@@ -4,7 +4,7 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-96 env settings, 160 owner values read elsewhere, 200 page sizes the caller sends. 427 distinct `_unset` codes in all.
+96 env settings, 163 owner values read elsewhere, 200 page sizes the caller sends. 430 distinct `_unset` codes in all.
 
 ## TEST profile
 
@@ -183,6 +183,8 @@ Read from a database row, a published record or a caller input. The first file i
 | `mining.idempotency_key_unset`                    | Mining                   | none yet                    | `services/svc-mining-pool/src/share-rejections.ts`               |
 | `mining.worker_registration_scope_unset`          | Mining                   | none yet                    | `services/svc-mining-pool/src/router.ts`                         |
 | `notify.announcement_unset`                       | Notifications            | none yet                    | `services/svc-notify/src/notify-service.ts`                      |
+| `notify.changelog_area_unset`                     | Notifications            | none yet                    | `services/svc-notify/src/notices/changelog.ts`                   |
+| `notify.changelog_migration_note_unset`           | Notifications            | none yet                    | `services/svc-notify/src/notices/changelog.ts`                   |
 | `notify.email_provider_unset`                     | Notifications            | none yet                    | `services/svc-notify/src/channels/render.ts`                     |
 | `notify.max_delivery_attempts_unset`              | Notifications            | none yet                    | `services/svc-notify/src/max-delivery-attempts.ts`               |
 | `notify.notice_copy_unset`                        | Notifications            | none yet                    | `services/svc-notify/src/notices/board.ts`                       |
@@ -243,8 +245,9 @@ Read from a database row, a published record or a caller input. The first file i
 | `trade.delta_hedge_range_unset`                   | Trade desk               | trade-*                     | `services/svc-trade/src/greeks/delta-hedge.ts`                   |
 | `trade.delta_hedge_target_unset`                  | Trade desk               | trade-*                     | `services/svc-trade/src/greeks/delta-hedge.ts`                   |
 | `trade.funding_amount_unset`                      | Trade desk               | trade-*                     | `services/svc-trade/src/futures/futures-reads.ts`                |
-| `trade.funding_rate_unset`                        | Trade desk               | trade-*                     | `services/svc-trade/src/futures/funding-recon.ts`                |
+| `trade.funding_rate_unset`                        | Trade desk               | trade-*                     | `services/svc-trade/src/futures/funding-params.ts`               |
 | `trade.haircut_unset`                             | Trade desk               | trade-*                     | `services/svc-trade/src/futures/haircut-credit.ts`               |
+| `trade.index_params_unset`                        | Trade desk               | trade-*                     | `services/svc-trade/src/futures/funding-rate-computer.ts`        |
 | `trade.ladder_d3_unset`                           | Trade desk               | trade-*                     | `services/svc-trade/src/futures/liquidation-tick.ts`             |
 | `trade.ladder_unset`                              | Trade desk               | trade-*                     | `services/svc-trade/src/futures/liquidation-tick.ts`             |
 | `trade.leverage_cap_unset`                        | Trade desk               | trade-*                     | `apps/customer/src/screens/trade/futures/refusals.ts`            |

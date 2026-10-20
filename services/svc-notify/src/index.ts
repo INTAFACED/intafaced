@@ -125,6 +125,10 @@ await sql`SELECT impact, components, parent_id, resolves FROM notify.notices LIM
   throw new Error('notify.notices has no status feed columns — run migration 0013_notify_status_feed before starting svc-notify');
 });
 
+await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices has no changelog column — run migration 0015_notify_changelog_fields before starting svc-notify');
+});
+
 // Consumer only — trade / p2p / identity / token / bank own their streams.
 // `ownedStreams: []` matches svc-ws: we never create a stream for subjects we do
 // not publish, because a stream we created would accept publishes from nobody

@@ -41,6 +41,7 @@ import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
 import { TEMPLATE_KEYS } from './ops-config/templates.js';
 
@@ -331,6 +332,35 @@ const statusFeedOutput = z.object({
   }),
 });
 
+const changelogArea = z.enum(CHANGELOG_AREAS);
+const changelogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const changelogOutput = z.object({
+  area: changelogArea,
+  breaking: z.boolean(),
+  endpoints: z.array(z.string()),
+  scopes: z.array(z.string()),
+  addedOn: changelogDay.nullable(),
+  releaseOn: changelogDay.nullable(),
+  before: z.string().nullable(),
+  after: z.string().nullable(),
+  migrationNote: z.string().nullable(),
+  retired: z.array(z.string()),
+});
+
+/** What an author sends for a changelog entry. Area, dates and the rest are validated again on the board. */
+const changelogInput = z.object({
+  area: z.string().max(32).nullable().optional(),
+  breaking: z.boolean().nullable().optional(),
+  endpoints: z.array(z.string().max(200)).max(50).nullable().optional(),
+  scopes: z.array(z.string().max(200)).max(50).nullable().optional(),
+  addedOn: changelogDay.nullable().optional(),
+  releaseOn: changelogDay.nullable().optional(),
+  before: z.string().max(4000).nullable().optional(),
+  after: z.string().max(4000).nullable().optional(),
+  migrationNote: z.string().max(4000).nullable().optional(),
+  retired: z.array(z.string().max(200)).max(50).nullable().optional(),
+});
+
 const noticeWireOutput = z.object({
   id: z.string().uuid(),
   kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
@@ -341,6 +371,7 @@ const noticeWireOutput = z.object({
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
   version: z.number().int(),
+  changelog: changelogOutput.nullable(),
 });
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
@@ -952,6 +983,50 @@ export function createNotifyRouter(
           }
         }),
 
+      /**
+       * Published changelog entries, newest first, optionally one area or breaking
+       * entries only. Signed-out. An entry with no release date reads `releaseOn: null`.
+       */
+      changelog: publicProcedure
+        .input(
+          z.object({
+            area: changelogArea.optional(),
+            breaking: z.boolean().optional(),
+            limit: z.number().int().min(1),
+          }),
+        )
+        .output(z.array(noticeWireOutput))
+        .query(async ({ input }) => {
+          if (!notify.notices) return [];
+          try {
+            return [
+              ...(await notify.notices.changelog({ area: input.area ?? null, breaking: input.breaking ?? null, limit: input.limit })),
+            ];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * Advance notice. Breaking entries whose release date has not passed, soonest
+       * first (an entry with no date is never listed), and every endpoint a published
+       * entry retires. Signed-out.
+       */
+      upcomingChanges: publicProcedure
+        .output(
+          z.object({
+            upcoming: z.array(noticeWireOutput),
+            retired: z.array(
+              z.object({ endpoint: z.string(), entryId: z.string().uuid(), title: z.string(), releaseOn: changelogDay.nullable() }),
+            ),
+          }),
+        )
+        .query(async () => {
+          if (!notify.notices) return { upcoming: [], retired: [] };
+          const read = await notify.notices.upcomingChanges();
+          return { upcoming: [...read.upcoming], retired: [...read.retired] };
+        }),
+
       /** Open published incidents and maintenance windows. Signed-out. */
       noticeStatus: publicProcedure
         .output(
@@ -991,6 +1066,7 @@ export function createNotifyRouter(
             components: z.array(statusComponentId).max(3).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
+            changelog: changelogInput.nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

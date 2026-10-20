@@ -7,6 +7,17 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
+import {
+  ChangelogError,
+  CHANGELOG_LIST_MAX,
+  normaliseChangelog,
+  retiredEndpoints,
+  upcomingEntries,
+  type Changelog,
+  type ChangelogCode,
+  type ChangelogInput,
+  type RetiredEndpoint,
+} from './changelog.js';
 import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
 export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog'] as const;
@@ -33,7 +44,8 @@ export type NoticeCode =
   | 'notify.notice_incident_fields_invalid'
   | 'notify.notice_component_unknown'
   | 'notify.notice_impact_unset'
-  | 'notify.notice_parent_invalid';
+  | 'notify.notice_parent_invalid'
+  | ChangelogCode;
 
 export class NoticeError extends Error {
   constructor(readonly code: NoticeCode) {
@@ -52,6 +64,8 @@ export type NoticeWire = {
   readonly startsAt: string | null;
   readonly endsAt: string | null;
   readonly version: number;
+  /** Changelog entries only: area, breaking flag, dates, examples and retirements. Null on every other kind. */
+  readonly changelog: Changelog | null;
 };
 
 export type NoticeRow = {
@@ -72,6 +86,8 @@ export type NoticeRow = {
   parentId: string | null;
   /** Incident only. This entry closes the incident. */
   resolves: boolean;
+  /** Changelog only. Null on a notice that carries none, including changelog entries written before this field. */
+  changelog: Changelog | null;
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
@@ -129,6 +145,7 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     startsAt: row.startsAt?.toISOString() ?? null,
     endsAt: row.endsAt?.toISOString() ?? null,
     version: row.version,
+    changelog: row.changelog,
   };
 }
 
@@ -151,8 +168,26 @@ function payloadHash(row: NoticeRow): string {
     body: row.body,
     version: row.version,
     ...(status ? { status } : {}),
+    ...(row.changelog ? { changelog: row.changelog } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+const CHANGELOG_ROWS_MAX = 500;
+
+/** Changelog fields belong to changelog notices alone, and a changelog notice names its area. */
+function changelogFields(kind: NoticeKind, input: ChangelogInput | null | undefined): Changelog | null {
+  if (kind !== 'changelog') {
+    if (input != null) throw new NoticeError('notify.changelog_fields_invalid');
+    return null;
+  }
+  if (input == null) return null;
+  try {
+    return normaliseChangelog(input);
+  } catch (err) {
+    if (err instanceof ChangelogError) throw new NoticeError(err.code);
+    throw err;
+  }
 }
 
 function parseOptionalInstant(value: string | null | undefined, code: NoticeCode): Date | null {
@@ -242,6 +277,7 @@ export class NoticeBoard {
       components?: readonly string[] | null;
       parentId?: string | null;
       resolves?: boolean | null;
+      changelog?: ChangelogInput | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -252,6 +288,7 @@ export class NoticeBoard {
     const body = input.body.trim();
     if (!title || !body) throw new NoticeError('notify.notice_copy_unset');
     const status = await this.statusFields({ ...input, kind: input.kind });
+    const changelog = changelogFields(input.kind, input.changelog);
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -263,6 +300,7 @@ export class NoticeBoard {
       endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
       version: 1,
       ...status,
+      changelog,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -317,6 +355,25 @@ export class NoticeBoard {
     const row = await this.store.findById(id);
     if (!row || row.status !== 'published') throw new NoticeError('notify.notice_not_found');
     return toNoticeWire(row);
+  }
+
+  /** Published changelog entries, newest first, optionally narrowed to one area or to breaking entries. */
+  async changelog(input: { area?: string | null; breaking?: boolean | null; limit: number }): Promise<readonly NoticeWire[]> {
+    const limit = Math.min(clampNoticeLimit(input.limit), CHANGELOG_LIST_MAX);
+    const area = input.area == null || input.area === '' ? null : input.area;
+    const rows = await this.store.listPublished('changelog', CHANGELOG_ROWS_MAX);
+    return rows
+      .map(toNoticeWire)
+      .filter(
+        (entry) => (area === null || entry.changelog?.area === area) && (input.breaking !== true || entry.changelog?.breaking === true),
+      )
+      .slice(0, limit);
+  }
+
+  /** Breaking entries not yet in effect, soonest first, and every endpoint a published entry retires. */
+  async upcomingChanges(at: Date = this.now()): Promise<{ upcoming: readonly NoticeWire[]; retired: readonly RetiredEndpoint[] }> {
+    const entries = (await this.store.listPublished('changelog', CHANGELOG_ROWS_MAX)).map(toNoticeWire);
+    return { upcoming: upcomingEntries(entries, at), retired: retiredEndpoints(entries) };
   }
 
   async noticeStatus(at: Date = this.now()): Promise<NoticeStatusRead> {
