@@ -127,6 +127,14 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   addressLabelTaken: { title: 'That name is taken', body: 'You already have a saved address with this name. Choose another name.' },
   addressBookFull: { title: 'Your address book is full', body: 'Remove an address to save a new one.' },
+  entriesDoNotSum: {
+    title: 'The entries do not add up to your balance',
+    body: 'Nothing is shown rather than a list that does not match. Your balance is unchanged. Try again, and contact support with the reference if it stays.',
+  },
+  entriesTooLong: {
+    title: 'Too many entries to check at once',
+    body: 'This balance has a long history. Use the activity list for this coin instead.',
+  },
   activitySortBounded: {
     title: 'Too many lines to sort oldest first',
     body: 'Narrow the dates, the account or the filters, then try again.',
