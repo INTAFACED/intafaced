@@ -8,7 +8,7 @@
  * Sign-in does not wait on it. Confirmation may. A refusal or a timeout does
  * not fail the session.
  */
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export interface MerchantEmailInviteClaim {
   readonly userId: string;
@@ -27,15 +27,18 @@ export function createPayMerchantEmailInviteClaimer(
   payUrl: string,
   internalSecret: string,
   fetchImpl: typeof fetch = fetch,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): MerchantEmailInviteClaimer {
+  const sign = serviceCallSigner({ service: 'svc-identity', audience: 'svc-pay', legacySecret: internalSecret, s2s });
   return {
     async claim(input) {
       const body = JSON.stringify({ userId: input.userId, email: input.email });
-      const response = await fetchImpl(new URL(CLAIM_PATH, payUrl), {
+      const target = new URL(CLAIM_PATH, payUrl);
+      const response = await fetchImpl(target, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-identity', internalSecret, body),
+          ...sign(body, { method: 'POST', url: target, contentType: 'application/json' }),
         },
         body,
         signal: AbortSignal.timeout(CLAIM_TRANSPORT_MS),
