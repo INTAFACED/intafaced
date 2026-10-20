@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_deposits" (
   "reason" text,
   "ledger_tx_id" text,
   "detected_at" timestamptz NOT NULL DEFAULT now(),
+  "credit_started_at" timestamptz,
   "credited_at" timestamptz,
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "custody_deposits_ids_ck" CHECK ("asset_id" ~ '^[A-Za-z0-9]{1,16}$' AND "network_id" ~ '^[A-Za-z0-9_-]{1,32}$'),

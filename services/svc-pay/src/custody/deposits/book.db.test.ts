@@ -178,6 +178,18 @@ describe('custody deposit record (real Postgres)', () => {
     expect(posts()).toHaveLength(1);
   });
 
+  it('a credit that started is finished even if the owner raises the minimum before the retry', async () => {
+    failPost = true;
+    await expect(book().receive(seen())).rejects.toThrow('ledger timeout');
+    await db.sql`UPDATE pay.custody_deposit_settings SET minimum_deposit = '100'`;
+    failPost = false;
+    expect(await book().settleOpen()).toBe(1);
+    expect(await db.sql`SELECT status, ledger_tx_id IS NOT NULL AS has_tx FROM pay.custody_deposits`).toEqual([
+      { status: 'credited', has_tx: true },
+    ]);
+    expect(posts()).toHaveLength(1);
+  });
+
   it('a crash after the post and before the flip finds the first transaction and flips once', async () => {
     const b = book();
     await b.receive(seen({ confirmations: 1 }));

@@ -23,6 +23,9 @@ import { postPayLedger } from '../../ledger-receipt.js';
  * - CRASH SAFETY. The row is written before the ledger is asked and flipped to `credited` after, in one statement that also
  *   stores the ledger transaction id. A crash between the two leaves `confirming`; the next pass posts again under the same
  *   key, which the ledger answers with the first transaction. A ledger error leaves the row `confirming` and is rethrown.
+ * - ONCE A CREDIT HAS STARTED it is finished, whatever the settings say later. `credit_started_at` is written, with the minimum
+ *   and count the row was judged by, before the ledger is asked; a retry after a crash skips the judgment and posts under the
+ *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
  */
@@ -66,10 +69,11 @@ interface Row {
   reason: PayCustodyDepositReason | null;
   detected_at: Date;
   credited_at: Date | null;
+  credit_started_at: Date | null;
 }
 
 const COLUMNS =
-  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at';
+  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
 const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUSES);
 
@@ -175,7 +179,7 @@ export class CustodyDepositBook {
            WHERE asset_id = ${input.assetId} AND network_id = ${owner.network_id} AND tx_hash = ${input.txHash}
              AND output_index = ${input.outputIndex} FOR UPDATE`
       )[0]!;
-      if (!OPEN.has(existing.status)) return existing;
+      if (!OPEN.has(existing.status) || existing.credit_started_at) return existing;
       if (parseAmount(existing.amount) !== input.amount) {
         const flagged = await tx<Row[]>`
           UPDATE pay.custody_deposits SET status = 'needs_review', reason = 'amount_mismatch', updated_at = now()
@@ -195,6 +199,7 @@ export class CustodyDepositBook {
   private async settle(row: Row): Promise<Row> {
     if (!OPEN.has(row.status)) return row;
     const { sql } = this.deps;
+    if (row.credit_started_at) return this.credit(row, row.confirmations_required ?? 0, row.minimum_deposit ?? '');
     const [required, minimum] = await Promise.all([this.requiredConfirmations(row), this.minimumDeposit(row)]);
 
     if (required === null) return this.park(row, null, minimum, 'confirmations_unset');
@@ -217,6 +222,20 @@ export class CustodyDepositBook {
       return waiting[0] ?? (await this.reload(row.id));
     }
 
+    return this.credit(row, required, minimum);
+  }
+
+  /** Mark the credit started (with the judging figures), post under the business key, then flip. Retried as it is after a crash. */
+  private async credit(row: Row, required: number, minimum: string): Promise<Row> {
+    const { sql } = this.deps;
+    const amount = parseAmount(row.amount);
+    if (!row.credit_started_at) {
+      const started = await sql<Row[]>`
+        UPDATE pay.custody_deposits
+           SET credit_started_at = now(), reason = NULL, confirmations_required = ${required}, minimum_deposit = ${minimum}, updated_at = now()
+         WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
+      if (!started[0]) return this.reload(row.id);
+    }
     const railRef = `${row.network_id}:${row.tx_hash}:${row.output_index}`;
     const tx = await postPayLedger(
       this.deps.ledger as LedgerClient,
