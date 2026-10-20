@@ -3,8 +3,11 @@ package io.intafaced.fix;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.MessageDigest;
+import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.security.Signature;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -37,6 +40,8 @@ public final class ServiceKeys {
     public static final String SIGNATURE_HEADER = "x-intafaced-s2s-sig";
     public static final String MODE_ENV = "S2S_AUTH_MODE";
     public static final String KEYRING_ENV = "S2S_KEYRING";
+    public static final String SIGNING_KID_ENV = "S2S_SIGNING_KID";
+    public static final String SIGNING_KEY_ENV = "S2S_SIGNING_KEY";
     public static final int PAST_SECONDS = 60;
     public static final int FUTURE_SECONDS = 5;
 
@@ -120,6 +125,135 @@ public final class ServiceKeys {
             throw new KeyError("S2S_AUTH_MODE=" + mode + " needs S2S_KEYRING");
         }
         return new Inbound(new Verifier(self, parseKeyring(keyring), Clock.systemUTC()), mode);
+    }
+
+    /** What an outgoing client holds once S2S is on: its own signer and the mode ({@code dual} or {@code keypair}). */
+    public record Outbound(Signer signer, String mode) {
+        public boolean keypairOnly() {
+            return "keypair".equals(mode);
+        }
+    }
+
+    /**
+     * The signing side, as {@code s2sFromEnv} in {@code packages/contracts/src/s2s-env.ts}. Unset or {@code off}
+     * returns null (the shared secret is the only form). In {@code dual} or {@code keypair} the keyring is required and
+     * {@code S2S_SIGNING_KID} / {@code S2S_SIGNING_KEY} (PKCS8, base64url) are set together or not at all; with neither,
+     * this process only verifies and returns null. The private key must be the one the keyring publishes for
+     * {@code self} under that key id, or boot stops.
+     */
+    public static Outbound outboundFromEnv(Map<String, String> env, String self) {
+        String mode = env.get(MODE_ENV);
+        if (mode == null || mode.equals("off")) {
+            return null;
+        }
+        if (!mode.equals("dual") && !mode.equals("keypair")) {
+            throw new KeyError("S2S_AUTH_MODE must be exactly off, dual or keypair");
+        }
+        String keyring = env.get(KEYRING_ENV);
+        if (keyring == null || keyring.isBlank()) {
+            throw new KeyError("S2S_AUTH_MODE=" + mode + " needs S2S_KEYRING");
+        }
+        List<Entry> entries = parseKeyring(keyring);
+        String kid = env.get(SIGNING_KID_ENV);
+        String pkcs8 = env.get(SIGNING_KEY_ENV);
+        if ((kid == null) != (pkcs8 == null)) {
+            throw new KeyError("S2S_SIGNING_KID and S2S_SIGNING_KEY are set together or not at all");
+        }
+        if (kid == null) {
+            return null;
+        }
+        return new Outbound(Signer.create(self, kid, pkcs8, entries, Clock.systemUTC(), new SecureRandom()), mode);
+    }
+
+    /** Signs outgoing calls with this service's own Ed25519 key. Same preimage as {@code createServiceSigner}. */
+    public static final class Signer {
+        private final String kid;
+        private final PrivateKey key;
+        private final Clock clock;
+        private final SecureRandom random;
+
+        private Signer(String kid, PrivateKey key, Clock clock, SecureRandom random) {
+            this.kid = kid;
+            this.key = key;
+            this.clock = clock;
+            this.random = random;
+        }
+
+        /** Refuses to build unless the private key is the one the keyring publishes for this service and key id. */
+        public static Signer create(
+                String service, String kid, String pkcs8, List<Entry> keyring, Clock clock, SecureRandom random) {
+            Entry entry = null;
+            for (Entry candidate : keyring) {
+                if (candidate.kid().equals(kid)) {
+                    entry = candidate;
+                }
+            }
+            if (entry == null || !entry.svc().equals(service) || !entry.use().equals("s2s")) {
+                throw new KeyError(service + ": no s2s key " + kid + " for this service in the keyring");
+            }
+            PrivateKey key;
+            try {
+                key = KeyFactory.getInstance("Ed25519")
+                        .generatePrivate(new PKCS8EncodedKeySpec(Base64.getUrlDecoder().decode(pkcs8)));
+            } catch (Exception e) {
+                throw new KeyError(service + ": S2S private key is not a PKCS8 Ed25519 key, base64url");
+            }
+            // Java cannot derive the public half from the private one directly: a probe signature that the published
+            // key accepts proves the pair.
+            try {
+                byte[] probe = "intafaced-s2s-probe".getBytes(StandardCharsets.UTF_8);
+                Signature signer = Signature.getInstance("Ed25519");
+                signer.initSign(key);
+                signer.update(probe);
+                byte[] sig = signer.sign();
+                Signature check = Signature.getInstance("Ed25519");
+                check.initVerify(publicKey(entry.x()));
+                check.update(probe);
+                if (!check.verify(sig)) {
+                    throw new KeyError(service + ": S2S private key does not match the published key " + kid);
+                }
+            } catch (KeyError e) {
+                throw e;
+            } catch (Exception e) {
+                throw new KeyError(service + ": S2S private key does not match the published key " + kid);
+            }
+            return new Signer(kid, key, clock, random);
+        }
+
+        /**
+         * The six v3 headers for one call.
+         *
+         * @param rawTarget the raw request target exactly as sent: raw path plus {@code ?rawQuery}
+         * @param contentType the content-type sent with the call, or null when none is sent
+         */
+        public Map<String, String> headers(
+                String audience, String method, String rawTarget, String body, String contentType) {
+            byte[] bytes = (body == null ? "" : body).getBytes(StandardCharsets.UTF_8);
+            String ts = Long.toString(Math.floorDiv(clock.millis(), 1000L));
+            byte[] nonceBytes = new byte[16];
+            random.nextBytes(nonceBytes);
+            String nonce = Base64.getUrlEncoder().withoutPadding().encodeToString(nonceBytes);
+            String digest = sha256Hex(bytes);
+            String ctx = contextDigest(null, null, null, contentType);
+            byte[] message = preimage(kid, audience, method, rawTarget, ts, nonce, digest, ctx);
+            String signature;
+            try {
+                Signature signer = Signature.getInstance("Ed25519");
+                signer.initSign(key);
+                signer.update(message);
+                signature = Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
+            } catch (Exception e) {
+                throw new IllegalStateException("Ed25519 signing failed", e);
+            }
+            Map<String, String> headers = new LinkedHashMap<>();
+            headers.put(KID_HEADER, kid);
+            headers.put(AUDIENCE_HEADER, audience);
+            headers.put(TIMESTAMP_HEADER, ts);
+            headers.put(NONCE_HEADER, nonce);
+            headers.put(BODY_HEADER, digest);
+            headers.put(SIGNATURE_HEADER, signature);
+            return headers;
+        }
     }
 
     /** Parse the public keyring. It never accepts private material. Anything unexpected throws. */

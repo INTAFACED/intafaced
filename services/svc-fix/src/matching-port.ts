@@ -1,4 +1,4 @@
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { s2sFromEnv, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { z } from 'zod';
 import {
   adaptResultSchema,
@@ -18,6 +18,7 @@ import {
 export const COMPID_ACCOUNT_JSON_ENV = 'FIX_COMPID_ACCOUNT_JSON';
 export const SERVICE_SECRET_ENV = 'INTERNAL_SERVICE_SECRET';
 export const MATCHING_SERVICE_NAME = 'svc-fix';
+export const MATCHING_AUDIENCE = 'svc-matching';
 const MIN_SERVICE_SECRET_LENGTH = 32;
 
 export const matchingPortErrorSchema = z.object({
@@ -66,6 +67,12 @@ export type MatchingPortOptions = {
   compIdAccountJson?: string;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned POST. */
   internalServiceSecret?: string;
+  /**
+   * S2S v3 signing key and mode. Omitted: built from S2S_AUTH_MODE / S2S_KEYRING / S2S_SIGNING_KID / S2S_SIGNING_KEY
+   * (mode off or unset means the shared secret alone). In `dual` the shared secret rides along; in `keypair` the key
+   * signature is the only form and the shared secret may be blank.
+   */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 };
 
 /** Matching submit JSON. Qty/price stay decimal strings. A market price is the protection price when set, otherwise null — never a last. */
@@ -263,22 +270,45 @@ export async function postMatchingSubmit(command: unknown, options: MatchingPort
   if (!base.ok) {
     return base;
   }
-  const secret = readInternalServiceSecret(options.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV]);
-  if (!secret.ok) {
-    return secret;
+  let s2s = options.s2s;
+  if (!s2s) {
+    try {
+      const fromEnv = s2sFromEnv(process.env, MATCHING_SERVICE_NAME);
+      if (fromEnv.signer && fromEnv.s2sMode) s2s = { signer: fromEnv.signer, mode: fromEnv.s2sMode };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'invalid';
+      return refuse(
+        'matching_service_auth_unconfigured',
+        `S2S configuration is invalid (${detail}); svc-fix does not POST unsigned matching orders`,
+      );
+    }
+  }
+  const rawSecret = options.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV];
+  // A signing key in keypair mode is the credential; the shared secret is not sent, so it need not be set.
+  let secret: string;
+  if (s2s?.mode === 'keypair') {
+    secret = rawSecret ?? '';
+  } else {
+    const checked = readInternalServiceSecret(rawSecret);
+    if (!checked.ok) {
+      return checked;
+    }
+    secret = checked.secret;
   }
   const body = toMatchingSubmitBody(parsed.command, account.accountId, tif.tif);
   const payload = JSON.stringify(body);
   const path = matchingSubmitPath(parsed.command);
+  const sign = serviceCallSigner({ service: MATCHING_SERVICE_NAME, audience: MATCHING_AUDIENCE, legacySecret: secret, s2s });
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${base.url}${path}`, {
+    const url = new URL(`${base.url}${path}`);
+    const response = await fetch(url.href, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody(MATCHING_SERVICE_NAME, secret.secret, payload),
+        ...sign(payload, { method: 'POST', url, contentType: 'application/json' }),
       },
       body: payload,
       signal: controller.signal,
