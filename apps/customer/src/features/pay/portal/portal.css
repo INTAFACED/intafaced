@@ -189,11 +189,6 @@
       background-size: 200% 100%;
       animation: pp-shimmer 1.4s linear infinite;
     }
-    @keyframes pp-shimmer {
-      to {
-        background-position: -200% 0;
-      }
-    }
 
     /* KPI tiles */
     .pp-kpis {
@@ -946,6 +941,11 @@
   }
   .if-business .pp-kpi {
     padding: 14px;
+  }
+  @keyframes pp-shimmer {
+    to {
+      background-position: -200% 0;
+    }
   }
 }
 
