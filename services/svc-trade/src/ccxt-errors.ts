@@ -328,6 +328,9 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.limit_max_order': { ccxt: 'InvalidOrder', status: 422 },
   'trade.limit_max_position': { ccxt: 'InvalidOrder', status: 422 },
   'trade.limit_max_loss': { ccxt: 'InvalidOrder', status: 422 },
+  'trade.limit_max_open_orders': { ccxt: 'InvalidOrder', status: 422 },
+  /** TRADE_MAX_OPEN_ORDERS set but not a whole number: refuse new resting orders, not an unbounded book. */
+  'trade.max_open_orders_invalid': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /** Owner MM seed half-spread/step unpublished — refuse-closed, not invent 10. */
   'trade.mm_seed_bps_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**

@@ -535,6 +535,10 @@ per asset; no `available` or `hold` balance ever goes negative; and no terminal 
 
 `standing.quote` and `standing.execute` let svc-bank run a customer's auto-invest schedule through the same firm quote, ledger recipes and idempotency as `convert.*`. There is no session or API key: the call is an authenticated service call (svc-bank only; the user and instruction ids come from the signed body), and admission names the `standing_instruction` authority, which svc-identity decides. The door is OFF by default (`TRADE_STANDING_INSTRUCTION_ENABLED`, refuses `trade.standing_instruction_disabled`); turn it on only once identity decides that authority. Limits to know: svc-bank and the other services share one `INTERNAL_SERVICE_SECRET` today, so the caller name is only as strong as that secret until per-service keys land; this path has no principal tier or region gate (svc-bank checks the instruction when it is created; identity checks the user is active and not frozen, and the restriction guard still applies).
 
+## Open-order cap
+
+`TRADE_MAX_OPEN_ORDERS` (optional owner integer) caps the resting orders one user holds across all markets; past it a new resting order is `trade.limit_max_open_orders` (422) before any hold. Unset compares nothing, a set-but-invalid value is `trade.max_open_orders_invalid` (503). Operators: `docs/runbooks/trade-pretrade-limits.md`.
+
 ## Closed-order history filters
 
 `GET /api/v1/orders/closed` takes `side` (`buy` or `sell`), `status` (CCXT words `closed`, `canceled`, `rejected`, `expired`) and `until` (unix ms, inclusive) next to `symbol`, `limit` and `since`. All filters run in SQL on the caller's own orders, so `limit` stays honest. An unknown `side` or `status`, an `until` that is negative, not a number or before `since` is a 400, never a silent unfiltered page.
