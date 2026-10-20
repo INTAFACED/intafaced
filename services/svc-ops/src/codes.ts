@@ -36,6 +36,8 @@ export {
 
 /** Not in the spec's list: the case store has no database, or the inbox a case names does not exist. */
 export const OPS_COMPLIANCE_STORAGE_UNCONFIGURED = 'ops.compliance_storage_unconfigured' as const;
+/** An open of an id that already belongs to a case in another inbox. */
+export const COMPLIANCE_CASE_ALREADY_OPEN = 'compliance.case_already_open' as const;
 export const COMPLIANCE_INBOX_NOT_FOUND = 'compliance.inbox_not_found' as const;
 
 /** The ledger's fee revenue read for the venue report could not be asked or did not answer cleanly. */
@@ -145,6 +147,7 @@ export type OpsRefuseCode =
   | typeof OPS_COST_CATEGORY_INVALID
   | typeof OPS_COST_PERIOD_INVALID
   | typeof OPS_COST_STORAGE_UNCONFIGURED
+  | typeof COMPLIANCE_CASE_ALREADY_OPEN
   | typeof COMPLIANCE_CASE_NOT_FOUND
   | typeof COMPLIANCE_CASES_LIST_LIMIT_UNSET
   | typeof COMPLIANCE_INBOX_FORBIDDEN

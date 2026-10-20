@@ -187,6 +187,28 @@ function suite(name: string, open: () => Promise<{ store: ComplianceStore; close
         expect((await alice.compliance.cases.list({ inboxId: inbox.id, limit: 5 })).total).toBe(1);
       }));
 
+    it('does not let a non-member open into an inbox, or read a case in another inbox through a replay', () =>
+      withStore(async (store) => {
+        const alice = await api(store, principal(ALICE));
+        const y = await alice.compliance.inboxes.define({ name: 'y', version: 1, entityType: 'user', workflow: 'standard' });
+        const x = await alice.compliance.inboxes.define({
+          name: 'x',
+          version: 1,
+          entityType: 'user',
+          workflow: 'standard',
+          members: [BOB],
+        });
+        await alice.compliance.cases.open({ id: 'case-y', inboxId: y.id, kind: 'manual', subjectId: 'u1', openedAt: at(1) });
+        const bob = await api(store, principal(BOB));
+        await expect(bob.compliance.cases.open({ id: 'case-y', inboxId: y.id, kind: 'manual', subjectId: 'u1' })).rejects.toMatchObject({
+          code: 'FORBIDDEN',
+        });
+        await expect(bob.compliance.cases.open({ id: 'case-y', inboxId: x.id, kind: 'manual', subjectId: 'u1' })).rejects.toMatchObject({
+          code: 'CONFLICT',
+          message: expect.stringContaining('compliance.case_already_open'),
+        });
+      }));
+
     it('gives the next unassigned case in stable order, and an empty answer when there is none', () =>
       withStore(async (store) => {
         const alice = await api(store, principal(ALICE));

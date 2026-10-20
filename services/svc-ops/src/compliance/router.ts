@@ -19,6 +19,7 @@ import {
   type ComplianceInbox,
 } from '@intafaced/contracts';
 import {
+  COMPLIANCE_CASE_ALREADY_OPEN,
   COMPLIANCE_CASE_NOT_FOUND,
   COMPLIANCE_CASES_LIST_LIMIT_UNSET,
   COMPLIANCE_INBOX_FORBIDDEN,
@@ -43,7 +44,7 @@ function complianceError(err: unknown): never {
         ? 'FORBIDDEN'
         : err.code === COMPLIANCE_CASE_NOT_FOUND || err.code === COMPLIANCE_INBOX_NOT_FOUND
           ? 'NOT_FOUND'
-          : err.code === COMPLIANCE_QUEUE_NAME_TAKEN
+          : err.code === COMPLIANCE_QUEUE_NAME_TAKEN || err.code === COMPLIANCE_CASE_ALREADY_OPEN
             ? 'CONFLICT'
             : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.code} — ${err.message}`, cause: err });
@@ -239,9 +240,7 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
       .mutation(({ input, ctx }) =>
         guarded(async () => {
           const s = need();
-          const inbox = await s.getInbox(input.inboxId);
-          if (!inbox)
-            throw new OpsError(COMPLIANCE_INBOX_NOT_FOUND, 'No such inbox. A case is never opened into an inbox that does not exist.');
+          const inbox = await memberInbox(s, input.inboxId, ctx.principal.userId);
           const at = input.openedAt ?? now();
           const c: ComplianceCase = {
             id: input.id,
@@ -260,7 +259,12 @@ export function createComplianceRouter(store: ComplianceStore | undefined, now: 
             createdAt: at,
             updatedAt: at,
           };
-          return s.openCase(c, ctx.principal.userId);
+          const stored = await s.openCase(c, ctx.principal.userId);
+          // The id is the key. A replay naming another inbox must not hand back a case the caller cannot see.
+          if (stored.case.inboxId !== inbox.id) {
+            throw new OpsError(COMPLIANCE_CASE_ALREADY_OPEN, 'A case with this id is already open in another inbox.');
+          }
+          return stored;
         }),
       ),
   });
