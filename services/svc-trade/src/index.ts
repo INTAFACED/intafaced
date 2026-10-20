@@ -25,6 +25,7 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -380,6 +381,7 @@ const copy = new CopyService(ledger, {
   },
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
+const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -389,8 +391,9 @@ export const appRouter = createTradeRouter(
     sql,
     trade,
     ledger,
-    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+    approvals: tradeOpsApprovals,
   }),
+  new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

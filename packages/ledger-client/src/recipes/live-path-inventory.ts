@@ -91,12 +91,7 @@ export const RECIPE_MATRIX = {
   futuresRealizeLoss: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/liquidation-planner.ts' },
   futuresRealizeProfit: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
   futuresFundingPay: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/funding-settlement.ts' },
-  futuresInsuranceTopup: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — recipe seeds insurance from house trade fees; liquidation draws via futuresRealizeLoss({ fromInsurance }). No admin/ops top-up writer on tip (package + test fund only).',
-  },
+  futuresInsuranceTopup: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/admin/insurance-topup.ts' },
   escrowLock: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
   escrowRelease: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
   escrowRefund: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
