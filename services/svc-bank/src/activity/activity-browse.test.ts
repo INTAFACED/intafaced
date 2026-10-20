@@ -324,4 +324,41 @@ describe('over the router', () => {
     await expect(api.activity.list({ accountId: 'someone-elses' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(api.activity.list({ accountId: STRANGER_SPACE })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
+
+  it('links a purchase to the asset history, and a sale, a futures settlement or a refund to nothing', async () => {
+    // The feed shows only the asset a fill paid in, so each case is one line.
+    const lines = [
+      { ...post('tx-buy', 'trade.fill', 'debit', 3, { module: 'trade' }), assetId: 'BTC' },
+      { ...post('tx-sell', 'trade.fill', 'debit', 4, { module: 'trade' }), assetId: 'USDT' },
+      { ...post('tx-mm', 'trade.fill.mm_maker', 'debit', 5, { module: 'trade' }), assetId: 'ETH' },
+      { ...post('tx-margin', 'futures.margin.release', 'debit', 6, { module: 'trade' }), assetId: 'ETH' },
+      { ...post('tx-profit', 'futures.profit.realized', 'debit', 7, { module: 'trade' }), assetId: 'USDT' },
+      { ...post('tx-p2p-buy', 'p2p.escrow.release', 'debit', 8, { module: 'p2p' }), assetId: 'USDT' },
+      { ...post('tx-p2p-refund', 'p2p.escrow.refund', 'debit', 9, { module: 'p2p' }), assetId: 'BTC' },
+      post('tx-send', 'bank.transfer.manual', 'credit', 10),
+    ];
+    const api = caller(service(lines));
+    const list = await api.activity.list({ limit: 20 });
+    const pageOf = async (txId: string) => {
+      const line = list.items.find((i) => i.txId === txId)!;
+      return (await api.activity.get({ id: line.id })).assetPage;
+    };
+    expect(await pageOf('tx-buy')).toBe('/coin/BTC');
+    expect(await pageOf('tx-mm')).toBe('/coin/ETH');
+    expect(await pageOf('tx-p2p-buy')).toBe('/coin/USDT');
+    for (const txId of ['tx-sell', 'tx-margin', 'tx-profit', 'tx-p2p-refund', 'tx-send']) expect(await pageOf(txId)).toBeNull();
+    expect(
+      list.items
+        .filter((i) => i.purchase)
+        .map((i) => i.txId)
+        .sort(),
+    ).toEqual(['tx-buy', 'tx-mm', 'tx-p2p-buy']);
+  });
+
+  it('never builds a link from an asset id that is not a plain code', async () => {
+    const odd = [{ ...post('tx-odd', 'trade.fill', 'debit', 3, { module: 'trade' }), assetId: '..' }];
+    const api = caller(service(odd));
+    const line = (await api.activity.list({})).items[0]!;
+    expect((await api.activity.get({ id: line.id })).assetPage).toBeNull();
+  });
 });
