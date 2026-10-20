@@ -31,16 +31,31 @@ export interface ListingDecision {
   readonly policyVersion: string;
 }
 
+/** A decision before the store has seen the target's state: the store decides `applied` or `noop` under its own lock. */
+export type ListingDecisionDraft = Omit<ListingDecision, 'outcome' | 'note'>;
+
+const NOTE_NOOP_HIDDEN = 'Already hidden by an earlier approval.';
+const NOTE_NOOP_VISIBLE = 'Already listed; nothing to restore.';
+const settle = (draft: ListingDecisionDraft, current: ListingRow['state']): ListingDecision => {
+  const noop = current === draft.state;
+  return {
+    ...draft,
+    outcome: noop ? 'noop' : 'applied',
+    note: noop ? (draft.state === 'hidden' ? NOTE_NOOP_HIDDEN : NOTE_NOOP_VISIBLE) : null,
+  };
+};
+
 export interface ListingStore {
   state(kind: ListingKind, targetId: string): Promise<ListingRow | null>;
   decision(idempotencyKey: string): Promise<ListingDecision | null>;
   /** Every target that has ever been decided, hidden or restored. */
   list(kind: ListingKind): Promise<readonly ListingRow[]>;
   /**
-   * One transaction: append the decision and, when it applied, set the state. A decision whose key already exists is
-   * not written twice: the stored one comes back.
+   * One transaction under a per-target lock: read the target's state, settle the draft as `applied` or `noop` against it,
+   * append the decision and, when it applied, set the state. A decision whose key already exists is not written twice:
+   * the stored one comes back. Two approvals racing on one target therefore see each other: exactly one applies.
    */
-  record(decision: ListingDecision, at: string): Promise<ListingDecision>;
+  record(draft: ListingDecisionDraft, at: string): Promise<ListingDecision>;
 }
 
 const stateOf = (action: ProtocolOpsAction): ListingRow['state'] =>
@@ -61,9 +76,10 @@ export function createMemoryListingStore(): ListingStore {
     async list(kind) {
       return [...rows.values()].filter((row) => row.kind === kind);
     },
-    async record(decision, at) {
-      const stored = decisions.get(decision.idempotencyKey);
+    async record(draft, at) {
+      const stored = decisions.get(draft.idempotencyKey);
       if (stored) return stored;
+      const decision = settle(draft, rows.get(key(draft.kind, draft.targetId))?.state ?? 'visible');
       decisions.set(decision.idempotencyKey, decision);
       if (decision.outcome === 'applied') {
         rows.set(key(decision.kind, decision.targetId), {
@@ -158,13 +174,17 @@ export function createPgListingStore(sql: Sql): ListingStore {
       >`SELECT kind,target_id,state,reason_code,reason,approval_id,policy_version,updated_at FROM ops.protocol_listing_overrides WHERE kind=${kind} ORDER BY target_id`;
       return rows.map(toRow);
     },
-    async record(decision, at) {
+    async record(draft, at) {
       return sql.begin(async (tx) => {
         const q = tx as unknown as Sql;
         // One writer per target at a time, so the no-op check and the write see the same state.
-        await q`SELECT pg_advisory_xact_lock(hashtext(${`ops.protocol_listing:${decision.kind}:${decision.targetId}`}))`;
-        const prior = await decisionByKey(q, decision.idempotencyKey);
+        await q`SELECT pg_advisory_xact_lock(hashtext(${`ops.protocol_listing:${draft.kind}:${draft.targetId}`}))`;
+        const prior = await decisionByKey(q, draft.idempotencyKey);
         if (prior) return prior;
+        const [current] = await q<
+          { state: ListingRow['state'] }[]
+        >`SELECT state FROM ops.protocol_listing_overrides WHERE kind=${draft.kind} AND target_id=${draft.targetId}`;
+        const decision = settle(draft, current?.state ?? 'visible');
         await q`INSERT INTO ops.protocol_listing_decisions
           (idempotency_key,action,kind,target_id,outcome,note,reason_code,reason,approval_id,requester_id,approver_id,policy_version,decided_at)
           VALUES (${decision.idempotencyKey},${decision.action},${decision.kind},${decision.targetId},${decision.outcome},${decision.note},

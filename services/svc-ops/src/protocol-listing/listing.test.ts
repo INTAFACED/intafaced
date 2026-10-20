@@ -9,8 +9,10 @@ import {
   protocolOpsIdempotencyKey,
   signPrincipalHeader,
   type ActionApproval,
+  type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
+import { approvalPayloadHash } from '../operator-desks.js';
 import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
 import { createListingDesk } from './wiring.js';
@@ -42,23 +44,30 @@ async function signed(scopes: string[]) {
   });
 }
 
-/** Identity echoes the request back as CONSUMED unless a test overrides what it says. */
-function approvals(over: Partial<ActionApproval> = {}) {
-  const consumed: string[] = [];
+/**
+ * A stand-in for identity that enforces what identity enforces: an approval is proposed for one action, target, payload and
+ * operation id, is spent once, and is spent again only by the same request id.
+ */
+function identity(over: Partial<ActionApproval> = {}) {
+  type Row = { approval: ActionApproval; consumedBy: string | null };
+  const rows = new Map<string, Row>();
+  let n = 0;
+  const reject = (code: string): never => {
+    throw new Error(code);
+  };
   return {
-    consumed,
-    async consume(input: {
-      approvalId: string;
-      operationId: string;
-      payloadHash: string;
-      targetService: string;
-      targetId: string;
-      expectedVersion: string;
-    }): Promise<ActionApproval> {
-      consumed.push(input.operationId);
-      return {
-        ...input,
-        actionType: over.actionType ?? actionOf(input.operationId),
+    consumed: () => [...rows.values()].filter((r) => r.consumedBy !== null).length,
+    /** The two founders agree to exactly this action; the caller carries the returned ids. */
+    propose(actionType: string, targetId: string, fields: Record<string, string>) {
+      n += 1;
+      const approval: ActionApproval = {
+        approvalId: `ap_${n}`,
+        operationId: `op_${n}`,
+        payloadHash: approvalPayloadHash(actionType, fields),
+        targetService: 'svc-ops',
+        targetId,
+        expectedVersion: '1',
+        actionType,
         requesterId: USER,
         approverId: APPROVER,
         approverIsFounder: true,
@@ -69,43 +78,74 @@ function approvals(over: Partial<ActionApproval> = {}) {
         status: 'CONSUMED',
         ...over,
       };
+      rows.set(approval.approvalId, { approval, consumedBy: null });
+      return { approvalId: approval.approvalId, operationId: approval.operationId };
+    },
+    async consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> {
+      const row = rows.get(input.approvalId) ?? reject('action_approval.not_found');
+      const a = row!.approval;
+      if (row!.consumedBy !== null) {
+        if (input.requestId === undefined || input.requestId !== row!.consumedBy) reject('action_approval.consumed');
+      } else if (input.targetService !== a.targetService) reject('action_approval.service_mismatch');
+      if (input.payloadHash !== a.payloadHash) reject('action_approval.payload_mismatch');
+      if (input.targetId !== a.targetId || input.expectedVersion !== a.expectedVersion || input.operationId !== a.operationId) {
+        reject('action_approval.target_mismatch');
+      }
+      row!.consumedBy = input.requestId ?? '(none)';
+      return a;
     },
   };
 }
-const actionOf = (operationId: string) => operationId.split(':')[0]!;
 
-function build(opts: { store?: ListingStore | null; approver?: ReturnType<typeof approvals>; codes?: string[] | null } = {}) {
+const HIDE_FIELDS = { reasonCode: 'scam_report', reason: 'reported by three users' };
+
+function build(opts: { store?: ListingStore | null; ids?: ReturnType<typeof identity>; codes?: string[] | null } = {}) {
   const store = opts.store === null ? undefined : (opts.store ?? createMemoryListingStore());
-  const approver = opts.approver ?? approvals();
+  const ids = opts.ids ?? identity();
   const router = createOpsRouter(new OpsService(), undefined, {
-    approvals: approver,
+    approvals: ids,
     ...(store
       ? {
           protocolListing: createListingDesk({
             store,
-            approvals: approver,
+            approvals: ids,
             reasonCodes: () => (opts.codes === undefined ? ['scam_report'] : opts.codes),
             now: () => '2026-10-20T10:00:00.000Z',
           }),
         }
       : {}),
   });
-  return { router, store, approver };
+  return { router, store, ids };
 }
 const as = async (router: ReturnType<typeof build>['router'], scopes: string[] = ['admin:read', 'admin:write']) =>
   router.createCaller(await signed(scopes));
 
-const hide = { chainId: 84532, poolAddress: POOL, reasonCode: 'scam_report', reason: 'reported by three users', approvalId: 'ap_1' };
+const POOL_ID = poolTargetId(84532, POOL);
+/** Propose the matching approval, then the exact input a founder UI would send. */
+const hideInput = (ids: ReturnType<typeof identity>, over: Record<string, unknown> = {}) => ({
+  chainId: 84532,
+  poolAddress: POOL,
+  ...HIDE_FIELDS,
+  ...ids.propose('protocol.pool.hide', POOL_ID, { targetId: POOL_ID, ...HIDE_FIELDS }),
+  ...over,
+});
+const restoreInput = (ids: ReturnType<typeof identity>, over: Record<string, unknown> = {}) => ({
+  chainId: 84532,
+  poolAddress: POOL,
+  ...ids.propose('protocol.pool.restore', POOL_ID, { targetId: POOL_ID }),
+  ...over,
+});
 const refuses = (code: string) => ({ code: 'PRECONDITION_FAILED', message: expect.stringContaining(code) });
 
 describe('protocol listing desk', () => {
   it('hides a pool with a second founder, lists it with who and under which policy, and shows it on the public hide list', async () => {
-    const { router } = build();
+    const { router, ids } = build();
     const caller = await as(router);
-    const key = protocolOpsIdempotencyKey('protocol.pool.hide', poolTargetId(84532, POOL), 'ap_1');
-    await expect(caller.protocolListing.pools.hide(hide)).resolves.toEqual({
+    const input = hideInput(ids);
+    const key = protocolOpsIdempotencyKey('protocol.pool.hide', POOL_ID, input.approvalId);
+    await expect(caller.protocolListing.pools.hide(input)).resolves.toEqual({
       action: 'protocol.pool.hide',
-      targetId: poolTargetId(84532, POOL),
+      targetId: POOL_ID,
       state: 'hidden',
       outcome: 'applied',
       note: null,
@@ -120,7 +160,7 @@ describe('protocol listing desk', () => {
         hidden: {
           reasonCode: 'scam_report',
           reason: 'reported by three users',
-          approvalId: 'ap_1',
+          approvalId: input.approvalId,
           policyVersion: 'p1',
           at: '2026-10-20T10:00:00.000Z',
         },
@@ -135,52 +175,96 @@ describe('protocol listing desk', () => {
     });
   });
 
-  it('replays a retry with the same approval from the stored result and consumes nothing twice', async () => {
-    const { router, approver } = build();
+  it('replays a retry with the same approval from the stored result and spends nothing twice', async () => {
+    const { router, ids } = build();
     const caller = await as(router);
-    const first = await caller.protocolListing.pools.hide(hide);
-    const second = await caller.protocolListing.pools.hide(hide);
-    expect(second).toEqual(first);
-    expect(approver.consumed).toHaveLength(1);
+    const input = hideInput(ids);
+    const first = await caller.protocolListing.pools.hide(input);
+    expect(await caller.protocolListing.pools.hide(input)).toEqual(first);
+    expect(ids.consumed()).toBe(1);
+  });
+
+  it('survives a crash between spending the approval and writing the decision: the retry is not refused as consumed', async () => {
+    const real = createMemoryListingStore();
+    let crashes = 1;
+    const store: ListingStore = {
+      ...real,
+      record: async (draft, at) => {
+        if (crashes-- > 0) throw new Error('process died after consume');
+        return real.record(draft, at);
+      },
+    };
+    const { router, ids } = build({ store });
+    const caller = await as(router);
+    const input = hideInput(ids);
+    await expect(caller.protocolListing.pools.hide(input)).rejects.toThrow('process died after consume');
+    expect(ids.consumed()).toBe(1);
+    await expect(caller.protocolListing.pools.hide(input)).resolves.toMatchObject({ outcome: 'applied', state: 'hidden' });
+    expect(await real.list('pool')).toHaveLength(1);
+  });
+
+  it('refuses a different caller reusing a spent approval, and a changed reason, before anything is hidden', async () => {
+    const { router, ids, store } = build();
+    const caller = await as(router);
+    const input = hideInput(ids);
+    await caller.protocolListing.pools.hide(input);
+    // Another approval id with the first one's payload: identity has no such approval.
+    await expect(caller.protocolListing.pools.hide({ ...input, approvalId: 'ap_other' })).rejects.toThrow(/not_found/);
+
+    const changed = hideInput(ids, { reason: 'a different reason than the founders signed' });
+    await expect(caller.protocolListing.pools.hide(changed)).rejects.toMatchObject(refuses('action_approval.payload_mismatch'));
+    expect((await store!.list('pool')).map((r) => r.reason)).toEqual(['reported by three users']);
+  });
+
+  it('refuses an operation id that is not the one identity issued, and a target the founders did not sign', async () => {
+    const { router, ids, store } = build();
+    const caller = await as(router);
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { operationId: 'op_invented' }))).rejects.toMatchObject(
+      refuses('action_approval.target_mismatch'),
+    );
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { chainId: 1 }))).rejects.toMatchObject(
+      refuses('action_approval.payload_mismatch'),
+    );
+    expect(await store!.list('pool')).toEqual([]);
   });
 
   it('answers a second approval on a hidden pool as a no-op with a note, still logging it', async () => {
-    const { router, approver } = build();
+    const { router, ids } = build();
     const caller = await as(router);
-    await caller.protocolListing.pools.hide(hide);
-    const again = await caller.protocolListing.pools.hide({ ...hide, approvalId: 'ap_2' });
+    await caller.protocolListing.pools.hide(hideInput(ids));
+    const again = await caller.protocolListing.pools.hide(hideInput(ids));
     expect(again).toMatchObject({ outcome: 'noop', state: 'hidden', note: 'Already hidden by an earlier approval.' });
-    expect(approver.consumed).toHaveLength(2);
+    expect(ids.consumed()).toBe(2);
   });
 
   it('restores a hidden pool, and answers a restore of a listed one as a no-op', async () => {
-    const { router } = build();
+    const { router, ids } = build();
     const caller = await as(router);
-    await caller.protocolListing.pools.hide(hide);
-    await expect(caller.protocolListing.pools.restore({ chainId: 84532, poolAddress: POOL, approvalId: 'ap_3' })).resolves.toMatchObject({
-      outcome: 'applied',
-      state: 'visible',
-    });
+    await caller.protocolListing.pools.hide(hideInput(ids));
+    await expect(caller.protocolListing.pools.restore(restoreInput(ids))).resolves.toMatchObject({ outcome: 'applied', state: 'visible' });
     expect((await caller.protocolListing.hidden()).pools).toEqual([]);
-    await expect(caller.protocolListing.pools.restore({ chainId: 84532, poolAddress: POOL, approvalId: 'ap_4' })).resolves.toMatchObject({
+    await expect(caller.protocolListing.pools.restore(restoreInput(ids))).resolves.toMatchObject({
       outcome: 'noop',
       note: 'Already listed; nothing to restore.',
     });
   });
 
   it('delists and restores a market by upper-cased symbol', async () => {
-    const { router } = build();
+    const { router, ids } = build();
     const caller = await as(router);
+    const fields = { reasonCode: 'scam_report', reason: 'wash trading' };
     await expect(
       caller.protocolListing.markets.delist({
         symbol: ' btc-usdt ',
-        reasonCode: 'scam_report',
-        reason: 'wash trading',
-        approvalId: 'ap_5',
+        ...fields,
+        ...ids.propose('protocol.market.delist', 'BTC-USDT', { targetId: 'BTC-USDT', ...fields }),
       }),
     ).resolves.toMatchObject({ targetId: 'BTC-USDT', state: 'hidden', outcome: 'applied' });
     expect((await caller.protocolListing.hidden()).markets).toEqual([{ symbol: 'BTC-USDT' }]);
-    await caller.protocolListing.markets.restore({ symbol: 'BTC-USDT', approvalId: 'ap_6' });
+    await caller.protocolListing.markets.restore({
+      symbol: 'BTC-USDT',
+      ...ids.propose('protocol.market.restore', 'BTC-USDT', { targetId: 'BTC-USDT' }),
+    });
     expect((await caller.protocolListing.hidden()).markets).toEqual([]);
     expect((await caller.protocolListing.markets.list()).markets).toMatchObject([{ symbol: 'BTC-USDT', state: 'visible', hidden: null }]);
   });
@@ -191,23 +275,25 @@ describe('protocol listing desk', () => {
       [[], 'owner.decision'],
       [['spam'], 'protocol.ops_reason_code_unknown'],
     ] as const) {
-      const { router, approver, store } = build({ codes: codes as string[] | null });
+      const { router, ids, store } = build({ codes: codes as string[] | null });
       const caller = await as(router);
-      await expect(caller.protocolListing.pools.hide(hide)).rejects.toMatchObject(refuses(expected));
-      expect(approver.consumed).toHaveLength(0);
+      await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(refuses(expected));
+      expect(ids.consumed()).toBe(0);
       expect(await store!.list('pool')).toEqual([]);
     }
   });
 
   it('refuses without an approval, with an approval for another action, and when identity is unwired', async () => {
-    const { router } = build();
+    const { router, ids } = build();
     const caller = await as(router);
-    await expect(caller.protocolListing.pools.hide({ ...hide, approvalId: '  ' })).rejects.toMatchObject(
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { approvalId: '  ' }))).rejects.toMatchObject(
       refuses('action_approval.missing'),
     );
-    const wrong = build({ approver: approvals({ actionType: 'ops.venue_cost.record' }) });
-    await expect((await as(wrong.router)).protocolListing.pools.hide(hide)).rejects.toMatchObject(refuses('action_approval.wrong_action'));
-    expect(await wrong.store!.list('pool')).toEqual([]);
+    // An approval proposed for another action carries another payload hash, so it cannot be spent here.
+    const other = ids.propose('ops.venue_cost.record', POOL_ID, { targetId: POOL_ID, ...HIDE_FIELDS });
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, other))).rejects.toMatchObject(
+      refuses('action_approval.payload_mismatch'),
+    );
 
     const unwired = createOpsRouter(new OpsService(), undefined, {
       protocolListing: createListingDesk({
@@ -217,35 +303,46 @@ describe('protocol listing desk', () => {
         now: () => '2026-10-20T10:00:00.000Z',
       }),
     });
-    await expect((await as(unwired)).protocolListing.pools.hide(hide)).rejects.toMatchObject(refuses('action_approval.identity_unwired'));
+    await expect((await as(unwired)).protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(
+      refuses('action_approval.identity_unwired'),
+    );
   });
 
   it('refuses when the approver is not a distinct founder, and nothing is hidden', async () => {
-    const { router, store } = build({ approver: approvals({ approverIsFounder: false }) });
-    await expect((await as(router)).protocolListing.pools.hide(hide)).rejects.toMatchObject(refuses('action_approval.not_founders'));
+    const ids = identity({ approverIsFounder: false });
+    const { router, store } = build({ ids });
+    await expect((await as(router)).protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(
+      refuses('action_approval.not_founders'),
+    );
     expect(await store!.list('pool')).toEqual([]);
   });
 
   it('keeps writes behind admin:write and lists behind admin:read', async () => {
-    const { router } = build();
+    const { router, ids } = build();
     const reader = await as(router, ['admin:read']);
-    await expect(reader.protocolListing.pools.hide(hide)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(reader.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject({ code: 'FORBIDDEN' });
     const writer = await as(router, ['admin:write']);
     await expect(writer.protocolListing.pools.list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('without storage, writes and reads refuse, and the public hide list is never taken for empty', async () => {
-    const { router } = build({ store: null });
+    const { router, ids } = build({ store: null });
     const caller = await as(router);
-    await expect(caller.protocolListing.pools.hide(hide)).rejects.toMatchObject(refuses('ops.protocol_listing_storage_unconfigured'));
+    await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(
+      refuses('ops.protocol_listing_storage_unconfigured'),
+    );
     await expect(caller.protocolListing.hidden()).rejects.toMatchObject(refuses('ops.protocol_listing_storage_unconfigured'));
     await expect(caller.protocolListing.pools.list()).rejects.toMatchObject(refuses('ops.protocol_listing_storage_unconfigured'));
   });
 
-  it('rejects a malformed pool address and any extra field', async () => {
-    const caller = await as(build().router);
-    await expect(caller.protocolListing.pools.hide({ ...hide, poolAddress: '0x1' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-    await expect(caller.protocolListing.pools.hide({ ...hide, extra: 1 } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  it('rejects a malformed pool address, a missing operation id and any extra field', async () => {
+    const { router, ids } = build();
+    const caller = await as(router);
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { poolAddress: '0x1' }))).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { operationId: undefined }))).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    });
+    await expect(caller.protocolListing.pools.hide(hideInput(ids, { extra: 1 }) as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 });
 
@@ -254,8 +351,6 @@ const decision = (over: Partial<Parameters<ListingStore['record']>[0]> = {}): Pa
   action: 'protocol.pool.hide',
   kind: 'pool',
   targetId: '84532:0xabc',
-  outcome: 'applied',
-  note: null,
   state: 'hidden',
   reasonCode: 'scam_report',
   reason: 'TEST',
@@ -279,12 +374,31 @@ function storeContract(name: string, open: () => Promise<{ store: ListingStore; 
           reason: 'TEST',
           updatedAt: '2026-10-20T10:00:00.000Z',
         });
-        await store.record(
-          decision({ idempotencyKey: 'protocol.pool.hide:84532:0xabc:ap_2', outcome: 'noop', approvalId: 'ap_2', reason: 'later' }),
+        expect(first.outcome).toBe('applied');
+        const second = await store.record(
+          decision({ idempotencyKey: 'protocol.pool.hide:84532:0xabc:ap_2', approvalId: 'ap_2', reason: 'later' }),
           '2026-10-20T12:00:00.000Z',
         );
+        expect(second).toMatchObject({ outcome: 'noop', note: 'Already hidden by an earlier approval.' });
         expect(await store.state('pool', '84532:0xabc')).toMatchObject({ reason: 'TEST', approvalId: 'ap_1' });
         expect(await store.list('market')).toEqual([]);
+      } finally {
+        await close();
+      }
+    });
+
+    it('lets two racing approvals on one target apply once and answer the other as a no-op', async () => {
+      const { store, close } = await open();
+      try {
+        const results = await Promise.all(
+          ['ap_1', 'ap_2'].map((approvalId) =>
+            store.record(
+              decision({ idempotencyKey: `protocol.pool.hide:84532:0xabc:${approvalId}`, approvalId }),
+              '2026-10-20T10:00:00.000Z',
+            ),
+          ),
+        );
+        expect(results.map((r) => r.outcome).sort()).toEqual(['applied', 'noop']);
       } finally {
         await close();
       }
