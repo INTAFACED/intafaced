@@ -376,6 +376,10 @@ export type PayErrorCode =
   /** The history / eligibility reads are not wired in this process. */
   | 'pay.withdrawal_history_unwired'
   | 'pay.withdrawal_eligibility_unwired'
+  /** Funds from a card, ACH or PayPal purchase are held: tradable, not withdrawable until release (W-withdraw-13). */
+  | 'pay.withdrawal_amount_held'
+  /** Held funds exist and the owner has not set the release period; it is never guessed. */
+  | 'pay.purchase_hold_period_unset'
   /** A page cursor this history never issued. */
   | 'pay.withdrawal_cursor_invalid'
   | 'pay.withdrawal_not_cancellable'

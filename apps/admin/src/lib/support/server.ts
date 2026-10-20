@@ -4,6 +4,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
 } from '@intafaced/contracts';
@@ -15,6 +16,7 @@ import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
+  SupportLifecycleView,
   SupportPropertiesView,
   SupportQueueView,
   SupportGroupsView,
@@ -108,6 +110,16 @@ export async function loadTicketProperties(
 ): Promise<SupportPropertiesView> {
   const result = await founderCall(ctx, 'support', 'ticketProperties', 'GET', { ticketId }, parseWith(supportTicketPropertiesSchema));
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
+}
+
+/** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */
+export async function loadTicketLifecycle(
+  ctx: FounderCallContext,
+  ticketId: string,
+  now: Date = new Date(),
+): Promise<SupportLifecycleView> {
+  const result = await founderCall(ctx, 'support', 'ticketLifecycle', 'GET', { ticketId }, parseWith(supportTicketLifecycleSchema));
+  return { asOf: now.toISOString(), lifecycle: partFrom(result, (l) => l, LABELS) };
 }
 
 /** Who is on the support staff and whether automatic offline is set. Two reads, each its own part. */

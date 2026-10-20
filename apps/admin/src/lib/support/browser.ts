@@ -4,6 +4,7 @@ import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportActionRequest } from './model';
 import type {
   SupportKbView,
+  SupportLifecycleView,
   SupportPropertiesView,
   SupportQueueView,
   SupportGroupsView,
@@ -141,6 +142,21 @@ export async function fetchTicketProperties(id: string, signal?: AbortSignal): P
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.properties) ? (body as unknown as SupportPropertiesView) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchTicketLifecycle(id: string, signal?: AbortSignal): Promise<SupportLifecycleView | null> {
+  try {
+    const res = await fetch(`/api/support?view=lifecycle&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.lifecycle) ? (body as unknown as SupportLifecycleView) : null;
   } catch {
     return null;
   }
