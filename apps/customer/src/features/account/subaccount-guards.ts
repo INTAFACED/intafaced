@@ -19,9 +19,18 @@ export const subaccount = z.object({
   label: z.string().min(1).max(64),
   purpose: z.string().max(200).nullable(),
   revoked: z.boolean(),
+  frozen: z.boolean(),
+  kind: z.enum(['standard', 'managed', 'derivatives', 'spot']),
+  nickname: z.string().nullable(),
   createdAt: subaccountInstant,
 });
 export type Subaccount = z.infer<typeof subaccount>;
+export const KIND_KEYS: Readonly<Record<Subaccount['kind'], string>> = {
+  standard: 'kindStandard',
+  managed: 'kindManaged',
+  derivatives: 'kindDerivatives',
+  spot: 'kindSpot',
+};
 export function subaccountsIn(limit: number) {
   return z
     .array(subaccount)

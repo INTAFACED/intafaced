@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { subaccountCopy as copy } from './subaccount-copy';
 import {
+  KIND_KEYS,
   finishSubaccount,
   isCreateRefusal,
   readSubaccounts,
@@ -365,11 +366,20 @@ export function Account() {
                         <li className="subaccounts__row" key={row.id}>
                           <div className="subaccounts__details">
                             <strong lang="und">{row.label}</strong>
+                            {row.nickname !== null && (
+                              <span className="subaccounts__ref muted" lang="und">
+                                {t('nickname', { name: row.nickname })}
+                              </span>
+                            )}
                             {row.purpose !== null && (
                               <p className="muted" lang="und">
                                 {row.purpose}
                               </p>
                             )}
+                            <span className="subaccounts__ref muted">
+                              {t(KIND_KEYS[row.kind] as 'kindStandard')}
+                              {row.frozen ? ` · ${t('frozen')}` : ''}
+                            </span>
                             <span className="subaccounts__ref muted" lang="zxx">
                               {row.id}
                             </span>
