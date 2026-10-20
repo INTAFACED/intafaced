@@ -15,10 +15,48 @@ export interface ActivityFilters {
   to: string;
   /** Only lines the customer wrote a note or a report description on. */
   hasNote: boolean;
+  /** Asked of the bank, not worked out here: oldest first, one account (`main` or a named account id), one UTC year, part of an address. */
+  sort: 'desc' | 'asc';
+  accountId: string;
+  year: string;
+  address: string;
 }
-export const NO_FILTERS: ActivityFilters = { q: '', dir: 'all', from: '', to: '', hasNote: false };
+export const NO_FILTERS: ActivityFilters = {
+  q: '',
+  dir: 'all',
+  from: '',
+  to: '',
+  hasNote: false,
+  sort: 'desc',
+  accountId: '',
+  year: '',
+  address: '',
+};
+/** The shortest address the bank will search for. */
+export const ADDRESS_MIN = 4;
 export const hasFilters = (f: ActivityFilters): boolean =>
-  f.q.trim() !== '' || f.dir !== 'all' || f.from !== '' || f.to !== '' || f.hasNote;
+  f.q.trim() !== '' ||
+  f.dir !== 'all' ||
+  f.from !== '' ||
+  f.to !== '' ||
+  f.hasNote ||
+  f.sort !== 'desc' ||
+  f.accountId !== '' ||
+  f.year !== '' ||
+  f.address.trim() !== '';
+
+/** The filters the bank applies itself. An address under the bank's minimum, or a year that is not a number, is not sent. */
+export function serverOptions(f: ActivityFilters): { sort?: 'asc'; accountId?: string; year?: number; address?: string } {
+  const year = /^\d{4}$/.test(f.year) ? Number(f.year) : undefined;
+  const address = f.address.trim();
+  return {
+    ...(f.sort === 'asc' ? { sort: 'asc' as const } : {}),
+    ...(f.accountId ? { accountId: f.accountId } : {}),
+    ...(year !== undefined ? { year } : {}),
+    ...(address.length >= ADDRESS_MIN ? { address } : {}),
+  };
+}
+export const askedOfTheBank = (f: ActivityFilters): boolean => Object.keys(serverOptions(f)).length > 0;
 
 const hasWords = (item: ActivityItem): boolean => item.privateNote !== undefined || item.reportDescription !== undefined;
 

@@ -135,6 +135,14 @@ export interface ActivityOptions {
   assetId?: string;
   /** Rows per page, 1 to 200. Default 50. */
   pageSize?: number;
+  /** Oldest first. The bank refuses this on a very long history rather than cutting it. */
+  sort?: 'asc';
+  /** `main`, or the id of one named account. */
+  accountId?: string;
+  /** A UTC calendar year. */
+  year?: number;
+  /** Part of a withdrawal address (4 or more characters). */
+  address?: string;
 }
 
 export const ACTIVITY_PAGE_SIZE = 50;
@@ -186,7 +194,15 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
   async function fetchPage(cursor: string | null): Promise<void> {
     const controller = new AbortController();
     inflight = controller;
-    const input = { limit, ...(cursor ? { cursor } : {}), ...(options.assetId ? { assetId: options.assetId } : {}) };
+    const input = {
+      limit,
+      ...(cursor ? { cursor } : {}),
+      ...(options.assetId ? { assetId: options.assetId } : {}),
+      ...(options.sort ? { sort: options.sort } : {}),
+      ...(options.accountId ? { accountId: options.accountId } : {}),
+      ...(options.year !== undefined ? { year: options.year } : {}),
+      ...(options.address ? { address: options.address } : {}),
+    };
     const result = await api.query('bank', 'activity.list', input, activityPageSchema, { signal: controller.signal });
     if (inflight !== controller || controller.signal.aborted) return;
     inflight = null;
@@ -251,7 +267,10 @@ export function createActivityFeed(api: ApiClient, options: ActivityOptions = {}
 /** The signed-in person's money history, newest first, with "load more" paging. */
 export function useActivity(options: ActivityOptions = {}): Loadable<ActivityFeed> {
   const { api, userId } = useSession();
-  const { assetId, pageSize } = options;
-  const source = useMemo(() => createActivityFeed(api, { assetId, pageSize }), [api, userId, assetId, pageSize]);
+  const { assetId, pageSize, sort, accountId, year, address } = options;
+  const source = useMemo(
+    () => createActivityFeed(api, { assetId, pageSize, sort, accountId, year, address }),
+    [api, userId, assetId, pageSize, sort, accountId, year, address],
+  );
   return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
 }
