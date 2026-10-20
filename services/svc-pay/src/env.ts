@@ -31,6 +31,20 @@ const schema = serviceEnvSchema
       PAY_CAPTURE_RECONCILE: z.enum(['off', 'required']).default('off'),
 
       /**
+       * Scheduled reconcile of dispatched payouts (`reconcileDispatchedPayout`). Owner-published: blank / unset
+       * leaves the job off and the boot log names the blocker (`pay.payout_reconcile_interval_unset`,
+       * `pay.payout_reconcile_batch_limit_unset`). Never defaulted, so no interval or batch size is invented.
+       */
+      PAY_PAYOUT_RECONCILE_INTERVAL_MS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      PAY_PAYOUT_RECONCILE_BATCH_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+
+      /**
        * B2B ramp (`pay.b2b_ramp`). Default off: every b2b-ramp route refuses.
        * `on` in staging/prod also requires PAY_B2B_RAMP_LICENCE_ATTESTATION,
        * checked against the raw APP_ENV at boot (b2b-ramp/config.ts). The
