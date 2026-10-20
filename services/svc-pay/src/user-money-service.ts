@@ -16,7 +16,7 @@ import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
-import { assertStoredTransition } from './withdrawals/status.js';
+import { assertStoredTransition, assertTransition, customerStatus, WITHDRAWAL_CANCELED_CODE } from './withdrawals/status.js';
 import type { WithdrawalEligibility, EligibilityView } from './withdrawals/eligibility.js';
 import type { WithdrawalHistory, WithdrawalHistoryFilter, WithdrawalHistoryPage } from './withdrawals/history.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
@@ -492,10 +492,16 @@ export class UserMoneyService {
           // before the claim, so a blocked rail inserts nothing and does not
           // reopen a failed row. An existing `pending` row is still refused
           // after the claim, below. `sent` and `held` skip this check.
-          const [priorClaim] = await connection<Array<{ status: string }>>`
-            SELECT status FROM pay.withdrawals
+          const [priorClaim] = await connection<Array<{ status: string; failure_code: string | null }>>`
+            SELECT status, failure_code FROM pay.withdrawals
              WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
           `;
+          // The customer cancelled this one. The same reference never reopens it; a new one is a new withdrawal.
+          // The cancel writes its intent on a `pending` row before it reverses anything, so a row still `pending` that
+          // carries the code is a cancel that crashed part-way: it is cancelled too, never resumed as a send.
+          if (priorClaim?.failure_code === WITHDRAWAL_CANCELED_CODE) {
+            throw new PayError('This withdrawal was cancelled; start a new one with a new client reference', 'pay.withdrawal_canceled');
+          }
           if (!priorClaim || priorClaim.status === 'failed') this.refuseFreshWithdrawal(adapter);
 
           let claimed = await this.claimWithdrawal(input, connection);
@@ -954,6 +960,94 @@ export class UserMoneyService {
                failure_code = ${failureCode}, updated_at = now()
          WHERE id = ${claimed.id} AND status = 'held'
       `;
+  }
+
+  /**
+   * Cancel one of the caller's own withdrawals (W-withdraw-07, wallet-withdraw-044).
+   *
+   * Only a `pending` row can be cancelled: it has no rail attempt, so nothing can have been sent. A `held` row
+   * cannot, because its dispatch history is unknown to this table (ENGINE S-10): the retry of the same client
+   * reference settles or reverses it. A `sent` row is final. A cancel takes the same payout lock as `withdraw`, so
+   * the lock decides a race between the two and the loser gets the typed refusal.
+   *
+   * A hold can exist on a `pending` row (the ledger posted it and the process died before the row turned `held`).
+   * The reverse is keyed on the attempt, so a repeat posts it once. Whether the hold exists is read from the ledger;
+   * a read that fails refuses the cancel rather than guessing. A cancelled row is stored as `failed` with
+   * `WITHDRAWAL_CANCELED_CODE`; a second cancel returns the same record.
+   */
+  async cancelWithdrawal(input: { userId: string; withdrawalId: string }): Promise<WithdrawalRecord> {
+    const [found] = await this.sql<WithdrawalRow[]>`
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        FROM pay.withdrawals WHERE id = ${input.withdrawalId} AND user_id = ${input.userId}
+    `;
+    // Another account's id reads the same as no id.
+    if (!found) throw new PayError('No such withdrawal', 'pay.withdrawal_not_found');
+    return withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, found.client_ref])}`, async (connection) => {
+      const [row] = await connection<WithdrawalRow[]>`
+        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+          FROM pay.withdrawals WHERE id = ${input.withdrawalId}
+      `;
+      const current = toWithdrawal(row!);
+      const shown = customerStatus(current.status, current.failureCode);
+      if (shown === 'canceled') return current;
+      // `pending` with the cancel code is a cancel that wrote its intent and crashed before it finished: resume it.
+      const resuming = current.status === 'pending' && current.failureCode === WITHDRAWAL_CANCELED_CODE;
+      const refuse = (reason: string): never => {
+        throw new PayError(reason, 'pay.withdrawal_not_cancellable', { withdrawalId: current.id, state: shown });
+      };
+      if (current.status === 'sent') return refuse('The withdrawal was sent and cannot be cancelled');
+      if (current.status === 'failed') return refuse('The withdrawal already failed and its funds are back in the balance');
+      if (current.status === 'held') return refuse('The withdrawal is being sent; it cannot be cancelled until it settles or is returned');
+      const [attempt] = await connection<Array<{ outcome: string }>>`
+        SELECT outcome FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${current.id} AND attempt = ${current.attempts}
+      `;
+      if (attempt) return refuse('The withdrawal has a send attempt on record and cannot be cancelled');
+      // Checked before anything is posted: an illegal move throws and posts nothing.
+      assertTransition('requested', 'canceled');
+      let holdBooked: boolean;
+      try {
+        holdBooked = (await this.ledger.getTxByKey(`withdraw.hold:${current.id}:${current.attempts}`)) !== null;
+      } catch (error) {
+        throw new PayError(
+          `Withdrawal hold could not be read; the withdrawal stays pending: ${error instanceof Error ? error.message : 'ledger error'}`,
+          'pay.ledger_outcome_unknown',
+          { withdrawalId: current.id },
+        );
+      }
+      // The intent goes down BEFORE the reverse, while the row is still `pending`: from here `withdraw` refuses this client
+      // reference, so a crash after the reverse can never let a retry send funds the reverse already returned.
+      if (!resuming) {
+        await connection`
+          UPDATE pay.withdrawals SET failure_code = ${WITHDRAWAL_CANCELED_CODE}, updated_at = now()
+           WHERE id = ${current.id} AND status = 'pending'
+        `;
+      }
+      if (holdBooked) {
+        try {
+          await postPayLedger(
+            this.ledger,
+            recipes.withdrawReverse({
+              userId: current.userId,
+              assetId: current.assetId,
+              amount: current.amount,
+              rail: current.rail,
+              withdrawalId: `${current.id}:${current.attempts}`,
+            }),
+          );
+        } catch (error) {
+          throw new PayError(
+            `Withdrawal ledger outcome is unknown; the withdrawal stays pending: ${error instanceof Error ? error.message : 'ledger error'}`,
+            'pay.ledger_outcome_unknown',
+            { withdrawalId: current.id },
+          );
+        }
+      }
+      await connection`
+        UPDATE pay.withdrawals SET status = 'failed', failure_code = ${WITHDRAWAL_CANCELED_CODE}, updated_at = now()
+         WHERE id = ${current.id} AND status = 'pending'
+      `;
+      return { ...current, status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE };
+    });
   }
 
   // ── Wallet slice (S38) ─────────────────────────────────────────────────────

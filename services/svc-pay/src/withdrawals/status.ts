@@ -46,8 +46,16 @@ const FROM_STORED: Record<StoredWithdrawalStatus, WithdrawalStatus> = {
   failed: 'failed',
 };
 
+/**
+ * A cancelled withdrawal is stored as `failed` with this code: its hold (if any) is already reversed, which is what
+ * `failed` means, and the enum has no `canceled` value to add without a migration that cannot be taken back. A retry
+ * of the same client reference must not reopen it (`withdraw` refuses with `pay.withdrawal_canceled`).
+ */
+export const WITHDRAWAL_CANCELED_CODE = 'withdrawal.canceled';
+
 /** A stored row in the customer vocabulary. An unknown stored value is a bug, not a made-up status. */
-export function customerStatus(stored: string): WithdrawalStatus {
+export function customerStatus(stored: string, failureCode?: string | null): WithdrawalStatus {
+  if (stored === 'failed' && failureCode === WITHDRAWAL_CANCELED_CODE) return 'canceled';
   const status = (FROM_STORED as Record<string, WithdrawalStatus | undefined>)[stored];
   if (!status) throw new WithdrawalStateError(`Unknown stored withdrawal status "${stored}"`, 'wallet.withdrawal_status_unknown');
   return status;
@@ -58,6 +66,8 @@ export function customerStatus(stored: string): WithdrawalStatus {
  * (an empty list), so a filter on it returns an empty page and never a wrong row.
  */
 export function storedStatusesFor(status: WithdrawalStatus): StoredWithdrawalStatus[] {
+  // A cancelled row is a `failed` row with the cancel code; the caller adds that code to the filter.
+  if (status === 'canceled') return ['failed'];
   return (Object.entries(FROM_STORED) as Array<[StoredWithdrawalStatus, WithdrawalStatus]>).filter(([, v]) => v === status).map(([k]) => k);
 }
 
