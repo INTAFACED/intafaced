@@ -53,6 +53,8 @@ export interface ActivityItem {
   orderId?: string;
   /** The signed-in person's own note on this line, when they wrote one. Never shown to anyone else. */
   privateNote?: string;
+  /** True on the line that brought in an asset the customer bought. Absent on every other line. */
+  purchase?: true;
   /** The signed-in person's own wording for this line on the statements and reports they download. Never shown to anyone else. */
   reportDescription?: string;
 }
@@ -77,6 +79,10 @@ const itemSchema = z.object({
     .string()
     .nullish()
     .transform((value) => (value ? value : undefined)),
+  purchase: z
+    .literal(true)
+    .nullish()
+    .transform((value) => (value === true ? (true as const) : undefined)),
   privateNote: z
     .string()
     .nullish()

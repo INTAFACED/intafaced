@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { Amount, Button, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock, useActivity, type ActivityItem } from './deps';
+import { Amount, Button, coinHref, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock, useActivity, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
 import { ActivityNote } from './ActivityNote';
 import { stamp } from './time';
@@ -50,7 +50,7 @@ const titleFor = (item: ActivityItem, copy: Copy) => titleOf(item, copy.t, (key,
 export default function ActivityDetail({ rawId }: { rawId: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, timeZone } = usePreferences();
+  const { hideBalances, timeZone, layoutMode } = usePreferences();
   const { userId } = useSession();
   const id = idFromPath(rawId);
   const activity = useActivity({ pageSize: 100 });
@@ -118,6 +118,8 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     const holding = group.kind === 'open' || item.kind === 'order_hold';
     const title = cancelled ? t('Order cancelled · nothing spent') : titleFor(item, copy);
     const amount = fmtAmount(item.amount);
+    // The asset page of a purchase: the asset its purchase line brought in. A sale or a refund has no such line.
+    const bought = group.lines.find((line) => line.purchase === true)?.asset ?? null;
     body = (
       <>
         <header className="money-detail__head">
@@ -165,6 +167,16 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             <Button variant="secondary" size={40} nativeButton={false} render={<a href="/support" />}>
               {t('Report a problem')}
             </Button>
+            {bought && (
+              <Button
+                variant="secondary"
+                size={40}
+                nativeButton={false}
+                render={<a href={coinHref(bought, layoutMode === 'pro' ? 'pro' : 'simple')} />}
+              >
+                {t('See {asset} history', { asset: bought })}
+              </Button>
+            )}
             {item.orderId && (
               <Button variant="secondary" size={40} nativeButton={false} render={<a href="/money/activity?tab=orders" />}>
                 {t('See the order')}
