@@ -137,6 +137,13 @@ export function registryChangeFields(input: {
   };
 }
 
+/** The action a second person's approval must be issued for when a compliance officer releases a screened send. */
+export const PAY_SCREENING_RELEASE = 'pay.screening_release';
+
+export function screeningReleaseFields(input: { subjectKind: string; caseId: string; reason: string }): Record<string, string> {
+  return { subjectKind: input.subjectKind, caseId: input.caseId, reason: input.reason };
+}
+
 /** The action a second founder's approval must be issued for when a withdrawal limit is set or raised. */
 export const PAY_WITHDRAWAL_LIMIT_CHANGE = 'pay.withdrawal_limit_change';
 
