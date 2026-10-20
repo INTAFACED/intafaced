@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { ledgerFeeRevenueAssetSchema } from './ledger-fee-revenue.js';
 
 export const OPS_COST_CATEGORY_INVALID = 'ops.cost_category_invalid' as const;
 export const OPS_COST_AMOUNT_INVALID = 'ops.cost_amount_invalid' as const;
@@ -112,7 +113,39 @@ export const opsVenueEconomicsSchema = z.object({
   ]),
   /** Sum of the entered costs per asset. Marked partial while any category is missing. */
   costTotals: z.object({ partial: z.boolean(), byAsset: z.array(z.object({ asset: z.string(), amount: z.string() })) }),
-  /** Net is not derived: revenue points carry no asset, so subtracting would mix units. */
-  net: z.object({ status: z.literal('unavailable'), reason: z.literal('revenue_asset_unknown') }),
+  /**
+   * Fee revenue the ledger booked in the month, per asset (collected, returned, net of the two). Absent from an
+   * answer written before this read existed; `unavailable` names why the ledger could not be asked.
+   */
+  feeRevenue: z
+    .discriminatedUnion('status', [
+      z.object({ status: z.literal('ok'), assets: z.array(ledgerFeeRevenueAssetSchema) }),
+      z.object({ status: z.literal('unavailable'), code: z.string(), message: z.string() }),
+    ])
+    .optional(),
+  /**
+   * Net per asset: the month's fee revenue less the entered costs in the same asset. Given only when the ledger
+   * answered and every cost line is entered; otherwise `unavailable` says which is missing. The warehouse points
+   * above carry no asset and never enter this figure.
+   */
+  net: z.discriminatedUnion('status', [
+    z.object({
+      status: z.literal('unavailable'),
+      reason: z.enum(['revenue_asset_unknown', 'revenue_unavailable', 'costs_incomplete']),
+    }),
+    z.object({
+      status: z.literal('ok'),
+      byAsset: z.array(
+        z.object({
+          asset: z.string(),
+          /** Fees collected less fees returned. May be negative. */
+          revenue: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+          costs: z.string().regex(/^\d+(\.\d{1,18})?$/),
+          /** `revenue` less `costs`. May be negative. */
+          net: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+        }),
+      ),
+    }),
+  ]),
 });
 export type OpsVenueEconomics = z.infer<typeof opsVenueEconomicsSchema>;
