@@ -10,12 +10,20 @@ const ADDR = '0x1111111111111111111111111111111111111111';
 let host: HTMLDivElement, root: Root, api: WalletApi;
 let chain = '0x14a34';
 const calls: string[] = [];
+let captured: unknown;
 const listeners = new Map<string, (value: unknown) => void>();
+const PERMIT = {
+  types: { Permit: [{ name: 'spender', type: 'address' }] },
+  primaryType: 'Permit',
+  domain: { chainId: 84532 },
+  message: { spender: ADDR },
+};
 const wallet = (accounts: string[] = [ADDR]): DiscoveredWallet => ({
   info: { uuid: 'u1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' },
   provider: {
-    request: async ({ method }) => {
+    request: async ({ method, params }) => {
       calls.push(method);
+      if (method === 'eth_sendTransaction' || method === 'eth_signTypedData_v4' || method === 'personal_sign') captured = params;
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return accounts;
       if (method === 'eth_chainId') return chain;
       if (method === 'wallet_switchEthereumChain') {
@@ -23,6 +31,7 @@ const wallet = (accounts: string[] = [ADDR]): DiscoveredWallet => ({
         return null;
       }
       if (method === 'eth_signTypedData_v4' || method === 'personal_sign') return '0xsigned';
+      if (method === 'eth_sendTransaction') return `0x${'a'.repeat(64)}`;
       throw new Error(`unexpected ${method}`);
     },
     on: (event, listener) => void listeners.set(event, listener as never),
@@ -123,9 +132,7 @@ describe('wallet provider', () => {
     await connected();
     let result: SignResult | undefined;
     await act(async () => {
-      void api
-        .sign({ kind: 'typedData', typedData: { types: {}, primaryType: 'Permit', domain: {}, message: { spender: ADDR } } })
-        .then((r) => (result = r));
+      void api.sign({ kind: 'typedData', typedData: PERMIT }).then((r) => (result = r));
     });
     expect(document.body.textContent).toContain('Check before you sign');
     expect(document.body.textContent).toContain(ADDR);
@@ -139,9 +146,7 @@ describe('wallet provider', () => {
     await connected();
     let result: SignResult | undefined;
     await act(async () => {
-      void api
-        .sign({ kind: 'typedData', typedData: { types: {}, primaryType: 'Permit', domain: {}, message: {} } })
-        .then((r) => (result = r));
+      void api.sign({ kind: 'typedData', typedData: PERMIT }).then((r) => (result = r));
     });
     const go = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Continue in wallet')!;
     await act(async () => go.click());
@@ -187,11 +192,11 @@ describe('wallet provider', () => {
     await connected();
     await openSheet({
       kind: 'typedData',
-      typedData: { types: {}, primaryType: 'PermitSingle', domain: { chainId: 84532 }, message: { spender: ADDR } },
+      typedData: { ...PERMIT, primaryType: 'Permit' },
     });
     const text = document.body.textContent ?? '';
     expect(text).toContain('Exact data');
-    expect(text).toContain('PermitSingle');
+    expect(text).toContain('Permit');
     expect(text).toContain('84532');
     expect(text).toContain('can let a contract or another address act on your behalf');
     expect(text).not.toContain('moves no funds');
@@ -206,6 +211,45 @@ describe('wallet provider', () => {
       go.click();
     });
     expect(calls.filter((c) => c === 'personal_sign')).toHaveLength(1);
+  });
+
+  it('displays byte-for-byte what it then sends, for each kind of request', async () => {
+    await connected();
+    const payload = () => document.body.querySelector('[data-sheet-payload]')!.textContent;
+    await openSheet({ kind: 'transaction', to: ADDR, value: '0x10', data: '0x095ea7b3' });
+    expect(JSON.parse(payload()!)).toEqual(
+      ((captured = undefined),
+      await (async () => {
+        await act(async () => press('Continue in wallet').click());
+        return (captured as unknown[])[0];
+      })()),
+    );
+    await openSheet({ kind: 'message', message: 'hello' });
+    expect(payload()).toBe('hello');
+    await act(async () => press('Continue in wallet').click());
+    expect(JSON.stringify(captured)).toContain('0x68656c6c6f');
+    await openSheet({ kind: 'typedData', typedData: PERMIT });
+    const shown = payload()!;
+    await act(async () => press('Continue in wallet').click());
+    expect(JSON.parse((captured as string[])[1]!)).toEqual(JSON.parse(shown));
+  });
+
+  it('refuses a spoofed typed message before showing any sheet', async () => {
+    await connected();
+    const result = await openSheet({ kind: 'typedData', typedData: { ...PERMIT, message: { spender: ADDR, token: ADDR } } });
+    expect(result()).toMatchObject({ status: 'failed', reason: 'invalid_request' });
+    expect(document.body.textContent).not.toContain('Check before you sign');
+  });
+
+  it('cancel then Continue in one batch never asks the wallet', async () => {
+    await connected();
+    await openSheet();
+    const go = press('Continue in wallet');
+    await act(async () => {
+      press('Cancel').click();
+      go.click();
+    });
+    expect(calls).not.toContain('personal_sign');
   });
 
   it('restores a wallet that is still authorised without a prompt', async () => {

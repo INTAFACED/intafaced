@@ -7,6 +7,7 @@ import {
   chainGuard,
   describeRequest,
   payloadText,
+  refuseReason,
   discoverWallets,
   firstAddress,
   parseChainId,
@@ -229,6 +230,9 @@ export function WalletProvider({ children, discovery = true }: { children: React
   const sign = useCallback(
     (request: SignRequest): Promise<SignResult> => {
       if (!connected || !address) return Promise.resolve({ status: 'failed', reason: 'not_connected', message: t('signNotConnected') });
+      const refused = refuseReason(request);
+      if (refused)
+        return Promise.resolve({ status: 'failed', reason: 'invalid_request', message: `${refused} Nothing was signed or sent.` });
       if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
@@ -270,6 +274,7 @@ export function WalletProvider({ children, discovery = true }: { children: React
           account={pending.account}
           chainId={pending.chainId}
           onCancel={() => {
+            pending.started = true;
             pending.resolve({ status: 'rejected' });
             setPending(null);
           }}
@@ -316,8 +321,8 @@ export function SignSheet({
             <dt>{t('fact_network')}</dt>
             <dd>{chainId}</dd>
           </div>
-          {facts.map((fact) => (
-            <div key={fact.label}>
+          {facts.map((fact, index) => (
+            <div key={`${fact.label}:${index}`}>
               <dt>{t(`fact_${fact.label}`)}</dt>
               <dd className="numeric">{fact.value}</dd>
             </div>

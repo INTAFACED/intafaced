@@ -5,6 +5,8 @@ import {
   discoverWallets,
   firstAddress,
   parseChainId,
+  payloadText,
+  refuseReason,
   runSignRequest,
   shortAddress,
   type Eip1193Provider,
@@ -21,6 +23,43 @@ const fake = (request: Eip1193Provider['request'], chain = '0x14a34'): Eip1193Pr
 });
 
 afterEach(() => vi.useRealTimers());
+
+/** A well-formed Permit: every carried field is declared, and the domain names the app chain. */
+const PERMIT_TYPES = {
+  Permit: [
+    { name: 'spender', type: 'address' },
+    { name: 'value', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+};
+const T1 = '0x3333333333333333333333333333333333333333';
+const T2 = '0x4444444444444444444444444444444444444444';
+const PERMIT2_TYPES = {
+  PermitSingle: [
+    { name: 'details', type: 'PermitDetails' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' },
+  ],
+  PermitBatch: [
+    { name: 'details', type: 'PermitDetails[]' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' },
+  ],
+  PermitDetails: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint160' },
+    { name: 'expiration', type: 'uint48' },
+  ],
+};
+const permitDoc = (
+  domain: Record<string, unknown> = { chainId: 84532 },
+  message: Record<string, unknown> = { spender: ADDR, value: '1', deadline: '9' },
+) => ({
+  types: PERMIT_TYPES,
+  primaryType: 'Permit',
+  domain,
+  message,
+});
 
 describe('wallet discovery (EIP-6963)', () => {
   it('lists a wallet by the name it announces, keeps inline icons only, and ignores malformed announcements', () => {
@@ -62,7 +101,7 @@ describe('chain and address parsing', () => {
 });
 
 describe('sign layer returns typed results', () => {
-  const typed = { kind: 'typedData' as const, typedData: { types: {}, primaryType: 'Permit', domain: {}, message: {} } };
+  const typed = { kind: 'typedData' as const, typedData: permitDoc() };
   it('signed, sent, rejected and failed', async () => {
     expect(
       await runSignRequest(
@@ -130,9 +169,9 @@ describe('sign layer returns typed results', () => {
 });
 
 describe('the sign layer checks the wallet again right before it asks', () => {
-  const typed = (chainId?: number | string) => ({
+  const typed = (chainId: number | string = 84532) => ({
     kind: 'typedData' as const,
-    typedData: { types: {}, primaryType: 'Permit', domain: chainId === undefined ? {} : { chainId }, message: {} },
+    typedData: permitDoc({ chainId }),
   });
   it('does not ask a wallet that moved to another chain, for any kind of request', async () => {
     const asked: string[] = [];
@@ -173,7 +212,7 @@ describe('the plain-words sheet facts', () => {
     const permit2 = describeRequest({
       kind: 'typedData',
       typedData: {
-        types: {},
+        types: PERMIT2_TYPES,
         primaryType: 'PermitSingle',
         domain: { name: 'Permit2', chainId: 84532 },
         message: {
@@ -191,9 +230,9 @@ describe('the plain-words sheet facts', () => {
     const facts = describeRequest({
       kind: 'typedData',
       typedData: {
-        types: {},
+        types: PERMIT_TYPES,
         primaryType: 'Permit',
-        domain: { verifyingContract: '0x2222222222222222222222222222222222222222' },
+        domain: { chainId: 84532, verifyingContract: '0x2222222222222222222222222222222222222222' },
         message: { spender: ADDR, value: '1000000', deadline: '1900000000' },
       },
     });
@@ -203,7 +242,61 @@ describe('the plain-words sheet facts', () => {
       spender: ADDR,
       amount: '1000000',
       expiry: '1900000000',
-      domain: JSON.stringify({ verifyingContract: '0x2222222222222222222222222222222222222222' }),
+      domain: JSON.stringify({ chainId: 84532, verifyingContract: '0x2222222222222222222222222222222222222222' }),
     });
+  });
+});
+
+describe('what the sheet shows is what the signature carries', () => {
+  const single = (message: Record<string, unknown>) => ({
+    kind: 'typedData' as const,
+    typedData: { types: PERMIT2_TYPES, primaryType: 'PermitSingle', domain: { name: 'Permit2', chainId: 84532 }, message },
+  });
+  const details = { token: T1, amount: 'max', expiration: '99' };
+  it('refuses a message that carries fields its types do not declare (a spoofed top-level token and amount)', async () => {
+    const spoof = single({ details, spender: ADDR, sigDeadline: '1', token: T2, amount: '1' });
+    expect(refuseReason(spoof)).toMatch(/does not declare/);
+    const asked: string[] = [];
+    expect(
+      await runSignRequest(
+        fake(async ({ method }) => (asked.push(method), '0xabc')),
+        ADDR,
+        spoof,
+      ),
+    ).toMatchObject({ status: 'failed', reason: 'invalid_request' });
+    expect(asked).toEqual([]);
+    // The facts of a declared message ignore anything undeclared even if it slipped through.
+    const facts = describeRequest(spoof);
+    expect(facts.filter((fact) => fact.label === 'token').map((fact) => fact.value)).toEqual([T1]);
+    expect(facts.filter((fact) => fact.label === 'amount').map((fact) => fact.value)).toEqual(['max']);
+  });
+  it('lists every token and amount of a batch', () => {
+    const batch = {
+      kind: 'typedData' as const,
+      typedData: {
+        types: PERMIT2_TYPES,
+        primaryType: 'PermitBatch',
+        domain: { name: 'Permit2', chainId: 84532 },
+        message: {
+          details: [
+            { token: T1, amount: '5', expiration: '1' },
+            { token: T2, amount: '7', expiration: '2' },
+          ],
+          spender: ADDR,
+          sigDeadline: '3',
+        },
+      },
+    };
+    const facts = describeRequest(batch);
+    expect(facts.filter((fact) => fact.label === 'token').map((fact) => fact.value)).toEqual([T1, T2]);
+    expect(facts.filter((fact) => fact.label === 'amount').map((fact) => fact.value)).toEqual(['5', '7']);
+    expect(payloadText(batch, ADDR, 84532)).toContain('PermitDetails');
+  });
+  it('refuses typed data with no chain, and a transaction with a malformed value, recipient or calldata', () => {
+    expect(refuseReason({ kind: 'typedData', typedData: permitDoc({}) })).toMatch(/chain/);
+    expect(refuseReason({ kind: 'transaction', to: ADDR, value: '1000' })).toMatch(/value/);
+    expect(refuseReason({ kind: 'transaction', to: 'nope' })).toMatch(/recipient/);
+    expect(refuseReason({ kind: 'transaction', to: ADDR, data: '0xabc' })).toMatch(/calldata/);
+    expect(refuseReason({ kind: 'transaction', to: ADDR, value: '0x10', data: '0x095ea7b3' })).toBeNull();
   });
 });

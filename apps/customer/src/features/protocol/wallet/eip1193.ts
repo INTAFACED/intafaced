@@ -74,7 +74,7 @@ export type SignResult =
   | { status: 'signed'; signature: string }
   | { status: 'sent'; hash: string }
   | { status: 'rejected' }
-  | { status: 'failed'; reason: 'timeout' | 'wallet_error' | 'chain_mismatch' | 'not_connected'; message: string };
+  | { status: 'failed'; reason: 'timeout' | 'wallet_error' | 'chain_mismatch' | 'not_connected' | 'invalid_request'; message: string };
 
 export type SignRequest =
   | { kind: 'typedData'; typedData: TypedDataDocument }
@@ -112,6 +112,8 @@ export async function runSignRequest(
   });
   const call = (async (): Promise<SignResult> => {
     try {
+      const refused = refuseReason(request);
+      if (refused) return { status: 'failed', reason: 'invalid_request', message: `${refused} Nothing was signed or sent.` };
       // The wallet may have changed chain or account while the sheet was open: ask it again, right before the request.
       const wrongChain: SignResult = {
         status: 'failed',
@@ -176,19 +178,50 @@ const AMOUNT_KEYS = ['value', 'amount', 'amountIn', 'amountOut', 'inputAmount'];
 const EXPIRY_KEYS = ['expiry', 'deadline', 'expiration', 'validBefore', 'sigDeadline'];
 const TOKEN_KEYS = ['token', 'tokenIn', 'tokenOut'];
 
-/** The first value found for any of `keys`, looking through nested objects (Permit2 keeps token and amount in `details`). */
-function findDeep(source: unknown, keys: string[], depth = 3): string | undefined {
-  if (typeof source !== 'object' || source === null || depth < 0) return undefined;
-  const record = source as Record<string, unknown>;
-  for (const key of keys) {
-    const value = record[key];
-    if (value !== undefined && value !== null && typeof value !== 'object') return String(value);
+type Leaf = { name: string; value: string };
+
+/**
+ * Walks `message` exactly as `types[typeName]` declares it (nested structs and arrays included) and returns every leaf
+ * with its field name. A field the types do not declare is never read, and `undeclared` lists the names so they can be refused.
+ */
+export function walkTyped(typedData: TypedDataDocument): { leaves: Leaf[]; undeclared: string[] } {
+  const leaves: Leaf[] = [];
+  const undeclared: string[] = [];
+  const visit = (typeName: string, value: unknown, depth: number) => {
+    const fields = typedData.types[typeName];
+    if (!fields || typeof value !== 'object' || value === null || depth > 6) return;
+    const record = value as Record<string, unknown>;
+    const declared = new Set(fields.map((field) => field.name));
+    for (const key of Object.keys(record)) if (!declared.has(key)) undeclared.push(key);
+    for (const field of fields) {
+      const base = field.type.replace(/\[\d*\]$/, '');
+      const isArray = base !== field.type;
+      const entry = record[field.name];
+      const items = isArray ? (Array.isArray(entry) ? entry : []) : [entry];
+      for (const item of items) {
+        if (typedData.types[base]) visit(base, item, depth + 1);
+        else if (item !== undefined && item !== null && typeof item !== 'object') leaves.push({ name: field.name, value: String(item) });
+      }
+    }
+  };
+  visit(typedData.primaryType, typedData.message, 0);
+  return { leaves, undeclared };
+}
+
+/** Why a request is refused before any sheet or wallet prompt, or null. Typed data must name its chain and declare every field it carries. */
+export function refuseReason(request: SignRequest): string | null {
+  if (request.kind === 'transaction') {
+    if (!ADDRESS.test(request.to)) return 'The recipient is not a valid address.';
+    if (request.value !== undefined && !/^0x[0-9a-fA-F]+$/.test(request.value)) return 'The value is not a hex amount.';
+    if (request.data !== undefined && !/^0x([0-9a-fA-F]{2})*$/.test(request.data)) return 'The calldata is not valid hex.';
   }
-  for (const value of Object.values(record)) {
-    const found = findDeep(value, keys, depth - 1);
-    if (found !== undefined) return found;
+  if (request.kind === 'typedData') {
+    const { domain, types, primaryType } = request.typedData;
+    if (domain.chainId === undefined) return 'The signature does not name a chain.';
+    if (!types[primaryType]) return 'The signature does not declare its own fields.';
+    if (walkTyped(request.typedData).undeclared.length > 0) return 'The signature carries fields it does not declare.';
   }
-  return undefined;
+  return null;
 }
 
 export function describeRequest(request: SignRequest): SheetFact[] {
@@ -199,19 +232,25 @@ export function describeRequest(request: SignRequest): SheetFact[] {
       { label: 'value', value: request.value ?? '0x0' },
       { label: 'calldata', value: request.data && request.data !== '0x' ? request.data : 'none' },
     ];
-  const { domain, message, primaryType } = request.typedData;
+  const { domain, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
   facts.push({ label: 'domain', value: JSON.stringify(domain) });
   if (domain.verifyingContract) facts.push({ label: 'contract', value: domain.verifyingContract });
-  const pairs: Array<[SheetFact['label'], string[]]> = [
-    ['token', TOKEN_KEYS],
-    ['spender', SPENDER_KEYS],
-    ['amount', AMOUNT_KEYS],
-    ['expiry', EXPIRY_KEYS],
-  ];
-  for (const [label, keys] of pairs) {
-    const found = findDeep(message, keys);
-    if (found !== undefined) facts.push({ label, value: found });
+  // Every occurrence is listed, in the order the types declare them: a batch shows every token and amount.
+  const { leaves } = walkTyped(request.typedData);
+  const labelOf = (name: string): SheetFact['label'] | undefined =>
+    TOKEN_KEYS.includes(name)
+      ? 'token'
+      : SPENDER_KEYS.includes(name)
+        ? 'spender'
+        : AMOUNT_KEYS.includes(name)
+          ? 'amount'
+          : EXPIRY_KEYS.includes(name)
+            ? 'expiry'
+            : undefined;
+  for (const leaf of leaves) {
+    const label = labelOf(leaf.name);
+    if (label) facts.push({ label, value: leaf.value });
   }
   return facts;
 }
@@ -223,12 +262,7 @@ export function transactionParams(request: Extract<SignRequest, { kind: 'transac
 
 /** The exact payload the wallet will be asked to sign or send, rendered from the same object that is sent. */
 export function payloadText(request: SignRequest, account: string, chainId: number): string {
-  if (request.kind === 'typedData')
-    return JSON.stringify(
-      { domain: request.typedData.domain, primaryType: request.typedData.primaryType, message: request.typedData.message },
-      null,
-      2,
-    );
+  if (request.kind === 'typedData') return JSON.stringify(request.typedData, null, 2);
   if (request.kind === 'message') return request.message;
   return JSON.stringify(transactionParams(request, account, chainId), null, 2);
 }
