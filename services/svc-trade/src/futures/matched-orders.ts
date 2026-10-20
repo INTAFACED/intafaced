@@ -54,6 +54,7 @@ import { checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { isInsufficientFunds } from './futures-payouts.js';
+import type { DerivativesAccessGate } from './derivatives-access.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
 import {
@@ -157,6 +158,11 @@ export interface MatchedOrdersDeps {
   readonly markFor: (marketId: string, symbol: string, at: Date, size: Amount | null) => Promise<Amount>;
   /** Refuses a NEW order on a position that has a liquidation rung, a planned ADL pair or a review hold. */
   readonly assertPositionIdle: (positionId: string) => Promise<void>;
+  /**
+   * D-account-07: the risk agreement and eligibility gate, the same one the at-mark open runs. Null when the
+   * deployment wires none (tests); production always wires it, and with nothing published it refuses every order.
+   */
+  readonly assertDerivativesAccess?: DerivativesAccessGate | null;
   /** The PX-S01 lifecycle proof for a PLACE on this market. Null is unset, and refuses. */
   readonly lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
   readonly admission?: TradingAdmissionPort;
@@ -334,7 +340,11 @@ export class MatchedFuturesOrders {
 
   // ── placement ─────────────────────────────────────────────────────────────
 
-  async place(principal: Principal, input: PlaceMatchedOrderInput): Promise<MatchedOrderView> {
+  async place(
+    principal: Principal,
+    input: PlaceMatchedOrderInput,
+    context: { readonly region?: string | null } = {},
+  ): Promise<MatchedOrderView> {
     if (!this.deps.enabled) {
       refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
     }
@@ -367,6 +377,12 @@ export class MatchedFuturesOrders {
         refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
       }
       return this.resume(existing);
+    }
+
+    // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
+    // agreement or rules version was published meanwhile (the same order as the at-mark open).
+    if (this.deps.assertDerivativesAccess) {
+      await this.deps.assertDerivativesAccess({ userId: input.userId, tier: principal.tier ?? null, region: context.region ?? null });
     }
 
     const market = await this.loadMarket(input.symbol);

@@ -109,3 +109,16 @@ export function fixedFundingRateSource(quote: FundingRateQuote | null): FundingR
 export function periodIdFor(marketId: string, periodStartIso: string): string {
   return `${marketId}:${periodStartIso}`;
 }
+
+/**
+ * Ask `primary` first; when it has no rate for this market, ask `fallback`. Used to put the computed-rate book in
+ * front of the S2S-published one only when the funding rate computer is switched on. Neither source is asked to
+ * invent anything: null from both stays null.
+ */
+export function preferFundingRateSource(primary: FundingRateSource, fallback: FundingRateSource): FundingRateSource {
+  return {
+    async quote(input) {
+      return (await primary.quote(input)) ?? fallback.quote(input);
+    },
+  };
+}

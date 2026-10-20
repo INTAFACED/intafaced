@@ -41,6 +41,8 @@ import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import { OpsConfigError } from './ops-config/four-eyes.js';
+import { TEMPLATE_KEYS } from './ops-config/templates.js';
 
 /**
  * svc-notify API — inbox, channels, and the delivery record.
@@ -191,12 +193,46 @@ function typedRefusal(err: unknown): never {
     err instanceof CategoryPrefError ||
     err instanceof QuietHoursError ||
     err instanceof RecentDeliveriesError ||
-    err instanceof NoticeError
+    err instanceof NoticeError ||
+    err instanceof OpsConfigError
   ) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
   throw err;
 }
+
+const channelSettingOutput = z.object({
+  channel: outOfAppChannelSchema,
+  configured: z.boolean(),
+  requires: z.array(z.string()),
+  enabled: z.boolean().nullable(),
+  adapter: z.string().nullable(),
+  version: z.number().int().nonnegative(),
+  effective: z.enum(['sending', 'disabled', 'unconfigured']),
+  notConnected: z.string().nullable(),
+});
+
+const approvalInput = {
+  clientRequestId: z.string().min(1).max(128),
+  approvalId: z.string().min(1).max(128),
+  operationId: z.string().min(1).max(128),
+};
+
+const proposalOutput = z.object({ targetId: z.string(), expectedVersion: z.string(), payloadHash: z.string() });
+const templateKeySchema = z.enum(TEMPLATE_KEYS);
+const templateCopyInput = { key: z.string().min(1).max(64), subject: z.string().max(2000), body: z.string().max(50_000) };
+
+const templateOutput = z.object({
+  key: templateKeySchema,
+  fields: z.array(z.string()),
+  current: z
+    .object({ version: z.number().int().positive(), subject: z.string(), body: z.string(), authorId: z.string(), createdAt: z.string() })
+    .nullable(),
+});
+
+const typedUnavailable = (what: string): never => {
+  throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `notify.${what}_unavailable` });
+};
 
 const topicPrefOutput = z.object({
   topic: z.enum(['trade', 'p2p', 'identity', 'bank', 'token', 'agents']),
@@ -239,6 +275,60 @@ const recentDeliveryOutput = z.object({
   attemptedAt: z.string().nullable(),
   acceptedAt: z.string().nullable(),
   refusalCode: z.string().nullable(),
+});
+
+const statusImpact = z.enum(['none', 'minor', 'major', 'critical']);
+const statusComponentId = z.enum(['api', 'webhooks', 'console']);
+
+const statusFeedOutput = z.object({
+  asOf: z.string(),
+  components: z.array(
+    z.object({
+      component: statusComponentId,
+      state: z.enum(['unknown', 'maintenance', 'degraded', 'partial_outage', 'major_outage']),
+      basis: z.enum(['incident', 'maintenance', 'no_measurement']),
+      since: z.string().nullable(),
+    }),
+  ),
+  incidents: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      impact: statusImpact.nullable(),
+      components: z.array(statusComponentId),
+      openedAt: z.string(),
+      resolvedAt: z.string().nullable(),
+      updates: z.array(
+        z.object({
+          id: z.string(),
+          body: z.string(),
+          impact: statusImpact.nullable(),
+          publishedAt: z.string(),
+          resolves: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+  maintenance: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      components: z.array(statusComponentId),
+      startsAt: z.string().nullable(),
+      endsAt: z.string().nullable(),
+    }),
+  ),
+  history: z.object({
+    basis: z.literal('incident_notices_only'),
+    days: z.array(
+      z.object({
+        date: z.string(),
+        components: z.array(
+          z.object({ component: statusComponentId, incidentMinutes: z.number().int().min(0), worstImpact: statusImpact.nullable() }),
+        ),
+      }),
+    ),
+  }),
 });
 
 const noticeWireOutput = z.object({
@@ -876,6 +966,19 @@ export function createNotifyRouter(
           return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
         }),
 
+      /**
+       * Machine-readable status. Signed-out. A component nothing measures reads
+       * `unknown`. History is incident minutes per day with no uptime percentage.
+       * `days` above the feed maximum is clamped to it.
+       */
+      statusFeed: publicProcedure
+        .input(z.object({ days: z.number().int().min(1) }))
+        .output(statusFeedOutput)
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          return statusFeedOutput.parse(await notify.notices.statusFeed(input));
+        }),
+
       draftNotice: scopedProcedure('admin:write', { module: 'notify' })
         .input(
           z.object({
@@ -884,6 +987,10 @@ export function createNotifyRouter(
             body: z.string().min(1).max(8000),
             startsAt: z.string().datetime({ offset: true }).nullable().optional(),
             endsAt: z.string().datetime({ offset: true }).nullable().optional(),
+            impact: statusImpact.nullable().optional(),
+            components: z.array(statusComponentId).max(3).nullable().optional(),
+            parentId: z.string().uuid().nullable().optional(),
+            resolves: z.boolean().nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )
@@ -911,6 +1018,145 @@ export function createNotifyRouter(
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return await notify.notices.publish(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * Owner channel settings (I-order-01). Whether each out-of-app channel has
+       * credentials (never the credentials), the owner's on/off switch and the
+       * adapter name. A channel with no credentials stays `unconfigured`: a switch
+       * cannot make it send.
+       */
+      channelSettings: scopedProcedure('admin:read', { module: 'notify' })
+        .output(z.array(channelSettingOutput))
+        .query(async () => (notify.channelSettings ? [...(await notify.channelSettings.get())] : typedUnavailable('channel_settings'))),
+
+      /** The hash, target and version the second person's approval has to carry for this exact change. */
+      channelSettingProposal: scopedProcedure('admin:read', { module: 'notify' })
+        .input(z.object({ channel: outOfAppChannelSchema, enabled: z.boolean(), adapter: z.string().max(64).nullable().optional() }))
+        .output(proposalOutput)
+        .query(async ({ input }) => {
+          if (!notify.channelSettings) return typedUnavailable('channel_settings');
+          try {
+            return await notify.channelSettings.proposal(input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Switch a channel and name its adapter. Needs an approval from a different person. */
+      setChannelSettings: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({
+            channel: outOfAppChannelSchema,
+            enabled: z.boolean(),
+            adapter: z.string().max(64).nullable().optional(),
+            ...approvalInput,
+          }),
+        )
+        .output(channelSettingOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.channelSettings) return typedUnavailable('channel_settings');
+          try {
+            return await notify.channelSettings.set(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Identity message templates: the newest version of each key and the fields it may use. */
+      templates: scopedProcedure('admin:read', { module: 'notify' })
+        .output(z.array(templateOutput))
+        .query(async () => (notify.templates ? [...(await notify.templates.list())] : typedUnavailable('templates'))),
+
+      templateHistory: scopedProcedure('admin:read', { module: 'notify' })
+        .input(z.object({ key: z.string().min(1).max(64) }))
+        .output(
+          z.array(
+            z.object({
+              version: z.number().int().positive(),
+              subject: z.string(),
+              body: z.string(),
+              authorId: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        )
+        .query(async ({ input }) => {
+          if (!notify.templates) return typedUnavailable('templates');
+          try {
+            return (await notify.templates.history(input.key)).map((r) => ({
+              version: r.version,
+              subject: r.subject,
+              body: r.body,
+              authorId: r.authorId,
+              createdAt: r.createdAt.toISOString(),
+            }));
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      templateProposal: scopedProcedure('admin:read', { module: 'notify' })
+        .input(z.object(templateCopyInput))
+        .output(proposalOutput)
+        .query(async ({ input }) => {
+          if (!notify.templates) return typedUnavailable('templates');
+          try {
+            return await notify.templates.proposal(input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Save a new version. Unknown fields are refused here; needs an approval from a different person. */
+      setTemplate: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ ...templateCopyInput, ...approvalInput }))
+        .output(templateOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.templates) return typedUnavailable('templates');
+          try {
+            return await notify.templates.set(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Render a saved version with TEST sample values (and any values the caller supplies). */
+      previewTemplate: scopedProcedure('admin:read', { module: 'notify' })
+        .input(
+          z.object({
+            key: z.string().min(1).max(64),
+            version: z.number().int().positive().optional(),
+            values: z.record(z.union([z.string(), z.number()])).optional(),
+          }),
+        )
+        .output(z.object({ sample: z.literal(true), version: z.number().int().positive(), subject: z.string(), body: z.string() }))
+        .query(async ({ input }) => {
+          if (!notify.templates) return typedUnavailable('templates');
+          try {
+            return await notify.templates.preview(input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** Send the newest version, filled with TEST values, to the caller's own confirmed address. There is no address field. */
+      testSendTemplate: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ key: z.string().min(1).max(64), channel: outOfAppChannelSchema, clientRequestId: z.string().min(1).max(128) }))
+        .output(
+          z.object({
+            status: z.enum(['accepted', 'refused', 'failed']),
+            code: z.string().nullable(),
+            version: z.number().int().positive(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.templates) return typedUnavailable('templates');
+          try {
+            return await notify.templates.testSend(ctx.principal.userId, input);
           } catch (err) {
             typedRefusal(err);
           }

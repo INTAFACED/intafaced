@@ -50,6 +50,7 @@ import type { EventBus } from '@intafaced/events';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { planClose } from './close-planner.js';
+import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
@@ -289,6 +290,13 @@ export interface PositionServiceDeps {
    * tests that are not proving the public door; public-door + index always wire it.
    */
   assertAdlDisclosureAcked?: (userId: string) => Promise<void>;
+  /**
+   * D-account-07 — risk agreement accepted and derivatives eligibility held. When set (production always sets it),
+   * a non-reduce `open()` refuses until both hold, and refuses honestly when the owner has published nothing.
+   * A reduce-only open and every close never call it: a closing or reducing action is never blocked by a missing
+   * acceptance. Omitted only in hermetic tests that are not proving the gate.
+   */
+  assertDerivativesAccess?: DerivativesAccessGate;
   /** Test-only crash seam after the external ledger accepts, before DB finalize. */
   afterMarginLedgerPost?: (request: string) => Promise<void>;
   /**
@@ -416,6 +424,7 @@ export class PositionService {
       markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,
       assertPositionIdle: (positionId) => this.sql.begin((tx) => this.assertLiquidationHold(tx, positionId, 'close')),
       lifecycleProof: matchedOrders?.lifecycleProof ?? null,
+      assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
     });
@@ -878,8 +887,9 @@ export class PositionService {
    * Place a futures order through svc-matching (slice 6). Refused unless the switch is on, the band is named and
    * the market is a futures market. See `matched-orders.ts`.
    */
-  async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput) {
-    return this.matched.place(principal, input);
+  /** `context.region` is the request's edge region, read only by the derivatives gate (see `open`). */
+  async placeMatchedOrder(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.matched.place(principal, input, context);
   }
 
   /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */
@@ -1018,7 +1028,12 @@ export class PositionService {
     return this.presentListed(row);
   }
 
-  async open(input: OpenPositionInput, principal?: Principal): Promise<Position> {
+  /**
+   * `context.region` is the edge region of the request. It is read only by the derivatives gate to pick the
+   * jurisdiction text. It is deliberately not on `input`: `input` is the business payload that a replayed open is
+   * compared against, and a retry from another region must still find the original open.
+   */
+  async open(input: OpenPositionInput, principal?: Principal, context: { readonly region?: string | null } = {}): Promise<Position> {
     /**
      * WHILE MATCHED MODE IS ON, NO NEW AT-MARK POSITION.
      *
@@ -1102,6 +1117,20 @@ export class PositionService {
         throw new TradingControlError('auth.credential_denied');
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
+    }
+
+    /**
+     * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
+     * never held up by a missing acceptance. The tier is the caller's own principal claim, null when none was passed.
+     * It runs after the admitted-open replay: an open that was admitted and locked margin before a crash finishes on
+     * retry even if a new agreement or rules version was published meanwhile, so its margin is never left locked.
+     */
+    if (this.deps.assertDerivativesAccess) {
+      await this.deps.assertDerivativesAccess({
+        userId: input.userId,
+        tier: principal?.tier ?? null,
+        region: context.region ?? null,
+      });
     }
 
     this.refuseIfFuturesExposureOff();

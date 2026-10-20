@@ -234,6 +234,25 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'developer-portal',
+    label: 'Developer portal',
+    paths: ['/developers', '/developers/*'],
+    status: 'blocked',
+    reason:
+      'developer.hosts: no read for the owner host settings is connected, so every base address reads host not set; most section pages are not written',
+    unlock: 'add the developer.hosts read in the payments settings and publish the section pages',
+    tab: 'public',
+  },
+  {
+    id: 'trade-news-calendar',
+    label: 'News and economic calendar',
+    paths: ['/trade/news', '/trade/calendar'],
+    status: 'blocked',
+    reason: 'feed.news: no news data feed is connected and no content store is mounted',
+    unlock: 'connect a news data vendor and mount the content store',
+    tab: 'trade',
+  },
+  {
     id: 'p2p',
     label: 'Person-to-person',
     paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/chat', '/checkuser'],

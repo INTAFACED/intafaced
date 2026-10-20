@@ -1,3 +1,5 @@
+import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
+import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
@@ -2204,6 +2206,67 @@ export function createPayRouter(
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
+      /**
+       * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06), filtered by asset, status, id
+       * and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
+       * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.
+       */
+      history: scopedProcedure('trade:read')
+        .input(
+          z
+            .object({
+              assetId: assetIdSchema.optional(),
+              status: z.enum(WITHDRAWAL_STATUSES).optional(),
+              id: z.string().uuid().optional(),
+              since: z.string().datetime({ offset: true }).optional(),
+              until: z.string().datetime({ offset: true }).optional(),
+              limit: z.number().int().min(1).max(200).optional(),
+              after: z.string().max(200).optional(),
+            })
+            .strict(),
+        )
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                id: z.string().uuid(),
+                assetId: assetIdSchema,
+                amount: amountSchema,
+                rail: z.string(),
+                destination: z.object({ kind: z.string(), ref: z.string() }),
+                clientRef: z.string(),
+                railRef: z.string().nullable(),
+                attempts: z.number().int(),
+                status: z.enum(WITHDRAWAL_STATUSES),
+                failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+                createdAt: z.string(),
+              }),
+            ),
+            next: z.string().nullable(),
+          }),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.searchWithdrawals(ctx.principal.userId, input))),
+
+      /**
+       * Can the caller start a withdrawal of this asset now? One check per named reason; a reason whose owning service
+       * is not connected here reads `unwired` and blocks (not checked is never fine). The submit path still decides.
+       */
+      eligibility: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema }).strict())
+        .output(
+          z.object({
+            eligible: z.boolean(),
+            checks: z.array(
+              z.object({
+                reason: z.enum(ELIGIBILITY_REASONS),
+                state: z.enum(['clear', 'blocked', 'unwired']),
+                detail: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalEligibilityFor(ctx.principal.userId, input.assetId))),
+
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
@@ -2460,6 +2523,9 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_not_pending':
       case 'pay.settlement_released':
         return 'CONFLICT' as const;
+      case 'pay.withdrawal_history_unwired':
+      case 'pay.withdrawal_eligibility_unwired':
+        return 'PRECONDITION_FAILED' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':
         return 'NOT_FOUND' as const;

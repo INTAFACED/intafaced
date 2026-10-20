@@ -4570,6 +4570,7 @@ export class TradeService {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+      type?: 'market' | 'limit' | 'stop_limit';
     },
   ): Promise<OrderRecord[]> {
     requireScope(principal, 'trade:read');
@@ -4584,6 +4585,15 @@ export class TradeService {
          AND status IN ${this.sql(input.status ? [input.status] : closed)}
          ${input.marketId ? this.sql`AND market_id = ${input.marketId}` : this.sql``}
          ${input.side ? this.sql`AND side = ${input.side}` : this.sql``}
+         ${
+           input.type === 'market'
+             ? this.sql`AND type = 'market'`
+             : input.type === 'limit'
+               ? this.sql`AND type = 'limit' AND NOT EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
+               : input.type === 'stop_limit'
+                 ? this.sql`AND type = 'limit' AND EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
+                 : this.sql``
+         }
          ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
          ${untilDate ? this.sql`AND created_at <= ${untilDate}` : this.sql``}
        ORDER BY created_at DESC

@@ -45,6 +45,22 @@ describe('create-body options spot does not act on', () => {
     expect(() => refuseUnsupportedPlacementOptions({ triggerBy: 'last' }, NOW)).not.toThrow();
   });
 
+  it('refuses a GTD or GTT order whose expiry is past or exactly now, and passes a future one', () => {
+    for (const timeInForce of ['GTD', 'GTT']) {
+      for (const expireAt of ['2026-10-20T11:59:00.000Z', NOW.toISOString()]) {
+        expect(() => refuseUnsupportedPlacementOptions({ timeInForce, expireAt }, NOW)).toThrowError(
+          expect.objectContaining({ code: 'trade.invalid_expiry' }),
+        );
+      }
+      expect(() => refuseUnsupportedPlacementOptions({ timeInForce, expireAt: '2026-10-20T12:01:00.000Z' }, NOW)).not.toThrow();
+    }
+  });
+
+  it('ignores an expiry on a time in force that does not use it, and a replay of a booked order', () => {
+    expect(() => refuseUnsupportedPlacementOptions({ timeInForce: 'GTC', expireAt: '2026-10-20T11:00:00.000Z' }, NOW)).not.toThrow();
+    expect(() => refuseUnsupportedPlacementOptions({ timeInForce: 'GTD', expireAt: '2026-10-20T11:00:00.000Z' }, NOW, true)).not.toThrow();
+  });
+
   it('reports the expired deadline first', () => {
     expect(() => refuseUnsupportedPlacementOptions({ requestDeadline: '2026-10-20T11:00:00.000Z', tag: 'x' }, NOW)).toThrowError(
       expect.objectContaining({ code: 'trade.request_expired' }),

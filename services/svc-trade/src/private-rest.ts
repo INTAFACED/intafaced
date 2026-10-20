@@ -18,7 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
-import { refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
+import { hasSpentExpiry, refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -57,6 +57,9 @@ import type { FuturesPayout } from './futures/futures-payouts.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
 import { AdlDisclosureError } from './futures/adl-disclosure.js';
+import { isDerivativesAccessError, presentDerivativesAccessError } from './futures/derivatives-access.js';
+import type { AssessmentResult, EligibilityState } from './futures/derivatives-eligibility.js';
+import type { AcceptAgreementResult, AgreementView } from './futures/risk-agreements.js';
 import { refuseArmById } from './ccxt-capability-matrix.js';
 import { assertStopTrigger, SPOT_ORDER_TYPES, TRADE_STOP_TRIGGER_INVALID, type StopTriggerStore } from './spot/stop-trigger-door.js';
 import { orderIdFor } from './spot/ids.js';
@@ -73,7 +76,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/orders/open     scope: trade:read  (?symbol=&limit=)
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
- *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=)
+ *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=&type=)
  *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
  *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
@@ -97,6 +100,10 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/futures/adl-disclosure     scope: trade:read  (copy + ack — DIRECTION:34)
  *   POST   /api/v1/futures/adl-disclosure/ack scope: trade:write (ack before open)
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
+ *   GET    /api/v1/account/agreements         scope: trade:read  (current risk agreement + margin terms for the caller's region, accepted or not)
+ *   POST   /api/v1/account/agreements/accept  scope: trade:write + jurisdiction (accept the named current version; idempotent per user+kind+version)
+ *   GET    /api/v1/account/derivatives-eligibility        scope: trade:read  (level state, quiz questions without answers)
+ *   POST   /api/v1/account/derivatives-eligibility/assess scope: trade:write + jurisdiction (submit quiz answers; idempotent on clientSubmissionId)
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
  *   GET    /api/v1/futures/payouts           scope: trade:read  (caller's profit payouts: paid, or owed while the clearing pot is short)
  *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
@@ -133,10 +140,11 @@ export const MAX_BATCH_ORDERS = 100;
 async function isDeadlineReplay(
   deps: PrivateRestDeps,
   principal: Principal,
-  body: { requestDeadline?: string; symbol: string; clientOrderId: string },
+  body: { requestDeadline?: string; timeInForce?: string; expireAt?: string; symbol: string; clientOrderId: string },
   now: Date,
 ): Promise<boolean> {
-  if (body.requestDeadline === undefined || Date.parse(body.requestDeadline) > now.getTime() || !deps.findClientOrder) return false;
+  const deadlineSpent = body.requestDeadline !== undefined && Date.parse(body.requestDeadline) <= now.getTime();
+  if ((!deadlineSpent && !hasSpentExpiry(body, now)) || !deps.findClientOrder) return false;
   return (await deps.findClientOrder(principal, { symbol: body.symbol, clientOrderId: body.clientOrderId })) !== null;
 }
 
@@ -178,6 +186,7 @@ export interface PrivateRestDeps {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+      type?: ClosedOrderType;
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
@@ -251,6 +260,8 @@ export interface PrivateRestDeps {
       clientOpenId: string;
       reduceOnly?: boolean;
       positionMode?: 'one_way' | 'hedge';
+      /** Edge region, handed to the derivatives gate to pick the jurisdiction text. Not part of the business payload. */
+      region?: string;
     },
   ): Promise<Position>;
   /** Close at the current mark. No price parameter, for the same reason. */
@@ -313,6 +324,20 @@ export interface PrivateRestDeps {
    * (candidate side). Empty [] when none — never invents events.
    */
   listAdlDisclosureEvents(principal: Principal, limit: number): Promise<AdlActionDisclosureWire[]>;
+  /**
+   * D-account-07 — the current risk agreement and margin terms for the caller's region. A kind with nothing
+   * published, or no text for the region, is returned as `available: false` with the reason; nothing is invented.
+   * Absent: the route refuses `trade.agreements_unconfigured`.
+   */
+  getAgreements?(principal: Principal, region: string | null): Promise<AgreementView[]>;
+  /** Accept the named current version. Idempotent on (user, kind, version). */
+  acceptAgreement?(principal: Principal, input: { kind: unknown; version: unknown; region: string | null }): Promise<AcceptAgreementResult>;
+  /** Where the caller stands on derivatives eligibility, with the quiz questions (never the scoring key). */
+  getDerivativesEligibility?(
+    principal: Principal,
+  ): Promise<{ state: EligibilityState; questions: { id: string; prompt: string; options: { id: string; text: string }[] }[] | null }>;
+  /** Score a quiz submission against the current rules. Idempotent on `clientSubmissionId`. */
+  assessDerivativesEligibility?(principal: Principal, input: { clientSubmissionId: unknown; answers: unknown }): Promise<AssessmentResult>;
   /**
    * Funding settlement postings for one position the caller owns.
    * Empty payments means no funding yet. Another account's id is not found.
@@ -736,11 +761,23 @@ const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 
 };
 
 /** Optional `side` and `status` filters of orders/closed; CCXT status words, anything else is a 400. */
+export type ClosedOrderType = 'market' | 'limit' | 'stop_limit';
+const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit'];
+
 export function parseClosedFilters(query: {
   side?: unknown;
   status?: unknown;
-}): { ok: true; side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } | { ok: false; message: string } {
-  const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } = {};
+  type?: unknown;
+}):
+  | { ok: true; side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType }
+  | { ok: false; message: string } {
+  const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType } = {};
+  if (query.type !== undefined && query.type !== '') {
+    if (typeof query.type !== 'string' || !CLOSED_ORDER_TYPES.includes(query.type)) {
+      return { ok: false, message: 'type must be market, limit or stop_limit' };
+    }
+    out.type = query.type as ClosedOrderType;
+  }
   if (query.side !== undefined && query.side !== '') {
     if (query.side !== 'buy' && query.side !== 'sell') return { ok: false, message: 'side must be buy or sell' };
     out.side = query.side;
@@ -1000,6 +1037,10 @@ function presentReplaceOutcome(outcome: ReplaceOrderOutcome, originalSymbol: str
  * Returns null when the error is not one we recognise, so the caller rethrows
  * and it surfaces as a real 500 rather than a relabelled retry instruction.
  */
+function agreementsUnconfigured(): { error: string; message: string } {
+  return { error: 'trade.agreements_unconfigured', message: 'Agreements and eligibility are not wired on this deployment.' };
+}
+
 function sendDomainError(reply: FastifyReply, err: unknown): FastifyReply | null {
   if (err instanceof OpenOrdersLimitUnsetError) {
     return sendCcxt(reply, badRequest(err.message, err.code));
@@ -1213,6 +1254,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(untilParsed.sinceMs !== undefined ? { untilMs: untilParsed.sinceMs } : {}),
         ...(filters.side ? { side: filters.side } : {}),
         ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.type ? { type: filters.type } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];
@@ -1509,11 +1551,15 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(reduceOnly ? { reduceOnly: true } : {}),
         ...(positionMode !== undefined ? { positionMode } : {}),
         ...(collateralClass !== undefined ? { collateralClass } : {}),
+        region: contextFrom(req).region,
       });
       return reply.code(200).send(pos);
     } catch (err) {
       if (err instanceof AdlDisclosureError) {
         return reply.code(err.status).send({ error: err.code, message: err.message });
+      }
+      if (isDerivativesAccessError(err)) {
+        return reply.code(err.status).send(presentDerivativesAccessError(err));
       }
       if (err instanceof FuturesError) {
         if (isRolledBackMarkRefusal(err.code)) return reply.code(409).send(presentRolledBackRefusal(err));
@@ -1557,6 +1603,85 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (err instanceof AdlDisclosureError) {
         return reply.code(err.status).send({ error: err.code, message: err.message });
       }
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /**
+   * D-account-07 — versioned risk agreement and margin terms of use. The text is the owner's, per jurisdiction;
+   * a kind with nothing published or no text for the caller's region reads as `available: false` with the reason.
+   */
+  app.get('/api/v1/account/agreements', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+      if (!deps.getAgreements) return reply.code(403).send(agreementsUnconfigured());
+      const agreements = await deps.getAgreements(principal, contextFrom(req).region);
+      return reply.code(200).send({ agreements });
+    } catch (err) {
+      if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post('/api/v1/account/agreements/accept', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    try {
+      requireScope(principal, 'trade:write');
+      if (!deps.acceptAgreement) return reply.code(403).send(agreementsUnconfigured());
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const accepted = await deps.acceptAgreement(principal, {
+        kind: body.kind,
+        version: body.version,
+        region: contextFrom(req).region,
+      });
+      return reply.code(200).send(accepted);
+    } catch (err) {
+      if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  /** Derivatives eligibility with suitability: the level state and the owner's quiz. Blank rules read as `unset`. */
+  app.get('/api/v1/account/derivatives-eligibility', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    try {
+      requireScope(principal, 'trade:read');
+      if (!deps.getDerivativesEligibility) return reply.code(403).send(agreementsUnconfigured());
+      return reply.code(200).send(await deps.getDerivativesEligibility(principal));
+    } catch (err) {
+      if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.post('/api/v1/account/derivatives-eligibility/assess', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!requireTradeJurisdiction(req, reply, principal)) return;
+    try {
+      requireScope(principal, 'trade:write');
+      if (!deps.assessDerivativesEligibility) return reply.code(403).send(agreementsUnconfigured());
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const result = await deps.assessDerivativesEligibility(principal, {
+        clientSubmissionId: body.clientSubmissionId,
+        answers: body.answers,
+      });
+      return reply.code(200).send(result);
+    } catch (err) {
+      if (isDerivativesAccessError(err)) return reply.code(err.status).send(presentDerivativesAccessError(err));
       const sent = sendDomainError(reply, err);
       if (sent) return sent;
       throw err;
@@ -2708,6 +2833,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     try {
       refuseOptionsOnReplacement(parsed.data);
+      if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
+        throw new TradeError('the order expiry is not in the future; nothing was replaced', 'trade.invalid_expiry');
+      }
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);

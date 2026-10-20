@@ -38,6 +38,14 @@ const fields = z.object({
   showFills: z.boolean().default(false),
   confirmSend: z.boolean().default(true),
   confirmCancel: z.boolean().default(true),
+  /** After an order goes through, the desk clears the Amount field. Off keeps it, so the next order starts from the same size. */
+  resetSizeOnSubmit: z.boolean().default(true),
+  /** Sizes the person set for the desk's quick-size buttons, in the base asset of the open market. Blank shows no buttons. A bad stored list reads as blank. */
+  quickSizes: z
+    .array(z.string().regex(/^\d+(\.\d{1,18})?$/))
+    .max(6)
+    .default([])
+    .catch([]),
   favoritesView: z.enum(['list', 'cards']).default('list'),
   /**
    * Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does.

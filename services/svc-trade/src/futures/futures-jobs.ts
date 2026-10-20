@@ -25,7 +25,18 @@ import {
 } from './liquidation-tick.js';
 import { depthNotionalSourceFromDepth, markSourceFromDepth } from './mark-from-depth.js';
 import { markSourcePrefer } from './mark-from-venue.js';
-import { memoryFundingRateBook, type FundingRateEntry } from './funding-rate-source.js';
+import { memoryFundingRateBook, preferFundingRateSource, type FundingRateEntry } from './funding-rate-source.js';
+import {
+  indexProviderFromFeed,
+  indexHealthFromProvider,
+  runFundingComputerJob,
+  sqlFundingRatePeriodStore,
+  sqlFundingSampleStore,
+} from './funding-rate-computer.js';
+import { currentFundingParams, currentIndexSources } from './funding-params.js';
+import { notConnectedIndexFeed, type IndexFeed } from './index-construction.js';
+import { markSourceWithConstruction, type MarkConstruction, type MarkConstructionInputs } from './mark-construction.js';
+import type { VenueLatencyHealth } from './venue-latency-health.js';
 import {
   sqlDatedSettlementMarketLoader,
   sqlDatedSettlementPositionLoader,
@@ -71,6 +82,12 @@ export interface FuturesJobsConfig {
    */
   fundingMarketIds: readonly string[];
   /**
+   * Poll interval of the funding rate computer (D-instruments-01). Null / omitted = the computer is not scheduled
+   * and the funding tick reads exactly what it read before. Owner numbers for the formula are in the database
+   * (`admin.fundingParams`), not here, and a blank one refuses the period.
+   */
+  fundingComputerPollMs?: number | null;
+  /**
    * Absolute max |period rate| (TRADE_FUTURES_FUNDING_MAX_ABS_RATE).
    * Null refuses settle/publish application. Required at boot when
    * fundingMarketIds non-empty — see funding-rate-bound.ts. No product default.
@@ -99,6 +116,20 @@ export interface FuturesJobsDeps {
    * Production ops publishes into memoryFundingRateBook via a real oracle later.
    */
   seedFundingRate?: (entry: FundingRateEntry) => void;
+  /**
+   * Public venue books for the index. Omitted: NotConnected `feed.market` (no source is configured on main), so the
+   * computer samples gaps and refuses periods rather than publishing a number.
+   */
+  indexFeed?: IndexFeed | null;
+  /** Venue health for the index. A red venue pauses the period. Omitted: not consulted. */
+  venueHealth?: () => VenueLatencyHealth;
+  /**
+   * Owner-selected mark construction. Omitted or `selection: null` keeps today's mark source untouched.
+   */
+  markConstruction?: {
+    selection: MarkConstruction | null;
+    inputs: (request: { marketId: string; symbol?: string; at: Date }) => Promise<MarkConstructionInputs | null>;
+  };
   now?: () => Date;
   onError?: (name: string, err: unknown) => void;
   /**
@@ -284,7 +315,11 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
 
   // Mark path always assembled — public REST + liq share one non-inventing port.
   const depthMarks = markSourceFromDepth((marketId) => deps.matching.depth(marketId, 1));
-  const marks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
+  const baseMarks: MarkSource = deps.venueMarkSource ? markSourcePrefer(deps.venueMarkSource, depthMarks) : depthMarks;
+  // Blank selection returns `baseMarks` itself: today's behaviour, untouched.
+  const marks: MarkSource = deps.markConstruction
+    ? markSourceWithConstruction(baseMarks, deps.markConstruction.selection, deps.markConstruction.inputs)
+    : baseMarks;
 
   const ladderGate = {
     depth: depthNotionalSourceFromDepth((marketId) => deps.matching.depth(marketId, 1)),
@@ -408,6 +443,38 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });
 
+  // Funding rate computer (D-instruments-01). Off unless a poll interval is set. Its rates go into their own book,
+  // and the funding tick asks that book first and the S2S-fed one second. A computed period is closed and its rate
+  // frozen with it, so the book carries no age limit (maxAgeMs 0 is the explicit choice `FundingRatePolicy` asks for);
+  // a stale index pauses the period instead, and nothing is published.
+  const computerPollMs = deps.config.fundingComputerPollMs ?? null;
+  const computedRates = memoryFundingRateBook({ now: () => (deps.now ?? (() => new Date()))().getTime(), policy: { maxAgeMs: 0 } });
+  const fundingSource = computerPollMs != null ? preferFundingRateSource(computedRates.source(), rates.source()) : rates.source();
+  if (computerPollMs != null) {
+    const indexProvider = indexProviderFromFeed({
+      feed: deps.indexFeed ?? notConnectedIndexFeed(),
+      sources: (marketId) => currentIndexSources(deps.sql, marketId),
+      ...(deps.venueHealth ? { venueHealth: deps.venueHealth } : {}),
+    });
+    const computerDeps = {
+      params: (marketId: string) => currentFundingParams(deps.sql, marketId),
+      samples: sqlFundingSampleStore(deps.sql),
+      periods: sqlFundingRatePeriodStore(deps.sql),
+      indexHealth: indexHealthFromProvider(indexProvider),
+      index: indexProvider,
+      marks,
+      publish: (entry: FundingRateEntry) => computedRates.set(entry),
+      maxAbsRate: deps.config.fundingMaxAbsRate,
+      now: deps.now,
+    };
+    for (const marketId of deps.config.fundingMarketIds) {
+      if (!marketId.trim()) continue;
+      host.every(`futures.funding_rate.${marketId}`, computerPollMs, async () => {
+        await runFundingComputerJob(computerDeps, marketId);
+      });
+    }
+  }
+
   const fundingIntervalMs = deps.config.fundingIntervalMs;
   if (fundingIntervalMs != null) {
     for (const marketId of deps.config.fundingMarketIds) {
@@ -415,7 +482,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       host.every(`futures.funding.${marketId}`, fundingIntervalMs, async () => {
         await runFundingTick(
           {
-            rates: rates.source(),
+            rates: fundingSource,
             positions: fundLoader,
             periods,
             ledger: deps.ledger,

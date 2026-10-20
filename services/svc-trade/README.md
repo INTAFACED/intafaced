@@ -95,6 +95,28 @@ The listing record carries `family` (`linear` only; `inverse` refuses `trade.inv
 `trade.premarket_params_unset`. The public market read (`GET /api/v1/markets`, `markets.list`) shows `family`,
 `settleAsset`, `contractSize` and `premarket`.
 
+**Risk agreements, margin terms and derivatives eligibility (D-account-07).** A futures open (`POST /api/v1/positions`, not
+reduce-only) is refused until the caller has accepted the current version of the risk agreement for their region and holds the
+derivatives level under the current suitability rules. There is no switch: with nothing published the open refuses with the
+typed reason. A reduce-only open and every close never reach the gate. The text, the questions, the answers that count, the
+pass mark and the minimum verification tier are the owner's content; nothing here supplies any of them.
+
+| Door                                                       | What it does                                                                                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/account/agreements`                           | `derivatives_risk` and `margin_terms` for the request region, with accepted state; unavailable kinds carry the reason              |
+| `POST /api/v1/account/agreements/accept` `{kind, version}` | idempotent on (user, kind, version); records time and the jurisdiction text id; a stale version is `trade.agreement_version_stale` |
+| `GET /api/v1/account/derivatives-eligibility`              | level state, and the questions without the scoring key                                                                             |
+| `POST /api/v1/account/derivatives-eligibility/assess`      | `{clientSubmissionId, answers}`; scored against the current rule version; idempotent on the submission id                          |
+| `admin.agreements.get` / `.publish`                        | new version per kind with one text per jurisdiction; four-eyes, append-only (a published version is never edited), audited         |
+| `admin.agreements.list` / `.export`                        | compliance view of acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited                |
+| `admin.eligibilityRules.get` / `.set`                      | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                             |
+
+Refusals on open: `trade.agreement_unpublished`, `trade.agreement_region_unavailable`, `trade.agreement_required` (body names
+the `documentId`), `trade.derivatives_eligibility_unset` (`reason`: `rules_unpublished`, `not_assessed`, `not_passed`,
+`rule_version_stale`), `trade.identity_level_insufficient` and `trade.identity_level_unavailable`. The verification tier is the
+caller's own principal claim; no identity vendor is called from this service. Futures opens need `derivatives_risk`; the
+`margin_terms` kind is stored and acceptable now and is the gate for a margin borrow door when one exists.
+
 ---
 
 ## Events
@@ -434,6 +456,18 @@ exists to prevent. **SOCKET §13** — the fix is a trigger-time funding callbac
 change to that service's contract and therefore its own PR.
 
 ---
+
+## Funding rate engine (D-instruments-01)
+
+No money moves here; the funding tick still posts every leg. The computer only decides the period rate and hands it to the existing rate source.
+
+- **Formula** (`futures/funding-rate-computer.ts`): rate = tail-trimmed mean of `(mark - index) / index` samples + owner base component, clamped to `[-cap, +cap]`. Scaled bigint in memory, decimal strings at rest. A missing sample is a gap: left out of the mean, counted against the minimum.
+- **Owner numbers** (`trade.funding_params`, versioned per market, `admin.fundingParams.get/set`): base component, cap, cadence, trim ratio, minimum samples; `periodSeconds` and `periodAnchor` place the window for the scheduled job. All blank by default. A blank one refuses the period with `trade.funding_rate_unset`, the refusal is stored (`trade.funding_rate_periods`) and nothing is published.
+- **Outcomes per period:** `published` (closed, immutable, replay returns the stored rate), `refused` (`trade.funding_rate_unset`, `trade.funding_samples_insufficient`, `trade.index_params_unset`, `feed.market`, or the existing bound codes), `paused` (`trade.funding_index_stale`: a red index waits, then is retried).
+- **Index** (`futures/index-construction.ts`, `trade.funding_index_sources`, `admin.indexSources.get/set`): weighted multi-source with outlier rejection, owner floor (`minSources`), band (`outlierBandBps`) and age (`maxAgeSeconds`). The feed is a port; with none configured it answers NotConnected `feed.market`.
+- **Mark** (`futures/mark-construction.ts`): `index_plus_basis` and `median_of_three` as pure functions behind `markSourceWithConstruction`; a blank selection returns the existing source unchanged.
+- **Desk read:** `admin.fundingPeriods.recent` returns recent computed, paused and refused periods with their samples.
+- **Wiring:** `TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS` (blank = off). When set, each funding market gets a `futures.funding_rate.<market>` job that samples and computes its latest closed period; the funding tick asks the computed-rate book first and the S2S-fed book second.
 
 ## Kill-switch
 

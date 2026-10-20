@@ -221,6 +221,8 @@ const en = {
   chipNoAnswer: 'The Protocol service did not answer',
   skip: 'Skip to content',
   walletNone: 'No wallet connected',
+  walletConnecting: 'Connecting wallet…',
+  walletWrongNetwork: 'Wrong network',
   walletTitle: 'Wallet',
   // Routes whose data source is not built yet: full layout, named blocker
   pendingNote: 'Nothing on this page is guessed or invented. It fills in once the blocker below is cleared.',
@@ -240,8 +242,6 @@ const en = {
   page_poolDetail: 'Pool',
   page_positionDetail: 'Position',
   page_tokenDetail: 'Token',
-  page_walletHome: 'Wallet',
-  page_walletActivity: 'Wallet activity',
   page_blockDetail: 'Block',
   page_txDetail: 'Transaction',
   page_addressDetail: 'Address',

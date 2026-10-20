@@ -36,6 +36,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {
+    id: 'liquidations',
+    href: '/trade-ops/liquidations',
+    label: 'Liquidations',
+    job: 'Liquidation steps, positions nearest to liquidation, auto-deleveraging and the insurance fund.',
+  },
+  {
     id: 'surveillance',
     href: '/trade-ops/surveillance',
     label: 'Surveillance',

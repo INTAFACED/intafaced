@@ -3,6 +3,7 @@ import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { Invitation } from './Invitation';
+import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
@@ -68,6 +69,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <PasswordRecovery />
         ) : path === '/about-us' ? (
           <AboutPage />
+        ) : path === '/developers' || path.startsWith('/developers/') ? (
+          <DevelopersRoutes path={path} />
         ) : path === '/partner' ? (
           <PartnerPage />
         ) : path === '/notice' || path === '/announcement' ? (

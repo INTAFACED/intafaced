@@ -136,6 +136,10 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
         <span>{t('To date')}</span>
         <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
       </label>
+      <label className="money-bar__check">
+        <input type="checkbox" checked={filters.hasNote} onChange={(event) => onChange({ ...filters, hasNote: event.target.checked })} />
+        <span>{t('Only lines with a note')}</span>
+      </label>
       {hasFilters(filters) && (
         <Button type="button" variant="secondary" size={40} onClick={() => onChange(NO_FILTERS)}>
           {t('Clear filters')}

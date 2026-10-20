@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -23,6 +23,7 @@ const CATEGORY_KEYS = {
   account: 'support.category.account',
   trading: 'support.category.trading',
   deposit_withdraw: 'support.category.deposit_withdraw',
+  phishing: 'support.category.phishing',
   other: 'support.category.other',
 } as const;
 const categoryLabel = (value: string): string =>
@@ -160,12 +161,16 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
   const depositsHidden = isHiddenPath('/uc/recharge');
   const [category, setCategory] = useState('other'),
     [subject, setSubject] = useState(''),
-    [body, setBody] = useState('');
+    [body, setBody] = useState(''),
+    [headers, setHeaders] = useState('');
+  const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
   return (
     <section className="support-pane support-new" aria-label={copy.t('tabNew')}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          // One key per decision: a double tap or a retry of this review returns the first ticket instead of a second.
+          const clientRequestId = `create:${crypto.randomUUID()}`;
           action.stage({
             title: () => copyText('support.review.support.request'),
             confirm: () => copyText('support.send.request'),
@@ -176,6 +181,7 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
                   [copyText('support.category'), <span>{categoryLabel(category)}</span>],
                   [copyText('support.subject'), <span lang="und">{subject}</span>],
                   [copyText('support.message'), <span lang="und">{body}</span>],
+                  ...(sendHeaders ? [[copy.t('headersField'), <span lang="und">{sendHeaders}</span>] as [string, ReactNode]] : []),
                 ]}
               />
             ),
@@ -183,7 +189,13 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
               api.mutate(
                 'support',
                 'create',
-                { category, subject: subject.trim(), body: body.trim() },
+                {
+                  category,
+                  subject: subject.trim(),
+                  body: body.trim(),
+                  ...(sendHeaders ? { messageHeaders: sendHeaders } : {}),
+                  clientRequestId,
+                },
                 ticketSchema.refine(
                   (row) => row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
                   copyText('support.created.ticket.does.not.match.this.account'),
@@ -192,6 +204,7 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
             done: () => {
               setSubject('');
               setBody('');
+              setHeaders('');
               onSent();
             },
           });
@@ -223,6 +236,19 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} maxLength={10000} rows={7} />
           <small>{copy.t('characters', { count: body.length, max: 10000 })}</small>
         </label>
+        {category === 'phishing' && (
+          <>
+            <p className="support-warning" role="note">
+              {copy.t('phishingNote')}
+            </p>
+            <label className="field">
+              <span>{copy.t('headersField')}</span>
+              <textarea lang="zxx" value={headers} onChange={(event) => setHeaders(event.target.value)} maxLength={10000} rows={5} />
+              <small>{copy.t('headersHint')}</small>
+              <small>{copy.t('headersCharacters', { count: headers.length, max: 10000 })}</small>
+            </label>
+          </>
+        )}
         <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim()}>
           {copy.t('reviewRequest')}
         </Button>

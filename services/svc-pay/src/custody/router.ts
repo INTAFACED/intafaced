@@ -1,0 +1,127 @@
+import { router, TRPCError } from '@intafaced/contracts';
+import type { Sql } from 'postgres';
+import { z } from 'zod';
+import type { FounderAuthority } from '../founder-authority.js';
+import { founderProcedure, type FounderContext } from '../namespaces/founder-procedure.js';
+import { custodyToTrpcError } from './errors.js';
+import {
+  accountKeyInputSchema,
+  accountViewSchema,
+  entityCreateInputSchema,
+  entityListInputSchema,
+  entityViewSchema,
+  ownerLookupSchema,
+  vaultCreateInputSchema,
+  vaultListInputSchema,
+  vaultReconciliationInputSchema,
+  vaultRenameInputSchema,
+  vaultViewSchema,
+  vaultVisibilityInputSchema,
+  walletAddInputSchema,
+  walletGetInputSchema,
+  walletListInputSchema,
+  walletLookupInputSchema,
+  walletTypeViewSchema,
+  walletViewSchema,
+} from './schemas.js';
+import { CustodyService } from './service.js';
+
+/** What a mount supplies besides the founder authority. */
+export type CustodyMountDeps = Omit<CustodyRouterDeps, 'founderAuthority'>;
+
+export interface CustodyRouterDeps {
+  readonly founderAuthority: FounderAuthority;
+  readonly sql: Sql;
+}
+
+function actorOf(ctx: unknown): string {
+  const id = (ctx as Partial<FounderContext>).founderUserId;
+  if (typeof id !== 'string' || id.trim() === '') throw new TRPCError({ code: 'FORBIDDEN', message: 'operator.denied' });
+  return id;
+}
+
+async function wrap<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    throw custodyToTrpcError(error);
+  }
+}
+
+/**
+ * `founderAdmin.custody.*`: the custody account model (W-custody-ops-01). Founder-only: every procedure is built from
+ * `founderProcedure`. Mounted INSIDE the founderAdmin router (see namespaces/founder-admin.ts). It holds no balance.
+ */
+export function createCustodyRouter(deps: CustodyRouterDeps) {
+  const founder = founderProcedure(deps.founderAuthority);
+  const service = new CustodyService({ sql: deps.sql });
+  return router({
+    walletTypes: router({
+      list: founder
+        .input(z.object({}).strict().optional())
+        .output(z.array(walletTypeViewSchema))
+        .query(() => wrap(() => service.walletTypes())),
+    }),
+    entities: router({
+      create: founder
+        .input(entityCreateInputSchema)
+        .output(entityViewSchema)
+        .mutation(({ ctx, input }) => wrap(() => service.createEntity(actorOf(ctx), input))),
+      list: founder
+        .input(entityListInputSchema)
+        .output(z.array(entityViewSchema))
+        .query(({ input }) => wrap(() => service.listEntities(input))),
+    }),
+    accounts: router({
+      list: founder
+        .input(entityListInputSchema)
+        .output(z.array(accountViewSchema))
+        .query(({ input }) => wrap(() => service.listAccounts(input))),
+      get: founder
+        .input(accountKeyInputSchema)
+        .output(accountViewSchema)
+        .query(({ input }) => wrap(() => service.getAccount(input.entityId))),
+    }),
+    vaults: router({
+      create: founder
+        .input(vaultCreateInputSchema)
+        .output(vaultViewSchema)
+        .mutation(({ ctx, input }) => wrap(() => service.createVault(actorOf(ctx), input))),
+      rename: founder
+        .input(vaultRenameInputSchema)
+        .output(vaultViewSchema)
+        .mutation(({ ctx, input }) => wrap(() => service.renameVault(actorOf(ctx), input.vaultId, input.name, input.expectedVersion))),
+      setVisibility: founder
+        .input(vaultVisibilityInputSchema)
+        .output(vaultViewSchema)
+        .mutation(({ ctx, input }) => wrap(() => service.setVaultHidden(actorOf(ctx), input.vaultId, input.hidden, input.expectedVersion))),
+      list: founder
+        .input(vaultListInputSchema)
+        .output(z.array(vaultViewSchema))
+        .query(({ input }) => wrap(() => service.listVaults(input.entityId, input.visibility, input.limit, input.after))),
+      reconciliation: founder
+        .input(vaultReconciliationInputSchema)
+        .output(z.array(vaultViewSchema))
+        .query(({ input }) => wrap(() => service.reconciliationVaults(input.limit, input.after))),
+    }),
+    wallets: router({
+      add: founder
+        .input(walletAddInputSchema)
+        .output(walletViewSchema)
+        .mutation(({ ctx, input }) => wrap(() => service.addWallet(actorOf(ctx), input.vaultId, input.networkId, input.assetCode))),
+      list: founder
+        .input(walletListInputSchema)
+        .output(z.array(walletViewSchema))
+        .query(({ input }) => wrap(() => service.listWallets(input.vaultId, input.limit, input.after))),
+      get: founder
+        .input(walletGetInputSchema)
+        .output(walletViewSchema)
+        .query(({ input }) => wrap(() => service.getWallet(input.walletId))),
+      lookupByAddress: founder
+        .input(walletLookupInputSchema)
+        .output(ownerLookupSchema)
+        .query(({ input }) => wrap(() => service.lookupByAddress(input.networkId, input.address))),
+    }),
+  });
+}
+export type CustodyRouter = ReturnType<typeof createCustodyRouter>;

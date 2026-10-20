@@ -63,8 +63,8 @@ export class PositionService extends ProductionPositionService {
     const [sql, ledger, deps] = args;
     super(sql, ledger, { ...deps, accountAdmission: deps.accountAdmission ?? readyForSql(sql) });
   }
-  override open(input: OpenPositionInput, principal?: Principal) {
-    return super.open(input, principal ?? principalFor(input.userId));
+  override open(input: OpenPositionInput, principal?: Principal, context?: { readonly region?: string | null }) {
+    return super.open(input, principal ?? principalFor(input.userId), context);
   }
   override setLeverage(input: SetLeverageInput, principal?: Principal) {
     return super.setLeverage(input, principal ?? principalFor(input.userId));

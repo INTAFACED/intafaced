@@ -57,6 +57,8 @@ export interface DispatchOptions {
   readonly maxAttempts: number;
   /** Operator switch for everything that leaves the platform. The inbox is unaffected. */
   readonly outOfAppEnabled: boolean;
+  /** Channels the owner switched off (`notify.setChannelSettings`). Read once per dispatch. Absent = none. */
+  readonly disabledChannels?: () => Promise<ReadonlySet<ChannelId>>;
   /**
    * Optional mute prefs. When absent, nothing is muted (legacy behaviour).
    * Critical severity never mutes — see preferences/mute.ts.
@@ -131,6 +133,7 @@ export class NotificationDispatcher {
         const verified = await this.targets.verified(notification.userId);
         const byChannel = new Map<ChannelId, ChannelTarget>(verified.map((t) => [t.channel, t]));
         const outcomes: ChannelOutcome[] = [];
+        const ownerDisabled = outOfApp && this.options.disabledChannels ? await this.options.disabledChannels() : new Set<ChannelId>();
 
         // Only a critical message writes a row for a channel it could not use, so
         // only a critical message needs to know WHY there was nothing to use. A
@@ -155,7 +158,7 @@ export class NotificationDispatcher {
         for (const channel of OUT_OF_APP_CHANNELS) {
           const target = byChannel.get(channel);
 
-          if (!this.options.outOfAppEnabled) {
+          if (!this.options.outOfAppEnabled || ownerDisabled.has(channel)) {
             // The switch is the binding cause: a confirmed address would not have
             // been tried either, so `channel.disabled` is the honest code even
             // when the user registered nothing. A critical message still gets a
@@ -259,7 +262,7 @@ export class NotificationDispatcher {
     const verified = await this.targets.verified(notification.userId);
     const target = verified.find((row) => row.channel === channel);
 
-    if (!this.options.outOfAppEnabled) {
+    if (!this.options.outOfAppEnabled || (this.options.disabledChannels && (await this.options.disabledChannels()).has(channel))) {
       return this.refuse(notification, channel, 'channel.disabled', target ? null : 'no confirmed address on this channel');
     }
 

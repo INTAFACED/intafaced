@@ -176,13 +176,19 @@ describe('ccxt capability matrix — inventory integrity', () => {
       [
         'addIsolatedMarginInsufficient',
         'adlDisclosureRequired',
+        'agreementRegionUnavailableOnOpen',
+        'agreementRequiredOnOpen',
+        'agreementUnpublishedOnOpen',
         'callerPriceOnClose',
         'cancelNotClose',
         'callerPriceOnOpen',
         'crossMarginOnOpen',
+        'derivativesEligibilityUnsetOnOpen',
         'fundingRateSpot',
         'fundingRateUnavailable',
         'futuresUnconfiguredOnOpen',
+        'identityLevelInsufficientOnOpen',
+        'identityLevelUnavailableOnOpen',
         'leverageRequiredOnOpen',
         'profitSourceUnconfiguredOnClose',
         'reduceIsolatedMarginBelowInitial',
@@ -237,6 +243,22 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(privateRestSource).toContain("'/api/v1/futures/adl-events'");
     expect(refuseArmById('adlDisclosureRequired')!.httpStatus).toBe(403);
     expect(refuseArmById('adlDisclosureRequired')!.intafacedCode).toBe(ADL_DISCLOSURE_REQUIRED);
+    expect(privateRestSource).toContain('isDerivativesAccessError');
+    expect(privateRestSource).toContain("'/api/v1/account/agreements'");
+    expect(privateRestSource).toContain("'/api/v1/account/agreements/accept'");
+    expect(privateRestSource).toContain("'/api/v1/account/derivatives-eligibility'");
+    expect(privateRestSource).toContain("'/api/v1/account/derivatives-eligibility/assess'");
+    for (const [id, code] of [
+      ['agreementRequiredOnOpen', 'trade.agreement_required'],
+      ['agreementUnpublishedOnOpen', 'trade.agreement_unpublished'],
+      ['agreementRegionUnavailableOnOpen', 'trade.agreement_region_unavailable'],
+      ['derivativesEligibilityUnsetOnOpen', 'trade.derivatives_eligibility_unset'],
+      ['identityLevelInsufficientOnOpen', 'trade.identity_level_insufficient'],
+      ['identityLevelUnavailableOnOpen', 'trade.identity_level_unavailable'],
+    ] as const) {
+      expect(refuseArmById(id)!.httpStatus).toBe(403);
+      expect(refuseArmById(id)!.intafacedCode).toBe(code);
+    }
     expect(privateRestSource).toContain('FuturesError');
     const unconfigured = refuseArmById('futuresUnconfiguredOnOpen')!;
     expect(unconfigured.httpStatus).toBe(403);
@@ -256,6 +278,10 @@ describe('ccxt capability matrix — inventory integrity', () => {
     expect(names).toContain('fetchAdlDisclosure');
     expect(names).toContain('ackAdlDisclosure');
     expect(names).toContain('fetchAdlDisclosureEvents');
+    expect(names).toContain('fetchAgreements');
+    expect(names).toContain('acceptAgreement');
+    expect(names).toContain('fetchDerivativesEligibility');
+    expect(names).toContain('assessDerivativesEligibility');
     expect(names).toContain('fetchClosedPositions');
     expect(names).toContain('fetchPosition');
     expect(names).toContain('fetchPositionMarginCall');

@@ -16,6 +16,9 @@ import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
 import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
+import { assertStoredTransition } from './withdrawals/status.js';
+import type { WithdrawalEligibility, EligibilityView } from './withdrawals/eligibility.js';
+import type { WithdrawalHistory, WithdrawalHistoryFilter, WithdrawalHistoryPage } from './withdrawals/history.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
@@ -178,6 +181,12 @@ export interface UserMoneyOptions {
 
   /** Reads a customer's remaining withdrawal allowance (D-148). Omitted: the read refuses, it never guesses a figure. */
   readonly withdrawalLimits?: WithdrawalLimitReader;
+
+  /** The customer's withdrawal history (W-withdraw-06). Omitted: the read refuses. */
+  readonly withdrawalHistory?: WithdrawalHistory;
+
+  /** The pre-submit eligibility read (W-withdraw-06). Omitted: the read refuses. */
+  readonly withdrawalEligibility?: WithdrawalEligibility;
 }
 
 /**
@@ -202,6 +211,8 @@ export class UserMoneyService {
   private readonly wallet: WalletPay | undefined;
   private readonly chainReader: ChainReader;
   private readonly withdrawalLimits: WithdrawalLimitReader | undefined;
+  private readonly withdrawalHistory: WithdrawalHistory | undefined;
+  private readonly withdrawalEligibility: WithdrawalEligibility | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -216,6 +227,8 @@ export class UserMoneyService {
     this.wallet = options.wallet;
     this.chainReader = options.chainReader ?? { confirm: async () => 'down' };
     this.withdrawalLimits = options.withdrawalLimits;
+    this.withdrawalHistory = options.withdrawalHistory;
+    this.withdrawalEligibility = options.withdrawalEligibility;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -543,6 +556,8 @@ export class UserMoneyService {
           // pending claim and key; a retry posts only those same immutable terms.
           // A held row already has an acknowledged hold and does not post again.
           if (claimed.status !== 'held') {
+            // The move is checked BEFORE the hold is posted: an illegal one throws and posts nothing (ENGINE W-2).
+            assertStoredTransition(claimed.status, 'held');
             // A missing ACK never proves that a remote post did not commit. Keep
             // the original pending claim and business key on every ledger throw.
             try {
@@ -693,6 +708,7 @@ export class UserMoneyService {
           // asked again. If the crash came before the receipt was saved, the
           // attempt is still `requested` and the repeat asks the rail for the
           // status of the original key; it never calls `payout` again.
+          assertStoredTransition('held', 'sent');
           try {
             await postPayLedger(this.ledger, recipes.withdrawSettle(ledgerInput));
           } catch (error) {
@@ -787,6 +803,7 @@ export class UserMoneyService {
       // (and starts to count as exposure). Resetting after the commit would let a
       // concurrent fresh withdrawal read this row as `failed`, i.e. not counted.
       if (existing.status === 'failed') {
+        assertStoredTransition('failed', 'pending');
         await tx`
           UPDATE pay.withdrawals
              SET status = 'pending', failure_code = NULL, updated_at = now()
@@ -929,6 +946,7 @@ export class UserMoneyService {
       rail: claimed.rail,
       withdrawalId: `${claimed.id}:${attempt}`,
     };
+    assertStoredTransition('held', 'failed');
     await postPayLedger(this.ledger, recipes.withdrawReverse(ledgerInput));
     await connection`
         UPDATE pay.withdrawals
@@ -1024,6 +1042,18 @@ export class UserMoneyService {
   async withdrawalAllowance(userId: string, assetId: string): Promise<WithdrawalAllowanceView> {
     if (!this.withdrawalLimits) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMITS_UNWIRED, 'unavailable');
     return this.withdrawalLimits.allowance(userId, assetId);
+  }
+
+  /** The caller's own withdrawals in the customer status vocabulary, one filtered page at a time. */
+  async searchWithdrawals(userId: string, filter: WithdrawalHistoryFilter): Promise<WithdrawalHistoryPage> {
+    if (!this.withdrawalHistory) throw new PayError('Withdrawal history is not wired', 'pay.withdrawal_history_unwired');
+    return this.withdrawalHistory.search(userId, filter);
+  }
+
+  /** Can the caller start a withdrawal of this asset now, and if not, which checks say no. */
+  async withdrawalEligibilityFor(userId: string, assetId: string): Promise<EligibilityView> {
+    if (!this.withdrawalEligibility) throw new PayError('Withdrawal eligibility is not wired', 'pay.withdrawal_eligibility_unwired');
+    return this.withdrawalEligibility.read(userId, assetId);
   }
 
   /** What is currently immobilised for one in-flight withdrawal. An operator question, answered from the book. */

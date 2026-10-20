@@ -373,6 +373,11 @@ export type PayErrorCode =
   /** A rail reference already credited something else. Never resolved by retrying. */
   | 'pay.deposit_conflict'
   | 'pay.withdrawal_not_found'
+  /** The history / eligibility reads are not wired in this process. */
+  | 'pay.withdrawal_history_unwired'
+  | 'pay.withdrawal_eligibility_unwired'
+  /** A page cursor this history never issued. */
+  | 'pay.withdrawal_cursor_invalid'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'

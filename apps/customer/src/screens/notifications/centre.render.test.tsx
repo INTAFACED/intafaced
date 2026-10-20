@@ -9,7 +9,9 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import { SessionProvider } from '../../features/session/session';
 import { ChannelCard } from './ChannelCard';
-import { TopicTable } from './TopicTable';
+import { CategoryGrid, CategoryTable, cellKind } from './CategoryGrid';
+import { mergeRows } from './use-category-prefs';
+import type { CategoryPrefRow } from './notify-api';
 import { buildChannels } from './use-centre';
 
 const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</SessionProvider>);
@@ -53,12 +55,48 @@ describe('channel card', () => {
   });
 });
 
-describe('topic table', () => {
-  it('lists every topic against the inbox and each outside channel, and shows the per-topic switch off with its reason', () => {
-    const channels = buildChannels([], [], []);
-    const page = html(<TopicTable channels={channels} />);
-    for (const topic of ['Trading', 'P2P', 'Account', 'Money', 'Token', 'Agents']) expect(page).toContain(topic);
-    expect(page).toContain('Not set up');
-    expect(page).toContain('Switched off: this screen doesn’t offer choosing by topic.');
+const row = (over: Partial<CategoryPrefRow>): CategoryPrefRow => ({
+  category: 'promotions',
+  channel: 'email',
+  enabled: true,
+  locked: false,
+  configured: true,
+  notConnected: null,
+  ...over,
+});
+
+describe('category grid', () => {
+  it('shows a loading block before the service answers', () => {
+    expect(html(<CategoryGrid />)).toContain('What reaches you, by category');
+  });
+
+  it('names why a cell cannot be changed: not connected first, then not set up, then fixed on', () => {
+    expect(cellKind(row({ notConnected: 'vendor.sms', configured: false, locked: true }))).toBe('notConnected');
+    expect(cellKind(row({ configured: false, locked: true }))).toBe('platformOff');
+    expect(cellKind(row({ locked: true }))).toBe('locked');
+    expect(cellKind(row({}))).toBe('free');
+  });
+
+  it('replaces only the rows the service returned', () => {
+    const current = [row({ channel: 'email' }), row({ channel: 'sms', enabled: true })];
+    const merged = mergeRows(current, [row({ channel: 'sms', enabled: false })]);
+    expect(merged.map((r) => [r.channel, r.enabled])).toEqual([
+      ['email', true],
+      ['sms', false],
+    ]);
+  });
+
+  it('switches a fixed or unconnected cell off and says why beside it', () => {
+    const rows = [
+      row({ category: 'security', channel: 'email', locked: true }),
+      row({ category: 'promotions', channel: 'sms', notConnected: 'vendor.sms', configured: false, enabled: false }),
+      row({ category: 'promotions', channel: 'email' }),
+    ];
+    const page = html(<CategoryTable rows={rows} onSet={() => undefined} />);
+    expect(page).toContain('Always on. We keep this one on for your protection.');
+    expect(page).toContain('Not connected on this platform, so nothing can be sent here.');
+    const switches = page.match(/<[a-z]+\b[^>]*role="switch"[^>]*>/g) ?? [];
+    expect(switches.length).toBe(3);
+    expect(switches.filter((tag) => tag.includes('data-disabled=""')).length).toBe(2);
   });
 });

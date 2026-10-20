@@ -467,3 +467,260 @@ describe('POST desk writes', () => {
     expect(line).not.toContain('secret');
   });
 });
+
+describe('ticket properties', () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    ticketId: T1,
+    priority: 'high',
+    ticketType: null,
+    labels: ['vip'],
+    updatedAt: '2026-10-20T03:00:00.000Z',
+    ...over,
+  });
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse((c[1] as RequestInit).body as string) }));
+
+  it('reads ticketProperties as the founder, on its own', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(props()));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=properties&id=${T1}`)).json();
+    expect(json.properties).toMatchObject({ kind: 'ok', data: { priority: 'high', ticketType: null, labels: ['vip'] } });
+    expect(fn.mock.calls[0]![0]).toBe(
+      `http://edge:4000/api/support/trpc/ticketProperties?input=${encodeURIComponent(JSON.stringify({ ticketId: T1 }))}`,
+    );
+  });
+
+  it('rejects a ticket id that is not a UUID before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get('?view=properties&id=nope')).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a malformed answer is a failure, not "nothing set"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ticketId: T1, priority: 'whenever' })),
+    );
+    const json = await (await get(`?view=properties&id=${T1}`)).json();
+    expect(json.properties.kind).toBe('failed');
+  });
+
+  it('sets only the fields given, with the request id and reason, through support.setProperties', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(props({ priority: null })));
+    vi.stubGlobal('fetch', fn);
+    const res = await post({
+      action: 'properties',
+      ticketId: T1,
+      clientRequestId: 'props:abc',
+      priority: null,
+      labels: ['vip', 'refund'],
+      reason: ' asked twice ',
+    });
+    expect(await res.json()).toMatchObject({ ok: true, action: 'properties' });
+    expect(sent(fn)).toEqual([
+      {
+        url: 'http://edge:4000/api/support/trpc/setProperties',
+        body: { ticketId: T1, clientRequestId: 'props:abc', priority: null, labels: ['vip', 'refund'], reason: 'asked twice' },
+      },
+    ]);
+  });
+
+  it('refuses a malformed properties write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const bad of [
+      { action: 'properties', ticketId: T1, clientRequestId: 'k' },
+      { action: 'properties', ticketId: T1, priority: 'high' },
+      { action: 'properties', ticketId: T1, clientRequestId: 'k', priority: 'whenever' },
+      { action: 'properties', ticketId: T1, clientRequestId: 'k', labels: ['has space'] },
+      { action: 'properties', ticketId: 'x', clientRequestId: 'k', priority: 'low' },
+    ]) {
+      expect((await post(bad)).status).toBe(400);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says a closed ticket was not changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.ticket_closed')),
+    );
+    const json = await (await post({ action: 'properties', ticketId: T1, clientRequestId: 'k', priority: 'low' })).json();
+    expect(json).toMatchObject({ ok: false, refusal: { title: 'This ticket is closed', changed: 'no' } });
+  });
+});
+
+describe('staff roster and availability', () => {
+  const member = (userId: string, over: Record<string, unknown> = {}) => ({
+    userId,
+    role: 'agent',
+    appointedBy: U,
+    appointedAt: '2026-10-20T01:00:00.000Z',
+    availability: 'offline',
+    availabilitySetAt: null,
+    lastHeartbeatAt: null,
+    ...over,
+  });
+  const policy = { automaticOffline: 'not_set', heartbeatWindowSeconds: null };
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads the roster and the policy as the founder, each on its own, and names the signed-in person from the session', async () => {
+    const fn = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/staffList') ? ok([member(FOUNDER)]) : ok(policy)));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get('?view=staff')).json();
+    expect(json.meId).toBe(FOUNDER);
+    expect(json.roster).toMatchObject({ kind: 'ok', data: [{ userId: FOUNDER }] });
+    expect(json.policy).toMatchObject({ kind: 'ok', data: { automaticOffline: 'not_set' } });
+  });
+
+  it('a roster row it cannot read is a failure, not a shorter roster', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.includes('/staffList') ? ok([member(FOUNDER), { userId: U }]) : ok(policy))),
+    );
+    const json = await (await get('?view=staff')).json();
+    expect(json.roster.kind).toBe('failed');
+    expect(json.policy.kind).toBe('ok');
+  });
+
+  it('sets the founder’s own availability with no userId, and another person’s with one', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(member(FOUNDER, { availability: 'busy' })));
+    vi.stubGlobal('fetch', fn);
+    expect(await (await post({ action: 'staff_availability', availability: 'busy' })).json()).toMatchObject({
+      ok: true,
+      action: 'staff_availability',
+    });
+    await post({ action: 'staff_availability', availability: 'online', userId: U, reason: ' cover ' });
+    expect(sent(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/staffSetAvailability', body: { availability: 'busy' } },
+      { url: 'http://edge:4000/api/support/trpc/staffSetAvailability', body: { availability: 'online', userId: U, reason: 'cover' } },
+    ]);
+  });
+
+  it('refuses a bad availability before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await post({ action: 'staff_availability', availability: 'away' })).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a person who is not staff is told that, not that the permission is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'support.not_staff')),
+    );
+    const res = await post({ action: 'staff_availability', availability: 'busy' });
+    const json = await res.json();
+    expect(res.status).toBe(403);
+    expect(json.refusal).toMatchObject({ title: 'You are not on the support staff list', changed: 'no' });
+  });
+});
+
+describe('desk groups', () => {
+  const GID = '55555555-5555-4555-8555-555555555555';
+  const group = (over: Record<string, unknown> = {}) => ({
+    id: GID,
+    name: 'Payments',
+    createdBy: FOUNDER,
+    createdAt: '2026-10-20T01:00:00.000Z',
+    memberIds: [FOUNDER],
+    ...over,
+  });
+  const scope = { restricted: true, groups: [{ id: GID, name: 'Payments' }], seesAllGroups: false };
+  const roster = [
+    {
+      userId: FOUNDER,
+      role: 'lead',
+      appointedBy: U,
+      appointedAt: '2026-10-20T01:00:00.000Z',
+      availability: 'online',
+      availabilitySetAt: null,
+      lastHeartbeatAt: null,
+    },
+  ];
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads groups, the scope and the roster as the founder, each on its own', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.includes('/groupsList') ? ok([group()]) : url.includes('/deskScope') ? ok(scope) : ok(roster))),
+    );
+    const json = await (await get('?view=groups')).json();
+    expect(json.meId).toBe(FOUNDER);
+    expect(json.groups).toMatchObject({ kind: 'ok', data: [{ name: 'Payments' }] });
+    expect(json.scope).toMatchObject({ kind: 'ok', data: { restricted: true } });
+    expect(json.roster.kind).toBe('ok');
+  });
+
+  it('a group it cannot read is a failure, not a shorter list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('/groupsList') ? ok([group(), { id: GID }]) : url.includes('/deskScope') ? ok(scope) : ok(roster),
+      ),
+    );
+    const json = await (await get('?view=groups')).json();
+    expect(json.groups.kind).toBe('failed');
+    expect(json.scope.kind).toBe('ok');
+  });
+
+  it('makes a group with the key, and renames with the group id', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(group()));
+    vi.stubGlobal('fetch', fn);
+    expect(await (await post({ action: 'group_save', name: ' Payments ', idempotencyKey: 'group:abcdef12' })).json()).toMatchObject({
+      ok: true,
+    });
+    await post({ action: 'group_save', name: 'Billing', idempotencyKey: 'group:abcdef13', groupId: GID });
+    expect(sent(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/groupsSave', body: { name: 'Payments', idempotencyKey: 'group:abcdef12' } },
+      { url: 'http://edge:4000/api/support/trpc/groupsSave', body: { name: 'Billing', idempotencyKey: 'group:abcdef13', groupId: GID } },
+    ]);
+  });
+
+  it('adds and removes a member through the matching procedure', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(group()));
+    vi.stubGlobal('fetch', fn);
+    await post({ action: 'group_member', op: 'add', groupId: GID, userId: U });
+    await post({ action: 'group_member', op: 'remove', groupId: GID, userId: U });
+    expect(sent(fn).map((c) => c.url)).toEqual([
+      'http://edge:4000/api/support/trpc/groupsAddMember',
+      'http://edge:4000/api/support/trpc/groupsRemoveMember',
+    ]);
+    expect(sent(fn)[0]!.body).toEqual({ groupId: GID, userId: U });
+  });
+
+  it('refuses a malformed group write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const bad of [
+      { action: 'group_save', name: '', idempotencyKey: 'group:abcdef12' },
+      { action: 'group_save', name: 'x', idempotencyKey: 'k' },
+      { action: 'group_member', op: 'add', groupId: 'x', userId: U },
+    ])
+      expect((await post(bad)).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says plainly when the name is taken, and that a non-lead cannot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'support.group_name_taken')),
+    );
+    expect((await (await post({ action: 'group_save', name: 'Payments', idempotencyKey: 'group:abcdef12' })).json()).refusal).toMatchObject(
+      {
+        title: 'A group with that name exists',
+        changed: 'no',
+      },
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'support.not_lead')),
+    );
+    const res = await post({ action: 'group_member', op: 'add', groupId: GID, userId: U });
+    expect(res.status).toBe(403);
+    expect((await res.json()).refusal.title).toBe('Only a lead can do that');
+  });
+});

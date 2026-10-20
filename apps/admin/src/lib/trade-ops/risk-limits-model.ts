@@ -1,4 +1,5 @@
 import type { MarketRow } from './reads';
+import type { RiskCurrent, RiskLimitValues } from './desk-parse';
 import { BLOCKERS } from './blockers';
 import { blocked, refused, type Outcome } from './outcome';
 
@@ -43,20 +44,114 @@ export const LIMIT_FIELDS: readonly LimitFieldInfo[] = [
   },
 ];
 
-/** Engine-side checks that exist but have no read or write procedure for operators. */
+/** The five operator limits svc-trade enforces on the order path. Blank means unset: the check does nothing and no number is invented. */
+export type OperatorLimitField = keyof RiskLimitValues;
+
 export interface EngineCheck {
   readonly id: string;
+  readonly field: OperatorLimitField;
   readonly name: string;
   readonly what: string;
+  /** How the value is written, one line. */
+  readonly unit: string;
+  readonly kind: 'decimal' | 'integer';
 }
 
 export const ENGINE_CHECKS: readonly EngineCheck[] = [
-  { id: 'price_collar', name: 'Price collar', what: 'Refuses an order priced too far from a reference price.' },
-  { id: 'fat_finger', name: 'Fat-finger check', what: 'Refuses an order whose size or value is far out of line.' },
-  { id: 'slippage_cap', name: 'Slippage cap', what: 'Caps how far a market order may walk the book.' },
-  { id: 'message_throttle', name: 'Message throttle', what: 'Limits how many orders or cancels one account may send in a period.' },
-  { id: 'circuit_breaker', name: 'Circuit breaker', what: 'Pauses a market after a large price move.' },
+  {
+    id: 'price_collar',
+    field: 'collar',
+    name: 'Price collar',
+    what: 'Refuses an order priced too far from a reference price.',
+    unit: 'Decimal, up to 18 places.',
+    kind: 'decimal',
+  },
+  {
+    id: 'fat_finger',
+    field: 'fatFinger',
+    name: 'Fat-finger check',
+    what: 'Refuses an order whose value (price x quantity) is above this limit, in the quote asset.',
+    unit: 'Decimal, up to 18 places.',
+    kind: 'decimal',
+  },
+  {
+    id: 'slippage_cap',
+    field: 'slippageCap',
+    name: 'Slippage cap',
+    what: 'Caps how far a market order may walk the book.',
+    unit: 'Whole basis points, 1 to 5000.',
+    kind: 'integer',
+  },
+  {
+    id: 'message_throttle',
+    field: 'throttle',
+    name: 'Message throttle',
+    what: 'Limits how many orders or cancels one account may send in a period.',
+    unit: 'Whole number.',
+    kind: 'integer',
+  },
+  {
+    id: 'circuit_breaker',
+    field: 'circuitBreaker',
+    name: 'Circuit breaker',
+    what: 'Pauses a market after a large price move. While set, the order path refuses new orders on the market, because it has no reference mark to judge a move against.',
+    unit: 'Whole number.',
+    kind: 'integer',
+  },
 ];
+
+const LIMIT_DEC = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
+const LIMIT_INT = /^(?:0|[1-9]\d*)$/;
+
+/** The write svc-trade `admin.risk.set` takes, once the form has checked it. */
+export interface RiskSetBody {
+  readonly market: string;
+  readonly limits: RiskLimitValues;
+  readonly expectedVersion: string;
+  readonly reason: string;
+}
+
+export type RiskSetCheck =
+  { readonly ok: true; readonly body: RiskSetBody } | { readonly ok: false; readonly code: string; readonly message: string };
+
+/**
+ * Check a change to the operator limits of one market against the version the desk read. A blank field is unset (null);
+ * nothing is filled in. Mirrors the service's own rules so a bad value is refused here, with the same words, before a
+ * proposal is made. The service checks again.
+ */
+export function checkRiskSet(
+  current: RiskCurrent,
+  values: Readonly<Record<OperatorLimitField, string>>,
+  reasonInput: unknown,
+): RiskSetCheck {
+  const next: Record<OperatorLimitField, string | null> = {
+    collar: null,
+    fatFinger: null,
+    slippageCap: null,
+    throttle: null,
+    circuitBreaker: null,
+  };
+  for (const check of ENGINE_CHECKS) {
+    const raw = (values[check.field] ?? '').trim();
+    if (raw === '') continue;
+    const good = check.kind === 'decimal' ? LIMIT_DEC.test(raw) : LIMIT_INT.test(raw);
+    if (!good) return { ok: false, code: 'risk_limits.bad_value', message: `${check.name}: ${check.unit} No signs, exponents or spaces.` };
+    if (check.field === 'slippageCap' && (Number(raw) < 1 || Number(raw) > 5000))
+      return { ok: false, code: 'risk_limits.bad_value', message: 'Slippage cap must be a whole number of basis points from 1 to 5000.' };
+    next[check.field] = raw;
+  }
+  const unchanged = ENGINE_CHECKS.every((c) => next[c.field] === current[c.field]);
+  if (unchanged) return { ok: false, code: 'risk_limits.no_change', message: 'These are already the current limits.' };
+  const reason = typeof reasonInput === 'string' ? reasonInput.trim() : '';
+  if (reason.length < 12 || reason.length > 500)
+    return { ok: false, code: 'risk_limits.bad_reason', message: 'The reason must be 12 to 500 characters; it is kept in the audit.' };
+  return { ok: true, body: { market: current.marketId, limits: next, expectedVersion: current.version, reason } };
+}
+
+/** The text of each limit as the form shows it: unset is an empty box, never a zero. */
+export function limitText(value: string | null): string {
+  return value ?? '';
+}
 
 export const FUTURES_NOTE =
   'Futures limits, auto-deleveraging (ADL) and the insurance fund are not shown: futures are switched off (TRADE_FUTURES_ENABLED stays off), so there is nothing to read or change. Operator controls for them are not built.';
@@ -201,5 +296,5 @@ export function checkLimitEdit(input: Record<string, unknown>, markets: readonly
 /** The handler's whole answer today: validated, then the typed blocker. Nothing is sent. */
 export function limitEditOutcome(input: Record<string, unknown>, markets: readonly MarketRow[], signedInUserId: string): Outcome<never> {
   const c = checkLimitEdit(input, markets, signedInUserId);
-  return c.ok ? blocked(BLOCKERS.risk_limits_no_operator_api) : refused(c.code, c.message, 400);
+  return c.ok ? blocked(BLOCKERS.market_rules_no_operator_api) : refused(c.code, c.message, 400);
 }

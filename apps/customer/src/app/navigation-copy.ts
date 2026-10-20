@@ -2,6 +2,10 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  News: 'News',
+  'Market news by category, language and symbol': 'Market news by category, language and symbol',
+  'Economic calendar': 'Economic calendar',
+  'Scheduled releases and their values': 'Scheduled releases and their values',
   'Invoice detail': 'Invoice detail',
   'One invoice reference': 'One invoice reference',
   'Endpoint detail': 'Endpoint detail',
@@ -94,6 +98,12 @@ const messages = {
   'Work with Intafaced': 'Work with Intafaced',
   Campaigns: 'Campaigns',
   'Public activities': 'Public activities',
+  Developers: 'Developers',
+  'Connect to Intafaced from your own code': 'Connect to Intafaced from your own code',
+  'Base addresses': 'Base addresses',
+  'Hosts per protocol, environment and region': 'Hosts per protocol, environment and region',
+  'Developer section': 'Developer section',
+  'One section of the developer portal': 'One section of the developer portal',
   Campaign: 'Campaign',
   'Activity details': 'Activity details',
   Money: 'Money',

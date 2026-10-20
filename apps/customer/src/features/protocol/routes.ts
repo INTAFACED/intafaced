@@ -9,22 +9,15 @@ export type Web3Room = 'dex' | 'chain' | 'protocol' | 'wallet';
 /** What a not-yet-built route waits on: our own indexer reader, the wallet connection, or the INTACHAIN network. */
 export type PendingBlocker = 'indexer' | 'wallet' | 'chain';
 export type PendingPage =
-  | 'poolNew'
-  | 'poolDetail'
-  | 'positionDetail'
-  | 'tokenDetail'
-  | 'walletHome'
-  | 'walletActivity'
-  | 'blockDetail'
-  | 'txDetail'
-  | 'addressDetail'
-  | 'validatorDetail';
+  'poolNew' | 'poolDetail' | 'positionDetail' | 'tokenDetail' | 'blockDetail' | 'txDetail' | 'addressDetail' | 'validatorDetail';
 
 export interface Web3Route {
   path: string;
   room: Web3Room;
   /** An existing tab of the room (`SUBNAV`); the tab room renders it. */
   tab?: string;
+  /** The wallet room, opened on this section. */
+  wallet?: 'overview' | 'activity';
   pending?: { page: PendingPage; blocker: PendingBlocker; param?: { name: string; shape: RegExp } };
 }
 
@@ -51,8 +44,8 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
     pending: { page: 'tokenDetail', blocker: 'indexer', param: { name: 'address', shape: address } },
   },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
-  { path: '/wallet', room: 'wallet', pending: { page: 'walletHome', blocker: 'wallet' } },
-  { path: '/wallet/activity', room: 'wallet', pending: { page: 'walletActivity', blocker: 'wallet' } },
+  { path: '/wallet', room: 'wallet', wallet: 'overview' },
+  { path: '/wallet/activity', room: 'wallet', wallet: 'activity' },
   { path: '/chain', room: 'chain', tab: 'status' },
   { path: '/chain/blocks', room: 'chain', tab: 'blocks' },
   {

@@ -288,6 +288,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.webauthn_invalid':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'identity.passkey_limit':
+      // The owner's per-account limit: removing a passkey is what helps.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':

@@ -72,6 +72,51 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'A ticket escalated as a money request cannot be settled or closed from support. A support channel never moves money.',
     next: 'Nothing was changed. The money team owns this one.',
   },
+  'support.not_staff': {
+    title: 'You are not on the support staff list',
+    body: 'svc-support only lets people on its staff list set availability. Your sign-in has the support permission, but nobody has appointed you.',
+    next: 'Nothing was changed. A lead appoints staff.',
+  },
+  'support.not_lead': {
+    title: 'Only a lead can do that',
+    body: 'Setting another person’s availability, and making or changing desk groups, need the lead role. Anyone on the staff list can set their own availability.',
+    next: 'Nothing was changed.',
+  },
+  'support.group_unknown': {
+    title: 'No such group',
+    body: 'svc-support does not have that group. It may have been removed.',
+    next: 'Refresh the groups and try again. Nothing was changed.',
+  },
+  'support.group_name_taken': {
+    title: 'A group with that name exists',
+    body: 'Group names are unique.',
+    next: 'Pick a different name. Nothing was changed.',
+  },
+  'support.group_member_duplicate': {
+    title: 'Already in that group',
+    body: 'That person is already a member.',
+    next: 'Nothing was changed.',
+  },
+  'support.availability_invalid': {
+    title: 'svc-support did not accept that availability',
+    body: 'Availability is online, busy or offline.',
+    next: 'Pick one of the three. Nothing was changed.',
+  },
+  'support.property_invalid': {
+    title: 'svc-support did not accept that priority or type',
+    body: 'Priority is one of low, normal, high or urgent. Type is one of question, problem or incident.',
+    next: 'Pick one of the listed values. Nothing was changed.',
+  },
+  'support.label_invalid': {
+    title: 'svc-support did not accept a label',
+    body: 'A label may hold letters, digits, hyphen and underscore only. A space is not allowed.',
+    next: 'Fix the label and try again. Nothing was changed.',
+  },
+  'support.ticket_closed': {
+    title: 'This ticket is closed',
+    body: 'svc-support does not change the properties of a closed ticket.',
+    next: 'Nothing was changed.',
+  },
   'support.kb.revision_stale': {
     title: 'Someone changed this article first',
     body: 'The revision you used is no longer the latest, so svc-support refused to overwrite.',
@@ -103,6 +148,9 @@ export function supportCodeOf(message: string, code: string | null): string | nu
 export function explainSupportFailure(result: FounderCallFailure<unknown>): RefusalView {
   switch (result.kind) {
     case 'forbidden': {
+      const staffCode = supportCodeOf(result.refusal.message, result.refusal.code);
+      if (staffCode === 'support.not_staff' || staffCode === 'support.not_lead')
+        return { ...BY_SUPPORT_CODE[staffCode]!, code: staffCode, changed: 'no' };
       if (result.refusal.status === 401) return explainRefusal('admin.session_required', 401, false);
       return {
         title: SUPPORT_OPS_FORBIDDEN,

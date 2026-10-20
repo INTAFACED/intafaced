@@ -12,6 +12,7 @@ import {
   currentPreferenceObservation,
   usePreferenceObservation,
 } from '../../shared/preferences';
+import { TradingSettings } from './TradingSettings';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
 
@@ -181,6 +182,7 @@ export function View() {
             </label>
           </section>
         </div>
+        <TradingSettings />
         <div className="actions section">
           <Button
             variant="secondary"
@@ -200,6 +202,8 @@ export function View() {
                 showFills: false,
                 confirmSend: true,
                 confirmCancel: true,
+                resetSizeOnSubmit: true,
+                quickSizes: [],
                 favoritesView: 'list',
               });
             }}

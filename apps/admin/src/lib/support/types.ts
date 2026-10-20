@@ -1,4 +1,11 @@
-import type { SupportCaseFile, SupportComment, SupportKbArticle, SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
+import type {
+  SupportTicketProperties,
+  SupportCaseFile,
+  SupportComment,
+  SupportKbArticle,
+  SupportTicket,
+  SupportTicketEvent,
+} from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
 
 export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
@@ -58,4 +65,32 @@ export interface SupportKbView {
   readonly asOf: string;
   /** Published articles only: svc-support has no read for an unpublished one. */
   readonly articles: Part<readonly SupportKbArticle[]>;
+}
+
+/** Priority, type and labels an agent set on one ticket. Null priority or type means nobody set one. */
+export interface SupportPropertiesView {
+  readonly asOf: string;
+  readonly properties: Part<SupportTicketProperties>;
+}
+
+import type { StaffMemberView, StaffPolicyView } from './staff';
+
+/** The staff roster and the automatic-offline policy. Each is its own part, so one failing never hides the other. */
+export interface SupportStaffView {
+  readonly asOf: string;
+  /** The signed-in person's own id, so the page can tell which row is theirs. Taken from the session, not from the roster. */
+  readonly meId: string;
+  readonly roster: Part<readonly StaffMemberView[]>;
+  readonly policy: Part<StaffPolicyView>;
+}
+
+import type { DeskGroupView, DeskScopeView } from './groups';
+
+/** Desk groups, the signed-in person's own scope and the roster to pick members from. Each its own part. */
+export interface SupportGroupsView {
+  readonly asOf: string;
+  readonly meId: string;
+  readonly groups: Part<readonly DeskGroupView[]>;
+  readonly scope: Part<DeskScopeView>;
+  readonly roster: Part<readonly StaffMemberView[]>;
 }

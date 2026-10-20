@@ -82,6 +82,9 @@ import {
   AdlDisclosureError,
 } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
+import { derivativesAccessGate } from './futures/derivatives-access.js';
+import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
+import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
@@ -449,6 +452,7 @@ const futuresJobs = startFuturesJobs({
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
+    fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
     fundingMaxAbsRate,
     settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
@@ -467,6 +471,11 @@ if (profitSource) {
 }
 const adlDisclosureAcks = sqlAdlDisclosureStore(sql);
 const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
+// D-account-07: no switch. Until the owner publishes an agreement text for the region and the eligibility rules,
+// a futures open is refused with the typed reason.
+const riskAgreements = sqlRiskAgreementStore(sql);
+const derivativesEligibility = sqlEligibilityStore(sql);
+const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
   marks: futuresJobs.marks,
@@ -484,6 +493,7 @@ const positions = new PositionService(sql, ledger, {
     priceBand: parsePriceBand(env.TRADE_FUTURES_PRICE_BAND),
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
   },
+  assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
       await assertAdlDisclosureAcked(adlDisclosureAcks, userId);
@@ -942,6 +952,7 @@ registerPrivateRest(app, {
         ...(input.positionMode ? { positionMode: input.positionMode } : {}),
       },
       principal,
+      { region: input.region ?? null },
     ),
   closePosition: (principal, positionId) => positions.close(principal.userId, positionId),
   marginModeAudit: sqlMarginModeSwitchAudit(sql),
@@ -990,6 +1001,21 @@ registerPrivateRest(app, {
   getAdlDisclosure: async (principal) => presentAdlDisclosureWire(await adlDisclosureAcks.getAck(principal.userId, ADL_DISCLOSURE_VERSION)),
   ackAdlDisclosure: async (principal) =>
     presentAdlDisclosureWire(await adlDisclosureAcks.recordAck(principal.userId, ADL_DISCLOSURE_VERSION, new Date())),
+  getAgreements: async (principal, region) =>
+    Promise.all(AGREEMENT_KINDS.map((kind) => readAgreementView(riskAgreements, principal.userId, kind, region))),
+  acceptAgreement: async (principal, input) => acceptAgreement(riskAgreements, { userId: principal.userId, ...input, now: new Date() }),
+  getDerivativesEligibility: async (principal) => {
+    const state = await readEligibilityState(derivativesEligibility, principal.userId, principal.tier);
+    const rules = await derivativesEligibility.currentRules();
+    return { state, questions: rules ? presentQuestions(rules) : null };
+  },
+  assessDerivativesEligibility: async (principal, input) =>
+    assessEligibility(derivativesEligibility, {
+      userId: principal.userId,
+      submissionId: input.clientSubmissionId,
+      answers: input.answers,
+      now: new Date(),
+    }),
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),

@@ -172,3 +172,39 @@ describe('toHomePortfolio (Home shows the Money total)', () => {
     expect(toHomePortfolio(fromDerived(derived)).source).toBe('derived');
   });
 });
+
+describe('display unit and account scope (PF-overview-03)', () => {
+  const capture = () => {
+    const calls: unknown[] = [];
+    const env = {
+      api: {
+        query: async (_service: string, _procedure: string, input: unknown) => {
+          calls.push(input);
+          return { ok: true, data: summary() };
+        },
+      },
+    } as unknown as DataEnv;
+    return { calls, env };
+  };
+
+  it('asks for nothing special in the default view, so Home and Money share one request', async () => {
+    const { calls, env } = capture();
+    await summaryFetcher(env)(signal);
+    expect(calls).toEqual([undefined]);
+  });
+
+  it('asks for BTC and for one account by the names the bank knows', async () => {
+    const { calls, env } = capture();
+    await summaryFetcher(env, 'space-1', 'BTC')(signal);
+    await summaryFetcher(env, 'main', 'USD')(signal);
+    expect(calls).toEqual([{ scope: 'space-1', displayCurrency: 'BTC' }, { scope: 'main' }]);
+  });
+
+  it("keeps the bank's BTC total verbatim, with the reason when there is no BTC price", () => {
+    const withBtc = fromServer(summary({ btc: { total: '0.18406493', priceUsd: '67812.40', reason: null } }));
+    expect(withBtc.btc).toEqual({ total: '0.18406493', reason: null });
+    const noPrice = fromServer(summary({ btc: { total: null, priceUsd: null, reason: 'no_price_published' } }));
+    expect(noPrice.btc).toEqual({ total: null, reason: 'no_price_published' });
+    expect(fromServer(summary()).btc).toBeNull();
+  });
+});

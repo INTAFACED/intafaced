@@ -13,9 +13,14 @@ export interface ActivityFilters {
   from: string;
   /** `YYYY-MM-DD`, last day included. */
   to: string;
+  /** Only lines the customer wrote a note or a report description on. */
+  hasNote: boolean;
 }
-export const NO_FILTERS: ActivityFilters = { q: '', dir: 'all', from: '', to: '' };
-export const hasFilters = (f: ActivityFilters): boolean => f.q.trim() !== '' || f.dir !== 'all' || f.from !== '' || f.to !== '';
+export const NO_FILTERS: ActivityFilters = { q: '', dir: 'all', from: '', to: '', hasNote: false };
+export const hasFilters = (f: ActivityFilters): boolean =>
+  f.q.trim() !== '' || f.dir !== 'all' || f.from !== '' || f.to !== '' || f.hasNote;
+
+const hasWords = (item: ActivityItem): boolean => item.privateNote !== undefined || item.reportDescription !== undefined;
 
 const DAY = 24 * 60 * 60 * 1000;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -64,6 +69,7 @@ function haystack(item: ActivityItem, title: string): string {
 export function groupMatches(group: ActivityGroup, f: ActivityFilters, zone: Zone, title: string): boolean {
   if (f.dir !== 'all' && group.main.direction !== f.dir) return false;
   if (!inRange(group.main.postedAt, f, zone)) return false;
+  if (f.hasNote && !hasWords(group.main) && !group.lines.some(hasWords)) return false;
   const needle = f.q.trim().replace(/^@/, '').toLowerCase();
   if (!needle) return true;
   const text = [haystack(group.main, title), ...group.lines.map((line) => haystack(line, ''))].join(' ');
