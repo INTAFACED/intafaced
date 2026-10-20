@@ -214,3 +214,6 @@ export function classifyRefusal(code: string | null | undefined): RefusalKind {
   for (const [prefix, kind] of PREFIXES) if (normal.startsWith(prefix)) return kind;
   return 'unknown';
 }
+
+/** Every code the table above names exactly (read by `app/refusal-catalogue.ts`); prefix and suffix rules are not listed. */
+export const SHARED_REFUSAL_CODES: readonly string[] = Object.keys(EXACT);

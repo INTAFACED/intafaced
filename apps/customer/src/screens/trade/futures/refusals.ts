@@ -260,3 +260,6 @@ export function isPlaneOff(code: string | null | undefined): boolean {
 export function isSettling(code: string | null | undefined): boolean {
   return code === 'trade.mark_missing' || code === 'trade.mark_unusable' || code === 'trade.close_in_progress';
 }
+
+/** Every code this file has its own words for (read by `app/refusal-catalogue.ts`). */
+export const FUTURES_REFUSAL_CODES: readonly string[] = Object.keys(WORDS);

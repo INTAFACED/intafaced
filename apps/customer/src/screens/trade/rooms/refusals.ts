@@ -173,3 +173,6 @@ export function roomWords(input: RefusalInput): Words {
 export function isRefusedClosed(code: string | undefined): boolean {
   return code !== undefined && code in KNOWN;
 }
+
+/** Every code this file has its own words for (read by `app/refusal-catalogue.ts`). */
+export const ROOMS_REFUSAL_CODES: readonly string[] = Object.keys(KNOWN);

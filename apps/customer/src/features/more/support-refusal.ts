@@ -57,3 +57,6 @@ export function plainSupportResult<T>(result: ApiResult<T>): ApiResult<T> {
     return { message: current.t(key), language: current.languageFor(key) };
   });
 }
+
+/** Every code this file has its own words for (read by `app/refusal-catalogue.ts`). */
+export const SUPPORT_REFUSAL_CODES: readonly string[] = Object.keys(BY_CODE);

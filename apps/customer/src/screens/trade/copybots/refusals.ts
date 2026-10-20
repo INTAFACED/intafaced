@@ -280,3 +280,6 @@ export function roomRefusal(failure: Extract<ApiResult<unknown>, { ok: false }>)
 }
 
 export const KNOWN_ROOM_CODES: readonly string[] = [...Object.keys(COPY), ...Object.keys(BOTS)];
+
+/** Every code this file has its own words for, the device code included (read by `app/refusal-catalogue.ts`). */
+export const COPY_BOTS_REFUSAL_CODES: readonly string[] = [...KNOWN_ROOM_CODES, ...Object.keys(DEVICE)];

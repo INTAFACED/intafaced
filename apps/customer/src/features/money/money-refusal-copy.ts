@@ -328,3 +328,6 @@ export function settleRefusal(outcome: ApiResult<unknown>, procedure: string): {
     return { outcome: { ...outcome, reason: 'uncertain', message: words, messageCopy: undefined }, refusedFirst: false };
   return { outcome, refusedFirst: false };
 }
+
+/** Every code this file has its own words for (read by `app/refusal-catalogue.ts`). */
+export const MONEY_REFUSAL_CODES: readonly string[] = Object.keys(WORDS);
