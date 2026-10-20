@@ -8,6 +8,7 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { CustodyMountDeps } from '../custody/router.js';
 import type { WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
@@ -50,6 +51,7 @@ export function createPayNamespaces(deps: {
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
   limits?: WithdrawalLimitsMountDeps;
+  custody?: CustodyMountDeps;
   sql?: Sql;
   ledger?: Pick<LedgerClient, 'balances'>;
   webhooksAllowLocalHttp?: boolean;
@@ -86,6 +88,7 @@ export function createPayNamespaces(deps: {
       metrics: deps.metrics,
       registries: deps.registries,
       limits: deps.limits,
+      custody: deps.custody,
       ops: createFounderOpsRouter(opsDeps),
       treasury: deps.treasury,
       control: deps.control,
