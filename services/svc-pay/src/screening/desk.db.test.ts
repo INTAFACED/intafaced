@@ -409,6 +409,16 @@ describe('screening desk (real Postgres)', () => {
       expect((await desk().get('withdrawal', key('m3'))).case.releaseSpentAt).toBeNull();
     });
 
+    it('a retry whose own case exists and now screens clear completes inside the claim transaction', async () => {
+      await send('n1');
+      answer = 'clear';
+      const outcome = await Promise.race([
+        db.sql.begin(async (tx) => send('n1', { tx })),
+        new Promise<string>((resolve) => setTimeout(() => resolve('hung'), 5000)),
+      ]);
+      expect(outcome).toBe('passed');
+    }, 15000);
+
     it('two sends racing for one release: exactly one spends it', async () => {
       await send('t1');
       await release('t1');

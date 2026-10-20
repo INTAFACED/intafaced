@@ -112,7 +112,7 @@ export function createSqlScreeningCaseStore(sql: Sql): ScreeningCaseStore {
       // A send whose own case was refused or upheld cannot be covered by someone else's release.
       const own = await q<Array<{ status: string; decision: string | null }>>`
         SELECT status, decision FROM pay.screening_cases
-         WHERE subject_kind = 'withdrawal' AND subject_key = ${want.exceptKey} FOR UPDATE`;
+         WHERE subject_kind = 'withdrawal' AND subject_key = ${want.exceptKey}`;
       if (own[0] && (own[0].status === 'refuse' || own[0].decision === 'upheld')) return null;
       const rows = await q<Array<{ subject_key: string; status: string }>>`
         UPDATE pay.screening_cases SET release_consumed_at = now(), release_spent_for = ${want.exceptKey}
