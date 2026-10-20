@@ -28,6 +28,10 @@ import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
 import { WithdrawalApprovalService, approvalMoneyOf } from './withdrawals/approvals/service.js';
 import { createWithdrawalApprovalGuards } from './withdrawals/approvals/guard.js';
 import { createWithdrawalApprovalRouter } from './withdrawals/approvals/router.js';
+import { composeGuards } from './seams/guards.js';
+import { AllowlistService } from './withdrawals/allowlist/service.js';
+import { createAllowlistGuards } from './withdrawals/allowlist/guard.js';
+import { createAllowlistRouter } from './withdrawals/allowlist/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
@@ -428,8 +432,8 @@ const travelRuleCipher = loadMessageCipher(process.env);
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
-  // The approval gate rides the claim's own transaction (W-withdraw-11), after the shared guards.
-  claimGuards: createWithdrawalApprovalGuards(),
+  // The allowlist (W-withdraw-10) and approval (W-withdraw-11) gates ride the claim's own transaction, after the shared guards.
+  claimGuards: composeGuards(createAllowlistGuards(), createWithdrawalApprovalGuards()),
   haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
@@ -459,6 +463,21 @@ const withdrawalApprovals = new WithdrawalApprovalService({
   money: approvalMoneyOf(userMoney),
   eligibility: createBankApproverEligibilityClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }),
 });
+
+/**
+ * W-withdraw-10: the withdrawal allowlist. Approver eligibility is the same bank question the approvals ask. The direct
+ * withdrawal door asks the allowlist first (a typed refusal), then the approvals; the claim's guards hold under a race.
+ */
+const allowlist = new AllowlistService({
+  sql,
+  eligibility: createBankApproverEligibilityClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }),
+});
+const withdrawalDoor = {
+  assertDirectAllowed: async (input: Parameters<typeof allowlist.assertDirectAllowed>[0]) => {
+    await allowlist.assertDirectAllowed(input);
+    await withdrawalApprovals.assertDirectAllowed(input);
+  },
+};
 
 /**
  * The writer for `merchants.status`, and the history behind it.
@@ -528,8 +547,9 @@ export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalApprovals),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor),
   createWithdrawalApprovalRouter(withdrawalApprovals),
+  createAllowlistRouter(allowlist),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
@@ -567,6 +587,7 @@ export const appRouter = mergeRouters(
     travelRule: { sql, cipher: travelRuleCipher },
     withdrawalReturns: { sql },
     withdrawalApprovals: { service: withdrawalApprovals },
+    allowlist: { service: allowlist },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
