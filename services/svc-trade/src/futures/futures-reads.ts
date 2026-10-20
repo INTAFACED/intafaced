@@ -22,7 +22,8 @@ const MARKET_COLUMNS = `
   id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
   min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
   asset_class, schedule, paper, display_name, "test", test_fixture,
-  futures_contract_style, futures_expiry_at, futures_settlement_fixing
+  futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+  futures_family, futures_settle_asset, contract_size
 `;
 
 /** A TEST listing is on the public board only when the seed flag is on. */
