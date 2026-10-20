@@ -110,10 +110,6 @@
       "scale": 1,
       "parse": 1
     },
-    "services/svc-ledger/src/ledger/action-approval-consume.ts": {
-      "unwrap": 1,
-      "fetch": 1
-    },
     "services/svc-market/src/stake-source.ts": {
       "fetch": 1
     },
