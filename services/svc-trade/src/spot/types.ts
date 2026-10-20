@@ -117,6 +117,20 @@ export interface Market {
   readonly contractSize?: Amount | null;
 }
 
+/** One amend or replace of an order, as listed by GET /api/v1/orders/:id/amendments. */
+export interface OrderAmendment {
+  readonly kind: 'amend' | 'replace';
+  readonly at: string;
+  /** Amend only: the quantity and price the order was amended to, decimal strings. */
+  readonly quantity: string | null;
+  readonly price: string | null;
+  /** Amend only: the amend version. */
+  readonly version: string | null;
+  /** Replace only: the other order in the replace, and which way it points. */
+  readonly relatedOrderId: string | null;
+  readonly direction: 'replaced_by' | 'replaces' | null;
+}
+
 export interface OrderRecord {
   readonly id: string;
   readonly userId: string;
@@ -280,6 +294,7 @@ export type TradeErrorCode =
   // halted the listing and the caller should stop asking, this one means the
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
+  | 'trade.mode_limit_only'
   | 'trade.market_halted'
   /** Matching operator halt of ALL markets. New submits refuse; cancel stays. Distinct from one-market halt. */
   | 'trade.venue_halted'

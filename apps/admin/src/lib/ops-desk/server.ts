@@ -1,7 +1,15 @@
 import 'server-only';
 import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom } from '@/lib/desk/part';
-import { DESKS, PAY_TRANSFER_DETAIL, allReads, readSpecFor } from './catalog';
+import {
+  BANK_CUSTOMER_BALANCES,
+  BANK_CUSTOMER_ENTRIES,
+  BANK_CUSTOMER_ENTRIES_CHECK,
+  DESKS,
+  PAY_TRANSFER_DETAIL,
+  allReads,
+  readSpecFor,
+} from './catalog';
 import { inputFor, readData } from './model';
 import type { DeskView, OpsDeskId, ReadData, ReadOutcome, ReadSpec } from './types';
 
@@ -71,6 +79,33 @@ export async function loadRead(ctx: FounderCallContext, spec: ReadSpec): Promise
 /** One transfer's full record, read on request (a click), because svc-bank writes a log line for every one it hands out. */
 export async function loadTransferDetail(ctx: FounderCallContext, id: string): Promise<ReadOutcome> {
   return loadRead(ctx, { ...PAY_TRANSFER_DETAIL, input: { id } });
+}
+
+/** One customer's balances, read on request (svc-bank logs the operator and the customer before it reads any figure). */
+export async function loadCustomerBalances(ctx: FounderCallContext, userId: string): Promise<ReadOutcome> {
+  return loadRead(ctx, { ...BANK_CUSTOMER_BALANCES, input: { userId } });
+}
+
+/**
+ * One page of the entries behind a customer's balance in one coin, with svc-bank's sum check. Both come from ONE call, so the
+ * operator is logged once and the check belongs to the very answer the rows came from.
+ */
+export async function loadCustomerEntries(
+  ctx: FounderCallContext,
+  userId: string,
+  assetId: string,
+  cursor: string | null,
+): Promise<{ readonly entries: ReadOutcome; readonly check: ReadOutcome }> {
+  const input = { userId, assetId, ...(cursor === null ? {} : { cursor }) };
+  const [entries, check] = await loadGroup(
+    ctx,
+    [
+      { ...BANK_CUSTOMER_ENTRIES, input },
+      { ...BANK_CUSTOMER_ENTRIES_CHECK, input },
+    ],
+    new Date(),
+  );
+  return { entries: entries!, check: check! };
 }
 
 /**

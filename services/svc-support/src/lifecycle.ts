@@ -26,8 +26,10 @@ import type { SupportTicketStatus } from '@intafaced/contracts';
  * as a CHECK-shaped trigger in the migration.
  */
 export const TICKET_TRANSITIONS: Readonly<Record<SupportTicketStatus, readonly SupportTicketStatus[]>> = {
-  open: ['pending', 'resolved', 'closed'],
-  pending: ['open', 'resolved', 'closed'],
+  open: ['pending', 'on_hold', 'resolved', 'closed'],
+  pending: ['open', 'on_hold', 'resolved', 'closed'],
+  /** Paused by the team. It leaves the queue; a customer reply or an agent brings it back. */
+  on_hold: ['open', 'pending', 'resolved', 'closed'],
   resolved: ['open', 'closed'],
   /** Terminal. A finished complaint stays finished. */
   closed: [],

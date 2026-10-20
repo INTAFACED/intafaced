@@ -35,6 +35,7 @@ export const MODULE_IDS = [
   'more-ops',
   'protocol-ops',
   'tradeops',
+  'identity-ops',
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 
@@ -57,6 +58,7 @@ export const MODULE_ROUTES: readonly { readonly id: ModuleId; readonly href: str
   { id: 'more-ops', href: '/more-ops', label: 'More modules' },
   { id: 'protocol-ops', href: '/protocol-ops', label: 'Protocol ops' },
   { id: 'tradeops', href: '/trade-ops', label: 'Trade desk' },
+  { id: 'identity-ops', href: '/identity-ops/keys', label: 'Identity keys' },
 ];
 
 /**
@@ -83,6 +85,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/analytics', 'tools'],
   ['/api/merchants', 'merchants'],
   ['/api/trade-ops', 'tradeops'],
+  ['/api/identity-ops', 'identity-ops'],
 ];
 
 type Env = Record<string, string | undefined>;

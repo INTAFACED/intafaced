@@ -27,6 +27,7 @@ describe('svc-support’s typed refusals', () => {
   it.each([
     ['support.transition_illegal', 'svc-support does not allow that status change'],
     ['support.transition_same_status', 'The ticket is already in that status'],
+    ['support.hold_reason_required', 'Say why the request is on hold'],
     ['support.comment.terminal', 'This ticket is closed'],
     ['support.escalation.terminal', 'A closed ticket cannot be escalated'],
     ['support.case_file.ungrounded', 'The escalation cites nothing that was read'],

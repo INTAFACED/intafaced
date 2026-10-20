@@ -2,7 +2,7 @@ import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { poolAbi } from '../amm/abi.js';
-import { erc20ReadAbi, tokenFactoryAbi } from './abi.js';
+import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
   chainIdMismatchRefusal,
@@ -13,6 +13,7 @@ import {
 } from './availability.js';
 import type { TokenParams } from '../launch/params.js';
 import { withSpan } from '../tracing.js';
+import { isExecutionRevert } from './revert.js';
 
 /**
  * Chain access — read-only, by construction.
@@ -367,6 +368,95 @@ export class ProtocolChain {
       ]);
       return { name, symbol, decimals: Number(decimals), totalSupply, initialHolder };
     });
+  }
+
+  /**
+   * `owner`'s allowance for `spender`, read at ONE pinned block so the answer says which block it describes.
+   * The block is the latest the node reports when the read starts; if the chain moves, the swap's own revert is the backstop.
+   */
+  async tokenAllowance(token: Address, owner: Address, spender: Address): Promise<{ value: bigint; blockNumber: bigint }> {
+    return this.#read('tokenAllowance', 'chain.tokenAllowance', async () => {
+      const blockNumber = await this.client.getBlockNumber();
+      const value = await this.client.readContract({
+        address: token,
+        abi: erc20ApprovalAbi,
+        functionName: 'allowance',
+        args: [owner, spender],
+        blockNumber,
+      });
+      return { value, blockNumber };
+    });
+  }
+
+  /**
+   * Whether `owner` changing a non-zero allowance straight to `amount` REVERTS on this token (USDT-style tokens that demand
+   * a reset to zero first). Only an execution revert counts as yes; a node that cannot answer is a chain refusal, never a "yes"
+   * or a "no" the caller could mistake for knowledge.
+   */
+  async directApproveReverts(token: Address, owner: Address, spender: Address, amount: bigint): Promise<boolean> {
+    return this.#read('directApproveReverts', 'chain.directApproveReverts', async () => {
+      try {
+        const { result } = await this.client.simulateContract({
+          address: token,
+          abi: erc20ApprovalAbi,
+          functionName: 'approve',
+          args: [spender, amount],
+          account: owner,
+        });
+        // A token that answers `false` instead of reverting refuses the direct change just the same.
+        return result === false;
+      } catch (err) {
+        if (isExecutionRevert(err)) return true;
+        throw err;
+      }
+    });
+  }
+
+  /**
+   * What this node and the configured bundler can actually do, found by asking. `null` means the question could not be put
+   * (no bundler configured, no probe timeout published, the node did not answer), never a guess.
+   *   · `pendingTag`: the node answers a `pending` block query. A JSON-RPC error reply is "no"; no reply at all is `null`.
+   *   · `bundlerReachable`: the bundler answers `eth_supportedEntryPoints` inside the published probe timeout.
+   *   · `paymasterFunded`: not measured here (it needs the paymaster deposit read); always `null`.
+   */
+  async probeCapabilities(timeoutMs: number | undefined): Promise<{
+    pendingTag: boolean | null;
+    bundlerReachable: boolean | null;
+    paymasterFunded: null;
+  }> {
+    let pendingTag: boolean | null = null;
+    try {
+      const pending: unknown = await this.client.getBlock({ blockTag: 'pending' });
+      // A reply that is not a block (`{}`, `"0x1"`, `42`) is not proof the node serves the tag.
+      const shaped = !!pending && typeof pending === 'object' && typeof (pending as { timestamp?: unknown }).timestamp === 'bigint';
+      pendingTag = shaped ? true : null;
+    } catch (err) {
+      for (let link: unknown = err, depth = 0; link && typeof link === 'object' && depth < 8; depth += 1) {
+        const code = (link as { code?: unknown }).code;
+        // Only the JSON-RPC "method not found" / "invalid params" replies mean the node does not serve the tag.
+        if (code === -32601 || code === -32602) pendingTag = false;
+        link = (link as { cause?: unknown }).cause;
+      }
+    }
+    let bundlerReachable: boolean | null = null;
+    const bundlerUrl = this.config.bundlerUrl;
+    if (bundlerUrl && timeoutMs !== undefined) {
+      try {
+        const response = await fetch(bundlerUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_supportedEntryPoints', params: [] }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        // Reachable means a JSON-RPC result that is a list of entry points; a 200 with an error, HTML or nothing is not.
+        const body: unknown = response.ok ? await response.json().catch(() => null) : null;
+        const result = body && typeof body === 'object' ? (body as { result?: unknown; error?: unknown }) : null;
+        bundlerReachable = !!result && result.error === undefined && Array.isArray(result.result);
+      } catch {
+        bundlerReachable = false;
+      }
+    }
+    return { pendingTag, bundlerReachable, paymasterFunded: null };
   }
 
   async tokenBalanceOf(token: Address, holder: Address): Promise<bigint> {

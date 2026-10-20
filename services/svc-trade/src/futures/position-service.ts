@@ -2882,7 +2882,8 @@ function isoOf(value: Date | string | null | undefined): string | null {
   return date.toISOString();
 }
 
-function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
+/** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
+export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
   const size = parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);

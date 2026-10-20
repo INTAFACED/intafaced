@@ -192,6 +192,10 @@ export interface SupportStore {
   }): Promise<RateByOwnerResult>;
   /** Owner, or an operator when `asOperator` is set. Someone else's ticket is not_found. */
   readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult>;
+  /** Every stored rating, for the founder summary. */
+  listRatings(): Promise<TicketRating[]>;
+  /** Ids of the caller's own tickets that carry a rating, so a list can tell rated from not yet rated. */
+  listRatedTicketIdsFor(userId: string): Promise<string[]>;
   readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null>;
   recordAttachment(input: {
     id: string;
@@ -662,11 +666,28 @@ export class MemorySupportStore implements SupportStore {
     this.comments.set(input.ticketId, list);
 
     const reopened = ticket.status === 'resolved' && input.authorRole === 'user';
+    // A customer reply on a request the team had in progress or on hold puts it back in the open queue;
+    // whoever holds it keeps it.
+    const resumed = (ticket.status === 'pending' || ticket.status === 'on_hold') && input.authorRole === 'user';
     const updated: SupportTicket = reopened
       ? { ...ticket, status: 'open', assigneeId: null, updatedAt: now }
-      : { ...ticket, updatedAt: now };
+      : resumed
+        ? { ...ticket, status: 'open', updatedAt: now }
+        : { ...ticket, updatedAt: now };
     this.tickets.set(ticket.id, updated);
 
+    if (resumed) {
+      this.record({
+        ticketId: ticket.id,
+        kind: 'status_changed',
+        actorId: input.authorId,
+        actorRole: 'user',
+        fromStatus: ticket.status,
+        toStatus: 'open',
+        note: 'user_reply_resume',
+        at: now,
+      });
+    }
     if (reopened) {
       this.record({
         ticketId: ticket.id,
@@ -1014,6 +1035,14 @@ export class MemorySupportStore implements SupportStore {
     return ok;
   }
 
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    return [...this.ratings.values()].filter((rating) => rating.userId === userId).map((rating) => rating.ticketId);
+  }
+
+  async listRatings(): Promise<TicketRating[]> {
+    return [...this.ratings.values()].map(({ clientRequestId: _clientRequestId, ...rating }) => rating);
+  }
+
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
@@ -1196,6 +1225,7 @@ export class PostgresSupportStore implements SupportStore {
       `;
 
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
+      const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';
       const rows = reopened
         ? await tx<PgTicket[]>`
             UPDATE support.tickets
@@ -1203,7 +1233,14 @@ export class PostgresSupportStore implements SupportStore {
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
           `
-        : await tx<PgTicket[]>`
+        : resumed
+          ? await tx<PgTicket[]>`
+            UPDATE support.tickets
+            SET status = 'open', updated_at = now()
+            WHERE id = ${input.ticketId}
+            RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
+          `
+          : await tx<PgTicket[]>`
             UPDATE support.tickets
             SET updated_at = now()
             WHERE id = ${input.ticketId}
@@ -1211,6 +1248,17 @@ export class PostgresSupportStore implements SupportStore {
           `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
+      if (resumed) {
+        await insertEvent(tx, {
+          ticketId: input.ticketId,
+          kind: 'status_changed',
+          actorId: input.authorId,
+          actorRole: 'user',
+          fromStatus: existing.status,
+          toStatus: 'open',
+          note: 'user_reply_resume',
+        });
+      }
       if (reopened) {
         await insertEvent(tx, {
           ticketId: input.ticketId,
@@ -1798,6 +1846,21 @@ export class PostgresSupportStore implements SupportStore {
       `;
       return ok;
     });
+  }
+
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    const rows = await this.sql<{ ticket_id: string }[]>`
+      SELECT ticket_id FROM support.ticket_ratings WHERE user_id = ${userId}
+    `;
+    return rows.map((row) => row.ticket_id);
+  }
+
+  async listRatings(): Promise<TicketRating[]> {
+    const rows = await this.sql<PgRating[]>`
+      SELECT ticket_id, user_id, score, note, created_at, client_request_id
+      FROM support.ticket_ratings
+    `;
+    return rows.map(ratingFromPg);
   }
 
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {

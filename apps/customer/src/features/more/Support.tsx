@@ -11,7 +11,16 @@ import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { StatusBadge, SupportRequest } from './SupportRequest';
 import { deskCopy } from './support-desk-copy';
-import { STATUS_FILTERS, filterTickets, statusCounts, ticketReference, type StatusFilter } from './support-desk';
+import {
+  STATUS_FILTERS,
+  filterTickets,
+  followUpDraft,
+  showRatePrompt,
+  statusCounts,
+  ticketReference,
+  type StatusFilter,
+} from './support-desk';
+import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
 import './support-desk.css';
 
@@ -39,7 +48,8 @@ export function Support() {
     { userId } = useSession(),
     action = useAction('support');
   const [view, setView] = useState<View>('help'),
-    [selected, setSelected] = useState('');
+    [selected, setSelected] = useState(''),
+    [followUp, setFollowUp] = useState<Ticket | null>(null);
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -54,6 +64,13 @@ export function Support() {
       ),
     `support:${userId}:${limit}`,
   );
+  // Which requests already carry a rating. A failed read shows no chip rather than a wrong one.
+  const rated = useResource((signal) => readRatedTicketIds(api, signal), `support-rated:${userId}`);
+  const ratedIds = rated.resource.status === 'ready' ? new Set(rated.resource.data) : null;
+  const reloadRequests = () => {
+    tickets.reload();
+    rated.reload();
+  };
   const labels = Object.fromEntries(VIEWS.map((id) => [id, copy.t(VIEW_KEY[id])]));
   return (
     <div className="support-desk">
@@ -70,17 +87,31 @@ export function Support() {
       {view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => setView('new')} />}
       {view === 'requests' &&
         (selected ? (
-          <SupportRequest key={selected} id={selected} action={action} onUpdated={tickets.reload} onBack={() => setSelected('')} />
+          <SupportRequest
+            key={selected}
+            id={selected}
+            action={action}
+            onUpdated={reloadRequests}
+            onBack={() => setSelected('')}
+            onFollowUp={(ticket) => {
+              setFollowUp(ticket);
+              setSelected('');
+              setView('new');
+            }}
+          />
         ) : (
           <Read resource={tickets.resource} retry={tickets.reload}>
-            {(rows) => <RequestList rows={rows} onOpen={setSelected} onStart={() => setView('new')} />}
+            {(rows) => <RequestList rows={rows} ratedIds={ratedIds} onOpen={setSelected} onStart={() => setView('new')} />}
           </Read>
         ))}
       {view === 'new' && (
         <NewRequest
           action={action}
+          follows={followUp}
+          onClearFollows={() => setFollowUp(null)}
           onSent={() => {
-            tickets.reload();
+            setFollowUp(null);
+            reloadRequests();
             setView('requests');
           }}
         />
@@ -91,7 +122,18 @@ export function Support() {
   );
 }
 
-function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: string) => void; onStart: () => void }) {
+export function RequestList({
+  rows,
+  ratedIds,
+  onOpen,
+  onStart,
+}: {
+  rows: Ticket[];
+  /** Ids that carry a rating, or null while that is unread or unreadable (no chip is shown then). */
+  ratedIds: ReadonlySet<string> | null;
+  onOpen: (id: string) => void;
+  onStart: () => void;
+}) {
   const copy = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const [filter, setFilter] = useState<StatusFilter>('all'),
@@ -144,6 +186,11 @@ function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: s
                     <span lang="zxx">{stamp(row.updatedAt, timeZone)}</span>
                   </span>
                 </span>
+                {ratedIds && showRatePrompt(row.status, true, ratedIds.has(row.id)) ? (
+                  <span className="support-chip support-chip--on" data-testid="rate-chip">
+                    {copy.t('rateChip')}
+                  </span>
+                ) : null}
                 <StatusBadge status={row.status} />
               </button>
             </li>
@@ -154,13 +201,24 @@ function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: s
   );
 }
 
-function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; onSent: () => void }) {
+function NewRequest({
+  action,
+  follows,
+  onClearFollows,
+  onSent,
+}: {
+  action: ReturnType<typeof useAction>;
+  follows: Ticket | null;
+  onClearFollows: () => void;
+  onSent: () => void;
+}) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  const [category, setCategory] = useState('other'),
-    [subject, setSubject] = useState(''),
+  const draft = follows ? followUpDraft(follows, copy.t('followUpPrefix')) : null;
+  const [category, setCategory] = useState(draft?.category ?? 'other'),
+    [subject, setSubject] = useState(draft?.subject ?? ''),
     [body, setBody] = useState(''),
     [headers, setHeaders] = useState('');
   const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
@@ -194,6 +252,7 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
                   subject: subject.trim(),
                   body: body.trim(),
                   ...(sendHeaders ? { messageHeaders: sendHeaders } : {}),
+                  ...(follows ? { followsTicketId: follows.id } : {}),
                   clientRequestId,
                 },
                 ticketSchema.refine(
@@ -210,6 +269,21 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
           });
         }}
       >
+        {follows && (
+          <p className="notice" role="note">
+            {copy.t('followUpBanner', { reference: ticketReference(follows.id) })}{' '}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                onClearFollows();
+                setSubject('');
+              }}
+            >
+              {copy.t('followUpClear')}
+            </Button>
+          </p>
+        )}
         <p className="muted">{copy.t('newIntro')}</p>
         <p className="support-warning" role="note">
           {copy.t('newWarning')}

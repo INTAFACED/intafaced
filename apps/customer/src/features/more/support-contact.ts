@@ -1,4 +1,9 @@
 import { supportEmail } from './support-desk';
 
-/** The one place the support address is read. Set `VITE_SUPPORT_EMAIL` at build time to change it; the fallback is in support-desk.ts. */
-export const SUPPORT_EMAIL: string = supportEmail(import.meta.env.VITE_SUPPORT_EMAIL as string | undefined);
+/**
+ * The one place the support address is read, or `null` while none is published. Set `VITE_SUPPORT_EMAIL` at build time.
+ * Read at call time so a screen never holds a stale answer. There is no fallback address: every reader says "not set".
+ */
+export function supportContactEmail(): string | null {
+  return supportEmail(import.meta.env.VITE_SUPPORT_EMAIL as string | undefined);
+}

@@ -28,6 +28,7 @@ import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from '.
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
+import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -405,6 +406,7 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
+  new SupportTradeSummaryReader({ sql }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -908,6 +910,7 @@ registerPrivateRest(app, {
   adminOpenOrders: (principal, limit) => trade.adminOpenOrders(principal, limit),
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
+  orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   placeOrder: (principal, input) =>
     trade.placeOrder(
       principal,

@@ -5,6 +5,7 @@ build/
 out/
 .turbo/
 coverage/
+apps/customer/deployment/host-dispatch.json
 *.tsbuildinfo
 
 # Compiled Solidity for svc-protocol — TRACKED ON PURPOSE, and the blanket

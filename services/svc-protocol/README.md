@@ -287,6 +287,10 @@ Configuration lives in `src/env.ts`: chain id, RPC, EntryPoint, factory, impleme
 
 ## AMM (`protocol.amm`)
 
-Constant-product pools under `contracts/amm/`. Permissionless tRPC: `amm.quoteExactIn`, `amm.buildCreatePool`, `amm.buildSwapExactIn`, `amm.buildMintLiquidity`. Platform never holds LP keys. Factory address: `PROTOCOL_AMM_FACTORY_ADDRESS`.
+Constant-product pools under `contracts/amm/`. Permissionless tRPC: `amm.quoteExactIn`, `amm.buildCreatePool`, `amm.buildSwapExactIn`, `amm.buildMintLiquidity`, `amm.checkApproval` (allowance read at a named block; exact `approve`, a reset pair for tokens that need one), `amm.buildApprove` (exact amount; unlimited only with `unlimited: true`), `amm.buildRevoke`. Platform never holds LP keys and never signs an approval. Factory address: `PROTOCOL_AMM_FACTORY_ADDRESS`.
 
 **`ConstantProductPool` compiles** (see AMM compile note above; artefacts under `contracts/out/`). Factory deploy on the dev chain and external audit remain open, so `PROTOCOL_AMM_FACTORY_ADDRESS` still defaults to zero and every AMM **chain** read refuses until an operator deploys and configures a real factory.
+
+### Networks, deployments and capabilities
+
+`networks.list` serves the owner-published registry in `deployments/networks.json`: a network is `testnet`, `local` or `unconfirmed`, and every field the owner has not published is null (a registry that names `mainnet` or `intachain` refuses to load with `protocol.network_kind_forbidden`). `deployments.list({chainId})` serves `deployments/base-sepolia.json` plus the router versions in `deployments/router-versions.json` (owner-set `sunsetAt`, null = none); a chain with no record is `NOT_FOUND`. `capabilities({chainId})` probes the configured chain's node for the pending tag and the bundler (`PROTOCOL_BUNDLER_URL` within `PROTOCOL_PEER_TIMEOUT_MS`; unset means not probed) and never reports preconfirmations as offered. There is no faucet drip: this plane holds no key.

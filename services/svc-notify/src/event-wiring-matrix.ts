@@ -119,6 +119,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     subject: 'intafaced.agents.action.completed',
     effect: 'Inbox row on completion / session_close only (not tool_call noise)',
   },
+  {
+    event: 'ledgerFreezeUpdated',
+    durable: 'notify-ledger-freeze-updated',
+    subject: 'intafaced.ledger.freeze.updated',
+    effect: 'One audience-all inbox notice when the posting freeze is set or cleared (reason and actor never shown)',
+  },
 ] as const;
 
 /** Catalog subjects we deliberately do not fan out (and why). */

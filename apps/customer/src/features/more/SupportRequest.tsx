@@ -10,14 +10,21 @@ import { Details, Limit, Read, type useAction } from './common';
 import { SupportEvents } from './SupportEvents';
 import { supportEventsCopy } from './support-events-copy';
 import { deskCopy } from './support-desk-copy';
-import { canReply, replyReopens, ticketReference, type TicketStatus } from './support-desk';
+import { canFollowUp, canReply, replyReopens, ticketReference, type TicketStatus } from './support-desk';
 import { SupportRequestActions } from './SupportRequestActions';
-import { commentSchema, ticketSchema } from './support-schemas';
+import { commentSchema, ticketSchema, type Ticket } from './support-schemas';
 
-const STATUS_KEY = { open: 'statusOpen', pending: 'statusPending', resolved: 'statusResolved', closed: 'statusClosed' } as const;
+const STATUS_KEY = {
+  open: 'statusOpen',
+  pending: 'statusPending',
+  on_hold: 'statusOnHold',
+  resolved: 'statusResolved',
+  closed: 'statusClosed',
+} as const;
 const STATUS_HELP_KEY = {
   open: 'statusOpenHelp',
   pending: 'statusPendingHelp',
+  on_hold: 'statusOnHoldHelp',
   resolved: 'statusResolvedHelp',
   closed: 'statusClosedHelp',
 } as const;
@@ -33,11 +40,13 @@ export function SupportRequest({
   action,
   onUpdated,
   onBack,
+  onFollowUp,
 }: {
   id: string;
   action: ReturnType<typeof useAction>;
   onUpdated: () => void;
   onBack: () => void;
+  onFollowUp: (ticket: Ticket) => void;
 }) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
@@ -201,7 +210,14 @@ export function SupportRequest({
                 </Button>
               </div>
             ) : (
-              <p className="muted">{copy.t('closedNote')}</p>
+              <>
+                <p className="muted">{copy.t('closedNote')}</p>
+                {canFollowUp(ticket.status) && (
+                  <Button variant="secondary" onClick={() => onFollowUp(ticket)}>
+                    {copy.t('askFollowUp')}
+                  </Button>
+                )}
+              </>
             )}
             <SupportRequestActions
               ticket={ticket}

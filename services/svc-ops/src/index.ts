@@ -15,6 +15,7 @@ import { AlertEvaluator } from './alerts/runner.js';
 import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
 import { createPgRestoreStore } from './restore-store.js';
+import { createPgVenueCostStore } from './venue-cost-store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -109,6 +110,7 @@ const appRouter = createOpsRouter(
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
     restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
+    venueCosts: crmSql ? createPgVenueCostStore(crmSql) : undefined,
     alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
     alertState: alertState ?? undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,

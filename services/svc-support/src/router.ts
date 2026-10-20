@@ -12,6 +12,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
@@ -78,6 +79,9 @@ function mapError(err: unknown): never {
       err.code === 'support.staff_bootstrap' ||
       err.code === 'support.heartbeat_window_unset' ||
       err.code === 'support.ticket_closed' ||
+      err.code === 'support.follow_up_invalid' ||
+      err.code === 'support.hold_reason_required' ||
+      err.code === 'support.rating_window_invalid' ||
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
@@ -158,6 +162,17 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           return await support.listMyTickets({ userId: ctx.principal!.userId, limit: input?.limit });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Ids of the caller's own tickets that carry a rating. */
+    ratedMine: scopedProcedure('support:read')
+      .output(z.array(z.string().uuid()))
+      .query(async ({ ctx }) => {
+        try {
+          return await support.ratedTicketIds(ctx.principal!.userId);
         } catch (err) {
           mapError(err);
         }
@@ -647,6 +662,34 @@ export function createSupportRouter(
         }
       }),
 
+    /** Founder summary of ratings for requests solved in a stated window. Requires support:ops. */
+    ratingSummary: scopedProcedure('support:ops')
+      .input(z.object({ from: z.string().datetime(), to: z.string().datetime() }))
+      .output(
+        z.object({
+          from: z.string().datetime(),
+          to: z.string().datetime(),
+          solved: z.number().int(),
+          responses: z.number().int(),
+          perScore: z.object({
+            '1': z.number().int(),
+            '2': z.number().int(),
+            '3': z.number().int(),
+            '4': z.number().int(),
+            '5': z.number().int(),
+          }),
+          ratedShareBasisPoints: z.number().int().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.ratingSummary({ viewerId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /**
      * Owner attach. Unconfigured store, scanner, or limits refuse
      * support.attachments_unconfigured and name the missing key.
@@ -789,6 +832,7 @@ export function createSupportRouter(
           total: z.number().int(),
           open: z.number().int(),
           pending: z.number().int(),
+          onHold: z.number().int(),
           resolved: z.number().int(),
           closed: z.number().int(),
           unassigned: z.number().int(),
@@ -873,6 +917,19 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Who the ticket waits on, when the first public reply went out, and the request it follows. */
+    ticketLifecycle: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid() }))
+      .output(supportTicketLifecycleSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.getTicketLifecycle({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
         } catch (err) {
           mapError(err);
         }

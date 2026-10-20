@@ -11,6 +11,8 @@ export const marketLifecycleStateSchema = z.enum([
   'AUCTION',
   'OPEN',
   'POST_ONLY',
+  /** Limit orders only: a market order is refused; limit, post-only, amend and cancel work. */
+  'LIMIT_ONLY',
   'CANCEL_ONLY',
   'REDUCE_ONLY',
   'HALTED',

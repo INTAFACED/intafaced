@@ -13,6 +13,8 @@ import {
   loadTicketExtras,
   loadGroups,
   loadStaff,
+  loadRatingSummary,
+  loadTicketLifecycle,
   loadTicketProperties,
   runSupportAction,
 } from '@/lib/support/server';
@@ -58,6 +60,23 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'lifecycle') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketLifecycle(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'ratings') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const start = from === null ? NaN : Date.parse(from);
+    const end = to === null ? NaN : Date.parse(to);
+    if (!from || !to || !Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+      return Response.json({ code: 'admin.support_rating_window' }, { status: 400, headers: NO_STORE });
+    }
+    return Response.json(await loadRatingSummary(session, { from: new Date(start).toISOString(), to: new Date(end).toISOString() }), {
+      headers: NO_STORE,
+    });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
   return Response.json(await loadQueue(session), { headers: NO_STORE });

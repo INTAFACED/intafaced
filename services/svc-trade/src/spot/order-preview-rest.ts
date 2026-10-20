@@ -351,6 +351,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           message: `market ${market.symbol} lifecycle refuses ${action}: ${decision.reasonCode ?? snapshot.state}`,
         });
       }
+      if (decision.decision === 'ELIGIBLE' && snapshot.state === 'LIMIT_ONLY' && typeWire === 'market') {
+        refusals.push({
+          code: 'trade.mode_limit_only',
+          field: 'type',
+          message: `market ${market.symbol} is limit-only: market orders are refused`,
+        });
+      }
     }
 
     try {

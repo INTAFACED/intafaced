@@ -34,9 +34,13 @@ reports `no-catalog` once plus `untranslated` per key, so the gap is counted. `d
 `locale` label follow the language the text is really in, not the one that was asked for: an English
 string stamped `ar` makes a renderer mirror the layout around left-to-right words.
 
-Adding a language is an **owner decision with a content cost**, not an engineering task. Nothing
-here is machine-translated and nothing here ever will be: a mistranslated "confirm withdrawal" in a
-money product is a loss, not a typo.
+Adding a language is an **owner decision with a content cost**. The mechanics are a drop-in: put
+`src/locales/<code>.json` in the shape `{ "meta": { "provenance": "human" | "machine", "reviewedAt": null | "YYYY-MM-DD" },
+"messages": { "<key>": "<text>" } }` there and run `pnpm --filter @intafaced/i18n locales`; the test fails on a key English does
+not have. `localeProvenance(code)` says who wrote a locale's words and `pnpm --filter @intafaced/i18n coverage` (after a build)
+prints translated, total, missing and provenance per locale. Words a program wrote carry `provenance: machine` and are never
+presented as reviewed: a mistranslated "confirm withdrawal" in a money product is a loss, not a typo. `es` and `fr` are machine
+files of four words each, and nothing money-related relies on them.
 
 The old `apps/web` bypass scan was retired with the Vue front end (the scan is deleted; see git history).
 
@@ -127,19 +131,21 @@ native speaker files a bug.
 
 ## Adding a language
 
-**This is an owner decision, not an engineering one.** A language costs a human writing 118 strings
-of money copy and someone competent reviewing them. Do not machine-translate it, and do not add a
-row "to make the list look better" — a declared locale with no catalog is now visibly zero, which is
-the honest outcome, but it is still a promise the picker will show a user.
+**This is an owner decision, not an engineering one.** A language costs a human writing the money
+copy and someone competent reviewing it. A machine-written file is allowed only with
+`"provenance": "machine"`, so it is never shown as reviewed. Do not add a row "to make the list look
+better" — a declared locale with no catalog is visibly zero, which is the honest outcome, but it is
+still a promise the picker will show a user.
 
 1. Add a row to `SUPPORTED_LOCALES` in `src/locales.ts` — code, English name, native name, RTL
    flag, and the tag handed to `Intl`. Set `rtl: true` for Arabic-, Hebrew-, Persian- and
    Urdu-script languages; the layout mirrors off that flag.
-2. Add a catalog file that exports either `defineCatalog({...})` (complete) or
-   `definePartialCatalog({...})` (in progress). Both are checked against the English key set — a
-   partial catalog may omit keys, but it may not invent one.
-3. Register it in `CATALOGS` in `src/catalogs.ts`. Until this line exists, the language is declared
-   and not written, and every count in this package will say so.
+2. Add `src/locales/<code>.json` — `{ "meta": { "provenance": "human" | "machine", "reviewedAt": null },
+"messages": { "<key>": "<text>" } }`. The test checks every key against the English key set: a file
+   may omit keys, but it may not invent one.
+3. Run `pnpm --filter @intafaced/i18n locales`. It rebuilds `src/locale-files.generated.ts`, and
+   `catalogs.ts` picks the file up from there. Until the file exists, the language is declared and not
+   written, and every count in this package will say so.
 4. There is no step four. No component changes, no route changes, no build changes.
 
 A translation that lags is normal and safe: `createTranslator` serves the English string for any key
@@ -226,16 +232,18 @@ The gate that actually holds is the type system in this package.
 
 ## Layout
 
-| File           | What it is                                                             |
-| -------------- | ---------------------------------------------------------------------- |
-| `catalog.ts`   | English source of truth, catalog types, placeholder type extraction    |
-| `catalogs.ts`  | Which locales actually have a catalog — `catalogFor`, `localeCoverage` |
-| `locales.ts`   | Supported-locale registry, RTL flags, `Accept-Language` negotiation    |
-| `format.ts`    | Money, number, percent, date and relative-time formatting              |
-| `t.ts`         | `createTranslator`, interpolation, pluralisation, missing-key policy   |
-| `i18n.test.ts` | The tests — including the compile-time assertions                      |
+| File                        | What it is                                                             |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `catalog.ts`                | English source of truth, catalog types, placeholder type extraction    |
+| `catalogs.ts`               | Which locales actually have a catalog — `catalogFor`, `localeCoverage` |
+| `locales/*.json`            | Drop-in language files, with `provenance` and `reviewedAt`             |
+| `locale-files.generated.ts` | Generated index of `locales/*.json` (`pnpm locales`)                   |
+| `locales.ts`                | Supported-locale registry, RTL flags, `Accept-Language` negotiation    |
+| `format.ts`                 | Money, number, percent, date and relative-time formatting              |
+| `t.ts`                      | `createTranslator`, interpolation, pluralisation, missing-key policy   |
+| `i18n.test.ts`              | The tests — including the compile-time assertions                      |
 
-Nothing here does I/O. Catalogs are data; loading them is the app's job.
+Nothing in the library does I/O. Catalogs are data; loading them is the app's job.
 
 Copy in this package obeys Doctrine §0.7: user-facing strings name only _Identity Blueprint_,
 _Sovereign Intelligence_, and _Neural Engine_ — never a third-party system.

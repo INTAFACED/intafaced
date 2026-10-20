@@ -9,7 +9,7 @@ import { accountStateSchema } from './identity.js';
  * No money: refunds are requests only; never ledger.
  */
 
-export const supportTicketStatusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
+export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
 export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);

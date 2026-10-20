@@ -53,7 +53,7 @@ export type KbArticleFixture = {
 export type TicketFixture = {
   readonly ticketId: string;
   readonly ownerUserId: string;
-  readonly status: 'open' | 'pending' | 'resolved' | 'closed';
+  readonly status: 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
   readonly category: string;
 };
 
