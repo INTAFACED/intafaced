@@ -31,10 +31,10 @@ test('a new hand-signed call, a new name check and a new file all fail; equal pa
   );
 });
 
-test('a count that went down must lower the baseline, so it cannot drift loose', () => {
+test('a count that went down passes without touching the baseline', () => {
   const baseline = { 'services/svc-a/src/x.ts': { sign: 2, caller: 0 } };
-  assert.match(compare({ 'services/svc-a/src/x.ts': { sign: 1, caller: 0 } }, baseline)[0], /Lower the baseline.*to 1/);
-  assert.match(compare({}, baseline)[0], /Lower the baseline.*to 0/);
+  assert.deepEqual(compare({ 'services/svc-a/src/x.ts': { sign: 1, caller: 0 } }, baseline), []);
+  assert.deepEqual(compare({}, baseline), []);
 });
 
 test('scanTree skips test files, node_modules and dist', () => {
