@@ -5,9 +5,8 @@
  */
 import { createHash } from 'node:crypto';
 import {
-  actionApprovalSchema,
+  createIdentityApprovalClient,
   founderAttestationVerdict,
-  serviceCallSigner,
   type ActionApproval,
   type ActionApprovalConsumeInput,
   type ServiceAuthMode,
@@ -91,34 +90,21 @@ export interface ApprovalConsumer {
   consume(input: ActionApprovalConsumeInput): Promise<ActionApproval>;
 }
 
+/** Identity answers or the halt refuses: the shared client bounds the call with a timeout and checks the CONSUMED echo. */
 export function createExecutionApprovalClient(
   baseUrl: string,
   internalSecret: string,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  timeoutMs?: number,
 ): ApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  const authHeaders = serviceCallSigner({ service: 'svc-execution', audience: 'svc-identity', legacySecret: internalSecret, s2s });
-  return {
-    async consume(input) {
-      const payload = JSON.stringify(input);
-      const target = `${url}/trpc/actionApproval.consume`;
-      const res = await fetch(target, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...authHeaders(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        throw new OperatorDeskError(`identity refused consume (${res.status})`, EXECUTION_APPROVAL_UNWIRED);
-      }
-      const body = (await res.json()) as { result?: { data?: unknown } };
-      const data = body.result?.data;
-      const json = data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data;
-      return actionApprovalSchema.parse(json);
-    },
-  };
+  return createIdentityApprovalClient({
+    service: 'svc-execution',
+    baseUrl,
+    internalSecret,
+    s2s,
+    timeoutMs,
+    fail: (message) => new OperatorDeskError(message, EXECUTION_APPROVAL_UNWIRED),
+  });
 }
 
 export function unwiredExecutionApproval(): ApprovalConsumer {
