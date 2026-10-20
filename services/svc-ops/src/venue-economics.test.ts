@@ -142,6 +142,7 @@ describe('composeVenueEconomics', () => {
 
   it('never zero-fills: no entries gives not_entered everywhere and an empty total', () => {
     const report = composeVenueEconomics('t', '2026-10', revenue, []);
+    expect(report.costs.map((c) => c.category)).toEqual([...OPS_COST_CATEGORIES]);
     expect(report.costs.every((c) => c.status === 'not_entered')).toBe(true);
     expect(report.costTotals).toEqual({ partial: true, byAsset: [] });
   });
