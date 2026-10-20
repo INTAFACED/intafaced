@@ -12,7 +12,8 @@
 ## Settings
 
 - `FIX_COMPID_ACCOUNT_JSON`: maps a FIX CompID to an account. Blank means every order refuses with `matching_account_unmapped`.
-- `INTERNAL_SERVICE_SECRET` (at least 32 characters) signs the call to svc-matching as service `svc-fix`. Blank refuses with `matching_service_auth_unconfigured`.
+- `INTERNAL_SERVICE_SECRET` (at least 32 characters) signs the call to svc-matching as service `svc-fix`. Blank refuses with `matching_service_auth_unconfigured`, except in keypair mode.
+- `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` select service-key signing. `dual` sends the key signature and the shared secret; `keypair` sends the key signature only. A mode without its signing key refuses rather than posting an unsigned order.
 - `MATCHING_BASE_URL` is the svc-matching host; blank refuses with `matching_unconfigured`.
 
 Ports and the full settings list: the generated `docs/SERVICES.md`.
