@@ -58,7 +58,7 @@ const entry = (e: Partial<Entry> & Pick<Entry, 'txId' | 'direction' | 'amount' |
 });
 
 /** What the fake ledger answers. `available` is served in two pages to prove the reader follows the cursor. */
-function ledger(opts: { endless?: boolean } = {}) {
+function ledger(opts: { endless?: boolean; coinDeposit?: boolean } = {}) {
   const asked: Array<Record<string, unknown>> = [];
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const path = new URL(String(input)).pathname;
@@ -84,6 +84,10 @@ function ledger(opts: { endless?: boolean } = {}) {
                     postedAt: '2026-10-03T00:00:00.000Z',
                   }),
                   entry({ txId: 'noise', reason: 'deposit', direction: 'debit', amount: '500', assetId: 'USDT' }),
+                  entry({ txId: 'released', reason: 'order.hold.released', direction: 'debit', amount: '2', assetId: 'SOL' }),
+                  ...(opts.coinDeposit
+                    ? [entry({ txId: 'dep', reason: 'deposit.credited', direction: 'debit', amount: '2', assetId: 'BTC' })]
+                    : []),
                 ],
                 nextCursor: 'page2',
               }
@@ -230,5 +234,19 @@ describe('tax.lotBook', () => {
     const byOrder = new Map(fills.map((f) => [f.received.assetId, f.paid?.assetId]));
     expect(byOrder.get('BTC')).toBe('USDT');
     expect(byOrder.get('USDT')).toBe('BTC');
+  });
+
+  it("a coin deposit makes that coin's sales unknown, while a released hold and a dollar deposit do not", async () => {
+    ledger();
+    const clean = await createTaxRouter(service())
+      .createCaller(await signed())
+      .lotBook();
+    expect(clean.realizedUsd).toBe('200');
+    ledger({ coinDeposit: true });
+    const dirty = await createTaxRouter(service())
+      .createCaller(await signed())
+      .lotBook();
+    expect(dirty.realizedUsd).toBeNull();
+    expect(dirty.residuals).toContain('tax.lot_book_unreconciled');
   });
 });

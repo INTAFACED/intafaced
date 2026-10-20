@@ -123,6 +123,8 @@ export function buildLotBook(input: {
   method: LotMethod;
   /** The read stopped before the start of history. */
   truncated: boolean;
+  /** Assets that reached the customer other than by a fill (a deposit, a transfer in): a sale may have used those coins first. */
+  outsideInflows?: ReadonlySet<string>;
 }): LotBook {
   const residuals = new Set<string>();
   if (input.truncated) residuals.add(TAX_LOT_BOOK_INCOMPLETE);
@@ -171,16 +173,22 @@ export function buildLotBook(input: {
     entry.cost = entry.cost === null || lot.costBasis === null ? null : entry.cost + toAmount(lot.costBasis);
     openByAsset.set(lot.assetId, entry);
   }
-  const assetIds = [...new Set([...openByAsset.keys(), ...input.held.keys()])].sort();
+  const assetIds = [...new Set([...openByAsset.keys(), ...input.held.keys(), ...(input.outsideInflows ?? [])])].sort();
   const assets: BookAsset[] = [];
   const outside = new Set<string>();
+  const soldAssets = new Set(sales.map((sale) => sale.assetId));
   for (const assetId of assetIds) {
     const open = openByAsset.get(assetId);
     const held = input.held.get(assetId) ?? 0n;
+    const cameFromOutside = (input.outsideInflows?.has(assetId) ?? false) && !PAR_ASSETS.has(assetId.toUpperCase());
+    if (cameFromOutside && (soldAssets.has(assetId) || open !== undefined || held > 0n)) {
+      residuals.add(TAX_LOT_BOOK_UNRECONCILED);
+      outside.add(assetId);
+    }
     if (open === undefined && held === 0n) continue;
     // The book only knows coins that came from fills. Held more (a deposit, a transfer in, interest) and a sale may have
     // used those coins first; held less and some left another way. Either way which lot is open is not known.
-    const reconciled = (open?.qty ?? 0n) === held || PAR_ASSETS.has(assetId.toUpperCase());
+    const reconciled = !cameFromOutside && ((open?.qty ?? 0n) === held || PAR_ASSETS.has(assetId.toUpperCase()));
     if (!reconciled) {
       residuals.add(TAX_LOT_BOOK_UNRECONCILED);
       outside.add(assetId);

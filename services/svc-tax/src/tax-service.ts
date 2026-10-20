@@ -188,7 +188,7 @@ export class TaxService {
     for (const row of balances) {
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
-    return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated });
+    return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
   }
 
   private requireMethod(raw: string): LotMethod {

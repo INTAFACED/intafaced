@@ -149,4 +149,30 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills, held: held({ BTC: '1', USDT: '300' }), method: 'FIFO', truncated: false });
     expect(book.residuals).toEqual([]);
   });
+
+  it('a coin that arrived outside a fill makes its sales unknown even when nothing is held at the end', () => {
+    // 2 ETH deposited, 1 bought at 2000, 1 sold at 3000, all withdrawn: FIFO may have sold the deposited coin.
+    const book = buildLotBook({
+      fills: [buy('b1', 1, 'ETH', '1', '2000'), sell('s1', 2, 'ETH', '1', '3000')],
+      held: held({ USDT: '1000' }),
+      method: 'FIFO',
+      truncated: false,
+      outsideInflows: new Set(['ETH']),
+    });
+    expect(book.sales[0]?.costUsd).toBeNull();
+    expect(book.sales[0]?.realizedUsd).toBeNull();
+    expect(book.realizedUsd).toBeNull();
+    expect(book.residuals).toContain(TAX_LOT_BOOK_UNRECONCILED);
+  });
+
+  it('a dollar-coin deposit does not make anything unknown', () => {
+    const book = buildLotBook({
+      fills: [buy('b1', 1, 'ETH', '1', '2000'), sell('s1', 2, 'ETH', '1', '3000')],
+      held: held({ USDT: '3000' }),
+      method: 'FIFO',
+      truncated: false,
+      outsideInflows: new Set(['USDT']),
+    });
+    expect(book.realizedUsd).toBe('1000');
+  });
 });

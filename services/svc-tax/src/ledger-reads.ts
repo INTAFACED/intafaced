@@ -35,6 +35,8 @@ export interface TradeFills {
   readonly fills: Fill[];
   /** True when the read stopped at the page ceiling before the start of history. */
   readonly truncated: boolean;
+  /** Assets that reached the available balance other than by a fill or an own-coin return (a deposit, a transfer in, interest). */
+  readonly outsideInflows: ReadonlySet<string>;
 }
 
 export interface TaxBalance {
@@ -129,8 +131,12 @@ export function createTaxLedgerReads(
       };
 
       try {
-        const received = (await walk({ ownerType: 'user', ownerId: userId, kind: 'available' })).filter(
-          (e) => FILL_REASONS.has(e.reason) && e.direction === 'debit',
+        const availableEntries = await walk({ ownerType: 'user', ownerId: userId, kind: 'available' });
+        const received = availableEntries.filter((e) => FILL_REASONS.has(e.reason) && e.direction === 'debit');
+        const outsideInflows = new Set(
+          availableEntries
+            .filter((e) => e.direction === 'debit' && !FILL_REASONS.has(e.reason) && !OWN_COIN_RETURNS.has(e.reason))
+            .map((e) => e.assetId),
         );
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
@@ -153,7 +159,7 @@ export function createTaxLedgerReads(
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
           paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
         }));
-        return { fills, truncated };
+        return { fills, truncated, outsideInflows };
       } catch (err) {
         if (err instanceof TaxError) throw err;
         throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
@@ -185,6 +191,14 @@ export function createTaxLedgerReads(
 const PAGE_LIMIT = 200;
 /** Ledger reasons for a customer's side of a spot, convert or OTC fill (the second is a fill against a house quote). */
 const FILL_REASONS: ReadonlySet<string> = new Set(['trade.fill', 'trade.fill.mm_maker']);
+/** Reasons that put the customer's own coins back on available (a released hold, a reversed withdrawal): not new coins. */
+const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
+  'order.hold.released',
+  'order.hold.mm.released',
+  'withdraw.reversed',
+  'futures.margin.release',
+  'token.unstake',
+]);
 /** Order hold reads run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */

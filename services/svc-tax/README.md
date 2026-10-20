@@ -37,3 +37,5 @@ Data lake / indexer missing → named `absent` on the pack (`tax.data_lake_unava
 ## Service keys: ledger reads
 
 The ledger reads (balances and history) are signed with svc-tax's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, they are signed with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+The lot book also marks a coin as outside the book when it reached the customer other than by a fill (a deposit, a transfer in). Sales of that coin have unknown cost and result, whether or not any is still held. Released holds, reversed withdrawals, margin release and unstake are the customer's own coins coming back and do not count.
