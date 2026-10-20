@@ -11,6 +11,8 @@ import { CardSandboxAdapter } from '../../rails/card-sandbox.js';
 import { RailRegistry } from '../../rails/registry.js';
 import { UserMoneyService } from '../../user-money-service.js';
 import { WithdrawalApprovalError } from './errors.js';
+import { composeGuards } from '../../seams/guards.js';
+import { createWithdrawalApprovalGuards } from './guard.js';
 import { WithdrawalApprovalService, approvalMoneyOf, type WithdrawalApprovalMoney } from './service.js';
 import type { SetPolicyInput } from './schemas.js';
 
@@ -83,7 +85,10 @@ describe('multi-approval withdrawals (real Postgres)', () => {
     // The policy history is append-only by trigger, so each test uses its own asset-free user key instead of truncating.
     ledger = new MemoryLedger();
     const rails = new RailRegistry([new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 })]);
-    money = new UserMoneyService(db.sql, ledger, rails, { operatorCreditRails: ['card-sandbox'] });
+    money = new UserMoneyService(db.sql, ledger, rails, {
+      operatorCreditRails: ['card-sandbox'],
+      guards: composeGuards(createWithdrawalApprovalGuards({ now: () => clock })),
+    });
     await money.credit({
       userId: USER,
       assetId: 'USDT',
@@ -221,16 +226,23 @@ describe('multi-approval withdrawals (real Postgres)', () => {
     ).resolves.toBe('withdrawal_approval.required');
   });
 
-  it('two direct withdrawals that are each under the threshold and together over it cannot both go', async () => {
+  it('the claim itself refuses other terms on an approved request reference, whatever the pre-check saw', async () => {
+    await service.setPolicy('founder', policy());
+    const req = await service.propose(USER, ask());
+    await db.sql`UPDATE pay.withdrawal_approval_requests SET status = 'approved' WHERE id = ${req.id}`;
+    await expect(
+      money.withdraw({ userId: USER, assetId: 'USDT', amount: amt('1'), rail: 'card-sandbox', destination: DESTINATION, clientRef: 'w-1' }),
+    ).rejects.toMatchObject({ code: 'pay.guard_withdrawal_approval_terms' });
+  });
+
+  it('two direct withdrawals that are each under the threshold and together over it cannot both claim', async () => {
     await service.setPolicy('founder', policy());
     const go = (clientRef: string) =>
-      service.runDirect({ userId: USER, assetId: 'USDT', amount: amt('30'), clientRef }, () =>
-        money.withdraw({ userId: USER, assetId: 'USDT', amount: amt('30'), rail: 'card-sandbox', destination: DESTINATION, clientRef }),
-      );
+      money.withdraw({ userId: USER, assetId: 'USDT', amount: amt('30'), rail: 'card-sandbox', destination: DESTINATION, clientRef });
     const results = await Promise.allSettled([go('race-1'), go('race-2')]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
     const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
-    expect((refused.reason as { code?: string }).code).toBe('withdrawal_approval.required');
+    expect(refused.reason).toMatchObject({ code: 'pay.guard_withdrawal_approval_required' });
   });
 
   // ── the approvals ─────────────────────────────────────────────────────────

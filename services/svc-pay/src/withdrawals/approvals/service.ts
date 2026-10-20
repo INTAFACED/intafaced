@@ -97,7 +97,7 @@ interface RequestRow {
   decided_at: Date | null;
 }
 
-interface PolicyRow {
+export interface PolicyRow {
   user_id: string;
   asset_id: string;
   active: boolean;
@@ -128,6 +128,50 @@ const terms = (r: RequestRow): WithdrawalTerms => ({
   clientRef: r.client_ref,
 });
 
+/** The key of the lock that orders a user's withdrawals of one asset against each other and against new requests. */
+export const approvalLockKey = (userId: string, assetId: string): string => `pay.withdrawal_approval:${userId}:${assetId}`;
+
+/** The latest policy event, active or not. Null when none was ever set. */
+export async function latestPolicyRow(q: Sql, userId: string, assetId: string): Promise<PolicyRow | null> {
+  const [row] = await q<PolicyRow[]>`
+    SELECT user_id, asset_id, active, team_account_id, required_approvals, threshold::text AS threshold, window_seconds,
+           expiry_seconds, hold_at_submit, set_by, set_at
+      FROM pay.withdrawal_approval_policy_events
+     WHERE user_id = ${userId} AND asset_id = ${assetId}
+     ORDER BY seq DESC LIMIT 1`;
+  return row ?? null;
+}
+
+/**
+ * The policy that applies to this withdrawal, or null when it may go direct. Applies when a policy is active and this amount
+ * plus the user's other withdrawals of the asset inside the window reaches the threshold. A request for the same client
+ * reference is left out of the sum, so a retry never counts itself.
+ */
+export async function policyAppliesTo(
+  q: Sql,
+  now: Date,
+  userId: string,
+  assetId: string,
+  amount: Amount,
+  clientRef: string,
+): Promise<PolicyRow | null> {
+  const policy = await latestPolicyRow(q, userId, assetId);
+  if (!policy || !policy.active) return null;
+  const since = new Date(now.getTime() - policy.window_seconds * 1000);
+  const [sum] = await q<Array<{ total: string }>>`
+    SELECT COALESCE(SUM(amount), 0)::text AS total FROM (
+      SELECT w.amount FROM pay.withdrawals w
+       WHERE w.user_id = ${userId} AND w.asset_id = ${assetId} AND w.status <> 'failed'
+         AND w.created_at > ${since} AND w.client_ref <> ${clientRef}
+      UNION ALL
+      SELECT r.amount FROM pay.withdrawal_approval_requests r
+       WHERE r.user_id = ${userId} AND r.asset_id = ${assetId} AND r.status IN ('pending', 'approved')
+         AND r.created_at > ${since} AND r.client_ref <> ${clientRef}
+         AND NOT EXISTS (SELECT 1 FROM pay.withdrawals w WHERE w.user_id = r.user_id AND w.client_ref = r.client_ref)
+    ) t`;
+  return parseAmount(sum!.total) + amount >= parseAmount(policy.threshold) ? policy : null;
+}
+
 export class WithdrawalApprovalService {
   private readonly now: () => Date;
   constructor(private readonly deps: WithdrawalApprovalServiceDeps) {
@@ -153,37 +197,16 @@ export class WithdrawalApprovalService {
     return row ? policyView(row) : null;
   }
 
-  private async latestPolicy(q: Sql, userId: string, assetId: string): Promise<PolicyRow | null> {
-    const [row] = await q<PolicyRow[]>`
-      SELECT user_id, asset_id, active, team_account_id, required_approvals, threshold::text AS threshold, window_seconds,
-             expiry_seconds, hold_at_submit, set_by, set_at
-        FROM pay.withdrawal_approval_policy_events
-       WHERE user_id = ${userId} AND asset_id = ${assetId}
-       ORDER BY seq DESC LIMIT 1`;
-    return row ?? null;
+  private latestPolicy(q: Sql, userId: string, assetId: string): Promise<PolicyRow | null> {
+    return latestPolicyRow(q, userId, assetId);
   }
 
   /**
-   * The policy that applies to this withdrawal, or null when it may go direct. Applies when a policy is active and this
-   * amount plus the user's other withdrawals of the asset inside the window reaches the threshold. A request for the same
-   * client reference is left out of the sum, so a retry never counts itself.
+   * The policy that applies to this withdrawal, or null when it may go direct (see `policyAppliesTo`). Reads on `q`, so
+   * `propose` can ask again inside the transaction that inserts the request.
    */
-  private async applicable(q: Sql, userId: string, assetId: string, amount: Amount, clientRef: string): Promise<PolicyRow | null> {
-    const policy = await this.latestPolicy(q, userId, assetId);
-    if (!policy || !policy.active) return null;
-    const since = new Date(this.now().getTime() - policy.window_seconds * 1000);
-    const [sum] = await q<Array<{ total: string }>>`
-      SELECT COALESCE(SUM(amount), 0)::text AS total FROM (
-        SELECT w.amount FROM pay.withdrawals w
-         WHERE w.user_id = ${userId} AND w.asset_id = ${assetId} AND w.status <> 'failed'
-           AND w.created_at > ${since} AND w.client_ref <> ${clientRef}
-        UNION ALL
-        SELECT r.amount FROM pay.withdrawal_approval_requests r
-         WHERE r.user_id = ${userId} AND r.asset_id = ${assetId} AND r.status IN ('pending', 'approved')
-           AND r.created_at > ${since} AND r.client_ref <> ${clientRef}
-           AND NOT EXISTS (SELECT 1 FROM pay.withdrawals w WHERE w.user_id = r.user_id AND w.client_ref = r.client_ref)
-      ) t`;
-    return parseAmount(sum!.total) + amount >= parseAmount(policy.threshold) ? policy : null;
+  private applicable(q: Sql, userId: string, assetId: string, amount: Amount, clientRef: string): Promise<PolicyRow | null> {
+    return policyAppliesTo(q, this.now(), userId, assetId, amount, clientRef);
   }
 
   /**
@@ -213,41 +236,9 @@ export class WithdrawalApprovalService {
     }
   }
 
-  /**
-   * Run a direct withdrawal behind the gate. The threshold sums the user's other withdrawals in the window, so two
-   * withdrawals that are each under it and together over it must not both read the same sum: the check and the claim run
-   * under one lock per user and asset, held until `run` returns. `propose` takes the same lock, so a request and a direct
-   * withdrawal cannot slip past each other either.
-   */
-  async runDirect<T>(input: { userId: string; assetId: string; amount: Amount; clientRef: string }, run: () => Promise<T>): Promise<T> {
-    return this.withUserAssetLock(input.userId, input.assetId, async () => {
-      await this.assertDirectAllowed(input);
-      return run();
-    });
-  }
-
-  private async withUserAssetLock<T>(userId: string, assetId: string, fn: () => Promise<T>): Promise<T> {
-    const key = `pay.withdrawal_approval:${userId}:${assetId}`;
-    const connection = await this.deps.sql.reserve();
-    try {
-      await connection`SELECT pg_advisory_lock(hashtext(${key}))`;
-      return await fn();
-    } finally {
-      try {
-        await connection`SELECT pg_advisory_unlock(hashtext(${key}))`;
-      } finally {
-        connection.release();
-      }
-    }
-  }
-
   // ── submit ────────────────────────────────────────────────────────────────
 
   async propose(userId: string, input: ProposeInput): Promise<RequestView> {
-    return this.withUserAssetLock(userId, input.assetId, () => this.proposeLocked(userId, input));
-  }
-
-  private async proposeLocked(userId: string, input: ProposeInput): Promise<RequestView> {
     const amount = parseAmount(input.amount);
     if (amount <= 0n) throw new WithdrawalApprovalError('withdrawal_approval.amount_invalid', 'a withdrawal is a positive amount');
     const wanted = {
@@ -284,6 +275,14 @@ export class WithdrawalApprovalService {
       }
       const now = this.now();
       const inserted = await transaction(this.deps.sql, async (tx) => {
+        // The same lock the direct door's guard takes in its claim: whichever commits second sees the other in the window sum.
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${approvalLockKey(userId, input.assetId)}))`;
+        if (!(await this.applicable(tx, userId, input.assetId, amount, input.clientRef))) {
+          throw new WithdrawalApprovalError(
+            'withdrawal_approval.not_required',
+            'this withdrawal is under the approval threshold; withdraw directly',
+          );
+        }
         const rows = await tx<RequestRow[]>`
           INSERT INTO pay.withdrawal_approval_requests
             (user_id, client_ref, asset_id, amount, rail, destination, team_account_id, required_approvals, hold_at_submit, expires_at, created_at, updated_at)

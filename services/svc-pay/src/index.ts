@@ -26,6 +26,8 @@ import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/con
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
 import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
 import { WithdrawalApprovalService, approvalMoneyOf } from './withdrawals/approvals/service.js';
+import { createWithdrawalApprovalGuards } from './withdrawals/approvals/guard.js';
+import { composeGuards } from './seams/guards.js';
 import { createWithdrawalApprovalRouter } from './withdrawals/approvals/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
@@ -426,7 +428,8 @@ const withdrawalQuotes = new WithdrawalQuoteService({ sql });
 const travelRuleCipher = loadMessageCipher(process.env);
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
-  guards: payGuards,
+  // The approval gate rides the claim's own transaction (W-withdraw-11), after the shared guards.
+  guards: composeGuards(payGuards, createWithdrawalApprovalGuards()),
   haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
