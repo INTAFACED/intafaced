@@ -55,6 +55,8 @@ import {
   type WatermarkStamp,
 } from './operator-desks.js';
 import { createAlertRulesRouter } from './alerts/router.js';
+import { createProtocolListingRouter } from './protocol-listing/router.js';
+import type { ListingDesk } from './protocol-listing/wiring.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
@@ -183,6 +185,8 @@ export interface OperatorDeskConfig {
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
+  /** Protocol pool hide and market delist (D-order-controls-04). Absent means every call refuses `ops.protocol_listing_storage_unconfigured`. */
+  readonly protocolListing?: ListingDesk;
 }
 
 export function createOpsRouter(
@@ -666,6 +670,8 @@ export function createOpsRouter(
           return deskError(err);
         }
       }),
+
+    protocolListing: createProtocolListingRouter(desks.protocolListing),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 

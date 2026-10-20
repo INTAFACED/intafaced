@@ -53,6 +53,11 @@ const schema = baseEnvSchema
        * A set URL is not probed and acknowledge still refuses.
        */
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * Owner-published reason codes for hiding a pool or delisting a market, comma separated. Blank →
+       * protocolListing hide and delist refuse owner.decision. Nothing is invented.
+       */
+      OPS_PROTOCOL_REASON_CODES: blankAsAbsent(z.string().optional()),
     }),
   );
 
