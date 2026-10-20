@@ -90,6 +90,16 @@
       "service": "bank",
       "value": "USDT",
       "note": ""
+    },
+    "SUPPORT_ATTACHMENT_STORE": {
+      "service": "support",
+      "value": "local-test-memory",
+      "note": "Keeps attached files in the process memory, lost on restart. Not durable storage."
+    },
+    "SUPPORT_MALWARE_SCANNER": {
+      "service": "support",
+      "value": "local-test-eicar",
+      "note": "Blocks only the EICAR test string and calls every other file clean. Finds no real malware."
     }
   }
 }
