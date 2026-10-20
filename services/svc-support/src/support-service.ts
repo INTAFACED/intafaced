@@ -14,7 +14,14 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
-import { MemoryStaffBook, type StaffBook, type StaffMember, type StaffRole } from './desk-staff.js';
+import {
+  MemoryStaffBook,
+  STAFF_AVAILABILITIES,
+  type StaffAvailability,
+  type StaffBook,
+  type StaffMember,
+  type StaffRole,
+} from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
 import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
@@ -38,6 +45,7 @@ import {
   type TicketOrderRead,
   type TicketOrderSource,
 } from './ticket-order.js';
+import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 
 export class SupportError extends Error {
@@ -188,7 +196,123 @@ export class SupportService implements SupportContract {
      * svc-trade says the read is unknown rather than cancelled.
      */
     private readonly orders: TicketOrderSource = new DarkTicketOrderSource(),
+    /**
+     * Seconds without a heartbeat before an online or busy agent reads as
+     * offline. Blank (null) is an owner value left unset: availability stays
+     * as last set and the desk says automatic offline is not set.
+     */
+    private readonly heartbeatWindowSeconds: number | null = null,
+    private readonly now: () => Date = () => new Date(),
+    /** Desk groups. While none exist every support:ops caller sees the whole queue. */
+    private readonly groups: GroupBook = new MemoryGroupBook(),
+    /** Roles the owner marked as seeing every group. Blank (empty) marks none. */
+    private readonly allGroupsRoles: readonly StaffRole[] = [],
   ) {}
+
+  /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
+  private async deskScope(viewerId: string): Promise<{ viewer: DeskViewer; grouped: Map<string, string> } | null> {
+    if ((await this.groups.list()).length === 0) return null;
+    const member = await this.staff.get(viewerId);
+    return {
+      viewer: { userId: viewerId, role: member?.role ?? null, groupIds: await this.groups.groupsOfUser(viewerId) },
+      grouped: await this.groups.groupedTickets(),
+    };
+  }
+
+  private async visibleTickets(viewerId: string | undefined, tickets: SupportTicket[]): Promise<SupportTicket[]> {
+    if (viewerId === undefined) return tickets;
+    const scope = await this.deskScope(viewerId);
+    if (!scope) return tickets;
+    return tickets.filter((t) => deskCanSee(scope.viewer, t, scope.grouped.get(t.id) ?? null, this.allGroupsRoles));
+  }
+
+  /** A ticket outside the viewer's scope answers exactly like no such ticket. */
+  async assertDeskVisible(viewerId: string, ticketId: string, hidden: () => Error = ticketNotFound): Promise<void> {
+    const ticket = await this.store.findById(ticketId);
+    // A missing ticket is left to the caller's own not-found; only a hidden one is answered here.
+    if (ticket && (await this.visibleTickets(viewerId, [ticket])).length === 0) throw hidden();
+  }
+
+  /** What the queue header says: whether scope is restricted and which groups the viewer is in. */
+  async deskScopeSummary(viewerId: string): Promise<{
+    restricted: boolean;
+    groups: { id: string; name: string }[];
+    seesAllGroups: boolean;
+  }> {
+    const all = await this.groups.list();
+    if (all.length === 0) return { restricted: false, groups: [], seesAllGroups: true };
+    const member = await this.staff.get(viewerId);
+    const seesAllGroups = member !== null && this.allGroupsRoles.includes(member.role);
+    const mine = new Set(await this.groups.groupsOfUser(viewerId));
+    return {
+      restricted: true,
+      groups: all.filter((g) => seesAllGroups || mine.has(g.id)).map((g) => ({ id: g.id, name: g.name })),
+      seesAllGroups,
+    };
+  }
+
+  async listGroups(): Promise<DeskGroup[]> {
+    return this.groups.list();
+  }
+
+  private async requireLead(actorId: string): Promise<void> {
+    const actor = await this.staff.get(actorId);
+    if (actor?.role !== 'lead') throw new SupportError('only a lead can change desk groups', 'support.not_lead');
+  }
+
+  /** Creates a group (no groupId) or renames one. A replay of the same key returns the first answer. */
+  async saveGroup(input: { actorId: string; groupId?: string; name: string; idempotencyKey: string }): Promise<DeskGroup> {
+    // Authority is checked before the key is begun, so a refusal leaves the key free to retry.
+    await this.requireLead(input.actorId);
+    return this.withIdempotency(`group.save:${input.idempotencyKey}`, `${input.actorId}:${input.groupId ?? ''}:${input.name}`, async () => {
+      try {
+        const saved = await this.groups.save({
+          id: input.groupId,
+          name: input.name.trim(),
+          by: input.actorId,
+          at: this.now().toISOString(),
+        });
+        if (!saved) throw new SupportError('no such group', 'support.group_unknown');
+        return saved;
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.group_name_taken') {
+          throw new SupportError('a group with that name exists', 'support.group_name_taken');
+        }
+        throw err;
+      }
+    });
+  }
+
+  async addGroupMember(input: { actorId: string; groupId: string; userId: string }): Promise<DeskGroup> {
+    await this.requireLead(input.actorId);
+    if (!(await this.staff.get(input.userId))) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
+    const result = await this.groups.addMember({ ...input, by: input.actorId, at: this.now().toISOString() });
+    if (result === 'unknown_group') throw new SupportError('no such group', 'support.group_unknown');
+    if (result === 'duplicate') throw new SupportError('already a member of that group', 'support.group_member_duplicate');
+    return (await this.groups.get(input.groupId))!;
+  }
+
+  async removeGroupMember(input: { actorId: string; groupId: string; userId: string }): Promise<DeskGroup> {
+    await this.requireLead(input.actorId);
+    const result = await this.groups.removeMember({ ...input, by: input.actorId, at: this.now().toISOString() });
+    if (result === 'unknown_group') throw new SupportError('no such group', 'support.group_unknown');
+    return (await this.groups.get(input.groupId))!;
+  }
+
+  /** A lead places a ticket in a group, or takes it out (groupId null). */
+  async setTicketGroup(input: {
+    actorId: string;
+    ticketId: string;
+    groupId: string | null;
+  }): Promise<{ ticketId: string; groupId: string | null }> {
+    await this.requireLead(input.actorId);
+    // A lead cannot move a ticket they cannot see into their own group to gain sight of it.
+    await this.assertDeskVisible(input.actorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    const result = await this.groups.setTicketGroup({ ...input, by: input.actorId, at: this.now().toISOString() });
+    if (result === 'unknown_group') throw new SupportError('no such group', 'support.group_unknown');
+    return { ticketId: input.ticketId, groupId: input.groupId };
+  }
 
   private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
     let phase: 'new' | 'replay';
@@ -263,6 +387,8 @@ export class SupportService implements SupportContract {
       const ticket = await this.store.findById(input.ticketId);
       const visible = ticket !== null && (input.asOperator === true || ticket.userId === input.userId);
       if (!visible) throw ticketNotFound();
+      // An operator reads their own tickets as a customer; anything else obeys desk scope.
+      if (input.asOperator === true && ticket.userId !== input.userId) await this.assertDeskVisible(input.userId, ticket.id);
       return ticket;
     });
   }
@@ -332,6 +458,7 @@ export class SupportService implements SupportContract {
    */
   async setStatus(input: { operatorId: string; ticketId: string; status: SupportTicketStatus; note?: string }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
       // The store re-reads the ticket and every case-file reason under its
       // row lock. A latestCaseFile read here would miss a money_request that
       // a later file hides, or one that commits before the lock.
@@ -395,6 +522,7 @@ export class SupportService implements SupportContract {
    */
   async readAccountState(input: { operatorId: string; ticketId: string }): Promise<SupportAccountGrounding> {
     return withSupportSpan('support.readAccountState', { op: 'readAccountState' }, async (span) => {
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
       const ticket = await this.store.findById(input.ticketId);
       if (!ticket) throw ticketNotFound();
 
@@ -439,7 +567,7 @@ export class SupportService implements SupportContract {
    */
   async readTicketOrder(input: { operatorId: string; ticketId: string; orderId: string }): Promise<TicketOrderRead> {
     return withSupportSpan('support.readTicketOrder', { op: 'readTicketOrder' }, async (span) => {
-      void input.operatorId;
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
       const ticket = await this.store.findById(input.ticketId);
       if (!ticket) throw ticketNotFound();
 
@@ -492,6 +620,7 @@ export class SupportService implements SupportContract {
    */
   async escalate(input: { operatorId: string } & EscalateTicketInput): Promise<SupportCaseFile> {
     return withSupportSpan('support.escalate', { op: 'escalate' }, async (span) => {
+      await this.assertDeskVisible(input.operatorId, input.ticketId);
       const ticket = await this.store.findById(input.ticketId);
       if (!ticket) throw ticketNotFound();
       // Closed is terminal (lifecycle). An escalation after close is a second
@@ -569,6 +698,7 @@ export class SupportService implements SupportContract {
    * `null` when the ticket was never escalated; never a fabricated empty file.
    */
   async getCaseFile(input: { operatorId: string; ticketId: string }): Promise<SupportCaseFile | null> {
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
     const ticket = await this.store.findById(input.ticketId);
     if (!ticket) throw ticketNotFound();
     return this.store.latestCaseFile(ticket.id);
@@ -661,18 +791,18 @@ export class SupportService implements SupportContract {
   }
 
   /** Stage-2 — prioritised open/pending queue for operators. No money. */
-  async listOperatorQueue(options: { limit?: number } = {}): Promise<QueueResult> {
+  async listOperatorQueue(options: { limit?: number; viewerId?: string } = {}): Promise<QueueResult> {
     return withSupportSpan('support.listOperatorQueue', { op: 'listOperatorQueue' }, async () => {
       const limit = assertOperatorQueueLimit(options.limit);
-      const tickets = await this.store.listAll();
+      const tickets = await this.visibleTickets(options.viewerId, await this.store.listAll());
       return buildOperatorQueue(tickets, { limit });
     });
   }
 
   /** Stage-2 — peek next queue ticket without claiming. */
-  async peekNext(): Promise<QueueEntry | null> {
+  async peekNext(viewerId?: string): Promise<QueueEntry | null> {
     return withSupportSpan('support.peekNext', { op: 'peekNext' }, async () => {
-      const tickets = await this.store.listAll();
+      const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
       return assignNext(tickets);
     });
   }
@@ -683,6 +813,11 @@ export class SupportService implements SupportContract {
    */
   async claimForOperator(input: { operatorId: string; ticketId: string }): Promise<SupportTicket> {
     return withSupportSpan('support.claimForOperator', { op: 'claimForOperator' }, async (span) => {
+      await this.assertDeskVisible(
+        input.operatorId,
+        input.ticketId,
+        () => new SupportError('claim refused: not_found', 'support.claim.not_found'),
+      );
       const result = await this.store.claimTicket({
         ticketId: input.ticketId,
         operatorId: input.operatorId,
@@ -697,7 +832,7 @@ export class SupportService implements SupportContract {
   }
 
   /** Whole-queue counts. Zero means the desk has that many rows, not a missing read. */
-  async queueMetrics(): Promise<{
+  async queueMetrics(viewerId?: string): Promise<{
     asOf: string;
     total: number;
     open: number;
@@ -707,7 +842,7 @@ export class SupportService implements SupportContract {
     unassigned: number;
     claimed: number;
   }> {
-    const tickets = await this.store.listAll();
+    const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
     const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
     for (const ticket of tickets) {
       counts[ticket.status] += 1;
@@ -717,8 +852,79 @@ export class SupportService implements SupportContract {
     return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
   }
 
+  /** True once any desk group exists, so list doors must apply the viewer's scope. */
+  async deskIsRestricted(): Promise<boolean> {
+    return (await this.groups.list()).length > 0;
+  }
+
+  /** `listAllTickets` for a restricted desk: scope is applied before the page is cut, so a page holds only visible rows. */
+  async listAllTicketsInScope(options: { limit?: number; viewerId: string }): Promise<SupportTicket[]> {
+    return withSupportSpan('support.listAllTicketsInScope', { op: 'listAllTicketsInScope' }, async () => {
+      const limit = assertListAllTicketsLimit(options.limit);
+      return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
+    });
+  }
+
   async listStaff(): Promise<StaffMember[]> {
-    return this.staff.list();
+    return (await this.staff.list()).map((member) => this.withEffectiveAvailability(member));
+  }
+
+  /** Whether the automatic offline window is an owner value or still blank. */
+  staffAvailabilityPolicy(): { automaticOffline: 'set' | 'not_set'; heartbeatWindowSeconds: number | null } {
+    return {
+      automaticOffline: this.heartbeatWindowSeconds === null ? 'not_set' : 'set',
+      heartbeatWindowSeconds: this.heartbeatWindowSeconds,
+    };
+  }
+
+  private withEffectiveAvailability(member: StaffMember): StaffMember {
+    if (this.heartbeatWindowSeconds === null || member.availability === 'offline') return member;
+    const beat = member.lastHeartbeatAt ? Date.parse(member.lastHeartbeatAt) : Number.NEGATIVE_INFINITY;
+    return this.now().getTime() - beat > this.heartbeatWindowSeconds * 1000 ? { ...member, availability: 'offline' } : member;
+  }
+
+  /**
+   * An agent sets their own availability; a lead sets anyone's, and that
+   * change is logged with the lead and the reason. Setting the value a
+   * member already has writes nothing. Going online or busy counts as a
+   * heartbeat when a window is set, so the agent does not read offline
+   * the moment they arrive.
+   */
+  async setStaffAvailability(input: {
+    actorId: string;
+    userId: string;
+    availability: StaffAvailability;
+    reason?: string | null;
+  }): Promise<StaffMember> {
+    if (!STAFF_AVAILABILITIES.includes(input.availability)) {
+      throw new SupportError('availability must be online, busy or offline', 'support.availability_invalid');
+    }
+    const actor = await this.staff.get(input.actorId);
+    if (!actor) throw new SupportError('only staff can set availability', 'support.not_staff');
+    if (input.userId !== input.actorId && actor.role !== 'lead') {
+      throw new SupportError("only a lead can set someone else's availability", 'support.not_lead');
+    }
+    const at = this.now().toISOString();
+    const stored = await this.staff.setAvailability({
+      userId: input.userId,
+      value: input.availability,
+      by: input.actorId,
+      reason: input.reason?.trim() ? input.reason.trim() : null,
+      at,
+      heartbeat: this.heartbeatWindowSeconds !== null && input.availability !== 'offline',
+    });
+    if (!stored) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
+    return this.withEffectiveAvailability(stored);
+  }
+
+  /** Own heartbeat. Refuses while the owner has not set the window. */
+  async staffHeartbeat(input: { actorId: string }): Promise<StaffMember> {
+    if (this.heartbeatWindowSeconds === null) {
+      throw new SupportError('automatic offline window is not set', 'support.heartbeat_window_unset');
+    }
+    const stored = await this.staff.heartbeat(input.actorId, this.now().toISOString());
+    if (!stored) throw new SupportError('only staff can send a heartbeat', 'support.not_staff');
+    return this.withEffectiveAvailability(stored);
   }
 
   async appointStaff(input: { actorId: string; userId: string; role: StaffRole; idempotencyKey: string }): Promise<StaffMember> {
@@ -736,6 +942,11 @@ export class SupportService implements SupportContract {
 
   async unclaim(input: { operatorId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
     return this.withIdempotency(`unclaim:${input.idempotencyKey}`, `${input.operatorId}:${input.ticketId}`, async () => {
+      await this.assertDeskVisible(
+        input.operatorId,
+        input.ticketId,
+        () => new SupportError('unclaim refused: not_found', 'support.release.not_found'),
+      );
       const result = await this.store.releaseTicket({ ticketId: input.ticketId, operatorId: input.operatorId });
       if (result.status === 'refuse') throw new SupportError(`unclaim refused: ${result.reason}`, `support.release.${result.reason}`);
       return result.ticket;
@@ -770,6 +981,11 @@ export class SupportService implements SupportContract {
       if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
       const target = await this.staff.get(input.assigneeId);
       if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
+      await this.assertDeskVisible(
+        input.operatorId,
+        input.ticketId,
+        () => new SupportError('assign refused: not_found', 'support.assign.not_found'),
+      );
       const result = await this.store.assignTicket({
         ticketId: input.ticketId,
         operatorId: input.operatorId,
@@ -805,6 +1021,7 @@ export class SupportService implements SupportContract {
   /** Owner reads their rating. Operators with support:ops read any ticket. */
   async rating(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<TicketRating | null> {
     return withSupportSpan('support.rating', { op: 'rating', ticketId: input.ticketId }, async () => {
+      if (input.asOperator === true) await this.assertDeskVisible(input.userId, input.ticketId);
       const result = await this.store.readRating({
         userId: input.userId,
         ticketId: input.ticketId,

@@ -377,6 +377,9 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
+      # Blank stays refuse-closed (auth.reset_unwired).
+      IDENTITY_FLOW_SUBJECT_KEY: ${IDENTITY_FLOW_SUBJECT_KEY:-}
       # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
       # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
       API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}

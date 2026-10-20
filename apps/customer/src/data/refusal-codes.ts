@@ -135,6 +135,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.stp_mode_unsupported': 'optionUnsupported',
   'trade.tag_unsupported': 'optionUnsupported',
+  'trade.trigger_source_unset': 'optionUnsupported',
   'trade.request_expired': 'requestExpired',
   'trade.oco_price_order': 'exitPriceOrder',
   'trade.oco_stop_limit_required': 'exitStopLimitMissing',

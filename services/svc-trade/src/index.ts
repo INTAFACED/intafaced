@@ -25,6 +25,7 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -82,6 +83,7 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
+import { parseConfiguredSettleAssets } from './futures/contract-family.js';
 import { parseFundingMarketIds, startFuturesJobs } from './futures/futures-jobs.js';
 import { presentMarginCallWire } from './futures/margin-call-transport.js';
 import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVenueMarkSymbols } from './futures/mark-from-venue.js';
@@ -224,6 +226,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   optionsSettlementAssetLaw: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW,
   optionsSettlementFixing: env.TRADE_OPTIONS_SETTLEMENT_FIXING,
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
+  futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
@@ -380,6 +383,7 @@ const copy = new CopyService(ledger, {
   },
 });
 trade.bindCopyMirrorFill((notice) => copy.observeFollowerFill(notice));
+const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
   otc,
@@ -389,8 +393,9 @@ export const appRouter = createTradeRouter(
     sql,
     trade,
     ledger,
-    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+    approvals: tradeOpsApprovals,
   }),
+  new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
