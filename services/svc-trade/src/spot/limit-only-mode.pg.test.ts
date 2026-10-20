@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
-import { MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { TradeService } from '../controls/test-admission.js';
@@ -87,11 +87,13 @@ describe('limit-only mode (PG-hard)', () => {
 
   it('refuses a market order with trade.mode_limit_only: no order row, no hold', async () => {
     const { trade, ledger, market } = await setup(lifecycleIn('LIMIT_ONLY'));
-    const before = await userAvailable(ledger, ALICE, 'USDT');
+    const avail = async () => formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount);
+    const before = await avail();
+    expect(before).toBe('1000');
     await expect(
       trade.placeOrder(alice, { marketId: market.id, side: 'buy', type: 'market', qty: amt('1'), clientOrderId: 'lo-market' }),
     ).rejects.toMatchObject({ code: 'trade.mode_limit_only' });
-    expect(await userAvailable(ledger, ALICE, 'USDT')).toEqual(before);
+    expect(await avail()).toBe(before);
     const rows = await db.sql`SELECT count(*)::int AS n FROM trade.orders`;
     expect(rows[0]?.n).toBe(0);
   });
