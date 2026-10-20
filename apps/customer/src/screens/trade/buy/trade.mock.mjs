@@ -1,7 +1,7 @@
 // Answers the calls the Buy and Convert screens make, for the Playwright tests. No service is contacted.
 //  - /api/v1/markets, /tickers, /ticker/<symbol>, /account/balance        (data layer)
 //  - /api/v1/orders/preview, /orders, /orders/open, /orders/closed         (trade client)
-//  - /api/trade/trpc/convert.quote (GET), convert.accept (POST)            (tool client)
+//  - /api/trade/trpc/convert.quote (GET), convert.accept (POST), convert.list (GET)   (tool client)
 // The mock keeps a small world (balances) that an accepted order or conversion really changes, so the balance the
 // screen shows after "Done" is what the mock now holds. Overrides replace one answer: a JSON body, a function of the
 // request, 'error' (500), 'hang' (held until release()), or { status, json, headers }. `oldServer: true` makes convert.quote
@@ -83,6 +83,26 @@ export async function mock(page, overrides = {}) {
       world.quotes.set(quote.quoteId, quote);
       return trpc(quote);
     },
+    // The service's convert history: one `settled` row per accepted quote, and every other quote the customer asked for as
+    // `expired` (quotes that were never taken up are stored too). `convertList` is the wire name in `served`.
+    convertList: ({ input }) => {
+      const rows = [...world.quotes.values()].reverse().map((quote) => {
+        const taken = world.fills.has(quote.quoteId);
+        return {
+          quoteId: quote.quoteId,
+          inAsset: quote.inAsset,
+          outAsset: quote.outAsset,
+          inAmount: quote.inAmount,
+          outAmount: quote.outAmount,
+          lifecycle: taken ? 'settled' : 'expired',
+          createdAt: input.to,
+          expiresAt: input.to,
+          acceptedAt: taken ? input.to : null,
+          settledAt: taken ? input.to : null,
+        };
+      });
+      return trpc({ rows, nextCursor: null });
+    },
     accept: ({ body }) => {
       const quote = world.quotes.get(body.quoteId);
       if (!quote)
@@ -125,6 +145,10 @@ export async function mock(page, overrides = {}) {
       name = 'quote';
       request.input = JSON.parse(url.searchParams.get('input') ?? 'null');
     } else if (path.endsWith('/convert.accept')) name = 'accept';
+    else if (path.endsWith('/convert.list')) {
+      name = 'convertList';
+      request.input = JSON.parse(url.searchParams.get('input') ?? 'null');
+    }
     calls.push({ name: name ?? path, method, body: request.body, input: request.input });
     if (!name || !(name in served)) return route.fulfill({ status: 404, json: { error: { message: 'not mocked' } } });
     if (served[name] === 'hang') return void held.push({ route, name, request });
