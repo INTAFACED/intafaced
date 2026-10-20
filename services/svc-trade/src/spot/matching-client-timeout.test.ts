@@ -33,6 +33,7 @@ const calls: Array<[string, (c: ReturnType<typeof createMatchingClientWithClose>
   ['listOrders', (c) => c.listOrders('m-1')],
   ['listMarkets', (c) => c.listMarkets()],
   ['reconcile', (c) => c.reconcile([])],
+  ['markTrailingStops', (c) => c.markTrailingStops('m-1', '100')],
   ['closePosition', (c) => c.closePosition('m-1', { accountId: 'u-1' } as never)],
 ];
 

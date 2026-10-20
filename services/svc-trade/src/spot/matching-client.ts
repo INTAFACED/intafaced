@@ -332,6 +332,12 @@ export interface EngineMarketList {
   readonly markets: readonly string[];
 }
 
+export interface EngineMarkResult {
+  readonly accepted: boolean;
+  readonly applied: boolean;
+  readonly rejected: { readonly code: string; readonly message: string } | null;
+}
+
 export interface MatchingClient {
   submit(marketId: string, request: EngineSubmitRequest): Promise<EngineSubmitResult>;
   cancel(marketId: string, orderId: string): Promise<EngineCancelResult>;
@@ -375,6 +381,11 @@ export interface MatchingClient {
    * Returns 200 with `ok: false` on refusals — that is a report, not an outage.
    */
   reconcile(orders: readonly CounterpartOrder[]): Promise<ReconcileReport>;
+  /**
+   * Walk this market's trailing stops with a server-side mark — POST /markets/:marketId/mark.
+   * `applied` is true only when a peak or a trigger moved. A refused mark (blank, halted market) is accepted:false.
+   */
+  markTrailingStops(marketId: string, mark: string): Promise<EngineMarkResult>;
 }
 
 /** Engine hop: unset/null throws. Owner-explicit 1 is a published BBO window. */
@@ -667,6 +678,16 @@ export function createMatchingClient(
       return call<ReconcileReport>('/reconcile', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders('POST', '/reconcile', payload) },
+        body: payload,
+      });
+    },
+
+    async markTrailingStops(marketId, mark) {
+      const path = `/markets/${encodeURIComponent(marketId)}/mark`;
+      const payload = JSON.stringify({ mark });
+      return call<EngineMarkResult>(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders('POST', path, payload) },
         body: payload,
       });
     },

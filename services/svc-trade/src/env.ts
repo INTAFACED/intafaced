@@ -515,6 +515,24 @@ const schema = serviceEnvSchema
       TRADE_CANDLE_JOBS_LIMIT: z.string().default('').transform(parseOwnerIntegerEnv),
 
       /**
+       * Trailing-stop mark pump. Default OFF. Reads a mark from the market's own book and posts it to svc-matching,
+       * which walks that market's trailing stops. Never invents a market list, a tick rate or a mark.
+       */
+      TRADE_TRAILING_MARK_JOBS_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(false)
+        .transform((v) => (typeof v === 'boolean' ? v : ['1', 'true', 'on', 'yes'].includes(v.toLowerCase()))),
+
+      /**
+       * Tick interval in ms. NO DEFAULT. Blank / unset / non-integer → null; enabled + markets refuse
+       * `trade.trailing_mark_jobs_interval_unset`. Never invent a tick rate.
+       */
+      TRADE_TRAILING_MARK_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /** Comma-separated market UUIDs. Empty (default) = job not scheduled even when enabled. */
+      TRADE_TRAILING_MARK_JOBS_MARKET_IDS: z.string().default(''),
+
+      /**
        * Engine ↔ ledger reconcile sweep (A10 / ENGINE-LEDGER-RECONCILE-HANDOFF).
        * Default OFF — builds counterpart view from trade.orders + hold balances,
        * POSTs matching `/reconcile`, alerts on refuse, auto-deletes only
