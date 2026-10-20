@@ -7,6 +7,7 @@ import { classifyAccount, classifyBic, type AccountKind } from './account-format
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
+import { normalizeAccount, parsePayeeControls, type PayeeControls } from './payee-controls.js';
 import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './send-fields.js';
 
 /**
@@ -20,7 +21,7 @@ import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './sen
  * the bank exists.
  */
 
-const SEND_STATUSES = ['submitted', 'sent', 'on_the_way', 'arrived', 'failed'] as const;
+const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed'] as const;
 export type GlobalSendStatus = (typeof SEND_STATUSES)[number];
 
 export interface RecipientView {
@@ -113,6 +114,8 @@ const DEFINITE = new Set([
   'bank.send_purpose_required',
   'bank.source_of_funds_required',
   'bank.global_insufficient_funds',
+  'bank.payee_controls_unset',
+  'bank.payee_blocked',
 ]);
 
 export function canonicalCompliance(fields: Readonly<Record<string, string>> | undefined): string {
@@ -249,11 +252,20 @@ export class GlobalSendService {
     private readonly ports: GlobalPorts,
     /** Owner-published purpose, source-of-funds and reference rules (`BANK_SEND_FIELD_RULES_JSON`). Blank refuses. */
     fieldRulesJson?: string,
+    /** Owner-published payee controls (`BANK_PAYEE_CONTROLS_JSON`). Blank refuses every send. */
+    payeeControlsJson?: string,
   ) {
     this.fieldRules = parseSendFieldRules(fieldRulesJson);
+    this.payeeControls = parsePayeeControls(payeeControlsJson);
   }
 
   private readonly fieldRules: SendFieldRules | null;
+  private readonly payeeControls: PayeeControls | null;
+
+  /** Whether the owner has published the payee controls, and how many accounts they name (never which). */
+  payeeControlsStatus(): { state: 'unset' | 'published'; blockedCount: number } {
+    return this.payeeControls ? { state: 'published', blockedCount: this.payeeControls.blocked.size } : { state: 'unset', blockedCount: 0 };
+  }
 
   async corridors(): Promise<Corridor[]> {
     if (this.ports.corridors.status() !== 'live') throw personalPayError('bank.global_corridors_unset');
@@ -553,6 +565,10 @@ export class GlobalSendService {
       if (!supplied[field]?.trim()) return this.definite(row, 'bank.global_travel_rule_incomplete');
     }
 
+    if (!this.payeeControls) return this.definite(row, 'bank.payee_controls_unset');
+    const payee = await this.recipientById(row.recipient_id);
+    if (this.payeeControls.blocked.has(normalizeAccount(payee.account))) return this.definite(row, 'bank.payee_blocked');
+
     const refusal = checkSendFields(this.fieldRules, {
       assetId: row.asset_id,
       amount: row.amount,
@@ -574,13 +590,16 @@ export class GlobalSendService {
     const account = accountForSpace(space);
     let txId = row.ledger_tx_id;
     if (!txId) {
+      // A hold placed while this send was being checked wins: nothing is posted for a held send.
+      const fresh = await this.sendById(row.id);
+      if (fresh && fresh.status !== 'submitted') return sendView(fresh);
       try {
         const existing = await this.ledger.getTxByKey(forwardKey(row.id));
         const tx = existing ?? (await postToRail(this.ledger, row.id, account, railId, amount));
         txId = tx.id;
         await this.sql`
           UPDATE bank.global_sends SET ledger_tx_id = ${txId}, updated_at = now()
-          WHERE id = ${row.id} AND status = 'submitted' AND ledger_tx_id IS NULL
+          WHERE id = ${row.id} AND status IN ('submitted', 'held') AND ledger_tx_id IS NULL
         `;
       } catch (err) {
         if (err instanceof InsufficientFundsError) return this.definite(row, 'bank.global_insufficient_funds', err.message);
@@ -618,7 +637,7 @@ export class GlobalSendService {
           quote_rate = ${quote.rate}, quote_fee = ${quote.fee}, quote_fee_asset = ${quote.feeAsset},
           quote_receive = ${quote.receiveAmount}, quote_valid_until = ${quote.validUntil}::timestamptz,
           quote_eta = ${quote.eta}, failure_code = NULL, failure_blocker = NULL, updated_at = now()
-      WHERE id = ${row.id} AND status = 'submitted'
+      WHERE id = ${row.id} AND status IN ('submitted', 'held')
     `;
     return sendView(await this.mustSend(row.id));
   }
@@ -716,6 +735,23 @@ export class GlobalSendService {
     const row = rows[0];
     if (!row) throw personalPayError('bank.global_recipient_not_found');
     return row;
+  }
+
+  private async recipientById(id: string): Promise<RecipientRow> {
+    const rows = await this.sql<RecipientRow[]>`
+      SELECT id, user_id, idempotency_key, label, name, account, account_kind, bic, country, removed_at, created_at
+      FROM bank.global_recipients WHERE id = ${id}
+    `;
+    const row = rows[0];
+    if (!row) throw personalPayError('bank.global_recipient_not_found');
+    return row;
+  }
+
+  /** Carries on a send whose hold was released: the same steps, the same checks, the same keys. */
+  async resume(id: string, now: Date = new Date()): Promise<SendView> {
+    const row = await this.mustSend(id);
+    const space = await this.ownedSpace(row.user_id, row.from_space_id, now);
+    return this.drive(row, space, canonical(row.amount).amount, now);
   }
 
   private async recipientByKey(userId: string, idempotencyKey: string): Promise<RecipientRow> {
