@@ -48,7 +48,7 @@ export const deskCopy = defineCopy('support-desk', {
   statusClosed: 'Closed',
   statusOpenHelp: 'Our team has your request and will reply here.',
   statusPendingHelp: 'Our team is working on it. Replies appear in the conversation.',
-  statusOnHoldHelp: 'Our team has paused this request for now. Reply here and our team picks it up again.',
+  statusOnHoldHelp: 'Our team has paused this request. Reply here and our team picks it up again.',
   statusResolvedHelp: 'Marked as resolved. If it is not, reply and the same request opens again.',
   statusClosedHelp: 'Closed. It takes no more messages. Start a new request if you need more help.',
   openRequest: 'Open request: {subject}',
