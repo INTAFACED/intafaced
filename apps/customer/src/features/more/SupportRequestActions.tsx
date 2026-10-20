@@ -2,11 +2,12 @@ import { useId, useRef, useState, type ReactNode } from 'react';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
-import { Details, Select, type useAction } from './common';
+import { Details, Read, Select, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
 import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, showRatePrompt, ticketReference, type ActionReason } from './support-desk';
 import { fileSizeLabel, readAttachment } from './support-attach';
-import { attachFile, closeRequest, rateRequest, readRating } from './support-calls';
+import { attachFile, closeRequest, downloadFile, rateRequest, readAttachLimits, readRating, readTicketFiles } from './support-calls';
+import { SCAN_STATE_KEY, attachLimitsView, canDownload, limitsValues, precheckFile, saveBase64 } from './support-attachments';
 import type { Ticket } from './support-schemas';
 import type { ratingSchema } from './support-calls';
 import type { z } from 'zod';
@@ -221,6 +222,9 @@ function RateControl({
   );
 }
 
+/** A page of the files on one request. A page size has to be asked for; this is only how many rows the list reads. */
+const FILES_PAGE = 100;
+
 function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
@@ -228,17 +232,29 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
   const id = ticket.id;
   const input = useRef<HTMLInputElement>(null);
   const fileId = useId();
-  const [problem, setProblem] = useState<'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | null>(null),
-    [attached, setAttached] = useState<{ id: string; contentType: string; byteLength: number }[]>([]);
+  const [problem, setProblem] = useState<
+      'attachNoFile' | 'attachEmpty' | 'attachUnreadable' | 'refuseAttachLarge' | 'refuseAttachType' | 'attachDownloadFailed' | null
+    >(null),
+    [busyFile, setBusyFile] = useState<string | null>(null);
+  const limits = useResource((signal) => readAttachLimits(api, signal), `support-attach-limits:${userId}`);
+  const files = useResource((signal) => readTicketFiles(api, id, userId, FILES_PAGE, signal), `support-files:${userId}:${id}`);
+  const view = limits.resource.status === 'ready' ? attachLimitsView(limits.resource.data) : null;
+  const off = view?.kind === 'off';
   return (
     <>
       <label className="field" htmlFor={fileId}>
         <span>{copy.t('attachFileLabel')}</span>
-        <input id={fileId} ref={input} type="file" disabled={!state.available || action.disabled} onChange={() => setProblem(null)} />
+        <input
+          id={fileId}
+          ref={input}
+          type="file"
+          disabled={!state.available || action.disabled || off}
+          onChange={() => setProblem(null)}
+        />
       </label>
       <Button
         variant="secondary"
-        disabled={!state.available || action.disabled}
+        disabled={!state.available || action.disabled || off}
         aria-describedby={describedBy}
         onClick={async () => {
           const file = input.current?.files?.[0];
@@ -248,6 +264,9 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
             return setProblem(
               read.reason === 'empty' ? 'attachEmpty' : read.reason === 'tooLarge' ? 'refuseAttachLarge' : 'attachUnreadable',
             );
+          // The service's own limits, already read: spare the person a send the service will refuse.
+          const refused = precheckFile(view, read);
+          if (refused) return setProblem(refused as 'refuseAttachLarge' | 'refuseAttachType');
           setProblem(null);
           const clientRequestId = `attach:${crypto.randomUUID()}`;
           action.stage({
@@ -267,7 +286,7 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
             run: () => attachFile(api, { ticketId: id, userId, ...read, clientRequestId }),
             done: () => {
               if (input.current) input.current.value = '';
-              setAttached((rows) => [...rows, { id: clientRequestId, contentType: read.contentType, byteLength: read.byteLength }]);
+              files.reload();
             },
           });
         }}
@@ -275,25 +294,60 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
         {copy.t('reviewAttach')}
       </Button>
       <Reason id={describedBy}>{line(state, 'attachHelp')}</Reason>
+      {limits.resource.status === 'ready' && view ? (
+        <p className="muted" data-testid="attach-limits">
+          {view.kind === 'ready' ? copy.t('attachLimitsLine', limitsValues(view)) : copy.t('attachLimitsOff')}
+        </p>
+      ) : limits.resource.status === 'failed' ? (
+        <p className="muted" data-testid="attach-limits">
+          {copy.t('attachLimitsUnread')}
+        </p>
+      ) : null}
       {problem && (
         <p className="support-warning" role="alert">
           {copy.t(problem)}
         </p>
       )}
-      {attached.length > 0 && (
-        <div>
-          <small>{copy.t('attachedHeading')}</small>
-          <ul>
-            {attached.map((row) => (
-              <li key={row.id}>
-                <span lang="zxx">
-                  {row.contentType} · {fileSizeLabel(row.byteLength)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <div>
+        <small>{copy.t('attachFilesHeading')}</small>
+        <Read resource={files.resource} retry={files.reload}>
+          {(rows) =>
+            rows.length === 0 ? (
+              <p className="muted">{copy.t('attachNoFiles')}</p>
+            ) : (
+              <ul data-testid="attach-files">
+                {rows.map((row) => (
+                  <li key={row.id}>
+                    <span lang="zxx">{copy.t('attachedRow', { type: row.contentType, size: fileSizeLabel(row.byteLength) })}</span> ·{' '}
+                    <span data-scan-state={row.scanState}>{copy.t(SCAN_STATE_KEY[row.scanState])}</span>
+                    {canDownload(row.scanState) && (
+                      <>
+                        {' '}
+                        <Button
+                          variant="ghost"
+                          disabled={busyFile !== null}
+                          onClick={async () => {
+                            setBusyFile(row.id);
+                            setProblem(null);
+                            const got = await downloadFile(api, row.id);
+                            if (!got.ok || !saveBase64(got.data.bodyBase64, row.id)) setProblem('attachDownloadFailed');
+                            setBusyFile(null);
+                          }}
+                        >
+                          {copy.t('attachDownload')}
+                        </Button>
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </Read>
+        <Button variant="ghost" onClick={files.reload}>
+          {copy.t('refresh')}
+        </Button>
+      </div>
     </>
   );
 }
