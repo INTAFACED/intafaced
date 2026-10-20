@@ -20,7 +20,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
-import { BASE_SEPOLIA_DEPLOYMENT } from './deployments';
+import { ContractsPanel, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -346,6 +346,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   const title = slug === 'chain' ? t('titleChain') : slug === 'dex' ? t('titleDex') : t('titleProtocol');
   const description = slug === 'chain' ? t('descChain') : slug === 'dex' ? t('descDex') : t('descProtocol');
 
+  const configuredChainId = chain.resource.status === 'ready' ? chain.resource.data.configuredChainId : null;
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
       <Answer value={chain} source={t('src_chain')} t={t} shell={{ label: t('tab_status'), headers: [t('hdr_check'), t('hdr_result')] }}>
@@ -421,7 +422,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
 
   let body: ReactNode = null;
-  if (slug === 'chain' && tab === 'status') body = chainStatusPanel;
+  if (slug === 'chain' && tab === 'status')
+    body = (
+      <>
+        {chainStatusPanel}
+        <NetworkPanel chainId={configuredChainId} t={t} />
+      </>
+    );
   else if (slug === 'chain' && tab === 'blocks')
     body = (
       <Panel title={t('tab_blocks')}>
@@ -491,7 +498,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
     );
-  else if (slug === 'dex' && tab === 'venue') body = venuePanel;
+  else if (slug === 'dex' && tab === 'venue')
+    body = (
+      <>
+        {venuePanel}
+        <SupportedNetworksPanel t={t} />
+      </>
+    );
   else if (slug === 'protocol' && tab === 'overview')
     body = (
       <>
@@ -511,21 +524,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts')
-    body = (
-      <Panel title={t('contractsTitle')}>
-        <p className="muted">{t('contractsNote')}</p>
-        <DataTable label={t('contractsTitle')} headers={[t('hdr_contract'), t('hdr_suite'), t('hdr_address')]}>
-          {BASE_SEPOLIA_DEPLOYMENT.contracts.map((contract) => (
-            <tr key={contract.address}>
-              <td>{contract.name}</td>
-              <td>{contract.suite}</td>
-              <td className="numeric">{contract.address}</td>
-            </tr>
-          ))}
-        </DataTable>
-      </Panel>
-    );
+  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chainId={configuredChainId} t={t} />;
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>
