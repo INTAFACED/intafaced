@@ -14,12 +14,23 @@ function sessionStore(sessions: SessionRow[], keys: KeyRow[] = []) {
   let keyWrites = 0;
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    if (text.trim() === 'true') return [];
     if (text.includes('select') && text.includes('from sessions') && text.includes('created_at')) {
       const named = values[0];
       return sessions
         .filter((s) => s.user_id === named && s.revoked === false)
         .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
-        .map((s) => ({ id: s.id, created_at: s.created_at, revoked: s.revoked }));
+        .map((s) => ({
+          id: s.id,
+          family_id: s.id,
+          created_at: s.created_at,
+          signed_in_at: s.created_at,
+          last_used_at: s.created_at,
+          device: null,
+          user_agent: null,
+          ip: null,
+          country: null,
+        }));
     }
     if (text.includes('insert')) {
       throw new Error(`must not invent a session: ${text}`);
