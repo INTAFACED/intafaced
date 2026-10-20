@@ -83,3 +83,54 @@ describe('price alert quota', () => {
     await expect(alerts.setActive('u1', row.id, true)).resolves.toMatchObject({ status: 'active' });
   });
 });
+
+describe('watchlist alert (one rule, several markets)', () => {
+  const MARKETS = ['BTC-USD', 'ETH-USD', 'SOL-USD'];
+  const watch = (marketIds: string[], extra: Record<string, unknown> = {}) => ({
+    userId: 'u1',
+    marketIds,
+    direction: 'above' as const,
+    targetPrice: '100',
+    ...extra,
+  });
+
+  it('creates one alert per market with the same rule, and a market named twice once', async () => {
+    const alerts = rig(10);
+    const rows = await alerts.createMany(watch([...MARKETS, ' BTC-USD ']), NOW);
+    expect(rows.map((r) => r.marketId)).toEqual(MARKETS);
+    expect(rows.every((r) => r.targetPrice === '100' && r.status === 'active' && r.kind === 'price')).toBe(true);
+    expect(new Set(rows.map((r) => r.id)).size).toBe(3);
+    expect(await alerts.quota('u1', NOW)).toEqual({ kind: 'price', used: 3, max: 10 });
+  });
+
+  it('creates none when the batch would pass the cap, and says how many are open and asked for', async () => {
+    const alerts = rig(4);
+    await alerts.create(base, NOW);
+    await alerts.create({ ...base, marketId: 'XRP-USD' }, NOW);
+    await expect(alerts.createMany(watch(MARKETS), NOW)).rejects.toMatchObject({ code: 'alert.quota_reached' });
+    await expect(alerts.createMany(watch(MARKETS), NOW)).rejects.toThrow(/2 are open and 3 more were asked for/);
+    expect(await alerts.list('u1')).toHaveLength(2);
+    await expect(alerts.createMany(watch(MARKETS.slice(0, 2)), NOW)).resolves.toHaveLength(2);
+  });
+
+  it('refuses while the cap is not set, and for a price that is not real, storing nothing', async () => {
+    await expect(rig(null).createMany(watch(MARKETS), NOW)).rejects.toMatchObject({ code: 'notify.alert_quota_unset' });
+    const alerts = rig(10);
+    await expect(alerts.createMany(watch(MARKETS, { targetPrice: '' }), NOW)).rejects.toThrow();
+    await expect(alerts.createMany(watch([]), NOW)).rejects.toMatchObject({ code: 'alert.invalid_market' });
+    expect(await alerts.list('u1')).toHaveLength(0);
+  });
+
+  it('checks the text, expiry and added conditions as a single create does, once for the whole batch', async () => {
+    const alerts = rig(10);
+    await expect(alerts.createMany(watch(MARKETS, { name: 'x' }), NOW)).rejects.toMatchObject({ code: 'notify.alert_text_limit_unset' });
+    expect(await alerts.list('u1')).toHaveLength(0);
+  });
+
+  it('lets two batches racing for the last places through only once', async () => {
+    const alerts = rig(3);
+    const settled = await Promise.allSettled([alerts.createMany(watch(MARKETS), NOW), alerts.createMany(watch(MARKETS), NOW)]);
+    expect(settled.filter((s) => s.status === 'fulfilled')).toHaveLength(1);
+    expect(await alerts.list('u1')).toHaveLength(3);
+  });
+});
