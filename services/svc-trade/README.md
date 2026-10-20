@@ -524,7 +524,7 @@ profit pot does not move.
 ## Calendar spread orders (CB-otc-16)
 
 A spread order is one GTC limit order at a signed spread price over two futures legs of one quote asset, sent to
-svc-matching's spread door (`futures/spread-orders.ts`, table `trade.futures_spread_orders`, migration `0087`).
+svc-matching's spread door (`futures/spread-orders.ts`, table `trade.futures_spread_orders`, migration `0098`).
 Calendar spreads of futures only: a spot leg, an inter-coin listing or legs in different quote assets refuse with a typed
 code. It opens or grows positions; there is no reduce-only, market or amend spread. In one-way mode an order that would
 open a leg's other side refuses at placement, as an outright order does.
