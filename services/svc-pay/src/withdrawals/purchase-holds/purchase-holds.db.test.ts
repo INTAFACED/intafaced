@@ -166,6 +166,33 @@ describe('purchase holds (real Postgres)', () => {
     expect(await availableOf()).toBe('60');
   });
 
+  it('parallel withdrawals under different references cannot together take held funds', async () => {
+    await record('card:pay-1', '60');
+    await holds.setPolicy('founder-1', { holdSeconds: 3 * 3600 });
+    // 100 in the ledger, 60 held: only 40 may leave, however many ask at once.
+    const results = await Promise.allSettled([withdraw('40', 'p-1'), withdraw('40', 'p-2'), withdraw('40', 'p-3'), withdraw('40', 'p-4')]);
+    const sent = results.filter((r) => r.status === 'fulfilled');
+    const refused = results.filter((r) => r.status === 'rejected') as PromiseRejectedResult[];
+    expect(sent).toHaveLength(1);
+    expect(refused.map((r) => r.reason.code)).toEqual([
+      'pay.withdrawal_amount_held',
+      'pay.withdrawal_amount_held',
+      'pay.withdrawal_amount_held',
+    ]);
+    expect(await withdrawalRows()).toBe(1);
+    expect(await availableOf()).toBe('60');
+  });
+
+  it('a claimed withdrawal whose hold is not posted yet still counts against the withdrawable amount', async () => {
+    await record('card:pay-1', '60');
+    await holds.setPolicy('founder-1', { holdSeconds: 3 * 3600 });
+    await db.sql`
+      INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+      VALUES (${USER}, 'USDT', 30, 'card-sandbox', ${db.sql.json(DESTINATION)}, 'claimed-only', 'pending')`;
+    await expect(withdraw('11', 'w-1')).rejects.toMatchObject({ code: 'pay.withdrawal_amount_held', detail: { withdrawable: '10' } });
+    expect((await withdraw('10', 'w-2')).status).toBe('sent');
+  });
+
   it('holds are per customer and per asset', async () => {
     await record('card:pay-1', '60', clock, OTHER);
     expect((await holds.held(USER, 'USDT')).heldAmount).toBe('0');
