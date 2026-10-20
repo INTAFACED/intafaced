@@ -173,6 +173,36 @@ describe('order validation at the boundary', () => {
     expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
   });
 
+  it('carries the typed placement options and refuses a non-positive or malformed one', () => {
+    const ok = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      trailDistance: '5',
+      takeProfit: '95000',
+      stopLoss: '85000',
+      displayQty: '0.1',
+      stpMode: 'cancel_both',
+      tag: 'desk-1',
+      requestDeadline: new Date(1750000000000).toISOString(),
+    });
+    expect(ok.success).toBe(true);
+    for (const bad of [
+      { trailDistance: '0' },
+      { takeProfit: '-1' },
+      { stopLoss: 'abc' },
+      { displayQty: '0' },
+      { stpMode: 'cancel_everything' },
+      { tag: '' },
+      { tag: 'x'.repeat(17) },
+      { requestDeadline: 'soon' },
+    ]) {
+      expect(createOrderRequestSchema.safeParse({ ...base, type: 'limit', price: '90000', ...bad }).success, JSON.stringify(bad)).toBe(
+        false,
+      );
+    }
+  });
+
   it('rejects a GTD order with expireAt "soon"', () => {
     const result = createOrderRequestSchema.safeParse({
       ...base,
