@@ -6,6 +6,7 @@ import {
   APP_CHAIN_ID,
   chainGuard,
   describeRequest,
+  payloadText,
   discoverWallets,
   firstAddress,
   parseChainId,
@@ -87,9 +88,12 @@ export const useWallet = (): WalletApi => useContext(Context);
 
 interface Pending {
   request: SignRequest;
+  account: string;
+  chainId: number;
   resolve: (result: SignResult) => void;
   /** Asks the wallet. Called only after the person continues from the sheet. */
   run: () => Promise<SignResult>;
+  started?: boolean;
 }
 
 export function WalletProvider({ children, discovery = true }: { children: ReactNode; discovery?: boolean }) {
@@ -172,18 +176,28 @@ export function WalletProvider({ children, discovery = true }: { children: React
   useEffect(() => {
     const provider: Eip1193Provider | undefined = connected?.provider;
     if (!provider?.on) return;
+    // A change made in the wallet while the sheet is open voids the sheet: what it showed is no longer what would be signed.
+    const closeOpenRequest = (result: SignResult) =>
+      setPending((current) => {
+        current?.resolve(result);
+        return null;
+      });
     const onAccounts = (accounts: unknown) => {
+      closeOpenRequest({ status: 'rejected' });
       if (!firstAddress(accounts)) disconnect();
       else setAddress(firstAddress(accounts));
     };
-    const onChain = (chain: unknown) => setChainId(parseChainId(chain));
+    const onChain = (chain: unknown) => {
+      closeOpenRequest({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
+      setChainId(parseChainId(chain));
+    };
     provider.on('accountsChanged', onAccounts);
     provider.on('chainChanged', onChain);
     return () => {
       provider.removeListener?.('accountsChanged', onAccounts);
       provider.removeListener?.('chainChanged', onChain);
     };
-  }, [connected, disconnect]);
+  }, [connected, disconnect, t]);
 
   // Disconnect on idle: the person sets the time; blank means never.
   useEffect(() => {
@@ -220,7 +234,13 @@ export function WalletProvider({ children, discovery = true }: { children: React
       const account = address;
       return new Promise<SignResult>((resolve) => {
         // The sheet comes first. The wallet is asked only after the person continues.
-        setPending({ request, resolve, run: () => runSignRequest(wallet.provider, account, request) });
+        setPending({
+          request,
+          account,
+          chainId: chainId ?? APP_CHAIN_ID,
+          resolve,
+          run: () => runSignRequest(wallet.provider, account, request),
+        });
       });
     },
     [connected, address, chainId, t],
@@ -247,12 +267,16 @@ export function WalletProvider({ children, discovery = true }: { children: React
       {pending && (
         <SignSheet
           request={pending.request}
+          account={pending.account}
+          chainId={pending.chainId}
           onCancel={() => {
             pending.resolve({ status: 'rejected' });
             setPending(null);
           }}
           onContinue={async () => {
             const current = pending;
+            if (current.started) return;
+            current.started = true;
             setPending(null);
             current.resolve(await current.run());
           }}
@@ -263,7 +287,19 @@ export function WalletProvider({ children, discovery = true }: { children: React
 }
 
 /** The plain-words sheet that comes before every wallet prompt: what, which contract, amount, spender and expiry. */
-export function SignSheet({ request, onCancel, onContinue }: { request: SignRequest; onCancel: () => void; onContinue: () => void }) {
+export function SignSheet({
+  request,
+  account,
+  chainId,
+  onCancel,
+  onContinue,
+}: {
+  request: SignRequest;
+  account: string;
+  chainId: number;
+  onCancel: () => void;
+  onContinue: () => void;
+}) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const facts = describeRequest(request);
@@ -272,6 +308,14 @@ export function SignSheet({ request, onCancel, onContinue }: { request: SignRequ
       <div data-sheet="sign">
         <p>{t(request.kind === 'transaction' ? 'sheetSends' : request.kind === 'message' ? 'sheetSignsMessage' : 'sheetSignsData')}</p>
         <dl className="protocol-facts">
+          <div>
+            <dt>{t('fact_account')}</dt>
+            <dd className="numeric">{account}</dd>
+          </div>
+          <div>
+            <dt>{t('fact_network')}</dt>
+            <dd>{chainId}</dd>
+          </div>
           {facts.map((fact) => (
             <div key={fact.label}>
               <dt>{t(`fact_${fact.label}`)}</dt>
@@ -279,7 +323,15 @@ export function SignSheet({ request, onCancel, onContinue }: { request: SignRequ
             </div>
           ))}
         </dl>
-        <p className="muted">{t(request.kind === 'transaction' ? 'sheetMovesFunds' : 'sheetMovesNothing')}</p>
+        <details open>
+          <summary>{t('sheetExact')}</summary>
+          <pre className="numeric" data-sheet-payload>
+            {payloadText(request, account, chainId)}
+          </pre>
+        </details>
+        <p className="muted">
+          {t(request.kind === 'transaction' ? 'sheetMovesFunds' : request.kind === 'message' ? 'sheetMovesNothing' : 'sheetMayAuthorise')}
+        </p>
         <Button onClick={onContinue}>{t('sheetContinue')}</Button>{' '}
         <Button variant="secondary" onClick={onCancel}>
           {t('sheetCancel')}

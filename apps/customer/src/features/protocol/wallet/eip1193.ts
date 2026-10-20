@@ -79,7 +79,7 @@ export type SignResult =
 export type SignRequest =
   | { kind: 'typedData'; typedData: TypedDataDocument }
   | { kind: 'message'; message: string }
-  | { kind: 'transaction'; to: string; value?: string; data?: string; summary?: string };
+  | { kind: 'transaction'; to: string; value?: string; data?: string };
 
 export interface TypedDataDocument {
   types: Record<string, Array<{ name: string; type: string }>>;
@@ -101,6 +101,7 @@ export async function runSignRequest(
   account: string,
   request: SignRequest,
   timeoutMs: number = SIGN_TIMEOUT_MS,
+  configuredChain: number = APP_CHAIN_ID,
 ): Promise<SignResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<SignResult>((resolve) => {
@@ -111,7 +112,22 @@ export async function runSignRequest(
   });
   const call = (async (): Promise<SignResult> => {
     try {
+      // The wallet may have changed chain or account while the sheet was open: ask it again, right before the request.
+      const wrongChain: SignResult = {
+        status: 'failed',
+        reason: 'chain_mismatch',
+        message: 'Your wallet is on another network. Switch it and try again. Nothing was signed or sent.',
+      };
+      if (!chainGuard(parseChainId(await provider.request({ method: 'eth_chainId' })), configuredChain).ok) return wrongChain;
+      if (firstAddress(await provider.request({ method: 'eth_accounts' }))?.toLowerCase() !== account.toLowerCase())
+        return { status: 'failed', reason: 'not_connected', message: 'The wallet account changed. Nothing was signed or sent.' };
       if (request.kind === 'typedData') {
+        const domainChain = request.typedData.domain.chainId;
+        if (
+          domainChain !== undefined &&
+          parseChainId(typeof domainChain === 'string' && /^\d+$/.test(domainChain) ? Number(domainChain) : domainChain) !== configuredChain
+        )
+          return wrongChain;
         const signature = await provider.request({ method: 'eth_signTypedData_v4', params: [account, JSON.stringify(request.typedData)] });
         return typeof signature === 'string' && signature.startsWith('0x')
           ? { status: 'signed', signature }
@@ -125,14 +141,7 @@ export async function runSignRequest(
       }
       const hash = await provider.request({
         method: 'eth_sendTransaction',
-        params: [
-          {
-            from: account,
-            to: request.to,
-            ...(request.value ? { value: request.value } : {}),
-            ...(request.data ? { data: request.data } : {}),
-          },
-        ],
+        params: [transactionParams(request, account, configuredChain)],
       });
       return typeof hash === 'string' && /^0x[0-9a-fA-F]{64}$/.test(hash)
         ? { status: 'sent', hash }
@@ -157,32 +166,69 @@ function utf8Hex(text: string): string {
   return `0x${Array.from(new TextEncoder().encode(text), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/** The plain-words facts for the sheet that comes before every wallet prompt (token, amount, spender, expiry). */
+/** The plain-words facts for the sheet that comes before every wallet prompt. Every fact is read from the payload itself. */
 export interface SheetFact {
-  label: 'contract' | 'spender' | 'amount' | 'expiry' | 'action' | 'recipient' | 'value' | 'message';
+  label: 'contract' | 'spender' | 'amount' | 'expiry' | 'action' | 'recipient' | 'value' | 'message' | 'calldata' | 'domain' | 'token';
   value: string;
 }
 const SPENDER_KEYS = ['spender', 'operator', 'delegate'];
 const AMOUNT_KEYS = ['value', 'amount', 'amountIn', 'amountOut', 'inputAmount'];
 const EXPIRY_KEYS = ['expiry', 'deadline', 'expiration', 'validBefore', 'sigDeadline'];
+const TOKEN_KEYS = ['token', 'tokenIn', 'tokenOut'];
+
+/** The first value found for any of `keys`, looking through nested objects (Permit2 keeps token and amount in `details`). */
+function findDeep(source: unknown, keys: string[], depth = 3): string | undefined {
+  if (typeof source !== 'object' || source === null || depth < 0) return undefined;
+  const record = source as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && typeof value !== 'object') return String(value);
+  }
+  for (const value of Object.values(record)) {
+    const found = findDeep(value, keys, depth - 1);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 
 export function describeRequest(request: SignRequest): SheetFact[] {
   if (request.kind === 'message') return [{ label: 'message', value: request.message }];
   if (request.kind === 'transaction')
     return [
       { label: 'recipient', value: request.to },
-      ...(request.value ? [{ label: 'value' as const, value: request.value }] : []),
-      ...(request.summary ? [{ label: 'action' as const, value: request.summary }] : []),
+      { label: 'value', value: request.value ?? '0x0' },
+      { label: 'calldata', value: request.data && request.data !== '0x' ? request.data : 'none' },
     ];
   const { domain, message, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
+  facts.push({ label: 'domain', value: JSON.stringify(domain) });
   if (domain.verifyingContract) facts.push({ label: 'contract', value: domain.verifyingContract });
-  const pick = (keys: string[]) => keys.find((key) => message[key] !== undefined && message[key] !== null);
-  const spender = pick(SPENDER_KEYS);
-  if (spender) facts.push({ label: 'spender', value: String(message[spender]) });
-  const amount = pick(AMOUNT_KEYS);
-  if (amount) facts.push({ label: 'amount', value: String(message[amount]) });
-  const expiry = pick(EXPIRY_KEYS);
-  if (expiry) facts.push({ label: 'expiry', value: String(message[expiry]) });
+  const pairs: Array<[SheetFact['label'], string[]]> = [
+    ['token', TOKEN_KEYS],
+    ['spender', SPENDER_KEYS],
+    ['amount', AMOUNT_KEYS],
+    ['expiry', EXPIRY_KEYS],
+  ];
+  for (const [label, keys] of pairs) {
+    const found = findDeep(message, keys);
+    if (found !== undefined) facts.push({ label, value: found });
+  }
   return facts;
+}
+
+/** The one object both the sheet and the wallet call use, so what is shown is what is sent. */
+export function transactionParams(request: Extract<SignRequest, { kind: 'transaction' }>, account: string, chainId: number) {
+  return { from: account, to: request.to, chainId: toHexChainId(chainId), value: request.value ?? '0x0', data: request.data ?? '0x' };
+}
+
+/** The exact payload the wallet will be asked to sign or send, rendered from the same object that is sent. */
+export function payloadText(request: SignRequest, account: string, chainId: number): string {
+  if (request.kind === 'typedData')
+    return JSON.stringify(
+      { domain: request.typedData.domain, primaryType: request.typedData.primaryType, message: request.typedData.message },
+      null,
+      2,
+    );
+  if (request.kind === 'message') return request.message;
+  return JSON.stringify(transactionParams(request, account, chainId), null, 2);
 }

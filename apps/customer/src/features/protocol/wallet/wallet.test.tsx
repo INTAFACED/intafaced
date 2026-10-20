@@ -22,7 +22,7 @@ const wallet = (accounts: string[] = [ADDR]): DiscoveredWallet => ({
         chain = '0x14a34';
         return null;
       }
-      if (method === 'eth_signTypedData_v4') return '0xsigned';
+      if (method === 'eth_signTypedData_v4' || method === 'personal_sign') return '0xsigned';
       throw new Error(`unexpected ${method}`);
     },
     on: (event, listener) => void listeners.set(event, listener as never),
@@ -146,6 +146,66 @@ describe('wallet provider', () => {
     const go = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Continue in wallet')!;
     await act(async () => go.click());
     expect(result).toEqual({ status: 'signed', signature: '0xsigned' });
+  });
+
+  const openSheet = async (request: Parameters<WalletApi['sign']>[0] = { kind: 'message', message: 'hello' }) => {
+    let result: SignResult | undefined;
+    await act(async () => {
+      void api.sign(request).then((r) => (result = r));
+    });
+    return () => result;
+  };
+  const press = (label: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === label)!;
+
+  it('closes the open sheet as chain_mismatch when the wallet changes chain, and never asks the wallet', async () => {
+    await connected();
+    const result = await openSheet();
+    await act(async () => listeners.get('chainChanged')?.('0x1'));
+    expect(result()).toMatchObject({ status: 'failed', reason: 'chain_mismatch' });
+    expect(document.body.textContent).not.toContain('Check before you sign');
+    expect(calls).not.toContain('personal_sign');
+  });
+
+  it('closes the open sheet when the account changes', async () => {
+    await connected();
+    const result = await openSheet();
+    await act(async () => listeners.get('accountsChanged')?.(['0x2222222222222222222222222222222222222222']));
+    expect(result()).toEqual({ status: 'rejected' });
+    expect(calls).not.toContain('personal_sign');
+  });
+
+  it('checks the chain again on Continue even if no event arrived', async () => {
+    await connected();
+    const result = await openSheet();
+    chain = '0x1';
+    await act(async () => press('Continue in wallet').click());
+    expect(result()).toMatchObject({ status: 'failed', reason: 'chain_mismatch' });
+    expect(calls).not.toContain('personal_sign');
+  });
+
+  it('shows the exact payload, the account and the chain, and says a permit-like signature can authorise spending', async () => {
+    await connected();
+    await openSheet({
+      kind: 'typedData',
+      typedData: { types: {}, primaryType: 'PermitSingle', domain: { chainId: 84532 }, message: { spender: ADDR } },
+    });
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Exact data');
+    expect(text).toContain('PermitSingle');
+    expect(text).toContain('84532');
+    expect(text).toContain('can let a contract or another address act on your behalf');
+    expect(text).not.toContain('moves no funds');
+  });
+
+  it('a double press of Continue asks the wallet once', async () => {
+    await connected();
+    await openSheet();
+    const go = press('Continue in wallet');
+    await act(async () => {
+      go.click();
+      go.click();
+    });
+    expect(calls.filter((c) => c === 'personal_sign')).toHaveLength(1);
   });
 
   it('restores a wallet that is still authorised without a prompt', async () => {
