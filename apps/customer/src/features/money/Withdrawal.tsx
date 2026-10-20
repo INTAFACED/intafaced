@@ -7,6 +7,7 @@ import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
+import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { withdrawalCopy } from './withdrawal-copy';
 import {
@@ -315,6 +316,9 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
           <p>
             <a className="text-link" href="/uc/withdraw/approvals">
               {approvalCopy.t('title')} ↗
+            </a>{' '}
+            <a className="text-link" href="/uc/withdraw/allowlist">
+              {allowlistCopy.t('title')} ↗
             </a>
           </p>
         )}

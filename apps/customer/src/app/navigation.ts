@@ -140,6 +140,7 @@ export const rooms: readonly Room[] = [
   { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Assets', area: 'money' },
   { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Assets', area: 'money' },
   { path: '/uc/withdraw/approvals', title: 'Approvals', description: 'Withdrawals waiting for your team', door: 'Assets', area: 'money' },
+  { path: '/uc/withdraw/allowlist', title: 'Address list', description: 'Where withdrawals may go', door: 'Assets', area: 'money' },
   { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Assets', area: 'money' },
   {
     path: '/uc/record',
