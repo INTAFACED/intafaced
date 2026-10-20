@@ -22,6 +22,19 @@ describe('support contact channels', () => {
     ['email', 'a@b', 'not_an_address'],
     ['email', 'a@b.c;d@e.f', 'not_an_address'],
     ['email', '<a@b.test>', 'not_an_address'],
+    ['email', 'a@b.test?cc=x.y', 'not_an_address'],
+    ['email', 'help@b.test?to=evil%40x.test', 'not_an_address'],
+    ['email', 'a@b.test#frag', 'not_an_address'],
+    ['email', 'a@b.test%0d%0aBcc', 'not_an_address'],
+    ['email', 'a@b.test\u0000', 'not_an_address'],
+    ['email', 'a\u202e@b.test', 'not_an_address'],
+    ['email', 'a@b.test/..', 'not_an_address'],
+    ['email', '.a@b.test', 'not_an_address'],
+    ['email', 'a..b@x.test', 'not_an_address'],
+    ['email', 'a@-b.test', 'not_an_address'],
+    ['email', 'a@b.test.', 'not_an_address'],
+    ['email', 'a@b.t', 'not_an_address'],
+    ['email', 'first.last+tag@mail.example.test', null],
     ['email', `${'a'.repeat(250)}@b.test`, 'too_long'],
     ['phone', '+1 (555) 010-0199', null],
     ['phone', '555', 'not_a_number'],
@@ -30,6 +43,9 @@ describe('support contact channels', () => {
     ['chatHours', 'Mon to Fri, 09:00 to 17:00 UTC', null],
     ['chatHours', 'open <b>now</b>', 'not_text'],
     ['chatHours', 'line\nbreak', 'not_text'],
+    ['chatHours', 'open\u202enow', 'not_text'],
+    ['chatHours', 'open\u200bnow', 'not_text'],
+    ['phone', '+44 20 7946 0958 ext 12', 'not_a_number'],
     ['chatHours', '   ', 'empty'],
   ] as const)('judges %s %j as %s', (setting, value, expected) => {
     expect(supportContactProblem(setting, value)).toBe(expected);
@@ -40,6 +56,12 @@ describe('support contact channels', () => {
     expect(supportContactSetInputSchema.safeParse({ ...base, email: 'help@example.test' }).success).toBe(true);
     expect(supportContactSetInputSchema.safeParse({ ...base, email: null }).success).toBe(true);
     expect(supportContactSetInputSchema.safeParse({ ...base, phone: '+1 555 010 0199', chatHours: null }).success).toBe(true);
+  });
+
+  it('parses a value trimmed, so what was judged is what is stored', () => {
+    const parsed = supportContactSetInputSchema.parse({ expectedRevision: 0, reason: 'r', email: '  a@b.test  ', chatHours: ' 9 to 5 ' });
+    expect(parsed.email).toBe('a@b.test');
+    expect(parsed.chatHours).toBe('9 to 5');
   });
 
   it.each([
