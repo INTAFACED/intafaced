@@ -356,8 +356,6 @@ export type BankErrorCode =
   | 'bank.offramp_cooling_active'
   /** Persisted dest missing — later withdraw has no real ref before withdrawHold. */
   | 'bank.withdraw_destination_missing'
-  /** More than one saved address could take this withdrawal and none was named. Refuses closed; the customer picks one. */
-  | 'bank.withdraw_destination_ambiguous'
   /** Another saved address of this customer already has this label (case ignored). */
   | 'bank.destination_label_taken'
   /** The address book holds as many entries as the owner allows. */

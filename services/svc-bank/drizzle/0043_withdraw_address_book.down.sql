@@ -1,5 +1,6 @@
 -- Reverses 0043. Fails closed: a saved book entry has no place in the one-slot-per-kind table, and this does not
--- delete a customer's saved address to make the old key fit.
+-- delete a customer's saved address to make the old key fit. It does not undo the " (2)" suffix the up migration
+-- gave a duplicated legacy label.
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM "bank"."user_withdraw_destinations" WHERE "origin" <> 'legacy') THEN

@@ -484,7 +484,6 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.deposit_asset_unpublished':
       case 'bank.deposit_pending_unbounded':
       case 'bank.withdraw_destination_missing':
-      case 'bank.withdraw_destination_ambiguous':
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
@@ -3626,7 +3625,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           ),
         ),
 
-      /** Rename. Changes only the label, so `bank:write` is enough and the cooling window does not restart. */
+      /**
+       * Rename. Changes only the label, so `bank:write` is enough and the cooling window does not restart. It cannot
+       * add or change an address; a stolen plain token could only swap labels between the customer's own saved ones.
+       */
       rename: scopedProcedure('bank:write', { module: 'bank' })
         .input(z.object({ destinationId: z.string().uuid(), label: z.string().min(1).max(64) }).strict())
         .output(destinationViewOutput)

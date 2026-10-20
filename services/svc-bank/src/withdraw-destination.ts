@@ -48,7 +48,7 @@ export type SaveDestinationInput = {
 export type UserWithdrawDestinations = {
   /** The legacy slot: one address per kind, overwritten by the next. Kept for the offramp and `setWithdrawDestination`. */
   persist(input: { userId: string; kind: string; ref: string; label?: string }): Promise<WithdrawDestination>;
-  /** The address a withdrawal of this kind uses: the legacy slot, else the only saved one. More than one refuses. */
+  /** The address a withdrawal of this kind uses: the legacy slot only. A saved book entry is never picked for the customer. */
   require(input: { userId: string; kind: string }): Promise<WithdrawDestination>;
   list(userId: string): Promise<WithdrawDestination[]>;
   /** Save an address-book entry. The same (asset, network, address, tag) again returns the stored entry unchanged. */
@@ -204,9 +204,6 @@ export function assertPersistableWithdrawDestination(destination: { kind: string
 const MISSING = (userId: string, what: string) =>
   new BankError(`User ${userId} has no persisted withdraw destination ${what}`, 'bank.withdraw_destination_missing');
 
-const AMBIGUOUS = () =>
-  new BankError('More than one saved address could take this withdrawal. Choose which one to use', 'bank.withdraw_destination_ambiguous');
-
 const LABEL_TAKEN = () => new BankError('You already have a saved address with this name', 'bank.destination_label_taken');
 
 const BOOK_FULL = () => new BankError('Your address book is full. Remove an address to save a new one', 'bank.address_book_full');
@@ -285,12 +282,9 @@ export function memoryWithdrawDestinations(options: DestinationStoreOptions = {}
     },
     async require(input) {
       const kind = asKind(input.kind);
-      const mine = of(input.userId).filter((row) => row.kind === kind);
-      const legacy = mine.find((row) => row.origin === 'legacy');
-      if (legacy) return strip(legacy);
-      if (mine.length === 0) throw MISSING(input.userId, `for kind ${kind}`);
-      if (mine.length > 1) throw AMBIGUOUS();
-      return strip(mine[0]!);
+      const legacy = of(input.userId).find((row) => row.origin === 'legacy' && row.kind === kind);
+      if (!legacy) throw MISSING(input.userId, `for kind ${kind}`);
+      return strip(legacy);
     },
     async list(userId) {
       return of(userId)
@@ -394,18 +388,19 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     }
   }
 
+  /**
+   * Legacy slot only, exactly as before the address book. A saved entry needs its own asset, network and memo to be
+   * paid correctly, and the offramp names none of them, so it is never chosen for the customer here.
+   */
   async require(input: { userId: string; kind: string }): Promise<WithdrawDestination> {
     const kind = asKind(input.kind);
     const rows = await this.sql<DestinationRow[]>`
       SELECT ${this.sql.unsafe(COLUMNS)}
         FROM bank.user_withdraw_destinations
-       WHERE user_id = ${input.userId} AND kind = ${kind}
-       ORDER BY (origin = 'legacy') DESC, created_at ASC
+       WHERE user_id = ${input.userId} AND kind = ${kind} AND origin = 'legacy'
     `;
-    const first = rows[0];
-    if (!first) throw MISSING(input.userId, `for kind ${kind}`);
-    if (first.origin !== 'legacy' && rows.length > 1) throw AMBIGUOUS();
-    return toDestination(first);
+    if (!rows[0]) throw MISSING(input.userId, `for kind ${kind}`);
+    return toDestination(rows[0]);
   }
 
   async list(userId: string): Promise<WithdrawDestination[]> {
@@ -423,7 +418,8 @@ export class UserWithdrawDestinationStore implements UserWithdrawDestinations {
     const cap = requireAddressBookCap(this.options.addressBookCap?.());
     try {
       return await transaction(this.sql, async (tx) => {
-        // One save at a time per customer, so the cap and the label cannot both be passed by two racing saves.
+        // Serialising saves per customer; the transaction is SERIALIZABLE and retried, which is what holds the cap when
+        // two saves race. The unique label index backs the label rule.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`withdraw-address-book:${input.userId}`}))`;
         const same = await tx<DestinationRow[]>`
           SELECT ${tx.unsafe(COLUMNS)}

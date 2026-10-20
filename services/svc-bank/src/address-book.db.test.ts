@@ -173,14 +173,14 @@ describe.each(stores)('address book: %s', (_name, make) => {
     expect((await store.require({ userId: u, kind: 'crypto' })).ref).toBe(ADDR_B);
   });
 
-  it('uses the only saved address for a withdrawal, and refuses to pick between several', async () => {
+  it('never picks a saved address for a withdrawal: only the legacy slot answers `require`', async () => {
     const store = make();
     const u = fresh();
     await expect(store.require({ userId: u, kind: 'crypto' })).rejects.toMatchObject({ code: 'bank.withdraw_destination_missing' });
-    const only = await save(store, u, { label: 'Only' });
-    expect((await store.require({ userId: u, kind: 'crypto' })).destinationId).toBe(only.destinationId);
+    await save(store, u, { label: 'Only', tag: '42' });
+    await expect(store.require({ userId: u, kind: 'crypto' })).rejects.toMatchObject({ code: 'bank.withdraw_destination_missing' });
     await save(store, u, { ref: ADDR_B, label: 'Second' });
-    await expect(store.require({ userId: u, kind: 'crypto' })).rejects.toMatchObject({ code: 'bank.withdraw_destination_ambiguous' });
+    await expect(store.require({ userId: u, kind: 'crypto' })).rejects.toMatchObject({ code: 'bank.withdraw_destination_missing' });
   });
 
   it('stops a legacy label from taking a saved address’s name', async () => {
