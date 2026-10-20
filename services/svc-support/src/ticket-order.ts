@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { identitySecretSet } from './identity-grounding-honesty.js';
 
 /**
@@ -98,20 +98,28 @@ export const SUPPORT_ORDER_READ_PATH = '/internal/orders/';
  * The route is the consumer contract. Until trade serves it, a configured URL
  * that does not answer is `trade_silent`, which the desk shows as unknown.
  */
-export function createTicketOrderClient(baseUrl: string, internalSecret: string): TicketOrderSource {
+export function createTicketOrderClient(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-support's own key. With it the call is key-signed for svc-trade; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): TicketOrderSource {
   if (!identitySecretSet(internalSecret)) return new DarkTicketOrderSource();
 
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-support', audience: 'svc-trade', legacySecret: internalSecret, s2s });
 
   return {
     async read(orderId: string): Promise<TicketOrderReadResult> {
       let response: Response;
       try {
-        response = await fetch(`${url}${SUPPORT_ORDER_READ_PATH}${encodeURIComponent(orderId)}`, {
+        const target = `${url}${SUPPORT_ORDER_READ_PATH}${encodeURIComponent(orderId)}`;
+        response = await fetch(target, {
           method: 'GET',
           headers: {
             accept: 'application/json',
-            ...serviceAuthHeadersForBody('svc-support', internalSecret, ''),
+            // No content-type is sent on this read, so none is signed: the signature commits to the headers as they go out.
+            ...sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           },
         });
       } catch {

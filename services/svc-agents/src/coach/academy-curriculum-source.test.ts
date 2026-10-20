@@ -144,7 +144,7 @@ describe('createAcademyCurriculumSource — signs with svc-agents own key when i
     expect(grounding.items).toEqual(SPINE);
     const { headers, url } = seen[0]!;
     const target = new URL(url);
-    const verdict = createServiceVerifier({ self: 'svc-academy', keyring }).verify({
+    const verdict = createServiceVerifier({ self: 'svc-academy', keyring, bootSecond: 0 }).verify({
       method: 'GET',
       url: target.pathname + target.search,
       headers,

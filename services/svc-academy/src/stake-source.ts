@@ -1,5 +1,5 @@
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { AcademyError } from './errors.js';
 
 /**
@@ -30,17 +30,26 @@ export interface StakeSource {
  * `scopedProcedure` and would require this service to forward a user principal
  * it does not hold.
  */
-export function createStakeSource(baseUrl: string, internalSecret: string): StakeSource {
+export function createStakeSource(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-academy's own key. With it the call is key-signed; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): StakeSource {
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-academy', audience: 'svc-token', legacySecret: internalSecret, s2s });
 
   return {
     async stakeOf(userId: string): Promise<Amount> {
       let response: Response;
       try {
-        const body = '';
-        response = await fetch(`${url}/internal/stake/${encodeURIComponent(userId)}`, {
+        const target = `${url}/internal/stake/${encodeURIComponent(userId)}`;
+        response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-academy', internalSecret, body) },
+          headers: {
+            'content-type': 'application/json',
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
         });
       } catch (err) {
         throw new AcademyError(`Stake gate unavailable: ${(err as Error).message}`, 'academy.stake_unavailable');
