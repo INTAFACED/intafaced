@@ -3240,7 +3240,7 @@ export class TradeService {
     // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
     const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
     if (makerIsHouseMm || makerIsHouseMmRow) {
-      const rates = this.ratesForFill(0, taker.feeDiscountBps, market.kind);
+      const rates = this.ratesForFill(0, taker.feeDiscountBps, market.kind, market.symbol);
       const takerBuys = fill.takerSide === 'buy';
       // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
       // (recipe throws; re-run throws). Inserting first left remainingHold
@@ -3413,7 +3413,7 @@ export class TradeService {
     // Both rates in one place: `tradeFill` posts them in one six-entry
     // transaction, and resolving them apart would let one side's rounding drift
     // from the other's without anything failing.
-    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind);
+    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind, market.symbol);
 
     const takerBuys = fill.takerSide === 'buy';
     // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe
@@ -3666,15 +3666,26 @@ export class TradeService {
     }
   }
 
-  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number, kind: 'spot' | 'futures' | 'options' = 'spot') {
+  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number, kind: 'spot' | 'futures' | 'options' = 'spot', symbol?: string) {
     if (kind === 'options') {
       throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
     }
     try {
-      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps, kind === 'futures' ? 'perpetual' : 'spot');
+      return feeRatesForFill(
+        this.feeSchedule,
+        makerDiscountBps,
+        takerDiscountBps,
+        kind === 'futures' ? 'perpetual' : 'spot',
+        symbol === undefined ? undefined : { symbol },
+      );
     } catch (err) {
       if (err instanceof FeeScheduleError) {
-        const code = err.code === 'trade.fee_product_unpublished' ? 'trade.fee_product_unpublished' : 'trade.fee_schedule_blank';
+        const code =
+          err.code === 'trade.fee_product_unpublished' ||
+          err.code === 'trade.rebate_recipe_unavailable' ||
+          err.code === 'trade.min_fee_recipe_unavailable'
+            ? err.code
+            : 'trade.fee_schedule_blank';
         throw new TradeError(err.message, code);
       }
       throw err;
