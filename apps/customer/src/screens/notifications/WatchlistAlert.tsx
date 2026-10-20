@@ -45,7 +45,8 @@ export function WatchlistAlert({
   room: number | null;
   blockedReason: BlockedReason | null;
   busy: boolean;
-  onSave: (intent: WatchlistIntent) => void;
+  /** Sends the reviewed intent. `refused` means nothing was saved and the person may change it; the others end this attempt. */
+  onSave: (intent: WatchlistIntent) => Promise<'saved' | 'unknown' | 'refused'>;
 }) {
   const copy = alertsCopy.useCopy();
   const id = useId();
@@ -96,7 +97,7 @@ export function WatchlistAlert({
           <dl className="nf-facts">
             <div>
               <dt>{copy.t('watchReviewMarkets')}</dt>
-              <dd>{picked.map((market) => market.label).join(', ')}</dd>
+              <dd>{review.marketIds.map((marketId) => markets.find((market) => market.id === marketId)?.label ?? marketId).join(', ')}</dd>
             </div>
             <div>
               <dt>{copy.t('reviewWhen')}</dt>
@@ -119,7 +120,16 @@ export function WatchlistAlert({
               loading={busy}
               disabled={busy || blockedReason !== null}
               onClick={() => {
-                onSave(review);
+                void onSave(review).then((result) => {
+                  // A saved or unsure attempt is over: sending the same batch again would double it.
+                  if (result === 'refused') return;
+                  setReview(null);
+                  if (result === 'saved') {
+                    setChosen(new Set());
+                    setPrice('');
+                    setTouched(false);
+                  }
+                });
               }}
             >
               {copy.t(busy ? 'saving' : 'watchSave', { count: String(review.marketIds.length) })}

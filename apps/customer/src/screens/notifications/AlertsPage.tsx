@@ -295,9 +295,9 @@ export default function AlertsPage() {
   }
 
   /** Save one alert on each chosen market, all or none. Sent at most once: the service takes no request id. */
-  async function saveWatchlist(intent: WatchlistIntent) {
-    if (!userId || busy !== null || unsure) return;
-    if (!gate.current.enter()) return;
+  async function saveWatchlist(intent: WatchlistIntent): Promise<'saved' | 'unknown' | 'refused'> {
+    if (!userId || busy !== null || unsure) return 'refused';
+    if (!gate.current.enter()) return 'refused';
     setBusy('watchlist');
     setNotice(null);
     try {
@@ -309,6 +309,7 @@ export default function AlertsPage() {
         reload();
         triggers.reload();
       }
+      return outcome.kind === 'saved' ? 'saved' : outcome.kind === 'refused' ? 'refused' : 'unknown';
     } finally {
       gate.current.leave();
       setBusy(null);
@@ -693,7 +694,7 @@ export default function AlertsPage() {
         }
         blockedReason={blockedReason}
         busy={busy === 'watchlist'}
-        onSave={(intent) => void saveWatchlist(intent)}
+        onSave={saveWatchlist}
       />
 
       <section className="nf-card" aria-label={copy.t('listLabel')} aria-busy={state.status === 'loading' || undefined}>
