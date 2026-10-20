@@ -129,14 +129,19 @@ function rowsFor(book: OrderBook): Map<string, TrailLive> {
   return rows;
 }
 
-/** Injected mark. Walks every live trailing stop on this book. Never invents one. */
+/**
+ * Injected mark. Walks every live trailing stop on this book. Never invents one.
+ * The peak only ratchets and the trigger only tightens, so a repeated or older mark changes nothing.
+ * `changed` is true only when a peak or a trigger moved.
+ */
 export function applyMark(
   book: OrderBook,
   mark: Amount | null,
-): { readonly refused: { readonly code: TrailingRefuse; readonly message: string } | null } {
+): { readonly refused: { readonly code: TrailingRefuse; readonly message: string } | null; readonly changed: boolean } {
   const refuse = markRefuse(mark);
-  if (refuse) return { refused: refuse };
-  if (mark === null) return { refused: null };
+  if (refuse) return { refused: refuse, changed: false };
+  if (mark === null) return { refused: null, changed: false };
+  let changed = false;
   const rows = rowsFor(book);
   const state = book.toState();
   for (const [orderId, rec] of rows) {
@@ -151,7 +156,10 @@ export function applyMark(
     if (next === null || next <= ZERO) continue;
     const current = parseAmount(stop.stopPrice);
     if (!triggerTightened(side, next, current)) {
-      if (peak !== rec.peak && book.noteStopPeak(orderId, peak)) rec.peak = peak;
+      if (peak !== rec.peak && book.noteStopPeak(orderId, peak)) {
+        rec.peak = peak;
+        changed = true;
+      }
       continue;
     }
     const amended = book.amend({
@@ -165,8 +173,9 @@ export function applyMark(
       continue;
     }
     rec.peak = peak;
+    changed = true;
   }
-  return { refused: null };
+  return { refused: null, changed };
 }
 
 export function installTrailingStop(ctor: typeof OrderBook): void {

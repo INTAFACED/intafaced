@@ -1,4 +1,6 @@
+import { parseAmount } from '@intafaced/ledger-client/money';
 import { OrderBook } from './book.js';
+import { applyMark } from './trailing-stop.js';
 import type { BookState, CancelledRef, Fill, MarketId, TriggerOutcome } from './types.js';
 import type { JournalRecord } from './journal-codec.js';
 import { fromWire, fromWireAmend } from './journal-wire.js';
@@ -137,6 +139,10 @@ export function replayJournal(records: readonly JournalRecord[]): {
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
       continue;
     }
+    if (record.kind === 'mark') {
+      applyMark(existing, parseAmount(record.mark));
+      continue;
+    }
     if (record.kind === 'mass_cancel') {
       existing.cancelAccount(record.accountId, record.side ?? null);
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
@@ -216,6 +222,10 @@ export function replayFrom(snapshot: EngineSnapshot, records: readonly JournalRe
     if (record.kind === 'amend') {
       existing.amend(fromWireAmend(record.orderId, record.expectedVersion, record.patch), journalClock(record.at));
       if (existing.isNeverPrintedEmpty) books.delete(record.marketId);
+      continue;
+    }
+    if (record.kind === 'mark') {
+      applyMark(existing, parseAmount(record.mark));
       continue;
     }
     if (record.kind === 'mass_cancel') {
