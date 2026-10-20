@@ -202,6 +202,14 @@ const schema = serviceEnvSchema
             : undefined,
         z.array(z.enum(['managed', 'derivatives', 'spot'])).optional(),
       ),
+      /**
+       * Owner setting: which trading features each sub-account kind may have turned on. `kind:feature+feature`, kinds
+       * separated by commas, e.g. `standard:spot+convert,managed:spot`. Features: spot, convert, futures, algo, copy.
+       * NO DEFAULT. Blank, or any unknown kind or feature, offers nothing and `subAccounts.setFeatures` refuses
+       * (`identity.sub_account_features_unset`). Futures stays refused until the main account's derivatives eligibility
+       * can be read.
+       */
+      IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

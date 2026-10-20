@@ -84,6 +84,8 @@ import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
+import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
+import type { SubAccountFeatureService } from './sub-accounts/sub-account-features.js';
 import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 
@@ -557,6 +559,8 @@ export function createIdentityRouter(
     closure?: AccountClosureService;
     /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
     subAccountDelete?: SubAccountDeleteService;
+    /** Sub-account trading features. Absent → `subAccounts.setFeatures` refuses `identity.sub_account_features_unset`. */
+    subAccountFeatures?: SubAccountFeatureService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -2016,6 +2020,7 @@ export function createIdentityRouter(
 
     subAccounts: router({
       ...createSubAccountDeleteProcedures(options.subAccountDelete),
+      ...createSubAccountFeatureProcedures(options.subAccountFeatures),
       create: scopedProcedure('identity:write')
         .input(
           z.object({

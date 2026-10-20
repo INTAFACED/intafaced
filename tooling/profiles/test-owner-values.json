@@ -90,6 +90,11 @@
       "service": "bank",
       "value": "USDT",
       "note": ""
+    },
+    "IDENTITY_SUB_ACCOUNT_FEATURES": {
+      "service": "identity",
+      "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
+      "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     }
   }
 }
