@@ -9,13 +9,15 @@ import { BankError } from '../errors.js';
  * transaction's own entries say what actually moved, so a caller that is about to record a send as booked reads them.
  */
 export async function bookedTransferMatches(
-  ledger: Pick<LedgerClient, 'balance'>,
-  tx: Pick<LedgerTx, 'entries'>,
+  ledger: Pick<LedgerClient, 'balance' | 'getTx'>,
+  receipt: Pick<LedgerTx, 'id' | 'entries'>,
   from: AccountRef,
   to: AccountRef,
   amount: Amount,
 ): Promise<boolean> {
-  if (tx.entries.length !== 2) return false;
+  // An older svc-ledger may answer a post with no entries on the receipt. Only the transaction itself says what moved.
+  const tx = receipt.entries.length > 0 ? receipt : await ledger.getTx(receipt.id);
+  if (tx === null || tx.entries.length !== 2) return false;
   const fromAccountId = (await ledger.balance(from)).accountId;
   const toAccountId = (await ledger.balance(to)).accountId;
   if (fromAccountId === '' || toAccountId === '') return false;
