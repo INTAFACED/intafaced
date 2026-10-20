@@ -7,7 +7,7 @@ name: Main trust
 #   red, first attempt   re-run the failed jobs once
 #   red, second attempt  open one "Main is red" issue
 #   green after re-run   open one "Flaky on main: <test file>" issue per test that failed first
-#   green                move the `last-green` branch forward
+#   green                move the `last-green` branch forward, close the "Main is red" issue it settles
 #
 # No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs.
 on:
