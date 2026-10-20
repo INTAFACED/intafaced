@@ -178,9 +178,9 @@ export interface SpreadFillEvent {
 }
 
 /**
- * Where spread fills go. There is no spread-fill subject in the event catalog yet, so production has no publisher and
- * spread orders refuse `spread_fill_event_unwired` before they are journalled: a maker fill nobody announces would
- * strand that maker's hold.
+ * Where spread fills go: production publishes them on `matching.spread.filled` (`spread-fill-publisher.ts`). An engine
+ * built without one refuses spread orders `spread_fill_event_unwired` before they are journalled: a maker fill nobody
+ * announces would strand that maker's hold.
  */
 export interface SpreadFillPublisher {
   publish(event: SpreadFillEvent, opts: { readonly idempotencyKey: string }): Promise<unknown> | unknown;

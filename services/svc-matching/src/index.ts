@@ -7,6 +7,7 @@ import { JetStreamEventBus } from '@intafaced/events';
 import { createReplayLedgerClient } from './replay-ledger-client.js';
 import { env } from './env.js';
 import { MatchingEngine, MemorySnapshotSink } from './engine/engine.js';
+import { spreadFillPublisherFor } from './spread-fill-publisher.js';
 import { installCodFence } from './engine/cod-fence.js';
 import { installAuctionUncross } from './engine/auction-uncross.js';
 import { installCollars } from './engine/collars.js';
@@ -91,6 +92,8 @@ const engine = new MatchingEngine({
   snapshotEvery: env.MATCHING_SNAPSHOT_EVERY,
   snapshotSink,
   enabled: env.MATCHING_ENGINE_ENABLED,
+  // Spread fills go out on matching.spread.filled (CB-otc-16); without a publisher every spread order refuses.
+  spreadFills: spreadFillPublisherFor(bus),
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });
