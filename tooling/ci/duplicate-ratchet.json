@@ -53,10 +53,6 @@
     "services/svc-dex/src/router-quote.ts": {
       "scale": 1
     },
-    "services/svc-edge/src/action-approval-consume.ts": {
-      "unwrap": 1,
-      "fetch": 1
-    },
     "services/svc-edge/src/api-key-account.ts": {
       "unwrap": 2
     },

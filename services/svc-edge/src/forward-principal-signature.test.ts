@@ -105,4 +105,30 @@ describe('every door that forwards a principal signs with the edge key when one 
     );
     expect(verified.principal?.userId).toBe(OPERATOR);
   });
+
+  it('bounds the consume call with a timeout signal, and a timeout rejects instead of approving', async () => {
+    const operator = await founder();
+    const signals: (AbortSignal | null | undefined)[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      signals.push(init.signal);
+      throw new DOMException('The operation timed out', 'TimeoutError');
+    });
+    const consumer = createHttpEdgeApprovalConsumer({ identityUrl: 'http://identity.test', edgeSecret: EDGE_SECRET, region: 'GB' });
+    await expect(consumer.consume(consumeInput, operator)).rejects.toBeTruthy();
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it.each([
+    ['a body that is not JSON', () => new Response('<html>', { status: 200 })],
+    ['a reply that is not an approval', () => new Response(JSON.stringify({ result: { data: { ok: true } } }), { status: 200 })],
+    ['an empty reply', () => new Response('{}', { status: 200 })],
+  ])('refuses %s with a typed error', async (_name, reply) => {
+    const operator = await founder();
+    captureFetch(reply);
+    const consumer = createHttpEdgeApprovalConsumer({ identityUrl: 'http://identity.test', edgeSecret: EDGE_SECRET, region: 'GB' });
+    await expect(consumer.consume(consumeInput, operator)).rejects.toMatchObject({
+      name: 'ActionApprovalConsumeError',
+      code: 'action_approval.consume_failed',
+    });
+  });
 });
