@@ -239,6 +239,37 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     { name: 'futuresMarginRelease', post: recipes.futuresMarginRelease({ positionId: 'pos1', userId: U, assetId: 'USDT', amount: AMT }) },
     {
+      name: 'futuresOrderMarginHold',
+      post: recipes.futuresOrderMarginHold({ orderId: 'o1', userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'futuresOrderMarginRelease',
+      post: recipes.futuresOrderMarginRelease({ orderId: 'o1', userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o1',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos1',
+        fillId: 'm1:1:pos1',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o1',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos1',
+        fillId: 'm1:1:pos1',
+        amount: AMT,
+        releaseAmount: AMT,
+      }),
+    },
+    {
       name: 'futuresRealizeLoss',
       post: recipes.futuresRealizeLoss({
         positionId: 'pos1',
@@ -838,6 +869,39 @@ function extraShapePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         userId: U,
         assetId: 'USDT',
         amount: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginHold',
+      post: recipes.futuresOrderMarginHold({ orderId: 'o-sub', userId: U, assetId: 'USDT', amount: AMT, subAccountId: S1 }),
+    },
+    {
+      name: 'futuresOrderMarginRelease',
+      post: recipes.futuresOrderMarginRelease({ orderId: 'o-sub', userId: U, assetId: 'USDT', amount: AMT, subAccountId: S1 }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o-sub',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos-sub',
+        fillId: 'm1:1:pos-sub',
+        amount: AMT,
+        subAccountId: S1,
+      }),
+    },
+    {
+      name: 'futuresOrderMarginApply',
+      post: recipes.futuresOrderMarginApply({
+        orderId: 'o-sub',
+        userId: U,
+        assetId: 'USDT',
+        positionId: 'pos-sub',
+        fillId: 'm1:1:pos-sub',
+        amount: AMT,
+        releaseAmount: AMT,
         subAccountId: S1,
       }),
     },

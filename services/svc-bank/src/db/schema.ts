@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
@@ -994,8 +995,8 @@ export const rampOfframps = bank.table(
 
 /**
  * Where a user is paid out on withdraw — kind+ref asserted (IBAN/IFSC/EVM)
- * before insert. One row per (user, kind). Loaded by offramp so withdrawHold
- * never runs against an invented dest.
+ * before insert. The `legacy` row is one per (user, kind) and is the one the offramp loads, so withdrawHold
+ * never runs against an invented dest. A `customer` row is a saved address-book entry (migration 0043).
  */
 export const userWithdrawDestinations = bank.table(
   'user_withdraw_destinations',
@@ -1005,12 +1006,19 @@ export const userWithdrawDestinations = bank.table(
     ref: text('ref').notNull(),
     destinationId: uuid('destination_id').notNull().defaultRandom(),
     label: text('label'),
+    assetId: text('asset_id'),
+    network: text('network'),
+    tag: text('tag'),
+    origin: text('origin').notNull().default('legacy'),
+    state: text('state').notNull().default('active'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [
-    primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.userId, t.kind] }),
-    uniqueIndex('user_withdraw_destinations_id_idx').on(t.destinationId),
+    primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),
+    uniqueIndex('user_withdraw_destinations_legacy_idx')
+      .on(t.userId, t.kind)
+      .where(sql`${t.origin} = 'legacy'`),
   ],
 );
 

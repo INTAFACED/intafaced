@@ -140,6 +140,34 @@ describe('the create door and the options spot does not act on', () => {
     await app.close();
   });
 
+  it('the replace door refuses a mark trigger source and cancels nothing', async () => {
+    const { app, replaced } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/33333333-3333-4333-8333-333333333333/replace',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'r-2', triggerBy: 'mark' },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('trade.trigger_source_unset');
+    expect(replaced).toHaveLength(0);
+    await app.close();
+  });
+
+  it.each(['mark', 'index'])('refuses a %s stop trigger with a typed code and places nothing', async (triggerBy) => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, type: 'stop_limit', stopPrice: '90', triggerBy },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('trade.trigger_source_unset');
+    expect(placed).toHaveLength(0);
+    await app.close();
+  });
+
   it('refuses the same options per item on the batch door, and places the rest', async () => {
     const { app, placed } = await build();
     const res = await app.inject({

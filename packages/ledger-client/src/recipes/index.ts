@@ -15,6 +15,7 @@ import {
 import { loanCollateralLock, loanCollateralRelease, loanDraw, loanRepay, loanLiquidate, loanBadDebt, loanReserveFund } from './loans.js';
 import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfallRecovered } from './chargeback.js';
 import { orderHoldAmend } from './order-hold-amend.js';
+import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
@@ -1261,6 +1262,7 @@ export * from './bank.js';
 export * from './loans.js';
 export * from './chargeback.js';
 export * from './order-hold-amend.js';
+export * from './futures-order-margin.js';
 export {
   marketPurchase,
   marketListingFee,
@@ -1298,6 +1300,9 @@ export const recipes = {
   futuresMarginLock,
   futuresMarginAdd,
   futuresMarginRelease,
+  futuresOrderMarginHold,
+  futuresOrderMarginRelease,
+  futuresOrderMarginApply,
   futuresRealizeLoss,
   futuresRealizeProfit,
   futuresFundingPay,

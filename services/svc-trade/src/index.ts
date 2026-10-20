@@ -35,6 +35,7 @@ import {
   startConditionalOrderJobs,
 } from './futures/conditional-orders/index.js';
 import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
 import { bindReduceOnly, installReduceOnlyPlace } from './spot/reduce-only-place.js';
@@ -969,6 +970,7 @@ registerPrivateRest(app, {
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
+  listFuturesPayouts: async (principal) => ({ payouts: await listPayoutsForUser(sql, principal.userId) }),
 });
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',

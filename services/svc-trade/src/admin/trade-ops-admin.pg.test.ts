@@ -464,6 +464,7 @@ describe('trade operator procedures', () => {
     const snap = await admin.futuresSnapshot(operator(), marketId);
     expect(snap.status).toBe('active');
     expect(snap.insuranceFund).toEqual({ value: null, reason: 'insurance_fund_unconfigured', asset: 'USDT' });
+    expect(snap.clearingPot).toEqual({ value: '0', reason: null, asset: 'USDT', owed: '0', owedCount: 0 });
     expect(snap.leverageCap).toEqual({ value: null, reason: 'trade.leverage_cap_unset' });
     expect(snap.insuranceFund.value).not.toBe('0');
   });

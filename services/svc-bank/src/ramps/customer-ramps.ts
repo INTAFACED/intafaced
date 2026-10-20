@@ -3,7 +3,13 @@ import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { coolingOffEndsAt, readOfframpCoolingHours } from '../offramp-cooling.js';
-import { isBankDestinationRef, isEvmAddressRef, type UserWithdrawDestinations } from '../withdraw-destination.js';
+import {
+  isBankDestinationRef,
+  isEvmAddressRef,
+  type SaveDestinationInput,
+  type UserWithdrawDestinations,
+  type WithdrawDestination,
+} from '../withdraw-destination.js';
 import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
@@ -115,6 +121,13 @@ export interface DestinationView {
   label: string | null;
   kind: 'crypto' | 'bank';
   ref: string;
+  /** The address with its middle hidden, for lists and logs. `ref` stays for the customer's own picker. */
+  refMasked: string;
+  assetId: string | null;
+  network: string | null;
+  tag: string | null;
+  origin: 'legacy' | 'customer';
+  state: 'pending' | 'cooling' | 'active' | 'blocked' | 'archived';
   addedAt: string;
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
@@ -309,18 +322,45 @@ export async function quoteOfframp(
   };
 }
 
-export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
-  const hours = readOfframpCoolingHours(deps.coolingRaw());
-  const rows = await deps.destinations.list(userId);
-  return rows.map((row) => ({
+/** First six and last four characters: enough to recognise an address, not to copy it from a screenshot. */
+export function maskRef(ref: string): string {
+  const compact = ref.replace(/\s+/g, '');
+  return compact.length <= 12 ? `${compact.slice(0, 2)}…` : `${compact.slice(0, 6)}…${compact.slice(-4)}`;
+}
+
+function viewOf(row: WithdrawDestination, hours: number | null): DestinationView {
+  return {
     destinationId: row.destinationId,
     label: row.label,
     kind: row.kind,
     ref: row.ref,
+    refMasked: maskRef(row.ref),
+    assetId: row.assetId,
+    network: row.network,
+    tag: row.tag,
+    origin: row.origin,
+    state: row.state,
     addedAt: row.addedAt.toISOString(),
     coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
-  }));
+  };
+}
+
+export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
+  const hours = readOfframpCoolingHours(deps.coolingRaw());
+  const rows = await deps.destinations.list(userId);
+  return rows.map((row) => viewOf(row, hours));
+}
+
+export async function saveDestination(deps: CustomerRampDeps, input: SaveDestinationInput): Promise<DestinationView> {
+  return viewOf(await deps.destinations.save(input), readOfframpCoolingHours(deps.coolingRaw()));
+}
+
+export async function renameDestination(
+  deps: CustomerRampDeps,
+  input: { userId: string; destinationId: string; label: string },
+): Promise<DestinationView> {
+  return viewOf(await deps.destinations.rename(input), readOfframpCoolingHours(deps.coolingRaw()));
 }
 
 export function removeDestination(

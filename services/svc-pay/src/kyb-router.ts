@@ -1,6 +1,14 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
-import { kybDecisionBindingSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  kybDecisionBindingSchema,
+  kybEntityTypesViewSchema,
+  kybRequirementsReadInputSchema,
+  kybRequirementsViewSchema,
+  router,
+  scopedProcedure,
+  TRPCError,
+} from '@intafaced/contracts';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -12,6 +20,7 @@ import {
 import { pspEnableModeFields, pspSetPricingFields } from './approval-bindings.js';
 import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb-decision-binding.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
+import { KybEntityTypeService } from './kyb-entity-types.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
@@ -82,7 +91,11 @@ function toTrpcError(err: unknown): unknown {
     if (err.code === 'pay.merchant_not_found') {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_history_limit_unset' || err.code === 'pay.psp_pricing_history_limit_unset') {
+    if (
+      err.code === 'pay.kyb_history_limit_unset' ||
+      err.code === 'pay.psp_pricing_history_limit_unset' ||
+      err.code === 'pay.kyb_requirements_unset'
+    ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     if (err.code === 'pay.kyb_identity_changed') {
@@ -102,6 +115,13 @@ export function createKybPspRouter(
       throw new PayError('Merchant ownership lookup is unavailable', 'pay.merchant_forbidden');
     },
   },
+  /** Unwired means the owner's entity-type data cannot be read: nothing is offered. */
+  entityTypes: Pick<KybEntityTypeService, 'list' | 'requirements'> = {
+    list: async () => [],
+    requirements: async (entityType) => {
+      throw new KybError(`Requirements for ${entityType} are not published.`, 'pay.kyb_requirements_unset', { entityType });
+    },
+  },
 ) {
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
@@ -113,6 +133,28 @@ export function createKybPspRouter(
 
   return router({
     kyb: router({
+      entityTypes: router({
+        /**
+         * The entity types the owner has published, each with the documents, people roles and questionnaires it
+         * requires and the countries it is offered in. Empty when none are published. The door is `pay:onboard`
+         * because a business reads this before it has a merchant row; nothing here names a merchant.
+         */
+        read: scopedProcedure('pay:onboard', { module: 'pay' })
+          .output(kybEntityTypesViewSchema)
+          .query(() => wrap(async () => ({ entityTypes: await entityTypes.list() }))),
+      }),
+
+      requirements: router({
+        /**
+         * One entity type's published requirements for a country. Refuses `pay.kyb_requirements_unset` when the type
+         * is not published and `pay.kyb_country_not_served` when the country is not on its list.
+         */
+        read: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybRequirementsReadInputSchema)
+          .output(kybRequirementsViewSchema)
+          .query(({ input }) => wrap(() => entityTypes.requirements(input.entityType, input.country))),
+      }),
+
       /**
        * Merchant submits a dossier reference. Durable — writes history.
        * Does not invent a partner decision.

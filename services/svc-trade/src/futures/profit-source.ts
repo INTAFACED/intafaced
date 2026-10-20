@@ -1,6 +1,12 @@
 /**
  * THE PAYOUT BOUND — realised futures profit is bounded by a real balance.
  *
+ * Since docs/adr/2026-10-20-futures-matched-traders.md the named account is the
+ * futures clearing pot (`futuresLossSink`), the pot losers pay into, and a close
+ * the pot cannot cover no longer refuses: it closes and the profit is owed until
+ * the pot holds it (`futures-payouts.ts`). The history below explains why the
+ * account is named and never defaulted, which still holds.
+ *
  * ─────────────────────────────────────────────────────────────────────────────
  * WHAT WAS WRONG
  * ─────────────────────────────────────────────────────────────────────────────
