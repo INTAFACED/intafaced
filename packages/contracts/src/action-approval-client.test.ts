@@ -78,6 +78,19 @@ describe('createIdentityApprovalClient', () => {
     await expect(client().consume(input)).rejects.toMatchObject({ message: expect.stringContaining('does not match') });
   });
 
+  it('refuses an ok reply that is not an action approval with the caller error type', async () => {
+    vi.stubGlobal('fetch', reply({ result: { data: { ok: true } } }));
+    await expect(client().consume(input)).rejects.toBeInstanceOf(TestError);
+  });
+
+  it('refuses an ok reply that is not JSON with the caller error type', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html>', { status: 200 })),
+    );
+    await expect(client().consume(input)).rejects.toBeInstanceOf(TestError);
+  });
+
   it('gives up when identity hangs', async () => {
     vi.stubGlobal(
       'fetch',
