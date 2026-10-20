@@ -67,7 +67,7 @@ describe('header search: where a page lives and the Help group', () => {
     await mount();
     await type('password');
     expect(host.textContent).toContain('Help articles are hidden: no limit for the number of results is set.');
-    expect(rowTexts()).toContain('Search Help for "password"');
+    expect(rowTexts()).toContain('Open Help');
     expect(helpCalls()).toHaveLength(0);
   });
 
@@ -80,7 +80,7 @@ describe('header search: where a page lives and the Help group', () => {
     await act(async () => void (await vi.advanceTimersByTimeAsync(300)));
     expect(helpCalls()).toHaveLength(1);
     const rows = rowTexts();
-    expect(rows.slice(-2)).toEqual(['Sign-in and account access', 'Search Help for "sign in"']);
+    expect(rows.slice(-2)).toEqual(['Sign-in and account access', 'Open Help']);
   });
 
   it('keeps the other groups when the Help call fails', async () => {

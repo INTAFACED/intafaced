@@ -53,7 +53,8 @@ export function TopSearch({ compact, helpCap = HELP_RESULT_CAP }: { compact?: bo
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
-      const slash = event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey && !typingTarget(event.target);
+      const slash =
+        event.key === '/' && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey && !typingTarget(event.target);
       if (slash || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) {
         event.preventDefault();
         inputRef.current?.focus();
@@ -210,11 +211,8 @@ function SearchPanel({
             lang: row.lang,
           }))
         : [];
-    // Always one way on to Help itself, so a search with nothing found still has somewhere to go.
-    return [
-      ...articles,
-      { key: 'help:all', group: 'Help', label: t('Search Help for "{query}"', { query: query.trim() }), hint: '', href: '/support' },
-    ];
+    // Always one way on to the Help room, so a search with nothing found still has somewhere to go.
+    return [...articles, { key: 'help:all', group: 'Help', label: t('Open Help'), hint: '', href: '/support' }];
   }, [help, query, t]);
   const rows = useMemo(() => {
     if (source.status !== 'ready') return [...pages, ...helpList];

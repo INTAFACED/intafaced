@@ -90,7 +90,7 @@ const messages = {
   Pages: 'Pages',
   'No results for "{query}"': 'No results for "{query}"',
   'Opens to its blockers': 'Opens to its blockers',
-  'Search Help for "{query}"': 'Search Help for "{query}"',
+  'Open Help': 'Open Help',
   'Searching Help': 'Searching Help',
   'Help articles did not load.': 'Help articles did not load.',
   'Help articles are hidden: no limit for the number of results is set.':
