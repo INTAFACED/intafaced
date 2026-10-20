@@ -97,7 +97,8 @@ export function createWithdrawalHistory(sql: Sql) {
          LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       const items = page.map((r): WithdrawalHistoryItem => {
-        const reason = failureReason(r.failure_code);
+        // Only a failed row has had its hold reversed; a held or pending row with a code must not claim funds came back.
+        const reason = r.status === 'failed' ? failureReason(r.failure_code) : null;
         return {
           id: r.id,
           assetId: r.asset_id,

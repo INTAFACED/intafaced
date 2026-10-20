@@ -90,6 +90,13 @@ describe('withdrawal history (real Postgres)', () => {
     expect(page.items[1]!.failure).toBeNull();
   });
 
+  it('does not explain a failure on a held or pending row, whose funds are not returned', async () => {
+    await put({ status: 'held', failure: 'rail.refused', at: '2026-10-20T08:00:05Z' });
+    await put({ status: 'pending', failure: 'rail.refused', at: '2026-10-20T08:00:06Z' });
+    const page = await history.search(USER, { limit: 10 });
+    expect(page.items.map((i) => i.failure)).toEqual([null, null]);
+  });
+
   it('shows an unknown failure code as itself', async () => {
     await put({ status: 'failed', failure: 'rail.brand_new' });
     const [item] = (await history.search(USER, { limit: 10 })).items;
