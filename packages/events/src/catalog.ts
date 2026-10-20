@@ -1390,17 +1390,6 @@ export const WIRING_SOCKETS = [
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
   },
-  {
-    event: 'supportTicketResolved',
-    missing: 'subscriber',
-    /**
-     * CLASS A. svc-notify consumes it in the PR after the publisher; until then nothing depends on it, since
-     * the in-app prompt reads the request status.
-     */
-    class: 'A',
-    reason:
-      'svc-notify turns it into the rating request (an inbox row, and an email where an address is confirmed and the email gateway is configured) in the last PR of SP-csat-01. Nothing derives state from it before then; the in-app rating prompt reads the request status.',
-  },
 ] satisfies readonly WiringSocket[];
 
 /** The recorded reason a given end of an event is unwired, or null if none. */
