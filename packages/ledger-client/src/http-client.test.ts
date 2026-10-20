@@ -3,6 +3,7 @@ import { LEDGER_ACK_INVALID_MESSAGE, createHttpLedgerClient, createLedgerTranspo
 import { parseAmount as amt } from './money.js';
 import { recipes } from './recipes/index.js';
 import { InsufficientFundsError, LedgerError } from './types.js';
+import { classifyPostOutcome, provesPostNotCommitted } from './post-outcome.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const request = recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'http-client-1' });
@@ -124,6 +125,30 @@ describe('retries', () => {
     const none = harness([new TypeError('x')], { retries: 0 });
     await expect(none.client.post(request)).rejects.toThrow('x');
     expect(none.calls).toHaveLength(1);
+  });
+
+  it('stamps how many attempts a failed post took, so a refusal after a retry is not taken for proof', async () => {
+    // One attempt, refused: proof nothing committed.
+    const refusal = { code: 'ledger.frozen', message: 'frozen' };
+    const first = harness([json(refusal, 412)]);
+    const once = await first.client.post(request).catch((e: unknown) => e);
+    expect(classifyPostOutcome(once)).toBe('refused');
+    expect(provesPostNotCommitted(once)).toBe(true);
+    // The first attempt was lost, the second was refused: the first may still land.
+    const retried = harness([new TypeError('fetch failed'), json(refusal, 412)]);
+    const second = await retried.client.post(request).catch((e: unknown) => e);
+    expect(classifyPostOutcome(second)).toBe('refused');
+    expect(provesPostNotCommitted(second)).toBe(false);
+    // Connect failures on every attempt: nothing is proven, because the first may have connected before a restart.
+    const refused = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    const none = harness([refused, refused, refused]);
+    const gaveUp = await none.client.post(request).catch((e: unknown) => e);
+    expect(classifyPostOutcome(gaveUp)).toBe('unknown');
+    // With a single attempt and a connect failure, nothing was sent.
+    const single = harness([refused], { retries: 0 });
+    const unsent = await single.client.post(request).catch((e: unknown) => e);
+    expect(classifyPostOutcome(unsent)).toBe('unsent');
+    expect(provesPostNotCommitted(unsent)).toBe(true);
   });
 
   it('never retries a ledger refusal or any 4xx', async () => {

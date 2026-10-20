@@ -33,6 +33,10 @@ describe('the order number of a reviewed draft', () => {
     expect(reviewIdFor(ALICE, draft)).not.toBe(first);
   });
 
+  it('fits the 64 characters a create allows, with a real user id', () => {
+    expect(reviewIdFor(ALICE, draft).length).toBeLessThanOrEqual(64);
+  });
+
   it('carries the user, a draft hash and a mint, and is not a bare random value', () => {
     expect(reviewIdFor(ALICE, draft, () => 'abcd1234')).toMatch(new RegExp(`^desk:${ALICE}:[0-9a-f]{8}-abcd1234$`));
   });

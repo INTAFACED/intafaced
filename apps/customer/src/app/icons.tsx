@@ -7,6 +7,7 @@ import {
   CircleHelp,
   GraduationCap,
   House,
+  Landmark,
   LayoutGrid,
   type LucideIcon,
   Repeat2,
@@ -38,7 +39,8 @@ export type ShellIconName =
   | 'user'
   | 'chevron'
   | 'academy'
-  | 'merchant';
+  | 'merchant'
+  | 'bank';
 
 const icons: Record<ShellIconName, LucideIcon> = {
   home: House,
@@ -59,6 +61,7 @@ const icons: Record<ShellIconName, LucideIcon> = {
   chevron: ChevronDown,
   academy: GraduationCap,
   merchant: Building2,
+  bank: Landmark,
 };
 
 export function ShellIcon({ name, size = 20 }: { name: ShellIconName; size?: number }) {

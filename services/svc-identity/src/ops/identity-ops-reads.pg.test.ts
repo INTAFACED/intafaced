@@ -14,6 +14,7 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { getPreferences, PreferencesError, setPreferences } from '../preferences/preferences.js';
 import { createPreferencesRouter } from '../preferences/preferences-router.js';
 import { PREFERENCES_VERSION_CONFLICT } from '../preferences/trade-views.js';
+import { ACCOUNT_DISPLAY_NAMESPACE } from '../preferences/account-display.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
 import { totp } from '../auth/totp.js';
@@ -376,6 +377,86 @@ if (!databaseUrl) {
         setPreferences(db.sql, callerA, { namespace: 'trade.views', value: fat, ifVersion: 1, clientRequestId: 'fat' }),
       ).rejects.toBeInstanceOf(PreferencesError);
       expect(await getPreferences(db.sql, callerA, 'trade.views')).toMatchObject({ version: 1, value: view });
+    });
+  });
+  describe('account display', () => {
+    const listed = { displayCurrencies: ['USD', 'EUR'] } as const;
+
+    it('follows the account to a second device, refuses unknown values, and stays per account', async () => {
+      const a = await register();
+      const b = await register();
+      const deviceA = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const deviceB = await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false);
+      const other = await ctx(b.userId, b.sessionId, ['identity:read', 'identity:write'], false);
+      const routerA = createPreferencesRouter(db.sql, listed).createCaller(deviceA);
+      const routerB = createPreferencesRouter(db.sql, listed).createCaller(deviceB);
+
+      expect(await routerB.preferences.get({ namespace: ACCOUNT_DISPLAY_NAMESPACE })).toMatchObject({ version: 0, value: null });
+      const stored = await routerA.preferences.set({
+        namespace: ACCOUNT_DISPLAY_NAMESPACE,
+        value: { locale: 'ES', displayCurrency: 'EUR' },
+        ifVersion: 0,
+        clientRequestId: 'display-1',
+      });
+      expect(stored).toMatchObject({ version: 1, value: { locale: 'es', displayCurrency: 'EUR' } });
+      expect(await routerB.preferences.get({ namespace: ACCOUNT_DISPLAY_NAMESPACE })).toMatchObject({
+        version: 1,
+        value: { locale: 'es', displayCurrency: 'EUR' },
+      });
+      const replay = await routerA.preferences.set({
+        namespace: ACCOUNT_DISPLAY_NAMESPACE,
+        value: { locale: 'ES', displayCurrency: 'EUR' },
+        ifVersion: 0,
+        clientRequestId: 'display-1',
+      });
+      expect(replay.version).toBe(1);
+
+      for (const [clientRequestId, value] of [
+        ['bad-locale', { locale: 'xx-not-shipped', displayCurrency: null }],
+        ['bad-currency', { locale: 'en', displayCurrency: 'JPY' }],
+        ['extra-key', { locale: 'en', displayCurrency: null, extra: 1 }],
+      ] as const) {
+        await expect(
+          routerA.preferences.set({ namespace: ACCOUNT_DISPLAY_NAMESPACE, value, ifVersion: 1, clientRequestId }),
+        ).rejects.toMatchObject({ message: 'identity.preferences_value_invalid' });
+      }
+      expect(await routerA.preferences.get({ namespace: ACCOUNT_DISPLAY_NAMESPACE })).toMatchObject({
+        version: 1,
+        value: { locale: 'es', displayCurrency: 'EUR' },
+      });
+      expect(
+        await createPreferencesRouter(db.sql, listed).createCaller(other).preferences.get({ namespace: ACCOUNT_DISPLAY_NAMESPACE }),
+      ).toMatchObject({
+        version: 0,
+        value: null,
+      });
+    });
+
+    it('lists no currency until the owner publishes one, and refuses any currency meanwhile', async () => {
+      const a = await register();
+      const caller = createPreferencesRouter(db.sql).createCaller(
+        await ctx(a.userId, a.sessionId, ['identity:read', 'identity:write'], false),
+      );
+      const options = await caller.preferences.options();
+      expect(options.displayCurrencies).toEqual([]);
+      expect(options.defaultDisplayCurrency).toBe('USD');
+      expect(options.locales).toContain('en');
+      await expect(
+        caller.preferences.set({
+          namespace: ACCOUNT_DISPLAY_NAMESPACE,
+          value: { locale: 'en', displayCurrency: 'USD' },
+          ifVersion: 0,
+          clientRequestId: 'blank-list',
+        }),
+      ).rejects.toMatchObject({ message: 'identity.preferences_value_invalid' });
+      expect(
+        await caller.preferences.set({
+          namespace: ACCOUNT_DISPLAY_NAMESPACE,
+          value: { locale: 'en', displayCurrency: null },
+          ifVersion: 0,
+          clientRequestId: 'no-currency',
+        }),
+      ).toMatchObject({ version: 1, value: { locale: 'en', displayCurrency: null } });
     });
   });
 }

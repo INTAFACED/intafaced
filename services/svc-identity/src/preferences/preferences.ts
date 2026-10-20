@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { Context } from '@intafaced/contracts';
+import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
@@ -19,28 +20,34 @@ import {
   type TradeViewsValue,
 } from './trade-views.js';
 
+export type PreferenceNamespace = typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE;
+export type PreferenceValue = TradeViewsValue | AccountDisplayValue;
+
+/** Owner-published settings a value is checked against. Blank means nothing is listed. */
+export type PreferenceSettings = { readonly displayCurrencies: readonly string[] };
+const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [] };
+
 export class PreferencesError extends Error {
   constructor(
     message: string,
     readonly code: string,
-    readonly current?: { version: number; value: TradeViewsValue | null },
+    readonly current?: { version: number; value: PreferenceValue | null },
   ) {
     super(message);
     this.name = 'PreferencesError';
   }
 }
 
-export type PreferenceView = {
-  readonly namespace: typeof TRADE_VIEWS_NAMESPACE;
-  readonly version: number;
-  readonly value: TradeViewsValue | null;
-};
+/** Each namespace carries its own value shape. */
+export type PreferenceView =
+  | { readonly namespace: typeof TRADE_VIEWS_NAMESPACE; readonly version: number; readonly value: TradeViewsValue | null }
+  | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
-  namespace: typeof TRADE_VIEWS_NAMESPACE;
+  namespace: PreferenceNamespace;
   version: number;
-  value: TradeViewsValue | null;
+  value: PreferenceValue | null;
   code?: typeof PREFERENCES_VERSION_CONFLICT;
 };
 
@@ -52,24 +59,28 @@ function callerId(context: Context): string {
   return principal.userId.toLowerCase();
 }
 
-function requireNamespace(namespace: string): typeof TRADE_VIEWS_NAMESPACE {
-  if (namespace !== TRADE_VIEWS_NAMESPACE) {
+function requireNamespace(namespace: string): PreferenceNamespace {
+  if (namespace !== TRADE_VIEWS_NAMESPACE && namespace !== ACCOUNT_DISPLAY_NAMESPACE) {
     throw new PreferencesError(`${PREFERENCES_NAMESPACE_UNKNOWN}: ${namespace}`, PREFERENCES_NAMESPACE_UNKNOWN);
   }
-  return TRADE_VIEWS_NAMESPACE;
+  return namespace;
+}
+
+function parseValue(namespace: PreferenceNamespace, value: unknown, settings: PreferenceSettings): PreferenceValue {
+  return namespace === ACCOUNT_DISPLAY_NAMESPACE ? parseAccountDisplay(value, settings.displayCurrencies) : parseTradeViews(value);
 }
 
 export async function getPreferences(sql: Sql, context: Context, namespace: string): Promise<PreferenceView> {
   const userId = callerId(context);
   const named = requireNamespace(namespace);
-  const [row] = await sql<Array<{ version: string; value: TradeViewsValue }>>`
+  const [row] = await sql<Array<{ version: string; value: PreferenceValue }>>`
     SELECT version::text AS version, value FROM user_preferences WHERE user_id = ${userId} AND namespace = ${named}
   `;
-  if (!row) return { namespace: named, version: 0, value: null };
-  return { namespace: named, version: Number(row.version), value: row.value };
+  if (!row) return { namespace: named, version: 0, value: null } as PreferenceView;
+  return { namespace: named, version: Number(row.version), value: row.value } as PreferenceView;
 }
 
-function fingerprint(namespace: string, value: TradeViewsValue, ifVersion: number): string {
+function fingerprint(namespace: string, value: PreferenceValue, ifVersion: number): string {
   return createHash('sha256').update(stableJson({ namespace, value, ifVersion })).digest('hex');
 }
 
@@ -77,6 +88,7 @@ export async function setPreferences(
   sql: Sql,
   context: Context,
   input: { namespace: string; value?: unknown; ifVersion: number; clientRequestId: string },
+  settings: PreferenceSettings = NO_SETTINGS,
 ): Promise<StoredResult> {
   const userId = callerId(context);
   const namespace = requireNamespace(input.namespace);
@@ -87,9 +99,9 @@ export async function setPreferences(
   if (!Number.isSafeInteger(input.ifVersion) || input.ifVersion < 0) {
     throw new PreferencesError(PREFERENCES_VERSION_UNSET, PREFERENCES_VERSION_UNSET);
   }
-  let value: TradeViewsValue;
+  let value: PreferenceValue;
   try {
-    value = parseTradeViews(input.value);
+    value = parseValue(namespace, input.value, settings);
   } catch (err) {
     const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : PREFERENCES_VALUE_INVALID;
     throw new PreferencesError(code, code);
@@ -107,7 +119,7 @@ export async function setPreferences(
       }
       return prior.result;
     }
-    const [current] = await tx<Array<{ version: string; value: TradeViewsValue }>>`
+    const [current] = await tx<Array<{ version: string; value: PreferenceValue }>>`
       SELECT version::text AS version, value FROM user_preferences
       WHERE user_id = ${userId} AND namespace = ${namespace}
       FOR UPDATE

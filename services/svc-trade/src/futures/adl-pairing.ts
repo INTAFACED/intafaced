@@ -19,9 +19,10 @@
  * every amount the three legs are built from, under both row locks taken in
  * position-id order. Posting and applying then replay from that row, so a crash
  * anywhere re-posts the same bodies under the same keys and the rows catch up
- * once. A planned pair blocks trader outflows on both positions
- * (`assertLiquidationHold`), dated settlement and new liquidation rungs, and the
- * liquidation tick drives it before deciding anything else for either position.
+ * once. A planned pair blocks every trader change on both positions, top-ups
+ * included (`assertLiquidationHold`), as well as funding, dated settlement and new
+ * liquidation rungs. The liquidation tick (which still lists the pair after a dated
+ * expiry) drives it before deciding anything else for either position.
  *
  * Keys: `futures.adl:<bankruptPositionId>:<ordinal>:<candidatePositionId>` with
  * `:loss` and `:profit` legs. The ordinal is the bankrupt position's ADL count
@@ -183,14 +184,16 @@ export interface AdlPairReducer extends AdlReducePort {
  */
 export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 'balance'>): AdlPairReducer {
   async function lockPair(tx: TransactionSql, a: string, b: string): Promise<Map<string, PositionRow>> {
+    await tx`SELECT p.id FROM trade.positions p WHERE p.id IN (${a}, ${b}) ORDER BY p.id FOR UPDATE OF p`;
+    // Read the rows and their holds in a second statement, after the locks. Under READ COMMITTED a statement's
+    // subqueries see the snapshot taken before its lock wait, so a rung or claim the lock holder committed
+    // meanwhile would be missed if hold_free were read in the locking statement itself.
     const rows = await tx<PositionRow[]>`
       SELECT p.id, p.user_id, p.market_id, p.side, p.status, p.size, p.entry_price, p.margin_current, p.margin_initial,
              p.margin_asset, p.margin_adjust_seq, p.margin_adjust_request,
              (${holdFree(tx)}) AS hold_free
         FROM trade.positions p
        WHERE p.id IN (${a}, ${b})
-       ORDER BY p.id
-         FOR UPDATE OF p
     `;
     return new Map(rows.map((r) => [r.id, r]));
   }
@@ -307,7 +310,7 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
                                      ELSE margin_current - ${pair.candidate_margin_released}::numeric END,
                margin_initial = CASE WHEN size = ${formatAmount(size)}::numeric THEN margin_initial
                                      ELSE margin_initial - ${pair.candidate_initial_released}::numeric END,
-               margin_adjust_seq = ${pair.candidate_release_sequence},
+               margin_adjust_seq = GREATEST(margin_adjust_seq, ${pair.candidate_release_sequence}),
                status = CASE WHEN size = ${formatAmount(size)}::numeric THEN 'closed' ELSE status END,
                closed_at = CASE WHEN size = ${formatAmount(size)}::numeric THEN now() ELSE closed_at END,
                updated_at = now()

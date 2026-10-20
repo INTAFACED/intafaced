@@ -1,4 +1,4 @@
-export type Door = 'Home' | 'Money' | 'Trade' | 'Pay' | 'More';
+export type Door = 'Home' | 'Assets' | 'Bank' | 'Trade' | 'Pay' | 'More';
 export type Room = {
   path: string;
   title: NavigationCopyKey;
@@ -40,12 +40,12 @@ export const rooms: readonly Room[] = [
   { path: '/lab/detail/:id', title: 'Campaign', description: 'Activity details', area: 'public', hidden: true },
   { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
   { path: '/home', title: 'Home', description: 'Your money and markets', door: 'Home', area: 'home', screen: 'home' },
-  { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Money', area: 'money', screen: 'money' },
+  { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Assets', area: 'money', screen: 'money' },
   {
     path: '/money/activity',
     title: 'Activity',
     description: 'Trades, orders and transfers',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     screen: 'money',
   },
@@ -53,7 +53,7 @@ export const rooms: readonly Room[] = [
     path: '/money/pnl',
     title: 'Profit and loss',
     description: 'What your trades have made or lost',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     screen: 'money',
   },
@@ -61,7 +61,7 @@ export const rooms: readonly Room[] = [
     path: '/money/activity/:id',
     title: 'Activity',
     description: 'Transaction details',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     hidden: true,
     screen: 'money',
@@ -75,12 +75,12 @@ export const rooms: readonly Room[] = [
     hidden: true,
     screen: 'coin',
   },
-  { path: '/portfolio', title: 'Holdings', description: 'Your assets in one ledger', door: 'Money', area: 'money', alias: '/money' },
+  { path: '/portfolio', title: 'Holdings', description: 'Your assets in one ledger', door: 'Assets', area: 'money', alias: '/money' },
   {
     path: '/portfolio/:asset',
     title: 'Holding',
     description: 'Asset details and actions',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     alias: '/coin/:asset',
     hidden: true,
@@ -89,7 +89,7 @@ export const rooms: readonly Room[] = [
     path: '/portfolio/:asset/repeat-buy',
     title: 'Repeat buy',
     description: 'Scheduled asset purchases',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     hidden: true,
   },
@@ -97,29 +97,36 @@ export const rooms: readonly Room[] = [
     path: '/money/asset/:asset',
     title: 'Holding',
     description: 'Asset details and actions',
-    door: 'Money',
+    door: 'Assets',
     area: 'money',
     alias: '/coin/:asset',
     hidden: true,
   },
-  { path: '/uc/money', title: 'Money', description: 'Your holdings', door: 'Money', area: 'money', alias: '/money' },
-  { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Money', area: 'money' },
-  { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Money', area: 'money' },
-  { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Money', area: 'money' },
-  { path: '/uc/record', title: 'Activity', description: 'Money moving in and out', door: 'Money', area: 'money', alias: '/money/activity' },
-  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Money', area: 'money' },
-  { path: '/bank/spaces', title: 'Spaces', description: 'Organise funds for your goals', door: 'Money', area: 'money' },
-  { path: '/bank/transfers', title: 'Transfers', description: 'Move funds between your spaces', door: 'Money', area: 'money' },
-  { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Money', area: 'money' },
-  { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Money', area: 'money' },
-  { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
-  { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
-  { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Money', area: 'money' },
+  { path: '/uc/money', title: 'Money', description: 'Your holdings', door: 'Assets', area: 'money', alias: '/money' },
+  { path: '/uc/recharge', title: 'Deposit', description: 'Add funds', door: 'Assets', area: 'money' },
+  { path: '/uc/withdraw', title: 'Withdraw', description: 'Withdraw available funds', door: 'Assets', area: 'money' },
+  { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Assets', area: 'money' },
+  {
+    path: '/uc/record',
+    title: 'Activity',
+    description: 'Money moving in and out',
+    door: 'Assets',
+    area: 'money',
+    alias: '/money/activity',
+  },
+  { path: '/bank', title: 'Bank', description: 'The bank behind your balance', door: 'Bank', area: 'money' },
+  { path: '/bank/spaces', title: 'Spaces', description: 'Organise funds for your goals', door: 'Bank', area: 'money' },
+  { path: '/bank/transfers', title: 'Transfers', description: 'Move funds between your spaces', door: 'Bank', area: 'money' },
+  { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Bank', area: 'money' },
+  { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
+  { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Bank', area: 'money' },
+  { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Bank', area: 'money' },
+  { path: '/bank/analytics', title: 'Spending', description: 'Understand your activity', door: 'Bank', area: 'money' },
   {
     path: '/bank/business',
     title: 'Business approvals',
     description: 'Approval rules on your accounts',
-    door: 'Money',
+    door: 'Bank',
     area: 'money',
     business: true,
   },
@@ -578,7 +585,7 @@ export function roomTitle(room: Room, locale: UiLocale = currentPreferences().la
 export function roomDescription(room: Room, locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(room.description);
 }
-export function doorLabel(door: Door, locale: UiLocale = currentPreferences().language): string {
+export function doorLabel(door: Door | 'Money', locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
 const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner']);
@@ -626,7 +633,8 @@ export function coinHref(asset: string, layoutMode: 'simple' | 'pro', symbol?: s
 }
 export const doors: ReadonlyArray<{ name: Door; path: string }> = [
   { name: 'Home', path: '/home' },
-  { name: 'Money', path: '/money' },
+  { name: 'Assets', path: '/money' },
+  { name: 'Bank', path: '/bank' },
   { name: 'Trade', path: '/trade' },
   { name: 'Pay', path: '/pay' },
   { name: 'More', path: '/more' },

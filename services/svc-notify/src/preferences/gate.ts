@@ -6,10 +6,11 @@
 import type { MuteableChannel, NotifySeverity } from './mute.js';
 import { topicFromKind } from './combined.js';
 import type { AccountPrefs, HoldStore } from './account.js';
+import type { CategoryPrefs } from './categories.js';
 
 export type OutOfAppPlan = 'send' | 'muted' | 'hold';
 
-export function planOutOfApp(deps: { account: AccountPrefs; holds: HoldStore; now: () => Date }) {
+export function planOutOfApp(deps: { account: AccountPrefs; holds: HoldStore; now: () => Date; categories?: CategoryPrefs }) {
   return async (input: {
     userId: string;
     kind: string;
@@ -25,6 +26,7 @@ export function planOutOfApp(deps: { account: AccountPrefs; holds: HoldStore; no
       const row = rows.find((item) => item.topic === topic && item.channel === input.channel);
       if (row && !row.enabled) return 'muted';
     }
+    if (deps.categories && !(await deps.categories.allows(input.userId, input.kind, input.channel))) return 'muted';
     const until = await deps.account.holdUntil(input.userId, input.severity, deps.now());
     if (!until) return 'send';
     await deps.holds.hold({
