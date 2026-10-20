@@ -46,3 +46,8 @@ test('every TEST value names its service, is a string and is a listed owner sett
 test('docs/OWNER-SETTINGS.md matches the code', async () => {
   assert.equal(readFileSync(new URL('../../docs/OWNER-SETTINGS.md', import.meta.url), 'utf8'), await render(build()));
 });
+
+test('a code whose area has an underscore is found', () => {
+  const src = '/** Lifetime. NO DEFAULT. Refuses `action_approval.ttl_unset`. */\n  IDENTITY_ACTION_APPROVAL_TTL_SECONDS: z.string(),';
+  assert.deepEqual(scanEnvFile(src, 'svc-identity')[0].codes, ['action_approval.ttl_unset']);
+});

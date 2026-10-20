@@ -31,8 +31,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const OUTPUT = join(ROOT, 'docs', 'OWNER-SETTINGS.md');
 const PROFILE = join(ROOT, 'tooling', 'profiles', 'test-owner-values.json');
 
-const CODE = /['"`]([a-z][a-z0-9-]*\.[a-z0-9_.-]*_unset)['"`]/g;
-const CODE_IN_TEXT = /\b([a-z][a-z0-9-]*\.[a-z0-9_.-]*_unset)\b/g;
+const CODE = /['"`]([a-z][a-z0-9_-]*\.[a-z0-9_.-]*_unset)['"`]/g;
+const CODE_IN_TEXT = /\b([a-z][a-z0-9_-]*\.[a-z0-9_.-]*_unset)\b/g;
 const OWNER_MARK = /NO DEFAULT|Never invent|_unset/;
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.next', '.turbo', 'coverage', 'build']);
 
