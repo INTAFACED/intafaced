@@ -43,6 +43,7 @@ import { RecentDeliveriesError } from './preferences/recent.js';
 import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
 import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
+import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
 import { TEMPLATE_KEYS } from './ops-config/templates.js';
 
 /**
@@ -195,7 +196,8 @@ function typedRefusal(err: unknown): never {
     err instanceof QuietHoursError ||
     err instanceof RecentDeliveriesError ||
     err instanceof NoticeError ||
-    err instanceof OpsConfigError
+    err instanceof OpsConfigError ||
+    err instanceof RecipientHealthError
   ) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -790,6 +792,70 @@ export function createNotifyRouter(
           }),
         )
         .query(() => providerHealth(process.env)),
+
+      /**
+       * Recipients by state (active, unconfirmed, quarantined), addresses masked.
+       * `thresholdCode` is `notify.quarantine_threshold_unset` until the owner sets
+       * the count: nothing is quarantined meanwhile and the page says so. Page size
+       * is owner-published like the deliveries list: omit refuses.
+       */
+      operatorRecipients: scopedProcedure('admin:read', { module: 'notify' })
+        .input(
+          z.object({
+            state: z.enum(RECIPIENT_STATES as unknown as [string, ...string[]]),
+            limit: z.number().int().min(1).max(200).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            threshold: z.number().int().nullable(),
+            thresholdCode: z.literal('notify.quarantine_threshold_unset').nullable(),
+            items: z.array(
+              z.object({
+                userId: z.string(),
+                channel: outOfAppChannelSchema,
+                address: z.string(),
+                state: z.enum(['active', 'unconfirmed', 'quarantined']),
+                consecutiveFailures: z.number().int(),
+                lastFailureAt: z.string().nullable(),
+                lastFailureCode: z.string().nullable(),
+                quarantinedAt: z.string().nullable(),
+                quarantineReason: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ input }) => {
+          const r = await notify.operatorRecipients(input.state as 'active' | 'unconfirmed' | 'quarantined', input.limit);
+          return {
+            threshold: r.threshold,
+            thresholdCode: r.thresholdCode,
+            items: r.items.map((i) => ({
+              ...i,
+              lastFailureAt: i.lastFailureAt?.toISOString() ?? null,
+              quarantinedAt: i.quarantinedAt?.toISOString() ?? null,
+            })),
+          };
+        }),
+
+      /** Lift a quarantine. Reason required; `reasonId` makes a replay a no-op; audited. */
+      operatorReleaseRecipient: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({
+            userId: z.string().min(1).max(128),
+            channel: outOfAppChannelSchema,
+            reason: z.string().max(500),
+            reasonId: z.string().min(1).max(128),
+          }),
+        )
+        .output(z.object({ released: z.literal(true), replayed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await notify.operatorReleaseRecipient(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
 
       ops: router({
         deliveries: scopedProcedure('admin:read', { module: 'notify' })

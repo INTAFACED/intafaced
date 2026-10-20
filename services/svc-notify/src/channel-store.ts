@@ -631,6 +631,11 @@ export class MemoryTargetStore implements TargetStore {
     return [...this.rows.values()].filter((r) => r.userId === userId).map(stripSecrets);
   }
 
+  /** Every registered address, for the operator recipient list. Secrets stripped. */
+  all(): ChannelTarget[] {
+    return [...this.rows.values()].map(stripSecrets);
+  }
+
   async verified(userId: string): Promise<ChannelTarget[]> {
     return (await this.list(userId)).filter((r) => r.verifiedAt !== null);
   }

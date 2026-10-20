@@ -316,6 +316,22 @@ if a key is missing from the catalog the consumer throws `notify.freeze_copy_uns
 nothing and the event is redelivered. The event's reason and actor are never read. It
 reports the svc-ledger posting freeze only, not the single-account freeze of svc-identity.
 
+### Recipient health and quarantine
+
+A send that ends `abandoned` (gateway rejected it for good, or the attempt budget was spent) adds one to that
+address's failure count in `notify.recipient_health` (migration 0017); an accepted send resets it. A `failed`
+attempt that will be retried does not count. When the count reaches `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` the
+address is quarantined: non-critical sends are refused `channel.recipient_quarantined` with the stored reason.
+Critical messages are still attempted. A blank threshold quarantines nobody, and `notify.operatorRecipients`
+returns `thresholdCode: notify.quarantine_threshold_unset`. The row is pinned to the address, so a changed
+address starts clean.
+
+- `notify.operatorRecipients` (`admin:read`): `{ state: active | unconfirmed | quarantined, limit }`, addresses masked.
+- `notify.operatorReleaseRecipient` (`admin:write`): reason required (`notify.release_reason_required`),
+  `reasonId` makes a replay a no-op, unknown recipient `notify.recipient_unknown`, not quarantined
+  `notify.recipient_not_quarantined`. Every release appends to the immutable `notify.recipient_release_audit`.
+- A provider outage that abandons many sends can quarantine many recipients; release and the threshold are the lever.
+
 ### Idempotency and backpressure
 
 Inserts dedupe on `(user_id, source_subject, source_idempotency_key)`. Each send
@@ -410,20 +426,21 @@ Codes, not sentences — clients render copy from `@intafaced/i18n`. Every code 
 row can carry is listed in `allRefusalCodes()` (`channels/channel.ts`); a pin
 test fails if production writes a string missing from that list.
 
-| Code                            | Means                                                                                                |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `channel.not_configured`        | No gateway credentials for this channel                                                              |
-| `channel.no_target`             | User has no address on this channel                                                                  |
-| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                             |
-| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                |
-| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                               |
-| `channel.muted`                 | User muted non-critical traffic on this channel                                                      |
-| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                  |
-| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                               |
-| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                             |
-| `channel.register_rate_limited` | Too many address registrations in the window                                                         |
-| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                          |
-| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row |
+| Code                            | Means                                                                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `channel.not_configured`        | No gateway credentials for this channel                                                                                         |
+| `channel.no_target`             | User has no address on this channel                                                                                             |
+| `channel.target_unverified`     | Address on file but never confirmed (critical records this, not silence)                                                        |
+| `channel.target_unroutable`     | Address shape unusable (not E.164, bad mailbox, etc.)                                                                           |
+| `channel.disabled`              | Operator kill-switch `NOTIFY_OUT_OF_APP_ENABLED=false`                                                                          |
+| `channel.muted`                 | User muted non-critical traffic on this channel                                                                                 |
+| `channel.attempts_exhausted`    | Attempt budget spent — abandoned after max attempts                                                                             |
+| `channel.transport_rejected`    | Permanent gateway 4xx — abandoned with a name, not retried as "failed"                                                          |
+| `channel.delivery_stuck`        | Reaper arm 2 — claim lease dead past the bus window; attempts may remain                                                        |
+| `channel.register_rate_limited` | Too many address registrations in the window                                                                                    |
+| `channel.verify_rate_limited`   | Too many verification guesses in the window                                                                                     |
+| `channel.unprobed`              | URL+token set; this process has not POSTed. `/ready` / `notify.channels` door — never a delivery row                            |
+| `channel.recipient_quarantined` | Address failed terminally `NOTIFY_QUARANTINE_FAILURE_THRESHOLD` times in a row; non-critical sends wait for an operator release |
 
 The table is the tip wire vocabulary — a pin test fails if it drifts from
 `allRefusalCodes()`.
@@ -601,6 +618,7 @@ is actually open.
 | `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
 | `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
 | `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
+| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).          |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail

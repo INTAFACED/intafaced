@@ -1,5 +1,12 @@
 import type { ChannelRegistry } from './channels/registry.js';
-import { ChannelDeliveryError, ChannelRefusal, OUT_OF_APP_CHANNELS, type ChannelId, type RefusalCode } from './channels/channel.js';
+import {
+  ChannelDeliveryError,
+  ChannelRefusal,
+  OUT_OF_APP_CHANNELS,
+  type ChannelId,
+  type OutOfAppChannel,
+  type RefusalCode,
+} from './channels/channel.js';
 import { normaliseLocale, renderNotification } from './channels/render.js';
 import type { ChannelTarget, DeliveryRecord, DeliveryStore, TargetStore } from './channel-store.js';
 import type { Notification } from './store.js';
@@ -77,6 +84,23 @@ export interface DispatchOptions {
   }) => Promise<OutOfAppPlan>;
   /** Loads the held notice for `releaseHeld`. The inbox id is the caller's own. */
   readonly loadNotification?: (userId: string, notificationId: string) => Promise<Notification | null>;
+  /**
+   * Recipient health (quarantine). Absent = nothing is ever quarantined. A
+   * quarantined address is refused non-critical sends; critical is still tried.
+   */
+  readonly recipientHealth?: RecipientHealthPort;
+}
+
+export interface RecipientHealthPort {
+  readonly quarantineOf: (userId: string, channel: OutOfAppChannel, address: string) => Promise<{ reason: string } | null>;
+  /** `ok: false` only for a terminal (abandoned) send. Failures here never change the delivery outcome. */
+  readonly record: (input: {
+    userId: string;
+    channel: OutOfAppChannel;
+    address: string;
+    ok: boolean;
+    code: string | null;
+  }) => Promise<void>;
 }
 
 export interface ChannelOutcome {
@@ -202,6 +226,17 @@ export class NotificationDispatcher {
             continue;
           }
 
+          // Quarantine (info/action only): this address kept failing terminally and an
+          // operator has not released it. Critical is still attempted.
+          if (this.options.recipientHealth && notification.severity !== 'critical') {
+            // Fail open: if the health store cannot answer, the address is treated as not quarantined.
+            const q = await this.options.recipientHealth.quarantineOf(notification.userId, channel, target.address).catch(() => null);
+            if (q) {
+              outcomes.push(await this.refuse(notification, channel, 'channel.recipient_quarantined', q.reason));
+              continue;
+            }
+          }
+
           // Preference mute (info/action only). Critical always attempts.
           if (this.options.mutePrefsOf) {
             const prefs = await this.options.mutePrefsOf(notification.userId);
@@ -318,6 +353,29 @@ export class NotificationDispatcher {
     return { channel, status: 'refused', code, detail, retryable: false };
   }
 
+  /**
+   * Tell recipient health how THIS pass ended a send. Called only where the pass
+   * itself settled the row (abandoned) or finished a fresh receipt (accepted), never
+   * for an outcome read back from an existing row: a redelivery of the same
+   * notification must not count the same failure twice. A health write that throws
+   * is dropped; it must not turn a delivered message into a retry.
+   */
+  private async noteHealth(
+    notification: Notification,
+    channel: ChannelId,
+    address: string,
+    ok: boolean,
+    code: string | null,
+  ): Promise<void> {
+    const health = this.options.recipientHealth;
+    if (!health || channel === 'inapp') return;
+    try {
+      await health.record({ userId: notification.userId, channel, address, ok, code });
+    } catch {
+      // Bookkeeping about the address; the delivery row already holds the outcome.
+    }
+  }
+
   private async attempt(notification: Notification, channel: ChannelId, address: string, locale: string): Promise<ChannelOutcome> {
     const handKey = receiptKey(notification.id, channel);
     const recovered = await this.reconcileInHand(notification.id, channel);
@@ -394,6 +452,8 @@ export class NotificationDispatcher {
         detail,
         attempted: true,
       });
+      // Only a terminal outcome is evidence about the address; a retryable `failed` is not.
+      if (status === 'abandoned') await this.noteHealth(notification, channel, address, false, refusalCode);
       return { channel, status, code: refusalCode, detail, retryable: status === 'failed' };
     }
 
@@ -402,7 +462,9 @@ export class NotificationDispatcher {
     // release the claim and the next pass would deliver again. reference is
     // stored as the gateway returned it, including null. Nothing is filled in.
     receiptInHand(this.deliveries).set(handKey, { reference: receipt.reference, attempt: claim.attempt });
-    return this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, receipt.reference);
+    const finished = await this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, receipt.reference);
+    if (finished.status === 'accepted') await this.noteHealth(notification, channel, address, true, null);
+    return finished;
   }
 
   /** Known acceptance is bookkeeping, not another transport attempt or refusal. */
