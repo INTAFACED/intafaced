@@ -246,6 +246,20 @@ const schema = serviceEnvSchema
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
 
       /**
+       * Owner-published currencies that have local account details, comma separated ISO-4217 codes ("GBP,EUR").
+       *
+       * No default. Blank / unset / a code that is not three letters → the list refuses
+       * `bank.account_details_currencies_unset`. Boot stays up; the read is the refuse.
+       */
+      BANK_ACCOUNT_DETAILS_CURRENCIES: z.string().optional(),
+
+      /**
+       * Owner-published eligibility rule set as JSON: `{ countries: ["GB", ...], entityTypes: [...], productRestrictions:
+       * [{ product, restriction }] }`. No default. Blank / unset / not in shape → `bank.eligibility_unset`.
+       */
+      BANK_ELIGIBILITY_JSON: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.

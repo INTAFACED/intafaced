@@ -16,6 +16,7 @@ import { PortfolioService, type PortfolioServiceOptions } from './portfolio/port
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
+import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
@@ -49,6 +50,7 @@ export interface BankServices {
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
+  readonly accountDetails: AccountDetailsService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
@@ -107,6 +109,11 @@ export interface BankServiceOptions {
    * This service does not derive an address.
    */
   deposits?: DepositServiceOptions;
+  /**
+   * Account details and the eligibility statement (BK-acct-03). The currencies and the rule set are the owner's and have no
+   * default; the banking partner is not wired today, so details refuse `rail.bank`.
+   */
+  accountDetails?: AccountDetailsOptions;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -171,6 +178,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
   const statements = new StatementService(activity, options.activity?.cursorSecret);
+  // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
+  const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -210,6 +219,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activity,
     activityRecords,
     statements,
+    accountDetails,
     loans,
     cards,
     ramps,
