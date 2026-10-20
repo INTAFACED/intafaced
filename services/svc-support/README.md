@@ -106,7 +106,7 @@ row. `ticket_lifecycle` (beside the ticket) keeps who it waits on, when the firs
 staff read it with `ticketLifecycle`. These facts are written just after the ticket write, so a crash
 between the two leaves them stale until the next reply or status change.
 
-Ratings: the owner rates a resolved or closed request once (`rate`, replay safe). `ratingSummary`
+Ratings: the owner rates a resolved or closed request once (`rate`, replay safe). `ratedMine` returns the ids of the caller's own rated requests, so a list can offer "rate this" on the rest. `ratingSummary`
 (`support:ops`) takes a stated window `[from, to)` with no default and covers the requests resolved or
 closed now whose last change falls in it: solved count, responses, count per score 1 to 5 and the rated
 share in basis points (null with nothing solved, so the screen shows no percentage). With no ratings it

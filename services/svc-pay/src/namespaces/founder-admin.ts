@@ -65,6 +65,7 @@ import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
+import { createTravelRuleRouter, type TravelRuleMountDeps } from '../travel-rule/router.js';
 import { createWithdrawalReturnRouter, type WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
 import { createWithdrawalLimitsRouter, type WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import { createFounderMerchantReads } from './founder-merchant-reads.js';
@@ -102,6 +103,8 @@ export interface FounderAdminMounts {
   purchaseHolds?: PurchaseHoldMountDeps;
   /** W-withdraw-04: withdrawal fee quote policy and quote read (`founderAdmin.withdrawalQuotes.*`). Mounted only when supplied. */
   withdrawalQuotes?: WithdrawalQuoteMountDeps;
+  /** W-compliance-notices-04: outbound travel rule (`founderAdmin.travelRule.*`). Mounted only when supplied. */
+  travelRule?: TravelRuleMountDeps;
   /** W-withdraw-07: returned withdrawals, recorded and parked (`founderAdmin.withdrawalReturns.*`). Mounted only when supplied. */
   withdrawalReturns?: WithdrawalReturnMountDeps;
   /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
@@ -157,8 +160,20 @@ async function readWrap<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
-  const { metrics, registries, limits, custody, purchaseHolds, withdrawalQuotes, withdrawalReturns, treasury, control, halts, conversion } =
-    mounts;
+  const {
+    metrics,
+    registries,
+    limits,
+    custody,
+    purchaseHolds,
+    travelRule,
+    withdrawalQuotes,
+    withdrawalReturns,
+    treasury,
+    control,
+    halts,
+    conversion,
+  } = mounts;
   const reads = mounts.sql
     ? createFounderMerchantReads({ sql: mounts.sql, pay: mounts.pay, disputes: mounts.disputes, starterFee: mounts.starterFee })
     : null;
@@ -183,6 +198,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(purchaseHolds ? { purchaseHolds: createPurchaseHoldRouter({ founderAuthority, ...purchaseHolds }) } : {}),
       // W-withdraw-04: withdrawal fee quotes (src/withdrawals/quotes). Mounted only when its deps are supplied.
       ...(withdrawalQuotes ? { withdrawalQuotes: createWithdrawalQuoteRouter({ founderAuthority, ...withdrawalQuotes }) } : {}),
+      // W-compliance-notices-04: outbound travel rule (src/travel-rule). Mounted only when its deps are supplied.
+      ...(travelRule ? { travelRule: createTravelRuleRouter({ founderAuthority, ...travelRule }) } : {}),
       // W-withdraw-07: returned withdrawals (src/withdrawals/returns). Mounted only when its deps are supplied.
       ...(withdrawalReturns ? { withdrawalReturns: createWithdrawalReturnRouter({ founderAuthority, ...withdrawalReturns }) } : {}),
       // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.

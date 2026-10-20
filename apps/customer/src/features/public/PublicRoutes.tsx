@@ -79,7 +79,7 @@ export function PublicRoutes({ path }: { path: string }) {
         ) : path === '/notice' || path === '/announcement' ? (
           <NoticePage />
         ) : path.startsWith('/notice/') || path.startsWith('/announcement/') ? (
-          <NoticePage detail />
+          <NoticePage detail id={path.split('/')[2] ?? null} />
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (

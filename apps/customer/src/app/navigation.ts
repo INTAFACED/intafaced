@@ -46,6 +46,14 @@ export const rooms: readonly Room[] = [
   { path: '/partner', title: 'Partners', description: 'Work with Intafaced', area: 'public' },
   { path: '/developers', title: 'Developers', description: 'Connect to Intafaced from your own code', area: 'public' },
   { path: '/developers/hosts', title: 'Base addresses', description: 'Hosts per protocol, environment and region', area: 'public' },
+  { path: '/developers/status', title: 'Service status', description: 'Components, incidents and maintenance', area: 'public' },
+  { path: '/developers/changelog', title: 'Changelog', description: 'What changed in the developer interfaces', area: 'public' },
+  {
+    path: '/developers/changelog/upcoming',
+    title: 'Upcoming breaking changes',
+    description: 'Breaking changes and retired endpoints',
+    area: 'public',
+  },
   {
     path: '/developers/:section',
     title: 'Developer section',

@@ -24,9 +24,6 @@ export const pagesCopy = defineCopy('public-pages', {
   partnerMerchantOpen: 'Open merchant set-up',
   // Notices
   noticeTitle: 'Notices',
-  noticeNoneTitle: 'No public notices are published',
-  noticeNoneBody:
-    'Announcements, maintenance windows and incident reports would appear here. The notice feed has nothing published, so there is nothing to read and nothing is made up.',
   noticeAccountTitle: 'Notices about your account',
   noticeAccountBody: 'Order fills, verification results and rank changes arrive in your private inbox, not on this page.',
   noticeInbox: 'Open your inbox',
@@ -34,8 +31,6 @@ export const pagesCopy = defineCopy('public-pages', {
   noticeStuckTitle: 'Something not working?',
   noticeStuckBody: 'Search the help centre first. If it does not cover it, write to us.',
   noticeHelp: 'Open the help centre',
-  noticeDetailTitle: 'This notice is not published',
-  noticeDetailBody: 'No notice with this reference exists in the feed.',
   noticeBack: 'Back to notices',
   // App
   appTitle: 'Get the app',
