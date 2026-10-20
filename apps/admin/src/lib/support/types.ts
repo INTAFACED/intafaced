@@ -8,6 +8,7 @@ import type {
   SupportTicketEvent,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
+import type { SupportRatingSummary } from './ratings';
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 
@@ -78,6 +79,12 @@ export interface SupportPropertiesView {
 export interface SupportLifecycleView {
   readonly asOf: string;
   readonly lifecycle: Part<SupportTicketLifecycle>;
+}
+
+/** Satisfaction ratings for the requests solved in a window the caller stated. */
+export interface SupportRatingSummaryView {
+  readonly asOf: string;
+  readonly summary: Part<SupportRatingSummary>;
 }
 
 import type { StaffMemberView, StaffPolicyView } from './staff';

@@ -9,6 +9,7 @@ import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/suppor
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
 import { TicketActions } from './support-ticket-actions';
+import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
 import { TicketLifecycle } from './support-ticket-lifecycle';
 import { TicketProperties } from './support-ticket-properties';
@@ -296,6 +297,7 @@ export function SupportDeskView(p: DeskViewProps) {
           )}
         </>
       )}
+      <RatingsSummary />
       <TicketPanel {...p} />
       {p.children}
     </div>
