@@ -337,6 +337,12 @@ export type TradeErrorCode =
   | 'trade.fx_holiday'
   | 'trade.market_kind_unsupported'
   | 'trade.order_type_unsupported'
+  /** The caller's own deadline passed before the create was read. Refused before any hold. */
+  | 'trade.request_expired'
+  /** A self-trade mode the engine does not run. */
+  | 'trade.stp_mode_unsupported'
+  /** Order tags are not stored yet. */
+  | 'trade.tag_unsupported'
   | 'trade.invalid_qty'
   | 'trade.invalid_price'
   /** JSON number on an OCO/bracket leg — decimal string required. IEEE 0.1 is not a price. */

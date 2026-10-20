@@ -18,6 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
+import { refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -2412,6 +2413,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let displayQty: string | null = null;
     let stopTrigger: string | null = null;
     try {
+      refuseUnsupportedPlacementOptions(parsed.data, (deps.now ?? (() => new Date()))());
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
