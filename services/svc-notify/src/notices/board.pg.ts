@@ -15,6 +15,7 @@ import {
   type NoticeStore,
   type StatusComponent,
 } from './board.js';
+import { fromStored as changelogFromStored, type Changelog } from './changelog.js';
 
 type NoticePg = {
   id: string;
@@ -30,6 +31,7 @@ type NoticePg = {
   components: string[];
   parent_id: string | null;
   resolves: boolean;
+  changelog: unknown;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -54,6 +56,14 @@ function asComponents(values: string[]): StatusComponent[] {
   return values as StatusComponent[];
 }
 
+function asChangelog(value: unknown): Changelog | null {
+  try {
+    return changelogFromStored(value);
+  } catch {
+    throw new NoticeError('notify.changelog_fields_invalid');
+  }
+}
+
 function fromPg(row: NoticePg): NoticeRow {
   return {
     id: row.id,
@@ -69,6 +79,7 @@ function fromPg(row: NoticePg): NoticeRow {
     components: asComponents(row.components),
     parentId: row.parent_id,
     resolves: row.resolves,
+    changelog: asChangelog(row.changelog),
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -79,7 +90,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves,
+  impact, components, parent_id, resolves, changelog,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -90,11 +101,12 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        impact, components, parent_id, resolves, author_id, client_request_id
+        impact, components, parent_id, resolves, changelog, author_id, client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
         ${row.impact}, ${row.components as string[]}, ${row.parentId}, ${row.resolves},
+        ${row.changelog ? this.sql.json(row.changelog as never) : null},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;
