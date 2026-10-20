@@ -198,7 +198,7 @@ const supportFindingOutput = z.union([
     ticket: z.object({
       ticketId: z.string(),
       ownerUserId: z.string(),
-      status: z.enum(['open', 'pending', 'resolved', 'closed']),
+      status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
       category: z.string(),
     }),
   }),
@@ -2384,7 +2384,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
               .object({
                 ticketId: z.string().min(1).max(120),
                 ownerUserId: z.string().max(120),
-                status: z.enum(['open', 'pending', 'resolved', 'closed']),
+                status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
                 category: z.string().max(64),
               })
               .nullable()
@@ -2426,7 +2426,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 ticket: z.object({
                   ticketId: z.string(),
                   ownerUserId: z.string(),
-                  status: z.enum(['open', 'pending', 'resolved', 'closed']),
+                  status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
                   category: z.string(),
                 }),
               }),
@@ -2679,7 +2679,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                     .object({
                       ticketId: z.string().min(1).max(120),
                       ownerUserId: z.string().max(120),
-                      status: z.enum(['open', 'pending', 'resolved', 'closed']),
+                      status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
                       category: z.string().max(64),
                     })
                     .nullable()

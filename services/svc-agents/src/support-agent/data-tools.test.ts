@@ -156,6 +156,15 @@ describe('support Stage-2 ticket.read — ownership at the door', () => {
     expect(await read()).toEqual({ status: 'ok', tool: 'support.ticket.read', ticket });
   });
 
+  it('reads a ticket that is on hold (SP-tickets-04)', async () => {
+    const held: TicketFixture = { ...ticket, status: 'on_hold' };
+    expect(await read({ desk: createFixtureSupportDesk({ tickets: [held] }) })).toEqual({
+      status: 'ok',
+      tool: 'support.ticket.read',
+      ticket: held,
+    });
+  });
+
   it('refuses another user’s ticket — a guessable id is not a grant', async () => {
     expect(
       await read({
