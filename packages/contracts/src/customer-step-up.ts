@@ -397,7 +397,7 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
   {
     scope: 'identity.step_up.limits_loosen',
     purpose: 'account.limits.loosen',
-    clientFields: ['limitKey', 'clientRequestId'],
+    clientFields: ['limitKey', 'newValue', 'clientRequestId'],
     targetField: 'limitKey',
     targetRequired: true,
     emptyOk: [],
