@@ -109,7 +109,7 @@ export interface ExchangeOptions {
  *
  * Until this list was complete, the comment above claimed the class while only
  * `connection` (plus `host` / `content-length`) was stripped — an audit finding
- * (`docs/audit/2026-08-08-svc-edge.md` #7). `transfer-encoding`, `te`,
+ * (`docs/audits/2026-08-08-svc-edge.md` #7). `transfer-encoding`, `te`,
  * `trailer`, `upgrade`, `keep-alive` and the proxy-auth pair were forwarded.
  * Undici may reject some of those outbound, but a safety control that relies on
  * the outbound client to paper over a leaky filter is not a control.

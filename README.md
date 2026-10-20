@@ -20,7 +20,7 @@ Phases: **0** ✅ · **1** ✅ · **2** ✅ · **3** ✅ · **3P** 14/15 · **4*
 
 - `socket.clob-contracts` — An audited venue contract emitting the indexed event surface
 
-Full board: **[docs/TRACKER.md](docs/TRACKER.md)** · `pnpm tracker ready`
+Filters: `pnpm tracker ready`
 
 <!-- tracker:end -->
 

@@ -5,7 +5,7 @@
  *   node tooling/scripts/sync-github-issues.mjs [--dry-run]
  *
  * Why both a file AND issues:
- *   · `docs/TRACKER.md` is the whole picture, validated against the code.
+ *   · `tooling/tracker/features.mjs` is the whole picture, validated against the code.
  *   · GitHub issues are for the subset you can start TODAY — somewhere to
  *     discuss, assign, and hang a PR off.
  *
@@ -66,7 +66,7 @@ for (const phase of phasesInPlay) {
       '-f',
       `title=${title}`,
       '-f',
-      `description=${total} shippable features. See docs/TRACKER.md.`,
+      `description=${total} shippable features. See tooling/tracker/features.mjs.`,
     ],
     { allowFail: true },
   );

@@ -5,7 +5,7 @@
  * matrix), plus the Core and infrastructure work §25 does not list because it
  * predates the surfaces.
  *
- * This file is DATA. `pnpm tracker` renders it to docs/TRACKER.md and validates
+ * This file is DATA. `pnpm tracker` renders the README.md block and validates
  * it against what is actually in the repo — a feature cannot claim `done` if the
  * service it lives in does not exist. That validation is the whole point: a
  * tracker nobody trusts is worse than no tracker, and the way trackers become
@@ -35,7 +35,7 @@
  *   3. NOT PROPPED UP. Nothing it depends on is a stub, a mock, or a TODO.
  *
  * Code-complete but unmounted is `ready`, not `done`, with a `note:` saying so.
- * Evidence for every 2026-07-28 change: docs/audit/tracker-truth-2026-07-28.md.
+ * Evidence for every 2026-07-28 change: docs/audits/tracker-truth-2026-07-28.md.
  *
  * ── Edge principal (updated 2026-07-29 full audit) ──────────────────────────
  * svc-edge EXISTS and signs `x-intafaced-principal` for every routed request.

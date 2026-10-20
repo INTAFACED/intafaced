@@ -4,7 +4,7 @@
 # INTAFACED_DEFINITIVE_BUILD.md §25 line 740 names this file by path and says CI
 # carries a `coverage-check` against it. Until 2026-08-03 neither existed, and
 # the cost of that absence is written down in
-# docs/audit/BUILD-COVERAGE-AUDIT-2026-08-03.md: forty law-specified
+# docs/audits/BUILD-COVERAGE-AUDIT-2026-08-03.md: forty law-specified
 # capabilities with no tracker row, twenty of them the entire v2.1 and v2.2
 # chapters — 100% of the law written after v2.0, invisible to the board, with
 # nothing anywhere saying so.
@@ -33,7 +33,7 @@ meta:
   law: INTAFACED_DEFINITIVE_BUILD.md
   law_version: '2.2 FINAL'
   tracker: tooling/tracker/features.mjs
-  built_from: docs/audit/BUILD-COVERAGE-AUDIT-2026-08-03.md
+  built_from: docs/audits/BUILD-COVERAGE-AUDIT-2026-08-03.md
   spec: '25:740'
   deviations:
     - >-

@@ -2,8 +2,8 @@
 /**
  * THE PROJECT TRACKER.
  *
- *   pnpm tracker          render docs/TRACKER.md and print the summary
- *   pnpm tracker:check    fail if TRACKER.md is stale or the registry is invalid (CI)
+ *   pnpm tracker          refresh the README.md tracker block and print the summary
+ *   pnpm tracker:check    fail if the README.md block is stale or the registry is invalid (CI)
  *   pnpm tracker ready    just list what is claimable right now
  *   pnpm tracker <module> everything for one module
  *
@@ -21,11 +21,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 import { FEATURES, PHASE_ORDER, PHASE_NAMES } from '../tracker/features.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const OUTPUT = join(ROOT, 'docs', 'TRACKER.md');
 const REGISTRY = join(ROOT, 'tooling', 'tracker', 'features.mjs');
 const arg = process.argv[2];
 const checkMode = arg === '--check' || arg === 'check';
@@ -43,7 +41,7 @@ const problems = [];
  * the LAST value for a repeated key and discards the earlier ones silently, so
  * a row with two `note:` fields loads as a row with one note and no error
  * anywhere. That happened — `dex.quote-router` carried two, and the ownership
- * sentence in the first ("agents babysit only") never reached docs/TRACKER.md
+ * sentence in the first ("agents babysit only") never reached the rendered board
  * for as long as it was there. Nothing else in this repo would have said so:
  * there is no root ESLint config, so `no-dupe-keys` never ran over this file.
  *
@@ -238,153 +236,13 @@ function summary() {
   return counts;
 }
 
-function render() {
-  const counts = summary();
-  const shippable = resolved.filter((f) => f.resolved !== 'socket').length;
-  const percent = Math.round((counts.done / shippable) * 100);
-
-  const lines = [];
-  lines.push('# Project tracker');
-  lines.push('');
-  lines.push(
-    '> **Not current rules (2026-10-17).** This board is generated status, not instructions. Current rules: [`AGENTS.md`](../AGENTS.md). Where this file disagrees with AGENTS.md or the code, AGENTS.md and the code win.',
-  );
-  lines.push('');
-  lines.push('> **Generated — do not edit by hand.** Source of truth is `tooling/tracker/features.mjs`.');
-  lines.push('> Run `pnpm tracker` after changing it. CI fails if this file is stale.');
-  lines.push('');
-  lines.push(
-    `**${counts.done} of ${shippable} shipped (${percent}%)** · ${counts.wip} in progress · ${counts.ready} ready to claim · ${counts.blocked} blocked · ${counts.socket} deliberate §13 sockets`,
-  );
-  lines.push('');
-  lines.push('| | meaning |');
-  lines.push('|---|---|');
-  lines.push('| ✅ done | on `main`, DoD gate green |');
-  lines.push('| 🔨 wip | someone is on it — see owner |');
-  lines.push('| 🟢 ready | **every dependency is done. Claim it.** |');
-  lines.push('| ⛔ blocked | waiting on a dependency — computed, not declared |');
-  lines.push('| 🔌 socket | deliberately not in v1 (§13); the interface exists |');
-  lines.push('');
-
-  // ── Claim this now ────────────────────────────────────────────────────────
-  const ready = resolved.filter((f) => f.resolved === 'ready');
-  lines.push('---');
-  lines.push('');
-  lines.push('## 🟢 Claim these now');
-  lines.push('');
-  lines.push('Nothing blocks these. Pick one, say so in Telegram, open a branch:');
-  lines.push('');
-  lines.push('```bash');
-  lines.push('pnpm wt feat/<the-thing>');
-  lines.push('```');
-  lines.push('');
-
-  if (ready.length === 0) {
-    lines.push('_Nothing unblocked right now — everything is either shipped, in progress, or waiting._');
-  } else {
-    lines.push('| Feature | Module | Phase | id |');
-    lines.push('|---|---|---|---|');
-    for (const f of ready) {
-      lines.push(`| ${f.title} | \`${f.module}\` | ${f.phase} | \`${f.id}\` |`);
-    }
-  }
-  lines.push('');
-
-  // ── Leverage ──────────────────────────────────────────────────────────────
-  const leverage = resolved
-    .filter((f) => f.resolved !== 'done' && f.resolved !== 'socket')
-    .map((f) => ({ ...f, unblocks: unblocks(f.id).size }))
-    .filter((f) => f.unblocks > 0)
-    .sort((a, b) => b.unblocks - a.unblocks)
-    .slice(0, 8);
-
-  if (leverage.length > 0) {
-    lines.push('## Highest leverage');
-    lines.push('');
-    lines.push(
-      'What each unshipped feature would unblock, transitively. **This is what should drive build order** — a feature that frees 26 others is worth more than one that frees none, whatever else is louder.',
-    );
-    lines.push('');
-    lines.push('| Unblocks | Feature | Status | id |');
-    lines.push('|---:|---|---|---|');
-    for (const f of leverage) {
-      lines.push(`| **${f.unblocks}** | ${f.title} | ${ICON[f.resolved]} ${f.resolved} | \`${f.id}\` |`);
-    }
-    lines.push('');
-  }
-
-  const wip = resolved.filter((f) => f.resolved === 'wip');
-  if (wip.length > 0) {
-    lines.push('## 🔨 In progress');
-    lines.push('');
-    lines.push('| Feature | Owner | Module |');
-    lines.push('|---|---|---|');
-    for (const f of wip) lines.push(`| ${f.title} | **${f.owner}** | \`${f.module}\` |`);
-    lines.push('');
-  }
-
-  // ── By phase ──────────────────────────────────────────────────────────────
-  lines.push('---');
-  lines.push('');
-  lines.push('## Everything, by phase');
-  lines.push('');
-
-  for (const phase of PHASE_ORDER) {
-    const inPhase = resolved.filter((f) => f.phase === phase);
-    if (inPhase.length === 0) continue;
-
-    const done = inPhase.filter((f) => f.resolved === 'done').length;
-    const total = inPhase.filter((f) => f.resolved !== 'socket').length;
-    const complete = total > 0 && done === total;
-
-    lines.push(`### Phase ${phase} — ${PHASE_NAMES[phase]} ${complete ? '✅' : `(${done}/${total})`}`);
-    lines.push('');
-    lines.push('| | Feature | Plane | Blocked by | id |');
-    lines.push('|---|---|---|---|---|');
-
-    for (const f of inPhase) {
-      const blocked =
-        f.resolved === 'blocked'
-          ? blockers(f)
-              .map((b) => `\`${b}\``)
-              .join(', ')
-          : '';
-      const note = f.note ? ` <br/>_${f.note}_` : '';
-      lines.push(`| ${ICON[f.resolved]} | ${f.title}${note} | ${f.plane} | ${blocked} | \`${f.id}\` |`);
-    }
-    lines.push('');
-  }
-
-  lines.push('---');
-  lines.push('');
-  lines.push('## How to use this');
-  lines.push('');
-  lines.push(
-    '**To claim something:** find it in 🟢, set `owner` and `status: "wip"` in `tooling/tracker/features.mjs`, run `pnpm tracker`, and include both files in your first PR. That way nobody duplicates you.',
-  );
-  lines.push('');
-  lines.push(
-    '**To ship something:** set `status: "done"` and list the paths it created in `requires`. The check will refuse the claim if those paths are missing.',
-  );
-  lines.push('');
-  lines.push('**Plane:** `F` = Fiat (custodial, compliant) · `P` = Protocol (non-custodial, zero-KYC) · `B` = both. See §22.');
-  lines.push('');
-  lines.push(
-    '**Why blocked is computed:** so the tracker cannot lie about readiness. If you think something is wrongly blocked, the fix is in `dependsOn`, and that edit is reviewable.',
-  );
-  lines.push('');
-
-  return lines.join('\n');
-}
-
 /**
  * The block injected into README.md.
  *
  * Deliberately SHORT. The README's job is "what is this, how do I run it" —
  * a new developer needs that in the first screen. Pasting 103 rows above the
  * setup instructions would bury the one thing they actually came for. So the
- * README carries the score and what is claimable; docs/TRACKER.md carries the
- * detail.
+ * README carries the score and what is claimable.
  */
 function renderReadmeBlock() {
   const counts = summary();
@@ -421,7 +279,7 @@ function renderReadmeBlock() {
   }
   if (ready.length > 8) lines.push(`- …and ${ready.length - 8} more`);
   lines.push('');
-  lines.push('Full board: **[docs/TRACKER.md](docs/TRACKER.md)** · `pnpm tracker ready`');
+  lines.push('Filters: `pnpm tracker ready`');
 
   return lines.join('\n');
 }
@@ -451,8 +309,6 @@ if (problems.length > 0) {
   process.exit(1);
 }
 
-const content = render();
-
 /**
  * Never `process.exit(0)` after writing to stdout: on Windows a piped stdout is
  * asynchronous, and exiting truncates the pending write AND reports a garbage
@@ -460,9 +316,6 @@ const content = render();
  */
 if (checkMode) {
   const stale = [];
-
-  const existing = existsSync(OUTPUT) ? readFileSync(OUTPUT, 'utf8') : '';
-  if (existing.trim() !== content.trim()) stale.push('docs/TRACKER.md');
 
   const readme = injectReadme();
   if (readme === null) {
@@ -475,7 +328,7 @@ if (checkMode) {
     console.error(`\n✖ stale: ${stale.join(', ')}\n  Run \`pnpm tracker\` and commit the result.\n`);
     process.exitCode = 1;
   } else {
-    console.log('✓ tracker up to date (docs/TRACKER.md + README.md)');
+    console.log('✓ tracker up to date (README.md)');
   }
 } else if (arg) {
   // Filters — for humans at a terminal, not for the file.
@@ -493,8 +346,6 @@ if (checkMode) {
     console.log('');
   }
 } else {
-  writeFileSync(OUTPUT, content + '\n', 'utf8');
-
   const readme = injectReadme();
   if (readme === null) {
     console.warn('\n⚠ README.md has no tracker markers — add <!-- tracker:start --> and <!-- tracker:end -->');
@@ -504,7 +355,7 @@ if (checkMode) {
 
   const counts = summary();
   const shippable = FEATURES.filter((f) => f.status !== 'socket').length;
-  console.log('\n✓ docs/TRACKER.md written\n');
+  console.log('\n✓ README.md tracker block written\n');
   console.log(
     `  ✅ ${counts.done} shipped of ${shippable}   🔨 ${counts.wip} wip   🟢 ${counts.ready} ready   ⛔ ${counts.blocked} blocked   🔌 ${counts.socket} sockets\n`,
   );
@@ -515,13 +366,5 @@ if (checkMode) {
       console.log(`    · ${f.id.padEnd(28)} ${f.title}`);
     }
     console.log('');
-  }
-
-  // Nudge, not a failure: a tracker whose file is uncommitted helps nobody.
-  try {
-    const status = execFileSync('git', ['status', '--porcelain', 'docs/TRACKER.md'], { cwd: ROOT, encoding: 'utf8' }).trim();
-    if (status) console.log('  (docs/TRACKER.md changed — commit it so the team sees the same picture)\n');
-  } catch {
-    /* not a git repo; fine */
   }
 }
