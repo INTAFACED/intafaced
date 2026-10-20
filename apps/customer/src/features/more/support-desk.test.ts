@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SUPPORT_EMAIL,
   RATING_SCORES,
   canFollowUp,
   canReply,
@@ -16,6 +15,8 @@ import {
   showRatePrompt,
   statusCounts,
   supportEmail,
+  supportRequestHref,
+  requestFromSearch,
   supportMailto,
   ticketReference,
   type TicketLike,
@@ -140,11 +141,12 @@ describe('help article groups', () => {
 });
 
 describe('contact address', () => {
-  it('uses a configured address only when it is a plain address, else the recorded company address', () => {
+  it('uses a configured address only when it is a plain address, else it is not set', () => {
     expect(supportEmail('help@example.org')).toBe('help@example.org');
     expect(supportEmail('  help@example.org ')).toBe('help@example.org');
-    expect(supportEmail('not an address')).toBe(DEFAULT_SUPPORT_EMAIL);
-    expect(supportEmail(undefined)).toBe(DEFAULT_SUPPORT_EMAIL);
+    expect(supportEmail('not an address')).toBeNull();
+    expect(supportEmail(undefined)).toBeNull();
+    expect(supportEmail('   ')).toBeNull();
   });
 
   it('builds a mailto that carries only the text it was given, encoded', () => {
@@ -178,5 +180,18 @@ describe('the rate-this-request prompt', () => {
     expect(showRatePrompt('resolved', false, false)).toBe(false);
     expect(showRatePrompt('resolved', true, true)).toBe(false);
     for (const status of ['open', 'pending', 'on_hold'] as const) expect(showRatePrompt(status, true, false)).toBe(false);
+  });
+});
+
+describe('opening one request from an address', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  it('builds the address from a request id and reads it back', () => {
+    expect(supportRequestHref(ID)).toBe(`/support?request=${ID}`);
+    expect(requestFromSearch(`?request=${ID}`)).toBe(ID);
+    expect(requestFromSearch(`?request=${ID.toUpperCase()}`)).toBe(ID);
+  });
+  it('anything that is not a request id opens nothing', () => {
+    for (const search of ['', '?request=', '?request=abc', `?request=${ID}x`, '?request=../../x', `?other=${ID}`])
+      expect(requestFromSearch(search)).toBeNull();
   });
 });

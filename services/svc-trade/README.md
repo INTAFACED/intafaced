@@ -17,6 +17,8 @@ is allowed, funds it, hands it to the engine, and turns what comes back into led
 | Copy                                        | tRPC `copy.*`     | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
 | Futures jobs / candle / MM seed / reconcile | job hosts         | **OFF**                                                                       |
 
+`support.tradeSummary` (D-ops-06, query only, svc-support only): one customer's futures positions, liquidation rungs and orders for support, cut to a required `limit` (no default). svc-support checks the case first; this door proves the caller, reads the three lists in one snapshot, and writes a `trade.operator_audit` row (agent, case, customer, `auditId`, `readAt`) before it returns. A failed section or audit write refuses (`trade.support_summary_unavailable`, `trade.support_summary_audit_unavailable`); it never returns an empty list. Code: `src/support/`.
+
 Wave-3 sealed money on tip (#1193 TWAP respace+jobs OFF, #1191/#1199 copy races, #1202–#1207 funding/insurance/reconcile, #1211 margin-call). See tracker `trade.copy` / `trade.algo` and [Not in this PR](#not-in-this-pr).
 
 ---

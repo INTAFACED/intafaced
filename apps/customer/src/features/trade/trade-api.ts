@@ -363,6 +363,8 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       symbol.trim() === ''
         ? Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'symbol is required' })
         : api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
+    /** Cancel every open order in every market (DELETE /orders with no symbol). The reply lists the orders it cancelled. */
+    cancelAllMarkets: (): Promise<ApiResult<Order[]>> => api.rest('/orders', z.array(orderSchema), { method: 'DELETE' }),
     async amend(reviewed: ReviewedOrder, amount: string): Promise<ApiResult<z.infer<typeof amendmentSchema>>> {
       const { id, symbol } = reviewed;
       const result = await api.rest(`/orders/${encodeURIComponent(id)}`, amendmentSchema, { method: 'PATCH', body: { qty: amount } });

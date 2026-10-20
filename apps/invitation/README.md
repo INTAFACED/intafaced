@@ -6,6 +6,8 @@ The existing public intake, encrypted draft storage, countries, exact review for
 
 Serve only the independent `dist/` on HTTPS at exact `join.intafaced.com`; HTML paths `/`, `/join`, `/invest`, `/trade`, `/merchant`, `/academy`, `/partner` and `/join/*` return its index. `/api/ops/trpc/*` proxies to the existing edge without prefix rewrites. DNS/TLS/edge deployment are separate launch inputs. Do not serve the legacy exchange index on this host. This source does not provision hosting or send email.
 
+The three hosts are tied together by one check, not by this file: `INTAFACED_APEX_HOST=… INTAFACED_APP_HOST=… INTAFACED_JOIN_HOST=… node apps/customer/deployment/host-dispatch.mjs` (HTTPS origins only) reads `/customer-deployment.json` from the app host, `/join` and an unknown `/api/ops/trpc/*` path from the join host, and writes a `host-dispatch.json` receipt. A blank or malformed host setting, an unreachable host, the exchange index on the join host, or a rewritten api prefix each exit 1 with a typed `host.*` code. The receipt, not `hostDispatch` in the descriptor (which stays `unverified`), is the proof of what is served.
+
 `OUTREACH_CONTACT_URL` and `OUTREACH_RETENTION_NOTICE` are public publication seams, validated by the existing module. Set real approved notices only after actual retention/backup behavior is configured. No live mailbox receipt, production deployment or browser fixture constitutes those proofs.
 
 Run from the monorepo root with Node24:

@@ -159,14 +159,15 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
-| Procedure                    | Scope                 | What it does                                                                  |
-| ---------------------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `business.list` / `create`   | `bank:read` / `write` | Corporate account + spend threshold                                           |
-| `business.addMember`         | `bank:write`          | admin/maker/checker roles                                                     |
-| `business.proposeTransfer`   | `bank:write`          | Under threshold posts; at/above → **purposed ledger hold** + pending approval |
-| `business.approve`           | `bank:write`          | Checker (not maker) settles hold → destination                                |
-| `business.reject` / `cancel` | `bank:write`          | Checker reject or maker/admin cancel — hold returns to debit pot              |
-| `business.pending`           | `bank:read`           | Open approvals (each carries `holdLedgerTxId` while pending)                  |
+| Procedure                      | Scope                  | What it does                                                                                                                                                                                |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `business.list` / `create`     | `bank:read` / `write`  | Corporate account + spend threshold                                                                                                                                                         |
+| `business.addMember`           | `bank:write`           | admin/maker/checker roles                                                                                                                                                                   |
+| `business.proposeTransfer`     | `bank:write`           | Under threshold posts; at/above → **purposed ledger hold** + pending approval                                                                                                               |
+| `business.approve`             | `bank:write`           | Checker (not maker) settles hold → destination                                                                                                                                              |
+| `business.reject` / `cancel`   | `bank:write`           | Checker reject or maker/admin cancel — hold returns to debit pot                                                                                                                            |
+| `business.pending`             | `bank:read`            | Open approvals (each carries `holdLedgerTxId` while pending)                                                                                                                                |
+| `business.approverEligibility` | service (svc-pay only) | May this member approve for the team? `eligible`, `role_cannot_approve`, `not_a_member`, `account_closed` or `no_such_account`; a read, used for multi-approval withdrawals (W-withdraw-11) |
 
 KYB / payroll / invoicing / expense cards remain residual or §13 — not invented here.
 

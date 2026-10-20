@@ -48,6 +48,12 @@
   min-width: 112px;
   min-height: 48px;
 }
+.help__request {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: start;
+}
 .help__browse {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;

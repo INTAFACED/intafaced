@@ -348,6 +348,8 @@ export const orderSchema = z.object({
   trades: z.array(tradeSchema),
   /** The linked exit legs when this order is an OCO parent or a bracket's exit. Absent otherwise. */
   exit: orderExitSchema.nullable().optional(),
+  /** The caller's own label from the create body. Null when none was sent. Absent on wires from before this field. */
+  tag: z.string().nullable().optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 
@@ -376,6 +378,11 @@ export const createOrderRequestSchema = z
     stpMode: z.enum(['cancel_maker', 'cancel_taker', 'cancel_both']).optional(),
     /** A label for the caller's own books. Never part of the idempotency key. */
     tag: z.string().min(1).max(16).optional(),
+    /**
+     * The asset fees are paid in. Spot charges the fee in the asset received and has no fee token, so any other value
+     * is refused by the service (`trade.fee_currency_unsupported`), never silently dropped.
+     */
+    feeCurrency: z.string().min(1).max(32).optional(),
     /** The instant after which the caller no longer wants this order created. Past it, the service refuses the create before any hold. */
     requestDeadline: isoDatetime.optional(),
     /** Which price releases a stop. Only `last` is read today; the service refuses `mark` and `index` with a typed code. */

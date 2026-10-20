@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
-import { knownMode, marketModesFetcher, type MarketMode } from './status';
+import { knownMode, maintenanceFetcher, marketModesFetcher, type MaintenanceWindow, type MarketMode } from './status';
 import { statusCopy } from './status-copy';
+
+const whenUtc = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} UTC`;
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
 
@@ -15,6 +17,11 @@ export function StatusPage() {
     [env],
   );
   const load = useSource(source);
+  const maintenanceSource = useMemo(
+    () => env.poller.source<MaintenanceWindow[]>('public-status-maintenance', maintenanceFetcher(env.api), { intervalMs: 60_000 }),
+    [env],
+  );
+  const maintenance = useSource(maintenanceSource);
   return (
     <div className="pub-page">
       <header className="pub-heading">
@@ -67,7 +74,32 @@ export function StatusPage() {
       </section>
       <section className="pub-card" aria-labelledby="status-maintenance">
         <h2 id="status-maintenance">{copy.t('maintenanceTitle')}</h2>
-        <p>{copy.t('maintenanceBody')}</p>
+        {maintenance.status === 'loading' ? <p role="status">{copy.t('maintenanceLoading')}</p> : null}
+        {maintenance.status === 'refused' ? <p role="alert">{refusalCopy(maintenance.code).title || copy.t('refused')}</p> : null}
+        {maintenance.status === 'error' ? (
+          <p role="alert">
+            {copy.t('maintenanceFailed')}{' '}
+            <button type="button" className="text-link" onClick={maintenance.retry}>
+              {copy.t('retry')}
+            </button>
+          </p>
+        ) : null}
+        {maintenance.status === 'empty' || (maintenance.status === 'ready' && maintenance.data.length === 0) ? (
+          <p role="status">{copy.t('maintenanceNone')}</p>
+        ) : null}
+        {maintenance.status === 'ready' && maintenance.data.length > 0 ? (
+          <ul>
+            {maintenance.data.map((window) => (
+              <li key={window.id}>
+                <strong>{window.title}</strong>{' '}
+                <span className="muted">
+                  {window.startsAt ? whenUtc(window.startsAt) : copy.t('windowNotSet')} {copy.t('windowTo')}{' '}
+                  {window.endsAt ? whenUtc(window.endsAt) : copy.t('windowNotSet')}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <a className="text-link" href="/notice">
           {copy.t('noticesLink')} →
         </a>

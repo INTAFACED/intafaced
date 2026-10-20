@@ -5,7 +5,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { NoticeDetail, NoticeList, NoticeMissing } from './NoticeFeed';
-import { feedNotices, isNoticeId, type Notice } from './notices-api';
+import { feedNotices, isNoticeId, readNotice, type Notice } from './notices-api';
+import type { ApiClient } from '../../shared/api';
 import { entrySchema } from '../developers/developers-api';
 
 const notice = (over: Partial<Notice>): Notice =>
@@ -54,5 +55,12 @@ describe('public notice feed', () => {
     expect(isNoticeId('11111111-1111-4111-8111-111111111111')).toBe(true);
     expect(renderToString(<NoticeDetail id="abc" />)).toBe(renderToString(<NoticeMissing />));
     expect(renderToString(<NoticeDetail id={null} />)).toContain('This notice is not published');
+  });
+
+  it('reads a notice the service says does not exist as not published, and any other refusal as a failed read', async () => {
+    const api = (code: string) => ({ query: async () => ({ ok: false, reason: 'error', message: 'x', code }) }) as unknown as ApiClient;
+    const id = '11111111-1111-4111-8111-111111111111';
+    expect(await readNotice(api('notify.notice_not_found'), id)).toEqual({ ok: true, data: null });
+    expect(await readNotice(api('notify.unavailable'), id)).toMatchObject({ ok: false });
   });
 });

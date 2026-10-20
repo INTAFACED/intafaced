@@ -155,14 +155,25 @@ export function inKbCategory(id: string, category: KbCategory): boolean {
 }
 
 /**
- * Where a person who cannot sign in writes to. One place, one address; `VITE_SUPPORT_EMAIL` overrides it per deployment.
- * The default is the company address recorded in the repository's contact notes (docs/TV-APPLY-PACK.md).
+ * The address a person who cannot sign in writes to, or `null` when none is published. There is no built-in address:
+ * `VITE_SUPPORT_EMAIL` at build time is the only source here, and a blank or malformed value is "not set".
  */
-export const DEFAULT_SUPPORT_EMAIL = 'hello@intafaced.com';
-
-export function supportEmail(configured?: string | undefined): string {
+export function supportEmail(configured?: string | undefined): string | null {
   const value = (configured ?? '').trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : DEFAULT_SUPPORT_EMAIL;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
+}
+
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where one request opens in the support desk. The id is the request's own id; the desk checks it belongs to the caller. */
+export function supportRequestHref(ticketId: string): string {
+  return `/support?request=${encodeURIComponent(ticketId)}`;
+}
+
+/** The request a `/support?request=<id>` address names, or `null` when there is none or it is not an id. */
+export function requestFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('request');
+  return value !== null && REQUEST_ID.test(value) ? value.toLowerCase() : null;
 }
 
 /** A mailto link that never carries a password, code or key: only the subject and a plain prompt the person finishes. */

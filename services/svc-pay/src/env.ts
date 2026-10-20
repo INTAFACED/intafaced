@@ -45,6 +45,16 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * How often the due work for multi-approval withdrawals runs: expire waiting requests, give back their holds and run
+       * requests that reached their approvals (W-withdraw-11). Never defaulted: unset, nothing runs on a timer and the
+       * founder's `settleDue` is the only trigger. Every step is idempotent, so replicas may overlap.
+       */
+      PAY_WITHDRAWAL_APPROVAL_SWEEP_MS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1000).optional(),
+      ),
+
+      /**
        * B2B ramp (`pay.b2b_ramp`). Default off: every b2b-ramp route refuses.
        * `on` in staging/prod also requires PAY_B2B_RAMP_LICENCE_ATTESTATION,
        * checked against the raw APP_ENV at boot (b2b-ramp/config.ts). The
@@ -254,6 +264,11 @@ const schema = serviceEnvSchema
        * Blank → noop port (settlement still posts). Never invent rates.
        */
       IDENTITY_URL: z.string().url().optional(),
+      /**
+       * svc-bank base for the approver check on multi-approval withdrawals (W-withdraw-11). Blank → every approval refuses
+       * `withdrawal_approval.eligibility_unavailable`: an unreachable team is never read as eligible.
+       */
+      BANK_URL: z.string().url().optional(),
       /** Owner-specific exact-body admission key. Missing configuration refuses fresh operations. */
       IDENTITY_ADMISSION_SECRET: z.string().min(32).optional(),
 

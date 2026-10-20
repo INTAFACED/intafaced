@@ -32,9 +32,9 @@ describe('drop-in language files', () => {
     }
   });
 
-  it('keeps es and fr as they were: four words each, now read from their files', () => {
+  it('keeps es and fr as they were: eight words each (four plus the posting-freeze notices), now read from their files', () => {
     for (const code of ['es', 'fr'] as const) {
-      expect(coverage(CATALOGS[code]).translated).toBe(4);
+      expect(coverage(CATALOGS[code]).translated).toBe(8);
       expect(localeProvenance(code)).toBe('machine');
     }
     expect(CATALOGS.es['auth.logout']).toBe('Cerrar sesión');
@@ -46,7 +46,7 @@ describe('drop-in language files', () => {
     expect(localeProvenance('de')).toBeNull();
     expect(localeProvenance('not-a-locale')).toBeNull();
     const rows = localeCoverage();
-    expect(rows.find((row) => row.code === 'es')?.translated).toBe(4);
+    expect(rows.find((row) => row.code === 'es')?.translated).toBe(8);
     expect(rows.find((row) => row.code === 'de')?.translated).toBe(0);
   });
 

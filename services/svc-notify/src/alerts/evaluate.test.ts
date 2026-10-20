@@ -30,6 +30,13 @@ const base: PriceAlert = {
   status: 'active',
   firedAt: null,
   createdAt: new Date('2026-08-09T00:00:00Z'),
+  condition: 'greater_than',
+  name: null,
+  message: null,
+  expiresAt: null,
+  lastSide: null,
+  extras: [],
+  updatedAt: new Date('2026-10-17T08:00:00Z'),
 };
 
 describe('decimal string compare — no JS number', () => {

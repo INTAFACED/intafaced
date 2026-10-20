@@ -25,6 +25,17 @@ import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
 import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
+import { WithdrawalApprovalService, approvalMoneyOf } from './withdrawals/approvals/service.js';
+import { createWithdrawalApprovalGuards } from './withdrawals/approvals/guard.js';
+import { createWithdrawalApprovalRouter } from './withdrawals/approvals/router.js';
+import { composeGuards } from './seams/guards.js';
+import { AllowlistService } from './withdrawals/allowlist/service.js';
+import { createAllowlistGuards } from './withdrawals/allowlist/guard.js';
+import { createAllowlistRouter } from './withdrawals/allowlist/router.js';
+import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
+import { loadMessageCipher } from './travel-rule/cipher.js';
+import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
+import { TravelRuleService } from './travel-rule/service.js';
 import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
@@ -90,7 +101,14 @@ import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscrip
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  mergeRouters,
+  retainRawBody,
+  createIdentityOperationDecisionClient,
+  createBankApproverEligibilityClient,
+  s2sFromEnv,
+} from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';
@@ -408,9 +426,14 @@ const walletPay = new WalletPay({
 });
 
 const purchaseHolds = new PurchaseHoldService({ sql }).guard();
+const withdrawalQuotes = new WithdrawalQuoteService({ sql });
+/** W-compliance-notices-04: no counterparty network is connected, and no message key means nothing is stored. */
+const travelRuleCipher = loadMessageCipher(process.env);
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
+  // The allowlist (W-withdraw-10) and approval (W-withdraw-11) gates ride the claim's own transaction, after the shared guards.
+  claimGuards: composeGuards(createAllowlistGuards(), createWithdrawalApprovalGuards()),
   haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
@@ -430,6 +453,31 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   }),
   purchaseHolds,
 });
+
+/**
+ * W-withdraw-11: multi-approval for withdrawals. Approver eligibility is svc-bank's (team roles) and is asked over the
+ * contract; with no `BANK_URL` the client answers `unavailable` and every approval refuses.
+ */
+const withdrawalApprovals = new WithdrawalApprovalService({
+  sql,
+  money: approvalMoneyOf(userMoney),
+  eligibility: createBankApproverEligibilityClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }),
+});
+
+/**
+ * W-withdraw-10: the withdrawal allowlist. Approver eligibility is the same bank question the approvals ask. The direct
+ * withdrawal door asks the allowlist first (a typed refusal), then the approvals; the claim's guards hold under a race.
+ */
+const allowlist = new AllowlistService({
+  sql,
+  eligibility: createBankApproverEligibilityClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }),
+});
+const withdrawalDoor = {
+  assertDirectAllowed: async (input: Parameters<typeof allowlist.assertDirectAllowed>[0]) => {
+    await allowlist.assertDirectAllowed(input);
+    await withdrawalApprovals.assertDirectAllowed(input);
+  },
+};
 
 /**
  * The writer for `merchants.status`, and the history behind it.
@@ -489,11 +537,21 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 /** Blank, zero, or a partial triple leaves email invites unconfigured. */
 const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 
+/** W-custody-ops-12: the custody desk reverses a dropped, held withdrawal through the withdrawal service's own posting. */
+const custodyDroppedReverser = {
+  reverseDropped: ({ withdrawalId, expectedAttempt }: { withdrawalId: string; expectedAttempt: number }) =>
+    userMoney.reverseDroppedWithdrawal({ withdrawalId, expectedAttempt }),
+};
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor),
+  createWithdrawalApprovalRouter(withdrawalApprovals),
+  createAllowlistRouter(allowlist),
+  // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
+  createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
   createScreeningRouter(
     new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
@@ -523,9 +581,13 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     limits: { sql, approvals: actionApprovals },
-    custody: { sql },
+    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
     purchaseHolds: { sql },
+    withdrawalQuotes: { sql },
+    travelRule: { sql, cipher: travelRuleCipher },
     withdrawalReturns: { sql },
+    withdrawalApprovals: { service: withdrawalApprovals },
+    allowlist: { service: allowlist },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
@@ -808,6 +870,23 @@ const payoutReconciler = startPayoutReconciler(
   { intervalMs: env.PAY_PAYOUT_RECONCILE_INTERVAL_MS, batchLimit: env.PAY_PAYOUT_RECONCILE_BATCH_LIMIT },
   app.log,
 );
+
+/**
+ * Multi-approval withdrawals (W-withdraw-11): expire waiting requests, give back their holds, run requests that reached
+ * their approvals. Off, with the blocker named in the boot log, until the owner sets the interval.
+ */
+if (env.PAY_WITHDRAWAL_APPROVAL_SWEEP_MS === undefined) {
+  app.log.info(
+    'withdrawal approval sweep is off: PAY_WITHDRAWAL_APPROVAL_SWEEP_MS is unset; founderAdmin.withdrawalApprovals.settleDue runs it',
+  );
+} else {
+  const approvalSweep = setInterval(() => {
+    void withdrawalApprovals.settleDue('system').catch((err) => {
+      app.log.warn({ err }, 'withdrawal approval sweep failed');
+    });
+  }, env.PAY_WITHDRAWAL_APPROVAL_SWEEP_MS);
+  approvalSweep.unref?.();
+}
 
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {

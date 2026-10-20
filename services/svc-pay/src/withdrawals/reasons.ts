@@ -43,6 +43,11 @@ const KNOWN: Record<string, { customer: string; support: string }> = {
     customer: 'This route only works in test mode.',
     support: 'The rail is a sandbox rail. It cannot carry a live withdrawal.',
   },
+  'custody.dropped_by_chain': {
+    customer: 'The payout could not be completed on the network. Your funds were returned to your balance.',
+    support:
+      'An operator dropped the stuck transaction and the chain showed the nonce taken by the drop. The hold was reversed once; read the custody action record.',
+  },
   'rail.not_sent': {
     customer: 'The payout was not sent. Your funds were returned to your balance.',
     support: 'The rail status query says the requested attempt was never sent. The hold was reversed.',
@@ -53,9 +58,41 @@ const KNOWN: Record<string, { customer: string; support: string }> = {
   },
 };
 
+/** Codes that are not a stored failure but the sub-status of a blocked or cancelled withdrawal (W-custody-ops-11). */
+const SUB_STATUS: Record<string, { customer: string; support: string }> = {
+  'withdrawal.canceled': {
+    customer: 'You canceled this withdrawal. Nothing was sent.',
+    support: 'The customer canceled before dispatch. A hold, if one was posted, was reversed once.',
+  },
+  'travel_rule.blocking_time_expired': {
+    customer: 'This withdrawal is waiting on a compliance check that has not finished in time.',
+    support: 'The travel-rule wait limit passed with no answer. It still blocks; an operator marks it canceled, rejected or repair.',
+  },
+  'travel_rule.rejected': {
+    customer: 'This withdrawal could not be sent because the receiving institution declined the transfer details.',
+    support: 'The counterparty rejected the travel-rule message. Read the transition reason; the customer may start a new withdrawal.',
+  },
+  'travel_rule.repair': {
+    customer: 'We need a few more details about the recipient before this withdrawal can go.',
+    support: 'A required travel-rule field is missing. The customer or an operator supplies it and the message is re-sent.',
+  },
+  'travel_rule.provider_unavailable': {
+    customer: 'This withdrawal is waiting on a compliance check that is not available right now.',
+    support: 'No travel-rule counterparty provider is connected for this destination. Nothing was sent.',
+  },
+};
+
+/** Every code this catalog explains, in a stable order. A code not listed is shown raw by `failureReason`. */
+export function listFailureReasons(): FailureReason[] {
+  const all = { ...KNOWN, ...SUB_STATUS };
+  return Object.keys(all)
+    .sort()
+    .map((code) => ({ code, known: true, ...all[code]! }));
+}
+
 export function failureReason(code: string | null): FailureReason | null {
   if (code === null) return null;
-  const known = KNOWN[code];
+  const known = KNOWN[code] ?? SUB_STATUS[code];
   if (known) return { code, known: true, ...known };
   return { code, known: false, customer: code, support: code };
 }

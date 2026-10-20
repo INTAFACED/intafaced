@@ -85,6 +85,7 @@ describe('filters and counts', () => {
   });
   it('words every state with a shape', () => {
     expect(lifecycleLook('HALTED')).toMatchObject({ word: 'Halted', group: 'halted' });
+    expect(lifecycleLook('LIMIT_ONLY')).toMatchObject({ word: 'Limit-only', group: 'restricted' });
     expect(lifecycleLook(null).group).toBe('unknown');
   });
   it('finds the oldest as-of', () => {

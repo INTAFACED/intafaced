@@ -1,5 +1,10 @@
 import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
+import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
+import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
+import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
+import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
@@ -37,7 +42,7 @@ import {
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import { credentialAuthority } from './payment-authority.js';
-import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -259,6 +264,10 @@ export function createPayRouter(
   portalSql: Sql | null = null,
   /** Local-test starter fee. Null means the product fee is not set yet. */
   starterFee: MerchantStarterFee | null = null,
+  /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
+  withdrawalQuotes: WithdrawalQuoteService | null = null,
+  /** W-withdraw-11: the approval gate on the direct door. Absent in unit stubs; the direct door is then never gated. */
+  withdrawalApprovals: { assertDirectAllowed: WithdrawalDirectGate } | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2096,8 +2105,17 @@ export function createPayRouter(
         )
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
-          wrap(async () =>
-            toWithdrawalOut(
+          wrap(async () => {
+            // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
+            // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
+            await withdrawalApprovals?.assertDirectAllowed({
+              userId: ctx.principal.userId,
+              assetId: input.assetId,
+              amount: parseAmount(input.amount),
+              clientRef: input.clientRef,
+              destination: input.destination,
+            });
+            return toWithdrawalOut(
               await userMoney.withdraw({
                 // From the token. There is no `userId` input, so there is no way
                 // to withdraw from an account that is not the caller's — an
@@ -2110,8 +2128,8 @@ export function createPayRouter(
                 clientRef: input.clientRef,
                 ...sandboxKeyEnv(ctx.principal),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /**
@@ -2285,6 +2303,21 @@ export function createPayRouter(
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalEligibilityFor(ctx.principal.userId, input.assetId))),
 
+      /**
+       * A fee quote for one withdrawal (W-withdraw-04): fee parts, on top or deducted, net, total debit and expiry. `trade:write`
+       * (it stores a quote, moves nothing and needs no step-up). `quoteRef` is the caller's own key, kept across a retry.
+       * A blank fee, mode or lifetime refuses with a typed error; no figure is guessed. Create does not read the quote yet.
+       */
+      quote: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(quoteInputSchema)
+        .output(quoteViewSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            if (!withdrawalQuotes) throw new WithdrawalQuoteError('withdrawal_quote.unwired', 'quotes need the pay database');
+            return withdrawalQuotes.quote(ctx.principal.userId, input);
+          }),
+        ),
+
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
@@ -2396,7 +2429,16 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
  * Collapsing both into INTERNAL_SERVER_ERROR is how a merchant's engineer spends
  * a day guessing.
  */
-function toTrpcError(err: unknown): unknown {
+/** What the direct withdrawal door asks before it claims: refuse with a typed error, or return. */
+export type WithdrawalDirectGate = (input: {
+  userId: string;
+  assetId: string;
+  amount: Amount;
+  clientRef: string;
+  destination?: { kind: string; ref: string };
+}) => Promise<void>;
+
+export function toTrpcError(err: unknown): unknown {
   /**
    * A guard seam refused (seams/guards.ts). Typed, so it never falls into the
    * PayError default below (BAD_REQUEST reads as "fix your request"). The
@@ -2407,6 +2449,9 @@ function toTrpcError(err: unknown): unknown {
   }
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
+  if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
+  if (err instanceof WithdrawalApprovalError) return withdrawalApprovalToTrpcError(err);
+  if (err instanceof AllowlistError) return allowlistToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -2552,6 +2597,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
       case 'pay.withdrawal_not_cancellable':
+      case 'pay.withdrawal_not_reversible':
       case 'pay.withdrawal_canceled':
       case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for

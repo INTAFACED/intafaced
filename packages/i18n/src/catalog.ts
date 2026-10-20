@@ -147,6 +147,12 @@ export const en = {
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
   'notify.trade.market_halted.title': 'Market halted',
   'notify.trade.market_halted.body': 'New submits on {marketId} are refused. Cancels remain available.',
+  // Posting freeze notices are platform-wide and say nothing about why: the internal reason and actor never reach a customer.
+  'notify.ledger.freeze.set.title': 'Postings paused',
+  'notify.ledger.freeze.set.body':
+    'New postings are paused across the platform. Existing balances are unchanged. We will post here when the pause ends.',
+  'notify.ledger.freeze.cleared.title': 'Postings resumed',
+  'notify.ledger.freeze.cleared.body': 'Postings are running again. The earlier pause notice stays in your history.',
   // Liquidation copy names only fields the payload guarantees are present.
   // Realised loss, mark price and liquidation price are all nullable on
   // `trade.position.updated`, so none of them appears here: a notification that
@@ -202,6 +208,9 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
+  'notify.alert.price.crossed.named.title': '{name}',
+  'notify.alert.price.crossed.message.body': '{message}',
   'notify.alert.funding.crossed.title': 'Funding watch',
   'notify.alert.funding.crossed.body': 'Funding watch on {marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
   'notify.alert.liquidation_proximity.crossed.title': 'Liquidation-proximity watch',

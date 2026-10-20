@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { BankApproverEligibility } from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import {
   IDEMPOTENCY_CONFLICT_CODE,
@@ -1451,6 +1452,29 @@ export class BusinessService {
         ? err.message
         : 'svc-identity did not answer the business directory (bank.business_directory_unavailable)';
     throw new BankError(message, 'bank.business_directory_unavailable');
+  }
+
+  /**
+   * Whether a person may approve for a team (W-withdraw-11): the answer svc-pay asks for before it counts an approval. A
+   * read only. The account must exist and be open, the person must be a member, and their role must hold the `approve`
+   * capability. The role table is `business-policy.ts`; no role name is checked here.
+   */
+  async approverEligibility(accountId: string, userId: string): Promise<BankApproverEligibility> {
+    const [account] = await this.sql<Array<{ status: string }>>`
+      SELECT status FROM bank.business_accounts WHERE id = ${accountId}::uuid
+    `;
+    if (!account) return { state: 'no_such_account' };
+    if (account.status !== 'active') return { state: 'account_closed' };
+    const [member] = await this.sql<Array<{ role: string }>>`
+      SELECT role::text AS role FROM bank.business_members WHERE account_id = ${accountId}::uuid AND user_id = ${userId}
+    `;
+    if (!member) return { state: 'not_a_member' };
+    const role = member.role as BusinessMemberRole;
+    // A stored role the table does not know cannot approve.
+    if (!(BUSINESS_ROLES as readonly string[]).includes(role) || !roleCan(role, 'approve')) {
+      return { state: 'role_cannot_approve', role: member.role };
+    }
+    return { state: 'eligible', role };
   }
 
   async myRole(accountId: string, userId: string): Promise<BusinessMemberRole> {

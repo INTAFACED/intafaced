@@ -284,6 +284,7 @@ export const orders = trade.table(
      * settleable when svc-identity is down.
      */
     feeDiscountBps: bps('fee_discount_bps').notNull().default('0'),
+    tag: text('tag'),
     /**
      * The protection price a market BUY was submitted at. A market buy is
      * funded before it is matched, so it is sent to the engine as a marketable

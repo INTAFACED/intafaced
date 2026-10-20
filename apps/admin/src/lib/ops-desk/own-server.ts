@@ -13,6 +13,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
+export function isReadOutcome(body: unknown): body is ReadOutcome {
+  return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.part) && (body.part.kind === 'ok' || body.part.kind === 'failed');
+}
+
 /** One GET to a same-origin desk route. Never throws. */
 export async function fetchOutcome(url: string, signal?: AbortSignal): Promise<OwnFetch> {
   let res: Response;
@@ -37,7 +41,7 @@ export async function fetchOutcome(url: string, signal?: AbortSignal): Promise<O
 }
 
 /** In words, for the founder, what a failed on-request read means. `what` is the thing being read. */
-export function ownServerFailureText(failure: Extract<OwnFetch, { ok: false }>, what: 'transfer' | 'page'): string {
+export function ownServerFailureText(failure: Extract<OwnFetch, { ok: false }>, what: 'transfer' | 'page' | 'customer'): string {
   const { status, code } = failure;
   if (status === 401) return 'Your founder session has ended; sign in again. Nothing was read.';
   if (status === 403) {
@@ -46,6 +50,7 @@ export function ownServerFailureText(failure: Extract<OwnFetch, { ok: false }>, 
       : 'This founder session is no longer allowed to read this; sign in again. Nothing was read.';
   }
   if (status === 400) {
+    if (what === 'customer') return 'That isn’t a customer account id (or coin) this desk can look up. Nothing was sent.';
     return what === 'transfer'
       ? 'That isn’t a transfer id this desk can look up. Nothing was sent.'
       : 'That isn’t a page marker this desk can read. Nothing was sent.';

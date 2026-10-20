@@ -26,6 +26,8 @@
     "server-only": "^0.0.1"
   },
   "devDependencies": {
+    "@intafaced/db": "workspace:*",
+    "@intafaced/events": "workspace:*",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",
