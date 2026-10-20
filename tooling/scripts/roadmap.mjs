@@ -151,11 +151,9 @@ export function parseJourneys(text, module) {
     if (row) {
       const cells = line.split('|').map((c) => c.trim());
       const sliceCell = cells[4] ?? '';
-      cur.steps.push({
-        n: Number(row[1]),
-        slices: [...new Set([...sliceCell.matchAll(SLICE_ID)].map((m) => m[1]))],
-        noSlice: /\bNO-SLICE\b/.test(sliceCell),
-      });
+      const slices = [...new Set([...sliceCell.matchAll(SLICE_ID)].map((m) => m[1]))];
+      // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
+      cur.steps.push({ n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length });
     }
   }
   return journeys;
@@ -168,6 +166,11 @@ export function buildJourneys(ozDir) {
   for (const module of readdirSync(modulesDir).sort()) {
     const file = join(modulesDir, module, 'acceptance', 'journeys.md');
     if (existsSync(file)) out.push(...parseJourneys(readFileSync(file, 'utf8'), module));
+  }
+  const seen = new Set();
+  for (const j of out) {
+    if (seen.has(j.id)) throw new Error(`roadmap: journey id ${j.id} is used twice`);
+    seen.add(j.id);
   }
   return out;
 }
@@ -509,18 +512,27 @@ async function compose(slices, journeys = []) {
   return prettier.format(`${plan.trimEnd()}\n\n${render(slices, journeys)}`, { ...config, parser: 'markdown' });
 }
 
-/** Journey steps that passed in a Playwright JSON report, as "J-<module>-NN#<step>". Test titles start "J-x-NN #n". */
+/**
+ * Journey steps that passed in a Playwright JSON report, as "J-<module>-NN#<step>". Test titles start "J-x-NN #n".
+ * A step passes only when every test under every spec with its key ran and ended expected or flaky: Playwright marks
+ * a skipped spec `ok`, and a failing duplicate title must not hide behind a passing one.
+ */
 export function passedSteps(report) {
-  const out = new Set();
+  const seen = new Set();
+  const failed = new Set();
   const walk = (suite) => {
     for (const spec of suite.specs ?? []) {
       const m = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/.exec(spec.title ?? '');
-      if (m && spec.ok) out.add(`${m[1]}#${Number(m[2])}`);
+      if (!m) continue;
+      const key = `${m[1]}#${Number(m[2])}`;
+      seen.add(key);
+      const tests = spec.tests ?? [];
+      if (!tests.length || !tests.every((t) => t.status === 'expected' || t.status === 'flaky')) failed.add(key);
     }
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites ?? []) walk(suite);
-  return out;
+  return new Set([...seen].filter((key) => !failed.has(key)));
 }
 
 /**

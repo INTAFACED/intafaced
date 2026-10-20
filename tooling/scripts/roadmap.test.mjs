@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import {
   analyse,
   buildIndex,
+  buildJourneys,
   dependsOn,
   journeyOrder,
   laneFor,
@@ -210,15 +211,16 @@ test('two specs giving one id to different slices fail the index instead of drop
 
 test('the scoreboard counts a journey once every step passed in the real-app report', () => {
   const journeys = parseJourneys(JOURNEY, 'cex-spot');
+  const ok = { tests: [{ status: 'expected' }] };
   const report = {
     suites: [
       {
         specs: [
-          { title: 'J-cex-spot-01 #1 signs up', ok: true },
-          { title: 'J-cex-spot-01 #2 places a limit buy', ok: true },
-          { title: 'J-cex-spot-01 #3 shares the order', ok: false },
+          { title: 'J-cex-spot-01 #1 signs up', ok: true, ...ok },
+          { title: 'J-cex-spot-01 #2 places a limit buy', ok: true, ...ok },
+          { title: 'J-cex-spot-01 #3 shares the order', ok: false, tests: [{ status: 'unexpected' }] },
         ],
-        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true }] }],
+        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'flaky' }] }] }],
       },
     ],
   };
@@ -230,4 +232,32 @@ test('the scoreboard counts a journey once every step passed in the real-app rep
   assert.match(page, /Passing in the real app on main: 1 of 2 journeys \(3 of 4 steps\)\. Order 1: 0 of 1\./);
   assert.match(page, /ready to prove, builders' claim\): 1 of 2 journeys/);
   assert.match(progress(slices, commits, '2026-10-20T09:00:00Z', journeys, null), /not measured/);
+});
+
+test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {
+  const passed = passedSteps({
+    suites: [
+      {
+        specs: [
+          { title: 'J-a-01 #1 skipped', ok: true, tests: [{ status: 'skipped' }] },
+          { title: 'J-a-01 #2 no tests', ok: true, tests: [] },
+          { title: 'J-a-01 #3 passes', ok: true, tests: [{ status: 'expected' }] },
+          { title: 'J-a-01 #3 same step, fails', ok: false, tests: [{ status: 'unexpected' }] },
+          { title: 'J-a-01 #4 passes', ok: true, tests: [{ status: 'expected' }] },
+        ],
+      },
+    ],
+  });
+  assert.deepEqual([...passed], ['J-a-01#4']);
+});
+
+test('a step whose Slices cell is empty counts as NO-SLICE; a journey id used twice fails the index', () => {
+  const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees |  | none |'].join('\n'), 'a');
+  assert.equal(j.steps[0].noSlice, true);
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  for (const m of ['a', 'b']) {
+    mkdirSync(join(dir, 'modules', m, 'acceptance'), { recursive: true });
+    writeFileSync(join(dir, 'modules', m, 'acceptance', 'journeys.md'), '## J-a-01: x\n- Order: 1\n');
+  }
+  assert.throws(() => buildJourneys(dir), /journey id J-a-01 is used twice/);
 });

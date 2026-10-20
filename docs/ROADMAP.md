@@ -48,15 +48,15 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 461 journeys (3099 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
+Done is defined by 461 journeys (3099 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 34 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
 | merchant       | 42       | 6       | 15      | 21      | 243   | 5                   |
 | dex-protocol   | 32       | 5       | 16      | 11      | 283   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 207   | 1                   |
-| bank           | 28       | 4       | 15      | 9       | 166   | 0                   |
-| ops-console    | 25       | 3       | 17      | 5       | 229   | 0                   |
+| bank           | 28       | 4       | 15      | 9       | 166   | 7                   |
+| ops-console    | 25       | 3       | 17      | 5       | 229   | 8                   |
 | identity       | 21       | 4       | 11      | 6       | 135   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 118   | 0                   |
 | pay            | 21       | 2       | 11      | 8       | 121   | 1                   |
