@@ -120,6 +120,7 @@ const messages = {
 
   // Activity
   Activity: 'Activity',
+  'Profit and loss hint': 'What your trades have made or lost',
   All: 'All',
   Deposits: 'Deposits',
   Transfers: 'Transfers',
