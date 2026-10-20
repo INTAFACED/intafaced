@@ -225,6 +225,8 @@ export interface PrivateRestDeps {
    * Listing-row bps are not a second schedule.
    */
   feeSchedule?: OwnerFeeSchedule;
+  /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
+  feeScheduleNow?: () => Promise<OwnerFeeSchedule>;
   /** Clock for `serverTime` on private reads. Default `new Date()`. */
   now?: () => Date;
   /** Authenticated PX-S01 projection; missing publisher remains typed refusal. */
@@ -1180,7 +1182,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     if (!principal) return;
     try {
       requireScope(principal, 'admin:read');
-      const schedule = deps.feeSchedule;
+      const schedule = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
       if (!schedule || schedule.published !== true) {
         return reply.code(503).send({
           code: 'ExchangeNotAvailable',
@@ -1356,7 +1358,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       requireScope(principal, 'trade:read');
       const listed = await deps.markets(MARKETS_LIMIT_MAX);
       if (listed.length === 0) return reply.code(200).send({});
-      const schedule = deps.feeSchedule;
+      const schedule = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
       if (!schedule || schedule.published !== true) {
         return reply.code(503).send({
           code: 'ExchangeNotAvailable',

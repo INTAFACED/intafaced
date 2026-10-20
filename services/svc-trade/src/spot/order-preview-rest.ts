@@ -116,6 +116,8 @@ export interface SpotOrderPreviewRestDeps {
   slippageCapBps: number | null;
   /** PTX-M21 owner fee/rebate schedule. Unpublished → typed refuse, never invent bps. */
   feeSchedule: OwnerFeeSchedule;
+  /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
+  feeScheduleNow?: () => Promise<OwnerFeeSchedule>;
   /**
    * Snapshotted rank discount, the same read place uses. Absent in tests means
    * zero. A failure refuses the fee rather than showing a rate the fill will not post.
@@ -497,10 +499,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const rests = orderType === 'limit' && !takes;
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     // A schedule row that refuses (no row, rebate or minimum with no recipe) leaves the fee unavailable, never a guess.
+    const scheduleNow = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
     const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
       if (!discountKnown) return null;
       try {
-        return previewFeeBps(deps.feeSchedule, role, discountBps, { symbol: market.symbol });
+        return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol });
       } catch (err) {
         if (err instanceof FeeScheduleError) return null;
         throw err;
@@ -508,7 +511,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     };
     const makerFeeBps = feeBpsFor('maker');
     const takerFeeBps = feeBpsFor('taker');
-    const feeScheduleVersion = deps.feeSchedule.published === true ? deps.feeSchedule.version : null;
+    const feeScheduleVersion = scheduleNow.published === true ? scheduleNow.version : null;
     const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;
     let feeAsset: string | null = null;
