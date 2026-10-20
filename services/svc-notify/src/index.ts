@@ -155,7 +155,10 @@ const digestStore = new PostgresDigestPrefStore(sql);
 const commandLog = new PostgresCommandLog(sql);
 const holdStore = new PostgresHoldStore(sql);
 const account = new AccountPrefs(topicStore, digestStore, commandLog, () => channels.status());
-const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(), commandLog);
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door and the approval call stay on the shared secrets alone.
+const s2s = s2sFromEnv(env, 'svc-notify');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(s2sKey), commandLog);
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
@@ -231,8 +234,6 @@ const loadVenueIncident = async () =>
 export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
 export type AppRouter = typeof appRouter;
 
-// Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door stays on the pairwise secret alone.
-const s2s = s2sFromEnv(env, 'svc-notify');
 const edgeContext = createGuestIngressContext({
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
   edgeTrust: edgeTrustFromEnv(env),
