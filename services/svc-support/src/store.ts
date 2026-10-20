@@ -218,6 +218,8 @@ export interface SupportStore {
     byteLength: number;
     /** The owner's file count for one request. A new file is refused once the request already holds this many. */
     maxCount: number;
+    /** The operator adding the file for the ticket's owner, or absent when the owner adds it. */
+    operatorId?: string;
   }): Promise<RecordAttachmentResult>;
   readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult>;
   /**
@@ -273,6 +275,8 @@ export type AttachmentMeta = {
   storeKey: string;
   createdAt: string;
   scanState: AttachmentScanState;
+  /** The operator who added the file for the owner, or null when the owner did. */
+  uploadedBy: string | null;
 };
 
 export type KbFeedbackVote = {
@@ -1143,8 +1147,10 @@ export class MemorySupportStore implements SupportStore {
     contentType: string;
     byteLength: number;
     maxCount: number;
+    operatorId?: string;
   }): Promise<RecordAttachmentResult> {
-    const stored = this.receipts.get(this.receiptKey('support.attach', input.userId, input.clientRequestId));
+    const actor = input.operatorId ?? input.userId;
+    const stored = this.receipts.get(this.receiptKey('support.attach', actor, input.clientRequestId));
     if (stored) {
       const first = (stored as { attachment: AttachmentMeta }).attachment;
       // The receipt holds what was first answered; the file's state since is read live.
@@ -1153,6 +1159,7 @@ export class MemorySupportStore implements SupportStore {
 
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+    if (input.operatorId !== undefined && ticket.assigneeId !== input.operatorId) return { status: 'refuse', reason: 'not_found' };
     const held = [...this.attachments.values()].filter((a) => a.ticketId === input.ticketId && a.scanState !== 'blocked').length;
     if (held >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
@@ -1164,11 +1171,12 @@ export class MemorySupportStore implements SupportStore {
       byteLength: input.byteLength,
       storeKey: input.storeKey,
       scanState: 'scanning',
+      uploadedBy: input.operatorId ?? null,
       createdAt: new Date().toISOString(),
       clientRequestId: input.clientRequestId,
     };
     this.attachments.set(attachment.id, attachment);
-    this.receipts.set(this.receiptKey('support.attach', input.userId, input.clientRequestId), { attachment });
+    this.receipts.set(this.receiptKey('support.attach', actor, input.clientRequestId), { attachment });
     return { status: 'ok', attachment, replay: false };
   }
 
@@ -2081,25 +2089,28 @@ export class PostgresSupportStore implements SupportStore {
     contentType: string;
     byteLength: number;
     maxCount: number;
+    operatorId?: string;
   }): Promise<RecordAttachmentResult> {
+    const actor = input.operatorId ?? input.userId;
     return this.sql.begin(async (tx): Promise<RecordAttachmentResult> => {
-      const locked = await tx<{ user_id: string }[]>`
-        SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      const locked = await tx<{ user_id: string; assignee_id: string | null }[]>`
+        SELECT user_id, assignee_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       const prior = await tx<{ result: { attachment: AttachmentMeta } }[]>`
         SELECT result FROM support.write_receipts
-        WHERE procedure = 'support.attach' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        WHERE procedure = 'support.attach' AND actor_id = ${actor} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
       `;
       if (prior[0]) {
         // The receipt holds what was first answered; the file's state since is read live.
         const [live] = await tx<PgAttachment[]>`
-          SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+          SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
           FROM support.ticket_attachments WHERE id = ${prior[0].result.attachment.id}
         `;
         return { status: 'ok', attachment: live ? attachmentFromPg(live) : prior[0].result.attachment, replay: true };
       }
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+      if (input.operatorId !== undefined && locked[0].assignee_id !== input.operatorId) return { status: 'refuse', reason: 'not_found' };
       // The ticket row is locked, so two files racing for the last place cannot both be taken.
       const [held] = await tx<{ n: number }[]>`
         SELECT count(*)::int AS n FROM support.ticket_attachments
@@ -2108,7 +2119,7 @@ export class PostgresSupportStore implements SupportStore {
       if ((held?.n ?? 0) >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
       const rows = await tx<PgAttachment[]>`
-        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length, scan_state)
+        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length, scan_state, uploaded_by)
         VALUES (
           ${input.id},
           ${input.ticketId},
@@ -2117,14 +2128,15 @@ export class PostgresSupportStore implements SupportStore {
           ${input.storeKey},
           ${input.contentType},
           ${input.byteLength},
-          'scanning'
+          'scanning',
+          ${input.operatorId ?? null}
         )
-        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       `;
       const attachment = attachmentFromPg(rows[0]!);
       await tx`
         INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
-        VALUES ('support.attach', ${input.userId}, ${input.clientRequestId}, ${tx.json({ attachment } as never)})
+        VALUES ('support.attach', ${actor}, ${input.clientRequestId}, ${tx.json({ attachment } as never)})
       `;
       return { status: 'ok', attachment, replay: false };
     });
@@ -2132,7 +2144,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
     const rows = await this.sql<(PgAttachment & { assignee_id: string | null })[]>`
-      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.scan_state, a.created_at, t.assignee_id
+      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.scan_state, a.uploaded_by, a.created_at, t.assignee_id
       FROM support.ticket_attachments AS a
       JOIN support.tickets AS t ON t.id = a.ticket_id
       WHERE a.id = ${input.attachmentId}
@@ -2152,7 +2164,7 @@ export class PostgresSupportStore implements SupportStore {
       WHERE id = ${input.attachmentId} AND scan_state = 'scanning'
     `;
     const rows = await this.sql<PgAttachment[]>`
-      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE id = ${input.attachmentId}
     `;
     return rows[0] ? attachmentFromPg(rows[0]) : null;
@@ -2160,7 +2172,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
     const rows = await this.sql<PgAttachment[]>`
-      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE ticket_id = ${ticketId}
       ORDER BY created_at, id LIMIT ${limit}
     `;
@@ -2169,7 +2181,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
     const rows = await this.sql<PgAttachment[]>`
-      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       FROM support.ticket_attachments WHERE scan_state = 'scanning'
       ORDER BY created_at, id LIMIT ${limit}
     `;
@@ -2251,6 +2263,7 @@ type PgAttachment = {
   byte_length: number;
   store_key: string;
   scan_state: AttachmentScanState;
+  uploaded_by: string | null;
   created_at: Date;
 };
 
@@ -2263,6 +2276,7 @@ function attachmentFromPg(row: PgAttachment): AttachmentMeta {
     byteLength: Number(row.byte_length),
     storeKey: row.store_key,
     scanState: row.scan_state,
+    uploadedBy: row.uploaded_by,
     createdAt: toIso(row.created_at),
   };
 }
