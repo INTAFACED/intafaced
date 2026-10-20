@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { OpsAlertRule } from '@intafaced/contracts';
-import { instanceOf, isDue, step, type InstanceState } from './evaluate.js';
-import { breaches, toScaled, warehouseSignalReader } from './signals.js';
+import { close, instanceOf, isDue, step, type InstanceState } from './evaluate.js';
+import { breaches, isDecimal, warehouseSignalReader } from './signals.js';
 import { OpsError, OPS_WAREHOUSE_UNWIRED } from '../codes.js';
 
 const rule: OpsAlertRule = {
@@ -33,7 +33,12 @@ describe('decimal comparison', () => {
     expect(breaches('eq', '1.50', '1.5')).toBe(true);
     expect(breaches('lt', '-2', '-1.5')).toBe(true);
     expect(breaches('gte', 'abc', '1')).toBeNull();
-    expect(toScaled('1.1234567890123456789')).toBeNull();
+    expect(breaches('gt', '1.1234567890123456789', '1.1234567890123456788')).toBe(true);
+    expect(breaches('eq', '-0', '0.000')).toBe(true);
+    expect(breaches('lt', '9', '10')).toBe(true);
+    expect(breaches('gt', '-9', '-10')).toBe(true);
+    expect(breaches('lt', '0.05', '0.5')).toBe(true);
+    expect(isDecimal('1e3')).toBe(false);
   });
 });
 
@@ -114,9 +119,20 @@ describe('alert step', () => {
     expect(isDue(rule, prev, Date.parse(t(60)))).toBe(true);
   });
 
-  it('gives the same instance for the same labels in any order', () => {
-    expect(instanceOf({ a: '1', b: '2' })).toBe(instanceOf({ b: '2', a: '1' }));
-    expect(instanceOf({})).toMatch(/^[a-f0-9]{64}$/);
+  it('keeps one instance per rule, whatever its labels, so an edit cannot strand an open alert', () => {
+    expect(instanceOf(rule.id)).toBe(instanceOf(rule.id));
+    expect(instanceOf(rule.id)).toMatch(/^[a-f0-9]{64}$/);
+    expect(instanceOf(rule.id)).not.toBe(instanceOf('22222222-2222-4222-8222-222222222222'));
+  });
+
+  it('closes an open instance when its rule is paused or retired, and announces only a firing one', () => {
+    const firing = step({ ...rule, pendingSeconds: 0 }, null, ok('0'), t(0)).next;
+    const closed = close(firing, t(10));
+    expect(closed?.next).toMatchObject({ state: 'normal', epoch: 1, pendingSince: null, firingSince: null });
+    expect(closed?.transitions).toEqual([{ kind: 'resolved', epoch: 1, at: t(10) }]);
+    const pending = step(rule, null, ok('0'), t(0)).next;
+    expect(close(pending, t(10))?.transitions).toEqual([]);
+    expect(close(closed!.next, t(20))).toBeNull();
   });
 });
 
@@ -130,17 +146,23 @@ describe('warehouse signal reader', () => {
     expect(await reader.read('ledger.postings.count')).toEqual({ status: 'error', code: OPS_WAREHOUSE_UNWIRED });
   });
 
-  it('reports an empty or missing metric as no data, and sums a metric across dimensions exactly', async () => {
+  it('reports an empty or missing metric as no data, a single point as its value and several points as ambiguous', async () => {
     const points = [
       { metricId: 'ledger.postings.count', value: '2', dim: 'a' },
       { metricId: 'ledger.postings.count', value: '3', dim: 'b' },
       { metricId: 'trade.fills.count', value: '9', dim: null },
+      { metricId: 'trade.fees.amount', value: 'abc', dim: null },
     ];
     const revenue = async (empty: boolean) =>
       ({ empty, status: empty ? 'empty' : 'ok', mayLabelLive: false, freshness: 'live', points }) as never;
     expect(await warehouseSignalReader({ revenue: () => revenue(false) }).read('ledger.postings.count')).toEqual({
-      status: 'ok',
-      value: '5',
+      status: 'error',
+      code: 'ops.alert_signal_ambiguous',
+    });
+    expect(await warehouseSignalReader({ revenue: () => revenue(false) }).read('trade.fills.count')).toEqual({ status: 'ok', value: '9' });
+    expect(await warehouseSignalReader({ revenue: () => revenue(false) }).read('trade.fees.amount')).toEqual({
+      status: 'error',
+      code: 'ops.alert_signal_value_invalid',
     });
     expect(await warehouseSignalReader({ revenue: () => revenue(false) }).read('ledger.volume.notional')).toEqual({ status: 'no_data' });
     expect(await warehouseSignalReader({ revenue: () => revenue(true) }).read('ledger.postings.count')).toEqual({ status: 'no_data' });

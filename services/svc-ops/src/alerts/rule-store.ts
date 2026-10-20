@@ -167,16 +167,24 @@ export function createPgAlertRuleStore(sql: Sql): AlertRuleStore {
   const apply = async (cmd: ApplyCommand, retry: boolean): Promise<OpsAlertRule> => {
     try {
       return await sql.begin(async (tx) => {
-        const [prior] = await tx<{ snapshot: OpsAlertRule; fingerprint: string }[]>`SELECT snapshot,fingerprint FROM ops.alert_rule_versions
-          WHERE idempotency_key=${cmd.key}`;
-        if (prior) {
+        const replay = async (): Promise<OpsAlertRule | null> => {
+          const [prior] = await tx<
+            { snapshot: OpsAlertRule; fingerprint: string }[]
+          >`SELECT snapshot,fingerprint FROM ops.alert_rule_versions
+            WHERE idempotency_key=${cmd.key}`;
+          if (!prior) return null;
           if (prior.fingerprint !== cmd.fingerprint) throw conflict();
           return prior.snapshot;
-        }
+        };
+        const first = await replay();
+        if (first) return first;
         let current: OpsAlertRule | null = null;
         if (cmd.ruleId) {
           const [row] = await tx<RuleRow[]>`SELECT * FROM ops.alert_rules WHERE id=${cmd.ruleId} FOR UPDATE`;
           if (!row) throw notFound();
+          // A same-key call that was in flight while this one waited for the row has committed by now: answer with its stored result.
+          const raced = await replay();
+          if (raced) return raced;
           current = toRule(row);
         }
         const next = cmd.compute(current);

@@ -197,7 +197,7 @@ function suite(name: string, open: Open) {
         expect(history.truncated).toBe(false);
       }));
 
-    it('treats an unreadable check as an alert, and a paused or retired rule as not checked', () =>
+    it('treats an unreadable check as an alert, and a rule that is not live as not checked', () =>
       withRig(async (rig, clock) => {
         const rule = await rig.rules.create(draft, who);
         const signal = makeSignal({ status: 'error', code: 'ops.warehouse_unwired' });
@@ -209,9 +209,39 @@ function suite(name: string, open: Open) {
         expect(states.get(rule.id)).toMatchObject({ state: 'firing', health: 'error', lastCode: 'ops.warehouse_unwired', lastValue: null });
         const paused = await rig.rules.setPaused(rule.id, 1, true, { ...who, key: 'alert-key-0002' });
         clock.advance(600);
+        // Pausing closes the open alert once; after that nothing is checked.
+        expect(await ev.tick()).toEqual({ evaluated: 0, opened: 0, resolved: 1 });
         expect(await ev.tick()).toEqual({ evaluated: 0, opened: 0, resolved: 0 });
+        expect((await rig.state.states([rule.id])).get(rule.id)).toMatchObject({ state: 'normal', epoch: 1 });
         await rig.rules.retire(rule.id, paused.version, { ...who, key: 'alert-key-0003' });
         expect(await ev.tick()).toEqual({ evaluated: 0, opened: 0, resolved: 0 });
+      }));
+
+    it('resolves a firing alert when its rule is retired, and keeps one alert when its labels are edited', () =>
+      withRig(async (rig, clock) => {
+        const rule = await rig.rules.create(draft, who);
+        const signal = makeSignal({ status: 'ok', value: '0' });
+        const ev = evaluator(rig, clock, signal.reader);
+        await ev.tick();
+        clock.advance(60);
+        await ev.tick();
+        // Editing the labels does not start a second instance: the next tick carries on with the same alert.
+        const edited = await rig.rules.update(
+          rule.id,
+          1,
+          { ...draft, labels: { owner: 'someone-else' } },
+          { ...who, key: 'alert-key-0002' },
+        );
+        clock.advance(60);
+        expect(await ev.tick()).toMatchObject({ evaluated: 1, opened: 0 });
+        const opened = (await rig.outbox.pending(50)).filter((r) => r.event === 'coreOpsAlertOpened');
+        expect(opened).toHaveLength(1);
+        await rig.rules.retire(rule.id, edited.version, { ...who, key: 'alert-key-0003' });
+        expect(await ev.tick()).toEqual({ evaluated: 0, opened: 0, resolved: 1 });
+        const closed = (await rig.outbox.pending(50)).filter((r) => r.event === 'coreOpsAlertResolved');
+        expect(closed).toHaveLength(1);
+        expect(closed[0]?.payload).toMatchObject({ ruleId: rule.id, epoch: 1 });
+        expect((await rig.state.states([rule.id])).size).toBe(1);
       }));
 
     it('publishes in order, marks each as sent, and sends nothing twice', () =>
@@ -357,6 +387,20 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('alert evaluation on real
   };
 
   suite('alert evaluation over the PostgreSQL state', openPg);
+
+  it('answers a repeated edit with the stored result while the first is still running', async () => {
+    const clock = makeClock();
+    const rig = await openPg(clock);
+    try {
+      const rule = await rig.rules.create(draft, who);
+      const edit = () => rig.rules.setPaused(rule.id, 1, true, { ...who, key: 'alert-key-0002' });
+      const results = await Promise.all(Array.from({ length: 5 }, edit));
+      expect(new Set(results.map((r) => r.version)).size).toBe(1);
+      expect(results[0]?.version).toBe(2);
+    } finally {
+      await rig.close();
+    }
+  });
 
   it('refuses to edit or delete a state change, and reverses cleanly', async () => {
     const clock = makeClock();

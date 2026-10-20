@@ -1,4 +1,4 @@
-import { instanceOf, isDue, step } from './evaluate.js';
+import { close, instanceOf, isDue, step } from './evaluate.js';
 import type { AlertRuleStore } from './rules.js';
 import type { SignalReader } from './signals.js';
 import type { AlertEventName, AlertOutbox, AlertStateStore } from './state-store.js';
@@ -36,21 +36,34 @@ export class AlertEvaluator {
     let opened = 0;
     let resolved = 0;
     let cursor: { folder: string; group: string; name: string; id: string } | undefined;
+    const count = (result: { transitions: readonly { kind: string }[] } | null): void => {
+      for (const t of result?.transitions ?? []) t.kind === 'opened' ? (opened += 1) : (resolved += 1);
+    };
     for (;;) {
-      const page = await this.deps.rules.list({ includeRetired: false, limit: 200, ...(cursor ? { after: cursor } : {}) });
+      // Retired rules are listed too: one that was firing when it was retired is closed here.
+      const page = await this.deps.rules.list({ includeRetired: true, limit: 200, ...(cursor ? { after: cursor } : {}) });
+      const stored = await this.deps.state.states(page.map((r) => r.id));
       for (const rule of page) {
-        if (rule.paused) continue;
-        const instance = instanceOf(rule.labels);
+        const instance = instanceOf(rule.id);
+        const prev = stored.get(rule.id) ?? null;
+        if (rule.paused || rule.retiredAt !== null) {
+          if (prev && prev.state !== 'normal') {
+            const closed = await this.deps.state.evaluate(rule.id, instance, (locked) => (locked ? close(locked, this.now()) : null));
+            if (closed) count(closed);
+          }
+          continue;
+        }
         const startedAt = Date.parse(this.now());
-        // Cheap pre-check outside the lock; the lock re-checks against the stored state.
+        // Cheap pre-check outside the lock, so a rule that is not due costs no signal read; the lock re-checks against the stored state.
+        if (!isDue(rule, prev, startedAt)) continue;
         const reading = await this.deps.signals.read(rule.signal);
         const at = this.now();
-        const result = await this.deps.state.evaluate(rule.id, instance, (prev) =>
-          isDue(rule, prev, startedAt) ? step(rule, prev, reading, at) : null,
+        const result = await this.deps.state.evaluate(rule.id, instance, (locked) =>
+          isDue(rule, locked, startedAt) ? step(rule, locked, reading, at) : null,
         );
         if (!result) continue;
         evaluated += 1;
-        for (const t of result.transitions) t.kind === 'opened' ? (opened += 1) : (resolved += 1);
+        count(result);
       }
       const last = page[page.length - 1];
       if (page.length < 200 || !last) break;

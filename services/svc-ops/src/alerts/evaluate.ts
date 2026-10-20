@@ -26,10 +26,12 @@ export interface StepResult {
   readonly transitions: readonly AlertTransition[];
 }
 
-/** One instance per rule today: the rule's own label set. */
-export function instanceOf(labels: Readonly<Record<string, string>>): string {
-  const entries = Object.entries(labels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return createHash('sha256').update(JSON.stringify(entries)).digest('hex');
+/**
+ * One instance per rule today, so editing a rule's labels or retiring it can never strand an open alert under a key nobody evaluates.
+ * Label dimensions would add instances; each would then close with its rule.
+ */
+export function instanceOf(ruleId: string): string {
+  return createHash('sha256').update(`alert-rule:${ruleId}`).digest('hex');
 }
 
 export function isDue(rule: OpsAlertRule, prev: InstanceState | null, nowMs: number): boolean {
@@ -110,4 +112,24 @@ export function step(rule: OpsAlertRule, prev: InstanceState | null, reading: Si
 
   const next: InstanceState = { state, health, epoch, pendingSince, firingSince, lastEvaluatedAt: at, lastValue, lastCode, kept: false };
   return { next, changed: prev === null || prev.state !== state || prev.health !== health || prev.kept, transitions };
+}
+
+/**
+ * Closes an open instance whose rule was paused or retired: a resolved event for a firing alert, state back to normal. Without this an
+ * alert would stay open under a rule that is no longer evaluated. Resuming starts a fresh episode.
+ */
+export function close(prev: InstanceState, at: string): StepResult | null {
+  if (prev.state === 'normal') return null;
+  const next: InstanceState = {
+    state: 'normal',
+    health: 'ok',
+    epoch: prev.epoch,
+    pendingSince: null,
+    firingSince: null,
+    lastEvaluatedAt: at,
+    lastValue: prev.lastValue,
+    lastCode: null,
+    kept: false,
+  };
+  return { next, changed: true, transitions: prev.state === 'firing' ? [{ kind: 'resolved', epoch: prev.epoch, at }] : [] };
 }
