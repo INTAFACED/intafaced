@@ -1,3 +1,4 @@
+-- intafaced:destructive drops only constraints this migration re-adds (idempotent re-run); no data is removed
 -- A second free-text field on an activity line, used in reports and exports (PF-activity-03).
 --
 -- A line may now carry a private note, a report description, or both. `text` (the private note) becomes
