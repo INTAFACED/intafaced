@@ -79,7 +79,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Halt notice and deposit-credit notice add four title/body keys (S26).
     // Agents place-key conflict refusal adds one.
     // Four scam and phishing guides (I-signin-sessions-26) add eight title/body keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(242);
+    // Posting-freeze set and cleared notices (RC-ops-console-09) add four title/body keys.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(246);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
