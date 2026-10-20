@@ -325,7 +325,7 @@ describe('I-signin-sessions-26 scam guides', () => {
         const copy = userCopy(key);
         expect(copy, key).not.toBe(key);
         expect(copy).not.toMatch(/\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i);
-        expect(copy).not.toMatch(/\b(guaranteed|100% safe|risk-free)\b/i);
+        expect(copy).not.toMatch(/\b(guaranteed|safe|safely|risk-free)\b/i);
       }
     }
   });
