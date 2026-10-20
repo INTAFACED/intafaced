@@ -58,6 +58,16 @@ export class SubAccountDeleteService {
     return this.read(input.userId, input.subAccountId);
   }
 
+  /** For the plain revoke door: refuse unless the money services show this sub-account empty. Not the caller's, or already revoked: nothing to read, the revoke answers false. */
+  async assertEmpty(userId: string, subAccountId: string): Promise<void> {
+    const rows = await this.deps.sql<Array<{ revoked: boolean }>>`
+      SELECT revoked FROM sub_accounts WHERE id = ${subAccountId} AND parent_user_id = ${userId} LIMIT 1
+    `;
+    if (!rows[0] || rows[0].revoked) return;
+    const found = await this.read(userId, subAccountId);
+    if (found.blockers.length > 0) throw new SubAccountDeleteError('identity.sub_account_delete_blocked', found.blockers, found.balances);
+  }
+
   async delete(
     input: Actor & { subAccountId: string; stepUpApprovalId: string; clientRequestId: string },
   ): Promise<{ deleted: true; changed: boolean }> {

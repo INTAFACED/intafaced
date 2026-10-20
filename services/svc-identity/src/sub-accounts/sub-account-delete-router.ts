@@ -10,7 +10,7 @@ import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accou
 const blocker = z.object({ code: z.string(), count: z.number().int() });
 const balance = z.object({ assetId: z.string(), amount: z.string() });
 
-function toTrpc(err: unknown): never {
+export function subAccountDeleteToTrpc(err: unknown): never {
   if (err instanceof TRPCError) throw err;
   if (err instanceof SubAccountDeleteError) {
     const code =
@@ -51,7 +51,7 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
         try {
           return await required().check({ ...actor(ctx.principal), subAccountId: input.subAccountId });
         } catch (err) {
-          toTrpc(err);
+          subAccountDeleteToTrpc(err);
         }
       }),
     delete: protectedProcedure
@@ -65,7 +65,7 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
         try {
           return await required().delete({ ...actor(ctx.principal), ...input });
         } catch (err) {
-          toTrpc(err);
+          subAccountDeleteToTrpc(err);
         }
       }),
   };

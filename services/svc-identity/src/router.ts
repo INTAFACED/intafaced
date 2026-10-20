@@ -84,8 +84,8 @@ import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
-import { createSubAccountDeleteProcedures } from './sub-accounts/sub-account-delete-router.js';
-import type { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
+import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -2079,9 +2079,16 @@ export function createIdentityRouter(
       revoke: scopedProcedure('identity:write')
         .input(z.object({ subAccountId: z.string().uuid() }))
         .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => ({
-          revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId),
-        })),
+        .mutation(async ({ ctx, input }) => {
+          // Revoke is the same act as delete, so it carries the same assets and open-orders check, and fails closed.
+          try {
+            if (!options.subAccountDelete) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
+            await options.subAccountDelete.assertEmpty(ctx.principal.userId, input.subAccountId);
+          } catch (err) {
+            subAccountDeleteToTrpc(err);
+          }
+          return { revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId) };
+        }),
 
       /**
        * Single-row ownership door (SPEC-SUBACCOUNTS §2 / D26-P1-I1).
