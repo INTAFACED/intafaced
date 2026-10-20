@@ -3,7 +3,19 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { analyse, buildIndex, dependsOn, laneFor, parseSpec, progress, queue, untangle } from './roadmap.mjs';
+import {
+  analyse,
+  buildIndex,
+  dependsOn,
+  journeyOrder,
+  laneFor,
+  parseJourneys,
+  parseSpec,
+  passedSteps,
+  progress,
+  queue,
+  untangle,
+} from './roadmap.mjs';
 
 test('a slice heading and its table rows are read', () => {
   const text = [
@@ -129,4 +141,93 @@ test('two slices that each need the other: the earlier one goes first, and its e
   assert.deepEqual(by['U-c-01'].depends, [], 'fewer dependencies goes first across specs');
   assert.deepEqual(by['T-b-01'].depends, ['Q-a-01', 'U-c-01']);
   assert.equal(analyse(out).tangled.size, 0);
+});
+
+const JOURNEY = [
+  '# Cex-spot journeys',
+  '',
+  '## J-cex-spot-01: I sign up and trade',
+  '- Persona: pro-trader',
+  '- Tier: core',
+  '- Order: 1',
+  '- Starts: a visitor',
+  '',
+  '| # | The person does | They see | Slices | Proof today |',
+  '| - | - | - | - | - |',
+  '| 1 | Signs up | An account | I-kyc-compliance-06 | trade-onboarding.journey.ts (API) |',
+  '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',
+  '| 3 | Shares the order | A link | NO-SLICE | none |',
+  '',
+  '## J-cex-spot-02: I retry safely',
+  '- Persona: pro-trader',
+  '- Order: 2',
+  '',
+  '| # | The person does | They see | Slices | Proof today |',
+  '| - | - | - | - | - |',
+  '| 1 | Presses twice | One order | SP-order-entry-01 | none |',
+  '',
+  '## Coverage',
+  '- Slices in no journey: SP-order-03: acceptance only',
+].join('\n');
+
+test('a journey map is read: fields, steps, slice ids and NO-SLICE; the Coverage section is not a journey', () => {
+  const journeys = parseJourneys(JOURNEY, 'cex-spot');
+  assert.deepEqual(
+    journeys.map((j) => [j.id, j.persona, j.order, j.steps.length]),
+    [
+      ['J-cex-spot-01', 'pro-trader', 1, 3],
+      ['J-cex-spot-02', 'pro-trader', 2, 1],
+    ],
+  );
+  assert.deepEqual(journeys[0].steps[1].slices, ['SP-order-entry-01', 'SP-lifecycle-history-01']);
+  assert.equal(journeys[0].steps[2].noSlice, true);
+  assert.deepEqual(journeys[0].steps[2].slices, []);
+  const order = journeyOrder(journeys);
+  assert.equal(order.get('SP-order-entry-01'), 1, 'the lowest Order of the journeys that need it');
+  assert.equal(order.has('SP-order-03'), false);
+});
+
+test('a lane queue takes slices of a first usable journey before others that are equally ready', () => {
+  const slices = [
+    { id: 'A-x-01', module: 'm', depends: [], order: 0 },
+    { id: 'A-x-02', module: 'm', depends: [], order: 2 },
+    { id: 'A-x-03', module: 'm', depends: [], order: 1 },
+  ];
+  assert.deepEqual(
+    queue(slices, analyse(slices)).map((s) => s.id),
+    ['A-x-03', 'A-x-02', 'A-x-01'],
+  );
+});
+
+test('two specs giving one id to different slices fail the index instead of dropping one', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  for (const m of ['cex-spot', 'support-public']) {
+    mkdirSync(join(dir, 'modules', m, 'specs'), { recursive: true });
+    writeFileSync(join(dir, 'modules', m, 'specs', `${m}.md`), `### SP-order-01. Something in ${m}\n\n| Size | S |\n`);
+  }
+  assert.throws(() => buildIndex(dir, {}), /SP-order-01 is used in both/);
+});
+
+test('the scoreboard counts a journey once every step passed in the real-app report', () => {
+  const journeys = parseJourneys(JOURNEY, 'cex-spot');
+  const report = {
+    suites: [
+      {
+        specs: [
+          { title: 'J-cex-spot-01 #1 signs up', ok: true },
+          { title: 'J-cex-spot-01 #2 places a limit buy', ok: true },
+          { title: 'J-cex-spot-01 #3 shares the order', ok: false },
+        ],
+        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true }] }],
+      },
+    ],
+  };
+  const passed = passedSteps(report);
+  assert.deepEqual([...passed].sort(), ['J-cex-spot-01#1', 'J-cex-spot-01#2', 'J-cex-spot-02#1']);
+  const slices = [{ id: 'SP-order-entry-01', lane: 'svc-trade spot' }];
+  const commits = [{ at: '2026-10-20T08:00:00Z', subject: 'svc-trade: SP-order-entry-01 (#1)' }];
+  const page = progress(slices, commits, '2026-10-20T09:00:00Z', journeys, passed);
+  assert.match(page, /Passing in the real app on main: 1 of 2 journeys \(3 of 4 steps\)\. Order 1: 0 of 1\./);
+  assert.match(page, /ready to prove, builders' claim\): 1 of 2 journeys/);
+  assert.match(progress(slices, commits, '2026-10-20T09:00:00Z', journeys, null), /not measured/);
 });
