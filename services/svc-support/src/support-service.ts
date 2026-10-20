@@ -6,12 +6,17 @@ import {
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
+  SUPPORT_BULK_CAP_KEY,
+  supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
   type SupportAttachmentDownload,
   type SupportAttachmentKey,
   type SupportAttachmentLimits,
+  type SupportBulkChange,
+  type SupportBulkPolicy,
+  type SupportBulkResult,
   type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
@@ -284,6 +289,8 @@ export class SupportService implements SupportContract {
     private readonly ratingRequests: RatingRequestOutbox = new RatingRequestOutbox(new MemoryRatingRequestBook(), async () => null),
     /** The owner's size, type and count limits for an attachment. Blank until set; the deployment desk's own values win. */
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+    /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
+    private readonly bulkCap: number | null = null,
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -1258,6 +1265,103 @@ export class SupportService implements SupportContract {
       }
       return result.ticket;
     });
+  }
+
+  /** What a bulk change may hold: the owner's batch size, or `null` and the key it is missing while it is not set. */
+  bulkPolicy(): SupportBulkPolicy {
+    return this.bulkCap === null ? { cap: null, missing: SUPPORT_BULK_CAP_KEY } : { cap: this.bulkCap, missing: null };
+  }
+
+  /**
+   * One change applied to several requests, each through the path a single change takes and under its own key
+   * (`bulk:<batchKey>:<ticketId>`), so each writes its own trail row and a replayed batch changes nothing twice.
+   * A request the change does not apply to is reported `refused` with its typed code and the rest still run; one
+   * already at the asked status is `unchanged`. A blank cap refuses the whole batch `support.bulk_cap_unset`, a batch
+   * over the cap refuses `support.bulk_too_large`, and neither touches a request. Assigning needs a lead, so it is
+   * refused once up front and not once per request.
+   */
+  async bulkUpdate(input: {
+    operatorId: string;
+    batchKey: string;
+    ticketIds: readonly string[];
+    change: SupportBulkChange;
+    reason?: string;
+  }): Promise<SupportBulkResult> {
+    return withSupportSpan('support.bulkUpdate', { op: 'bulkUpdate' }, async (span) => {
+      if (this.bulkCap === null) {
+        throw new SupportError('the bulk batch size is not set', 'support.bulk_cap_unset', SUPPORT_BULK_CAP_KEY);
+      }
+      const ticketIds = [...new Set(input.ticketIds)];
+      if (ticketIds.length > this.bulkCap) {
+        throw new SupportError('the batch is larger than the desk allows', 'support.bulk_too_large');
+      }
+      if (input.change.kind === 'assign') {
+        const actor = await this.staff.get(input.operatorId);
+        if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      }
+      span.setAttribute('intafaced.support.bulk_size', ticketIds.length);
+      const results: SupportBulkResult['results'] = [];
+      for (const ticketId of ticketIds) {
+        const key = supportBulkKey(input.batchKey, ticketId);
+        try {
+          await this.bulkOne({ operatorId: input.operatorId, ticketId, key, change: input.change, reason: input.reason });
+          results.push({ ticketId, outcome: 'changed', code: null });
+        } catch (err) {
+          if (!(err instanceof SupportError)) throw err;
+          const unchanged = input.change.kind === 'status' && err.code === 'support.transition_same_status';
+          results.push({ ticketId, outcome: unchanged ? 'unchanged' : 'refused', code: unchanged ? null : err.code });
+        }
+      }
+      return { batchKey: input.batchKey, results };
+    });
+  }
+
+  private async bulkOne(input: {
+    operatorId: string;
+    ticketId: string;
+    key: string;
+    change: SupportBulkChange;
+    reason: string | undefined;
+  }): Promise<void> {
+    const { operatorId, ticketId, key, change, reason } = input;
+    if (change.kind === 'status') {
+      // Only an answer is kept: a request that was changed, or found already at the status. A refusal changed nothing,
+      // so a retry judges it afresh and never meets a half-recorded key.
+      const stateKey = `bulk-status:${key}`;
+      const fingerprint = `${operatorId}:${ticketId}:${change.status}`;
+      try {
+        await this.staff.begin(stateKey, fingerprint);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
+      const prior = await this.staff.read<{ outcome: 'changed' | 'unchanged' }>(stateKey);
+      if (prior?.outcome === 'changed') return;
+      if (prior?.outcome === 'unchanged') {
+        throw new SupportError('the request is already at that status', 'support.transition_same_status');
+      }
+      try {
+        await this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) });
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.transition_same_status') {
+          await this.staff.save(stateKey, { outcome: 'unchanged' });
+        }
+        throw err;
+      }
+      await this.staff.save(stateKey, { outcome: 'changed' });
+    } else if (change.kind === 'assign') {
+      await this.assignTo({ operatorId, ticketId, assigneeId: change.assigneeId, idempotencyKey: key });
+    } else {
+      await this.setTicketProperties({
+        operatorId,
+        ticketId,
+        priority: change.priority,
+        ...(reason ? { reason } : {}),
+        clientRequestId: key,
+      });
+    }
   }
 
   /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
