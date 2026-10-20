@@ -43,6 +43,11 @@ const KNOWN: Record<string, { customer: string; support: string }> = {
     customer: 'This route only works in test mode.',
     support: 'The rail is a sandbox rail. It cannot carry a live withdrawal.',
   },
+  'custody.dropped_by_chain': {
+    customer: 'The payout could not be completed on the network. Your funds were returned to your balance.',
+    support:
+      'An operator dropped the stuck transaction and the chain showed the nonce taken by the drop. The hold was reversed once; read the custody action record.',
+  },
   'rail.not_sent': {
     customer: 'The payout was not sent. Your funds were returned to your balance.',
     support: 'The rail status query says the requested attempt was never sent. The hold was reversed.',

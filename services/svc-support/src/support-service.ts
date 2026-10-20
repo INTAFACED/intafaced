@@ -6,6 +6,7 @@ import {
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
   type SupportTicketPriority,
+  type SupportAwaitingMine,
   type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketType,
@@ -405,6 +406,18 @@ export class SupportService implements SupportContract {
     return withSupportSpan('support.listMyTickets', { op: 'listMyTickets' }, async () => {
       const limit = assertListMineTicketsLimit(input.limit);
       return this.store.listByUser(input.userId, { limit });
+    });
+  }
+
+  /**
+   * How many of the caller's own requests wait on them, and which has waited longest. A count and one pointer, not a list,
+   * so it needs no page size; the ticket itself never carries who it waits on. Finished requests wait on nobody.
+   */
+  async awaitingMine(input: { userId: string }): Promise<SupportAwaitingMine> {
+    return withSupportSpan('support.awaitingMine', { op: 'awaitingMine' }, async () => {
+      const waiting = await this.lifecycle.awaitingCustomer(await this.store.openIdsByUser(input.userId));
+      const first = waiting[0];
+      return { count: waiting.length, longestWaiting: first ? { ticketId: first.ticketId, since: first.since } : null };
     });
   }
 

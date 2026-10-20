@@ -276,15 +276,13 @@ describe('POST /api/v1/orders/preview', () => {
     });
 
     it.each([
-      ['an expiry in the past', '2026-08-24T15:59:59.000Z'],
-      ['an expiry equal to now', '2026-08-24T16:00:00.000Z'],
-      ['an expiry that is not a date', 'tomorrow'],
-    ])('refuses %s', async (_name, expireAt) => {
+      ['an expiry in the past', '2026-08-24T15:59:59.000Z', 'trade.invalid_expiry'],
+      ['an expiry equal to now', '2026-08-24T16:00:00.000Z', 'trade.invalid_expiry'],
+      ['an expiry that is not a date', 'tomorrow', 'trade.invalid_tif'],
+    ])('refuses %s', async (_name, expireAt, code) => {
       const { response } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt });
       expect(response.json().orderable).toBe(false);
-      expect(refusalsOf(response)).toEqual(
-        expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'expireAt' })]),
-      );
+      expect(refusalsOf(response)).toEqual(expect.arrayContaining([expect.objectContaining({ code, field: 'expireAt' })]));
     });
 
     it('refuses an expiry on an order that is not good till date, rather than ignoring it', async () => {

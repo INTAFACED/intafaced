@@ -118,6 +118,39 @@ export const channelTargets = schema.table(
   (t) => [primaryKey({ columns: [t.userId, t.channel] })],
 );
 
+/** Terminal send failures per recipient and the quarantine they can trigger. See 0017_notify_recipient_health.sql. */
+export const recipientHealth = schema.table(
+  'recipient_health',
+  {
+    userId: text('user_id').notNull(),
+    channel: text('channel').$type<'email' | 'push' | 'sms'>().notNull(),
+    address: text('address').notNull(),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    lastFailureAt: timestamp('last_failure_at', { withTimezone: true, mode: 'date' }),
+    lastFailureCode: text('last_failure_code'),
+    quarantinedAt: timestamp('quarantined_at', { withTimezone: true, mode: 'date' }),
+    quarantineReason: text('quarantine_reason'),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.channel] })],
+);
+
+/** Append-only: every release names who, why and the request id that makes a replay a no-op. */
+export const recipientReleaseAudit = schema.table(
+  'recipient_release_audit',
+  {
+    id: pk(),
+    userId: text('user_id').notNull(),
+    channel: text('channel').$type<'email' | 'push' | 'sms'>().notNull(),
+    actorId: text('actor_id').notNull(),
+    reason: text('reason').notNull(),
+    reasonId: text('reason_id').notNull(),
+    quarantineReason: text('quarantine_reason').notNull(),
+    releasedAt: timestamp('released_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('recipient_release_audit_key_uq').on(t.userId, t.channel, t.reasonId)],
+);
+
 /**
  * One row per (notification, channel) — the attempt AND the outcome.
  *
@@ -199,9 +232,34 @@ export const priceAlerts = schema.table('price_alerts', {
   kind: text('kind').$type<'price' | 'funding' | 'liquidation_proximity' | 'whale'>().notNull().default('price'),
   direction: text('direction').$type<'above' | 'below'>().notNull(),
   targetPrice: text('target_price').notNull(),
-  status: text('status').$type<'active' | 'fired' | 'cancelled'>().notNull().default('active'),
+  status: text('status').$type<'active' | 'fired' | 'cancelled' | 'expired' | 'stopped'>().notNull().default('active'),
   firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }),
   createdAt: createdAt(),
+  condition: text('condition')
+    .$type<'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than'>()
+    .notNull()
+    .default('greater_than'),
+  name: text('name'),
+  message: text('message'),
+  expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
+  lastSide: text('last_side').$type<'below' | 'at_or_above'>(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  extraConditions: jsonb('extra_conditions')
+    .$type<{ condition: 'greater_than' | 'less_than'; targetPrice: string }[]>()
+    .notNull()
+    .default([]),
+});
+
+/** One row each time an alert fired (C-alerts-scan-02). See drizzle/0021_notify_alert_triggers.sql. */
+export const alertTriggers = schema.table('alert_triggers', {
+  alertId: uuid('alert_id').primaryKey(),
+  userId: text('user_id').notNull(),
+  marketId: text('market_id').notNull(),
+  condition: text('condition').notNull(),
+  targetPrice: text('target_price').notNull(),
+  markPrice: text('mark_price').notNull(),
+  firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }).notNull(),
+  notificationId: text('notification_id'),
 });
 
 export type NotificationRow = typeof notifications.$inferSelect;

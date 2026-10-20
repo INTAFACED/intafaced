@@ -46,6 +46,7 @@ import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-
 import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
+import { feeScheduleAt as feeScheduleAtStore } from './fee-schedule-store.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
 import { publicTapePrint } from './public-tape.js';
 import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
@@ -443,6 +444,8 @@ export interface PlaceOrderInput {
    */
   clientOrderId?: string;
   subAccountId?: string;
+  /** A label for the caller's own books, 1 to 16 characters. Stored on the row, never part of the key. */
+  tag?: string;
   /**
    * Optional ceiling on the market-buy protection/funding price (convert M-03).
    * When set, the engine limit is `min(slippageCap, maxProtectionPrice)` so a
@@ -1691,7 +1694,7 @@ export class TradeService {
 
     // Owner schedule before paper SQL or any hold. Listing-row 10/20 is not a
     // schedule; unpublished is a typed refuse (same hitch as order preview).
-    this.assertOwnerFeeSchedulePublished();
+    await this.assertOwnerFeeSchedulePublished();
 
     // Ownership + revoked gate (identity S2S). Before any new row or hold — a
     // foreign or revoked id must never land on trade.orders.sub_account_id.
@@ -1925,7 +1928,7 @@ export class TradeService {
       INSERT INTO trade.orders (
         id, user_id, sub_account_id, market_id, client_order_id, side, type,
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id
+        replacement_of, replacement_request_hash, session_id, api_key_id, tag
       ) VALUES (
         ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
         ${input.side}, ${orderType},
@@ -1935,7 +1938,7 @@ export class TradeService {
         ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
         ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}
+        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -2035,7 +2038,7 @@ export class TradeService {
       INSERT INTO trade.orders (
         id, user_id, sub_account_id, market_id, client_order_id, side, type,
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id
+        replacement_of, replacement_request_hash, session_id, api_key_id, tag
       ) VALUES (
         ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId as string},
         ${input.side}, ${orderType},
@@ -2045,7 +2048,7 @@ export class TradeService {
         null,
         false, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}
+        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -3240,7 +3243,10 @@ export class TradeService {
     // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
     const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
     if (makerIsHouseMm || makerIsHouseMmRow) {
-      const rates = this.ratesForFill(0, taker.feeDiscountBps, market.kind);
+      const rates = await this.ratesForFill(0, taker.feeDiscountBps, market.kind, market.symbol, {
+        maker: taker.createdAt,
+        taker: taker.createdAt,
+      });
       const takerBuys = fill.takerSide === 'buy';
       // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
       // (recipe throws; re-run throws). Inserting first left remainingHold
@@ -3413,7 +3419,10 @@ export class TradeService {
     // Both rates in one place: `tradeFill` posts them in one six-entry
     // transaction, and resolving them apart would let one side's rounding drift
     // from the other's without anything failing.
-    const rates = this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind);
+    const rates = await this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind, market.symbol, {
+      maker: maker.createdAt,
+      taker: taker.createdAt,
+    });
 
     const takerBuys = fill.takerSide === 'buy';
     // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe
@@ -3660,21 +3669,63 @@ export class TradeService {
   // ── Holds: the only two things that can happen to one ─────────────────────
 
   /** Unpublished owner schedule is a typed refuse — never listing-row 10/20. */
-  private assertOwnerFeeSchedulePublished(): void {
-    if (this.feeSchedule.published !== true) {
+  private async assertOwnerFeeSchedulePublished(): Promise<void> {
+    if ((await this.feeScheduleAt(this.now())).published !== true) {
       throw new TradeError('published fee schedule is unavailable', 'trade.fee_schedule_blank');
     }
   }
 
-  private ratesForFill(makerDiscountBps: number, takerDiscountBps: number, kind: 'spot' | 'futures' | 'options' = 'spot') {
+  /** The owner schedule in force at `at` (a later approved version, else the boot value). */
+  private feeScheduleAt(at: Date): Promise<OwnerFeeSchedule> {
+    return feeScheduleAtStore(this.sql, this.feeSchedule, at);
+  }
+
+  /**
+   * Rates for one match. Each side is charged at the schedule version that was in force when ITS order was placed,
+   * so a version approved after placement never re-prices an open order. The house market maker has no order
+   * of its own to date: its side takes the taker's version.
+   */
+  private async ratesForFill(
+    makerDiscountBps: number,
+    takerDiscountBps: number,
+    kind: 'spot' | 'futures' | 'options' = 'spot',
+    symbol?: string,
+    placedAt: { readonly maker: Date; readonly taker: Date } = { maker: this.now(), taker: this.now() },
+  ): Promise<{ makerFeeBps: number; takerFeeBps: number }> {
+    const makerSchedule = await this.feeScheduleAt(placedAt.maker);
+    const takerSchedule = placedAt.maker.getTime() === placedAt.taker.getTime() ? makerSchedule : await this.feeScheduleAt(placedAt.taker);
+    return {
+      makerFeeBps: this.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).makerFeeBps,
+      takerFeeBps: this.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps,
+    };
+  }
+
+  private ratesForSchedule(
+    schedule: OwnerFeeSchedule,
+    makerDiscountBps: number,
+    takerDiscountBps: number,
+    kind: 'spot' | 'futures' | 'options',
+    symbol?: string,
+  ) {
     if (kind === 'options') {
       throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
     }
     try {
-      return feeRatesForFill(this.feeSchedule, makerDiscountBps, takerDiscountBps, kind === 'futures' ? 'perpetual' : 'spot');
+      return feeRatesForFill(
+        schedule,
+        makerDiscountBps,
+        takerDiscountBps,
+        kind === 'futures' ? 'perpetual' : 'spot',
+        symbol === undefined ? undefined : { symbol },
+      );
     } catch (err) {
       if (err instanceof FeeScheduleError) {
-        const code = err.code === 'trade.fee_product_unpublished' ? 'trade.fee_product_unpublished' : 'trade.fee_schedule_blank';
+        const code =
+          err.code === 'trade.fee_product_unpublished' ||
+          err.code === 'trade.rebate_recipe_unavailable' ||
+          err.code === 'trade.min_fee_recipe_unavailable'
+            ? err.code
+            : 'trade.fee_schedule_blank';
         throw new TradeError(err.message, code);
       }
       throw err;
@@ -5170,7 +5221,7 @@ export class TradeService {
       sql: this.sql,
       ledger: this.ledger,
       perks: this.perks,
-      feeSchedule: this.feeSchedule,
+      feeSchedule: await this.feeScheduleAt(this.now()),
       slippageCapBps: this.slippageCapBps,
       markPolicy: this.algoMarkPolicy,
       now: this.now(),

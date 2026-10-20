@@ -26,6 +26,7 @@ import {
   NotifyMarketsListLimitUnsetError,
   priceFromTicker,
 } from './trade-http-mark.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
 
 const MARKET_ID = '11111111-1111-1111-1111-111111111111';
 const SYMBOL = 'BTC/USDT';
@@ -175,7 +176,13 @@ describe('createTradeHttpMarkSource', () => {
     expect(q).toMatchObject({ kind: 'unavailable', reason: 'stale' });
 
     const notifyStore = new MemoryNotifyStore();
-    const alerts = new AlertService(new MemoryAlertStore(), marks, new NotifyService(notifyStore, { fanoutEnabled: true }));
+    const alerts = new AlertService(
+      new MemoryAlertStore(),
+      marks,
+      new NotifyService(notifyStore, { fanoutEnabled: true }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
     await alerts.create({
       userId: 'u1',
       marketId: MARKET_ID,
@@ -206,7 +213,7 @@ describe('createTradeHttpMarkSource', () => {
       fetchImpl,
       marketsLimit: MARKETS_LIMIT,
     });
-    const alerts = new AlertService(store, marks, notify);
+    const alerts = new AlertService(store, marks, notify, undefined, TEST_ALERT_LIMITS);
 
     expect(alerts.evaluationStatus()).toEqual({
       markSource: 'live',

@@ -53,6 +53,12 @@ const FROM_STORED: Record<StoredWithdrawalStatus, WithdrawalStatus> = {
  */
 export const WITHDRAWAL_CANCELED_CODE = 'withdrawal.canceled';
 
+/**
+ * A held withdrawal whose chain transaction an operator dropped and the chain showed dropped (W-custody-ops-12). It is stored
+ * as `failed` with this code after its hold was reversed once, under the attempt's own key.
+ */
+export const WITHDRAWAL_DROPPED_CODE = 'custody.dropped_by_chain';
+
 /** A stored row in the customer vocabulary. An unknown stored value is a bug, not a made-up status. */
 export function customerStatus(stored: string, failureCode?: string | null): WithdrawalStatus {
   if (stored === 'failed' && failureCode === WITHDRAWAL_CANCELED_CODE) return 'canceled';

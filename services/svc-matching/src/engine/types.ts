@@ -182,6 +182,11 @@ export interface EngineOrder {
   readonly combo?: boolean;
   /** Named combo legs. Missing when combo is requested refuses. */
   readonly legs?: readonly ComboLeg[] | null;
+  /**
+   * Spread order (CB-otc-16). Absent is not a spread. The instrument is the owner listing the engine stamped at
+   * admission, so a journalled order replays against the listing it was accepted under.
+   */
+  readonly spread?: SpreadTerms | null;
 }
 
 /** One named combo leg. Ratio/strike/expiry missing refuses. Qty/ratio are ledger Amounts. */
@@ -190,6 +195,49 @@ export interface ComboLeg {
   readonly ratio?: Amount | null;
   readonly strike?: Amount | null;
   readonly expiry?: string | null;
+}
+
+/** Calendar: one symbol at two expiries. Inter-coin: two coins at a fixed ratio. */
+export type SpreadKind = 'calendar' | 'inter_coin';
+
+/**
+ * One leg of a listed spread, from the spread buyer's point of view: buying the spread buys every `buy` leg and
+ * sells every `sell` leg, each `ratio` units per spread unit.
+ */
+export interface SpreadLegDefinition {
+  readonly symbol: string;
+  readonly side: OrderSide;
+  /** Positive. Units of this leg per one unit of spread. */
+  readonly ratio: Amount;
+}
+
+/**
+ * An owner-listed spread instrument. Spread price = sum over legs of (+1 for buy, -1 for sell) x ratio x leg price,
+ * so it may be zero or negative. `tick` is the spread price increment and `lot` the spread quantity increment.
+ * Leg 0 is the anchor leg (priced at the caller reference); leg 1 is the residual leg.
+ */
+export interface SpreadInstrument {
+  readonly spreadId: string;
+  readonly kind: SpreadKind;
+  readonly legs: readonly SpreadLegDefinition[];
+  readonly tick: Amount;
+  readonly lot: Amount;
+}
+
+/** What a spread order carries into the book. */
+export interface SpreadTerms {
+  readonly instrument: SpreadInstrument;
+  /** Caller reference price for the anchor leg. Missing refuses. The engine does not invent a mark. */
+  readonly anchorReference: Amount | null;
+}
+
+/** One leg of a spread fill. Every leg of one fill is printed together or not at all. */
+export interface SpreadLegFill {
+  readonly symbol: string;
+  /** The taker's side on this leg. The maker takes the other side. */
+  readonly takerSide: OrderSide;
+  readonly qty: Amount;
+  readonly price: Amount;
 }
 
 export const REJECT_CODES = [
@@ -284,6 +332,30 @@ export const REJECT_CODES = [
   'hold_check_unreachable',
   /** A replayed order's hold was not confirmed and cancel could not pull it. */
   'hold_unconfirmed',
+  /** Spread listing (CB-otc-16): a blank or invalid owner field refuses; nothing is invented. */
+  'spread_id_missing',
+  'spread_id_collides',
+  'spread_kind_unsupported',
+  'spread_legs_invalid',
+  'spread_leg_symbol_missing',
+  'spread_leg_side_missing',
+  'spread_ratio_missing',
+  'spread_tick_missing',
+  'spread_lot_missing',
+  'spread_size_inexact',
+  'spread_listing_conflict',
+  /** Spread orders. */
+  'spread_unlisted',
+  'spread_book_outright_refused',
+  'spread_identity_disagrees',
+  'spread_order_unsupported',
+  'spread_price_off_tick',
+  'spread_qty_off_lot',
+  'spread_reference_missing',
+  'spread_leg_unfillable',
+  'spread_leg_unavailable',
+  'spread_fill_event_unwired',
+  'spread_amend_unsupported',
 ] as const;
 
 export type RejectCode = (typeof REJECT_CODES)[number];
@@ -302,8 +374,11 @@ export interface Fill {
   readonly takerAccountId: AccountId;
   /** Side of the aggressor. The maker is by definition on the other side. */
   readonly takerSide: OrderSide;
+  /** On a spread book this is the spread price, which may be zero or negative. */
   readonly price: Amount;
   readonly qty: Amount;
+  /** Spread fills only: every leg's qty and price, in listing order. Absent on an outright fill. */
+  readonly legs?: readonly SpreadLegFill[];
 }
 
 /** Where an order came to rest: the limit book, or the pending-trigger stop book. */

@@ -24,6 +24,8 @@ import {
   walletTypeViewSchema,
   walletViewSchema,
 } from './schemas.js';
+import { createCustodyStuckRouters } from './stuck/router.js';
+import { CustodyStuckService, type DroppedReverser, type NonceChain, type TxReplacer, type WithdrawalCanceller } from './stuck/service.js';
 import { createCustodyTxRouters } from './tx/router.js';
 import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
@@ -44,6 +46,11 @@ export interface CustodyRouterDeps {
   readonly utxoNode?: UtxoNode;
   /** The chain reader for block height and hash (W-custody-ops-11). Omitted: `tx.get` shows `unwired`. */
   readonly chainReader?: TxChainReader;
+  /** W-custody-ops-12 ports. Omitted: boost/replace/drop refuse `rail.crypto`, and cancel and reverse say they are not connected. */
+  readonly txReplacer?: TxReplacer;
+  readonly nonceChain?: NonceChain;
+  readonly withdrawalCanceller?: WithdrawalCanceller;
+  readonly droppedReverser?: DroppedReverser;
 }
 
 function actorOf(ctx: unknown): string {
@@ -74,10 +81,22 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     actorOf,
   );
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
+  const stuckRouters = createCustodyStuckRouters(
+    founder,
+    new CustodyStuckService({
+      sql: deps.sql,
+      replacer: deps.txReplacer,
+      chain: deps.nonceChain,
+      canceller: deps.withdrawalCanceller,
+      reverser: deps.droppedReverser,
+    }),
+    actorOf,
+  );
   return router({
     ...feeRouters,
     ...utxoRouters,
     ...txRouters,
+    ...stuckRouters,
     walletTypes: router({
       list: founder
         .input(z.object({}).strict().optional())

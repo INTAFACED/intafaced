@@ -26,6 +26,7 @@ import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from '.
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
+import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -72,6 +73,7 @@ import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { parseFeeScheduleJson } from './spot/fee-schedule.js';
+import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
 import {
   ADL_DISCLOSURE_VERSION,
@@ -399,6 +401,7 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
+  new SupportTradeSummaryReader({ sql }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
@@ -798,6 +801,7 @@ registerSpotOrderPreviewRest(app, {
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   feeSchedule,
+  feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
 });
 const fundingHistory = memoryFundingHistory();
@@ -906,6 +910,7 @@ registerPrivateRest(app, {
   marketById: (marketId) => trade.marketById(marketId),
   markets: (limit) => trade.markets(limit),
   feeSchedule,
+  feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),

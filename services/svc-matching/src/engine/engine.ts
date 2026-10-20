@@ -8,6 +8,17 @@ import { OrderBook } from './book.js';
 import { unsupportedAmendField } from './amend-priority.js';
 import { applyMark as walkTrailingStops, markRefuse } from './trailing-stop.js';
 import './option.js';
+import {
+  installSpreadBook,
+  isSpreadBook,
+  outrightOnSpreadRefuse,
+  spreadFillEvent,
+  spreadFillKey,
+  spreadOrderRefuse,
+  type SpreadFillEvent,
+  type SpreadFillPublisher,
+} from './spread-book.js';
+import { fromWireSpread, readSpreadListing, spreadIdentity, toWireSpread, type SpreadListingInput } from './spread-instrument.js';
 import { flattenCloseOrder, netPositionOf, positionFlatResult, type ClosePositionCommand } from './close-position.js';
 import {
   dualControlRefuse,
@@ -80,6 +91,8 @@ import type {
   MarketReduceOnlyResult,
   MassCancelResult,
   SessionDeadResult,
+  SpreadInstrument,
+  RejectReason,
   VenueKillResult,
   OrderId,
   OrderSide,
@@ -140,12 +153,18 @@ export interface MatchingEngineOptions {
   readonly enabled?: boolean;
   /** Startup publish backoff. Tests pass a no-op. Production waits. */
   readonly startupSleep?: (ms: number) => Promise<void>;
+  /**
+   * Spread fill announcements (CB-otc-16); production passes `spreadFillPublisherFor(bus)` (`matching.spread.filled`).
+   * Unset, spread orders refuse `spread_fill_event_unwired` before they are journalled.
+   */
+  readonly spreadFills?: SpreadFillPublisher;
 }
 
 type PendingEvent =
   | { readonly sequence: number; readonly name: 'orderAccepted'; readonly payload: PayloadOf<'orderAccepted'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'orderFilled'; readonly payload: PayloadOf<'orderFilled'>; readonly key: string }
-  | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string };
+  | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string }
+  | { readonly sequence: number; readonly name: 'spreadFilled'; readonly payload: SpreadFillEvent; readonly key: string };
 
 export class MatchingEngine {
   private readonly books = new Map<MarketId, OrderBook>();
@@ -195,6 +214,9 @@ export class MatchingEngine {
   /** True from recover() until finishStartupAnnounce(). Publishes retry on TIMEOUT. */
   private announcing = false;
   private readonly startupSleep: (ms: number) => Promise<void>;
+  /** Owner spread listings, rebuilt from `spread_list` journal records. Empty means nothing is listed. */
+  private readonly spreads = new Map<MarketId, SpreadInstrument>();
+  private readonly spreadFills: SpreadFillPublisher | null;
 
   constructor(options: MatchingEngineOptions) {
     this.journal = options.journal;
@@ -205,6 +227,9 @@ export class MatchingEngine {
     this.sink = options.snapshotSink ?? new MemorySnapshotSink();
     this.enabled = options.enabled ?? true;
     this.startupSleep = options.startupSleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.spreadFills = options.spreadFills ?? null;
+    // After every module has loaded, so the hitch wraps the finished OrderBook. Idempotent.
+    installSpreadBook();
   }
 
   /**
@@ -229,6 +254,12 @@ export class MatchingEngine {
     this.delistedMarkets.clear();
     this.deadSessions.clear();
     this.inFlight.clear();
+    this.spreads.clear();
+    for (const record of records) {
+      if (record.kind === 'spread_list' && !this.spreads.has(record.marketId)) {
+        this.spreads.set(record.marketId, fromWireSpread(record.instrument));
+      }
+    }
     const replayed = replayJournal(records);
     for (const [marketId, book] of replayed.books) this.books.set(marketId, book);
     this.venueHalted = replayVenueHalted(records);
@@ -243,7 +274,7 @@ export class MatchingEngine {
     for (const sessionId of replayDeadSessions(records)) this.deadSessions.add(sessionId);
     for (const [orderId, mark] of replayInFlight(records)) this.inFlight.set(orderId, mark);
     const announced = [
-      ...replayed.fills.map((row) => filledEvent(row.marketId, row.fill, row.at)),
+      ...replayed.fills.map((row) => fillEvent(row.marketId, row.fill, row.at)),
       ...replayed.holdCancels.map((row) => cancelledEvent(row.marketId, row.cancellation)),
     ];
     announced.sort((a, b) => a.sequence - b.sequence);
@@ -377,6 +408,149 @@ export class MatchingEngine {
       if (this.isListed(marketId)) ids.add(marketId);
     }
     return [...ids].sort();
+  }
+
+  /** Owner spread listings, sorted by id. Empty when nothing is listed — never a sample instrument. */
+  spreadInstruments(): readonly SpreadInstrument[] {
+    return [...this.spreads.keys()].sort().map((id) => this.spreads.get(id) as SpreadInstrument);
+  }
+
+  spreadInstrument(spreadId: MarketId): SpreadInstrument | null {
+    return this.spreads.get(spreadId) ?? null;
+  }
+
+  /**
+   * The spread book in spread-price units, or null when the spread is not listed. A listed spread with no orders is
+   * an empty book, not a refusal. `limit` is required, as for depth.
+   */
+  spreadBook(spreadId: MarketId, limit?: number | null): SpreadBookView | null {
+    const instrument = this.spreads.get(spreadId);
+    if (!instrument) return null;
+    const n = publishedEngineL2Limit(limit);
+    const book = this.existingBook(spreadId);
+    const depth = book ? book.depth(n) : { bids: [], asks: [], sequence: 0 };
+    const best = (price: Amount | null | undefined): string | null => (price == null ? null : formatAmount(price));
+    return {
+      instrument,
+      bids: depth.bids,
+      asks: depth.asks,
+      sequence: depth.sequence,
+      bestBid: best(book?.bestBid()),
+      bestAsk: best(book?.bestAsk()),
+      lastPrice: best(book?.lastPrice),
+    };
+  }
+
+  /**
+   * List one owner spread instrument (CB-otc-16). The router consumes the dual-control approval first; this records
+   * who approved, journals the listing, and only then makes it tradable. Re-listing the same definition is a no-op;
+   * a different definition under a listed id refuses — open orders were admitted under the first one.
+   */
+  async listSpread(
+    input: SpreadListingInput,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
+  ): Promise<SpreadListResult> {
+    const spreadId = typeof input.spreadId === 'string' ? input.spreadId.trim() : '';
+    return withEngineSpan('matching.spreadList', { marketId: spreadId }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const dual = dualControlRefuse(operatorId, confirmOperatorId);
+      if (dual) return spreadListRefused(spreadId, dual);
+
+      const read = readSpreadListing(input);
+      if (!read.ok) return spreadListRefused(spreadId, read.rejected);
+      const instrument = read.instrument;
+      const id = instrument.spreadId;
+
+      const listed = this.spreads.get(id);
+      if (listed) {
+        if (spreadIdentity(listed) === spreadIdentity(instrument)) {
+          return { accepted: true, spreadId: id, instrument: listed, alreadyListed: true };
+        }
+        return spreadListRefused(id, {
+          code: 'spread_listing_conflict',
+          message: `${id} is already listed with a different definition; list the change under a new id`,
+        });
+      }
+      if (this.books.has(id) || this.listedMarkets.has(id) || this.prelaunchMarkets.has(id)) {
+        return spreadListRefused(id, { code: 'spread_id_collides', message: `${id} is already an outright market` });
+      }
+      const nested = instrument.legs.find((leg) => this.spreads.has(leg.symbol));
+      if (nested) {
+        return spreadListRefused(id, { code: 'spread_legs_invalid', message: `leg ${nested.symbol} is itself a spread` });
+      }
+
+      this.journal.append({
+        kind: 'spread_list',
+        marketId: id,
+        at: this.clock().toISOString(),
+        operatorId: operatorId as string,
+        ...(confirmOperatorId ? { confirmOperatorId } : {}),
+        instrument: toWireSpread(instrument),
+      });
+      this.spreads.set(id, instrument);
+      return { accepted: true, spreadId: id, instrument, alreadyListed: false };
+    });
+  }
+
+  /**
+   * Place a spread order. The engine stamps the listing onto the order, so the journal carries the exact definition
+   * the order was admitted under, then runs the normal submit path: every gate, the journal, the book, the events.
+   */
+  async submitSpread(spreadId: MarketId, input: SpreadOrderInput, lifecycleProof?: MarketLifecycleAdmissionProof): Promise<SubmitResult> {
+    const instrument = this.spreads.get(spreadId);
+    if (!instrument) {
+      return refusedSubmit({ code: 'spread_unlisted', message: `no spread instrument ${spreadId} is listed` });
+    }
+    const order: EngineOrder = {
+      orderId: input.orderId,
+      accountId: input.accountId,
+      type: 'limit',
+      side: input.side,
+      qty: input.qty,
+      price: input.price,
+      stopPrice: null,
+      tif: input.tif,
+      ...(input.clientOrderId ? { clientOrderId: input.clientOrderId } : {}),
+      ...(input.environment ? { environment: input.environment } : {}),
+      ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      spread: { instrument, anchorReference: input.anchorReference ?? null },
+    };
+    return this.submit(spreadId, order, lifecycleProof);
+  }
+
+  /** Why a submit must not reach the journal for spread reasons, or null. Outright orders on spread ids refuse here. */
+  private spreadAdmissionRefuse(marketId: MarketId, order: EngineOrder, book: OrderBook | null, now: Date | null): RejectReason | null {
+    const listed = this.spreads.get(marketId);
+    if (order.spread == null) return listed || isSpreadBook(book) ? outrightOnSpreadRefuse(marketId) : null;
+    if (!listed) return { code: 'spread_unlisted', message: `no spread instrument ${marketId} is listed` };
+    if (spreadIdentity(order.spread.instrument) !== spreadIdentity(listed)) {
+      return { code: 'spread_identity_disagrees', message: `the order does not carry the ${marketId} listing` };
+    }
+    if (this.spreadFills === null) {
+      return {
+        code: 'spread_fill_event_unwired',
+        message: 'no spread fill event subject is declared yet; a spread fill nobody announces would strand the maker hold',
+      };
+    }
+    for (const leg of listed.legs) {
+      const closed = this.legClosedReason(leg.symbol);
+      if (closed) {
+        return { code: 'spread_leg_unavailable', message: `leg ${leg.symbol} is ${closed} here; the whole spread refuses` };
+      }
+    }
+    return spreadOrderRefuse(book, marketId, order, now);
+  }
+
+  /** A leg market this engine knows is closed. A leg it has never seen (futures today) is not judged here. */
+  private legClosedReason(symbol: MarketId): string | null {
+    if (this.holdHalted.has(symbol)) return 'held closed';
+    if (this.maintenance.has(symbol)) return 'in maintenance';
+    if (this.halted.has(symbol)) return 'halted';
+    if (this.expiredMarkets.has(symbol)) return 'expired';
+    if (this.delistedMarkets.has(symbol)) return 'delisted';
+    if (this.prelaunchMarkets.has(symbol)) return 'in prelaunch';
+    return null;
   }
 
   /**
@@ -595,6 +769,12 @@ export class MatchingEngine {
         // One instant for the journal and the expiry check. A second read can
         // reject already_expired while `at` is still early enough for replay to match.
         const expiryNow = this.expiryClock ? this.expiryClock() : null;
+        // Spread admission (CB-otc-16) refuses before the journal: a refused spread leaves no record and no leg.
+        const spreadRefusal = this.spreadAdmissionRefuse(marketId, order, existing, expiryNow);
+        if (spreadRefusal) {
+          const result = refusedSubmit(spreadRefusal);
+          return { ...result, fillCount: 0, rejectCode: spreadRefusal.code };
+        }
         if ((order.tif === 'GTD' || order.tif === 'GTT') && expiryNow == null) {
           const result = clockMissing(order.orderId);
           return { ...result, fillCount: 0, rejectCode: result.rejected?.code };
@@ -744,6 +924,15 @@ export class MatchingEngine {
    */
   amendRefusal(marketId: MarketId, cmd: EngineAmend, book?: OrderBook | null): AmendResult | null {
     if (!this.enabled) return disabledAmend(cmd.orderId);
+    if (this.spreads.has(marketId) || isSpreadBook(book === undefined ? this.existingBook(marketId) : book)) {
+      return {
+        ...disabledAmend(cmd.orderId),
+        rejected: {
+          code: 'spread_amend_unsupported',
+          message: 'a spread order does not amend in place; cancel it and place a new one',
+        },
+      };
+    }
     if (this.admissionClosed) return holdCheckClosedAmend(cmd.orderId, this.admissionClosed);
     if (this.holdHalted.has(marketId)) {
       return holdUnconfirmedAmend(marketId, cmd.orderId, this.holdHalted.get(marketId) ?? 'matching.hold_unconfirmed');
@@ -1398,7 +1587,7 @@ export class MatchingEngine {
     }
 
     const collect = (fills: readonly Fill[], cancellations: readonly CancelledRef[]): void => {
-      for (const fill of fills) events.push(filledEvent(marketId, fill, at));
+      for (const fill of fills) events.push(fillEvent(marketId, fill, at));
       for (const cancellation of cancellations) events.push(cancelledEvent(marketId, cancellation));
     };
 
@@ -1411,9 +1600,9 @@ export class MatchingEngine {
   private eventsForAmend(marketId: MarketId, result: AmendResult, at: string): PendingEvent[] {
     const events: PendingEvent[] = [];
     for (const cancellation of result.cancellations) events.push(cancelledEvent(marketId, cancellation));
-    for (const fill of result.fills) events.push(filledEvent(marketId, fill, at));
+    for (const fill of result.fills) events.push(fillEvent(marketId, fill, at));
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
-      for (const fill of triggered.fills) events.push(filledEvent(marketId, fill, at));
+      for (const fill of triggered.fills) events.push(fillEvent(marketId, fill, at));
       for (const cancellation of triggered.cancellations) events.push(cancelledEvent(marketId, cancellation));
     }
     return events.sort((a, b) => a.sequence - b.sequence);
@@ -1436,6 +1625,13 @@ export class MatchingEngine {
         return this.bus.publish('orderFilled', event.payload, opts);
       case 'orderCancelled':
         return this.bus.publish('orderCancelled', event.payload, opts);
+      case 'spreadFilled':
+        // Admission refuses spreads without a publisher, so only a journal written by a build that had one reaches
+        // here. Fail the boot rather than drop a maker's fill.
+        if (this.spreadFills === null) {
+          return Promise.reject(new Error(`spread fill ${event.key} has no publisher; refusing to drop it`));
+        }
+        return Promise.resolve(this.spreadFills.publish(event.payload, opts));
     }
   }
 
@@ -1444,6 +1640,56 @@ export class MatchingEngine {
     if (this.journal.length % this.snapshotEvery !== 0) return;
     await this.sink.write(this.snapshot());
   }
+}
+
+/** A spread book read: L2 in spread-price units plus the top of book and the last spread print. */
+export interface SpreadBookView {
+  readonly instrument: SpreadInstrument;
+  readonly bids: Array<[string, string]>;
+  readonly asks: Array<[string, string]>;
+  readonly sequence: number;
+  readonly bestBid: string | null;
+  readonly bestAsk: string | null;
+  readonly lastPrice: string | null;
+}
+
+export interface SpreadListResult {
+  readonly accepted: boolean;
+  readonly spreadId: string;
+  readonly instrument: SpreadInstrument | null;
+  readonly alreadyListed: boolean;
+  readonly rejected?: { readonly code: string; readonly message: string };
+}
+
+/** Decimal-free: amounts arrive parsed. The engine stamps the listing; the caller never sends it. */
+export interface SpreadOrderInput {
+  readonly orderId: OrderId;
+  readonly accountId: string;
+  readonly side: OrderSide;
+  readonly qty: Amount;
+  readonly price: Amount;
+  readonly tif: EngineOrder['tif'];
+  readonly anchorReference: Amount | null;
+  readonly clientOrderId?: string | null;
+  readonly environment?: string | null;
+  readonly sessionId?: string | null;
+}
+
+function spreadListRefused(spreadId: string, rejected: { readonly code: string; readonly message: string }): SpreadListResult {
+  return { accepted: false, spreadId, instrument: null, alreadyListed: false, rejected };
+}
+
+/** A spread fill carries its legs and announces as one spread fill; an outright fill is `orderFilled`. */
+function fillEvent(marketId: MarketId, fill: Fill, at: string): PendingEvent {
+  if (fill.legs !== undefined) {
+    return {
+      sequence: fill.sequence,
+      name: 'spreadFilled',
+      payload: spreadFillEvent(marketId, fill, at),
+      key: spreadFillKey(marketId, fill.sequence),
+    };
+  }
+  return filledEvent(marketId, fill, at);
 }
 
 function filledEvent(marketId: MarketId, fill: Fill, at: string): PendingEvent {
@@ -1551,6 +1797,10 @@ function holdUnconfirmedAmend(marketId: MarketId, orderId: OrderId, reason: stri
     cancellations: [],
     triggered: [],
   };
+}
+
+function refusedSubmit(reason: RejectReason): SubmitResult {
+  return { accepted: false, sequence: null, fills: [], resting: null, rejected: reason, cancellations: [], triggered: [] };
 }
 
 function disabled(orderId: OrderId): SubmitResult {

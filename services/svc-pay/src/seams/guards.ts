@@ -304,6 +304,8 @@ export interface UserMoneyWithdrawalContext {
   readonly rail: string;
   readonly destination: { readonly kind: string; readonly ref: string };
   readonly clientRef: string;
+  /** True when this claim only places the hold and stops (approval hold at submission); the row is never sent by this call. */
+  readonly stopAfterHold?: boolean;
   /** `replay` for a sent withdrawal, `recovery` once the hold is booked (held, or pending with the hold on the ledger), otherwise `fresh`. */
   readonly replay: GuardReplay;
 }

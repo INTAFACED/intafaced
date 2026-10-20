@@ -14,9 +14,24 @@ import {
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
-import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
+import {
+  FRESH,
+  NOOP_GUARDS,
+  composeGuards,
+  PayGuardRefusal,
+  settleGuardRefusal,
+  type GuardReplay,
+  type PartialPayGuards,
+  type PayGuards,
+} from './seams/guards.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
-import { assertStoredTransition, assertTransition, customerStatus, WITHDRAWAL_CANCELED_CODE } from './withdrawals/status.js';
+import {
+  assertStoredTransition,
+  assertTransition,
+  customerStatus,
+  WITHDRAWAL_CANCELED_CODE,
+  WITHDRAWAL_DROPPED_CODE,
+} from './withdrawals/status.js';
 import type { WithdrawalEligibility, EligibilityView } from './withdrawals/eligibility.js';
 import type { PurchaseHoldGuard } from './withdrawals/purchase-holds/service.js';
 import type { WithdrawalHistory, WithdrawalHistoryFilter, WithdrawalHistoryPage } from './withdrawals/history.js';
@@ -163,6 +178,9 @@ export interface UserMoneyOptions {
    */
   readonly guards?: PayGuards;
 
+  /** Extra `beforeUserMoneyWithdrawal` guards run after `guards`, in the claim's transaction (the approval gate, W-withdraw-11). */
+  readonly claimGuards?: PartialPayGuards;
+
   /**
    * Auto-trip streak writer. A confirmed withdrawal rail acceptance or refusal
    * is recorded against every merchant this user owns, on that rail. Omitted,
@@ -230,7 +248,7 @@ export class UserMoneyService {
   ) {
     this.creditableRails = new Set(options.operatorCreditRails);
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
-    this.guards = options.guards ?? NOOP_GUARDS;
+    this.guards = options.claimGuards ? composeGuards(options.guards ?? NOOP_GUARDS, options.claimGuards) : (options.guards ?? NOOP_GUARDS);
     this.haltStore = options.haltStore;
     this.wallet = options.wallet;
     this.chainReader = options.chainReader ?? { confirm: async () => 'down' };
@@ -412,33 +430,19 @@ export class UserMoneyService {
   }
 
   /**
-   * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
-   *
-   * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
-   * one `payoutSettlement` already uses for a merchant, and it is the same
-   * because the shape is the same: there is no moment at which the user's money
-   * is neither in their available balance, nor in a hold that names this
-   * withdrawal, nor gone with a rail reference against it.
-   *
-   * P0-3: the hold is PURPOSE-KEYED — `withdraw:<withdrawalId>:<attempt>`, via
-   * `withdrawalHoldAccount`. With one shared hold per (user, asset) a settle
-   * could consume value an open order had reserved, and the books would balance
-   * while the order went unfunded.
-   *
-   * RESUMABLE ON `clientRef`. A client that retries a timed-out request must
-   * resume this withdrawal, not open a second one — a second one is a second
-   * debit. That is why `clientRef` is required rather than recommended.
+   * Everything `withdraw` checks before a row exists: the amount, the customer withdrawal gate for a fresh ask, a sandbox key,
+   * the rail and the destination kind. Nothing is claimed or held. W-withdraw-11 runs it when a request is submitted, so a
+   * withdrawal that could never run is refused up front and not after its approvals.
    */
-  async withdraw(input: {
+  async preflightWithdrawal(input: {
     userId: string;
     assetId: string;
     amount: Amount;
     rail: string;
     destination: { kind: string; ref: string };
     clientRef: string;
-    /** A sandbox API key cannot debit a live balance. */
     keyEnv?: 'sandbox';
-  }): Promise<WithdrawalRecord> {
+  }): Promise<RailAdapter> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
     if (this.wallet) {
       const prior = await this.sql<Array<{ status: string }>>`
@@ -493,6 +497,46 @@ export class UserMoneyService {
       }
       throw err;
     }
+    return adapter;
+  }
+
+  /**
+   * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
+   *
+   * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
+   * one `payoutSettlement` already uses for a merchant, and it is the same
+   * because the shape is the same: there is no moment at which the user's money
+   * is neither in their available balance, nor in a hold that names this
+   * withdrawal, nor gone with a rail reference against it.
+   *
+   * P0-3: the hold is PURPOSE-KEYED — `withdraw:<withdrawalId>:<attempt>`, via
+   * `withdrawalHoldAccount`. With one shared hold per (user, asset) a settle
+   * could consume value an open order had reserved, and the books would balance
+   * while the order went unfunded.
+   *
+   * RESUMABLE ON `clientRef`. A client that retries a timed-out request must
+   * resume this withdrawal, not open a second one — a second one is a second
+   * debit. That is why `clientRef` is required rather than recommended.
+   */
+  async withdraw(
+    input: {
+      userId: string;
+      assetId: string;
+      amount: Amount;
+      rail: string;
+      destination: { kind: string; ref: string };
+      clientRef: string;
+      /** A sandbox API key cannot debit a live balance. */
+      keyEnv?: 'sandbox';
+    },
+    /**
+     * `stopAfterHold` (W-withdraw-11, hold at submission): run the claim and post the hold, then stop. The row stays
+     * `pending` with its hold booked, the state a crash between the hold and the rail already leaves, so a later `withdraw`
+     * on the same client reference resumes it and `cancelWithdrawal` can give the hold back. The rail is never asked.
+     */
+    options: { stopAfterHold?: boolean } = {},
+  ): Promise<WithdrawalRecord> {
+    const adapter = await this.preflightWithdrawal(input);
 
     return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
       try {
@@ -514,7 +558,7 @@ export class UserMoneyService {
           const fresh = !priorClaim || priorClaim.status === 'failed';
           if (fresh) this.refuseFreshWithdrawal(adapter);
 
-          let claimed = await this.claimWithdrawal(input, connection, fresh);
+          let claimed = await this.claimWithdrawal(input, connection, fresh, options.stopAfterHold === true);
 
           // Already finished. Returning it is the only correct answer to a retry:
           // the money is gone and asking the rail again would send it twice.
@@ -585,11 +629,14 @@ export class UserMoneyService {
                 { withdrawalId: claimed.id },
               );
             }
+            // The hold is booked and the row is still `pending`: stop here when the caller asked to.
+            if (options.stopAfterHold) return claimed;
             await connection`
           UPDATE pay.withdrawals SET status = 'held', failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id} AND status = 'pending'
         `;
           }
+          if (options.stopAfterHold) return claimed;
 
           // ── Phase 2: the rail.
           //
@@ -775,12 +822,13 @@ export class UserMoneyService {
     },
     connection: Sql,
     fresh: boolean,
+    stopAfterHold = false,
   ): Promise<WithdrawalRecord> {
     return payoutTransaction(connection, async (tx) => {
       // Seam: before the claim row is written, in the claim's own transaction, so
       // a refusal leaves no claim, hold or ledger entry. The advisory lock held by
       // `withdraw` serialises one (userId, clientRef), so this read cannot race.
-      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, replay: await this.classifyWithdrawal(tx, input) });
+      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, stopAfterHold, replay: await this.classifyWithdrawal(tx, input) });
       if (fresh) await this.assertNotHeldFromPurchase(tx, input);
 
       const inserted = await tx<WithdrawalRow[]>`
@@ -1059,6 +1107,87 @@ export class UserMoneyService {
          WHERE id = ${current.id} AND status = 'pending'
       `;
       return { ...current, status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE };
+    });
+  }
+
+  /**
+   * Return a held withdrawal whose chain transaction was dropped (W-custody-ops-12). The custody desk has already shown
+   * the evidence (a drop the chain saw take the nonce) and a second founder has approved; this method only posts. It takes
+   * the same payout lock as `withdraw` and `cancelWithdrawal`, so a send resuming on the same client reference cannot
+   * interleave. Only a `held` row whose hold is on the ledger can be reversed. The reverse is keyed on the attempt, the
+   * same key a rail refusal uses, so it posts once however often it runs, and the row then reads `failed` with
+   * `WITHDRAWAL_DROPPED_CODE` and a new attempt number. A second call on that row returns it unchanged. `expectedAttempt` is the
+   * attempt the evidence was about; a row on any other attempt (a customer retry) is refused.
+   */
+  async reverseDroppedWithdrawal(input: { withdrawalId: string; expectedAttempt: number }): Promise<WithdrawalRecord> {
+    const [found] = await this.sql<WithdrawalRow[]>`
+      SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+        FROM pay.withdrawals WHERE id = ${input.withdrawalId}
+    `;
+    if (!found) throw new PayError('No such withdrawal', 'pay.withdrawal_not_found');
+    return withPayoutLock(this.sql, `withdraw:${JSON.stringify([found.user_id, found.client_ref])}`, async (connection) => {
+      const [row] = await connection<WithdrawalRow[]>`
+        SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
+          FROM pay.withdrawals WHERE id = ${input.withdrawalId}
+      `;
+      const current = toWithdrawal(row!);
+      if (current.status === 'failed' && current.failureCode === WITHDRAWAL_DROPPED_CODE) return current;
+      if (current.status !== 'held') {
+        throw new PayError('Only a held withdrawal can be reversed after its transaction was dropped', 'pay.withdrawal_not_reversible', {
+          withdrawalId: current.id,
+          state: customerStatus(current.status, current.failureCode),
+        });
+      }
+      // A customer retry opens a new attempt with a new hold and a new send. Evidence is about one attempt only, so it never
+      // returns the funds of another.
+      if (current.attempts !== input.expectedAttempt) {
+        throw new PayError('The withdrawal is no longer on the attempt this reverse was approved for', 'pay.withdrawal_not_reversible', {
+          withdrawalId: current.id,
+          state: 'held',
+        });
+      }
+      let holdBooked: boolean;
+      try {
+        holdBooked = (await this.ledger.getTxByKey(`withdraw.hold:${current.id}:${current.attempts}`)) !== null;
+      } catch (error) {
+        throw new PayError(
+          `Withdrawal hold could not be read; the withdrawal stays held: ${error instanceof Error ? error.message : 'ledger error'}`,
+          'pay.ledger_outcome_unknown',
+          { withdrawalId: current.id },
+        );
+      }
+      // No hold on the ledger means nothing to give back: refuse instead of crediting funds that were never held.
+      if (!holdBooked) {
+        throw new PayError('The withdrawal has no hold on the ledger to reverse', 'pay.withdrawal_not_reversible', {
+          withdrawalId: current.id,
+          state: 'held',
+        });
+      }
+      assertStoredTransition('held', 'failed');
+      try {
+        await postPayLedger(
+          this.ledger,
+          recipes.withdrawReverse({
+            userId: current.userId,
+            assetId: current.assetId,
+            amount: current.amount,
+            rail: current.rail,
+            withdrawalId: `${current.id}:${current.attempts}`,
+          }),
+        );
+      } catch (error) {
+        throw new PayError(
+          `Withdrawal ledger outcome is unknown; the withdrawal stays held: ${error instanceof Error ? error.message : 'ledger error'}`,
+          'pay.ledger_outcome_unknown',
+          { withdrawalId: current.id },
+        );
+      }
+      await connection`
+        UPDATE pay.withdrawals
+           SET status = 'failed', attempts = attempts + 1, failure_code = ${WITHDRAWAL_DROPPED_CODE}, updated_at = now()
+         WHERE id = ${current.id} AND status = 'held'
+      `;
+      return { ...current, status: 'failed', attempts: current.attempts + 1, failureCode: WITHDRAWAL_DROPPED_CODE };
     });
   }
 

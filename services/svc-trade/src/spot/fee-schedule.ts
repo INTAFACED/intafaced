@@ -14,7 +14,35 @@ export const TRADE_FEE_SCHEDULE_ENV = 'TRADE_FEE_SCHEDULE' as const;
 
 export const FEE_SCHEDULE_RESIDUAL = 'Trading fees are not available yet: the maker and taker schedule is not set.';
 
-export type FeeScheduleErrorCode = 'trade.fee_schedule_blank' | 'trade.fee_schedule_invalid' | 'trade.fee_product_unpublished';
+export type FeeScheduleErrorCode =
+  | 'trade.fee_schedule_blank'
+  | 'trade.fee_schedule_invalid'
+  | 'trade.fee_product_unpublished'
+  | 'trade.rebate_recipe_unavailable'
+  | 'trade.min_fee_recipe_unavailable';
+
+/** The tier every account sits on until a tier read says otherwise (volume tier not set → regular, the higher fee). */
+export const REGULAR_FEE_TIER = 'regular' as const;
+
+/**
+ * One versioned row of the owner schedule, for one `(pairGroup, tierId)`.
+ *
+ * `zeroFee` and `minFee` are always explicit: a zero-fee pair says `zeroFee: true`, no minimum says `minFee: null`.
+ * An absent field refuses the whole schedule rather than becoming a default.
+ */
+export interface FeeScheduleRow {
+  readonly pairGroup: string;
+  readonly tierId: string;
+  readonly zeroFee: boolean;
+  /** Zero when `zeroFee`. */
+  readonly makerBps: number;
+  readonly takerBps: number;
+  /** Null = no rebate published. A positive rebate needs a signed-fee ledger recipe, which does not exist: it refuses at use. */
+  readonly makerRebateBps: number | null;
+  /** Null = "no minimum by owner decision". A decimal-string minimum needs an amount-level fee recipe: it refuses at use. */
+  readonly minFee: string | null;
+  readonly effectiveAt: string | null;
+}
 
 export class FeeScheduleError extends Error {
   constructor(
@@ -44,6 +72,14 @@ export type OwnerFeeSchedule =
        * not a substitute.
        */
       readonly perpetual: { readonly makerBps: number; readonly takerBps: number } | null;
+      /**
+       * Spot rows by pair group and tier. Absent on the flat schedule. When present, `makerBps`/`takerBps` above are
+       * the default pair group's regular-tier headline and the fill path resolves the row for the market instead.
+       */
+      readonly rows?: readonly FeeScheduleRow[];
+      /** Symbol → pair group. A symbol not listed sits in `defaultPairGroup`. */
+      readonly pairGroups?: Readonly<Record<string, string>>;
+      readonly defaultPairGroup?: string;
     };
 
 export const UNPUBLISHED_FEE_SCHEDULE: OwnerFeeSchedule = { published: false };
@@ -101,19 +137,108 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
     throw new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.version must be a non-empty string`, 'trade.fee_schedule_blank');
   }
 
-  const makerBps = parseBpsDecimalString(obj.makerBps, 'makerBps');
-  const takerBps = parseBpsDecimalString(obj.takerBps, 'takerBps');
   const makerRebateBps = parseOptionalRebateBps(obj.makerRebateBps);
   const perpetual = parsePerpetualRates(obj.perpetual);
+  const version = obj.version.trim();
+
+  if (obj.rows !== undefined) {
+    const spot = parseRowsBlock(obj);
+    const headline = spot.rows.find((row) => row.pairGroup === spot.defaultPairGroup && row.tierId === REGULAR_FEE_TIER);
+    if (!headline) {
+      throw new FeeScheduleError(
+        `${TRADE_FEE_SCHEDULE_ENV}.rows needs a '${REGULAR_FEE_TIER}' row for the default pair group '${spot.defaultPairGroup}'`,
+        'trade.fee_schedule_blank',
+      );
+    }
+    return {
+      published: true,
+      version,
+      makerBps: headline.makerBps,
+      takerBps: headline.takerBps,
+      makerRebateBps,
+      perpetual,
+      rows: spot.rows,
+      pairGroups: spot.pairGroups,
+      defaultPairGroup: spot.defaultPairGroup,
+    };
+  }
+
+  const makerBps = parseBpsDecimalString(obj.makerBps, 'makerBps');
+  const takerBps = parseBpsDecimalString(obj.takerBps, 'takerBps');
 
   return {
     published: true,
-    version: obj.version.trim(),
+    version,
     makerBps,
     takerBps,
     makerRebateBps,
     perpetual,
   };
+}
+
+const MIN_FEE_DECIMAL = /^[0-9]{1,30}(\.[0-9]{1,18})?$/;
+
+function parseRowsBlock(obj: Record<string, unknown>): {
+  rows: FeeScheduleRow[];
+  pairGroups: Record<string, string>;
+  defaultPairGroup: string;
+} {
+  const blank = (message: string) => new FeeScheduleError(`${TRADE_FEE_SCHEDULE_ENV}.${message}`, 'trade.fee_schedule_blank');
+  if (obj.makerBps !== undefined || obj.takerBps !== undefined) {
+    throw blank('rows replaces the flat makerBps/takerBps: give one or the other');
+  }
+  if (!Array.isArray(obj.rows) || obj.rows.length === 0) throw blank('rows must be a non-empty array');
+  if (typeof obj.defaultPairGroup !== 'string' || !obj.defaultPairGroup.trim()) throw blank('defaultPairGroup must be a non-empty string');
+  const defaultPairGroup = obj.defaultPairGroup.trim();
+
+  const pairGroups: Record<string, string> = {};
+  if (obj.pairGroups !== undefined) {
+    if (!obj.pairGroups || typeof obj.pairGroups !== 'object' || Array.isArray(obj.pairGroups)) throw blank('pairGroups must be an object');
+    for (const [symbol, group] of Object.entries(obj.pairGroups as Record<string, unknown>)) {
+      if (typeof group !== 'string' || !group.trim()) throw blank(`pairGroups.${symbol} must be a non-empty string`);
+      pairGroups[symbol] = group.trim();
+    }
+  }
+
+  const seen = new Set<string>();
+  const rows = obj.rows.map((raw, index): FeeScheduleRow => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw blank(`rows[${index}] must be an object`);
+    const row = raw as Record<string, unknown>;
+    const at = `rows[${index}]`;
+    if (typeof row.pairGroup !== 'string' || !row.pairGroup.trim()) throw blank(`${at}.pairGroup must be a non-empty string`);
+    if (typeof row.tierId !== 'string' || !row.tierId.trim()) throw blank(`${at}.tierId must be a non-empty string`);
+    if (typeof row.zeroFee !== 'boolean') throw blank(`${at}.zeroFee must be true or false (never absent)`);
+    if (!('minFee' in row)) throw blank(`${at}.minFee must be a decimal string or null (never absent)`);
+    if (row.minFee !== null && (typeof row.minFee !== 'string' || !MIN_FEE_DECIMAL.test(row.minFee))) {
+      throw blank(`${at}.minFee must be a decimal string or null`);
+    }
+    if (row.effectiveAt !== undefined && (typeof row.effectiveAt !== 'string' || Number.isNaN(Date.parse(row.effectiveAt)))) {
+      throw blank(`${at}.effectiveAt must be an ISO timestamp`);
+    }
+    const key = `${row.pairGroup.trim()}\u0000${row.tierId.trim()}`;
+    if (seen.has(key)) throw blank(`${at} repeats pairGroup/tierId ${row.pairGroup}/${row.tierId}`);
+    seen.add(key);
+
+    let makerBps = 0;
+    let takerBps = 0;
+    if (row.zeroFee) {
+      if (row.makerBps !== undefined || row.takerBps !== undefined) throw blank(`${at}: a zeroFee row carries no makerBps/takerBps`);
+    } else {
+      makerBps = parseBpsDecimalString(row.makerBps, `${at}.makerBps`);
+      takerBps = parseBpsDecimalString(row.takerBps, `${at}.takerBps`);
+    }
+    return {
+      pairGroup: row.pairGroup.trim(),
+      tierId: row.tierId.trim(),
+      zeroFee: row.zeroFee,
+      makerBps,
+      takerBps,
+      makerRebateBps: row.makerRebateBps === undefined ? null : parseBpsDecimalString(row.makerRebateBps, `${at}.makerRebateBps`),
+      minFee: row.minFee as string | null,
+      effectiveAt: typeof row.effectiveAt === 'string' ? row.effectiveAt : null,
+    };
+  });
+  return { rows, pairGroups, defaultPairGroup };
 }
 
 function parsePerpetualRates(raw: unknown): { makerBps: number; takerBps: number } | null {
@@ -143,18 +268,71 @@ export function discountedFeeBps(publishedBps: number, discountBps: number): num
   return publishedBps - discount;
 }
 
-export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker', discountBps = 0): number | null {
+/** Which market and tier a spot rate is for. An omitted tier is the regular tier. */
+export interface FeeSelector {
+  readonly symbol: string;
+  readonly tierId?: string;
+}
+
+/**
+ * The row a spot fill on `selector.symbol` is charged at, for a rows schedule.
+ *
+ * A symbol not named in `pairGroups` sits in the owner's default pair group. A missing `(group, tier)` row refuses
+ * `trade.fee_schedule_blank`: a VIP tier with no row never falls back to the regular rate, and regular never to a VIP one.
+ * A positive rebate or a decimal minimum fee refuses too, because no granted ledger recipe carries a signed fee or an
+ * amount-level floor; refusing keeps the rebate from showing as paid and the floor from being silently skipped.
+ */
+export function resolveFeeRow(schedule: Extract<OwnerFeeSchedule, { published: true }>, selector: FeeSelector): FeeScheduleRow | null {
+  if (!schedule.rows) return null;
+  const pairGroup = schedule.pairGroups?.[selector.symbol] ?? schedule.defaultPairGroup;
+  const tierId = selector.tierId ?? REGULAR_FEE_TIER;
+  const row = schedule.rows.find((candidate) => candidate.pairGroup === pairGroup && candidate.tierId === tierId);
+  if (!row) {
+    logRefusalSpec('trade.fee_schedule_blank');
+    throw new FeeScheduleError(
+      `${TRADE_FEE_SCHEDULE_ENV} has no row for pair group '${pairGroup}' tier '${tierId}'`,
+      'trade.fee_schedule_blank',
+    );
+  }
+  if (row.makerRebateBps !== null && row.makerRebateBps > 0) {
+    logRefusalSpec('trade.rebate_recipe_unavailable');
+    throw new FeeScheduleError(
+      'A maker rebate needs a ledger recipe that carries a signed fee; none exists yet',
+      'trade.rebate_recipe_unavailable',
+      'Maker rebates are not available yet: the ledger has no recipe that pays one.',
+    );
+  }
+  if (row.minFee !== null) {
+    logRefusalSpec('trade.min_fee_recipe_unavailable');
+    throw new FeeScheduleError(
+      'A minimum fee needs a ledger recipe that takes a fee amount; tradeFill takes basis points only',
+      'trade.min_fee_recipe_unavailable',
+      'A minimum fee is not available yet: the ledger fill recipe charges by rate only.',
+    );
+  }
+  return row;
+}
+
+export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker', discountBps = 0, selector?: FeeSelector): number | null {
   if (schedule.published !== true) return null;
-  const published = role === 'maker' ? schedule.makerBps : schedule.takerBps;
+  const row = selector ? resolveFeeRow(schedule, selector) : null;
+  const published = row ? (role === 'maker' ? row.makerBps : row.takerBps) : role === 'maker' ? schedule.makerBps : schedule.takerBps;
   return discountedFeeBps(published, discountBps);
 }
 
 export type FeeProduct = 'spot' | 'perpetual';
 
 /** Spot uses the top-level rates. Perpetual uses its own block, or refuses. */
-export function publishedProductBps(schedule: OwnerFeeSchedule, product: FeeProduct): { makerBps: number; takerBps: number } | null {
+export function publishedProductBps(
+  schedule: OwnerFeeSchedule,
+  product: FeeProduct,
+  selector?: FeeSelector,
+): { makerBps: number; takerBps: number } | null {
   if (schedule.published !== true) return null;
-  if (product === 'spot') return { makerBps: schedule.makerBps, takerBps: schedule.takerBps };
+  if (product === 'spot') {
+    const row = selector ? resolveFeeRow(schedule, selector) : null;
+    return row ? { makerBps: row.makerBps, takerBps: row.takerBps } : { makerBps: schedule.makerBps, takerBps: schedule.takerBps };
+  }
   return schedule.perpetual;
 }
 

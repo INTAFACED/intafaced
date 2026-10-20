@@ -13,6 +13,7 @@ import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/rout
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
 import { GET as protocolOpsGet } from './protocol-ops/route.js';
 import { GET as identityKeysGet, POST as identityKeysPost } from './identity-ops/keys/route.js';
+import { GET as identityOauthGet, POST as identityOauthPost } from './identity-ops/oauth/route.js';
 import { ADMIN_COOKIE, founderCookie, sealFounderSession, type FounderSession } from '../../lib/founder-session.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -45,6 +46,8 @@ const routes = [
   ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
   ['GET /api/identity-ops/keys', identityKeysGet, 'GET'],
   ['POST /api/identity-ops/keys', identityKeysPost, 'POST'],
+  ['GET /api/identity-ops/oauth', identityOauthGet, 'GET'],
+  ['POST /api/identity-ops/oauth', identityOauthPost, 'POST'],
 ] as const;
 
 function configure() {

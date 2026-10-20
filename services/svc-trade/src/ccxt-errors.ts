@@ -283,6 +283,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.request_expired': { ccxt: 'InvalidOrder', status: 400 },
   'trade.stp_mode_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.tag_unsupported': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.invalid_tag': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.fee_currency_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.trigger_source_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_price': { ccxt: 'InvalidOrder', status: 400 },
@@ -368,6 +370,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.fee_schedule_blank': { ccxt: 'BadRequest', status: 400 },
   /** This product has no published rate. The spot rate is not a substitute. */
   'trade.fee_product_unpublished': { ccxt: 'BadRequest', status: 400 },
+  'trade.rebate_recipe_unavailable': { ccxt: 'BadRequest', status: 400 },
+  'trade.min_fee_recipe_unavailable': { ccxt: 'BadRequest', status: 400 },
   /**
    * Paper markets do not settle. Not a venue fault and not a retry: funding
    * the zero hold to make tradeFill succeed is the bug this refuses.

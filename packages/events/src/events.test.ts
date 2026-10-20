@@ -1032,6 +1032,22 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       ts: ts(),
     },
     orderCancelled: { orderId: uid(), marketId: 'btc-usdt', remainingQty: '0.1', sequence: 1 },
+    spreadFilled: {
+      spreadId: 'btc-cal-dec-mar',
+      makerOrderId: uid(),
+      takerOrderId: uid(),
+      makerAccountId: uid(),
+      takerAccountId: uid(),
+      takerSide: 'buy',
+      price: '-25.5',
+      qty: '1',
+      sequence: 1,
+      ts: ts(),
+      legs: [
+        { symbol: 'BTC/USDT-251226', takerSide: 'buy', qty: '1', price: '64000' },
+        { symbol: 'BTC/USDT-260327', takerSide: 'sell', qty: '1', price: '64025.5' },
+      ],
+    },
     orderUpdated: {
       orderId: uid(),
       userId: uid(),

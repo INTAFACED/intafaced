@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+  BANK_APPROVER_ELIGIBILITY_CALLERS,
+  bankApproverEligibilityInputSchema,
+  bankApproverEligibilitySchema,
+} from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -4565,6 +4574,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+
+    /**
+     * May this person approve for a team? Asked by svc-pay before it counts an approval on a multi-approval withdrawal
+     * (W-withdraw-11). Service-only: `serviceProcedureFor` proves the caller is svc-pay before the input is parsed. A read; a
+     * POST only because the caller signs the body.
+     */
+    approverEligibility: serviceProcedureFor(BANK_APPROVER_ELIGIBILITY_CALLERS)
+      .input(bankApproverEligibilityInputSchema)
+      .output(bankApproverEligibilitySchema)
+      .mutation(async ({ input }) => guard(async () => bank.business.approverEligibility(input.accountId, input.userId))),
   });
 
   return router({

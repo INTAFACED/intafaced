@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:deployment": "node --test deployment/host-dispatch.node-test.mjs deployment/validate-env.node-test.mjs",
     "test:journeys": "vitest run --config vitest.journeys.config.ts",
     "test:watch": "vitest",
     "preview": "vite preview --host 127.0.0.1 --port 3200",

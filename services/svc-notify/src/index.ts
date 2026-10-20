@@ -8,6 +8,7 @@ import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { PostgresNotifyStore } from './store.js';
+import { PostgresRecipientHealthStore } from './recipient-health.js';
 import { claimLeaseMsFromGatewayTimeout, DELIVERY_REAP_INTERVAL_MS, PostgresDeliveryStore, PostgresTargetStore } from './channel-store.js';
 import { channelsFromEnv } from './channels/registry.js';
 import { NotificationDispatcher } from './dispatch.js';
@@ -34,6 +35,7 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
 import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from './alerts/types.js';
@@ -142,6 +144,8 @@ const bus = await JetStreamEventBus.connect({
 
 const store = new PostgresNotifyStore(sql);
 const targets = new PostgresTargetStore(sql);
+const recipientHealth = new PostgresRecipientHealthStore(sql);
+const quarantineThreshold = env.NOTIFY_QUARANTINE_FAILURE_THRESHOLD ?? null;
 // The claim lease has to outlast one gateway attempt and stay under the bus
 // `ack_wait`. `claimLeaseMsFromGatewayTimeout` keeps both bounds when an
 // operator raises NOTIFY_GATEWAY_TIMEOUT_MS toward MAX_GATEWAY_TIMEOUT_MS.
@@ -195,6 +199,13 @@ const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   mutePrefsOf: (userId) => muteStore.get(userId),
   planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date(), categories }),
   loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
+  recipientHealth: {
+    quarantineOf: async (userId, channel, address) =>
+      quarantineThreshold === null ? null : recipientHealth.quarantineOf(userId, channel, address),
+    record: async (input) => {
+      await recipientHealth.record({ ...input, code: input.code ?? undefined, threshold: quarantineThreshold, now: new Date() });
+    },
+  },
 });
 
 const targetRateLimiter = new PostgresTargetRateLimiter(sql);
@@ -206,7 +217,21 @@ const notify = new NotifyService(
     verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
-  { targets, deliveries, channels, dispatcher, muteStore, account, categories, holds: holdStore, notices, channelSettings, templates },
+  {
+    targets,
+    deliveries,
+    channels,
+    dispatcher,
+    muteStore,
+    account,
+    categories,
+    holds: holdStore,
+    notices,
+    channelSettings,
+    templates,
+    recipientHealth,
+    quarantineThreshold,
+  },
 );
 
 /**
@@ -244,7 +269,20 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
-const alerts = new AlertService(new PostgresAlertStore(sql), alertMarks, notify, whaleMarks);
+const alerts = new AlertService(
+  new PostgresAlertStore(sql),
+  alertMarks,
+  notify,
+  whaleMarks,
+  {
+    maxExpiryDays: env.NOTIFY_ALERT_MAX_EXPIRY_DAYS ?? null,
+    textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
+    maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
+    triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+  },
+  new PostgresAlertTriggerLog(sql),
+);
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;

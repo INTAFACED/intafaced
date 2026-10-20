@@ -383,6 +383,7 @@ export type PayErrorCode =
   /** A page cursor this history never issued. */
   | 'pay.withdrawal_cursor_invalid'
   | 'pay.withdrawal_not_cancellable'
+  | 'pay.withdrawal_not_reversible'
   | 'pay.withdrawal_canceled'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
