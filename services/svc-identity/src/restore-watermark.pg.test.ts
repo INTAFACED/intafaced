@@ -69,5 +69,16 @@ if (!available) {
       expect(gone.position).toBe(before.position);
       expect(gone.integrity).toBe(before.integrity);
     });
+
+    it('reads the same lastWriteAt whatever timezone the session runs in', async () => {
+      await db.sql`INSERT INTO users (handle, email, password_hash) VALUES ('wm_tz', 'wmtz@example.com', 'x')`;
+      const utc = await readIdentityWatermark(db.sql, new Date(), db.schema);
+      const west = await db.sql.begin(async (tx) => {
+        await tx`SET LOCAL timezone = 'America/New_York'`;
+        return readIdentityWatermark(tx as unknown as typeof db.sql, new Date(), db.schema);
+      });
+      expect(west.lastWriteAt).not.toBeNull();
+      expect(west.lastWriteAt).toBe(utc.lastWriteAt);
+    });
   });
 }
