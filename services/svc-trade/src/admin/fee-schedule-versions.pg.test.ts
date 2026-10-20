@@ -182,6 +182,17 @@ describe('fee schedule versions (PG-hard)', () => {
     expect(publishedProductBps(mid, 'spot', { symbol: 'BTC/USDT' })).toEqual({ makerBps: 8, takerBps: 16 });
     const end = await feeScheduleAt(db.sql, BASE, new Date('2026-10-22T12:00:00.000Z'));
     expect(publishedProductBps(end, 'spot', { symbol: 'BTC/USDT' })).toEqual({ makerBps: 6, takerBps: 12 });
+    const early = proposal([row({ makerBps: '5', takerBps: '9' })]);
+    allow('fee-c', early, '2', '2026-10-21T06:00:00.000Z');
+    await expect(
+      admin.feeScheduleSet(writer(), {
+        schedule: early,
+        effectiveAt: '2026-10-21T06:00:00.000Z',
+        expectedVersion: '2',
+        reason,
+        approvalId: 'fee-c',
+      }),
+    ).rejects.toMatchObject({ code: 'fee_schedule_effective_out_of_order' });
     await expect(db.sql`UPDATE trade.fee_schedule_versions SET reason = 'edit'`).rejects.toThrow();
   });
 });

@@ -370,6 +370,11 @@ export class TradeOpsAdmin {
       if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
       throw err;
     }
+    // Versions take effect in order: a later version never starts before an earlier one, or the lookup would pick the older.
+    const [latest] = await this.deps.sql<Array<{ at: Date | null }>>`SELECT max(effective_at) AS at FROM trade.fee_schedule_versions`;
+    if (latest?.at && effectiveAt.getTime() < latest.at.getTime()) {
+      throw new TradeOpsError('fee_schedule_effective_out_of_order', 'a new version cannot take effect before the latest stored version');
+    }
     const version = await latestFeeScheduleVersion(this.deps.sql);
     if (version !== input.expectedVersion) {
       throw new TradeOpsError('fee_schedule_stale', `expectedVersion ${input.expectedVersion} is stale; current is ${version}`);
