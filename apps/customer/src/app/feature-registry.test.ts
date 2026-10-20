@@ -146,7 +146,7 @@ describe('top-bar menus link rooms that open', () => {
       .items.map((item) => item.title);
   it('matches the spec rows', () => {
     expect(titles('Home')).toEqual([]);
-    expect(titles('Money')).toEqual(['Portfolio', 'Activity']);
+    expect(titles('Money')).toEqual(['Portfolio', 'Activity', 'Profit and loss']);
     // Buy and Convert are live with their M2 screens (B8, Opus money review PASS 2026-10-14).
     expect(titles('Trade')).toEqual(['Markets', 'Spot', 'Buy and sell', 'Convert']);
     expect(titles('Pay')).toEqual(['Send', 'Receive', 'Merchant']);

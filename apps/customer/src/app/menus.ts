@@ -11,6 +11,8 @@ type PlainKey =
   | 'Your assets and their value'
   | 'Activity'
   | 'Trades, orders and transfers'
+  | 'Profit and loss'
+  | 'What your trades have made or lost'
   | 'Markets'
   | 'Prices for every market'
   | 'Spot'
@@ -71,6 +73,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
       items: [
         { id: 'portfolio', href: '/money', icon: 'wallet', title: 'Portfolio', description: 'Your assets and their value' },
         { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
+        { id: 'pnl', href: '/money/pnl', icon: 'activity', title: 'Profit and loss', description: 'What your trades have made or lost' },
       ],
     },
     {
