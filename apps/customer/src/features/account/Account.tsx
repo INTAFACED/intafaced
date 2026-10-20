@@ -5,6 +5,8 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { subaccountCopy as copy } from './subaccount-copy';
+import { SubaccountDelete } from './SubaccountDelete';
+import { isDeleteRefusal } from './sub-account-delete';
 import {
   KIND_KEYS,
   finishSubaccount,
@@ -246,7 +248,8 @@ export function Account() {
                 { signal: controller.signal },
               );
         if (!same(intent)) return;
-        const known = answer.ok || (intent.kind === 'create' && isCreateRefusal(answer));
+        const known =
+          answer.ok || (intent.kind === 'create' && isCreateRefusal(answer)) || (intent.kind === 'revoke' && isDeleteRefusal(answer));
         if (known) {
           const retained = !finishSubaccount(record);
           const createdId = answer.ok && 'id' in answer.data ? answer.data.id : undefined;
@@ -402,6 +405,7 @@ export function Account() {
                               {t('reviewRevoke')}
                             </Button>
                           )}
+                          {!row.revoked && <SubaccountDelete subAccountId={row.id} onDeleted={reload} />}
                         </li>
                       ))}
                     </ul>
@@ -545,7 +549,9 @@ export function Account() {
                         receipt.result === 'noChange'
                           ? 'noChangeTitle'
                           : receipt.result === 'refused'
-                            ? 'refused'
+                            ? receipt.original.kind === 'revoke'
+                              ? 'revokeRefused'
+                              : 'refused'
                             : receipt.result === 'created'
                               ? 'createdReceipt'
                               : 'revokedReceipt',
@@ -556,7 +562,9 @@ export function Account() {
                         receipt.result === 'noChange'
                           ? 'noChangeBody'
                           : receipt.result === 'refused'
-                            ? 'refusedBody'
+                            ? receipt.original.kind === 'revoke'
+                              ? 'revokeRefusedBody'
+                              : 'refusedBody'
                             : receipt.result === 'created'
                               ? 'createdReceipt'
                               : 'revokedReceipt',
