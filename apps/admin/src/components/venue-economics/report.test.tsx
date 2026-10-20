@@ -90,4 +90,80 @@ describe('venue economics report', () => {
     expect(html).toContain('Total cost: 94 USD.');
     expect(html).toContain('Net is not worked out here');
   });
+
+  const complete: OpsVenueEconomics = {
+    ...base,
+    completeness: { status: 'complete' },
+    costTotals: { partial: false, byAsset: [{ asset: 'USD', amount: '94' }] },
+  };
+  const fees = {
+    status: 'ok' as const,
+    assets: [{ assetId: 'USD', collected: '120.5', returned: '0.5', net: '120' }],
+  };
+
+  it('shows the ledger fee revenue per asset and a net per asset, a loss with its sign', () => {
+    const html = renderToStaticMarkup(
+      <VenueEconomicsReport
+        report={{
+          ...complete,
+          feeRevenue: fees,
+          net: {
+            status: 'ok',
+            byAsset: [
+              { asset: 'USD', revenue: '120', costs: '94', net: '26' },
+              { asset: 'BTC', revenue: '0', costs: '0.5', net: '-0.5' },
+            ],
+          },
+        }}
+        asOf={base.asOf}
+      />,
+    );
+    expect(html).toContain('data-testid="fees-table"');
+    expect(html).toContain('120.5');
+    expect(html).toContain('data-testid="net-table"');
+    expect(html).toContain('-0.5');
+    expect(html).toContain('Units are never mixed');
+    expect(html).not.toContain('net-unavailable');
+  });
+
+  it('says net waits on the cost lines while any is missing, and still shows the fees', () => {
+    const html = renderToStaticMarkup(
+      <VenueEconomicsReport
+        report={{ ...base, feeRevenue: fees, net: { status: 'unavailable', reason: 'costs_incomplete' } }}
+        asOf={base.asOf}
+      />,
+    );
+    expect(html).toContain('Net needs every cost line entered');
+    expect(html).toContain('data-testid="fees-table"');
+    expect(html).not.toContain('data-testid="net-table"');
+  });
+
+  it('names the code and does not read fees as zero when the ledger could not be read', () => {
+    const html = renderToStaticMarkup(
+      <VenueEconomicsReport
+        report={{
+          ...complete,
+          feeRevenue: {
+            status: 'unavailable',
+            code: 'ops.fee_revenue_unavailable',
+            message: 'The ledger did not answer the fee revenue read.',
+          },
+          net: { status: 'unavailable', reason: 'revenue_unavailable' },
+        }}
+        asOf={base.asOf}
+      />,
+    );
+    expect(html).toContain('Fee revenue not available');
+    expect(html).toContain('ops.fee_revenue_unavailable');
+    expect(html).toContain('It is not read as zero');
+    expect(html).toContain('Net needs the ledger’s fee revenue, which could not be read (ops.fee_revenue_unavailable)');
+  });
+
+  it('shows a month the ledger booked no fees as the ledger’s answer', () => {
+    const html = renderToStaticMarkup(
+      <VenueEconomicsReport report={{ ...complete, feeRevenue: { status: 'ok', assets: [] } }} asOf={base.asOf} />,
+    );
+    expect(html).toContain('data-testid="fees-empty"');
+    expect(html).toContain('the ledger’s answer, not a missing read');
+  });
 });
