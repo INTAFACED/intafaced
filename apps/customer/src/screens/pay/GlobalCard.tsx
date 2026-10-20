@@ -115,6 +115,8 @@ export function GlobalCard() {
   const [busy, setBusy] = useState<'code' | 'passkey' | 'send' | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [failure, setFailure] = useState<Say | null>(null);
+  // True after an answer we could not read: the same send may have gone through, so only a confirm of it is allowed.
+  const [unsettled, setUnsettled] = useState(false);
   const [sent, setSent] = useState<GlobalSend | null>(null);
   const alive = useRef(true);
   useEffect(() => {
@@ -221,6 +223,11 @@ export function GlobalCard() {
   async function confirm(how: 'code' | 'passkey') {
     if (!review || busy) return;
     if (how === 'code' && !/^\d{6}$/.test(code.trim())) return setProblem(g('codeShort'));
+    if (!unsettled && (!liveQuote || Date.parse(liveQuote.validUntil) <= Date.now())) {
+      setReview(null);
+      setProblem(null);
+      return setFailure({ title: g('quoteExpired'), body: '' });
+    }
     // The fields the service asked for may have been filled in since this review began; the confirmation must cover them.
     const draft: SendDraft = { ...review, compliance: fields };
     setBusy(how);
@@ -242,6 +249,8 @@ export function GlobalCard() {
     if (!alive.current) return;
     setBusy(null);
     setCode('');
+    const unknown = !result.ok && (result.reason === 'uncertain' || result.code === 'bank.global_outcome_unknown');
+    setUnsettled(unknown);
     if (result.ok) {
       setSent(result.data);
       setReview(null);
@@ -259,7 +268,7 @@ export function GlobalCard() {
       setAsked((now) => (now.includes(field) ? now : [...now, field]));
       setReview(null);
     }
-    if (result.reason === 'uncertain' || result.code === 'bank.global_outcome_unknown') {
+    if (unknown) {
       // Keep the review and its key: confirming again replays the same send and can never make a second one.
       setProblem(g('uncertain'));
       return;
@@ -615,7 +624,7 @@ export function GlobalCard() {
           <Button
             type="button"
             variant="ghost"
-            disabled={busy !== null}
+            disabled={busy !== null || unsettled}
             onClick={() => {
               setReview(null);
               setProblem(null);
