@@ -198,6 +198,7 @@ const en = {
   blk_indexer_halted: 'The indexer is halted: {reason}.',
   blk_behind_unknown: 'The indexer cannot tell how far behind the chain it is.',
   blk_no_execution_path: 'Trading is not connected. The DEX service can quote prices and prepare calls, but nothing submits them.',
+  blk_policy_gap: 'A session key cannot be given this call: sessions never get {rule}. It stays with your own signature.',
   blk_not_audited: 'Not audited. Passing tests is not an audit.',
   blk_network_label: '{name}. {note}',
   // Web3 shell

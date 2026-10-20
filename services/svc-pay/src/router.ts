@@ -2115,6 +2115,23 @@ export function createPayRouter(
         ),
 
       /**
+       * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
+       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. Only a withdrawal with no
+       * send attempt on record can be cancelled; `sent`, `held` and `failed` answer `pay.withdrawal_not_cancellable`, and
+       * cancelling twice returns the same cancelled record. The id is checked against the caller, so another account's
+       * id reads as `pay.withdrawal_not_found`.
+       */
+      cancel: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(z.object({ withdrawalId: z.string().uuid() }).strict())
+        .output(withdrawalView.extend({ customerStatus: z.literal('canceled') }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => ({
+            ...toWithdrawalOut(await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId })),
+            customerStatus: 'canceled' as const,
+          })),
+        ),
+
+      /**
        * `trade:read`, not `trade:withdraw`: checking whether a withdrawal landed
        * is something a user should be able to do from an ordinary session, long
        * after their five-minute elevation has expired.
@@ -2239,6 +2256,7 @@ export function createPayRouter(
                 attempts: z.number().int(),
                 status: z.enum(WITHDRAWAL_STATUSES),
                 failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+                returned: z.boolean(),
                 createdAt: z.string(),
               }),
             ),
@@ -2533,6 +2551,8 @@ function toTrpcError(err: unknown): unknown {
         return 'NOT_FOUND' as const;
       case 'pay.deposit_conflict':
       case 'pay.withdrawal_conflict':
+      case 'pay.withdrawal_not_cancellable':
+      case 'pay.withdrawal_canceled':
       case 'pay.idempotency_conflict':
         // CONFLICT, never BAD_REQUEST. The caller reused a business key for
         // different numbers; retrying repeats it. Nothing they can resend fixes

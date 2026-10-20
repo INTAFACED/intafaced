@@ -525,6 +525,7 @@ if (!available) {
 
       const authOptions = await auth.startWebauthnAuthentication(handle);
       expect(authOptions.allowCredentials).toHaveLength(1);
+      expect(authOptions.allowCredentials![0]).toEqual({ type: 'public-key', id: b64urlEncode(authenticator.credId) });
 
       const tokens = await auth.confirmWebauthnAuthentication(handle, authenticator.assertionResponse(authOptions.challenge));
       expect(tokens.userId).toBe(session.userId);
@@ -553,16 +554,64 @@ if (!available) {
       ).resolves.toMatchObject({ credentialId: b64urlEncode(authenticator.credId) });
     });
 
-    it('refuses assertion for an account with no credential without revealing it via authOptions', async () => {
+    const enrolKey = async (userId: string) => {
+      const authenticator = softAuthenticator();
+      const options = await auth.startWebauthnRegistration(userId, PASSWORD_SESSION);
+      await auth.confirmWebauthnRegistration(userId, PASSWORD_SESSION, authenticator.registrationResponse(options.challenge));
+      return authenticator;
+    };
+
+    it('refuses assertion for an account with no credential, and its authOptions looks like any other (I-signin-sessions-02)', async () => {
       const handle = unique();
       await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
       const options = await auth.startWebauthnAuthentication(handle);
-      expect(options.allowCredentials).toEqual([]);
+      expect(options.allowCredentials!.length).toBeGreaterThanOrEqual(1);
+      expect(options.allowCredentials!.length).toBeLessThanOrEqual(3);
 
       const authenticator = softAuthenticator();
       await expect(auth.confirmWebauthnAuthentication(handle, authenticator.assertionResponse(options.challenge))).rejects.toMatchObject({
-        code: 'auth.webauthn_not_enrolled',
+        code: 'auth.invalid_credentials',
       });
+    });
+
+    it('answers an unknown handle, a handle without a passkey and a handle with one in the same shape (I-signin-sessions-02)', async () => {
+      const withKey = await register();
+      await enrolKey(withKey.userId);
+      const keyHandle = (await db.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${withKey.userId}`)[0]!.handle;
+      const bare = unique();
+      await auth.register({ handle: bare, email: `${bare}@example.com`, password: 'correct horse battery staple' });
+      const answers = [
+        await auth.startWebauthnAuthentication(`nobody-${unique()}`),
+        await auth.startWebauthnAuthentication(bare),
+        await auth.startWebauthnAuthentication(keyHandle),
+      ];
+      for (const a of answers) {
+        expect(Object.keys(a).sort()).toEqual(Object.keys(answers[0]!).sort());
+        expect(a.timeout).toBe(answers[0]!.timeout);
+        expect(a.allowCredentials!.length).toBeGreaterThanOrEqual(1);
+        expect(a.allowCredentials!.length).toBeLessThanOrEqual(3);
+        for (const c of a.allowCredentials!) expect(Object.keys(c).sort()).toEqual(['id', 'type']);
+      }
+      const again = await auth.startWebauthnAuthentication(bare);
+      expect(again.allowCredentials).toEqual(answers[1]!.allowCredentials);
+    });
+
+    it('lists decoys for a frozen account and refuses it like a wrong signature, not as frozen (I-signin-sessions-02)', async () => {
+      const session = await register();
+      const authenticator = await enrolKey(session.userId);
+      const handle = (await db.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${session.userId}`)[0]!.handle;
+      const real = await auth.startWebauthnAuthentication(handle);
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${session.userId}`;
+      const frozen = await auth.startWebauthnAuthentication(handle);
+      expect(frozen.allowCredentials).not.toEqual(real.allowCredentials);
+      await expect(auth.confirmWebauthnAuthentication(handle, authenticator.assertionResponse(frozen.challenge))).rejects.toMatchObject({
+        code: 'auth.invalid_credentials',
+      });
+    });
+
+    it('refuses to answer when the sign-in secret is unset, never an empty list (I-signin-sessions-02)', async () => {
+      const blank = new AuthService(db.sql, bus, rank, { ...tokenConfig, secret: '' }, webauthnConfig);
+      await expect(blank.startWebauthnAuthentication('anyone')).rejects.toMatchObject({ code: 'auth.webauthn_unconfigured' });
     });
 
     it('removes an enrolled credential and will not let a stranger retire it', async () => {
@@ -588,7 +637,7 @@ if (!available) {
       // Assertion path is gone for that key.
       const handle = (await db.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${owner.userId}`)[0]!.handle;
       const authOptions = await auth.startWebauthnAuthentication(handle);
-      expect(authOptions.allowCredentials).toEqual([]);
+      expect(authOptions.allowCredentials!.map((c) => c.id)).not.toContain(enrolled.credentialId);
     });
   });
 

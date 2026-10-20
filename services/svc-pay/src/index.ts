@@ -524,6 +524,7 @@ export const appRouter = mergeRouters(
     limits: { sql, approvals: actionApprovals },
     custody: { sql },
     purchaseHolds: { sql },
+    withdrawalReturns: { sql },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),

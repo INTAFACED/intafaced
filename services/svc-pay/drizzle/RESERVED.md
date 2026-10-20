@@ -43,6 +43,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0102      | KYB applications (I-kyc-compliance-21)                | used                                            |
 | 0103      | wallet lane (screening case desk)                     | used                                            |
 | 0104      | wallet lane (custody accounts)                        | used                                            |
+| 0105      | wallet lane (returned withdrawals)                    | used                                            |
 | 0106      | wallet lane (purchase holds)                          | used                                            |
 | 0107+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 

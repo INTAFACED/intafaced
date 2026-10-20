@@ -85,4 +85,10 @@ describe('phishing report refusals', () => {
       'refuseHeadersNotAllowed',
     );
   });
+
+  it('reads support.follow_up_invalid as its own plain sentence', () => {
+    expect(supportRefusalKey(fail({ message: 'support.follow_up_invalid', code: 'PRECONDITION_FAILED', status: 412 }))).toBe(
+      'refuseFollowUp',
+    );
+  });
 });
