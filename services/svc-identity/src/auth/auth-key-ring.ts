@@ -102,13 +102,18 @@ export class AuthKeyRing {
     return keyId === LEGACY_KEY_ID ? this.legacySecret : this.keys.get(keyId);
   }
 
+  private refreshSeq = 0;
+  private appliedSeq = 0;
+
   async refresh(query: Sql = this.sql): Promise<void> {
+    const seq = ++this.refreshSeq;
     const rows = await query<Row[]>`SELECT key_id, state, activated_at FROM auth_signing_keys ORDER BY activated_at`;
     const active = rows.find((r) => r.state === 'active');
     const activeSecret = active ? this.material(active.key_id) : this.legacySecret;
     // A listed key whose material is gone from the host is skipped, never replaced by a guess;
     // with no usable signing key the ring keeps what it had.
-    if (!activeSecret) return;
+    if (!activeSecret || seq < this.appliedSeq) return;
+    this.appliedSeq = seq;
     const verify: { keyId: string; secret: string }[] = [];
     for (const r of rows) {
       if (r.state !== 'verify_only') continue;
@@ -183,7 +188,7 @@ export class AuthKeyRing {
     await this.approve(AUTH_KEY_REMOVE_OLD_TARGET, { keyIds: [...ids].sort().join(',') }, input.approvalId, input.operationId);
     await this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('identity.auth_signing_keys'))`;
-      await tx`DELETE FROM auth_signing_keys WHERE state = 'verify_only' AND key_id = ANY(${ids})`;
+      await tx`UPDATE auth_signing_keys SET state = 'removed', retired_at = now() WHERE state = 'verify_only' AND key_id = ANY(${ids})`;
     });
     return this.state();
   }

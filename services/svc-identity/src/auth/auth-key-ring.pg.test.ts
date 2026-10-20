@@ -105,6 +105,10 @@ if (!available) {
       expect(removed).toMatchObject({ activeKeyId: 'k3', previousKeyIds: [], nextRemoval: null });
       await expect(verifyAccessToken(before, config)).rejects.toMatchObject({ code: 'token.invalid' });
       await expect(verifyAccessToken(after, config)).rejects.toMatchObject({ code: 'token.invalid' });
+      // A removed id keeps its row, so it cannot come back as the signing key.
+      await expect(ring.rotate({ keyId: 'k2', actorId: actor, approvalId: 'a1', operationId: 'op4' })).rejects.toMatchObject({
+        code: 'auth_key.already_known',
+      });
       const fresh = (await issueAccessToken(input, config)).token;
       await expect(verifyAccessToken(fresh, config)).resolves.toBeDefined();
     });

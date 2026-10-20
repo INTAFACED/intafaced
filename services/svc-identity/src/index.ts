@@ -500,12 +500,12 @@ export const appRouter = mergeRouters(
   }),
   createStepUpRouter(customerStepUp),
   createTradeIdentityAuthRouter(sql, {
-    tokens: {
+    tokens: authKeyRing.tokenConfig({
       secret: env.JWT_ACCESS_SECRET,
       issuer: env.JWT_ISSUER,
       audience: env.JWT_AUDIENCE,
       accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
-    },
+    }),
   }),
 );
 export type AppRouter = typeof appRouter;
