@@ -46,15 +46,33 @@ describe.skipIf(!available)('migration 0018', () => {
     await sql!`INSERT INTO notify.price_alerts (id, user_id, market_id, direction, target_price) VALUES (${below}, ${userId}, 'BTC-USD', 'below', '100')`;
     await sql!.unsafe(migration('0018_notify_alert_conditions.sql'));
     await sql!.unsafe(migration('0018_notify_alert_conditions.sql'));
+    await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
+    await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
     const rows = await sql!<{ id: string; condition: string; status: string; last_side: string | null }[]>`
       SELECT id, condition, status, last_side FROM notify.price_alerts WHERE user_id = ${userId}`;
     expect(rows.find((r) => r.id === above)).toMatchObject({ condition: 'greater_than', status: 'active', last_side: null });
     expect(rows.find((r) => r.id === below)).toMatchObject({ condition: 'less_than' });
+    // Existing rows come out of 0019 with no added conditions.
+    const extra = await sql!<{ extra_conditions: unknown }[]>`SELECT extra_conditions FROM notify.price_alerts WHERE id = ${above}`;
+    expect(extra[0]!.extra_conditions).toEqual([]);
   });
 });
 
 describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
   const store = () => new PostgresAlertStore(sql!);
+
+  it('stores added conditions as an array and reads them back exactly', async () => {
+    const userId = fresh();
+    const extras = [
+      { condition: 'less_than' as const, targetPrice: '120.000000000000000001' },
+      { condition: 'greater_than' as const, targetPrice: '101' },
+    ];
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', extras });
+    expect(row.extras).toEqual(extras);
+    expect((await store().get(userId, row.id))?.extras).toEqual(extras);
+    const bare = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    expect(bare.extras).toEqual([]);
+  });
 
   it('stores the condition, name, message and expiry, and a condition decides the direction', async () => {
     const userId = fresh();
@@ -74,6 +92,7 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
       name: 'Breakout',
       message: '{market} at {price}',
       lastSide: null,
+      extras: [],
     });
     expect(row.expiresAt?.toISOString()).toBe('2026-10-20T14:00:00.000Z');
     const legacy = await store().create({ userId, marketId: 'BTC-USD', direction: 'below', targetPrice: '100' });

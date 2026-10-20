@@ -227,6 +227,12 @@ const schema = serviceEnvSchema
        */
       NOTIFY_ALERT_TEXT_MAX_LENGTH: blankAsAbsent(z.coerce.number().int().min(1).max(2000).optional()),
 
+      /**
+       * Most conditions one alert may hold, the main one included. NO DEFAULT. Blank / unset refuses an alert that adds a
+       * condition (`notify.alert_conditions_limit_unset`); an alert with one condition is unaffected.
+       */
+      NOTIFY_ALERT_MAX_CONDITIONS: blankAsAbsent(z.coerce.number().int().min(2).max(20).optional()),
+
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 

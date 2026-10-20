@@ -243,6 +243,10 @@ export const priceAlerts = schema.table('price_alerts', {
   message: text('message'),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
   lastSide: text('last_side').$type<'below' | 'at_or_above'>(),
+  extraConditions: jsonb('extra_conditions')
+    .$type<{ condition: 'greater_than' | 'less_than'; targetPrice: string }[]>()
+    .notNull()
+    .default([]),
 });
 
 export type NotificationRow = typeof notifications.$inferSelect;
