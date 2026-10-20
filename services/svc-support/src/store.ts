@@ -192,6 +192,8 @@ export interface SupportStore {
   }): Promise<RateByOwnerResult>;
   /** Owner, or an operator when `asOperator` is set. Someone else's ticket is not_found. */
   readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult>;
+  /** Every stored rating, for the founder summary. */
+  listRatings(): Promise<TicketRating[]>;
   readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null>;
   recordAttachment(input: {
     id: string;
@@ -1031,6 +1033,10 @@ export class MemorySupportStore implements SupportStore {
     return ok;
   }
 
+  async listRatings(): Promise<TicketRating[]> {
+    return [...this.ratings.values()].map(({ clientRequestId: _clientRequestId, ...rating }) => rating);
+  }
+
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
@@ -1834,6 +1840,14 @@ export class PostgresSupportStore implements SupportStore {
       `;
       return ok;
     });
+  }
+
+  async listRatings(): Promise<TicketRating[]> {
+    const rows = await this.sql<PgRating[]>`
+      SELECT ticket_id, user_id, score, note, created_at, client_request_id
+      FROM support.ticket_ratings
+    `;
+    return rows.map(ratingFromPg);
   }
 
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {

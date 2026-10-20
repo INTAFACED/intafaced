@@ -45,7 +45,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0104      | wallet lane (custody accounts)                        | used                                            |
 | 0105      | wallet lane (returned withdrawals)                    | used                                            |
 | 0106      | wallet lane (purchase holds)                          | used                                            |
-| 0107+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0107      | wallet lane (custody fees and gas policy)             | used                                            |
+| 0108+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 

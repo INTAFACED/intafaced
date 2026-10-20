@@ -284,6 +284,7 @@ describe('escalation carries its case file', () => {
       closeByOwner: (i) => base.closeByOwner(i),
       rateByOwner: (i) => base.rateByOwner(i),
       readRating: (i) => base.readRating(i),
+      listRatings: () => base.listRatings(),
       readReceipt: (procedure, actorId, clientRequestId) => base.readReceipt(procedure, actorId, clientRequestId),
       recordAttachment: (i) => base.recordAttachment(i),
       readAttachment: (i) => base.readAttachment(i),

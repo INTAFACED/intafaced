@@ -57,6 +57,8 @@ export type RefusalKind =
   | 'addressLabelTaken'
   | 'addressBookFull'
   | 'activitySortBounded'
+  | 'entriesDoNotSum'
+  | 'entriesTooLong'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -166,6 +168,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.same_space': 'duplicate',
   'bank.activity_account_unknown': 'notFound',
   'bank.activity_sort_bounded': 'activitySortBounded',
+  'portfolio.entries_do_not_sum': 'entriesDoNotSum',
+  'bank.activity_lookup_bounded': 'entriesTooLong',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
 

@@ -9,6 +9,7 @@ const messages = {
   'Sign in': 'Sign in',
   'Open your account': 'Open your account',
   Notices: 'Notices',
+  Status: 'Status',
   Partners: 'Partners',
   'Your money. Your decisions.': 'Your money. Your decisions.',
   'ONE ACCOUNT. YOUR NEXT MOVE.': 'ONE ACCOUNT. YOUR NEXT MOVE.',

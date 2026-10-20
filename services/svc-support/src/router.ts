@@ -81,6 +81,7 @@ function mapError(err: unknown): never {
       err.code === 'support.ticket_closed' ||
       err.code === 'support.follow_up_invalid' ||
       err.code === 'support.hold_reason_required' ||
+      err.code === 'support.rating_window_invalid' ||
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
@@ -645,6 +646,34 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.rating({ userId: ctx.principal!.userId, ticketId: input.ticketId, asOperator: true });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Founder summary of ratings for requests solved in a stated window. Requires support:ops. */
+    ratingSummary: scopedProcedure('support:ops')
+      .input(z.object({ from: z.string().datetime(), to: z.string().datetime() }))
+      .output(
+        z.object({
+          from: z.string().datetime(),
+          to: z.string().datetime(),
+          solved: z.number().int(),
+          responses: z.number().int(),
+          perScore: z.object({
+            '1': z.number().int(),
+            '2': z.number().int(),
+            '3': z.number().int(),
+            '4': z.number().int(),
+            '5': z.number().int(),
+          }),
+          ratedShareBasisPoints: z.number().int().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.ratingSummary({ viewerId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

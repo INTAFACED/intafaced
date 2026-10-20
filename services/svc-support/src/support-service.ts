@@ -912,6 +912,49 @@ export class SupportService implements SupportContract {
     return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
   }
 
+  /**
+   * Founder view of satisfaction ratings for the requests solved in a stated
+   * window: solved means resolved or closed now with the last change inside
+   * [from, to). Counts per score, responses, solved requests and the rated
+   * share in basis points (null with no solved request). The caller states
+   * the window; there is no default. With no ratings it returns zero
+   * responses and the screen shows no average.
+   */
+  async ratingSummary(input: { viewerId?: string; from: string; to: string }): Promise<{
+    from: string;
+    to: string;
+    solved: number;
+    responses: number;
+    perScore: Record<'1' | '2' | '3' | '4' | '5', number>;
+    ratedShareBasisPoints: number | null;
+  }> {
+    const from = Date.parse(input.from);
+    const to = Date.parse(input.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+      throw new SupportError('the window must start before it ends', 'support.rating_window_invalid');
+    }
+    const solved = (await this.visibleTickets(input.viewerId, await this.store.listAll())).filter((ticket) => {
+      const at = Date.parse(ticket.updatedAt);
+      return (ticket.status === 'resolved' || ticket.status === 'closed') && at >= from && at < to;
+    });
+    const ids = new Set(solved.map((ticket) => ticket.id));
+    const perScore = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
+    let responses = 0;
+    for (const rating of await this.store.listRatings()) {
+      if (!ids.has(rating.ticketId)) continue;
+      perScore[String(rating.score) as keyof typeof perScore] += 1;
+      responses += 1;
+    }
+    return {
+      from: input.from,
+      to: input.to,
+      solved: solved.length,
+      responses,
+      perScore,
+      ratedShareBasisPoints: solved.length === 0 ? null : Math.floor((responses * 10000) / solved.length),
+    };
+  }
+
   /** True once any desk group exists, so list doors must apply the viewer's scope. */
   async deskIsRestricted(): Promise<boolean> {
     return (await this.groups.list()).length > 0;

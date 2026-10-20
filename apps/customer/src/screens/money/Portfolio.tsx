@@ -31,6 +31,7 @@ import {
   type Loadable,
   type MarketRow,
 } from './deps';
+import { balanceEntriesHref } from './balance-entries-model';
 import { allAdd, heldFor, spacesFor, type Held, type Spaces } from './held-breakdown';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
@@ -282,6 +283,9 @@ function CoinRow({
         <span className="money-num__value">
           <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
         </span>
+        <a className="money-coin__name" href={balanceEntriesHref(row.asset)} aria-label={copy.t('See the entries', { asset: row.asset })}>
+          {copy.t('Entries column what')}
+        </a>
       </td>
       <td className="money-num money-cell--value">
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
