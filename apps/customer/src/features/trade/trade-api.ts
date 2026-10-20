@@ -168,6 +168,19 @@ export function placeBody(draft: Draft): Record<string, unknown> {
   };
   return exit.kind === 'oco' ? { ...order, oco: true, ...legs } : { ...order, bracket: true, ...legs };
 }
+/** One amend or replace of an order, as GET /orders/:id/amendments lists it (oldest first). */
+export const orderChangeSchema = z.object({
+  kind: z.enum(['amend', 'replace']),
+  at: z.string(),
+  quantity: decimalSchema.nullable(),
+  price: decimalSchema.nullable(),
+  version: z.string().nullable(),
+  relatedOrderId: z.string().nullable(),
+  direction: z.enum(['replaced_by', 'replaces']).nullable(),
+});
+export const orderChangesSchema = z.object({ orderId: z.string(), amendments: z.array(orderChangeSchema) });
+export type OrderChange = z.infer<typeof orderChangeSchema>;
+
 export const amendmentSchema = z.object({
   accepted: z.boolean(),
   idempotent: z.boolean(),
@@ -328,6 +341,14 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       return result.ok && (result.data.id !== id || result.data.symbol !== symbol)
         ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
         : result;
+    },
+    /** Every amend and replace of one order, oldest first. A reply for another order is refused, never shown. */
+    async changes(orderId: string, signal?: AbortSignal): Promise<ApiResult<OrderChange[]>> {
+      const result = await api.rest(`/orders/${encodeURIComponent(orderId)}/amendments`, orderChangesSchema, { signal });
+      if (!result.ok) return result;
+      return result.data.orderId === orderId
+        ? { ...result, data: result.data.amendments }
+        : tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' });
     },
     async cancel(reviewed: ReviewedOrder): Promise<ApiResult<Order>> {
       const { id, symbol } = reviewed;
