@@ -18,6 +18,7 @@ import {
   type FreezeOutboxRow,
   type FreezeState,
 } from './ledger/freeze.js';
+import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
 import {
   readLastVerified,
@@ -110,6 +111,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    */
   history(ref: AccountRef, range: HistoryRange): Promise<HistoryEntry[]> {
     return this.engine.history(ref, range);
+  }
+
+  /** Fee revenue per asset over one window. A read; same no-span reasoning as `history`. */
+  feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
+    return this.engine.feeRevenue(range);
   }
 
   /** Paged sibling of `history`. A read; same no-span reasoning. */
