@@ -1213,6 +1213,11 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       from: 'awaiting_payment',
       outcome: 'refunded',
     },
+    supportTicketResolved: {
+      ticketId: uid(),
+      userId: uid(),
+      resolvedAt: ts(),
+    },
     projectionUpdated: {
       marketId: 'IFC-USD',
       sequence: 1,
