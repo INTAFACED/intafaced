@@ -605,6 +605,8 @@ export type BankErrorCode =
   | 'bank.activity_range'
   /** A note command id was reused with different text. */
   | 'bank.activity_note_conflict'
+  /** A note write carried neither a note nor a report description. */
+  | 'bank.activity_note_empty'
   /** A dispute id was reused with a different reason or transaction. */
   | 'bank.activity_dispute_conflict'
   /** This customer already has an open dispute on that transaction. */

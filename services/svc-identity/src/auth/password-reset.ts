@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
@@ -22,9 +23,15 @@ import {
  * call does not mint a session. The same proof, and any other proof still open
  * for that account, cannot rotate the hash again.
  *
- * The code is high-entropy and only the SHA-256 is stored. It is handed to the
- * mail port and must not be logged. There is no git-default lifetime: unset
- * TTL or no mail port refuses every address the same way (`auth.reset_unwired`).
+ * The code is high-entropy and only the SHA-256 is stored on the flow. It is handed to the
+ * mail relay and must not be logged. There is no git-default number: an unset lifetime,
+ * attempt cap, request cap or window, or identifier key refuses every address the same way
+ * (`auth.reset_unwired`). A missing mail transport does not refuse: the job is marked
+ * `undeliverable` and the request still answers `accepted`.
+ *
+ * Equal work (FLW-3). Every request that is under the cap, for a known address or not, locks the
+ * same identifier, counts the same rows, inserts one `auth_flows` row and one `mail_outbox` row.
+ * The mail goes out later, from the relay, so the response does not show whether an account exists.
  */
 
 /** One day. Longer than that is not a reset proof. */
@@ -40,16 +47,39 @@ export interface PasswordResetMail {
     readonly email: string;
     readonly code: string;
     readonly expiresAt: Date;
-    readonly purpose?: 'password-reset' | 'email-confirm' | 'email-change' | 'email-change-notice';
+    readonly purpose?: MailPurpose;
+    /** The username, for the recovery mail only. */
+    readonly handle?: string;
   }): Promise<void>;
 }
+
+/** What a mail is for. The last four are the recovery flows; their `code` is empty when they carry none. */
+export type MailPurpose =
+  | 'password-reset'
+  | 'email-confirm'
+  | 'email-change'
+  | 'email-change-notice'
+  | 'reset-no-account'
+  | 'handle-recovery'
+  | 'handle-recovery-no-account';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
   readonly mail: PasswordResetMail | undefined;
   readonly ttlSeconds: number | undefined;
+  /** Wrong codes allowed per flow. Owner-published; unset refuses. */
+  readonly maxAttempts?: number | undefined;
+  /** Requests per address inside the window. Owner-published; unset refuses. */
+  readonly requestMax?: number | undefined;
+  readonly requestWindowSeconds?: number | undefined;
+  /** HMAC key for the address identifier. Owner-published; unset refuses. */
+  readonly subjectKey?: string | undefined;
+  /** Mail an address with no account a notice. Off unless the owner turns it on. */
+  readonly notifyUnknown?: boolean | undefined;
   readonly now: () => Date;
   readonly log: { warn(obj: Record<string, unknown>, msg: string): void };
+  /** Called after a request commits, to start the mail relay off the response path. */
+  readonly afterCommit?: (() => void | Promise<void>) | undefined;
 }
 
 /**
@@ -63,6 +93,8 @@ export function publishedPasswordResetTtlSeconds(value: number | undefined): num
 }
 
 const INVALID_PROOF = 'That reset code is not valid. Request a new one.';
+const LOCKED = 'Too many wrong codes. Try again later.';
+const UNWIRED = 'Password reset is not available yet';
 
 function normalizeEmail(email: string): string {
   return email.trim();
@@ -74,79 +106,208 @@ async function rejectInvalidProof(newPassword: string): Promise<never> {
   throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
 }
 
-export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
-  const mail = deps.mail;
+type Budget = {
+  readonly ttlSeconds: number;
+  readonly maxAttempts: number;
+  readonly requestMax: number;
+  readonly requestWindowSeconds: number;
+  readonly subjectKey: string;
+};
+
+function intIn(value: number | undefined, max: number): number | undefined {
+  if (value === undefined || !Number.isInteger(value) || value < 1 || value > max) return undefined;
+  return value;
+}
+
+/** Every owner-published number and the key, or the one refusal. Which one is missing goes to the log only. */
+function requireBudget(deps: PasswordResetDeps): Budget {
   const ttlSeconds = publishedPasswordResetTtlSeconds(deps.ttlSeconds);
-  if (!mail || ttlSeconds === undefined) {
-    deps.log.warn({ reason: !mail ? 'mail' : 'ttl' }, 'auth.password_reset_unwired');
-    throw new AuthError('Password reset is not available yet', 'auth.reset_unwired');
+  const maxAttempts = intIn(deps.maxAttempts, 5);
+  const requestMax = intIn(deps.requestMax, 1_000);
+  const requestWindowSeconds = intIn(deps.requestWindowSeconds, MAX_TTL_SECONDS);
+  const subjectKey = deps.subjectKey && deps.subjectKey.length >= 32 ? deps.subjectKey : undefined;
+  const missing = [
+    ttlSeconds === undefined && 'ttl',
+    maxAttempts === undefined && 'attempts',
+    requestMax === undefined && 'request-max',
+    requestWindowSeconds === undefined && 'request-window',
+    subjectKey === undefined && 'subject-key',
+  ].filter(Boolean);
+  if (missing.length > 0) {
+    deps.log.warn({ missing }, 'auth.password_reset_unwired');
+    throw new AuthError(UNWIRED, 'auth.reset_unwired');
   }
+  return {
+    ttlSeconds: ttlSeconds!,
+    maxAttempts: maxAttempts!,
+    requestMax: requestMax!,
+    requestWindowSeconds: requestWindowSeconds!,
+    subjectKey: subjectKey!,
+  };
+}
 
-  const email = normalizeEmail(input.email);
-  const rows = await deps.sql<Array<{ id: string; status: string; email: string }>>`
-    SELECT id, status, email FROM users WHERE email = ${email}
+/** The identifier a flow is counted by: an HMAC of the lower-cased address. The address is not stored on the flow. */
+export function flowSubjectHash(subjectKey: string, email: string): string {
+  return createHmac('sha256', subjectKey).update(normalizeEmail(email).toLowerCase()).digest('hex');
+}
+
+type FlowKind = 'password_reset' | 'handle_recovery';
+
+/**
+ * One recovery request. Known and active address: a flow that carries a code (password reset) or the
+ * handle (recovery). Anything else: a `suppressed` flow and, only when the owner turned notices on, a
+ * "no account" mail. Either way the same statements run. Over the cap nothing is written for either.
+ */
+async function openFlow(deps: PasswordResetDeps, kind: FlowKind, email: string): Promise<void> {
+  const budget = requireBudget(deps);
+  const address = normalizeEmail(email);
+  const subjectHash = flowSubjectHash(budget.subjectKey, address);
+  const users = await deps.sql<Array<{ id: string; status: string; email: string; handle: string }>>`
+    SELECT id, status, email, handle FROM users WHERE email = ${address}
   `;
-  const user = rows[0];
-  if (!user || user.status !== 'active') {
-    hashToken(generateToken(32));
-    return { accepted: true };
-  }
-
+  const user = users[0] && users[0].status === 'active' ? users[0] : undefined;
+  const now = deps.now();
   const code = generateToken(32);
   const codeHash = hashToken(code);
-  const expiresAt = new Date(deps.now().getTime() + ttlSeconds * 1000);
-  const inserted = await transaction(
+  const expiresAt = new Date(now.getTime() + budget.ttlSeconds * 1000);
+  const since = new Date(now.getTime() - budget.requestWindowSeconds * 1000);
+  const known = kind === 'password_reset' ? 'password-reset' : 'handle-recovery';
+  const unknown = kind === 'password_reset' ? 'reset-no-account' : 'handle-recovery-no-account';
+
+  const written = await transaction(
     deps.sql,
     async (tx) => {
-      const locked = await tx<Array<{ status: string }>>`
-        SELECT status FROM users WHERE id = ${user.id} FOR UPDATE
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${subjectHash}))`;
+      const recent = await tx<Array<{ n: number }>>`
+        SELECT count(*)::int AS n FROM auth_flows
+        WHERE subject_hash = ${subjectHash} AND kind = ${kind} AND created_at > ${since}
       `;
-      if (!locked[0] || locked[0].status !== 'active') return false;
+      if ((recent[0]?.n ?? 0) >= budget.requestMax) return false;
+      const flow = await tx<Array<{ id: string }>>`
+        INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at, created_at)
+        VALUES (
+          ${kind}, ${subjectHash}, ${user?.id ?? null}, ${codeHash}, ${user ? 'code_sent' : 'suppressed'}, ${expiresAt}, ${now}
+        )
+        RETURNING id
+      `;
+      const sendable = user !== undefined || deps.notifyUnknown === true;
       await tx`
-        INSERT INTO password_reset_proofs (user_id, code_hash, expires_at)
-        VALUES (${user.id}, ${codeHash}, ${expiresAt})
+        INSERT INTO mail_outbox (flow_id, purpose, recipient, code, handle, expires_at, status)
+        VALUES (
+          ${flow[0]!.id}, ${user ? known : unknown}, ${user ? user.email : address},
+          ${user && kind === 'password_reset' ? code : null}, ${user && kind === 'handle_recovery' ? user.handle : null},
+          ${expiresAt}, ${sendable ? 'pending' : 'suppressed'}
+        )
       `;
-      return true;
+      return sendable;
     },
     { isolation: 'read committed' },
   );
-  if (!inserted) return { accepted: true };
+  if (written) await deps.afterCommit?.();
+}
 
-  try {
-    await mail.send({ email: user.email, code, expiresAt });
-  } catch {
-    // A throw can follow a send that actually landed. Keep the proof.
-    // The hash is unchanged and no session was minted.
-    deps.log.warn({ userId: user.id }, 'auth.password_reset_delivery_failed');
-  }
+export async function requestPasswordReset(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
+  await openFlow(deps, 'password_reset', input.email);
   return { accepted: true };
 }
+
+/** Same shape as the reset request: mail the username to a known address, a notice (if on) otherwise. */
+export async function requestHandleRecovery(deps: PasswordResetDeps, input: { email: string }): Promise<{ accepted: true }> {
+  await openFlow(deps, 'handle_recovery', input.email);
+  return { accepted: true };
+}
+
+/**
+ * Send the pending jobs, once each. A row is claimed (its secret cleared) before the send, so a crash or
+ * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. With no mail
+ * transport the rows are marked `undeliverable` for the founder delivery desk.
+ */
+export async function relayMailOutbox(
+  deps: PasswordResetDeps,
+  limit = 25,
+): Promise<{ sent: number; undeliverable: number; unknown: number }> {
+  const claimed = await deps.sql<
+    Array<{ id: string; purpose: string; recipient: string; code: string | null; handle: string | null; expires_at: Date }>
+  >`
+    WITH due AS (
+      SELECT id, code, handle FROM mail_outbox WHERE status = 'pending' ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+    )
+    UPDATE mail_outbox AS m
+    SET status = ${deps.mail ? 'unknown' : 'undeliverable'}, code = NULL, handle = NULL
+    FROM due
+    WHERE m.id = due.id
+    RETURNING m.id, m.purpose, m.recipient, due.code, due.handle, m.expires_at
+  `;
+  const out = { sent: 0, undeliverable: 0, unknown: 0 };
+  const mail = deps.mail;
+  if (!mail) {
+    out.undeliverable = claimed.length;
+    return out;
+  }
+  for (const job of claimed) {
+    try {
+      await mail.send({
+        email: job.recipient,
+        code: job.code ?? '',
+        expiresAt: job.expires_at instanceof Date ? job.expires_at : new Date(job.expires_at),
+        purpose: job.purpose as MailPurpose,
+        ...(job.handle ? { handle: job.handle } : {}),
+      });
+      await deps.sql`UPDATE mail_outbox SET status = 'sent', sent_at = ${deps.now()} WHERE id = ${job.id}`;
+      out.sent += 1;
+    } catch {
+      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid.
+      deps.log.warn({ jobId: job.id, purpose: job.purpose }, 'auth.password_reset_delivery_failed');
+      out.unknown += 1;
+    }
+  }
+  return out;
+}
+
+type OpenFlow = { id: string; user_id: string | null; code_hash: string; status: string; attempts: number; expires_at: Date };
 
 export async function completePasswordReset(
   deps: PasswordResetDeps,
   input: { email: string; code: string; newPassword: string },
 ): Promise<{ userId: string; sessionsRevoked: number }> {
+  const budget = requireBudget(deps);
   const email = normalizeEmail(input.email);
   const code = input.code.trim();
   const codeHash = hashToken(code);
   const now = deps.now();
-  const rows = await deps.sql<Array<{ id: string; password_hash: string; status: string }>>`
-    SELECT id, password_hash, status FROM users WHERE email = ${email}
+  const subjectHash = flowSubjectHash(budget.subjectKey, email);
+  const open = await deps.sql<OpenFlow[]>`
+    SELECT id, user_id, code_hash, status, attempts, expires_at FROM auth_flows
+    WHERE subject_hash = ${subjectHash} AND kind = 'password_reset' AND consumed_at IS NULL AND expires_at > ${now}
+    ORDER BY created_at DESC
   `;
-  const user = rows[0];
-  if (!user || user.status !== 'active' || code.length === 0) {
+  const newest = open[0];
+  if (!newest || code.length === 0) return rejectInvalidProof(input.newPassword);
+  const lockedFor = () => Math.max(1, Math.ceil((new Date(newest.expires_at).getTime() - now.getTime()) / 1000));
+  if (newest.status === 'locked' || newest.attempts >= budget.maxAttempts) {
+    throw new AuthError(LOCKED, 'auth.too_many_attempts', { retryAfterSeconds: lockedFor() });
+  }
+
+  const flow = open.find((row) => row.status === 'code_sent' && row.user_id !== null && row.code_hash === codeHash);
+  if (!flow) {
+    // A wrong code counts the same for an address with an account and one without.
+    const counted = await deps.sql<Array<{ attempts: number }>>`
+      UPDATE auth_flows
+      SET attempts = attempts + 1, status = CASE WHEN attempts + 1 >= ${budget.maxAttempts} THEN 'locked' ELSE status END
+      WHERE id = ${newest.id}
+      RETURNING attempts
+    `;
+    if ((counted[0]?.attempts ?? 0) >= budget.maxAttempts) {
+      throw new AuthError(LOCKED, 'auth.too_many_attempts', { retryAfterSeconds: lockedFor() });
+    }
     return rejectInvalidProof(input.newPassword);
   }
 
-  const proofs = await deps.sql<Array<{ id: string }>>`
-    SELECT id FROM password_reset_proofs
-    WHERE user_id = ${user.id}
-      AND code_hash = ${codeHash}
-      AND consumed_at IS NULL
-      AND expires_at > ${now}
-    LIMIT 1
+  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string }>>`
+    SELECT id, password_hash, status FROM users WHERE id = ${flow.user_id}
   `;
-  if (!proofs[0]) return rejectInvalidProof(input.newPassword);
+  const user = users[0];
+  if (!user || user.status !== 'active') return rejectInvalidProof(input.newPassword);
 
   try {
     assertPasswordShape(input.newPassword);
@@ -169,19 +330,15 @@ export async function completePasswordReset(
         throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
       }
       const proof = await tx<Array<{ id: string }>>`
-        SELECT id FROM password_reset_proofs
-        WHERE user_id = ${user.id}
-          AND code_hash = ${codeHash}
-          AND consumed_at IS NULL
-          AND expires_at > ${deps.now()}
+        SELECT id FROM auth_flows
+        WHERE id = ${flow.id} AND status = 'code_sent' AND consumed_at IS NULL AND expires_at > ${deps.now()}
         FOR UPDATE
       `;
       if (!proof[0]) throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
       await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${user.id}`;
       await tx`
-        UPDATE password_reset_proofs
-        SET consumed_at = ${deps.now()}
-        WHERE user_id = ${user.id} AND consumed_at IS NULL
+        UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
+        WHERE user_id = ${user.id} AND kind = 'password_reset' AND consumed_at IS NULL
       `;
       const revoked = await tx<Array<{ id: string }>>`
         UPDATE sessions SET revoked = true

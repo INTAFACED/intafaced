@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   JurisdictionError,
+  mergeRouters,
   router,
   publicProcedure,
   scopedProcedure,
@@ -55,6 +56,7 @@ import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
+import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 
 /**
@@ -756,11 +758,12 @@ export function createTradeRouter(
   copy?: CopyService,
   controls?: TradingControls,
   admin?: TradeOpsAdmin,
+  insuranceTopups?: InsuranceTopupAdmin,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: tradeOpsAdminRouter(admin),
+    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

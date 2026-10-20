@@ -32,6 +32,12 @@ const schema = serviceEnvSchema
        * unknown rather than calling a guessed address. Never a ledger URL.
        */
       TRADE_URL: z.string().url().optional(),
+      /**
+       * Seconds without a heartbeat before an online or busy agent reads as
+       * offline. Blank is an owner value left unset: availability stays as
+       * last set and the desk says so. Never defaulted.
+       */
+      STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
 

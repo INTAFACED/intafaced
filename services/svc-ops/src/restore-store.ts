@@ -39,7 +39,7 @@ export function createMemoryRestoreStore(): RestoreStampStore {
       return stamp;
     },
     async list() {
-      return [...rows.values()].map((row) => row.stamp);
+      return [...rows.values()].map((row) => row.stamp).reverse();
     },
   };
 }
@@ -87,7 +87,7 @@ export function createPgRestoreStore(sql: Sql): RestoreStampStore {
     },
     async list() {
       const rows = await sql<StampRow[]>`SELECT service,kind,watermark,recorded_at,recorded_by,approver_id
-        FROM ops.restore_stamps ORDER BY recorded_at, id LIMIT ${OPS_LIST_LIMIT_CAP}`;
+        FROM ops.restore_stamps ORDER BY recorded_at DESC, id DESC LIMIT ${OPS_LIST_LIMIT_CAP}`;
       return rows.map(toStamp);
     },
   };
