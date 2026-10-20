@@ -45,9 +45,9 @@ export type NetworkEntry = z.infer<typeof networkEntrySchema>;
 export const protocolNetworksListOutputSchema = z.object({ networks: z.array(networkEntrySchema) }).strict();
 export type ProtocolNetworksListOutput = z.infer<typeof protocolNetworksListOutputSchema>;
 
-/** Whether "Add to wallet" may be offered: only when the RPC URL and the native currency are both published. */
-export function canAddToWallet(network: Pick<NetworkEntry, 'rpcUrls' | 'nativeCurrency'>): boolean {
-  return network.rpcUrls !== null && network.nativeCurrency !== null;
+/** Whether "Add to wallet" may be offered: only when the name, the RPC URL and the native currency are all published (`wallet_addEthereumChain` needs each). */
+export function canAddToWallet(network: Pick<NetworkEntry, 'name' | 'rpcUrls' | 'nativeCurrency'>): boolean {
+  return network.name !== null && network.rpcUrls !== null && network.nativeCurrency !== null;
 }
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -57,7 +57,7 @@ export const deploymentContractSchema = z.object({
   suite: z.string().min(1),
   address,
   verified: z.boolean(),
-  explorerUrl: z.string().url().nullable(),
+  explorerUrl: httpsUrl.nullable(),
 });
 export const routerVersionSchema = z.object({
   name: z.string().min(1),

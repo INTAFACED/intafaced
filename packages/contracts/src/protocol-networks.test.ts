@@ -42,10 +42,12 @@ describe('network entries', () => {
 
   it('offers Add to wallet only when the RPC URL and the currency are both published', () => {
     const currency = { name: 'TEST Ether', symbol: 'tETH', decimals: 18 };
+    const rpc = ['https://rpc.test'];
     expect(canAddToWallet(bare)).toBe(false);
-    expect(canAddToWallet({ rpcUrls: ['https://rpc.test'], nativeCurrency: null })).toBe(false);
-    expect(canAddToWallet({ rpcUrls: null, nativeCurrency: currency })).toBe(false);
-    expect(canAddToWallet({ rpcUrls: ['https://rpc.test'], nativeCurrency: currency })).toBe(true);
+    expect(canAddToWallet({ name: 'Base Sepolia', rpcUrls: rpc, nativeCurrency: null })).toBe(false);
+    expect(canAddToWallet({ name: 'Base Sepolia', rpcUrls: null, nativeCurrency: currency })).toBe(false);
+    expect(canAddToWallet({ name: null, rpcUrls: rpc, nativeCurrency: currency })).toBe(false);
+    expect(canAddToWallet({ name: 'Base Sepolia', rpcUrls: rpc, nativeCurrency: currency })).toBe(true);
   });
 
   it('lists are strict', () => {
@@ -67,6 +69,18 @@ describe('deployments and capabilities', () => {
   it('parses a deployments answer and rejects a non-address', () => {
     expect(protocolDeploymentsOutputSchema.safeParse(out).success).toBe(true);
     expect(protocolDeploymentsOutputSchema.safeParse({ ...out, contracts: [{ ...out.contracts[0], address: '0x1' }] }).success).toBe(false);
+  });
+
+  it('refuses an explorer link that is not https, such as javascript:', () => {
+    const contract = out.contracts[0]!;
+    for (const explorerUrl of ['javascript:alert(1)', 'http://scan.test/x', 'data:text/html,x'])
+      expect(protocolDeploymentsOutputSchema.safeParse({ ...out, contracts: [{ ...contract, explorerUrl }] }).success, explorerUrl).toBe(
+        false,
+      );
+    expect(
+      protocolDeploymentsOutputSchema.safeParse({ ...out, contracts: [{ ...contract, explorerUrl: 'https://scan.test/address/0x1' }] })
+        .success,
+    ).toBe(true);
   });
 
   it('calls a router sunset only when a date is published and has passed', () => {
