@@ -797,14 +797,13 @@ function refuseExitLegs(body: unknown, allowOco = false): void {
 }
 
 /**
- * A trailing stop walks with a mark the server must supply. Until it does, a `trail` or a `mark` in a request body is
- * refused before any hold: the engine would trigger at a price the caller chose, and a buy would reach the book as a
- * market order funded only at its stated limit.
+ * A trailing stop walks with a mark the server supplies. A `mark` in a request body is refused before any hold: the
+ * engine would trigger at a price the caller chose. The `trail` distance is the customer's and goes through.
  */
 function refuseClientTrailing(body: unknown): void {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return;
-  if (Object.hasOwn(body, 'trail') || Object.hasOwn(body, 'mark')) {
-    throw new TradeError('trailing stops are not accepted yet; the trigger mark is server-side only', 'trade.order_type_unsupported');
+  if (Object.hasOwn(body, 'mark')) {
+    throw new TradeError('the trigger mark is server-side only', 'trade.order_type_unsupported');
   }
 }
 

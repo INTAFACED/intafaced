@@ -103,6 +103,7 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
+import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
@@ -196,7 +197,23 @@ const feeSchedule = parseFeeScheduleJson(env.TRADE_FEE_SCHEDULE);
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 retainRawBody(app);
 registerClosureCheck(app, { sql, secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s });
+// Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
+// live engine at this moment. A stale, one-sided or thin book still gives no mark.
+const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
+  ...(await matching.depth(marketId, 1)),
+  observedAt: new Date(),
+}));
+// Trailing stops are placed only on the markets the pump walks, and only while it runs: a stop on any other market
+// would never move. Anything else has no mark, and placing refuses `trade.missing_mark`.
+const trailingMarketIds = new Set(parseCandleMarketIds(env.TRADE_TRAILING_MARK_JOBS_MARKET_IDS));
+const trailingPlacementMarkSource: QuotedMarkSource | undefined = env.TRADE_TRAILING_MARK_JOBS_ENABLED
+  ? {
+      ...trailingMarkSource,
+      quote: async (input) => (trailingMarketIds.has(input.marketId) ? trailingMarkSource.quote(input) : null),
+    }
+  : undefined;
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
+  trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,
   marketLifecycle,
   spotEnabled: env.TRADE_SPOT_ENABLED,
@@ -497,12 +514,6 @@ const candleJobs = startCandleJobs({
     }
   },
 });
-// Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
-// live engine at this moment. A stale, one-sided or thin book still gives no mark.
-const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
-  ...(await matching.depth(marketId, 1)),
-  observedAt: new Date(),
-}));
 const trailingMarkJobs = startTrailingMarkJobs({
   config: {
     enabled: env.TRADE_TRAILING_MARK_JOBS_ENABLED,
