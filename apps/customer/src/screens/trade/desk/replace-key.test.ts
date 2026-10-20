@@ -19,8 +19,9 @@ describe('the order number of a replacement', () => {
     expect(replaceKey('22222222-2222-4222-8222-222222222222', '97', '0.5')).not.toBe(replaceKey(ORDER, '97', '0.5'));
   });
 
-  it('fits the 64 characters the service allows', () => {
-    expect(replaceKey(ORDER, '123456789012.123456789012345678', '1').length).toBeLessThanOrEqual(64);
+  it('fits the 56 characters a replacement may carry, with a real 36-character order id', () => {
+    expect(ORDER).toHaveLength(36);
+    expect(replaceKey(ORDER, '123456789012.123456789012345678', '1').length).toBeLessThanOrEqual(56);
   });
 
   it('the desk no longer mints a random number for a place or a replace', () => {
