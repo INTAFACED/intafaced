@@ -100,7 +100,7 @@ const messages = {
   'Worth now': 'Worth now',
   'Other quantity': '+ {qty} {asset} with no recorded cost',
   Sales: 'Sales',
-  'No sales yet': 'You haven’t sold anything yet, so there is no realised result.',
+  'No sales yet': 'No sales so far, so there is no realised result.',
   Sold: 'Sold',
   Quantity: 'Quantity',
   Received: 'Received',
@@ -116,7 +116,7 @@ const messages = {
   'Residual cost unavailable':
     'Some coins have no recorded cost, for example after a trade between two coins, so those results are not known.',
   'Residual unreconciled': 'Some coins have left your account another way since you bought them, so which cost applies is not known.',
-  'Residual incomplete': 'Part of your trade history could not be read yet, so earlier trades may be missing.',
+  'Residual incomplete': 'Part of your trade history could not be read, so earlier trades may be missing.',
 
   // Activity
   Activity: 'Activity',
