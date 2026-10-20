@@ -15,7 +15,13 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CRYPTO_NATIVE_WATCHER_ID, CryptoChainWatcher, PostgresChainWatcherCursorStore, type ChainWatcherChain } from './chain-watcher.js';
+import {
+  CRYPTO_NATIVE_WATCHER_ID,
+  CryptoChainWatcher,
+  PostgresChainWatcherCursorStore,
+  PostgresChainWatcherDeadLetterStore,
+  type ChainWatcherChain,
+} from './chain-watcher.js';
 import type { FinalizedInbound } from './evm-chain.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -152,5 +158,39 @@ describe('PostgresChainWatcherCursorStore — crash replay does not double-credi
       txHash: '0xaaa',
       logIndex: 0,
     });
+  });
+
+  it('a failing inbound is dead-lettered once in Postgres after the published attempts and frees the address', async () => {
+    await sql`TRUNCATE pay.chain_watcher_dead_letters`;
+    const store = new PostgresChainWatcherCursorStore(sql);
+    const deadLetters = new PostgresChainWatcherDeadLetterStore(sql);
+    const marked: string[] = [];
+    const chain: ChainWatcherChain = {
+      refresh: async () => undefined,
+      drainFinalized: () => (marked.length ? [] : [item]),
+      markFinalizedEmitted: (addr) => {
+        marked.push(addr.toLowerCase());
+      },
+    };
+    const fetchImpl = vi.fn(async () => new Response('bad gateway', { status: 502 }));
+    const watcher = new CryptoChainWatcher({
+      chain,
+      secret: 'x'.repeat(32),
+      webhookUrl: 'http://127.0.0.1:9/webhooks/crypto-native',
+      cursorStore: store,
+      deadLetters,
+      maxDeliveryAttempts: 2,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await watcher.tick();
+    expect(await deadLetters.list()).toEqual([]);
+    await watcher.tick();
+    const rows = await deadLetters.list();
+    expect(rows).toEqual([
+      expect.objectContaining({ deliveryId: `chain:${transfer.txHash}:${address}:1`, attempts: 2, lastStatus: 502, blockNumber: '99' }),
+    ]);
+    await deadLetters.record(rows[0]!);
+    expect(await deadLetters.list()).toHaveLength(1);
+    expect(marked).toEqual([address.toLowerCase()]);
   });
 });

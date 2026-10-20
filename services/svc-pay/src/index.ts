@@ -42,6 +42,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
+import { PostgresChainWatcherDeadLetterStore } from './rails/chain-watcher.js';
 import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { restoreOpenDepositWatches } from './rails/watch-restore.js';
@@ -162,6 +163,7 @@ const ledger = createLedgerClient(
  */
 const broadcasts = new PostgresBroadcastStore(sql);
 const watcherCursors = new PostgresChainWatcherCursorStore(sql);
+const watcherDeadLetters = new PostgresChainWatcherDeadLetterStore(sql);
 const chain = defaultChainFor(process.env, broadcasts);
 
 const cryptoRail = new CryptoNativeAdapter({
@@ -874,6 +876,8 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     webhookUrl: `http://127.0.0.1:${env.HTTP_PORT}/webhooks/crypto-native`,
     pollIntervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS,
     cursorStore: watcherCursors,
+    deadLetters: watcherDeadLetters,
+    maxDeliveryAttempts: env.PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
     onAlive: () => cryptoRail.noteAlive(),
   });

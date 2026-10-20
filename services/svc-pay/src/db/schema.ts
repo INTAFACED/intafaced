@@ -641,6 +641,20 @@ export const chainWatcherCursors = pay.table('chain_watcher_cursors', {
   updatedAt: updatedAt(),
 });
 
+/** Inbounds the chain watcher gave up delivering after the owner-published attempts (0093). Not money. */
+export const chainWatcherDeadLetters = pay.table('chain_watcher_dead_letters', {
+  deliveryId: text('delivery_id').primaryKey(),
+  watcherId: text('watcher_id').notNull(),
+  address: text('address').notNull(),
+  txHash: text('tx_hash').notNull(),
+  logIndex: integer('log_index').notNull(),
+  blockNumber: text('block_number').notNull(),
+  attempts: integer('attempts').notNull(),
+  lastStatus: integer('last_status'),
+  lastError: text('last_error'),
+  deadLetteredAt: tstz('dead_lettered_at').notNull().defaultNow(),
+});
+
 /**
  * Merchant REST Idempotency-Key journal (pay.public-api step 2 / ADR §2.2).
  * Not money — fingerprints + prior HTTP responses so retries never double-charge.

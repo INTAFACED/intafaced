@@ -154,6 +154,94 @@ function assertCursor(cursor: ChainWatcherCursor): void {
   }
 }
 
+/**
+ * An inbound the watcher gave up delivering after the owner-published number of attempts. The record is the
+ * hand-off to a person: the chain saw the transfer, the book never accepted the webhook. Not money.
+ */
+export interface ChainWatcherDeadLetter {
+  readonly deliveryId: string;
+  readonly watcherId: string;
+  readonly address: string;
+  readonly txHash: string;
+  readonly logIndex: number;
+  readonly blockNumber: string;
+  readonly attempts: number;
+  /** HTTP status of the last attempt, or null when it threw before a response. */
+  readonly lastStatus: number | null;
+  readonly lastError: string | null;
+}
+
+export interface ChainWatcherDeadLetterStore {
+  /** Idempotent on `deliveryId`. */
+  record(entry: ChainWatcherDeadLetter): Promise<void>;
+  list(): Promise<ChainWatcherDeadLetter[]>;
+}
+
+export class MemoryChainWatcherDeadLetterStore implements ChainWatcherDeadLetterStore {
+  private readonly rows = new Map<string, ChainWatcherDeadLetter>();
+
+  async record(entry: ChainWatcherDeadLetter): Promise<void> {
+    if (!this.rows.has(entry.deliveryId)) this.rows.set(entry.deliveryId, entry);
+  }
+
+  async list(): Promise<ChainWatcherDeadLetter[]> {
+    return [...this.rows.values()];
+  }
+}
+
+type DeadLetterRow = {
+  delivery_id: string;
+  watcher_id: string;
+  address: string;
+  tx_hash: string;
+  log_index: number;
+  block_number: string;
+  attempts: number;
+  last_status: number | null;
+  last_error: string | null;
+};
+
+export class PostgresChainWatcherDeadLetterStore implements ChainWatcherDeadLetterStore {
+  constructor(private readonly sql: WatcherSql) {}
+
+  async record(entry: ChainWatcherDeadLetter): Promise<void> {
+    await this.sql`
+      INSERT INTO pay.chain_watcher_dead_letters
+        (delivery_id, watcher_id, address, tx_hash, log_index, block_number, attempts, last_status, last_error)
+      VALUES (${entry.deliveryId}, ${entry.watcherId}, ${entry.address}, ${entry.txHash}, ${entry.logIndex},
+              ${entry.blockNumber}, ${entry.attempts}, ${entry.lastStatus}, ${entry.lastError})
+      ON CONFLICT (delivery_id) DO NOTHING
+    `;
+  }
+
+  async list(): Promise<ChainWatcherDeadLetter[]> {
+    const rows = (await this.sql`
+      SELECT delivery_id, watcher_id, address, tx_hash, log_index, block_number, attempts, last_status, last_error
+        FROM pay.chain_watcher_dead_letters
+       ORDER BY dead_lettered_at, delivery_id
+    `) as ReadonlyArray<DeadLetterRow>;
+    return rows.map((r) => ({
+      deliveryId: r.delivery_id,
+      watcherId: r.watcher_id,
+      address: r.address,
+      txHash: r.tx_hash,
+      logIndex: r.log_index,
+      blockNumber: r.block_number,
+      attempts: r.attempts,
+      lastStatus: r.last_status,
+      lastError: r.last_error,
+    }));
+  }
+}
+
+/**
+ * The webhook event id for one inbound. The log index is part of it: two logs of one transaction to one address
+ * (a batched transfer) are two deposits, and one id would have the book drop the second as a duplicate.
+ */
+export function chainDeliveryId(item: FinalizedInbound): string {
+  return `chain:${item.transfer.txHash}:${item.address}:${item.logIndex}`;
+}
+
 /** The slice of EvmLiveChain the watcher actually calls. */
 export interface ChainWatcherChain {
   refresh(): Promise<void>;
@@ -176,6 +264,19 @@ export interface ChainWatcherOptions {
   readonly cursorStore?: ChainWatcherCursorStore;
   /** Store key. Production uses `crypto-native`. */
   readonly watcherId?: string;
+  /**
+   * Owner-published: how many failed attempts at one inbound before it is dead-lettered. Unset means never
+   * dead-letter (no invented limit): the inbound is retried every tick, without blocking other addresses.
+   */
+  readonly maxDeliveryAttempts?: number;
+  /** Where dead letters are recorded. Required for `maxDeliveryAttempts` to take effect. */
+  readonly deadLetters?: ChainWatcherDeadLetterStore;
+}
+
+interface DeliveryResult {
+  readonly ok: boolean;
+  readonly status: number | null;
+  readonly error: string | null;
 }
 
 export class CryptoChainWatcher {
@@ -186,6 +287,7 @@ export class CryptoChainWatcher {
   private readonly log: (msg: string, extra?: Record<string, unknown>) => void;
   private readonly cursors: ChainWatcherCursorStore;
   private readonly watcherId: string;
+  private readonly attempts = new Map<string, number>();
 
   constructor(private readonly options: ChainWatcherOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -221,7 +323,14 @@ export class CryptoChainWatcher {
       this.options.onAlive?.();
       const cursor = await this.cursors.load(this.watcherId);
       const finalized = [...this.options.chain.drainFinalized()].sort((a, b) => compareChainWatcherCursor(cursorOf(a), cursorOf(b)));
+      // One failed delivery blocks only its own address (the chain marks per address, earliest first, so a later
+      // inbound there must wait) and freezes the cursor, so a restart retries it. Everyone else carries on; an
+      // inbound delivered past the frozen cursor is deduped at the book by its delivery id if a restart repeats it.
+      const blocked = new Set<string>();
+      let cursorFrozen = false;
       for (const item of finalized) {
+        const addressKey = item.address.toLowerCase();
+        if (blocked.has(addressKey)) continue;
         const position = cursorOf(item);
         if (cursor && compareChainWatcherCursor(position, cursor) <= 0) {
           // Already delivered in a previous process. Mark so this process
@@ -229,12 +338,22 @@ export class CryptoChainWatcher {
           this.options.chain.markFinalizedEmitted(item.address);
           continue;
         }
-        const ok = await this.deliver(item.address, item.transfer);
-        if (!ok) {
-          // Do not advance the cursor — next tick retries this position (M226-03).
-          break;
+        const id = chainDeliveryId(item);
+        const result = await this.deliver(item.address, item.transfer, id);
+        let handled = result.ok;
+        if (!result.ok) {
+          const attempts = (this.attempts.get(id) ?? 0) + 1;
+          this.attempts.set(id, attempts);
+          handled = await this.deadLetterIfDue(item, id, attempts, result);
         }
-        await this.cursors.save(this.watcherId, position);
+        if (!handled) {
+          // Do not advance the cursor or mark: next tick retries this position (M226-03).
+          blocked.add(addressKey);
+          cursorFrozen = true;
+          continue;
+        }
+        this.attempts.delete(id);
+        if (!cursorFrozen) await this.cursors.save(this.watcherId, position);
       }
       return finalized.length;
     } catch (err) {
@@ -247,13 +366,43 @@ export class CryptoChainWatcher {
     }
   }
 
+  /** Records the dead letter and releases the inbound once the published attempts are used up. */
+  private async deadLetterIfDue(item: FinalizedInbound, id: string, attempts: number, result: DeliveryResult): Promise<boolean> {
+    const max = this.options.maxDeliveryAttempts;
+    const store = this.options.deadLetters;
+    if (max === undefined || store === undefined || attempts < max) return false;
+    try {
+      await store.record({
+        deliveryId: id,
+        watcherId: this.watcherId,
+        address: item.address,
+        txHash: item.transfer.txHash,
+        logIndex: item.logIndex,
+        blockNumber: item.blockNumber.toString(),
+        attempts,
+        lastStatus: result.status,
+        lastError: result.error,
+      });
+    } catch (err) {
+      this.log('chain watcher dead letter not recorded; inbound stays pending', {
+        deliveryId: id,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+    this.options.chain.markFinalizedEmitted(item.address);
+    this.log('chain watcher dead-lettered an inbound', { deliveryId: id, address: item.address, attempts });
+    return true;
+  }
+
   private async deliver(
     address: string,
     transfer: { txHash: string; assetId: string; amount: bigint; from: string; confirmations: number },
-  ): Promise<boolean> {
+    id: string,
+  ): Promise<DeliveryResult> {
     const at = this.now();
     const payload = {
-      id: `chain:${transfer.txHash}:${address}`,
+      id,
       type: 'captured',
       ref: address,
       amount: formatAmount(transfer.amount),
@@ -267,23 +416,30 @@ export class CryptoChainWatcher {
     const timestamp = Math.floor(at.getTime() / 1000).toString();
     const signature = signPayload(this.options.secret, timestamp, body);
 
-    const res = await this.fetchImpl(this.options.webhookUrl, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-chain-signature': signature,
-        'x-chain-timestamp': timestamp,
-      },
-      body,
-    });
+    let res: Response;
+    try {
+      res = await this.fetchImpl(this.options.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-chain-signature': signature,
+          'x-chain-timestamp': timestamp,
+        },
+        body,
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      this.log('chain watcher delivery failed', { error, address, txHash: transfer.txHash });
+      return { ok: false, status: null, error };
+    }
 
     if (!res.ok && res.status !== 202) {
       // Do not mark emitted — next tick re-drains and retries (M226-03).
       this.log('chain watcher delivery rejected', { status: res.status, address, txHash: transfer.txHash });
-      return false;
+      return { ok: false, status: res.status, error: null };
     }
     this.options.chain.markFinalizedEmitted(address);
     this.log('chain watcher delivered', { address, txHash: transfer.txHash, status: res.status });
-    return true;
+    return { ok: true, status: res.status, error: null };
   }
 }

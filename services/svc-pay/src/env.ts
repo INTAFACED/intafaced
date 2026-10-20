@@ -152,6 +152,14 @@ const schema = serviceEnvSchema
       /** Start the in-process chain watcher that POSTs finalized deposits. Default true when live. */
       PAY_CRYPTO_WATCHER_ENABLED: z.enum(['true', 'false']).default('true'),
       PAY_CRYPTO_WATCHER_INTERVAL_MS: z.coerce.number().int().min(500).max(60_000).default(2_000),
+      /**
+       * Failed attempts at one inbound before the watcher dead-letters it. Owner-published: blank / unset means
+       * never dead-letter (the inbound is retried every tick, without blocking other addresses). No default.
+       */
+      PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
 
       /**
        * WHICH RAILS MAY SERVE THE PUBLIC HOSTED CHECKOUT, in preference order,
