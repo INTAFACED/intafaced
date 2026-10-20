@@ -2,6 +2,10 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  News: 'News',
+  'Market news by category, language and symbol': 'Market news by category, language and symbol',
+  'Economic calendar': 'Economic calendar',
+  'Scheduled releases and their values': 'Scheduled releases and their values',
   'Invoice detail': 'Invoice detail',
   'One invoice reference': 'One invoice reference',
   'Endpoint detail': 'Endpoint detail',
