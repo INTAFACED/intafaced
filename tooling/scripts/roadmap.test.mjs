@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analyse, dependsOn, laneFor, parseSpec, progress, queue } from './roadmap.mjs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { analyse, buildIndex, dependsOn, laneFor, parseSpec, progress, queue, untangle } from './roadmap.mjs';
 
 test('a slice heading and its table rows are read', () => {
   const text = [
@@ -79,4 +82,30 @@ test('progress counts a slice once a merged title names it, and forecasts from t
   assert.match(page, /Last 7 days: 2 slices, 0\.3 a day\./);
   assert.match(page, /Forecast at that rate: 4 days/);
   assert.match(page, /\| svc-trade spot \| 2 \| 2 \|/);
+});
+
+test('a lane override beats the computed lane', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  mkdirSync(join(dir, 'modules', 'wallet', 'specs'), { recursive: true });
+  const spec = (id) => [`### ${id}. Something`, '', '| | |', '|---|---|', '| Module | nothing that names a service |', '| Size | S |', ''];
+  writeFileSync(join(dir, 'modules', 'wallet', 'specs', 'w.md'), [...spec('W-x-01'), ...spec('W-x-02')].join('\n'));
+  const lanes = Object.fromEntries(buildIndex(dir, { 'W-x-02': 'svc-bank' }).map((s) => [s.id, s.lane]));
+  assert.equal(lanes['W-x-02'], 'svc-bank');
+  assert.notEqual(lanes['W-x-01'], 'svc-bank');
+});
+
+test('two slices that each need the other: the earlier one goes first, and its edge moves to later', () => {
+  const out = untangle([
+    { id: 'Q-a-01', spec: 's.md', depends: ['Q-a-02'] },
+    { id: 'Q-a-02', spec: 's.md', depends: ['Q-a-01'] },
+    { id: 'T-b-01', spec: 't.md', depends: ['Q-a-01', 'U-c-01'] },
+    { id: 'U-c-01', spec: 'u.md', depends: ['T-b-01'] },
+  ]);
+  const by = Object.fromEntries(out.map((s) => [s.id, s]));
+  assert.deepEqual(by['Q-a-01'].depends, []);
+  assert.deepEqual(by['Q-a-01'].later, ['Q-a-02']);
+  assert.deepEqual(by['Q-a-02'].depends, ['Q-a-01']);
+  assert.deepEqual(by['U-c-01'].depends, [], 'fewer dependencies goes first across specs');
+  assert.deepEqual(by['T-b-01'].depends, ['Q-a-01', 'U-c-01']);
+  assert.equal(analyse(out).tangled.size, 0);
 });

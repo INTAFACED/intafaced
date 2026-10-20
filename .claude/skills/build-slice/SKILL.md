@@ -9,7 +9,7 @@ A slice is one row of `docs/roadmap/slices.json`: a spec in the shared Operation
 
 ## Pick
 
-1. Your lane's queue: `node tooling/scripts/roadmap.mjs --lane "<lane>"` (or `--journey trader`). Take the first slice whose dependencies are merged. Trader-journey slices go first.
+1. Your lane's queue: `node tooling/scripts/roadmap.mjs --lane "<lane>"` (or `--journey trader`). Take the first slice whose dependencies are merged. Trader-journey slices go first. A slice's `later` list names slices its spec also mentions that come after it (a two-way pair, untangled by the script): where your slice reaches one, refuse with a typed code.
 2. Read the slice's spec: `/mnt/project-files/operation-zero/<spec field>`, the section headed with its id. When that folder is not mounted, the brief carries the spec text.
 3. Re-check every `file:line` the spec cites against today's main. The specs were written against main of 2026-10-18. Drop what is already built and say so in the PR.
 4. If a build pack exists for the slice (`/mnt/project-files/grok-week/packs/<lane>/<slice-id>.md`), read it first and verify its claims as you go. Note in your status file whether it was wrong anywhere or saved exploring.
