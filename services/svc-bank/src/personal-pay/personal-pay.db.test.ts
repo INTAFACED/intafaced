@@ -974,6 +974,19 @@ describe('personal bill pay and global send', () => {
       exchangeCount: 1,
     });
 
+    // A limit too large for the ledger to read makes the setting unreadable: refused as unset, nothing thrown.
+    const huge = mount({
+      sendFieldRules: RULES,
+      global: liveGlobal(),
+      exchangeAllowance: JSON.stringify({ exchangeAccounts: [], windowDays: 30, limits: [{ asset: 'USDT', maxAmount: '9'.repeat(40) }] }),
+    });
+    const spaceH = await funded(huge.bank, huge.ledger);
+    const meH = caller(huge.bank, USER, write);
+    const exH = await meH.global.recipients.add({ idempotencyKey: 'recip-ex-04', name: 'Ada', account: '123456789', country: 'DE' });
+    await expect(
+      meH.global.send({ ...sendBody, idempotencyKey: 'send-ex-06', amount: '1', fromSpaceId: spaceH.id, recipientId: exH.id }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_unset' } });
+
     // An exchange with no limit for the asset is refused as unset, never allowed.
     const bare = mount({
       sendFieldRules: RULES,

@@ -6,6 +6,7 @@
  * (`bank.payee_controls_unset`). `BANK_PROOF_LIMITS_JSON` is `{ "allowedTypes": ["application/pdf"], "maxBytes": 1048576 }`:
  * blank or unreadable refuses an upload (`bank.proof_limits_unset`). The list itself is never returned to a customer.
  */
+import { parseAmount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 
 const controlsShape = z.object({ blockedAccounts: z.array(z.string().trim().min(1).max(64)) }).strict();
@@ -77,6 +78,14 @@ export interface ExchangeAllowance {
 export function parseExchangeAllowance(raw: string | undefined): ExchangeAllowance | null {
   const parsed = allowanceShape.safeParse(parseJson(raw));
   if (!parsed.success) return null;
+  // A limit the ledger cannot read as money makes the whole setting unreadable, never a throw at send time.
+  for (const limit of parsed.data.limits) {
+    try {
+      parseAmount(limit.maxAmount);
+    } catch {
+      return null;
+    }
+  }
   return {
     accounts: new Set(parsed.data.exchangeAccounts.map(normalizeAccount)),
     windowDays: parsed.data.windowDays,
