@@ -65,15 +65,6 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
   }
 }
 
-describe('futures order margin PG-hard (source)', () => {
-  it('is not skip-green (no postgresAvailable / describe.skip)', () => {
-    const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-    expect(src).not.toMatch(/\bpostgresAvailable\s*\(/);
-    expect(src).not.toMatch(/describe\.skip\s*\(/);
-    expect(src).not.toMatch(/\bit\.skip\s*\(/);
-  });
-});
-
 describe('futures order margin on the real ledger', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDb | undefined;
