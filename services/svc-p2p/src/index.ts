@@ -99,9 +99,8 @@ const bus = await JetStreamEventBus.connect({
 // service's tables (Doctrine §0.6). This client is the only path.
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-p2p');
-const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, {
-  s2s: s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
-});
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, { s2s: s2sKey });
 // The same switch for the inbound internal doors: unset keeps them on the shared secret alone.
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 
@@ -145,8 +144,8 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
    * time this process boots.
    */
   merchantStatusOf: async (userId: string): Promise<MerchantStatus | null> => (await merchants.get(userId))?.status ?? null,
-  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
-  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),
