@@ -190,6 +190,13 @@ describe('order validation at the boundary', () => {
     }
   });
 
+  it('carries a typed stop trigger source and refuses an unknown one', () => {
+    for (const triggerBy of ['last', 'mark', 'index']) {
+      expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '90', triggerBy }).success, triggerBy).toBe(true);
+    }
+    expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '90', triggerBy: 'twap' }).success).toBe(false);
+  });
+
   it('rejects a GTD order with expireAt "soon"', () => {
     const result = createOrderRequestSchema.safeParse({
       ...base,
