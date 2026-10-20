@@ -44,33 +44,33 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1234 slices left in 21 modules. 250 need no other slice. 47 sit in a dependency loop that the lane untangles first. 267 end in a refusal that names an outside service (built, switched on later). Size: 646 L, 537 M, 51 S.
+1452 slices left in 21 modules. 261 need no other slice. 47 sit in a dependency loop that the lane untangles first. 346 end in a refusal that names an outside service (built, switched on later). Size: 702 L, 657 M, 93 S.
 
 ### By module
 
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
-| merchant       | 180    | 23           | 0                             | 100   |
-| copy-bots-otc  | 109    | 41           | 11                            | 39    |
-| bank           | 91     | 40           | 0                             | 55    |
-| dex-protocol   | 91     | 4            | 84                            | 33    |
-| ops-console    | 83     | 18           | 36                            | 63    |
-| identity       | 73     | 15           | 25                            | 20    |
-| p2p            | 67     | 11           | 0                             | 38    |
-| wallet         | 63     | 23           | 22                            | 26    |
-| derivatives    | 54     | 10           | 19                            | 26    |
-| academy        | 46     | 3            | 12                            | 32    |
-| pay            | 45     | 6            | 0                             | 19    |
-| support-public | 42     | 9            | 13                            | 20    |
-| charts-desk    | 39     | 6            | 2                             | 27    |
-| agents         | 36     | 1            | 7                             | 21    |
-| cex-spot       | 36     | 4            | 6                             | 23    |
-| developer      | 36     | 12           | 0                             | 22    |
-| algo-dev       | 35     | 5            | 2                             | 24    |
-| campaigns      | 34     | 2            | 9                             | 22    |
-| more-catalogue | 27     | 1            | 16                            | 16    |
-| portfolio      | 27     | 9            | 1                             | 14    |
-| home-ia        | 20     | 7            | 2                             | 6     |
+| merchant       | 190    | 23           | 7                             | 104   |
+| copy-bots-otc  | 125    | 42           | 18                            | 47    |
+| dex-protocol   | 111    | 4            | 102                           | 40    |
+| ops-console    | 107    | 19           | 41                            | 66    |
+| bank           | 96     | 40           | 5                             | 57    |
+| identity       | 90     | 17           | 30                            | 27    |
+| wallet         | 73     | 24           | 24                            | 26    |
+| p2p            | 70     | 12           | 2                             | 40    |
+| academy        | 60     | 3            | 14                            | 34    |
+| derivatives    | 59     | 10           | 19                            | 28    |
+| cex-spot       | 53     | 5            | 13                            | 33    |
+| more-catalogue | 51     | 3            | 22                            | 19    |
+| support-public | 49     | 9            | 14                            | 21    |
+| pay            | 48     | 6            | 2                             | 19    |
+| agents         | 46     | 1            | 10                            | 22    |
+| developer      | 42     | 12           | 1                             | 23    |
+| campaigns      | 41     | 2            | 11                            | 23    |
+| charts-desk    | 41     | 6            | 2                             | 27    |
+| algo-dev       | 40     | 5            | 3                             | 25    |
+| portfolio      | 35     | 9            | 4                             | 15    |
+| home-ia        | 25     | 9            | 2                             | 6     |
 
 ### By lane
 
@@ -78,41 +78,42 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey |
 | ----------------------------- | ------ | ------------ | --------------------- |
-| svc-pay merchant              | 205    | 26           | 11                    |
-| svc-bank                      | 174    | 53           | 35                    |
-| svc-trade spot                | 140    | 41           | 32                    |
-| svc-identity                  | 116    | 28           | 68                    |
-| svc-p2p                       | 59     | 10           | 0                     |
-| svc-academy                   | 47     | 3            | 0                     |
-| svc-protocol                  | 47     | 1            | 0                     |
-| svc-trade futures             | 44     | 8            | 0                     |
-| svc-agents                    | 37     | 2            | 0                     |
-| svc-notify                    | 37     | 14           | 3                     |
-| svc-support                   | 30     | 7            | 2                     |
-| svc-pay wallet                | 29     | 8            | 14                    |
-| svc-quant                     | 26     | 4            | 0                     |
-| svc-ops                       | 24     | 7            | 3                     |
-| customer: trade               | 18     | 1            | 3                     |
-| svc-edge                      | 17     | 1            | 2                     |
-| ledger                        | 16     | 6            | 7                     |
-| svc-matching                  | 16     | 2            | 3                     |
-| customer: more                | 14     | 2            | 3                     |
+| svc-pay merchant              | 214    | 26           | 11                    |
+| svc-bank                      | 192    | 53           | 35                    |
+| svc-trade spot                | 163    | 41           | 42                    |
+| svc-identity                  | 134    | 29           | 68                    |
+| svc-protocol                  | 75     | 4            | 1                     |
+| svc-p2p                       | 62     | 10           | 0                     |
+| svc-academy                   | 60     | 3            | 0                     |
+| svc-agents                    | 49     | 2            | 0                     |
+| svc-trade futures             | 48     | 8            | 0                     |
+| svc-notify                    | 39     | 15           | 3                     |
+| svc-ops                       | 37     | 8            | 4                     |
+| svc-support                   | 36     | 7            | 2                     |
+| svc-quant                     | 31     | 4            | 0                     |
+| svc-pay wallet                | 30     | 8            | 14                    |
+| svc-matching                  | 21     | 2            | 4                     |
+| ledger                        | 20     | 6            | 7                     |
+| svc-execution                 | 20     | 3            | 5                     |
+| customer: trade               | 19     | 1            | 3                     |
+| svc-edge                      | 18     | 1            | 2                     |
+| customer: more                | 16     | 2            | 3                     |
+| svc-market                    | 15     | 0            | 0                     |
+| svc-token                     | 15     | 2            | 0                     |
+| customer shell                | 12     | 5            | 3                     |
+| svc-tax                       | 12     | 2            | 7                     |
 | customer: pay                 | 11     | 1            | 1                     |
-| svc-market                    | 11     | 0            | 0                     |
 | admin: ops-desk               | 10     | 6            | 0                     |
+| svc-indexer                   | 10     | 1            | 0                     |
 | svc-ws                        | 10     | 2            | 3                     |
-| customer shell                | 9      | 3            | 3                     |
-| svc-tax                       | 9      | 1            | 7                     |
-| customer: account             | 7      | 1            | 1                     |
+| customer: account             | 8      | 1            | 1                     |
+| svc-blueprint                 | 8      | 0            | 0                     |
+| customer: protocol            | 7      | 1            | 0                     |
 | svc-dex                       | 7      | 0            | 0                     |
-| svc-indexer                   | 7      | 1            | 0                     |
-| svc-token                     | 7      | 1            | 0                     |
+| svc-mining-pool               | 7      | 0            | 0                     |
 | contracts                     | 6      | 2            | 2                     |
-| customer: protocol            | 5      | 1            | 0                     |
-| svc-mining-pool               | 5      | 0            | 0                     |
+| svc-fix                       | 5      | 0            | 1                     |
 | admin: merchants              | 4      | 1            | 0                     |
-| svc-execution                 | 4      | 2            | 1                     |
-| svc-fix                       | 4      | 0            | 1                     |
 | customer: public              | 3      | 1            | 0                     |
 | admin shell                   | 2      | 0            | 0                     |
 | admin: founder-ops            | 2      | 1            | 1                     |
@@ -128,21 +129,21 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: nav                    | 1      | 0            | 0                     |
 | admin: support-ticket-actions | 1      | 0            | 0                     |
 | customer: coin                | 1      | 0            | 0                     |
-| svc-blueprint                 | 1      | 0            | 0                     |
 
 ### By journey
 
 | Journey                  | Slices | Need nothing |
 | ------------------------ | ------ | ------------ |
-| trader                   | 208    | 55           |
+| trader                   | 225    | 56           |
 | bank-fund-trade-withdraw | 51     | 17           |
-| merchant-payout-to-bank  | 80     | 22           |
-| one-portfolio            | 27     | 9            |
+| merchant-payout-to-bank  | 83     | 22           |
+| one-portfolio            | 35     | 9            |
 
 ### Trader journey queue
 
 First milestone. Lanes take these before their other slices.
 
+- `RC-cex-spot-07` Venue unit economics report (M, depth 1)
 - `SP-developer-status-01` Trading modes, maintenance notices and closed-market handling (M, depth 1)
 - `SP-fees-vip-01` Maker and taker schedule by pair group, minimum fee and rebates (L, depth 1)
 - `SP-order-03` Reference checks: operational depth against two named competitors (acceptance only) (S, depth 1)
@@ -286,6 +287,8 @@ First milestone. Lanes take these before their other slices.
 - `W-deposit-10` Lightning deposit by invoice (M, depth 3, refuses for an outside service) · needs W-deposit-05
 - `W-withdraw-02` Withdrawal network catalogue, default network, tag rules, minimum, maximum and step (L, depth 3) · needs W-balances-05, W-deposit-04
 - `W-withdraw-17` Counterparty VASP directory and private-wallet ownership proof (M, depth 3) · needs W-withdraw-08, W-withdraw-16
+- `RC-cex-spot-05` Historical tick, book and trade data downloads (L, depth 4) · needs SP-developer-status-02, SP-markets-data-01
+- `RC-cex-spot-08` Published trading rulebook versions (M, depth 4) · needs SP-developer-status-02, SP-ops-01
 - `SP-ops-02` Fee schedule and pair risk limits: versioned operator writes (L, depth 4) · needs SP-fees-vip-01, SP-ops-01
 - `SP-ops-03` Support order lookup and trade bust with reconciliation (L, depth 4) · needs SP-ops-01
 - `SP-order-01` Spot desk completeness: market orders, pro book, per-order detail and positions (M, depth 4) · needs SP-conditional-algo-01, SP-lifecycle-history-02
@@ -310,6 +313,9 @@ First milestone. Lanes take these before their other slices.
 - `PF-performance-01` Unrealised and realised profit and loss, and the indicator label with its method (L, depth 4) · needs PF-cost-basis-01, PF-cost-basis-03
 - `W-balances-10` Link exchange account to self-custody wallet (M, depth 4) · needs W-withdraw-17
 - `W-withdraw-01` Withdrawal request, review, confirm with step-up, success panel (L, depth 4) · needs W-withdraw-02
+- `RC-cex-spot-01` Firm and session pre-trade credit on the spot door (L, depth 5) · needs SP-ops-01, SP-ops-02
+- `RC-cex-spot-04` Corporate action and token migration policies (L, depth 5, refuses for an outside service) · needs CM-airdrop-campaigns-01, SP-markets-data-02, SP-ops-01, W-compliance-notices-01
+- `RC-cex-spot-13` Venue registry, adapter families and latency thresholds (L, depth 5, refuses for an outside service) · needs SP-ops-02
 - `SP-conditional-algo-03` Iceberg, TWAP and the algo tracking tab (L, depth 5) · needs SP-ops-02, SP-order-entry-01, SP-order-entry-04
 - `SP-convert-buy-01` Convert quote, limit mode and large-order OTC routing (L, depth 5) · needs SP-ops-02, SP-order-entry-04
 - `SP-convert-buy-02` Convert source account, asset rules and maintenance (M, depth 5) · needs SP-ops-02
@@ -333,6 +339,11 @@ First milestone. Lanes take these before their other slices.
 - `W-balances-08` Historical balance snapshots and proof of reserves (M, depth 5) · needs W-custody-ops-04
 - `W-deposit-11` Custody-refuse-then-full deposit journey and unhidden Deposit room (M, depth 5, refuses for an outside service) · needs W-deposit-01, W-withdraw-01
 - `W-withdraw-15` Lightning invoice withdrawal (M, depth 5, refuses for an outside service) · needs W-withdraw-01
+- `RC-cex-spot-02` Pro desk flatten control (S, depth 6) · needs SP-order-01, SP-order-entry-02
+- `RC-cex-spot-06` Maker incentive programme: tiers, obligations, monitoring and clawback (L, depth 6) · needs SP-fees-vip-01, SP-markets-data-03, SP-ops-02, SP-ops-04
+- `RC-cex-spot-10` FX desk: forex pairs as their own product with conventions and fiat settlement (L, depth 6, refuses for an outside service) · needs SP-markets-data-03, SP-ops-01, SP-order-entry-03
+- `RC-cex-spot-14` Venue Vault: durable encrypted external exchange keys, trade-only (L, depth 6) · needs RC-cex-spot-13
+- `RC-cex-spot-16` Market-making engine console: parameters, inventory bands and per-venue kill (L, depth 6, refuses for an outside service) · needs RC-cex-spot-13, SP-ops-01, SP-ops-04
 - `SP-convert-buy-03` Convert history, cash-currency conversion through crypto and the convert API (L, depth 6) · needs SP-convert-buy-01, SP-convert-buy-02
 - `SP-convert-buy-04` Buy and sell card: payment step, sell quote and target price (L, depth 6, refuses for an outside service) · needs SP-convert-buy-01, SP-order-entry-01
 - `SP-desk-account-01` Order form settings, confirmation preferences and share order (M, depth 6) · needs SP-order-entry-02
@@ -348,6 +359,12 @@ First milestone. Lanes take these before their other slices.
 - `I-signin-sessions-23` Change email or phone screens (M, depth 6, refuses for an outside service) · needs I-signin-sessions-01, I-signin-sessions-08, I-signin-sessions-16
 - `OPS-screening-05` Continuous screening: configurations, field mapping, monitored objects, triggers and routing to a case inbox (L, depth 6, refuses for an outside service) · needs OPS-cases-01, OPS-screening-02
 - `W-balances-09` Custody and safeguarding disclosures (S, depth 6) · needs W-balances-08
+- `RC-cex-spot-09` Launch-liquidity plan record per market (M, depth 7) · needs RC-cex-spot-06, SP-markets-data-02, SP-ops-01
+- `RC-cex-spot-12` Consolidated book with per-source breakdown (M, depth 7, refuses for an outside service) · needs SP-markets-data-01, SP-order-02
+- `RC-cex-spot-17` Internal book seeding: operator-written config and console (M, depth 7, refuses for an outside service) · needs RC-cex-spot-01, SP-ops-02, SP-order-02
 - `SP-desk-account-02` Mobile ticket, desk layout, favourites and depth widget, and spot account structure (L, depth 7) · needs SP-desk-account-01
 - `SP-fees-vip-04` Fee currency, VIP application, fee-change notices and fiat buy fees (L, depth 7, refuses for an outside service) · needs SP-convert-buy-04, SP-fees-vip-01, SP-fees-vip-03, SP-order-entry-04
 - `I-signin-sessions-24` Operator session tools, recovery link and support-assisted recovery (L, depth 7, refuses for an outside service) · needs I-signin-sessions-12, I-signin-sessions-22
+- `RC-cex-spot-03` Account and order-routing profiles (M, depth 8) · needs SP-desk-account-01, SP-desk-account-02, SP-order-entry-04
+- `RC-cex-spot-11` Pay trading fees in IFC with the published decay discount (L, depth 8) · needs SP-fees-vip-02, SP-fees-vip-04, SP-order-entry-04
+- `RC-cex-spot-15` Cross-venue smart order router with execution reports (L, depth 8, refuses for an outside service) · needs RC-cex-spot-12, RC-cex-spot-13, RC-cex-spot-14
