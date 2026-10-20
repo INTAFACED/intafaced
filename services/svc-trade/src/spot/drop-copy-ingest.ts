@@ -7,7 +7,7 @@
  * Never ui, never fix (FIX already publishes acks), never guessed ws/algo/broker.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { HOUSE_MM_API_KEY_ID } from './auth-attribution.js';
 
 export const DROP_COPY_INGEST_PATH = '/internal/drop-copy/fills';
@@ -117,10 +117,15 @@ export async function fireDropCopyFill(port: DropCopyIngestPort, fill: DropCopyF
 
 const FETCH_MS = 2_000;
 
-export function createDropCopyIngestClient(ingestUrl: string, internalSecret: string): DropCopyIngestPort {
+export function createDropCopyIngestClient(
+  ingestUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): DropCopyIngestPort {
   const base = ingestUrl.trim().replace(/\/$/, '');
   if (base.length === 0) return new NoopDropCopyIngest();
   const url = `${base}${DROP_COPY_INGEST_PATH}`;
+  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-fix', legacySecret: internalSecret, s2s });
 
   return {
     async postFill(fill) {
@@ -128,7 +133,7 @@ export function createDropCopyIngestClient(ingestUrl: string, internalSecret: st
       if (body === null) return;
       const headers = {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-trade', internalSecret, body),
+        ...authHeaders(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
       };
       const response = await fetch(url, {
         method: 'POST',
