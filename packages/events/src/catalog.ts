@@ -1129,17 +1129,6 @@ export const WIRING_SOCKETS = [
       'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
   },
   {
-    event: 'ledgerFreezeUpdated',
-    missing: 'subscriber',
-    /**
-     * CLASS A. Freeze state is a durable row every replica reads, "which is
-     * precisely why nothing has to subscribe to stay correct".
-     */
-    class: 'A',
-    reason:
-      'Freeze state is DURABLE, not a process signal: every replica reads the same row, which is precisely why nothing has to subscribe to stay correct. The event exists so an operator console can react without polling. apps/admin does not yet make a network call of any kind (see tracker ops.admin-console), so there is no consumer to attach.',
-  },
-  {
     event: 'coreOpsAlertRuleUpdated',
     missing: 'publisher',
     class: 'A',

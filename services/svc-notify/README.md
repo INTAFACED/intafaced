@@ -286,23 +286,35 @@ _None._
 
 **Consumes**
 
-| Subject                                   | Consumer (durable)                | Effect                                                      |
-| ----------------------------------------- | --------------------------------- | ----------------------------------------------------------- |
-| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                |
-| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only            |
-| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only        |
-| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                             |
-| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                    |
-| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                    |
-| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)  |
-| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                 |
-| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                 |
-| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                            |
-| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called      |
-| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay |
-| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid    |
-| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action          |
-| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                |
+| Subject                                   | Consumer (durable)                | Effect                                                                  |
+| ----------------------------------------- | --------------------------------- | ----------------------------------------------------------------------- |
+| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                            |
+| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                        |
+| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                    |
+| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                         |
+| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                |
+| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                |
+| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)              |
+| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                             |
+| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                             |
+| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                        |
+| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                  |
+| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay             |
+| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                |
+| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                      |
+| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                            |
+| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared |
+
+### Posting-freeze notice (audience `all`)
+
+`ledger.freeze.updated` writes one row to `notify.system_notices` (migration 0016), keyed
+`freeze:{changedAt}:{frozen}`, and every user's inbox read merges it in with a per-user
+read mark in `notify.system_notice_reads`: `notify.list`, `unreadCount`, `markRead` and
+`markAllRead` all include it, so a freeze is one write and not one per account. It is
+inbox only (no out-of-app send). Copy keys `notify.ledger.freeze.set` and `.cleared`;
+if a key is missing from the catalog the consumer throws `notify.freeze_copy_unset`, writes
+nothing and the event is redelivered. The event's reason and actor are never read. It
+reports the svc-ledger posting freeze only, not the single-account freeze of svc-identity.
 
 ### Idempotency and backpressure
 

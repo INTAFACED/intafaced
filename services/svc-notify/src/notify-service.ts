@@ -1,5 +1,5 @@
 import { createHmac, randomInt } from 'node:crypto';
-import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore } from './store.js';
+import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore, SystemNoticeInput } from './store.js';
 import { OwnedRecentCursorError, type ChannelTarget, type DeliveryRecord, type DeliveryStore, type TargetStore } from './channel-store.js';
 import type { DispatchReport, NotificationDispatcher } from './dispatch.js';
 import type { ChannelRegistry, ChannelStatus } from './channels/registry.js';
@@ -254,6 +254,16 @@ export class NotifyService {
       const dispatch = await this.deps.dispatcher.dispatch(row, { outOfApp });
       return { inserted: result.inserted, notification: result.notification, dispatch };
     });
+  }
+
+  /**
+   * One audience-all inbox notice, shown to every user with their own read mark.
+   * Inbox only: no out-of-app channel is attempted for a platform-wide notice.
+   * Killed fan-out acks without writing, like `create`.
+   */
+  async createSystemNotice(input: SystemNoticeInput): Promise<{ inserted: boolean }> {
+    if (!this.options.fanoutEnabled) return { inserted: false };
+    return this.store.insertSystemNotice(input);
   }
 
   list(query: ListQuery): Promise<ListResult> {

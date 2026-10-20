@@ -65,6 +65,36 @@ export const notifications = schema.table('notifications', {
   createdAt: createdAt(),
 });
 
+/** Audience-all notices (a posting freeze). Merged into every inbox read; the read mark is per user. */
+export const systemNotices = schema.table(
+  'system_notices',
+  {
+    id: pk(),
+    kind: text('kind').notNull(),
+    titleKey: text('title_key').notNull(),
+    bodyKey: text('body_key').notNull(),
+    params: jsonb('params').$type<Record<string, unknown>>().notNull().default({}),
+    href: text('href'),
+    severity: text('severity').$type<'info' | 'action' | 'critical'>().notNull().default('info'),
+    sourceSubject: text('source_subject').notNull(),
+    sourceIdempotencyKey: text('source_idempotency_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('system_notices_source_uq').on(t.sourceSubject, t.sourceIdempotencyKey)],
+);
+
+export const systemNoticeReads = schema.table(
+  'system_notice_reads',
+  {
+    noticeId: uuid('notice_id')
+      .notNull()
+      .references(() => systemNotices.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull(),
+    readAt: timestamp('read_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.noticeId, t.userId] })],
+);
+
 /**
  * An address the user gave us and confirmed.
  *
