@@ -14,12 +14,15 @@ function accountServer(initial?: { version: number; value: UiViewValue }) {
   const writes: Sent[] = [];
   const refusals: Array<{ status?: number; code?: string; message?: string }> = [];
   const offline = { on: false };
-  const hooks: { afterWrite?: () => void } = {};
+  const hooks: { afterWrite?: () => void; onRead?: () => void } = {};
   const unreachable = { ok: false as const, reason: 'unreachable' as const, message: 'offline' };
   const api = {
     async query(_module: string, procedure: string, input: { namespace: string }) {
       if (offline.on) return unreachable;
       expect(procedure).toBe('preferences.get');
+      const onRead = hooks.onRead;
+      hooks.onRead = undefined;
+      onRead?.();
       return { ok: true as const, data: { namespace: input.namespace, version, value } };
     },
     async mutate(_module: string, procedure: string, input: Sent & { namespace: string }) {
@@ -206,5 +209,17 @@ describe('account view sync', () => {
     expect(await second).toBe('synced');
     expect(server.writes.map((write) => write.ifVersion)).toEqual([0, 1]);
     expect(server.record().value).toEqual({ layoutMode: 'simple', theme: 'light' });
+  });
+
+  it('sends a choice made while the sign-in read was out when the account holds no value for that field', async () => {
+    const server = accountServer({ version: 2, value: { hideBalances: true } });
+    const phone = device();
+    const view = sync(server, phone);
+    server.hooks.onRead = () => phone.set({ layoutMode: 'simple', hideBalances: false });
+    expect(await view.pull()).toBe('synced');
+    // The account holds hideBalances, so it wins; it holds no layoutMode, so the choice made during the read is kept and sent.
+    expect(phone.get()).toMatchObject({ layoutMode: 'simple', hideBalances: true });
+    expect(await view.push()).toBe('synced');
+    expect(server.record().value).toEqual({ hideBalances: true, layoutMode: 'simple' });
   });
 });
