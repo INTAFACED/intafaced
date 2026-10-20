@@ -18,6 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
+import { refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -122,6 +123,20 @@ export const TRADE_POSITIONS_CLOSED_LIMIT_UNSET = 'trade.positions_closed_limit_
 export const TRADE_ADL_EVENTS_LIMIT_UNSET = 'trade.adl_events_limit_unset' as const;
 /** Batch size is deliberately finite: each item owns its own retry fence and money path. */
 export const MAX_BATCH_ORDERS = 100;
+
+/**
+ * A request deadline that has passed is waived for a replay of a booked clientOrderId. The lookup runs only then, so an
+ * order without a spent deadline pays no extra read and has no new failure mode.
+ */
+async function isDeadlineReplay(
+  deps: PrivateRestDeps,
+  principal: Principal,
+  body: { requestDeadline?: string; symbol: string; clientOrderId: string },
+  now: Date,
+): Promise<boolean> {
+  if (body.requestDeadline === undefined || Date.parse(body.requestDeadline) > now.getTime() || !deps.findClientOrder) return false;
+  return (await deps.findClientOrder(principal, { symbol: body.symbol, clientOrderId: body.clientOrderId })) !== null;
+}
 
 /** Spot-supported order types only (TradeService rejects stop-market and take-profit). */
 function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number] {
@@ -2127,6 +2142,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       let input: PlaceOrderInput;
       try {
         refuseExitLegs(rawItem);
+        const now = (deps.now ?? (() => new Date()))();
+        const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
+        refuseUnsupportedPlacementOptions(parsed.data, now, replay);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
@@ -2412,6 +2430,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let displayQty: string | null = null;
     let stopTrigger: string | null = null;
     try {
+      const now = (deps.now ?? (() => new Date()))();
+      const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
+      refuseUnsupportedPlacementOptions(parsed.data, now, replay);
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
@@ -2662,6 +2683,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
+      refuseOptionsOnReplacement(parsed.data);
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
