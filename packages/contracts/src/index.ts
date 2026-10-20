@@ -39,6 +39,7 @@ export * from './merchant-control.js';
 export * from './merchant-metrics.js';
 export * from './conversion.js';
 export * from './pay-halts.js';
+export * from './protocol-blockers.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
 export * from './pay-portal-reads.js';
