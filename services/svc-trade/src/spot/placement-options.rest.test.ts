@@ -34,15 +34,18 @@ function signed(): Record<string, string> {
 
 const BASE = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '1', price: '100', clientOrderId: 'p-1' };
 
-async function build(existing: Set<string> = new Set()) {
+async function build(existing: Set<string> = new Set(), lookup: { calls: number; fail?: boolean } = { calls: 0 }) {
   const placed: PlaceOrderInput[] = [];
   const replaced: string[] = [];
   const app = Fastify();
   registerPrivateRest(app, {
-    findClientOrder: async (_p: Principal, input: { clientOrderId?: string }) =>
-      input.clientOrderId && existing.has(input.clientOrderId)
+    findClientOrder: async (_p: Principal, input: { clientOrderId?: string }) => {
+      lookup.calls += 1;
+      if (lookup.fail) throw new Error('db down');
+      return input.clientOrderId && existing.has(input.clientOrderId)
         ? fakeOrder({ marketId: market.id, clientOrderId: input.clientOrderId })
-        : null,
+        : null;
+    },
     replaceOrder: async (_p: Principal, id: string) => {
       replaced.push(id);
       throw new Error('unreachable');
@@ -104,6 +107,35 @@ describe('the create door and the options spot does not act on', () => {
       payload: { ...BASE, requestDeadline: '2026-10-20T11:59:00.000Z' },
     });
     expect(res.statusCode, res.body).toBe(201);
+    expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('reads no booked order for a request with no spent deadline, so a lookup failure cannot touch it', async () => {
+    const lookup = { calls: 0, fail: true };
+    const { app, placed } = await build(new Set(), lookup);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, requestDeadline: '2026-10-20T12:00:30.000Z' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(lookup.calls).toBe(0);
+    expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('replays a booked item on the batch door instead of refusing it as expired', async () => {
+    const { app, placed } = await build(new Set(['b-1']));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/batch',
+      headers: signed(),
+      payload: { orders: [{ ...BASE, clientOrderId: 'b-1', requestDeadline: '2026-10-20T11:59:00.000Z' }] },
+    });
+    const results = res.json().results as Array<{ status: string; error?: unknown }>;
+    expect(results[0]?.error).toBeUndefined();
     expect(placed).toHaveLength(1);
     await app.close();
   });
