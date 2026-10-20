@@ -412,6 +412,48 @@ export class ProtocolChain {
     });
   }
 
+  /**
+   * What this node and the configured bundler can actually do, found by asking. `null` means the question could not be put
+   * (no bundler configured, no probe timeout published, the node did not answer), never a guess.
+   *   · `pendingTag`: the node answers a `pending` block query. A JSON-RPC error reply is "no"; no reply at all is `null`.
+   *   · `bundlerReachable`: the bundler answers `eth_supportedEntryPoints` inside the published probe timeout.
+   *   · `paymasterFunded`: not measured here (it needs the paymaster deposit read); always `null`.
+   */
+  async probeCapabilities(timeoutMs: number | undefined): Promise<{
+    pendingTag: boolean | null;
+    bundlerReachable: boolean | null;
+    paymasterFunded: null;
+  }> {
+    let pendingTag: boolean | null = null;
+    try {
+      await this.client.getBlock({ blockTag: 'pending' });
+      pendingTag = true;
+    } catch (err) {
+      for (let link: unknown = err, depth = 0; link && typeof link === 'object' && depth < 8; depth += 1) {
+        const code = (link as { code?: unknown }).code;
+        // Only the JSON-RPC "method not found" / "invalid params" replies mean the node does not serve the tag.
+        if (code === -32601 || code === -32602) pendingTag = false;
+        link = (link as { cause?: unknown }).cause;
+      }
+    }
+    let bundlerReachable: boolean | null = null;
+    const bundlerUrl = this.config.bundlerUrl;
+    if (bundlerUrl && timeoutMs !== undefined) {
+      try {
+        const response = await fetch(bundlerUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_supportedEntryPoints', params: [] }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        bundlerReachable = response.ok;
+      } catch {
+        bundlerReachable = false;
+      }
+    }
+    return { pendingTag, bundlerReachable, paymasterFunded: null };
+  }
+
   async tokenBalanceOf(token: Address, holder: Address): Promise<bigint> {
     return this.#read('tokenBalanceOf', 'chain.tokenBalanceOf', async () =>
       this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'balanceOf', args: [holder] }),
