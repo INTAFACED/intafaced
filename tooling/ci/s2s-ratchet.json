@@ -8,37 +8,9 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-agents/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/coach/academy-curriculum-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/copy-intel/copy-leader-fixtures-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/merchant/pay-metrics-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/navigator/identity-session-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/router.ts": {
       "sign": 0,
       "caller": 1
-    },
-    "services/svc-agents/src/support-agent/desk-port.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-bank/src/affiliate-accrue.ts": {
       "sign": 1,
