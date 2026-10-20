@@ -459,7 +459,7 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
-  createPreferencesRouter(sql),
+  createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
