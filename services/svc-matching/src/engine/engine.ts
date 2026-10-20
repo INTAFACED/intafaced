@@ -6,7 +6,7 @@ import { publishWithStartupRetry } from '../startup-publish.js';
 import { withEngineSpan, withSpan } from '../tracing.js';
 import { OrderBook } from './book.js';
 import { unsupportedAmendField } from './amend-priority.js';
-import './trailing-stop.js';
+import { applyMark as walkTrailingStops, markRefuse } from './trailing-stop.js';
 import './option.js';
 import { flattenCloseOrder, netPositionOf, positionFlatResult, type ClosePositionCommand } from './close-position.js';
 import {
@@ -59,6 +59,7 @@ import {
 } from './journal.js';
 import type {
   AmendResult,
+  MarkResult,
   CancelReason,
   CancelResult,
   CancelledRef,
@@ -845,6 +846,46 @@ export class MatchingEngine {
         return { ...result, fillCount: result.fills.length, rejectCode: result.rejected?.code };
       },
     );
+  }
+
+  /**
+   * Control states that stop a mark from moving a stop. Same gates as an amend, minus the ones about a single
+   * order: a mark only tightens a trigger, so reduce-only, post-only and an order in flight do not block it.
+   */
+  private markRefusal(marketId: MarketId): { readonly code: string; readonly message: string } | null {
+    const id = 'trailing-mark';
+    if (!this.enabled) return disabledAmend(id).rejected ?? null;
+    if (this.admissionClosed) return holdCheckClosedAmend(id, this.admissionClosed).rejected ?? null;
+    if (this.holdHalted.has(marketId)) {
+      return holdUnconfirmedAmend(marketId, id, this.holdHalted.get(marketId) ?? 'matching.hold_unconfirmed').rejected ?? null;
+    }
+    if (this.venueHalted) return venueHaltedAmendResult(id).rejected ?? null;
+    if (this.maintenance.has(marketId)) return maintenanceAmendResult(marketId, id).rejected ?? null;
+    if (this.halted.has(marketId)) return haltedAmendResult(marketId, id).rejected ?? null;
+    if (this.expiredMarkets.has(marketId)) return expiredAmendResult(marketId, id).rejected ?? null;
+    if (this.delistedMarkets.has(marketId)) return delistedAmendResult(marketId, id).rejected ?? null;
+    if (this.prelaunchMarkets.has(marketId)) return prelaunchAmendResult(marketId, id).rejected ?? null;
+    return null;
+  }
+
+  /**
+   * Walk the live trailing stops of one market with a server-side mark. A blank or non-positive mark is refused,
+   * never replaced. The peak only ratchets and the trigger only tightens, so a repeated or older mark changes
+   * nothing and needs no sequence. A mark that moved something is journaled in the same step it is applied, so
+   * replay reproduces the trigger; a mark that moved nothing writes nothing.
+   */
+  markTrailingStops(marketId: MarketId, mark: string): MarkResult {
+    const parsedMark = /^\d+(\.\d{1,18})?$/.test(mark) ? parseAmount(mark) : null;
+    const missing = markRefuse(parsedMark);
+    if (missing) return { accepted: false, applied: false, rejected: missing };
+    const blocked = this.markRefusal(marketId);
+    if (blocked) return { accepted: false, applied: false, rejected: blocked };
+    const book = this.existingBook(marketId);
+    if (!book) return { accepted: true, applied: false, rejected: null };
+    const walked = walkTrailingStops(book, parsedMark);
+    if (walked.refused) return { accepted: false, applied: false, rejected: walked.refused };
+    if (walked.changed) this.journal.append({ kind: 'mark', marketId, at: this.clock().toISOString(), mark });
+    return { accepted: true, applied: walked.changed, rejected: null };
   }
 
   async closePosition(
