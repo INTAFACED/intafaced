@@ -417,6 +417,47 @@ export const orderCancelled = defineEvent(
 );
 
 /**
+ * A spread order matched (CB-otc-16). One event per spread fill, carrying every
+ * leg, so svc-trade posts one hold release and one fill for the whole spread and
+ * never a partial leg. A spread fill is NOT an `orderFilled`: the spread price
+ * may be zero or negative, and the legs only mean something together.
+ *
+ * Idempotency key: `matching.spread.filled:<spreadId>:<sequence>`.
+ */
+export const spreadFilled = defineEvent(
+  'matching',
+  'spread',
+  'filled',
+  1,
+  z.object({
+    spreadId: z.string().min(1),
+    makerOrderId: engineOrderIdSchema,
+    takerOrderId: engineOrderIdSchema,
+    makerAccountId: z.string().min(1),
+    takerAccountId: z.string().min(1),
+    takerSide: z.enum(['buy', 'sell']),
+    /** Spread price: Σ side × ratio × leg price from the buyer's view. May be zero or negative. */
+    price: signedAmountSchema,
+    qty: amountSchema,
+    /** Engine book sequence of the spread's own book. */
+    sequence: z.number().int(),
+    ts: z.string().datetime({ offset: true }),
+    /** Every leg, filled in full at the listed ratio. Legs sum to the spread price exactly. */
+    legs: z
+      .array(
+        z.object({
+          symbol: z.string().min(1),
+          takerSide: z.enum(['buy', 'sell']),
+          qty: amountSchema,
+          price: amountSchema,
+        }),
+      )
+      .min(2),
+  }),
+  'A spread order matched with every leg filled at its ratio. svc-trade turns it into one hold release and one fill per side.',
+);
+
+/**
  * User-visible order lifecycle (svc-trade).
  *
  * Matching's `orderFilled` / `orderCancelled` are engine facts without a user
@@ -916,6 +957,7 @@ export const EVENT_CATALOG = {
   orderAccepted,
   orderFilled,
   orderCancelled,
+  spreadFilled,
   orderUpdated,
   fillSettled,
   positionUpdated,
@@ -1033,6 +1075,30 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'spreadFilled',
+    missing: 'publisher',
+    /**
+     * CLASS A. svc-matching's spread book (CB-otc-16) emits it once this subject
+     * exists; until then it refuses every spread order (spread_fill_event_unwired),
+     * and only svc-trade can submit one, through a spread door it does not have yet.
+     */
+    class: 'A',
+    reason:
+      'Declared ahead of its producer: svc-matching wires its SpreadFillPublisher to this subject in the PR after this one. No spread order can reach a book before then, so no fill goes unannounced.',
+  },
+  {
+    event: 'spreadFilled',
+    missing: 'subscriber',
+    /**
+     * CLASS A. svc-trade consumes it with its spread place door and spread holds
+     * (CB-otc-16, svc-trade half). Until that door exists nothing can place a
+     * spread order, so no spread fill can exist without its consumer.
+     */
+    class: 'A',
+    reason:
+      'svc-trade subscribes when it gains the spread place door and spread holds; svc-matching only admits spread orders from svc-trade, so a fill cannot occur before its money consumer exists.',
+  },
   // ── no publisher ───────────────────────────────────────────────────────────
   //
   // `bankMarginCalled` was here, and was the reason this section existed: a
