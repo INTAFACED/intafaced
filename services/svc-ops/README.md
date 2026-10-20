@@ -25,6 +25,12 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 | `custody.wrap`                      | `ops:write`              | blank wrap → `ops.custody_wrap_unset`; never invents keys                                                                 |
 | `custody.execute`                   | `ops:write`              | freeze unset/frozen named refuse; wrap unset → `ops.custody_wrap_unset`; else `ops.custody_chain_unwired`                 |
 
+## Joint-restore stamps
+
+`restore.record` writes each stamp to the append-only table `ops.restore_stamps` (one row per idempotency key; update and delete are refused by trigger), so a stamp survives a restart and a retry with the same key and body returns the stored row. A different body under the same key is `ops.idempotency_conflict`. Without `DATABASE_URL` and `OPS_DATABASE_POOL_MAX`, stamping refuses `ops.restore_storage_unconfigured` before any approval is consumed, and `restore.watermarks` returns `watermarks: null` with `storage.configured: false`. `restored` stays false: nothing here restores a service, and the archive is not probed yet.
+
+If the process dies after identity consumes the approval and before the row is written, the retry cannot consume it again; the founders issue a new approval. No money is involved.
+
 ## Ledger
 
 None. Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics). No recipes. No `post`.

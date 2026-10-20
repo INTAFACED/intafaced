@@ -18,6 +18,8 @@ public final class MatchingSubmitPort {
     public static final String BASE_URL_ENV = "MATCHING_BASE_URL";
     public static final String COMPID_ACCOUNT_JSON_ENV = "FIX_COMPID_ACCOUNT_JSON";
     public static final String SERVICE_SECRET_ENV = ServiceAuth.SECRET_ENV;
+    public static final String AUDIENCE = "svc-matching";
+    static final String CONTENT_TYPE_JSON = "application/json";
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     public interface Transport {
@@ -29,6 +31,7 @@ public final class MatchingSubmitPort {
     private final String matchingBaseUrl;
     private final String compIdAccountJson;
     private final String internalServiceSecret;
+    private final ServiceKeys.Outbound outbound;
     private final Transport transport;
 
     public MatchingSubmitPort(String matchingBaseUrl, String compIdAccountJson, Transport transport) {
@@ -37,9 +40,24 @@ public final class MatchingSubmitPort {
 
     public MatchingSubmitPort(
             String matchingBaseUrl, String compIdAccountJson, String internalServiceSecret, Transport transport) {
+        this(matchingBaseUrl, compIdAccountJson, internalServiceSecret, null, transport);
+    }
+
+    /**
+     * @param outbound the per-service signing key and mode (S2S v3), or null for the shared secret alone. In
+     *     {@code dual} the shared secret rides along; in {@code keypair} the key signature is the only form and the
+     *     shared secret may be blank.
+     */
+    public MatchingSubmitPort(
+            String matchingBaseUrl,
+            String compIdAccountJson,
+            String internalServiceSecret,
+            ServiceKeys.Outbound outbound,
+            Transport transport) {
         this.matchingBaseUrl = matchingBaseUrl;
         this.compIdAccountJson = compIdAccountJson;
         this.internalServiceSecret = internalServiceSecret;
+        this.outbound = outbound;
         this.transport = transport;
     }
 
@@ -52,6 +70,7 @@ public final class MatchingSubmitPort {
                 env.get(BASE_URL_ENV),
                 env.get(COMPID_ACCOUNT_JSON_ENV),
                 env.get(SERVICE_SECRET_ENV),
+                ServiceKeys.outboundFromEnv(env, ServiceAuth.SERVICE_NAME),
                 jdkTransport());
     }
 
@@ -86,7 +105,8 @@ public final class MatchingSubmitPort {
                     false);
         }
         String secret = internalServiceSecret == null ? "" : internalServiceSecret;
-        if (!ServiceAuth.secretReady(secret)) {
+        boolean keypairOnly = outbound != null && outbound.keypairOnly();
+        if (!keypairOnly && !ServiceAuth.secretReady(secret)) {
             return MatchingSubmitResult.refuse(
                     "matching_service_auth_unconfigured",
                     "INTERNAL_SERVICE_SECRET is blank; svc-fix does not POST unsigned matching orders",
@@ -94,10 +114,19 @@ public final class MatchingSubmitPort {
         }
         String path = "/markets/" + URLEncoder.encode(command.symbol, StandardCharsets.UTF_8).replace("+", "%20") + "/orders";
         String body = submitJson(command, accountId);
-        Map<String, String> headers = ServiceAuth.headersForBody(secret, body);
+        String url = base + path;
+        Map<String, String> headers = new LinkedHashMap<>();
+        if (outbound != null) {
+            URI uri = URI.create(url);
+            String target = uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
+            headers.putAll(outbound.signer().headers(AUDIENCE, "POST", target, body, CONTENT_TYPE_JSON));
+        }
+        if (!keypairOnly) {
+            headers.putAll(ServiceAuth.headersForBody(secret, body));
+        }
         Transport.Response response;
         try {
-            response = transport.post(base + path, body, headers);
+            response = transport.post(url, body, headers);
         } catch (Exception e) {
             String detail = e.getMessage() == null ? "unknown" : e.getMessage();
             return MatchingSubmitResult.refuse(
@@ -262,7 +291,7 @@ public final class MatchingSubmitPort {
         return (url, json, headers) -> {
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(url))
                     .timeout(TIMEOUT)
-                    .header("content-type", "application/json")
+                    .header("content-type", CONTENT_TYPE_JSON)
                     .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8));
             for (Map.Entry<String, String> header : headers.entrySet()) {
                 builder.header(header.getKey(), header.getValue());

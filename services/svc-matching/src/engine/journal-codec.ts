@@ -105,6 +105,13 @@ export type JournalCommand =
       readonly lifecycleProof?: MarketLifecycleAdmissionProof;
     }
   | {
+      /** A server-side mark that moved a trailing stop's peak or trigger. Replay re-applies it in order. */
+      readonly kind: 'mark';
+      readonly marketId: MarketId;
+      readonly at: string;
+      readonly mark: string;
+    }
+  | {
       readonly kind: 'halt';
       readonly marketId: MarketId;
       readonly at: string;
@@ -370,6 +377,16 @@ export function encode(record: JournalRecord): string {
       at: record.at,
       accountId: record.accountId,
       reason: record.reason,
+    });
+  }
+
+  if (record.kind === 'mark') {
+    return JSON.stringify({
+      seq: record.seq,
+      kind: record.kind,
+      marketId: record.marketId,
+      at: record.at,
+      mark: record.mark,
     });
   }
 

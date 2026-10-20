@@ -244,6 +244,18 @@ export const en = {
   'support.kb.paper_vs_live.title': 'Paper vs live trading',
   'support.kb.paper_vs_live.body':
     'Paper drills never move real funds. Live orders do. Labels must stay honest — paper progress is never withdrawable balance.',
+  'support.kb.scam_tactics.title': 'How scams work',
+  'support.kb.scam_tactics.body':
+    'Scammers create urgency, promise returns that are too good to be true, and ask you to move funds, share a code or install software. A real message from us never asks for your password, a verification code, a recovery phrase or a transfer to “secure” your account. If a message pushes you to act within minutes, stop, leave the message, and open the product yourself. If you are unsure whether a message is genuine, write to support from inside the product.',
+  'support.kb.spoofed_sms.title': 'Spoofed text messages',
+  'support.kb.spoofed_sms.body':
+    'A text message can show a sender name that is not real, and it can appear inside a thread of genuine messages. Do not tap links in a text that asks you to sign in, verify or unlock an account. Open the product yourself instead. We never ask for a verification code by text or phone. Anyone who asks for one is not us.',
+  'support.kb.dusting.title': 'Unknown tokens and dust in your wallet',
+  'support.kb.dusting.body':
+    'Small unrequested token deposits can arrive at any address. Some exist to lure you to a look-alike site or to link your addresses together. Do not swap, approve or send them, and do not visit links in their names. Leave them untouched. If you are unsure about a deposit, write to support from inside the product.',
+  'support.kb.email_compromise.title': 'If your email may be compromised',
+  'support.kb.email_compromise.body':
+    'Someone with access to your email can try to reset your sign-in. If you think your email was taken over, secure the email account first, then change your password, review your devices and sessions, and check your two-factor settings. Turn on two-factor verification that does not rely on email alone. If you see activity you did not start, write to support from a different channel.',
 
   // ── agents · grounded refuse copy ─────────────────────────────────────────
   'agents.session.opened': 'Sovereign Intelligence session opened for {agent}.',

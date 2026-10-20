@@ -16,6 +16,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
 import { AuthError, type AuthService } from './auth/auth-service.js';
+import type { FreezeService } from './affiliates/freeze-service.js';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import type { RankService } from './rank/rank-service.js';
@@ -116,6 +117,7 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
       accruals: store,
       accrualTierLaw: publishedLaw,
       ledger,
+      freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
     });
     const api = router.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
 
@@ -139,6 +141,7 @@ describe('D26-P2-12 tip re-prove — identity money doors', () => {
       accruals: store,
       accrualTierLaw: publishedLaw,
       ledger,
+      freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
     });
     const api = router.createCaller(await ctx(['identity:read'], { userId: OPERATOR }));
 

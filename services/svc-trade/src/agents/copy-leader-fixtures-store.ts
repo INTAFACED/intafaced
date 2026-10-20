@@ -77,7 +77,31 @@ export function createCopyLeaderFixturesStore(sql: postgres.Sql): CopyLeaderFixt
     async materializeProjectedFixtures() {
       const projected = await listProjectedCopyLeaderFixtures(sql);
       for (const fixture of projected) {
-        await store.publishFixture(fixture);
+        // A projection always carries null realised PnL and winning-trade count.
+        // Those nulls must not replace an operator-published figure. A first
+        // insert still stores null. Realised PnL stays the decimal string.
+        await sql`
+          INSERT INTO trade.copy_leader_fixtures AS existing (
+            leader_id, realised_pnl, closed_trades, winning_trades, window_start, window_end, source
+          )
+          VALUES (
+            ${fixture.leaderId},
+            ${fixture.realisedPnl},
+            ${fixture.closedTrades},
+            ${fixture.winningTrades},
+            ${fixture.windowStart}::timestamptz,
+            ${fixture.windowEnd}::timestamptz,
+            ${fixture.source}
+          )
+          ON CONFLICT (leader_id) DO UPDATE SET
+            realised_pnl = COALESCE(EXCLUDED.realised_pnl, existing.realised_pnl),
+            closed_trades = EXCLUDED.closed_trades,
+            winning_trades = COALESCE(EXCLUDED.winning_trades, existing.winning_trades),
+            window_start = EXCLUDED.window_start,
+            window_end = EXCLUDED.window_end,
+            source = EXCLUDED.source,
+            published_at = now()
+        `;
       }
       return projected.length;
     },

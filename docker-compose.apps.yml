@@ -900,6 +900,8 @@ services:
       # env.ts (`true` / `2000`). No RPC, mnemonic, hot wallet, or card rail.
       PAY_CRYPTO_WATCHER_ENABLED: ${PAY_CRYPTO_WATCHER_ENABLED:-true}
       PAY_CRYPTO_WATCHER_INTERVAL_MS: ${PAY_CRYPTO_WATCHER_INTERVAL_MS:-2000}
+      # Owner-published; blank = never dead-letter (retried every tick, other addresses unaffected). Never a default.
+      PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS: ${PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS:-}
       # Confirmation depth. No git default — blank refuses (never 6).
       # Owner may set 6 explicitly (see .env.example). Same `:?` shape as
       # webhook secrets so compose-up fails instead of settling a depth.
@@ -919,6 +921,9 @@ services:
       # nothing. `required` finishes payments whose ledger capture key already
       # exists, and does not post again. env.ts default is the same `off`.
       PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
+      # Owner-published; blank leaves the payout reconciler off (boot log names the blocker). Never a default.
+      PAY_PAYOUT_RECONCILE_INTERVAL_MS: ${PAY_PAYOUT_RECONCILE_INTERVAL_MS:-}
+      PAY_PAYOUT_RECONCILE_BATCH_LIMIT: ${PAY_PAYOUT_RECONCILE_BATCH_LIMIT:-}
       # Merchant controls. No default: blank or `off` refuses boot unless APP_ENV is
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}

@@ -1,4 +1,4 @@
-import { accountStateSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountStateSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { KycTierOf } from './guards.js';
 
 /**
@@ -17,6 +17,8 @@ export interface IdentityKycTierOptions {
   readonly internalSecret: string;
   readonly timeoutMs?: number;
   readonly fetchImpl?: typeof fetch;
+  /** svc-pay's own key. With it the read is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  readonly s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }
 
 const DEFAULT_TIMEOUT_MS = 2_000;
@@ -26,15 +28,17 @@ export function createIdentityKycTierClient(options: IdentityKycTierOptions): Ky
   const base = options.baseUrl.replace(/\/$/, '');
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const sign = serviceCallSigner({ service: 'svc-pay', audience: 'svc-identity', legacySecret: options.internalSecret, s2s: options.s2s });
 
   return async (userId) => {
     let response: Response;
     try {
-      response = await fetchImpl(`${base}/internal/account/${encodeURIComponent(userId)}`, {
+      const target = `${base}/internal/account/${encodeURIComponent(userId)}`;
+      response = await fetchImpl(target, {
         method: 'GET',
         headers: {
           'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-pay', options.internalSecret, ''),
+          ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
         },
         signal: AbortSignal.timeout(timeoutMs),
       });

@@ -66,6 +66,40 @@ export class ActivityRecordService {
     return out;
   }
 
+  /**
+   * The crypto address a withdrawal went to, by ledger tx id, for this customer's own off-ramps only. The hold, the
+   * settlement and the release are three ledger transactions of one withdrawal, and each shows the same address.
+   * A fiat destination (an IBAN) is not an address and is never returned. Deposits record no address against their
+   * ledger transaction, so they are absent here; nothing is guessed from the deposit address table.
+   */
+  async addressesFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const out = new Map<string, string>();
+    if (txIds.length === 0) return out;
+    const wanted = this.sql.array([...new Set(txIds)]);
+    const rows = await this.sql<
+      Array<{
+        destination_ref: string;
+        hold_ledger_tx_id: string | null;
+        settle_ledger_tx_id: string | null;
+        release_ledger_tx_id: string | null;
+      }>
+    >`
+      SELECT destination_ref, hold_ledger_tx_id, settle_ledger_tx_id, release_ledger_tx_id
+        FROM bank.ramp_offramps
+       WHERE user_id = ${userId}
+         AND kind = 'crypto'
+         AND (hold_ledger_tx_id = ANY(${wanted}::text[])
+           OR settle_ledger_tx_id = ANY(${wanted}::text[])
+           OR release_ledger_tx_id = ANY(${wanted}::text[]))
+    `;
+    for (const row of rows) {
+      for (const txId of [row.hold_ledger_tx_id, row.settle_ledger_tx_id, row.release_ledger_tx_id]) {
+        if (txId !== null) out.set(txId, row.destination_ref);
+      }
+    }
+    return out;
+  }
+
   async setNote(
     userId: string,
     input: { activityId: string; text: string; commandId: string },

@@ -9,10 +9,12 @@ import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
+import { createPgRestoreStore } from './restore-store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createOpsRouter, type OpsRouter } from './router.js';
 import { createOpsApprovalClient } from './operator-desks.js';
@@ -77,7 +79,14 @@ try {
 } catch {
   /* Invalid configuration refuses intake. */
 }
-const notificationPort = createOutreachNotificationClient({ notifyUrl: env.NOTIFY_URL, secret: env.OPS_NOTIFY_SERVICE_SECRET });
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE every call stays on its shared secret.
+const s2s = s2sFromEnv(env, 'svc-ops');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const notificationPort = createOutreachNotificationClient({
+  notifyUrl: env.NOTIFY_URL,
+  secret: env.OPS_NOTIFY_SERVICE_SECRET,
+  ...(s2sKey ? { s2s: s2sKey } : {}),
+});
 
 const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort, archivePublisher);
 const notificationWorker = crmSql ? new OutreachNotificationWorker(crmSql, notificationPort) : null;
@@ -92,9 +101,12 @@ const appRouter = createOpsRouter(
   },
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
+    restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals:
-      env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+      env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
+        ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+        : undefined,
   },
 );
 const edgeContext = buildEdgeContext(env);

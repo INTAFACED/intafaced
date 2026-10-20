@@ -3,6 +3,7 @@ import { transaction } from '@intafaced/db';
 import {
   IDEMPOTENCY_CONFLICT_CODE,
   LedgerError,
+  bankTransferKey,
   formatAmount,
   parseAmount,
   recipes,
@@ -20,6 +21,7 @@ import {
   unconfiguredBusinessDirectory,
   type BusinessDirectoryPort,
 } from './business-directory.js';
+import { BUSINESS_ROLES, dutyClash, roleCan, rolesWith, type BusinessCapability, type BusinessMemberRole } from './business-policy.js';
 import { accountForSpace, type SpaceRecord, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from '../transfers/transfer-service.js';
 import { withMoneySpan } from '../tracing.js';
@@ -37,7 +39,7 @@ import { withMoneySpan } from '../tracing.js';
  * (pay.gateway), dedicated org principal. Payroll is atomic via `businessPayroll`.
  */
 
-export type BusinessMemberRole = 'admin' | 'maker' | 'checker';
+export type { BusinessMemberRole } from './business-policy.js';
 export type BusinessApprovalStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 
 export interface BusinessAccount {
@@ -407,14 +409,27 @@ export class BusinessService {
   }
 
   async addMember(input: { accountId: string; actorUserId: string; userId: string; role: BusinessMemberRole }): Promise<BusinessMember> {
-    await this.assertRole(input.accountId, input.actorUserId, ['admin']);
-    const rows = await this.sql<MemberRow[]>`
-      INSERT INTO bank.business_members (account_id, user_id, role)
-      VALUES (${input.accountId}::uuid, ${input.userId}, ${input.role})
-      ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role
-      RETURNING account_id, user_id, role
-    `;
-    return toMember(rows[0]!);
+    return transaction(this.sql, async (tx) => {
+      const members = await this.lockMembers(tx, input.accountId);
+      this.assertAdminLocked(members, input.actorUserId);
+      const current = members.find((row) => row.user_id === input.userId);
+      // Adding an existing member re-roles them, so it obeys the same last-administrator rule as setMemberRole.
+      if (
+        current &&
+        roleCan(current.role, 'manage_team') &&
+        !roleCan(input.role, 'manage_team') &&
+        members.filter((row) => roleCan(row.role, 'manage_team')).length < 2
+      ) {
+        throw new BankError('The last administrator cannot be demoted (bank.business_last_admin)', 'bank.business_last_admin');
+      }
+      const rows = await tx<MemberRow[]>`
+        INSERT INTO bank.business_members (account_id, user_id, role)
+        VALUES (${input.accountId}::uuid, ${input.userId}, ${input.role})
+        ON CONFLICT (account_id, user_id) DO UPDATE SET role = EXCLUDED.role
+        RETURNING account_id, user_id, role
+      `;
+      return toMember(rows[0]!);
+    });
   }
 
   async listMembers(accountId: string, actorUserId: string): Promise<BusinessMember[]> {
@@ -455,7 +470,7 @@ export class BusinessService {
     if (input.amount <= 0n) throw new BankError('Transfer amount must be positive', 'bank.below_minimum');
     const account = await this.account(input.accountId);
     if (account.status !== 'active') throw new BankError('Business account is closed', 'bank.business_closed');
-    await this.assertRole(input.accountId, input.makerUserId, ['admin', 'maker']);
+    await this.assertRole(input.accountId, input.makerUserId, 'propose');
 
     const now = new Date();
     const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
@@ -464,7 +479,7 @@ export class BusinessService {
       // A retry of a proposal that already booked must resume it, not be refused.
       alreadyBooked: async () =>
         (await this.approvalExists(input.clientId)) ||
-        (await this.ledger.getTxByKey(`bank.transfer:${input.clientId}:0`)) !== null ||
+        (await this.ledger.getTxByKey(bankTransferKey('own', input.clientId, 0))) !== null ||
         (await this.ledger.getTxByKey(`bank.business.hold:${input.clientId}`)) !== null,
     });
     if (from.assetId !== account.assetId || to.assetId !== account.assetId) {
@@ -487,7 +502,7 @@ export class BusinessService {
     // Recover pre-claim legacy receipts before choosing a mode. Neither ledger
     // key may be rebound to different economic terms or a second money path.
     const [previousTransfer, previousHold] = await Promise.all([
-      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`).then((tx) => this.withEntries(tx)),
+      this.ledger.getTxByKey(bankTransferKey('own', clientId, 0)).then((tx) => this.withEntries(tx)),
       this.ledger.getTxByKey(`bank.business.hold:${clientId}`).then((tx) => this.withEntries(tx)),
     ]);
     const fromAcct = accountForSpace(from);
@@ -538,10 +553,10 @@ export class BusinessService {
           throw new BankError('Retry the original proposal to complete this transfer', 'bank.business_approval_inactive');
         }
         // Unknown settlement outcomes stay recoverable on the same ledger key.
-        if (approval.makerUserId === input.checkerUserId) {
+        if (dutyClash({ initiator: approval.makerUserId, approver: input.checkerUserId }) !== null) {
           throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
         }
-        await this.assertRole(approval.accountId, input.checkerUserId, ['admin', 'checker']);
+        await this.assertRole(approval.accountId, input.checkerUserId, 'approve');
         return this.finishSettle(approval);
       }
       if (approval.status !== 'pending') {
@@ -550,10 +565,10 @@ export class BusinessService {
       if (!approval.holdLedgerTxId) {
         throw new BankError('Retry the original proposal to complete its hold', 'bank.business_approval_inactive');
       }
-      if (approval.makerUserId === input.checkerUserId) {
+      if (dutyClash({ initiator: approval.makerUserId, approver: input.checkerUserId }) !== null) {
         throw new BankError('Maker cannot approve their own transfer', 'bank.business_self_approve');
       }
-      await this.assertRole(approval.accountId, input.checkerUserId, ['admin', 'checker']);
+      await this.assertRole(approval.accountId, input.checkerUserId, 'approve');
 
       // Ask identity BEFORE the claim. A refusal here leaves the row `pending`,
       // which reject and cancel accept, so the maker's hold can still be
@@ -584,20 +599,20 @@ export class BusinessService {
   async reject(input: { approvalId: string; checkerUserId: string }): Promise<void> {
     const approval = await this.approval(input.approvalId);
     if (approval.status === 'rejected' || approval.status === 'cancelled') {
-      if (approval.makerUserId === input.checkerUserId) {
+      if (dutyClash({ initiator: approval.makerUserId, approver: input.checkerUserId }) !== null) {
         throw new BankError('Maker cannot reject their own transfer as checker', 'bank.business_self_approve');
       }
-      await this.assertRole(approval.accountId, input.checkerUserId, ['admin', 'checker']);
+      await this.assertRole(approval.accountId, input.checkerUserId, 'approve');
       await this.releaseHold(approval);
       return;
     }
     if (approval.status !== 'pending') {
       throw new BankError(`Approval ${approval.id} is ${approval.status}`, 'bank.business_approval_inactive');
     }
-    if (approval.makerUserId === input.checkerUserId) {
+    if (dutyClash({ initiator: approval.makerUserId, approver: input.checkerUserId }) !== null) {
       throw new BankError('Maker cannot reject their own transfer as checker', 'bank.business_self_approve');
     }
-    await this.assertRole(approval.accountId, input.checkerUserId, ['admin', 'checker']);
+    await this.assertRole(approval.accountId, input.checkerUserId, 'approve');
     await this.claimAndRelease(approval, {
       actorUserId: input.checkerUserId,
       status: 'rejected',
@@ -614,14 +629,14 @@ export class BusinessService {
     const approval = await this.approval(input.approvalId);
     const own = approval.makerUserId === input.actorUserId;
     if (approval.status === 'cancelled' || approval.status === 'rejected') {
-      if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
+      if (!own) await this.assertRole(approval.accountId, input.actorUserId, 'manage_team');
       await this.releaseHold(approval);
       return;
     }
     if (approval.status !== 'pending') {
       throw new BankError(`Approval ${approval.id} is ${approval.status}`, 'bank.business_approval_inactive');
     }
-    if (!own) await this.assertRole(approval.accountId, input.actorUserId, ['admin']);
+    if (!own) await this.assertRole(approval.accountId, input.actorUserId, 'manage_team');
     await this.claimAndRelease(approval, {
       actorUserId: input.actorUserId,
       status: 'cancelled',
@@ -706,7 +721,7 @@ export class BusinessService {
       this.assertAdminLocked(members, input.actorUserId);
       const target = members.find((row) => row.user_id === input.userId);
       if (!target) throw new BankError('Not a member of this business account', 'bank.business_not_member');
-      if (target.role === 'admin' && members.filter((row) => row.role === 'admin').length < 2) {
+      if (roleCan(target.role, 'manage_team') && members.filter((row) => roleCan(row.role, 'manage_team')).length < 2) {
         throw new BankError('The last administrator cannot be removed (bank.business_last_admin)', 'bank.business_last_admin');
       }
       const waiting = await tx<Array<{ id: string }>>`
@@ -760,7 +775,11 @@ export class BusinessService {
       this.assertAdminLocked(members, input.actorUserId);
       const target = members.find((row) => row.user_id === input.userId);
       if (!target) throw new BankError('Not a member of this business account', 'bank.business_not_member');
-      if (target.role === 'admin' && input.role !== 'admin' && members.filter((row) => row.role === 'admin').length < 2) {
+      if (
+        roleCan(target.role, 'manage_team') &&
+        !roleCan(input.role, 'manage_team') &&
+        members.filter((row) => roleCan(row.role, 'manage_team')).length < 2
+      ) {
         throw new BankError('The last administrator cannot be demoted (bank.business_last_admin)', 'bank.business_last_admin');
       }
       const inserted = await tx<Array<{ id: string }>>`
@@ -963,7 +982,7 @@ export class BusinessService {
     }
     const account = await this.account(input.accountId);
     if (account.status !== 'active') throw new BankError('Business account is closed', 'bank.business_closed');
-    await this.assertRole(input.accountId, input.actorUserId, ['admin', 'maker']);
+    await this.assertRole(input.accountId, input.actorUserId, 'propose');
 
     const existing = await this.payrollRun(input.payrollId);
     if (existing) this.assertPayrollVisibleTerms(existing, input);
@@ -1277,7 +1296,7 @@ export class BusinessService {
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.get(approval.toSpaceId);
     if (
-      receipt.idempotencyKey !== `bank.transfer:${approval.id}:0` ||
+      receipt.idempotencyKey !== bankTransferKey('own', approval.id, 0) ||
       !(await this.postedPayrollMatches(receipt, accountForSpace(from), [{ amount: approval.amount, acct: accountForSpace(to) }]))
     ) {
       throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');
@@ -1442,10 +1461,10 @@ export class BusinessService {
        WHERE a.id = ${accountId}::uuid
     `;
     const role = rows[0]?.role;
-    if (role !== 'admin' && role !== 'maker' && role !== 'checker') {
+    if (!(BUSINESS_ROLES as readonly string[]).includes(role ?? '')) {
       throw new BankError(`Business account ${accountId} not found`, 'bank.business_not_found');
     }
-    return role;
+    return role as BusinessMemberRole;
   }
 
   /**
@@ -1599,8 +1618,11 @@ export class BusinessService {
   private assertAdminLocked(members: readonly MemberRow[], actorUserId: string): void {
     const actor = members.find((row) => row.user_id === actorUserId);
     if (!actor) throw new BankError('Not a member of this business account', 'bank.business_not_member');
-    if (actor.role !== 'admin') {
-      throw new BankError(`Role ${actor.role} cannot perform this action (need admin)`, 'bank.business_role_forbidden');
+    if (!roleCan(actor.role, 'manage_team')) {
+      throw new BankError(
+        `Role ${actor.role} cannot perform this action (need ${rolesWith('manage_team').join('|')})`,
+        'bank.business_role_forbidden',
+      );
     }
   }
 
@@ -1648,7 +1670,7 @@ export class BusinessService {
     actorUserId: string,
     change: { requestId: string; kind: 'set_threshold' | 'close'; spendThreshold: Amount | null },
   ): Promise<BusinessControlResult & { status: 'pending' | 'applied' }> {
-    await this.assertRole(accountId, actorUserId, ['admin']);
+    await this.assertRole(accountId, actorUserId, 'manage_team');
     const account = await this.account(accountId);
     return transaction(this.sql, async (tx) => {
       const existing = await this.controlRow(tx, change.requestId, true);
@@ -1837,10 +1859,14 @@ export class BusinessService {
     return toMember(rows[0]);
   }
 
-  private async assertRole(accountId: string, userId: string, allowed: BusinessMemberRole[]): Promise<void> {
+  /** The caller must hold `capability` now. A removed member is no longer a member, so holds none. */
+  private async assertRole(accountId: string, userId: string, capability: BusinessCapability): Promise<void> {
     const member = await this.assertMember(accountId, userId);
-    if (!allowed.includes(member.role)) {
-      throw new BankError(`Role ${member.role} cannot perform this action (need ${allowed.join('|')})`, 'bank.business_role_forbidden');
+    if (!roleCan(member.role, capability)) {
+      throw new BankError(
+        `Role ${member.role} cannot perform this action (need ${rolesWith(capability).join('|')})`,
+        'bank.business_role_forbidden',
+      );
     }
   }
 }

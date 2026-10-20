@@ -10,8 +10,10 @@ import {
   OPS_CUSTODY_LEDGER_UNWIRED,
   OPS_RESTORE_ARCHIVE_UNCONFIGURED,
   OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_RESTORE_STORAGE_UNCONFIGURED,
 } from './codes.js';
 import { OpsService } from './ops-service.js';
+import { createMemoryRestoreStore } from './restore-store.js';
 import { createOpsRouter } from './router.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
@@ -94,6 +96,7 @@ describe('founder custody / restore / alerts desks', () => {
       asOf: '2026-10-17T00:00:00.000Z',
       archive: { configured: false, probed: false, code: OPS_RESTORE_ARCHIVE_UNCONFIGURED },
       watermarks: null,
+      storage: { configured: false, code: OPS_RESTORE_STORAGE_UNCONFIGURED },
       restored: false,
     });
 
@@ -173,6 +176,7 @@ describe('founder custody / restore / alerts desks', () => {
     const api = createOpsRouter(new OpsService(), undefined, {
       now: () => '2026-10-17T01:00:00.000Z',
       restoreArchiveUrl: 'https://archive.example/restore',
+      restoreStamps: createMemoryRestoreStore(),
       approvals,
     }).createCaller(await signed(principal({ scopes: ['admin:read', 'admin:treasury'], mfa: true })));
     const body = {
@@ -201,9 +205,32 @@ describe('founder custody / restore / alerts desks', () => {
     expect(read.watermarks).toMatchObject({ stamped: true, rows: [{ watermark: 'ledger-seq-9' }] });
   });
 
+  it('refuses a restore stamp with no durable storage, before any approval, and says so on the read', async () => {
+    const approvals = founderApprovals();
+    const api = createOpsRouter(new OpsService(), undefined, {
+      restoreArchiveUrl: 'https://archive.example/restore',
+      approvals,
+    }).createCaller(await signed(principal({ scopes: ['admin:read', 'admin:treasury'], mfa: true })));
+    await expect(
+      api.restore.record({
+        service: 'svc-ledger',
+        kind: 'joint',
+        watermark: 'ledger-seq-9',
+        idempotencyKey: 'restore-key-3',
+        approvalId: 'appr-9',
+        operationId: 'op-9',
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', message: expect.stringContaining(OPS_RESTORE_STORAGE_UNCONFIGURED) });
+    expect(approvals.calls()).toBe(0);
+    const read = await api.restore.watermarks();
+    expect(read.watermarks).toBeNull();
+    expect(read.storage).toEqual({ configured: false, code: OPS_RESTORE_STORAGE_UNCONFIGURED });
+  });
+
   it('refuses restore when identity is unwired and stores nothing', async () => {
     const api = createOpsRouter(new OpsService(), undefined, {
       restoreArchiveUrl: 'https://archive.example/restore',
+      restoreStamps: createMemoryRestoreStore(),
     }).createCaller(await signed(principal({ scopes: ['admin:read', 'admin:treasury'], mfa: true })));
     await expect(
       api.restore.record({

@@ -531,7 +531,7 @@ describe('cancelSeedMarket', () => {
     expect(summarizeCancelSeed(cancelled)).toContain('released=2/2');
   });
 
-  it('not-live cancel still releases leftover hold (levels already cancelled)', async () => {
+  it('not-live cancel leaves a positive hold in place (levels already off the book)', async () => {
     const ledger = new MemoryLedger();
     await fundMm(ledger, 'USDT', '1000', 'fund-nl');
     await fundMm(ledger, 'BTC', '10', 'fund-nl-b');
@@ -552,7 +552,8 @@ describe('cancelSeedMarket', () => {
       { ledger, matching, market: ACTIVE_SPOT, ...readySeedDeps(ACTIVE_SPOT) },
     );
     expect(seeded.ok).toBe(true);
-    // Simulate engine already empty (fills or external cancel) while holds remain.
+    if (!seeded.ok) return;
+    // Order is already off the book (just filled, or already gone) while the hold remains.
     matching.live.clear();
 
     const cancelled = await cancelSeedMarket(
@@ -567,9 +568,78 @@ describe('cancelSeedMarket', () => {
     );
 
     expect(cancelled.ok).toBe(true);
-    expect(cancelled.placements.every((p) => p.status === 'not_live_released')).toBe(true);
-    expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('1000');
-    expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('10');
+    expect(cancelled.placements.every((p) => p.engineCancelled === false)).toBe(true);
+    expect(cancelled.placements.every((p) => p.status === 'not_live_hold_kept')).toBe(true);
+    // Inventory stays on the order hold for the fill. It is not paid back to the pot.
+    expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('901');
+    expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('9');
+    for (const placement of seeded.placements) {
+      const hold = await ledger.balance(marketMakerOrderHoldAccount(placement.holdAsset, placement.orderId));
+      expect(formatAmount(hold.amount)).not.toBe('0');
+    }
+    expect(ledger.journal().some((tx) => tx.reason === 'order.hold.mm.released')).toBe(false);
+  });
+
+  it('does not release a positive hold when matching answers cancelled false', async () => {
+    const ledger = new MemoryLedger();
+    await fundMm(ledger, 'USDT', '1000', 'fund-filled');
+    await fundMm(ledger, 'BTC', '10', 'fund-filled-b');
+    const matching = new SeedStubMatching();
+
+    const seeded = await seedMarket(
+      {
+        marketId: 'btc-usdt',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        midPrice: '100',
+        halfSpreadBps: 100,
+        stepBps: 0,
+        levels: 1,
+        qtyPerLevel: '1',
+        runId: 'run-filled',
+      },
+      { ledger, matching, market: ACTIVE_SPOT, ...readySeedDeps(ACTIVE_SPOT) },
+    );
+    expect(seeded.ok).toBe(true);
+    if (!seeded.ok) return;
+
+    const holds = await Promise.all(
+      seeded.placements.map(async (placement) => ({
+        orderId: placement.orderId,
+        asset: placement.holdAsset,
+        amount: formatAmount((await ledger.balance(marketMakerOrderHoldAccount(placement.holdAsset, placement.orderId))).amount),
+      })),
+    );
+    expect(holds.every((hold) => hold.amount !== '0')).toBe(true);
+
+    const answeredNotCancelled: Pick<MatchingClient, 'cancel'> = {
+      async cancel(_marketId, orderId) {
+        return { cancelled: false, orderId, sequence: null, cancellation: null };
+      },
+    };
+
+    const cancelled = await cancelSeedMarket(
+      {
+        marketId: 'btc-usdt',
+        baseAsset: 'BTC',
+        quoteAsset: 'USDT',
+        levels: 1,
+        runId: 'run-filled',
+      },
+      { ledger, matching: answeredNotCancelled },
+    );
+
+    expect(cancelled.ok).toBe(true);
+    if (!cancelled.ok) return;
+    expect(cancelled.placements).toHaveLength(2);
+    expect(cancelled.placements.every((p) => p.engineCancelled === false)).toBe(true);
+    expect(cancelled.placements.every((p) => p.status === 'not_live_hold_kept')).toBe(true);
+    expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('901');
+    expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('9');
+    for (const hold of holds) {
+      expect(formatAmount((await ledger.balance(marketMakerOrderHoldAccount(hold.asset, hold.orderId))).amount)).toBe(hold.amount);
+    }
+    expect(ledger.journal().some((tx) => tx.reason === 'order.hold.mm.released')).toBe(false);
   });
 
   it('cancel_indeterminate does not release hold (order may still be live)', async () => {

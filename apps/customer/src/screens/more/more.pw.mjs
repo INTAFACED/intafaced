@@ -8,28 +8,29 @@ mkdirSync(shots, { recursive: true });
 const forbidden = /unavailable|not connected|restricted|fixture|lifecycle|\broom\b|\bledger\b|\btier\b/i;
 
 const tiles = [
+  ['academy', '/academy', 'Academy', 'Learning paths and certificates'],
+  ['agents', '/agents', 'Agents', 'Your agent fleet'],
+  ['quant', '/quant', 'Quant', 'Research and strategy sandbox'],
+  ['blueprint', '/blueprint', 'Blueprint', 'Your profile and connected intelligence'],
+  ['market', '/market', 'Market', 'Browse available listings'],
+  ['launch', '/launch', 'Launch', 'Issue and list an asset'],
+  ['token', '/token', 'Token', 'Access and staking'],
+  ['mining', '/mining', 'Mining', 'Pool activity and payouts'],
+  ['bank', '/bank', 'Bank', 'Spaces, transfers, earn, loans and cards'],
+  ['merchant', '/pay/merchant', 'Merchant', 'Accept payments and run your business'],
+  ['p2p', '/p2p', 'Person-to-person', 'Offers, orders and counterparties'],
+  ['promotions', '/uc/promotion', 'Promotions', 'Referrals, invitations and dividends'],
+  ['campaigns', '/campaigns', 'Campaigns', 'Activities you can join'],
+  ['dex', '/dex', 'DEX', 'Swap and liquidity, with what blocks each action'],
+  ['chain', '/chain', 'Chain', 'Blocks, validators and chain status'],
+  ['protocol', '/protocol', 'Protocol', 'Contracts, rails and audit'],
+  ['predict', '/predict', 'Predict', 'Browse and trade predictions'],
+  ['help', '/support', 'Help', 'Answers and support'],
   ['account', '/uc/account', 'Account', 'Your account ID and details'],
   ['security', '/uc/safe', 'Security', 'Sign-in, devices and API keys'],
   ['verification', '/verification', 'Verification', 'Confirm who you are'],
   ['display', '/view', 'Display and language', 'Language, time zone and how numbers look'],
   ['notifications', '/notifications', 'Notifications', 'Updates about your orders and account'],
-  ['help', '/support', 'Help', 'Answers and support'],
-  ['bank', '/bank', 'Bank', 'Spaces, transfers, earn, loans and cards'],
-  ['merchant', '/pay/merchant', 'Merchant', 'Accept payments and run your business'],
-  ['academy', '/academy', 'Academy', 'Learning paths and certificates'],
-  ['agents', '/agents', 'Agents', 'Your agent fleet'],
-  ['quant', '/quant', 'Quant', 'Research and strategy sandbox'],
-  ['launch', '/launch', 'Launch', 'Issue and list an asset'],
-  ['market', '/market', 'Market', 'Browse available listings'],
-  ['predict', '/predict', 'Predict', 'Browse and trade predictions'],
-  ['mining', '/mining', 'Mining', 'Pool activity and payouts'],
-  ['token', '/token', 'Token', 'Access and staking'],
-  ['blueprint', '/blueprint', 'Blueprint', 'Your profile and connected intelligence'],
-  ['campaigns', '/campaigns', 'Campaigns', 'Activities you can join'],
-  ['promotions', '/uc/promotion', 'Promotions', 'Referrals, invitations and dividends'],
-  ['chain', '/chain', 'Chain', 'Parked – view blockers'],
-  ['dex', '/dex', 'DEX', 'Parked – view blockers'],
-  ['protocol', '/protocol', 'Protocol', 'Parked – view blockers'],
 ];
 
 test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links', async ({ page }) => {
@@ -38,7 +39,16 @@ test('More at 1440x900 and 1280x800: sections, tile sizes, words, no dead links'
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   await page.goto('/more');
   await expect(page.locator('.more-title')).toHaveText('More');
-  expect(await page.locator('.more-h2').allTextContents()).toEqual(['Account', 'Settings', 'Help', 'Explore', 'Protocol']);
+  expect(await page.locator('.more-h2').allTextContents()).toEqual([
+    'Learn and build',
+    'Markets and assets',
+    'Money and pay',
+    'Rewards',
+    'Web3',
+    'Help',
+    'Account',
+    'All services',
+  ]);
   expect(await page.locator('.more-tile').count()).toBe(tiles.length);
 
   for (const [id, href, title, line] of tiles) {

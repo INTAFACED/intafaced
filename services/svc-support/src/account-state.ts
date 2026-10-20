@@ -1,4 +1,4 @@
-import { accountStateSchema, serviceAuthHeadersForBody, type AccountState } from '@intafaced/contracts';
+import { accountStateSchema, serviceCallSigner, type AccountState, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { IdentityGroundingUnwiredError, identitySecretSet } from './identity-grounding-honesty.js';
 
 /**
@@ -66,7 +66,12 @@ export class DarkAccountState implements AccountStateSource {
  * the caller renders as an explicitly unread grounding. A shape that does not
  * match the published contract is a shape we must not guess at.
  */
-export function createAccountStateClient(baseUrl: string, internalSecret: string): AccountStateSource {
+export function createAccountStateClient(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-support's own key. With it the call is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): AccountStateSource {
   if (!identitySecretSet(internalSecret)) {
     return {
       async stateOf(): Promise<AccountState | null> {
@@ -76,16 +81,18 @@ export function createAccountStateClient(baseUrl: string, internalSecret: string
   }
 
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-support', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async stateOf(userId: string): Promise<AccountState | null> {
       let response: Response;
       try {
-        response = await fetch(`${url}/internal/account/${encodeURIComponent(userId)}`, {
+        const target = `${url}/internal/account/${encodeURIComponent(userId)}`;
+        response = await fetch(target, {
           method: 'GET',
           headers: {
             'content-type': 'application/json',
-            ...serviceAuthHeadersForBody('svc-support', internalSecret, ''),
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
           },
         });
       } catch {

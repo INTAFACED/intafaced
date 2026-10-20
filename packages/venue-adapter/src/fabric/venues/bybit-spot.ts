@@ -95,7 +95,7 @@ import type { RestLatencyGrade, WsLatencyGrade } from '@intafaced/venue-contract
  *      obvious reading — would leave us waiting forever on a topic the venue
  *      already refused. See `subscribeRefusal`.
  *   6. **`orderbook.1` on spot is snapshot-only**, so it cannot be used as a
- *      delta feed at all. `DEFAULT_WS_DEPTH` is 50 for that reason, not for tuning.
+ *      delta feed at all, and only the 1000-level stream shares the REST `u` numbering, so the stream is that tier (`WS_DEPTH`).
  *
  * ═══════════════════════════════════════════════════════════════════════════
  * TRADING / ACCOUNT — signed, observation-only balances
@@ -191,14 +191,15 @@ function publishedSnapshotLimit(limit: number | null | undefined): number | unde
 }
 
 /**
- * Websocket depth tier. Spot offers 1, 50, 200 and 1000.
+ * Websocket depth tier. Spot offers 1, 50, 200 and 1000; only 1000 is used.
  *
- * 50 rather than 1 because `orderbook.1` is documented as SNAPSHOT-ONLY on spot:
- * it never emits a delta, so a tracker seeded from it would sit at
- * `awaiting-snapshot` forever while frames arrived. That is a correctness
- * constraint, not a bandwidth preference.
+ * Bybit documents the REST orderbook `u` as corresponding to `u` in the
+ * 1000-level stream ("Get Orderbook", spot). The tracker joins the REST snapshot
+ * to the stream by that number, so any other tier compares two different
+ * numberings and can report `live` on a book that was never joined. `orderbook.1`
+ * is also snapshot-only on spot and would never emit a delta.
  */
-const DEFAULT_WS_DEPTH = 50;
+const WS_DEPTH = 1_000;
 
 /** The venue closes a connection it has not heard from. Its docs say every 20s. */
 const DEFAULT_HEARTBEAT_MS = 20_000;
@@ -212,8 +213,8 @@ export interface BybitSpotOptions {
   readonly restBase?: string;
   readonly wsBase?: string;
   readonly clock?: () => number;
-  /** Websocket depth tier: 1 is refused, see `DEFAULT_WS_DEPTH`. */
-  readonly wsDepth?: 50 | 200 | 1_000;
+  /** Websocket depth tier. Only 1000 joins the REST snapshot's `u`; anything else is refused, see `WS_DEPTH`. */
+  readonly wsDepth?: 1_000;
   /** Ping cadence in ms. `0` disables it — for tests only; a live socket needs it. */
   readonly heartbeatMs?: number;
 }
@@ -237,7 +238,7 @@ export class BybitSpotMarketData implements MarketDataAdapter {
     this.#restBase = options.restBase ?? REST_BASE;
     this.#wsBase = options.wsBase ?? WS_BASE;
     this.#clock = options.clock ?? Date.now;
-    this.#wsDepth = options.wsDepth ?? DEFAULT_WS_DEPTH;
+    this.#wsDepth = options.wsDepth ?? WS_DEPTH;
     this.#heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     this.governor = options.governor ?? new RateLimitGovernor(BYBIT_SPOT_RATE_LIMIT, this.#clock());
     this.grader = options.grader ?? new VenueLatencyGrader(VENUE.id);
@@ -369,6 +370,14 @@ export class BybitSpotMarketData implements MarketDataAdapter {
    * healthy.
    */
   async streamBook(symbol: string): Promise<BookSubscription> {
+    if (this.#wsDepth !== WS_DEPTH) {
+      throw new VenueUnavailableError(
+        VENUE.id,
+        'not_ready',
+        `streamBook needs the ${WS_DEPTH}-level stream: the REST snapshot's update id is numbered against it, ` +
+          `so a ${this.#wsDepth}-level stream cannot be joined.`,
+      );
+    }
     const topic = `orderbook.${this.#wsDepth}.${bybitSymbolOf(symbol)}`;
     const { handle, stopHeartbeat } = await this.#subscribe(topic, 'streamBook');
     const queue = new AsyncFrameQueue<VenueBookDelta>();

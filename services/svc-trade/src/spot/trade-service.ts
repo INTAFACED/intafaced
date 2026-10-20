@@ -163,6 +163,7 @@ import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
+import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
@@ -283,6 +284,11 @@ export interface TradeServiceOptions {
    * creation gate refuses it — this field does not invent a replacement.
    */
   algoMarkPolicy?: AlgoMarkPolicy;
+  /**
+   * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
+   * and refuses `trade.missing_mark`. Never a customer value.
+   */
+  trailingMarkSource?: QuotedMarkSource;
   /**
    * PTX-M21 owner fee/rebate schedule (`TRADE_FEE_SCHEDULE`).
    * Default unpublished — place/fill refuse; never listing-row 10/20.
@@ -718,6 +724,8 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
 export class TradeService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
+  /** Read by the trailing-stop placement wrapper (`trailing-stop-place.ts`). */
+  protected readonly trailingMarkSource?: QuotedMarkSource;
   private readonly spotEnabled: boolean;
   private readonly futuresEnabled: boolean;
   private readonly futuresTestSeed: boolean;
@@ -784,6 +792,7 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
+    this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
     this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;
@@ -2342,6 +2351,14 @@ export class TradeService {
     sequence: number | null,
   ): Promise<void> {
     if (order.price == null) return;
+    // The release post commits in the ledger on its own. If it lands and this
+    // transaction then aborts, amend_released rolls back and the terminal
+    // sequence-0 release would pay the same qty-down again (an unsettled fill
+    // keeps the pot above the stale remainder, so the pot cap alone hides
+    // nothing). Survives a serialization retry: the retry's pot is already
+    // reduced, so a fresh before-balance would look like the post never landed.
+    let landedThenCrashed: unknown = null;
+    let potBeforeRelease: Amount | null = null;
     await transaction(
       this.sql,
       async (tx) => {
@@ -2362,18 +2379,29 @@ export class TradeService {
         }
         const release = sub(leftover, newHold);
         if (release > 0n) {
-          await this.ledger.post(
-            withLedgerAttribution(
-              recipes.orderHoldRelease({
-                orderId: locked.id,
-                userId: locked.userId,
-                assetId: locked.holdAsset,
-                amount: release,
-                sequence: version,
-              }),
-              attributionFromOrder(locked),
-            ),
-          );
+          const holdRef = orderHoldAccount(locked.userId, locked.holdAsset, locked.id);
+          const potBefore = potBeforeRelease ?? (await this.ledger.balance(holdRef)).amount;
+          potBeforeRelease = potBefore;
+          try {
+            await this.ledger.post(
+              withLedgerAttribution(
+                recipes.orderHoldRelease({
+                  orderId: locked.id,
+                  userId: locked.userId,
+                  assetId: locked.holdAsset,
+                  amount: release,
+                  sequence: version,
+                }),
+                attributionFromOrder(locked),
+              ),
+            );
+          } catch (err) {
+            // A throw after the commit: if the pot fell by this release the
+            // post landed, so record it and surface the error afterwards.
+            const potAfter = (await this.ledger.balance(holdRef)).amount;
+            if (sub(potBefore, potAfter) !== release) throw err;
+            landedThenCrashed = err;
+          }
         }
         const filledRows = await tx<Array<{ filled: string }>>`
           SELECT COALESCE(SUM(qty), 0)::numeric(38, 18)::text AS filled
@@ -2406,6 +2434,7 @@ export class TradeService {
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+    if (landedThenCrashed) throw landedThenCrashed;
   }
 
   /**
@@ -3733,7 +3762,27 @@ export class TradeService {
         if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') return null;
 
         const remaining = await this.remainingHold(tx, order);
-        if (remaining > 0n) {
+        // A qty-down orderHoldRelease can commit under its amend version before
+        // amend_released does (a process death in that window). remainingHold
+        // still counts that money and sequence 0 is a different key, so posting
+        // `remaining` would pay it again. The pot is what can still come back;
+        // when the pot is larger (a fill row the ledger has not drawn yet) keep
+        // the derived remainder so that slice stays for tradeFill.
+        // The amount under a given idempotency key must never change between
+        // attempts: if a crashed attempt already booked sequence 0, the pot is
+        // smaller now and re-capping would change the body. Reuse the key's
+        // booked amount (post it again as a no-op); cap only a fresh release.
+        const terminalKey = `order.release:${orderId}:0`;
+        const booked = await this.ledger.getTxByKey(terminalKey);
+        let releasable: Amount;
+        if (booked) {
+          const credit = booked.entries.find((entry) => entry.direction === 'credit');
+          releasable = credit ? credit.amount : 0n;
+        } else {
+          const bookHold = (await this.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
+          releasable = bookHold < remaining ? bookHold : remaining;
+        }
+        if (releasable > 0n) {
           // ── 6 · THE RELEASE ────────────────────────────────────────────────
           await this.ledger.post(
             withLedgerAttribution(
@@ -3741,7 +3790,7 @@ export class TradeService {
                 orderId,
                 userId: order.userId,
                 assetId: order.holdAsset,
-                amount: remaining,
+                amount: releasable,
                 sequence: 0,
               }),
               attributionFromOrder(order),

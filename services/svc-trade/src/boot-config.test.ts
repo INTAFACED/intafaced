@@ -299,11 +299,11 @@ describe('svc-trade boots on shipped configuration', () => {
    */
   it('the futures profit source wiring does not throw on the shipped value', () => {
     const shippedValue = shipped.get('TRADE_FUTURES_PROFIT_SOURCE');
-    expect(shippedValue).toBe('house:fees:trade:available');
+    expect(shippedValue).toBe('house:futures-loss:available');
     expect(() => optionalProfitSourceFromConfig(shippedValue)).not.toThrow();
     const source = optionalProfitSourceFromConfig(shippedValue);
     expect(source).not.toBeNull();
-    expect(source?.configured).toBe('house:fees:trade:available');
+    expect(source?.configured).toBe('house:futures-loss:available');
   });
 
   /**
@@ -324,15 +324,15 @@ describe('svc-trade boots on shipped configuration', () => {
   });
 
   /**
-   * D26-P0-02 / PKT-B5: owner published the recipe account in `.env.example`.
+   * D26-P0-02 / PKT-B5: owner published the clearing pot (the account losers pay into and winners are paid from) in `.env.example`.
    * Compose still has no default — a host that blanks .env keeps profit refused.
    */
   it('.env.example publishes the owner-named profit source (PKT-B5)', () => {
-    expect(envExample.get('TRADE_FUTURES_PROFIT_SOURCE')).toBe('house:fees:trade:available');
+    expect(envExample.get('TRADE_FUTURES_PROFIT_SOURCE')).toBe('house:futures-loss:available');
   });
 
   /**
-   * And compose must not grow a default either. `${VAR:-house:fees:trade:available}`
+   * And compose must not grow a default either. `${VAR:-house:futures-loss:available}`
    * would make `platform:up` work by silently making the owner's decision, which
    * is the one repair the ADR forbids.
    */
