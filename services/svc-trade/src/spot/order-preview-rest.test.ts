@@ -295,6 +295,13 @@ describe('POST /api/v1/orders/preview', () => {
       );
     });
 
+    it('refuses post-only with good-till-date outright, as the place door does', async () => {
+      const { response } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt: FUTURE, postOnly: true });
+      expect(response.statusCode, response.body).toBe(400);
+      const bare = await post({ ...limitBuy, timeInForce: 'GTD', postOnly: true });
+      expect(bare.response.statusCode, bare.response.body).toBe(400);
+    });
+
     it('refuses good-till-date on a market order, which has no price to rest at', async () => {
       const { response } = await post({
         symbol: MARKET.symbol,

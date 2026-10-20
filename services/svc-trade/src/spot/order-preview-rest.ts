@@ -256,7 +256,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         ? body.timeInForce
         : 'GTC';
     if (body.postOnly === true) {
-      if (tif !== 'GTC' && tif !== 'PO' && tif !== 'GTD') {
+      if (tif !== 'GTC' && tif !== 'PO') {
         return sendError(reply, 400, 'trade.invalid_price', 'postOnly cannot be combined with an immediate time-in-force');
       }
       tif = 'PO';
