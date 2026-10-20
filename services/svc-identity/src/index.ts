@@ -34,6 +34,7 @@ import { createApiKeyAccountRouter } from './api-key-account-router.js';
 import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
+import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
 import { createListSessionsRouter } from './list-sessions-router.js';
@@ -450,6 +451,7 @@ export const appRouter = mergeRouters(
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
+  createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
   createListSessionsRouter(sql),
