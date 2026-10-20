@@ -11,7 +11,7 @@ import { TradeOpsAdmin } from './service.js';
 
 export function wireTradeOpsAdmin(deps: {
   sql: Sql;
-  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder'>;
+  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket'>;
   ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   approvals: ApprovalBook;
 }): TradeOpsAdmin {
@@ -20,6 +20,7 @@ export function wireTradeOpsAdmin(deps: {
     ledger: deps.ledger,
     approvals: deps.approvals,
     reconcileOrder: (orderId) => deps.trade.reconcileOrder(orderId),
+    listMarket: (input) => deps.trade.listMarket(input),
     cancelOrder: async (orderId, userId) => {
       const owner: Principal = {
         sub: userId,

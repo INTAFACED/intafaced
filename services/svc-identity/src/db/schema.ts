@@ -253,6 +253,11 @@ export const sessions = identity.table(
     refreshHash: text('refresh_hash').notNull(),
     device: text('device'),
     ip: text('ip'),
+    /** One sign-in on one device: every row a refresh token rotates into shares it. */
+    familyId: uuid('family_id').notNull().defaultRandom(),
+    userAgent: text('user_agent'),
+    /** Empty until a trusted geo source feeds it. */
+    country: text('country'),
     /** True once this session has passed a second factor. */
     mfa: boolean('mfa').notNull().default(false),
     expiresAt: tstz('expires_at').notNull(),

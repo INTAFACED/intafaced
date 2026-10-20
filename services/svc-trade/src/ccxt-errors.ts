@@ -226,6 +226,18 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.dated_futures_fixing_unconfigured': { ccxt: 'BadRequest', status: 400 },
   /**
+   * Inverse contract family: no inverse P&L formula is published. NotSupported — stop asking for it.
+   */
+  'trade.inverse_family_unsupported': { ccxt: 'NotSupported', status: 403 },
+  /** Linear listing whose settle asset is not the quote asset. BadRequest — operator fixes the listing. */
+  'trade.futures_settle_asset_mismatch': { ccxt: 'BadRequest', status: 400 },
+  /** USDC settle asset not configured. BadRequest — owner configures it; not a symbol to drop. */
+  'trade.futures_settle_asset_unconfigured': { ccxt: 'BadRequest', status: 400 },
+  /** Family or settle asset on a non-futures listing. */
+  'trade.futures_family_terms_incomplete': { ccxt: 'BadRequest', status: 400 },
+  /** Pre-market params blank. BadRequest — owner publishes the numbers; nothing is invented. */
+  'trade.premarket_params_unset': { ccxt: 'BadRequest', status: 400 },
+  /**
    * Expiry job: owner settlement price blank. BadRequest — never last trade.
    */
   'trade.dated_futures_settlement_price_unset': { ccxt: 'BadRequest', status: 400 },

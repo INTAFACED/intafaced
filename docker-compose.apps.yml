@@ -377,6 +377,8 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Access-token signing keys for rotation (id:secret list). Pass-through only — no compose default, no invented key.
+      IDENTITY_AUTH_KEYS: ${IDENTITY_AUTH_KEYS:-}
       # Password-reset and username-recovery flows (I-signin-sessions-03). Pass-through only — no compose default, no invented number or key.
       # Blank stays refuse-closed (auth.reset_unwired).
       IDENTITY_FLOW_SUBJECT_KEY: ${IDENTITY_FLOW_SUBJECT_KEY:-}

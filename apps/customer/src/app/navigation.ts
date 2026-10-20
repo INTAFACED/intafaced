@@ -4,7 +4,7 @@ export type Room = {
   title: NavigationCopyKey;
   description: NavigationCopyKey;
   door?: Door;
-  area: 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public' | 'parked' | 'team';
+  area: 'home' | 'money' | 'trade' | 'pay' | 'more' | 'person' | 'public' | 'web3' | 'team';
   business?: boolean;
   /**
    * Redirect target (replace). It may carry a query (`/money/activity?tab=orders`) and the
@@ -16,6 +16,13 @@ export type Room = {
   /** Redesigned screen that renders this route; rooms without one render their old view inside `.legacy-room`. */
   screen?: ScreenId;
 };
+
+const WEB3_DESCRIPTION = {
+  chain: 'Blocks, validators and chain status',
+  dex: 'Swap and liquidity',
+  protocol: 'Contracts, rails and audit',
+  wallet: 'Your wallet and its activity',
+} as const;
 
 export const rooms: readonly Room[] = [
   { path: '/', title: 'Home', description: 'Intafaced', area: 'public', hidden: true },
@@ -184,6 +191,8 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  { path: '/trade/news', title: 'News', description: 'Market news by category, language and symbol', door: 'Trade', area: 'trade' },
+  { path: '/trade/calendar', title: 'Economic calendar', description: 'Scheduled releases and their values', door: 'Trade', area: 'trade' },
   {
     path: '/trade/convert',
     title: 'Convert',
@@ -498,6 +507,88 @@ export const rooms: readonly Room[] = [
     door: 'More' as const,
     area: 'more' as const,
   })),
+  // Sections and records of the six More rooms (MC-order-01). Never offered in search; `features/more/more-room-routes.ts` is the matching table.
+  {
+    path: '/predict/positions',
+    title: 'Predict positions',
+    description: 'Browse and trade predictions',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/predict/:marketId',
+    title: 'Prediction market',
+    description: 'Browse and trade predictions',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/market/purchases',
+    title: 'Market purchases',
+    description: 'Browse available listings',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/market/:listingId',
+    title: 'Market listing',
+    description: 'Browse available listings',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/launch/new', title: 'New launch', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  { path: '/launch/check', title: 'Launch check', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/launch/requirements',
+    title: 'Launch requirements',
+    description: 'Issue and list an asset',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/launch/:projectId', title: 'Launch project', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  { path: '/token/governance', title: 'Token governance', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  { path: '/token/economy', title: 'Token economy', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/token/governance/:proposalId',
+    title: 'Governance proposal',
+    description: 'Access and staking',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/mining/workers', title: 'Mining workers', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/shares', title: 'Mining shares', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/rewards', title: 'Mining rewards', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/status', title: 'Mining status', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/mining/workers/:workerId',
+    title: 'Mining worker',
+    description: 'Pool activity and payouts',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/blueprint/crew',
+    title: 'Blueprint crew',
+    description: 'Your profile and connected intelligence',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/blueprint/shared/:cardId',
+    title: 'Shared card',
+    description: 'Your profile and connected intelligence',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
@@ -514,17 +605,23 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...(
-    [
-      ['chain', 'Blocks, validators and chain status'],
-      ['dex', 'Swap and liquidity'],
-      ['protocol', 'Contracts, rails and audit'],
-    ] as const
-  ).flatMap(([slug, description]) => [
-    { path: `/${slug}`, title: slug, description, area: 'parked' as const },
-    // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
-    { path: `/${slug}/*`, title: slug, description, area: 'parked' as const, hidden: true },
-  ]),
+  // The Web3 rooms (IA-SPEC 2.8). Every route comes from the Protocol route table; the room roots are searchable and the
+  // detail routes are not. The network is Base Sepolia, which is not INTACHAIN and is not audited.
+  ...WEB3_ROUTES.map((route): Room => ({
+    path: route.path,
+    title: route.room,
+    description: WEB3_DESCRIPTION[route.room],
+    area: 'web3',
+    ...(route.path === `/${route.room}` ? {} : { hidden: true }),
+  })),
+  // Unknown sub-paths open the room, which answers them with its not-found page.
+  ...(['chain', 'dex', 'protocol', 'wallet'] as const).map((slug): Room => ({
+    path: `/${slug}/*`,
+    title: slug,
+    description: WEB3_DESCRIPTION[slug],
+    area: 'web3',
+    hidden: true,
+  })),
 ];
 
 export function findRoom(path: string): Room | undefined {
@@ -573,7 +670,7 @@ export function customerRoomHref(candidate: string | null | undefined): string |
   try {
     const url = new URL(candidate, 'https://intafaced.invalid');
     const room = findRoom(url.pathname);
-    return room && !['team', 'parked'].includes(room.area) ? `${url.pathname}${url.search}` : undefined;
+    return room && !['team', 'web3'].includes(room.area) ? `${url.pathname}${url.search}` : undefined;
   } catch {
     return undefined;
   }
@@ -593,7 +690,7 @@ export function roomDescription(room: Room, locale: UiLocale = currentPreference
 }
 /** Where a room lives, as search shows it: "Bank > Earn". Parked Web3 rooms sit under More; rooms outside every door have no path. */
 export function roomPath(room: Room, locale: UiLocale = currentPreferences().language): string | undefined {
-  const door = room.door ?? (room.area === 'parked' ? 'More' : undefined);
+  const door = room.door ?? (room.area === 'web3' ? 'More' : undefined);
   return door ? `${doorLabel(door, locale)} > ${roomTitle(room, locale)}` : undefined;
 }
 
@@ -603,7 +700,7 @@ export function doorLabel(door: Door | 'Money', locale: UiLocale = currentPrefer
 const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner']);
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
- * never appear; parked Protocol rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
+ * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
  * mode, except the Merchant home, which is how a Personal account finds the merchant set-up.
  */
 export function searchRooms(query: string, mode: 'Personal' | 'Business', locale: UiLocale = currentPreferences().language): Room[] {
@@ -657,3 +754,4 @@ import type { UiLocale } from '../shared/i18n';
 import { isHiddenPath } from './feature-registry';
 import { hasPattern, matchPath } from './path-match';
 import type { ScreenId } from './screen-types';
+import { WEB3_ROUTES } from '../features/protocol/routes';

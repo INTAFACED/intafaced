@@ -106,6 +106,15 @@ export interface Market {
   readonly futuresExpiryAt?: Date | null;
   /** Opaque owner fixing stamp on dated listings — never a settlement price. */
   readonly futuresSettlementFixing?: string | null;
+  /**
+   * Contract family (0078). `linear` is the only family that lists; `inverse` refuses
+   * `trade.inverse_family_unsupported`. Null on non-futures and on futures rows that never recorded one.
+   */
+  readonly futuresFamily?: 'linear' | 'inverse' | null;
+  /** Asset a futures market settles in. Null on non-futures. Never defaulted to anything but the quote asset. */
+  readonly futuresSettleAsset?: string | null;
+  /** Futures contract multiplier as recorded on the row. Null when the market never recorded one. */
+  readonly contractSize?: Amount | null;
 }
 
 export interface OrderRecord {
@@ -645,7 +654,26 @@ export type TradeErrorCode =
    * Candle start/end/granularity would return more than the published point cap.
    * The request is refused whole — no trimmed series.
    */
-  | 'trade.candles_range_point_cap';
+  | 'trade.candles_range_point_cap'
+  /**
+   * Listing refused: the inverse contract family. No inverse P&L formula is published,
+   * so none is invented here. Clears only when the owner publishes the formula.
+   */
+  | 'trade.inverse_family_unsupported'
+  /**
+   * Linear listing refused: the settle asset is not the quote asset. A cross-asset settle needs a
+   * conversion rule nobody has published, so the settle asset is never defaulted to another asset.
+   */
+  | 'trade.futures_settle_asset_mismatch'
+  /** USDC-settled linear listing refused until the owner configures that settle asset (TRADE_FUTURES_SETTLE_ASSETS). */
+  | 'trade.futures_settle_asset_unconfigured'
+  /** Family or settle asset supplied on a non-futures listing. Schema CHECK `markets_futures_family_terms_ck` is the same rule. */
+  | 'trade.futures_family_terms_incomplete'
+  /**
+   * Pre-market conversion (or params read) refused: the owner has not set the flat funding rate
+   * and the mark clamp band for this market. Blank stays blank; the market row is left as it was.
+   */
+  | 'trade.premarket_params_unset';
 
 export class TradeError extends Error {
   /** Exact decimal strings and asset codes. Absent when the refusal has no amounts. */
