@@ -172,7 +172,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `bank.recipient_check_unset`                      | Money                    | trade-wallet, trade-funding | `apps/customer/src/features/money/money-refusal-copy.ts`         |
 | `bank.rewards_issuer_unset`                       | Money                    | trade-wallet, trade-funding | `services/svc-bank/src/cards/card-service.ts`                    |
 | `confirmation.default_unset`                      | confirmation             | none yet                    | `services/svc-pay/src/custody/tx/errors.ts`                      |
-| `custody_approval.quorum_unset`                   | custody_approval         | none yet                    | `services/svc-pay/src/custody/approvals/errors.ts`               |
+| `custody_approval.quorum_unset`                   | custody_approval         | none yet                    | `apps/admin/src/lib/desk/refusal-copy.ts`                        |
 | `custody_fees.cap_unset`                          | custody_fees             | none yet                    | `services/svc-pay/src/custody/fees/errors.ts`                    |
 | `edge.screening_unset`                            | Edge                     | none yet                    | `services/svc-edge/src/geo-block.ts`                             |
 | `fix.developer.decimal_unset`                     | fix                      | none yet                    | `services/svc-fix/src/developer-contract.ts`                     |
