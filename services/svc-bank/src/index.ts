@@ -2,13 +2,21 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, rawBodyOf, retainRawBody, s2sFromEnv, verifyServiceRequest } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  createPayCustodyDepositClient,
+  rawBodyOf,
+  retainRawBody,
+  s2sFromEnv,
+  verifyServiceRequest,
+} from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
 import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from './business/business-directory.js';
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
+import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
@@ -98,6 +106,11 @@ const bus = await JetStreamEventBus.connect({
 
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // Deposit catalogue and addresses come from svc-pay over the signed seam. With no PAY_URL every answer is "not published"
+  // and the doors refuse `bank.deposit_custody_unset`; svc-bank derives no key.
+  deposits: {
+    custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
+  },
   // Frozen/closed recipients are refused before any posting. Identity owns that
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
   // `bank.recipient_check_unset` (see the boot warning below). No default of

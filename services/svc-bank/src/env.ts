@@ -27,6 +27,12 @@ const schema = serviceEnvSchema
       IDENTITY_URL: z.string().url().optional(),
 
       /**
+       * svc-pay base for customer deposit addresses and the deposit catalogue (W-deposit-01). Blank → the deposit doors refuse
+       * `bank.deposit_custody_unset`. No localhost default, no invented address.
+       */
+      PAY_URL: z.string().url().optional(),
+
+      /**
        * The native asset. svc-bank refuses it in earn pools because native
        * staking lives in svc-token (§8.1) — one asset, one owner.
        *
