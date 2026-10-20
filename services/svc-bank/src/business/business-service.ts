@@ -3,6 +3,7 @@ import { transaction } from '@intafaced/db';
 import {
   IDEMPOTENCY_CONFLICT_CODE,
   LedgerError,
+  bankTransferKey,
   formatAmount,
   parseAmount,
   recipes,
@@ -464,7 +465,7 @@ export class BusinessService {
       // A retry of a proposal that already booked must resume it, not be refused.
       alreadyBooked: async () =>
         (await this.approvalExists(input.clientId)) ||
-        (await this.ledger.getTxByKey(`bank.transfer:${input.clientId}:0`)) !== null ||
+        (await this.ledger.getTxByKey(bankTransferKey('own', input.clientId, 0))) !== null ||
         (await this.ledger.getTxByKey(`bank.business.hold:${input.clientId}`)) !== null,
     });
     if (from.assetId !== account.assetId || to.assetId !== account.assetId) {
@@ -487,7 +488,7 @@ export class BusinessService {
     // Recover pre-claim legacy receipts before choosing a mode. Neither ledger
     // key may be rebound to different economic terms or a second money path.
     const [previousTransfer, previousHold] = await Promise.all([
-      this.ledger.getTxByKey(`bank.transfer:${clientId}:0`).then((tx) => this.withEntries(tx)),
+      this.ledger.getTxByKey(bankTransferKey('own', clientId, 0)).then((tx) => this.withEntries(tx)),
       this.ledger.getTxByKey(`bank.business.hold:${clientId}`).then((tx) => this.withEntries(tx)),
     ]);
     const fromAcct = accountForSpace(from);
@@ -1277,7 +1278,7 @@ export class BusinessService {
     const from = await this.spaces.get(approval.fromSpaceId);
     const to = await this.spaces.get(approval.toSpaceId);
     if (
-      receipt.idempotencyKey !== `bank.transfer:${approval.id}:0` ||
+      receipt.idempotencyKey !== bankTransferKey('own', approval.id, 0) ||
       !(await this.postedPayrollMatches(receipt, accountForSpace(from), [{ amount: approval.amount, acct: accountForSpace(to) }]))
     ) {
       throw new BankError('The ledger transfer differs from the original proposal', 'bank.business_request_conflict');
