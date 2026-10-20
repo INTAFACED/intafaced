@@ -155,14 +155,12 @@ export function inKbCategory(id: string, category: KbCategory): boolean {
 }
 
 /**
- * Where a person who cannot sign in writes to. One place, one address; `VITE_SUPPORT_EMAIL` overrides it per deployment.
- * The default is the company address recorded in the repository's contact notes (docs/TV-APPLY-PACK.md).
+ * The address a person who cannot sign in writes to, or `null` when none is published. There is no built-in address:
+ * `VITE_SUPPORT_EMAIL` at build time is the only source here, and a blank or malformed value is "not set".
  */
-export const DEFAULT_SUPPORT_EMAIL = 'hello@intafaced.com';
-
-export function supportEmail(configured?: string | undefined): string {
+export function supportEmail(configured?: string | undefined): string | null {
   const value = (configured ?? '').trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : DEFAULT_SUPPORT_EMAIL;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
 }
 
 /** A mailto link that never carries a password, code or key: only the subject and a plain prompt the person finishes. */

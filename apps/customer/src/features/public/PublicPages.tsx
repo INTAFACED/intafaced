@@ -1,6 +1,6 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
 import { useSession } from '../session/session';
-import { SUPPORT_EMAIL } from '../more/support-contact';
+import { supportContactEmail } from '../more/support-contact';
 import { supportMailto } from '../more/support-desk';
 import { ContactSupport } from './ContactSupport';
 import { NoticeDetail, NoticeFeed } from './NoticeFeed';
@@ -14,7 +14,7 @@ import './public-pages.css';
 export function PartnerPage() {
   const copy = pagesCopy.useCopy();
   const form = partnerEnquiryHref(import.meta.env.VITE_JOIN_URL as string | undefined);
-  const to = SUPPORT_EMAIL;
+  const to = supportContactEmail();
   return (
     <div className="pub-page">
       <header className="pub-heading">
@@ -28,7 +28,7 @@ export function PartnerPage() {
           <a className="button button--primary" href={form}>
             {copy.t('partnerOpenForm')} ↗
           </a>
-        ) : (
+        ) : to ? (
           <>
             <a className="button button--primary" href={supportMailto(to, copy.t('partnerMailSubject'), copy.t('partnerMailBody'))}>
               {copy.t('partnerEmail')}
@@ -37,6 +37,10 @@ export function PartnerPage() {
               <span lang="zxx">{to}</span>
             </p>
           </>
+        ) : (
+          <p role="status" data-testid="support-email-unset">
+            {copy.t('partnerEmailNotSet')}
+          </p>
         )}
       </section>
       <section className="pub-card" aria-labelledby="partner-include">

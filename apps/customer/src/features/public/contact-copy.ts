@@ -14,6 +14,8 @@ export const contactCopy = defineCopy('public-contact', {
   neverShare: 'Never write your password, recovery codes or one-time codes. We will never ask for them.',
   write: 'Email support',
   addressLabel: 'Or write to',
+  addressNotSet: 'Support email is not set.',
+  addressNotSetNote: 'No address has been published, so there is no email link on this page.',
   noForm: 'This opens a draft in your email app. Nothing is sent from this page.',
   noPromise: 'We cannot promise how fast we reply.',
   titleSignedIn: 'You are signed in',
