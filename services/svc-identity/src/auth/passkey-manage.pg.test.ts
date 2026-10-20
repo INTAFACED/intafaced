@@ -83,8 +83,9 @@ if (!available) {
       const first = await renamePasskey(db.sql, user, 'a', ' Laptop ');
       expect(first).toMatchObject({ credentialId: 'a', label: 'Laptop', kind: 'platform' });
       await renamePasskey(db.sql, user, 'a', 'Laptop');
-      const [{ webauthn_creds }] = await db.sql<Array<{ webauthn_creds: Array<Record<string, unknown>> }>>`
+      const [stored] = await db.sql<Array<{ webauthn_creds: Array<Record<string, unknown>> }>>`
         SELECT webauthn_creds FROM users WHERE id = ${user}`;
+      const webauthn_creds = stored!.webauthn_creds;
       expect(webauthn_creds.find((c) => c.credentialId === 'a')).toMatchObject({ label: 'Laptop', counter: 1, publicKey: 'AQID' });
       expect(webauthn_creds.find((c) => c.credentialId === 'b')?.label).toBeUndefined();
       await expect(renamePasskey(db.sql, user, 'gone', 'x')).rejects.toMatchObject({ code: 'auth.not_found' });
