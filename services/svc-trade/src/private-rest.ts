@@ -18,7 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
-import { refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
+import { hasSpentExpiry, refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -133,10 +133,11 @@ export const MAX_BATCH_ORDERS = 100;
 async function isDeadlineReplay(
   deps: PrivateRestDeps,
   principal: Principal,
-  body: { requestDeadline?: string; symbol: string; clientOrderId: string },
+  body: { requestDeadline?: string; timeInForce?: string; expireAt?: string; symbol: string; clientOrderId: string },
   now: Date,
 ): Promise<boolean> {
-  if (body.requestDeadline === undefined || Date.parse(body.requestDeadline) > now.getTime() || !deps.findClientOrder) return false;
+  const deadlineSpent = body.requestDeadline !== undefined && Date.parse(body.requestDeadline) <= now.getTime();
+  if ((!deadlineSpent && !hasSpentExpiry(body, now)) || !deps.findClientOrder) return false;
   return (await deps.findClientOrder(principal, { symbol: body.symbol, clientOrderId: body.clientOrderId })) !== null;
 }
 
@@ -2708,6 +2709,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     try {
       refuseOptionsOnReplacement(parsed.data);
+      if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
+        throw new TradeError('the order expiry is not in the future; nothing was replaced', 'trade.invalid_expiry');
+      }
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);

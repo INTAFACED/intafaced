@@ -381,6 +381,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.fill_sequence_conflict': { ccxt: 'ExchangeError', status: 500 },
   'trade.engine_sequence_regressed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.missing_expire_at': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.invalid_expiry': { ccxt: 'InvalidOrder', status: 400 },
   'trade.engine_clock_missing': { ccxt: 'InvalidOrder', status: 400 },
   'trade.missing_oco_trigger': { ccxt: 'InvalidOrder', status: 400 },
   'trade.oco_stop_limit_required': { ccxt: 'InvalidOrder', status: 400 },

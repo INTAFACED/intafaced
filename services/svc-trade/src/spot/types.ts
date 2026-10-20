@@ -560,6 +560,7 @@ export type TradeErrorCode =
   | 'trade.engine_sequence_regressed'
   /** GTD/GTT placed without expireAt — the engine does not invent one. */
   | 'trade.missing_expire_at'
+  | 'trade.invalid_expiry'
   /** Matching refused: its engine clock was not injected. */
   | 'trade.engine_clock_missing'
   /** OCO placed without a caller stopPrice on a leg — trade does not invent a trigger. */
