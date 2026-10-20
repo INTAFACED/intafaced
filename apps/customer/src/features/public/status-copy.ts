@@ -20,6 +20,8 @@ export const statusCopy = defineCopy('public-status', {
   OPEN_effect: 'Orders are accepted and can be cancelled.',
   POST_ONLY: 'Post-only',
   POST_ONLY_effect: 'Only orders that rest on the book are accepted. Cancelling works.',
+  LIMIT_ONLY: 'Limit-only',
+  LIMIT_ONLY_effect: 'Limit orders are accepted and cancelling works. Market orders are refused.',
   CANCEL_ONLY: 'Cancel-only',
   CANCEL_ONLY_effect: 'New orders are refused. You can cancel resting orders.',
   REDUCE_ONLY: 'Reduce-only',

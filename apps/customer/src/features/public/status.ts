@@ -29,11 +29,13 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
   };
 }
 
-export type ModeKey = 'OPEN' | 'POST_ONLY' | 'CANCEL_ONLY' | 'REDUCE_ONLY' | 'HALTED' | 'DELISTING' | 'PRELAUNCH' | 'REFUSED';
+export type ModeKey =
+  'OPEN' | 'POST_ONLY' | 'LIMIT_ONLY' | 'CANCEL_ONLY' | 'REDUCE_ONLY' | 'HALTED' | 'DELISTING' | 'PRELAUNCH' | 'REFUSED';
 
 const KNOWN: ReadonlySet<string> = new Set<ModeKey>([
   'OPEN',
   'POST_ONLY',
+  'LIMIT_ONLY',
   'CANCEL_ONLY',
   'REDUCE_ONLY',
   'HALTED',
