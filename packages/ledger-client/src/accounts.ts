@@ -189,8 +189,10 @@ export function insuranceFund(assetId: string): AccountRef {
 }
 
 /**
- * Realized futures loss sink. Not `houseFees('trade')` — a fee total is only fees.
- * A loss debits this pot. It is hard non-negative, same as every other house pot.
+ * The futures clearing pot. Every realised loss pays in and every realised
+ * profit is paid out (docs/adr/2026-10-20-futures-matched-traders.md). Not
+ * `houseFees('trade')` — a fee total is only fees. It is hard non-negative,
+ * same as every other house pot. The account id keeps its old name.
  */
 export function futuresLossSink(assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: 'futures-loss', assetId, kind: 'available' };

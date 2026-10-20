@@ -59,6 +59,7 @@ import {
   positionCollateralAccount,
   recipes,
   userAvailable,
+  futuresLossSink,
 } from '@intafaced/ledger-client';
 import type { LedgerClient, PostRequest } from '@intafaced/ledger-client';
 
@@ -126,6 +127,34 @@ function slowMarks(inner: QuotedMarkSource, delayMs: number): QuotedMarkSource {
   };
 }
 
+/** A trader who is not asserted on anywhere: the loser whose realised loss fills the clearing pot. */
+const POT_LOSER = '99999999-9999-4999-8999-999999999999';
+
+/**
+ * Fund the clearing pot (`futuresLossSink`, the account losers pay into and
+ * winners are paid from) the way it fills in production: a loser's deposit,
+ * margin lock and realised loss.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
+}
+
 describe('H8a money suite is not skip-green', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
@@ -164,7 +193,7 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
    */
   let posted: PostRequest[] = [];
 
-  const profitPot = () => houseFees('trade', 'USDT');
+  const profitPot = () => futuresLossSink('USDT');
   const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
 
   function feed(price: string, marketId: string = MARKET) {
@@ -194,22 +223,12 @@ describe('svc-trade position-close-concurrency (H8a PG-hard)', () => {
   }
 
   /**
-   * A charged fee, not a realised loss. The loss recipe debits `futuresLossSink`
-   * and leaves `houseFees('trade')` — the account a profit close draws — empty.
+   * A loser's realised loss, the way the clearing pot (`futuresLossSink`, the
+   * account a profit close draws) actually fills.
    */
   async function fundProfitSource(amount: string) {
     const seed = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seed}` }));
-    await ledger.post(
-      recipes.feeCharge({
-        chargeId: seed,
-        userId: BOB,
-        module: 'trade',
-        mode: 'asset',
-        assetId: 'USDT',
-        amount: amt(amount),
-      }),
-    );
+    await fundClearingPot(ledger, { loserUserId: POT_LOSER, assetId: 'USDT', amount: amt(amount), seedId: seed });
   }
 
   const balance = async (ref: Parameters<MemoryLedger['balance']>[0]) => formatAmount((await ledger.balance(ref)).amount);

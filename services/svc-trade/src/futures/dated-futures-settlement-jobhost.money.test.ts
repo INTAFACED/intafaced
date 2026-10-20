@@ -19,11 +19,11 @@ import {
   MemoryLedger,
   formatAmount,
   futuresLossSink,
-  houseFees,
   parseAmount as amt,
   positionCollateralAccount,
   recipes,
   userAvailable,
+  houseFees,
 } from '@intafaced/ledger-client';
 import { DATED_FUTURES_SETTLEMENT_PRICE_UNSET } from './dated-futures-settlement.js';
 import { startFuturesJobs } from './futures-jobs.js';
@@ -88,22 +88,24 @@ function captureIntervals() {
 }
 
 /**
- * Alice locks 20 of a 1000 deposit. Bob's 50 is a posted trade fee into
- * `houseFees('trade')`, the account `futuresRealizeProfit` draws. A realised
- * loss would debit `futuresLossSink` and leave that fee pot at 0 (#5016).
+ * Alice locks 20 of a 1000 deposit. Bob is the loser on the other side: his
+ * 50 deposit, margin lock and realised loss fill the clearing pot
+ * (`futuresLossSink`), the account losers pay into and `futuresRealizeProfit`
+ * pays winners from.
  */
 async function seedMarginAndProfitPot(ledger: MemoryLedger) {
   await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: 'alice-usdt' }));
   await ledger.post(recipes.futuresMarginLock({ positionId: POS, userId: ALICE, assetId: 'USDT', amount: amt('20') }));
-  await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'bob-fee-seed' }));
+  await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'bob-loser-seed' }));
+  await ledger.post(recipes.futuresMarginLock({ positionId: 'loser-pot-seed', userId: BOB, assetId: 'USDT', amount: amt('50') }));
   await ledger.post(
-    recipes.feeCharge({
-      chargeId: 'pot-seed',
+    recipes.futuresRealizeLoss({
+      positionId: 'loser-pot-seed',
       userId: BOB,
-      module: 'trade',
-      mode: 'asset',
       assetId: 'USDT',
-      amount: amt('50'),
+      fromMargin: amt('50'),
+      fromInsurance: 0n,
+      lossId: 'pot-seed',
     }),
   );
 }
@@ -219,10 +221,11 @@ describe('svc-trade dated futures settlement H6 JobHost money', () => {
         .map((p) => p.reason),
     ).toEqual(['futures.profit.realized', 'futures.margin.release']);
     expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', POS))).amount)).toBe('0');
-    // 1000 - 20 lock + 10 profit + 20 release = 1010. Fees 50 - 10 = 40. Loss sink stays 0.
+    // 1000 - 20 lock + 10 profit + 20 release = 1010. Clearing pot 50 - 10 = 40.
     expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('1010');
-    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('40');
-    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('40');
+    // House trade fees never pay a winner.
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('0');
     expect(ledger.reconcile()).toEqual({ ok: true });
     const [row] = await sql<{ status: string }[]>`SELECT status FROM trade.positions WHERE id = ${POS}`;
     expect(row?.status).toBe('closed');
