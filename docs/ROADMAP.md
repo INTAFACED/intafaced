@@ -13,7 +13,8 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 ## How work flows
 
 - **Lanes.** A lane is one service, or one app area, so two lanes never edit the same files. A lane keeps one thread across many slices and takes its next slice from its queue (`node tooling/scripts/roadmap.mjs --lane "<lane>"`). Trader-journey slices go first.
-- **Slice ids.** A PR that builds a slice names its id in the title (for example `svc-trade: SP-order-entry-02 market order by value`), so progress is counted from merged PRs, not typed.
+- **Slice ids.** A PR that builds a slice names its id in the title (for example `svc-trade: SP-order-entry-02 market order by value`), so progress is counted from merged PRs, not typed (`node tooling/scripts/roadmap.mjs --progress`).
+- **How to build and review a slice:** the `build-slice` repo skill, with the lane brief and the reviewer brief.
 - **Before building a slice,** re-read its spec and re-check every cited `file:line` against today's main. The specs were written against main of 2026-10-18; drop what is already built and say so in the PR.
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
@@ -43,7 +44,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1234 slices left in 21 modules. 197 need no other slice. 289 sit in a dependency loop that the lane untangles first. 267 end in a refusal that names an outside service (built, switched on later). Size: 646 L, 537 M, 51 S.
+1234 slices left in 21 modules. 188 need no other slice. 292 sit in a dependency loop that the lane untangles first. 267 end in a refusal that names an outside service (built, switched on later). Size: 646 L, 537 M, 51 S.
 
 ### By module
 
@@ -51,7 +52,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
 | merchant       | 180    | 17           | 0                             | 100   |
 | copy-bots-otc  | 109    | 40           | 11                            | 39    |
-| bank           | 91     | 40           | 0                             | 55    |
+| bank           | 91     | 31           | 0                             | 55    |
 | dex-protocol   | 91     | 2            | 84                            | 33    |
 | ops-console    | 83     | 15           | 36                            | 63    |
 | identity       | 73     | 15           | 25                            | 20    |
@@ -78,9 +79,9 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | Lane                          | Slices | Need nothing | In the trader journey |
 | ----------------------------- | ------ | ------------ | --------------------- |
 | svc-pay merchant              | 197    | 20           | 11                    |
-| svc-bank                      | 169    | 39           | 32                    |
+| svc-bank                      | 169    | 31           | 32                    |
 | svc-trade spot                | 139    | 36           | 32                    |
-| svc-identity                  | 114    | 26           | 66                    |
+| svc-identity                  | 114    | 25           | 66                    |
 | svc-p2p                       | 59     | 7            | 0                     |
 | svc-academy                   | 47     | 3            | 0                     |
 | svc-protocol                  | 47     | 0            | 0                     |
@@ -134,8 +135,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | Journey                  | Slices | Need nothing |
 | ------------------------ | ------ | ------------ |
 | trader                   | 208    | 40           |
-| bank-fund-trade-withdraw | 51     | 22           |
-| merchant-payout-to-bank  | 80     | 23           |
+| bank-fund-trade-withdraw | 51     | 13           |
+| merchant-payout-to-bank  | 80     | 18           |
 | one-portfolio            | 27     | 5            |
 
 ### Trader journey queue
