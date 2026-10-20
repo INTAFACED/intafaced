@@ -38,6 +38,10 @@
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"
     },
+    "./quant-disclosure": {
+      "types": "./dist/quant-disclosure.d.ts",
+      "default": "./dist/quant-disclosure.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"
