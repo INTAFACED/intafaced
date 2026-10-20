@@ -1,0 +1,9 @@
+{
+  "meta": { "provenance": "machine", "reviewedAt": null },
+  "messages": {
+    "auth.login.title": "Iniciar sesión",
+    "auth.logout": "Cerrar sesión",
+    "common.action.confirm": "Confirmar",
+    "common.action.cancel": "Cancelar"
+  }
+}

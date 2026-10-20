@@ -6,34 +6,42 @@
  * through to English. Words are still measured honestly — an empty catalog
  * is not "translated".
  *
- * Three locales carry distinct copy (en, es, fr). Literary translation of
- * the rest is residual, not a second mountain. Adding a language with real
- * words means filling that locale's catalog — not a refactor.
+ * Three locales carry distinct copy (en, es, fr). Adding a language with real
+ * words means dropping `src/locales/<code>.json` and running
+ * `node scripts/build-locale-index.mjs` — not a refactor.
  */
-import { coverage, en, type MessageKey, type PartialCatalog } from './catalog.js';
+import { coverage, en, isMessageKey, type MessageKey, type PartialCatalog } from './catalog.js';
+import { LOCALE_FILES } from './locale-files.generated.js';
+import type { LocaleFile, Provenance } from './locale-file.js';
 import { SUPPORTED_LOCALES, locale as findLocale, type LocaleCode } from './locales.js';
 
-/** Distinct Spanish strings — enough to prove the locale is not English. */
-const es: PartialCatalog = {
-  'auth.login.title': 'Iniciar sesión',
-  'auth.logout': 'Cerrar sesión',
-  'common.action.confirm': 'Confirmar',
-  'common.action.cancel': 'Cancelar',
-};
-
-/** Distinct French strings — enough to prove the locale is not English. */
-const fr: PartialCatalog = {
-  'auth.login.title': 'Connexion',
-  'auth.logout': 'Déconnexion',
-  'common.action.confirm': 'Confirmer',
-  'common.action.cancel': 'Annuler',
-};
+/**
+ * Language files dropped into `src/locales/<code>.json` (see `scripts/build-locale-index.mjs`). A key the English source does not
+ * have is left out here, and the package test fails naming the file and key.
+ */
+export function catalogsFromFiles(files: Readonly<Record<string, LocaleFile>>): Partial<Record<LocaleCode, PartialCatalog>> {
+  const written: Partial<Record<LocaleCode, PartialCatalog>> = {};
+  for (const [code, file] of Object.entries(files)) {
+    const descriptor = findLocale(code);
+    if (!descriptor || descriptor.code === 'en') continue;
+    const messages = Object.fromEntries(Object.entries(file.messages).filter(([key]) => isMessageKey(key)));
+    written[descriptor.code as LocaleCode] = messages as PartialCatalog;
+  }
+  return written;
+}
 
 const WRITTEN: Readonly<Partial<Record<LocaleCode, PartialCatalog>>> = {
+  ...catalogsFromFiles(LOCALE_FILES),
   en,
-  es,
-  fr,
 };
+
+/** Who wrote a locale's words (`human` or `machine`), or `null` for English (the source) and for a locale with no file. */
+export function localeProvenance(code: string): Provenance | null {
+  const descriptor = findLocale(code);
+  if (!descriptor || descriptor.code === 'en') return null;
+  const file = LOCALE_FILES[descriptor.code] ?? LOCALE_FILES[code];
+  return file?.meta.provenance ?? null;
+}
 
 /** An empty catalog: every key falls through to English and is reported `untranslated`. */
 const NO_CATALOG: PartialCatalog = Object.freeze({});
