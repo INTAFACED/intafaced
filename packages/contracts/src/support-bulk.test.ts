@@ -19,6 +19,10 @@ describe('bulk update input', () => {
     expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'priority', priority: 'high' } }).success).toBe(true);
     expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'priority', priority: null } }).success).toBe(true);
   });
+  it('refuses a priority the single change would refuse', () => {
+    expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'priority', priority: 'bogus' } }).success).toBe(false);
+    expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'priority', priority: '' } }).success).toBe(false);
+  });
   it('refuses a mixed change, an unknown kind, a bad status and an extra key', () => {
     expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'status', status: 'closed', priority: 'x' } }).success).toBe(false);
     expect(supportBulkInputSchema.safeParse({ ...base, change: { kind: 'delete' } }).success).toBe(false);

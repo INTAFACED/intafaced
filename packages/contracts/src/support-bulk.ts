@@ -14,7 +14,7 @@
  *   of the batch still runs. A request already at the asked value is `unchanged`.
  */
 import { z } from 'zod';
-import { supportTicketStatusSchema } from './support.js';
+import { supportTicketPrioritySchema, supportTicketStatusSchema } from './support.js';
 
 export const SUPPORT_BULK_ERROR_CODES = ['support.bulk_cap_unset', 'support.bulk_too_large'] as const;
 export type SupportBulkErrorCode = (typeof SUPPORT_BULK_ERROR_CODES)[number];
@@ -28,7 +28,7 @@ export const SUPPORT_BULK_TRANSPORT_MAX = 1000;
 export const supportBulkChangeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('assign'), assigneeId: z.string().uuid() }).strict(),
   z.object({ kind: z.literal('status'), status: supportTicketStatusSchema }).strict(),
-  z.object({ kind: z.literal('priority'), priority: z.string().min(1).max(40).nullable() }).strict(),
+  z.object({ kind: z.literal('priority'), priority: supportTicketPrioritySchema.nullable() }).strict(),
 ]);
 export type SupportBulkChange = z.infer<typeof supportBulkChangeSchema>;
 
