@@ -985,6 +985,48 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(postsWithReason('trade.fill')).toHaveLength(0);
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
+
+    it('a cancel that crashes after the sequence-0 release posted retries with the same amount', async () => {
+      await fund(BOB, 'BTC', '10');
+      await fund(ALICE, 'USDT', '1000');
+      const maker = await rest(BOB, btcusdt, 'sell', '4', '100', 'bob-retry-key');
+      const taker = await rest(ALICE, btcusdt, 'buy', '4', '100', 'alice-retry-key');
+
+      // Unsettled fill of 1 (100 consumed): remainder 300, pot 400.
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.reason === 'trade.fill') throw new Error('died before tradeFill');
+        return post(request);
+      };
+      await expect(
+        trade.settleFillEvent({
+          marketId: btcusdt.id,
+          makerOrderId: maker.id,
+          takerOrderId: taker.id,
+          price: '100',
+          qty: '1',
+          sequence: 88,
+        }),
+      ).rejects.toThrow('died before tradeFill');
+
+      const terminalKey = `order.release:${taker.id}:0`;
+      ledger.post = async (request) => {
+        const posted = await post(request);
+        if (request.idempotencyKey === terminalKey) throw new Error('crash after terminal release committed');
+        return posted;
+      };
+      await expect(trade.cancelOrder(principalFor(ALICE), taker.id)).rejects.toThrow('crash after terminal release committed');
+      ledger.post = post;
+
+      // Pot is now 100 (the unsettled fill). The retry must reuse the booked key, not re-amount it.
+      await trade.cancelOrder(principalFor(ALICE), taker.id);
+
+      const order = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
+      expect(order.status).toBe('cancelled');
+      expect(postsWithReason('order.hold.released').filter((tx) => tx.idempotencyKey === terminalKey)).toHaveLength(1);
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ── THE double-release trap ─────────────────────────────────────────

@@ -3759,8 +3759,20 @@ export class TradeService {
         // `remaining` would pay it again. The pot is what can still come back;
         // when the pot is larger (a fill row the ledger has not drawn yet) keep
         // the derived remainder so that slice stays for tradeFill.
-        const bookHold = (await this.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
-        const releasable = bookHold < remaining ? bookHold : remaining;
+        // The amount under a given idempotency key must never change between
+        // attempts: if a crashed attempt already booked sequence 0, the pot is
+        // smaller now and re-capping would change the body. Reuse the key's
+        // booked amount (post it again as a no-op); cap only a fresh release.
+        const terminalKey = `order.release:${orderId}:0`;
+        const booked = await this.ledger.getTxByKey(terminalKey);
+        let releasable: Amount;
+        if (booked) {
+          const credit = booked.entries.find((entry) => entry.direction === 'credit');
+          releasable = credit ? credit.amount : 0n;
+        } else {
+          const bookHold = (await this.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
+          releasable = bookHold < remaining ? bookHold : remaining;
+        }
         if (releasable > 0n) {
           // ── 6 · THE RELEASE ────────────────────────────────────────────────
           await this.ledger.post(
