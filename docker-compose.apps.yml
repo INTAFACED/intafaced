@@ -1587,6 +1587,12 @@ services:
       # Joint-restore archive. Blank → ops.restore_archive_unconfigured.
       # Not the erasure archive. A set URL is not probed.
       OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
+      # Owner storage target for restored data. Blank → restore.start and restore.finalize refuse ops.restore_target_unset.
+      OPS_RESTORE_TARGET: ${OPS_RESTORE_TARGET:-}
+      # The restore.watermark.read doors. svc-ops is the only caller each allows. The identity read also needs
+      # IDENTITY_URL, which stays blank here (it is also the CRM and approval wiring): blank → identity reads unavailable.
+      BANK_URL: http://svc-bank:4009
+      PAY_URL: http://svc-pay:4006
       # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
       OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
     expose: ['4022']
