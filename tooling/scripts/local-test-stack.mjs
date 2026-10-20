@@ -144,7 +144,15 @@ const NATS_ZIP = 'nats-server-v2.10.24-darwin-arm64.zip';
 
 const PG_BIN =
   process.env.LOCAL_STACK_PG_BIN ?? (fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin');
-const PNPM_PATH = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':');
+// PNPM_HOME is where the CI runner installs pnpm; empty on a Mac, so the Homebrew path still wins there.
+const PNPM_PATH = [
+  path.dirname(process.execPath),
+  ...(process.env.PNPM_HOME ? [process.env.PNPM_HOME] : []),
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+].join(':');
 
 // ── Small helpers ───────────────────────────────────────────────────────────
 
