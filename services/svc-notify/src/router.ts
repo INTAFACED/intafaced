@@ -18,14 +18,18 @@ import type { Notification } from './store.js';
 import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
 import {
+  AlertLimitError,
   assertNotifyAlertsListLimit,
   NotifyAlertsListLimitUnsetError,
   NotifyPriceUnsetError,
   type AlertService,
 } from './alerts/service.js';
 import {
+  ALERT_CONDITIONS,
   AlertKindUnpublishedError,
+  type AlertCondition,
   AlertPortfolioUnpublishedError,
+  directionOfCondition,
   isSourcedAlertKind,
   isUnpublishedAlertKind,
   SOURCED_ALERT_KINDS,
@@ -401,6 +405,19 @@ async function loadOperatorDeliveries(notify: NotifyService, limit: number | und
   }
 }
 
+/**
+ * What an alert may carry beyond market, side and price (C-alerts-scan-01). The lengths here are only an input bound; the owner's
+ * limits are checked by the service, which refuses when they are blank.
+ */
+const alertExtras = {
+  /** How the mark is compared with the target. Omitted: a level in the direction given. */
+  condition: z.enum(ALERT_CONDITIONS).optional(),
+  name: z.string().max(2000).optional(),
+  message: z.string().max(2000).optional(),
+  /** ISO time. Omitted: open-ended. */
+  expiresAt: z.string().datetime({ offset: true }).optional(),
+};
+
 const priceAlertOutput = z.object({
   id: z.string().uuid(),
   userId: z.string(),
@@ -408,9 +425,13 @@ const priceAlertOutput = z.object({
   kind: z.enum(SOURCED_ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string(),
-  status: z.enum(['active', 'fired', 'cancelled']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired']),
   firedAt: z.string().nullable(),
   createdAt: z.string(),
+  condition: z.enum(ALERT_CONDITIONS),
+  name: z.string().nullable(),
+  message: z.string().nullable(),
+  expiresAt: z.string().nullable(),
 });
 
 /**
@@ -445,6 +466,10 @@ function priceAlertToWire(row: PriceAlert) {
     status: row.status,
     firedAt: row.firedAt ? row.firedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    condition: row.condition,
+    name: row.name,
+    message: row.message,
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
   };
 }
 
@@ -1366,6 +1391,7 @@ export function createNotifyRouter(
                * Blank is not a number.
                */
               targetPrice: z.string().max(64).optional(),
+              ...alertExtras,
             }),
             z.object({
               kind: z.enum(SOURCED_ALERT_KINDS).optional(),
@@ -1373,6 +1399,7 @@ export function createNotifyRouter(
               direction: z.enum(['above', 'below']),
               /** Decimal string — never a JSON number. */
               targetPrice: z.string().min(1).max(64),
+              ...alertExtras,
             }),
             z.object({
               kind: z.enum(UNPUBLISHED_ALERT_KINDS),
@@ -1453,12 +1480,22 @@ export function createNotifyRouter(
             });
           }
           try {
+            const extras = input as { condition?: AlertCondition; name?: string; message?: string; expiresAt?: string };
+            const condition = extras.condition;
+            // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
+            if (condition && condition !== 'crossing' && directionOfCondition(condition) !== input.direction) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
+            }
             const row = await alerts.create({
               userId: ctx.principal.userId,
               marketId: input.marketId,
               kind,
               direction: input.direction,
               targetPrice: 'targetPrice' in input ? input.targetPrice : undefined,
+              ...(condition ? { condition } : {}),
+              name: extras.name,
+              message: extras.message,
+              expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
             });
             return {
               alert: priceAlertToWire(row),
@@ -1468,6 +1505,14 @@ export function createNotifyRouter(
             if (err instanceof NotifyPriceUnsetError) {
               throw new TRPCError({
                 code: 'PRECONDITION_FAILED',
+                message: err.message,
+                cause: err,
+              });
+            }
+            if (err instanceof AlertLimitError) {
+              throw new TRPCError({
+                // A blank owner setting is a precondition; a value outside a set one is the caller's to fix.
+                code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
                 message: err.message,
                 cause: err,
               });
