@@ -6,7 +6,7 @@
 import {
   generateRegistrationOptions,
   verifyRegistrationResponse,
-  type AuthenticatorTransportFuture,
+  type AuthenticatorTransport,
   type PublicKeyCredentialCreationOptionsJSON,
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
@@ -27,9 +27,9 @@ export class EnrollPasskeyError extends Error {
 
 export type PasskeyRp = { rpId: string; rpName?: string; origin: string | readonly string[] };
 
-const LIBRARY_TRANSPORTS = ['ble', 'cable', 'hybrid', 'internal', 'nfc', 'smart-card', 'usb'] as const;
+const LIBRARY_TRANSPORTS = ['ble', 'hybrid', 'internal', 'nfc', 'usb'] as const;
 
-export function libraryTransports(raw: string[] | undefined): AuthenticatorTransportFuture[] | undefined {
+export function libraryTransports(raw: string[] | undefined): AuthenticatorTransport[] | undefined {
   if (!raw?.length) return undefined;
   const next = raw.filter((item): item is (typeof LIBRARY_TRANSPORTS)[number] => (LIBRARY_TRANSPORTS as readonly string[]).includes(item));
   return next.length > 0 ? next : undefined;
