@@ -61,7 +61,8 @@ export class MemoryLifecycleBook implements LifecycleBook {
   }
 }
 
-const byWaiting = (a: { since: string }, b: { since: string }) => a.since.localeCompare(b.since);
+const byWaiting = (a: { ticketId: string; since: string }, b: { ticketId: string; since: string }) =>
+  a.since.localeCompare(b.since) || a.ticketId.localeCompare(b.ticketId);
 
 type Row = {
   ticket_id: string;

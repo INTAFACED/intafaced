@@ -3,7 +3,7 @@
  *
  * Each channel is a value or `null`. Nothing is seeded and no address, number or hour is built in, so a blank channel
  * reads `null` and the screens say "not set". A change names the revision it read; the same change replayed under the
- * same revision returns the first answer, and a change from a stale revision is refused.
+ * same revision returns the stored state, and a change from a stale revision is refused.
  */
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';

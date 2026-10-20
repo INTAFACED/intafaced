@@ -119,7 +119,7 @@ signed-out visitor reads it) and answers each channel as a value or `null`; noth
 number or hour is built in. `setContactChannels` (`support:ops`, staff lead only, until the `support:admin` scope
 exists) sets one or more from the revision it read, with a reason; `null` clears one. A change is logged
 append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
-first answer and a different change from a stale revision refuses `support.contact_revision_stale`.
+stored state (it already applied) and a different change from a stale revision refuses `support.contact_revision_stale`.
 
 Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's own open requests wait on their reply and
 which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries
