@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**67 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**70 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -23,6 +23,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `futuresMarginLock`             | `trade`    | `futures.margin.lock`                                            |
 | `futuresMarginAdd`              | `trade`    | `futures.margin.add`                                             |
 | `futuresMarginRelease`          | `trade`    | `futures.margin.release`                                         |
+| `futuresOrderMarginHold`        | `trade`    | `futures.order.margin.hold`                                      |
+| `futuresOrderMarginRelease`     | `trade`    | `futures.order.margin.release`                                   |
+| `futuresOrderMarginApply`       | `trade`    | `futures.order.margin.applied`                                   |
 | `futuresRealizeLoss`            | `trade`    | `futures.loss.realized`                                          |
 | `futuresRealizeProfit`          | `trade`    | `futures.profit.realized`                                        |
 | `futuresFundingPay`             | `trade`    | `futures.funding.paid`                                           |
