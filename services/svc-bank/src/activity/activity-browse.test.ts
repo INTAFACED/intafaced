@@ -155,6 +155,13 @@ describe('oldest first', () => {
   it('refuses a history too long to sort instead of showing a short list', async () => {
     const long = Array.from({ length: 2_050 }, (_, i) => post(`tx-${i + 1}`, 'bank.transfer.manual', 'debit', i + 1));
     await expect(service(long).list(ALICE, { sort: 'asc', limit: 5 })).rejects.toMatchObject({ code: 'bank.activity_sort_bounded' });
+    // Exactly the limit is not too long, even with older lines that do not match.
+    const edge = [
+      ...Array.from({ length: 50 }, (_, i) => post(`tx-old-${i}`, 'bank.transfer.manual', 'credit', i + 1)),
+      ...Array.from({ length: 2_000 }, (_, i) => post(`tx-in-${i + 1}`, 'bank.transfer.manual', 'debit', i + 100)),
+    ];
+    const exact = await service(edge).list(ALICE, { sort: 'asc', limit: 5, direction: 'in' });
+    expect(exact.items[0]?.txId).toBe('tx-in-1');
     // A shorter range answers.
     const from = new Date(Date.UTC(2026, 9, 1, 0, 33, 0)).toISOString();
     const page = await service(long).list(ALICE, { sort: 'asc', limit: 5, from });
@@ -174,6 +181,21 @@ describe('one account', () => {
     expect(txs((await activity.list(ALICE, { accountId: SPACE })).items)).toEqual(['tx-space-2', 'tx-space-1']);
     expect(txs((await activity.list(ALICE, { accountId: 'main' })).items)).toEqual(['tx-main']);
     expect(txs((await activity.list(ALICE, {})).items).sort()).toEqual(['tx-main', 'tx-space-1', 'tx-space-2']);
+  });
+
+  it("still reads a move between two of the customer's own pots as a Space move, from either side", async () => {
+    const withMove = [
+      ...rows,
+      post('tx-move', 'bank.transfer.manual', 'credit', 4),
+      post('tx-move', 'bank.transfer.manual', 'debit', 5, { owner: SPACE }),
+    ];
+    const activity = service(withMove);
+    const fromMain = await activity.list(ALICE, { accountId: 'main' });
+    expect(fromMain.items.filter((i) => i.txId === 'tx-move').map((i) => i.kind)).toEqual(['space_move']);
+    const fromSpace = await activity.list(ALICE, { accountId: SPACE });
+    expect(fromSpace.items.filter((i) => i.txId === 'tx-move').map((i) => i.kind)).toEqual(['space_move']);
+    const moves = await activity.list(ALICE, { accountId: 'main', kind: ['space_move'] });
+    expect(txs(moves.items)).toEqual(['tx-move']);
   });
 
   it('pages inside one Space', async () => {

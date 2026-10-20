@@ -187,7 +187,7 @@ export class ActivityTaxYearUnsetError extends Error {
 export class ActivitySortBoundedError extends Error {
   readonly code = 'bank.activity_sort_bounded' as const;
   constructor() {
-    super('Oldest first is limited to a shorter history. Narrow the dates or the account');
+    super('Oldest first is limited to 2,000 matching lines. Narrow the dates, the account or the filters');
     this.name = 'ActivitySortBoundedError';
   }
 }
@@ -239,7 +239,7 @@ export interface ActivityQuery {
 
 /** Oldest-first holds the matching lines in memory: at most this many, then it refuses and asks for a narrower range. */
 const ASC_MAX_ITEMS = 2_000;
-const ASC_MAX_CALLS = 10;
+const ASC_MAX_CALLS = 25;
 const FILTER_WINDOW = 100;
 const FILTER_SCAN_MAX = 2_000;
 const GET_PAGE = 100;
@@ -305,7 +305,17 @@ function readFilter(input: ActivityQuery): ActivityFilter {
   return filter;
 }
 
+/** The account an activity id was read from: `main` or a Space id. Ids are `<txId>:<owner key>:<asset>:<direction>`. */
+function accountOf(item: Pick<ActivityItem, 'id' | 'txId'>): string | null {
+  if (!item.id.startsWith(`${item.txId}:`)) return null;
+  const rest = item.id.slice(item.txId.length + 1);
+  if (rest.startsWith('u:')) return 'main';
+  const m = /^s:([^:]+):/.exec(rest);
+  return m ? m[1]! : null;
+}
+
 function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
+  if (filter.accountId && accountOf(item) !== filter.accountId) return false;
   if (filter.kind && !filter.kind.includes(item.kind)) return false;
   if (filter.direction && item.direction !== filter.direction) return false;
   const amount = parseAmount(item.amount);
@@ -326,7 +336,6 @@ function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
     item.reference ?? '',
     item.privateNote ?? '',
     item.orderId ?? '',
-    item.address ?? '',
   ]
     .join('\n')
     .toLowerCase();
@@ -445,6 +454,7 @@ export class ActivityService {
     const { cursorSecret } = this.options;
     if (!this.options.pages || !cursorSecret) throw new ActivityUnavailableError();
     const filter = readFilter(input);
+    if (filter.accountId !== undefined) await this.assertAccount(userId, input.assetId ?? null, filter.accountId);
     const filterKey = activityFilterKey(filter);
     const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
     const assetId = input.assetId ?? null;
@@ -458,7 +468,6 @@ export class ActivityService {
         limit: FILTER_WINDOW,
         cursor: positionCursor,
         ...(assetId === null ? {} : { assetId }),
-        ...(filter.accountId === undefined ? {} : { accountId: filter.accountId }),
         ...(filter.address === undefined ? {} : { needAddress: true }),
       });
       scanned += window.items.length;
@@ -478,7 +487,7 @@ export class ActivityService {
       const rest = kept.slice(skip);
       const take = rest.slice(0, limit - matches.length);
       matches.push(...take);
-      const windowStart = await this.positionBody(userId, assetId, positionCursor, filter.accountId);
+      const windowStart = await this.positionBody(userId, assetId, positionCursor);
       if (take.length < rest.length) {
         return {
           items: matches,
@@ -504,13 +513,12 @@ export class ActivityService {
     userId: string,
     assetId: string | null,
     cursor: string | undefined,
-    accountId?: string,
   ): Promise<{ userId: string; assetId: string | null; owners: Record<string, OwnerPosition> }> {
     if (cursor !== undefined) {
       const body = decodeCursor(this.options.cursorSecret ?? '', cursor, { userId, assetId });
       return { userId, assetId, owners: { ...body.owners } };
     }
-    const owners = await this.ownersOf(userId, assetId, accountId);
+    const owners = await this.ownersOf(userId, assetId);
     const map: Record<string, OwnerPosition> = {};
     for (const owner of owners) map[owner.key] = null;
     return { userId, assetId, owners: map };
@@ -585,7 +593,7 @@ export class ActivityService {
 
   private async listPage(
     userId: string,
-    input: { limit?: number; cursor?: string; assetId?: string; accountId?: string; needAddress?: boolean },
+    input: { limit?: number; cursor?: string; assetId?: string; needAddress?: boolean },
   ): Promise<ActivityPage> {
     const { pages, cursorSecret } = this.options;
     if (!pages || !cursorSecret) throw new ActivityUnavailableError();
@@ -596,7 +604,7 @@ export class ActivityService {
     // Cursor first: a bad one is refused before anything is read.
     const resume = input.cursor === undefined ? null : decodeCursor(cursorSecret, input.cursor, { userId, assetId });
 
-    const owners = await this.ownersOf(userId, assetId, input.accountId);
+    const owners = await this.ownersOf(userId, assetId);
     const live = owners.filter((o) => (resume === null ? true : resume.owners[o.key] !== undefined && resume.owners[o.key] !== false));
     const start = (o: Owner): string | null => (resume === null ? null : (resume.owners[o.key] as string | null));
 
@@ -652,18 +660,24 @@ export class ActivityService {
   }
 
   /** The caller's own account plus their named Spaces. Space ids come from svc-bank's table filtered by `user_id`. */
-  private async ownersOf(userId: string, assetId: string | null, accountId?: string): Promise<Owner[]> {
-    const main: Owner = { key: 'u', ownerType: 'user', ownerId: userId, spaceName: null };
-    if (accountId === 'main') return [main];
+  private async ownersOf(userId: string, assetId: string | null): Promise<Owner[]> {
     const named = (await this.spaces.allNamedSpaces(userId, assetId ?? undefined)).filter((s) => s.kind === 'named' && s.userId === userId);
-    if (accountId !== undefined) {
-      // One Space, and only if it is this customer's: an id that is not theirs is refused, never read.
-      const space = named.find((s) => s.id === accountId);
-      if (!space) throw new ActivityAccountUnknownError();
-      return [{ key: `s:${space.id}`, ownerType: 'subaccount', ownerId: space.id, spaceName: space.name }];
-    }
     if (named.length + 1 > ACTIVITY_MAX_OWNERS) throw new ActivityUnavailableError('Too many Spaces to merge into one feed');
-    return [main, ...named.map((s): Owner => ({ key: `s:${s.id}`, ownerType: 'subaccount', ownerId: s.id, spaceName: s.name }))];
+    return [
+      { key: 'u', ownerType: 'user', ownerId: userId, spaceName: null },
+      ...named.map((s): Owner => ({ key: `s:${s.id}`, ownerType: 'subaccount', ownerId: s.id, spaceName: s.name })),
+    ];
+  }
+
+  /**
+   * One account is a view over the whole feed, not a narrower read: a move between two of the customer's own pots is
+   * two ledger entries, and it only reads as a Space move when both halves are in hand. So every owner is read and the
+   * lines of one account are kept. An id that is not `main` or one of the customer's own Spaces is refused here.
+   */
+  private async assertAccount(userId: string, assetId: string | null, accountId: string): Promise<void> {
+    if (accountId === 'main') return;
+    const owners = await this.ownersOf(userId, assetId);
+    if (!owners.some((owner) => owner.key === `s:${accountId}`)) throw new ActivityAccountUnknownError();
   }
 
   /** k-way merge of the owners' newest-first queues. Each owner's own order is kept. */
