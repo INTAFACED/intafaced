@@ -31,6 +31,7 @@ export * from './ops-alert-rules.js';
 export * from './ops-compliance-cases.js';
 export * from './ledger-fee-revenue.js';
 export * from './ops-venue-economics.js';
+export * from './ops-restore-watermarks.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';
 export * from './action-approval-client.js';

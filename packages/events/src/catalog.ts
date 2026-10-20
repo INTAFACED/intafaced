@@ -965,6 +965,45 @@ export const coreOpsComplianceInboxUpdated = defineEvent(
   'A compliance inbox was defined or its favourite flag changed.',
 );
 
+// ── core-ops: joint restore (OPS-ledger-desk-05) ─────────────────────────────
+
+const restoreBase = {
+  restoreNo: z.string().min(1).max(128),
+  actor: z.string().min(1),
+};
+
+export const coreOpsRestoreStarted = defineEvent(
+  'core-ops',
+  'restore',
+  'started',
+  1,
+  z.object({ ...restoreBase, cutOff: z.string().datetime({ offset: true }), startedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was begun in svc-ops. Business key ops:restore:started:<restoreNo>.',
+);
+
+export const coreOpsRestoreCompleted = defineEvent(
+  'core-ops',
+  'restore',
+  'completed',
+  1,
+  z.object({ ...restoreBase, approverId: z.string().min(1), completedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was finalised with a second approver after every step existed as a row. Business key ops:restore:completed:<restoreNo>.',
+);
+
+export const coreOpsRestoreFailed = defineEvent(
+  'core-ops',
+  'restore',
+  'failed',
+  1,
+  z.object({
+    ...restoreBase,
+    step: z.enum(['restore_clean', 'validate', 'preview', 'finalize']),
+    code: z.string().min(1).max(128),
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A joint restore step failed or was refused; nothing was finalised. Business key ops:restore:failed:<restoreNo>:<step>.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -981,6 +1020,9 @@ export const EVENT_CATALOG = {
   coreOpsAlertResolved,
   coreOpsComplianceCaseCreated,
   coreOpsComplianceInboxUpdated,
+  coreOpsRestoreStarted,
+  coreOpsRestoreCompleted,
+  coreOpsRestoreFailed,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1275,6 +1317,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'No consumer is owed: the inbox definition is a durable row. The subject exists so the audit trail and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
   },
   {
     event: 'projectionUpdated',
