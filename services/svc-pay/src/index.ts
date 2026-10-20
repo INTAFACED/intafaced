@@ -136,11 +136,8 @@ await sql`SELECT 1 FROM pay.merchants LIMIT 1`.catch(() => {
 // (Doctrine §0.6). This client is the only path.
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-pay');
-const ledger = createLedgerClient(
-  env.LEDGER_URL,
-  env.INTERNAL_SERVICE_SECRET,
-  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
-);
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
 /**
  * The chain behind `crypto-native`.
@@ -253,7 +250,7 @@ const payGuards = buildPayGuards({
   sql,
   ledger,
   kycTierOf: env.IDENTITY_URL
-    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
     : undefined,
 });
 const conversion = new ConversionService({
@@ -291,8 +288,8 @@ const pay = new PayService(sql, ledger, rails, {
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
   checkoutPublicBasePath: env.PAY_PUBLIC_BASE_PATH,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
-  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
-  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   afterPaymentEvent: async (event) => {
     await merchantWebhooks.enqueue(event);
     // Watch half of invoice-and-watch (SPEC §4): capture settles the execution.

@@ -68,21 +68,9 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-pay/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-pay/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-pay/src/founder-authority.ts": {
       "sign": 1,
       "caller": 1
-    },
-    "services/svc-pay/src/limits/identity-tier.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-pay/src/merchant-account-controls.ts": {
       "sign": 0,
