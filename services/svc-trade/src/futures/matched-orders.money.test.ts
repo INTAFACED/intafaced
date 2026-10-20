@@ -148,7 +148,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
   let admission: TradingAdmissionPort;
 
   beforeEach(async () => {
-    await sql`TRUNCATE trade.futures_order_fills, trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts, trade.futures_fill_waits RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE trade.futures_order_fills, trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts, trade.futures_fill_waits, trade.account_position_modes RESTART IDENTITY CASCADE`;
     await sql`
       INSERT INTO trade.markets (
         id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
@@ -298,11 +298,12 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
     });
 
-    it('a reduce-only order is refused in this phase, with the slice that builds it named', async () => {
+    it('a reduce-only order with no position to reduce is refused before anything is sent', async () => {
+      // Slice 6b builds reduce-only orders; this pinned the phase-1 refusal, and now pins the refusal that remains.
       const svc = build();
       await expect(
         svc.place(principal(ALICE), order({ userId: ALICE, side: 'sell', qty: A('1'), reduceOnly: true, clientOrderId: 'ro' })),
-      ).rejects.toMatchObject({ code: 'trade.futures_reduce_only_unsupported' });
+      ).rejects.toMatchObject({ code: 'trade.futures_reduce_only_no_position' });
       expect(engine.submits).toHaveLength(0);
     });
 
@@ -1187,7 +1188,15 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
           recipes.deposit({ userId: u, assetId: USDT, amount: A('100000'), rail: 'test', railRef: `top-${u}-${randomUUID()}` }),
         );
       }
-      // Each user places several resting orders on both sides, inside the band.
+      // Each user places several resting orders on both sides, inside the band. Opening both sides is hedge mode
+      // (slice 6b refuses it in one-way mode), so the accounts say so.
+      for (const u of users) {
+        await sql`
+          INSERT INTO trade.account_position_modes (user_id, mode, source, client_mode_id)
+          VALUES (${u}, 'hedge', 'test', ${`inv-${u}`})
+          ON CONFLICT (user_id) DO UPDATE SET mode = 'hedge'
+        `;
+      }
       const placed: Array<{ userId: string; orderId: string; side: 'buy' | 'sell'; limit: bigint; remaining: bigint }> = [];
       let seed = 97;
       const next = (max: number) => {

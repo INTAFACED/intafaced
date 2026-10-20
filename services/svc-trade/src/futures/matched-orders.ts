@@ -12,10 +12,21 @@
  *   · RELEASES the unused hold when an order is finished (filled, cancelled or rejected), with
  *     `futuresOrderMarginRelease`.
  *
- * PHASE 1 SCOPE. Opens and grows only. A reduce-only order, or any fill that reduces a position, is not built
- * here (slice 6b): the bankruptcy bound, realised PnL on a reduce, and the margin share released by a reduce
- * are not in this file, and a reduce-only order is refused at placement. A position is never shrunk by a
- * matched fill, so a resting order's margin always covers what it can still fill.
+ * REDUCE-ONLY ORDERS (slice 6b). A reduce-only order names the caller's open isolated position on the other side,
+ * locks no margin, and may not ask for more than that position's size less its other live reduce-only orders. Its
+ * limit may not be past the position's bankruptcy price, and a market reduce gets that price (pulled in to the
+ * band edge) as its limit, so a voluntary reduce never loses more than the margin (ADR section 1). Its fill closes
+ * that quantity of the position at the fill price: the margin share is returned, a loss goes into the clearing pot,
+ * a profit is paid from the clearing pot or owed until it holds it (ADR sections 3 and 4).
+ *
+ * The engine's own `reduceOnly` flag is NOT relied on. svc-matching checks it against the account's net of fills
+ * in its book (`positionQty` is not on the wire), which is not the margin book: a liquidation rung or an ADL pair
+ * moves a position here without a fill there, and in hedge mode a long and a short net to zero, so the engine would
+ * refuse a legitimate reduce. The reduce bound is checked here, under the position's row lock, and again on fill.
+ *
+ * ONE-WAY MODE. An opening order on the side opposite an open position (or opposite a live opening order) refuses
+ * at placement: in one-way mode a position is net, and a fill that opened a second row on the other side would
+ * break it. Hedge mode keeps one row per side (`position-mode.ts`, `account-mode.ts`), so it is allowed there.
  *
  * THE SWITCH. `enabled` gates NEW orders only. Settling a fill, and releasing a hold, keep running when it is
  * off, because a fill the engine has already matched is final and a hold that is not released strands the
@@ -40,6 +51,14 @@
  *             has settled, and none is pending. A fill printed before a cancel can arrive after it; it still finds
  *             its margin in the hold. Set from the order's own numbers, so a crash after the post replays the same key.
  *
+ *   reduce    one fill, three legs, all keyed off the intent's key `<marketId>:<sequence>:<positionId>`:
+ *             `futures.profit:fill:<key>:profit` (through the payout bound: paid, or a `payout_pending` row the payout
+ *             tick pays later), `futures.loss:fill:<key>:loss` (into the clearing pot), and
+ *             `futures.margin.release:<positionId>:fill:<key>:release` (the rest of the margin share). The intent row,
+ *             and the payout row for a profit, are committed BEFORE the first post and hold the position exactly as an
+ *             opening fill's intent does. A crash after any post: the retry replays the same keys with the stored
+ *             amounts, so each leg posts once, and only then is the position row shrunk (or closed).
+ *
  * Nothing here holds a balance. Every amount is recomputed from the order row, the intent row, or the ledger.
  */
 import type { Sql, TransactionSql } from 'postgres';
@@ -53,20 +72,28 @@ import { checkLeverage } from './initial-margin.js';
 import { checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limits.js';
 import { assertDatedFuturesTradable } from './dated-futures.js';
-import { isInsufficientFunds } from './futures-payouts.js';
+import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
+import { checkInsuranceBound, INSURANCE_UNDERFUNDED } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
 import {
   FUTURES_PRICE_BAND_UNSET,
+  bankruptcyPrice,
   fillMargin,
   fillWithinLimit,
   limitWithinBand,
+  marketReduceLimit,
   orderHoldAmount,
+  planReduceFill,
   priceBandAround,
   protectiveLimit,
+  reduceFillProfitId,
+  reduceFillRecipes,
   weightedEntry,
+  withinBankruptcy,
   type OrderSide,
+  type PositionSide,
   type PriceBand,
 } from './matched-order-plan.js';
 
@@ -83,13 +110,16 @@ export class MatchedOrderError extends Error {
 }
 
 /**
- * The refusals that mean "not yet": a position is being liquidated, deleveraged or reviewed, or an earlier fill of the
- * same order is still being recorded. A fill refused with one of these waits in `trade.futures_fill_waits`.
+ * The refusals that mean "not yet": a position is being liquidated, deleveraged, reviewed or having its margin
+ * adjusted, an earlier fill on the same order or position is still being recorded, or a reduce loss past the bound
+ * waits for the insurance fund. A fill refused with one of these waits in `trade.futures_fill_waits`.
  */
 const FILL_WAIT_CODES: readonly string[] = [
   'trade.liquidation_in_progress',
   'trade.position_under_review',
   'trade.futures_fill_in_progress',
+  'trade.margin_adjustment_in_progress',
+  INSURANCE_UNDERFUNDED,
 ];
 
 function fillMustWait(err: unknown): err is MatchedOrderError {
@@ -101,6 +131,19 @@ export const MATCHED_FILL_RETRY_BATCH = 200;
 
 /** A fill that pairs a matched futures order with an order from the spot path. Neither path can settle it. */
 export const FUTURES_FILL_CROSSES_ORDER_PATHS = 'trade.futures_fill_crosses_order_paths';
+
+/** A reduce-only order with no open isolated position on the other side of the market to reduce. */
+export const FUTURES_REDUCE_ONLY_NO_POSITION = 'trade.futures_reduce_only_no_position';
+/** A reduce-only order larger than its position less the position's other live reduce-only orders. */
+export const FUTURES_REDUCE_ONLY_EXCEEDS_POSITION = 'trade.futures_reduce_only_exceeds_position';
+/** A reduce-only limit past the position's bankruptcy price: the fill could lose more than the margin. */
+export const FUTURES_REDUCE_PAST_BANKRUPTCY = 'trade.futures_reduce_past_bankruptcy';
+/** A market reduce whose bankruptcy price lies beyond the whole band: no price in the band is inside the bound. */
+export const FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND = 'trade.futures_reduce_bankruptcy_outside_band';
+/** In one-way mode, an opening order on the side opposite an open position or a live opening order. */
+export const FUTURES_ONE_WAY_FLIP_REFUSED = 'trade.futures_one_way_flip_refused';
+/** A reduce fill whose position is no longer open, or no longer as large as the fill. Needs an operator. */
+export const FUTURES_REDUCE_FILL_UNMATCHED = 'trade.futures_reduce_fill_unmatched';
 
 export const MATCHED_ORDER_STATUSES = [
   'pending',
@@ -147,6 +190,11 @@ export interface MatchedOrderView {
   readonly releasedAmount: string;
   readonly status: MatchedOrderStatus;
   readonly refusalCode: string | null;
+  readonly reduceOnly: boolean;
+  /** The position a reduce-only order shrinks; null for an opening order. */
+  readonly positionId: string | null;
+  /** The bankruptcy price a reduce-only order was bounded by at placement; null for an opening order. */
+  readonly bankruptcyPrice: string | null;
 }
 
 /** One engine fill, as the event carries it. Both sides are futures orders on a futures market. */
@@ -208,6 +256,9 @@ interface OrderRow {
   engine_filled_qty: string | null;
   status: MatchedOrderStatus;
   refusal_code: string | null;
+  reduce_only: boolean;
+  position_id: string | null;
+  bankruptcy_price: string | null;
 }
 
 interface FillRow {
@@ -223,6 +274,31 @@ interface FillRow {
   new_adverse: string;
   new_applied: string;
   state: 'pending' | 'applied';
+  kind: 'open' | 'reduce';
+  realized_pnl: string | null;
+  loss_from_margin: string | null;
+  loss_from_insurance: string | null;
+  loss_unbooked: string | null;
+  profit: string | null;
+  margin_release: string | null;
+  pot_out: string | null;
+  initial_out: string | null;
+  closes_position: boolean | null;
+}
+
+interface PositionRowLite {
+  id: string;
+  user_id: string;
+  market_id: string;
+  side: PositionSide;
+  status: string;
+  size: string;
+  entry_price: string;
+  leverage: string;
+  margin_initial: string;
+  margin_current: string;
+  margin_asset: string;
+  margin_adjust_request: string | null;
 }
 
 interface MarketRow {
@@ -246,6 +322,8 @@ const LIVE_OR_UNKNOWN = ['held', 'submitting', 'open', 'submit_unknown'] as cons
  * the money, and these terms are what it was opened for.
  */
 function holdOf(order: OrderRow): Amount {
+  // A reduce-only order locks nothing: what it can lose is bounded by its position's bankruptcy price instead.
+  if (order.reduce_only) return 0n;
   return orderHoldAmount({
     side: order.side,
     qty: parseAmount(order.qty),
@@ -291,6 +369,34 @@ function assertFillFits(order: OrderRow, sequence: number, qty: Amount): void {
   refuse('trade.futures_overfill', `fill ${sequence} would overfill order ${order.id}`, 500);
 }
 
+/**
+ * A reduce fill needs its position open and at least as large as the fill. Placement keeps every reduce order
+ * inside its position, so this only fails when the position was shrunk or closed some other way (a liquidation rung
+ * or an ADL pair) while the order rested. The fill is final in the book and has no margin to open anything with, so
+ * it is refused whole for an operator rather than settled half.
+ */
+function assertReduceFillFits(
+  order: OrderRow,
+  position: { id: string; status: string; size: string } | undefined,
+  sequence: number,
+  qty: Amount,
+): asserts position is { id: string; status: string; size: string } {
+  if (!position || position.status !== 'open') {
+    refuse(
+      FUTURES_REDUCE_FILL_UNMATCHED,
+      `reduce fill ${sequence} of order ${order.id}: position ${order.position_id} is ${position?.status ?? 'missing'} — this needs an operator`,
+      500,
+    );
+  }
+  if (qty > parseAmount(position.size)) {
+    refuse(
+      FUTURES_REDUCE_FILL_UNMATCHED,
+      `reduce fill ${sequence} of order ${order.id} is larger than position ${position.id} — this needs an operator`,
+      500,
+    );
+  }
+}
+
 function positionSideOf(side: OrderSide): 'long' | 'short' {
   return side === 'buy' ? 'long' : 'short';
 }
@@ -313,6 +419,9 @@ function presentOrder(row: OrderRow): MatchedOrderView {
     releasedAmount: formatAmount(parseAmount(row.released_amount)),
     status: row.status,
     refusalCode: row.refusal_code,
+    reduceOnly: row.reduce_only,
+    positionId: row.position_id,
+    bankruptcyPrice: row.bankruptcy_price == null ? null : formatAmount(parseAmount(row.bankruptcy_price)),
   };
 }
 
@@ -326,8 +435,10 @@ function refuse(code: string, message: string, status = 400): never {
  * or on a new one if the row was closed). The codes are the ones the position service uses for the same states.
  */
 async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string): Promise<void> {
-  const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean }[]>`
+  const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean; adjusting: boolean }[]>`
     SELECT
+      EXISTS (SELECT 1 FROM trade.positions p
+               WHERE p.id = ${positionId} AND p.margin_adjust_request IS NOT NULL) AS adjusting,
       EXISTS (SELECT 1 FROM trade.liquidation_rungs r
                WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted')) AS live_rung,
       EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
@@ -342,6 +453,51 @@ async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: strin
   if (hold?.parked) {
     refuse('trade.position_under_review', `position ${positionId} is under review — the fill waits until support resolves it`, 409);
   }
+  // A leverage change or margin add or release between its ledger post and its row write sets the row's margin to an
+  // absolute figure when it finishes. A fill that moved the row in between would be overwritten, so it waits.
+  if (hold?.adjusting) {
+    refuse(
+      'trade.margin_adjustment_in_progress',
+      `position ${positionId} has a margin adjustment in flight — the fill waits until it finishes`,
+      409,
+    );
+  }
+}
+
+/** Any fill intent on this position still being recorded. A reduce waits for every one; an opening fill waits for a reduce. */
+async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, positionId: string, kind: 'any' | 'reduce'): Promise<void> {
+  const [pending] = await tx<{ n: number }[]>`
+    SELECT 1 AS n FROM trade.futures_order_fills
+     WHERE position_id = ${positionId} AND state = 'pending' AND (${kind} = 'any' OR kind = 'reduce')
+     LIMIT 1
+  `;
+  if (pending) {
+    refuse('trade.futures_fill_in_progress', `another fill on position ${positionId} is still being recorded — retry in a moment`, 409);
+  }
+}
+
+/**
+ * What the position's live reduce-only orders can still take from it: each one's quantity less what has already
+ * settled, or, once it has left the book, what the engine says it filled less what has settled (a fill printed
+ * before a cancel still arrives). Refused and rejected orders claim nothing.
+ */
+async function reservedReduceQty(tx: TransactionSql, positionId: string): Promise<Amount> {
+  const rows = await tx<{ qty: string; filled_qty: string; engine_filled_qty: string | null; status: string }[]>`
+    SELECT qty, filled_qty, engine_filled_qty, status FROM trade.futures_orders
+     WHERE position_id = ${positionId} AND reduce_only AND status NOT IN ('refused', 'rejected')
+  `;
+  let reserved = 0n;
+  for (const r of rows) {
+    const cap =
+      r.status === 'filled' ? parseAmount(r.qty) : r.engine_filled_qty == null ? parseAmount(r.qty) : parseAmount(r.engine_filled_qty);
+    const left = cap - parseAmount(r.filled_qty);
+    if (left > 0n) reserved += left;
+  }
+  return reserved;
+}
+
+function oppositeSide(side: PositionSide): PositionSide {
+  return side === 'long' ? 'short' : 'long';
 }
 
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
@@ -364,12 +520,6 @@ export class MatchedFuturesOrders {
   ): Promise<MatchedOrderView> {
     if (!this.deps.enabled) {
       refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
-    }
-    if (input.reduceOnly === true) {
-      refuse(
-        'trade.futures_reduce_only_unsupported',
-        'a reduce-only futures order through the engine is not built yet (futures ADR slice 6b); close through the existing close path',
-      );
     }
     if (principal.userId !== input.userId) refuse('auth.credential_denied', 'the order must be placed by its own account', 403);
     const clientOrderId = input.clientOrderId?.trim() ?? '';
@@ -397,8 +547,9 @@ export class MatchedFuturesOrders {
     }
 
     // After the replay above, so an order that was accepted and holds margin is finished on retry even if a new
-    // agreement or rules version was published meanwhile (the same order as the at-mark open).
-    if (this.deps.assertDerivativesAccess) {
+    // agreement or rules version was published meanwhile (the same order as the at-mark open). A reduce-only order
+    // is never gated: while matching is on it is the only way to close, and a lapsed acceptance must not trap a position.
+    if (this.deps.assertDerivativesAccess && input.reduceOnly !== true) {
       await this.deps.assertDerivativesAccess({ userId: input.userId, tier: principal.tier ?? null, region: context.region ?? null });
     }
 
@@ -407,6 +558,8 @@ export class MatchedFuturesOrders {
     if (band === null) {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
+    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, band);
+
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
     }
@@ -421,6 +574,8 @@ export class MatchedFuturesOrders {
       lotSize: market.lot_size == null ? null : parseAmount(market.lot_size),
     });
     if (!lot.ok) refuse(lot.code, lot.reason);
+
+    await this.refuseOneWayFlip(input.userId, market.id, positionSideOf(input.side));
 
     const at = this.deps.now();
     const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
@@ -503,6 +658,172 @@ export class MatchedFuturesOrders {
     return this.continueOrder(row, market, proof);
   }
 
+  /**
+   * In one-way mode a position is net: an opening order on the side opposite an open position, or opposite a live
+   * opening order that could still open one, refuses. A trader who wants out places a reduce-only order instead.
+   * Hedge mode keeps a row per side, so both sides may open there. An account that has not chosen is one-way, as
+   * the at-mark open treats it (`resolveOpenPositionMode`); nothing is stored by reading it.
+   */
+  private async refuseOneWayFlip(userId: string, marketId: string, side: PositionSide): Promise<void> {
+    const [mode] = await this.deps.sql<{ mode: string }[]>`
+      SELECT mode FROM trade.account_position_modes WHERE user_id = ${userId}
+    `;
+    if (mode?.mode === 'hedge') return;
+    const opposite = oppositeSide(side);
+    const [conflict] = await this.deps.sql<{ what: string }[]>`
+      SELECT 'position' AS what FROM trade.positions
+       WHERE user_id = ${userId} AND market_id = ${marketId} AND side = ${opposite} AND status IN ('open', 'closing')
+      UNION ALL
+      SELECT 'order' AS what FROM trade.futures_orders
+       WHERE user_id = ${userId} AND market_id = ${marketId} AND NOT reduce_only
+         AND side = ${opposite === 'long' ? 'buy' : 'sell'}
+         AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+      LIMIT 1
+    `;
+    if (!conflict) return;
+    refuse(
+      FUTURES_ONE_WAY_FLIP_REFUSED,
+      conflict.what === 'position'
+        ? `this account is in one-way mode and holds a ${opposite} position here — reduce it with a reduce-only order instead of opening the other side`
+        : `this account is in one-way mode and has a live ${opposite} opening order here — cancel it before opening the other side`,
+      409,
+    );
+  }
+
+  /**
+   * A reduce-only order: the other side of the caller's open isolated position, no margin locked, at most the
+   * position's size less its other live reduce-only orders, and never past its bankruptcy price.
+   *
+   * The position row is locked while the bound is read and the order row is written, so two reduce orders placed at
+   * once cannot both claim the same size. Leverage and the leverage cap are not checked: reducing is always allowed,
+   * and the order carries its position's leverage.
+   */
+  private async placeReduceOnly(
+    principal: Principal,
+    input: PlaceMatchedOrderInput,
+    clientOrderId: string,
+    market: MarketRow,
+    band: Amount,
+  ): Promise<MatchedOrderView> {
+    const target = oppositeSide(positionSideOf(input.side));
+    const [open] = await this.deps.sql<{ id: string }[]>`
+      SELECT id FROM trade.positions
+       WHERE user_id = ${input.userId} AND market_id = ${market.id} AND side = ${target}
+         AND margin_mode = 'isolated' AND status = 'open'
+       LIMIT 1
+    `;
+    if (!open) {
+      refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
+    }
+    // A rung, an ADL pair, a review hold or a fill still being recorded: the reduce waits, as a close would.
+    await this.deps.assertPositionIdle(open.id);
+
+    const at = this.deps.now();
+    const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
+    const bandAt: PriceBand = priceBandAround(mark, band);
+    if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
+    const proof = await this.deps.lifecycleProof(market.id);
+    if (!this.deps.admission) refuse('authority.unavailable', 'trading admission is not configured', 503);
+    const admission = this.deps.admission;
+    const orderId = matchedOrderIdFor(input.userId, market.id, clientOrderId);
+
+    const placed = await this.deps.sql.begin(async (tx) => {
+      const [position] = await tx<PositionRowLite[]>`
+        SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
+               margin_asset, margin_adjust_request
+          FROM trade.positions WHERE id = ${open.id} FOR UPDATE
+      `;
+      if (!position || position.status !== 'open') {
+        refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
+      }
+      const size = parseAmount(position.size);
+      const reserved = await reservedReduceQty(tx, position.id);
+      if (input.qty + reserved > size) {
+        refuse(
+          FUTURES_REDUCE_ONLY_EXCEEDS_POSITION,
+          `reduce-only qty ${formatAmount(input.qty)} is more than the position's ${formatAmount(size)} less ${formatAmount(reserved)} its other live reduce-only orders already claim`,
+          400,
+        );
+      }
+      const lot = checkCloseQuantity({
+        quantity: input.qty,
+        size,
+        lotSize: market.lot_size == null ? null : parseAmount(market.lot_size),
+      });
+      if (!lot.ok) refuse(lot.code, lot.reason);
+
+      const bankruptcy = bankruptcyPrice({
+        side: position.side,
+        size,
+        entryPrice: parseAmount(position.entry_price),
+        margin: parseAmount(position.margin_current),
+      });
+      let limit: Amount;
+      if (input.type === 'market') {
+        const pulledIn = marketReduceLimit(position.side, bandAt, bankruptcy);
+        if (pulledIn === null) {
+          refuse(
+            FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND,
+            `the position's bankruptcy price ${formatAmount(bankruptcy)} is beyond the price band around the mark — no price in the band keeps the loss inside the margin`,
+            409,
+          );
+        }
+        limit = pulledIn;
+      } else {
+        limit = input.limitPrice as Amount;
+        if (!limitWithinBand(limit, bandAt)) {
+          refuse('trade.futures_price_outside_band', 'the limit is outside the price band around the mark', 400);
+        }
+        if (!withinBankruptcy(position.side, limit, bankruptcy)) {
+          refuse(
+            FUTURES_REDUCE_PAST_BANKRUPTCY,
+            `the limit ${formatAmount(limit)} is past the position's bankruptcy price ${formatAmount(bankruptcy)} — a reduce may not lose more than the margin`,
+            400,
+          );
+        }
+      }
+
+      await admission.admit(principal, 'order.place', `futures.order:${orderId}`, {
+        orderId,
+        userId: input.userId,
+        marketId: market.id,
+        symbol: market.symbol,
+        side: input.side,
+        type: input.type,
+        qty: formatAmount(input.qty),
+        limitPrice: formatAmount(limit),
+        markPrice: formatAmount(mark),
+        leverage: formatAmount(parseAmount(position.leverage)),
+        holdAmount: '0',
+        reduceOnly: true,
+        positionId: position.id,
+        bankruptcyPrice: formatAmount(bankruptcy),
+        at: at.toISOString(),
+      });
+
+      const inserted = await tx<{ id: string }[]>`
+        INSERT INTO trade.futures_orders (
+          id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
+          band_low, band_high, leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price
+        ) VALUES (
+          ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
+          ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
+          ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
+          ${position.margin_asset}, 'pending', true, ${position.id}, ${formatAmount(bankruptcy)}
+        )
+        ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+        RETURNING id
+      `;
+      return inserted.length > 0;
+    });
+    if (!placed) {
+      const raced = await this.findOrderByClientId(input.userId, input.symbol, clientOrderId);
+      if (!raced || !sameRequest(raced, input)) refuse('trade.client_order_id_conflict', 'this clientOrderId names a different order', 409);
+      return this.resume(raced);
+    }
+    return this.continueOrder(await this.loadOrder(orderId), market, proof);
+  }
+
   /** A retry of an order whose placement stopped part-way: continue from what the row says, with its stored numbers. */
   private async resume(row: OrderRow): Promise<MatchedOrderView> {
     if (row.status === 'pending' || row.status === 'held') {
@@ -523,7 +844,12 @@ export class MatchedFuturesOrders {
 
   /** Hold, then submit. Both steps are idempotent on the order id, so a retry runs them again safely. */
   private async continueOrder(row: OrderRow, market: MarketRow, proof: LifecycleAdmissionProof): Promise<MatchedOrderView> {
-    if (row.status === 'pending') {
+    if (row.status === 'pending' && row.reduce_only) {
+      // Nothing to lock: a reduce-only order's loss is bounded by its position's bankruptcy price, not by a hold.
+      await this.deps.sql`
+        UPDATE trade.futures_orders SET status = 'held', updated_at = now() WHERE id = ${row.id} AND status = 'pending'
+      `;
+    } else if (row.status === 'pending') {
       try {
         await this.deps.ledger.post(
           recipes.futuresOrderMarginHold({
@@ -576,6 +902,8 @@ export class MatchedFuturesOrders {
       collar: true,
       min: formatAmount(parseAmount(current.band_low)),
       max: formatAmount(parseAmount(current.band_high)),
+      // Never the engine's reduce-only: it is judged against the engine's net of fills, not the margin book (see the
+      // header). The reduce bound for a reduce-only order is enforced here, at placement and again on every fill.
       reduceOnly: false,
       lifecycleProof: proof,
     };
@@ -761,6 +1089,16 @@ export class MatchedFuturesOrders {
         refuse('trade.futures_fill_outside_limit', `fill ${fill.sequence} prices outside order ${order.id}'s limit`, 500);
       }
       assertFillFits(order, fill.sequence, qty);
+      if (order.reduce_only) {
+        // Repeated under the lock in recordReduceIntent; checked here too so the usual case refuses the fill whole.
+        const [position] = await this.deps.sql<{ id: string; status: string; size: string }[]>`
+          SELECT id, status, size FROM trade.positions WHERE id = ${order.position_id}
+        `;
+        assertReduceFillFits(order, position, fill.sequence, qty);
+        await refuseIfPositionBusy(this.deps.sql, position.id);
+        await refuseIfPositionHasPendingFill(this.deps.sql, position.id, 'any');
+        continue;
+      }
       // Repeated under the lock in recordIntent; checked here too so that the usual case refuses the fill whole.
       const [open] = await this.deps.sql<{ id: string }[]>`
         SELECT id FROM trade.positions
@@ -768,7 +1106,10 @@ export class MatchedFuturesOrders {
            AND margin_mode = 'isolated' AND status = 'open'
          LIMIT 1
       `;
-      if (open) await refuseIfPositionBusy(this.deps.sql, open.id);
+      if (open) {
+        await refuseIfPositionBusy(this.deps.sql, open.id);
+        await refuseIfPositionHasPendingFill(this.deps.sql, open.id, 'reduce');
+      }
     }
   }
 
@@ -780,6 +1121,13 @@ export class MatchedFuturesOrders {
    * TX2 (apply): lock the position and the order, mark the intent applied, move the row, commit.
    */
   private async applyFill(input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount }): Promise<void> {
+    const [kind] = await this.deps.sql<{ reduce_only: boolean }[]>`
+      SELECT reduce_only FROM trade.futures_orders WHERE id = ${input.orderId}
+    `;
+    if (kind?.reduce_only) {
+      await this.applyReduceFill(input);
+      return;
+    }
     const intent = await this.deps.sql.begin(async (tx) => this.recordIntent(tx, input));
     if (intent.state === 'applied') {
       await this.releaseWhenDone(input.orderId);
@@ -800,6 +1148,9 @@ export class MatchedFuturesOrders {
     }
 
     const positionId = await this.deps.sql.begin(async (tx) => this.applyIntent(tx, intent));
+    // The fill moved the position's entry and margin, so its bankruptcy price moved: a resting reduce order whose
+    // limit is now past it is taken off the book (ADR section 1, "resting reduce orders follow the margin").
+    await this.cancelReduceOrdersPastBound(positionId);
     if (this.deps.publishPosition) {
       try {
         await this.deps.publishPosition(positionId);
@@ -873,6 +1224,8 @@ export class MatchedFuturesOrders {
       // Checked under the position's lock, the same lock a rung or an ADL pair takes before it moves the row. A fill
       // that landed now would post into a pot the rung or pair then closes, with no open row left to apply it to.
       await refuseIfPositionBusy(tx, open.id);
+      // A reduce intent computed its amounts from the row as it stood; growing the row first would change them.
+      await refuseIfPositionHasPendingFill(tx, open.id, 'reduce');
       positionId = open.id;
     } else {
       const [count] = await tx<{ n: number }[]>`
@@ -973,6 +1326,268 @@ export class MatchedFuturesOrders {
     return fill.position_id;
   }
 
+  // ── reduce fills ──────────────────────────────────────────────────────────
+
+  /**
+   * One reduce-only order's share of one fill: close `qty` of its position at the fill price.
+   *
+   * TX1 (intent): lock the order and the position, plan the fill from the row, store every amount (and, for a
+   *   profit, the payout row in state `pending`), commit. From here the position is held: a close, a liquidation, a
+   *   margin change or another fill on it waits until the intent is applied.
+   * POSTS, each under its own key and from the stored amounts: the profit through the payout bound (paid, or left
+   *   owed for the payout tick), the loss into the clearing pot, the rest of the margin share back to the trader.
+   * TX2 (apply): lock the intent, the order and the position; shrink or close the row; mark the intent applied.
+   *
+   * A crash anywhere after TX1 leaves the intent pending; the retry finds it and replays the same keys with the same
+   * amounts, so every leg posts once, and the row moves once.
+   */
+  private async applyReduceFill(input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount }): Promise<void> {
+    const fill = await this.deps.sql.begin(async (tx) => this.recordReduceIntent(tx, input));
+    if (fill.state === 'applied') return;
+    const [order] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id}`;
+    if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
+
+    const profit = parseAmount(fill.profit ?? '0');
+    if (profit > 0n) {
+      // The intent and the payout row are already committed; this posts, or leaves the row owed when the pot is short.
+      await payOrOweProfit({
+        tx: this.deps.sql,
+        ledger: this.deps.ledger,
+        profitId: reduceFillProfitId(fill.fill_key),
+        positionId: fill.position_id,
+        userId: order.user_id,
+        assetId: order.hold_asset,
+        amount: profit,
+      });
+    }
+    const legs = reduceFillRecipes({
+      fillKey: fill.fill_key,
+      positionId: fill.position_id,
+      userId: order.user_id,
+      assetId: order.hold_asset,
+      plan: {
+        fromMargin: parseAmount(fill.loss_from_margin ?? '0'),
+        fromInsurance: parseAmount(fill.loss_from_insurance ?? '0'),
+        release: parseAmount(fill.margin_release ?? '0'),
+      },
+    });
+    if (legs.loss) await this.deps.ledger.post(legs.loss);
+    if (legs.release) await this.deps.ledger.post(legs.release);
+
+    await this.deps.sql.begin(async (tx) => this.applyReduceIntent(tx, fill.fill_key));
+    if (this.deps.publishPosition) {
+      try {
+        await this.deps.publishPosition(fill.position_id);
+      } catch {
+        // A notification that fails after a settled fill is not a reason to unsettle it.
+      }
+    }
+  }
+
+  private async recordReduceIntent(
+    tx: TransactionSql,
+    input: { marketId: string; orderId: string; sequence: number; price: Amount; qty: Amount },
+  ): Promise<FillRow> {
+    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${input.orderId} FOR UPDATE`;
+    if (!order) refuse('trade.futures_order_not_found', `futures order ${input.orderId} is not known`, 404);
+    if (order.market_id !== input.marketId) refuse('trade.futures_market_mismatch', 'a fill names an order on another market', 500);
+
+    const [prior] = await tx<FillRow[]>`
+      SELECT * FROM trade.futures_order_fills WHERE order_id = ${order.id} AND engine_sequence = ${input.sequence}
+    `;
+    if (prior) return prior;
+
+    assertFillFits(order, input.sequence, input.qty);
+    const [pendingOnOrder] = await tx<{ n: number }[]>`
+      SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${order.id} AND state = 'pending' LIMIT 1
+    `;
+    if (pendingOnOrder) {
+      refuse('trade.futures_fill_in_progress', 'an earlier fill of this order is still being recorded — retry in a moment', 409);
+    }
+    if (!fillWithinLimit(order.side, input.price, parseAmount(order.limit_price))) {
+      refuse('trade.futures_fill_outside_limit', `fill ${input.sequence} prices outside order ${order.id}'s limit`, 500);
+    }
+
+    const [position] = await tx<PositionRowLite[]>`
+      SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
+             margin_asset, margin_adjust_request
+        FROM trade.positions WHERE id = ${order.position_id} FOR UPDATE
+    `;
+    assertReduceFillFits(order, position, input.sequence, input.qty);
+    // The same holds an opening fill waits for, under the same lock a rung or an ADL pair takes.
+    await refuseIfPositionBusy(tx, position.id);
+    await refuseIfPositionHasPendingFill(tx, position.id, 'any');
+
+    const [earlier] = await tx<{ n: string }[]>`
+      SELECT count(*)::text AS n FROM trade.futures_order_fills
+       WHERE position_id = ${position.id} AND kind = 'reduce' AND state = 'applied'
+    `;
+    const plan = planReduceFill({
+      side: (position as PositionRowLite).side,
+      size: parseAmount(position.size),
+      entryPrice: parseAmount((position as PositionRowLite).entry_price),
+      margin: parseAmount((position as PositionRowLite).margin_current),
+      marginInitial: parseAmount((position as PositionRowLite).margin_initial),
+      qty: input.qty,
+      price: input.price,
+      roundingAllowance: BigInt(earlier?.n ?? '0'),
+    });
+    if (plan.fromInsurance > 0n) {
+      // Past the bankruptcy price the position has now (its margin fell after the order was placed): the same law
+      // as a close through the shortfall, bounded by the fund's live balance. A refusal waits; nothing has posted.
+      const insurance = await checkInsuranceBound({
+        assetId: order.hold_asset,
+        fromInsurance: plan.fromInsurance,
+        balance: (ref) => this.deps.ledger.balance(ref),
+      });
+      if (!insurance.ok) {
+        refuse(INSURANCE_UNDERFUNDED, `reduce fill ${input.sequence} on position ${position.id} — ${insurance.reason}`, 409);
+      }
+    }
+
+    const fillKey = `${input.marketId}:${input.sequence}:${position.id}`;
+    const filledNow = parseAmount(order.filled_qty) + input.qty;
+    const [inserted] = await tx<FillRow[]>`
+      INSERT INTO trade.futures_order_fills (
+        fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount,
+        new_filled, new_adverse, new_applied, state, kind,
+        realized_pnl, loss_from_margin, loss_from_insurance, loss_unbooked, profit, margin_release,
+        pot_out, initial_out, closes_position
+      ) VALUES (
+        ${fillKey}, ${order.id}, ${order.market_id}, ${input.sequence}, ${position.id},
+        ${formatAmount(input.qty)}, ${formatAmount(input.price)}, '0',
+        ${formatAmount(filledNow)}, ${order.adverse_num}, ${order.applied_amount}, 'pending', 'reduce',
+        ${formatAmount(plan.realizedPnl)}, ${formatAmount(plan.fromMargin)}, ${formatAmount(plan.fromInsurance)},
+        ${formatAmount(plan.unbooked)}, ${formatAmount(plan.profit)}, ${formatAmount(plan.release)},
+        ${formatAmount(plan.potOut)}, ${formatAmount(plan.initialOut)}, ${plan.closes}
+      )
+      RETURNING *
+    `;
+    if (plan.profit > 0n) {
+      // The payout intent is committed with the fill's, so a profit the fill realised is never lost to a crash: if
+      // this process never comes back, the payout tick pays it under the same key.
+      await tx`
+        INSERT INTO trade.futures_payouts
+          (profit_id, position_id, user_id, asset_id, amount, state, refusal_code, attempts, last_attempt_at)
+        VALUES (
+          ${reduceFillProfitId(fillKey)}, ${position.id}, ${order.user_id}, ${order.hold_asset}, ${formatAmount(plan.profit)},
+          'pending', ${CLEARING_POT_SHORT}, 0, NULL
+        )
+        ON CONFLICT (profit_id) DO NOTHING
+      `;
+    }
+    return inserted!;
+  }
+
+  private async applyReduceIntent(tx: TransactionSql, fillKey: string): Promise<void> {
+    const [fill] = await tx<FillRow[]>`SELECT * FROM trade.futures_order_fills WHERE fill_key = ${fillKey} FOR UPDATE`;
+    if (!fill) refuse('trade.futures_fill_missing', `fill ${fillKey} has no intent`, 500);
+    if (fill.state === 'applied') return;
+    const [order] = await tx<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${fill.order_id} FOR UPDATE`;
+    if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
+
+    const qty = formatAmount(parseAmount(fill.qty));
+    // The row cannot have moved since the intent: every path that changes it waits for a pending intent. The guard
+    // on the update says so anyway, and a row that no longer matches throws with the posts already made, which the
+    // operator reconciles from the intent row.
+    const moved = fill.closes_position
+      ? // A full close keeps the row's last size and margins and only closes it, as every close does
+        // (`positions_size_positive_ck`); the collateral pot is empty once the posts above have run.
+        await tx`
+          UPDATE trade.positions
+             SET status = 'closed', closed_at = now(), updated_at = now()
+           WHERE id = ${fill.position_id} AND status = 'open' AND size = ${qty}::numeric
+             AND margin_current = ${fill.pot_out}::numeric
+        `
+      : await tx`
+          UPDATE trade.positions
+             SET size = size - ${qty}::numeric,
+                 margin_current = margin_current - ${fill.pot_out}::numeric,
+                 margin_initial = margin_initial - ${fill.initial_out}::numeric,
+                 updated_at = now()
+           WHERE id = ${fill.position_id} AND status = 'open' AND size > ${qty}::numeric
+             AND margin_current >= ${fill.pot_out}::numeric AND margin_initial >= ${fill.initial_out}::numeric
+        `;
+    if (moved.count !== 1) {
+      refuse(
+        FUTURES_REDUCE_FILL_UNMATCHED,
+        `reduce fill ${fillKey} posted but position ${fill.position_id} no longer matches its intent — this needs an operator`,
+        500,
+      );
+    }
+    const filledNow = parseAmount(fill.new_filled);
+    const orderStatus = filledNow === parseAmount(order.qty) ? 'filled' : 'open';
+    await tx`
+      UPDATE trade.futures_orders
+         SET filled_qty = ${fill.new_filled},
+             status = CASE WHEN status IN ('held', 'submitting', 'open', 'filled', 'submit_unknown') THEN ${orderStatus} ELSE status END,
+             updated_at = now()
+       WHERE id = ${order.id}
+    `;
+    await tx`
+      UPDATE trade.futures_order_fills SET state = 'applied', applied_at = now()
+       WHERE fill_key = ${fillKey} AND state = 'pending'
+    `;
+  }
+
+  /**
+   * Take a position's resting reduce-only orders off the book when they no longer fit it (ADR section 1, "resting
+   * reduce orders follow the margin"): the position is gone, its reduce orders now claim more than its size (newest
+   * first), or an order's limit is past the bankruptcy price the position has now. Nothing to release: a reduce
+   * order holds no margin. A fill the engine printed before the cancel still arrives and settles, or refuses for an
+   * operator if the position cannot take it.
+   */
+  private async cancelReduceOrdersPastBound(positionId: string): Promise<string[]> {
+    const matching = this.deps.matching;
+    if (!matching) return [];
+    const resting = await this.deps.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE position_id = ${positionId} AND reduce_only AND status = 'open'
+       ORDER BY created_at, id
+    `;
+    if (resting.length === 0) return [];
+    const [position] = await this.deps.sql<PositionRowLite[]>`
+      SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
+             margin_asset, margin_adjust_request
+        FROM trade.positions WHERE id = ${positionId}
+    `;
+    const out: { order: OrderRow; code: string }[] = [];
+    if (!position || position.status !== 'open') {
+      for (const order of resting) out.push({ order, code: FUTURES_REDUCE_ONLY_NO_POSITION });
+    } else {
+      const size = parseAmount(position.size);
+      const bound = bankruptcyPrice({
+        side: position.side,
+        size,
+        entryPrice: parseAmount(position.entry_price),
+        margin: parseAmount(position.margin_current),
+      });
+      let claimed = 0n;
+      for (const order of resting) {
+        const left = parseAmount(order.qty) - parseAmount(order.filled_qty);
+        if (!withinBankruptcy(position.side, parseAmount(order.limit_price), bound)) {
+          out.push({ order, code: FUTURES_REDUCE_PAST_BANKRUPTCY });
+        } else if (claimed + left > size) {
+          out.push({ order, code: FUTURES_REDUCE_ONLY_EXCEEDS_POSITION });
+        } else {
+          claimed += left;
+        }
+      }
+    }
+    const cancelled: string[] = [];
+    for (const { order, code } of out) {
+      const result = await matching.cancel(order.market_id, order.id);
+      if (!result.cancelled) continue;
+      await this.deps.sql`
+        UPDATE trade.futures_orders SET refusal_code = ${code}, updated_at = now()
+         WHERE id = ${order.id} AND refusal_code IS NULL
+      `;
+      await this.markLeftBook(order.id, result.cancellation ? parseAmount(result.cancellation.remainingQty) : null);
+      cancelled.push(order.id);
+    }
+    return cancelled;
+  }
+
   // ── cancel, release ───────────────────────────────────────────────────────
 
   /** Cancel a resting order we own, then release the part of its hold that no fill used. */
@@ -1021,7 +1636,7 @@ export class MatchedFuturesOrders {
 
   /**
    * Take resting orders off the book once their limit has left the band around the current mark (futures ADR
-   * section 1). The engine's collar checks an incoming order only, so without this a resting order placed when the
+   * section 1), and resting reduce-only orders once they no longer fit their position (`cancelReduceOrdersPastBound`). The engine's collar checks an incoming order only, so without this a resting order placed when the
    * mark was 100 could still fill at 100 after the mark fell to 50, far beyond the margin it holds.
    *
    * A market whose mark cannot be read is skipped and reported, never judged against an old price. The cancel goes
@@ -1032,6 +1647,12 @@ export class MatchedFuturesOrders {
     const skipped: { marketId: string; reason: string }[] = [];
     const band = this.deps.priceBand;
     const matching = this.deps.matching;
+    // Resting reduce orders follow their position first: no mark is needed to see that a position has gone, that its
+    // reduce orders claim more than it holds, or that a limit is past the bankruptcy price after a margin change.
+    const reducing = await this.deps.sql<{ position_id: string }[]>`
+      SELECT DISTINCT position_id FROM trade.futures_orders WHERE reduce_only AND status = 'open' ORDER BY position_id
+    `;
+    for (const { position_id } of reducing) cancelled.push(...(await this.cancelReduceOrdersPastBound(position_id)));
     const markets = await this.deps.sql<{ market_id: string; symbol: string }[]>`
       SELECT DISTINCT o.market_id, m.symbol
         FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
@@ -1187,7 +1808,9 @@ export class MatchedFuturesOrders {
 function sameRequest(row: OrderRow, input: PlaceMatchedOrderInput): boolean {
   if (row.user_id !== input.userId || row.side !== input.side || row.order_type !== input.type) return false;
   if (parseAmount(row.qty) !== input.qty) return false;
-  if (parseAmount(row.leverage) !== input.leverage) return false;
+  if (row.reduce_only !== (input.reduceOnly === true)) return false;
+  // A reduce-only order carries its position's leverage, whatever the request said.
+  if (!row.reduce_only && parseAmount(row.leverage) !== input.leverage) return false;
   if (input.type === 'limit' && parseAmount(row.limit_price) !== input.limitPrice) return false;
   return true;
 }
