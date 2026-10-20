@@ -65,6 +65,9 @@ const en = {
   rampConflict:
     'The bank already holds a cash-out under this reference, so it may already be done. Check your records before sending again.',
   lastAdmin: 'The last administrator cannot be removed or demoted. Make someone else an administrator first.',
+  labelTaken: 'You already have a saved address with that name. Choose another. Nothing was changed.',
+  destinationGone: 'That address is no longer saved. Refresh the list. Nothing was changed.',
+  labelInvalid: 'The name must be 1 to 64 characters, with no space at either end and no control characters. Nothing was changed.',
   memberHasPending: 'This person still has a payment waiting. Decide or cancel it before removing them.',
 } as const;
 const es = {
@@ -127,6 +130,10 @@ const es = {
   rampConflict:
     'El banco ya tiene una retirada con esta referencia, así que puede que ya esté hecha. Revisa tus registros antes de volver a enviar.',
   lastAdmin: 'No se puede quitar ni bajar de rol al último administrador. Nombra antes a otra persona administradora.',
+  labelTaken: 'Ya tienes una dirección guardada con ese nombre. Elige otro. No se cambió nada.',
+  destinationGone: 'Esa dirección ya no está guardada. Actualiza la lista. No se cambió nada.',
+  labelInvalid:
+    'El nombre debe tener de 1 a 64 caracteres, sin espacios al principio ni al final ni caracteres de control. No se cambió nada.',
   memberHasPending: 'Esta persona aún tiene un pago esperando. Decide o cancela esos pagos antes de quitarla.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -190,6 +197,10 @@ const fr = {
   rampConflict:
     'La banque détient déjà un retrait sous cette référence : il est peut-être déjà fait. Vérifiez vos relevés avant de renvoyer.',
   lastAdmin: 'Le dernier administrateur ne peut être ni retiré ni rétrogradé. Nommez d’abord un autre administrateur.',
+  labelTaken: 'Vous avez déjà une adresse enregistrée sous ce nom. Choisissez-en un autre. Rien n’a été modifié.',
+  destinationGone: 'Cette adresse n’est plus enregistrée. Actualisez la liste. Rien n’a été modifié.',
+  labelInvalid:
+    'Le nom doit compter de 1 à 64 caractères, sans espace au début ou à la fin ni caractère de contrôle. Rien n’a été modifié.',
   memberHasPending: 'Cette personne a encore un paiement en attente. Décidez-en ou annulez-le avant de la retirer.',
 } satisfies Record<keyof typeof en, string>;
 
@@ -248,6 +259,9 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.personal_transfer_terms_unset': 'termsUnset',
   'bank.personal_transfer_fee_unwired': 'feeUnwired',
   'bank.ramp_conflict': 'rampConflict',
+  'bank.destination_label_taken': 'labelTaken',
+  'bank.withdraw_destination_missing': 'destinationGone',
+  'bank.ramp_invalid_destination': 'labelInvalid',
 };
 
 /**
@@ -279,6 +293,8 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'business.removeMember',
   'transfers.create',
   'transfers.toUser',
+  // A single label UPDATE: every refusal comes before it changes anything.
+  'ramps.destinations.rename',
 ]);
 
 /** The code's sentence key. A few sentences depend on which write was refused. */
