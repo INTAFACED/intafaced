@@ -179,6 +179,8 @@ Default **OFF**. A trailing stop walks with a mark, and the mark never comes fro
 | `TRADE_TRAILING_MARK_JOBS_INTERVAL_MS` | `""`    | Tick interval in ms. Blank → refuse when enabled + markets (`trade.trailing_mark_jobs_interval_unset`). Never invent a rate. |
 | `TRADE_TRAILING_MARK_JOBS_MARKET_IDS`  | `""`    | Comma-separated **market UUIDs**. Empty → no job even if enabled.                                                            |
 
+**Placing a trailing stop** (sell side only for now): the customer sends `trail`; a `mark` in the body is refused (`trade.order_type_unsupported`). The starting mark comes from the same source, and only while the pump is enabled and the market is in `TRADE_TRAILING_MARK_JOBS_MARKET_IDS` (a stop elsewhere would never move). No usable mark refuses `trade.missing_mark`. A buy trailing stop refuses `trade.order_type_unsupported` until its funding hold is built.
+
 **Honesty bans:** invent candles, invent markets, zero-fill gaps, include seed volume in public ohlcv (seeded fills excluded — SD-3).
 
 ### Venue fabric mark (A-TRADE-VENUE-1 + A-TRADE-VENUE-OPS)

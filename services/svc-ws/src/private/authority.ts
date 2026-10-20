@@ -1,9 +1,11 @@
 import {
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
-  serviceAuthHeadersForBody,
+  serviceCallSigner,
   type CurrentAuthorityInput,
   type CurrentAuthorityResult,
+  type ServiceAuthMode,
+  type ServiceSigner,
 } from '@intafaced/contracts';
 import { assertLiveCredential, createIdentityOwnershipClient, type LiveCredentialInput } from './live-credential.js';
 
@@ -16,6 +18,8 @@ export function createIdentityAuthorityClient(options: {
   baseUrl: string;
   secret: string;
   fetch?: typeof globalThis.fetch;
+  /** svc-ws's own key. With it the identity reads are key-signed; `dual` also sends the dedicated-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }): CurrentAuthorityPort {
   const url = new URL(options.baseUrl);
   if (
@@ -29,10 +33,12 @@ export function createIdentityAuthorityClient(options: {
     throw new Error('Private identity authority unconfigured');
   const base = options.baseUrl.replace(/\/+$/, '');
   const fetchImpl = options.fetch ?? globalThis.fetch;
+  const sign = serviceCallSigner({ service: 'svc-ws', audience: 'svc-identity', legacySecret: options.secret, s2s: options.s2s });
   return {
     async read(raw, signal, policy) {
       const subject = currentAuthorityInputSchema.parse(raw);
       const body = JSON.stringify(subject);
+      const target = `${base}/trpc/accountControls.currentAuthority`;
       const request = {
         method: 'POST',
         redirect: 'error' as const,
@@ -42,10 +48,10 @@ export function createIdentityAuthorityClient(options: {
         headers: {
           'content-type': 'application/json',
           'cache-control': 'no-store',
-          ...serviceAuthHeadersForBody('svc-ws', options.secret, body),
+          ...sign(body, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
         },
       };
-      const response = await fetchImpl(`${base}/trpc/accountControls.currentAuthority`, request);
+      const response = await fetchImpl(target, request);
       if (!response.ok) throw new Error('Private identity authority unavailable');
       const envelope: unknown = await response.json();
       const data = envelope as { result?: { data?: unknown } } | null;
@@ -56,7 +62,8 @@ export function createIdentityAuthorityClient(options: {
         if (!policy) throw new Error('Private key policy context missing');
         const ownership = createIdentityOwnershipClient({
           baseUrl: base,
-          headers: serviceAuthHeadersForBody('svc-ws', options.secret, ''),
+          // Each read signs its own URL; no content-type goes out on these GETs, so none is signed.
+          headers: (url) => sign('', { method: 'GET', url, contentType: '' }),
           fetch: (input, init) => {
             const headers = new Headers(init?.headers);
             headers.set('cache-control', 'no-store');

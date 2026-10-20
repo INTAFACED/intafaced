@@ -1,5 +1,5 @@
 import {
-  serviceAuthHeadersForBody,
+  serviceCallSigner,
   guestNotificationSendInputSchema,
   guestNotificationReceiptSchema,
   guestNotificationGetInputSchema,
@@ -8,6 +8,8 @@ import {
   guestNotificationCodeSchema,
   type GuestNotificationSendInput,
   type GuestNotificationReceipt,
+  type ServiceAuthMode,
+  type ServiceSigner,
 } from '@intafaced/contracts';
 
 export class OutreachNotificationError extends Error {
@@ -30,6 +32,8 @@ export interface OutreachNotificationPort {
 export function createOutreachNotificationClient(options: {
   notifyUrl?: string;
   secret?: string;
+  /** Per-service key (S2S v3); without one the call is signed with `secret` as before. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
   fetcher?: typeof fetch;
 }): OutreachNotificationPort {
   let base: string | null = null;
@@ -40,7 +44,9 @@ export function createOutreachNotificationClient(options: {
   } catch {
     /* Missing transport is explicitly unconfigured. */
   }
-  const configured = base !== null && Boolean(options.secret && options.secret.length >= 32);
+  const sign = serviceCallSigner({ service: 'svc-ops', audience: 'svc-notify', legacySecret: options.secret ?? '', s2s: options.s2s });
+  const credentialed = Boolean(options.secret && options.secret.length >= 32) || options.s2s?.mode === 'keypair';
+  const configured = base !== null && credentialed;
   async function call(procedure: string, input: unknown): Promise<unknown> {
     if (!configured) return null;
     const body = JSON.stringify(input),
@@ -54,15 +60,19 @@ export function createOutreachNotificationClient(options: {
     });
     const invoke = async () => {
       try {
+        const target = `${base}/trpc/guestNotifications.${procedure}`;
         const request = {
           method: 'POST',
           cache: 'no-store',
           redirect: 'error' as const,
           signal: controller.signal,
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-ops', options.secret!, body) },
+          headers: {
+            'content-type': 'application/json',
+            ...sign(body, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
+          },
           body,
         };
-        const response = await (options.fetcher ?? fetch)(`${base}/trpc/guestNotifications.${procedure}`, request);
+        const response = await (options.fetcher ?? fetch)(target, request);
         const envelope: unknown = await response.json();
         if (!response.ok) {
           const code = guestNotificationCodeSchema.safeParse((envelope as { error?: { message?: unknown } } | null)?.error?.message);

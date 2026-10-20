@@ -1349,7 +1349,11 @@ export class PositionService {
         }
         const currentLeverage = parseAmount(row.leverage);
         if (currentLeverage === input.leverage) {
-          await tx`UPDATE trade.positions SET margin_adjust_request = NULL, updated_at = now()
+          // The claim stored this adjustment at sequence + 1. Nothing posts, but the counter still moves past it,
+          // so the next real adjustment cannot be given a sequence a completed row already holds.
+          await tx`UPDATE trade.positions
+            SET margin_adjust_seq = GREATEST(margin_adjust_seq, ${Number(row.margin_adjust_seq) + 1}),
+                margin_adjust_request = NULL, updated_at = now()
             WHERE id = ${row.id} AND margin_adjust_request = ${adjustmentId}`;
           const result = presentPosition(row);
           await tx`UPDATE trade.position_margin_adjustments

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { reviewIdFor, resetReviewIds } from './review-id';
 import { isInFlight, markInFlight, pendingKey, readPending, release, reserve, unmarkInFlight } from './pending';
 
 const USER = '00000000-0000-4000-8000-000000000001';
@@ -63,6 +64,25 @@ describe('the order marker', () => {
     expect(store.has(pendingKey(USER))).toBe(true);
     release(USER, 'desk:abc');
     expect(store.has(pendingKey(USER))).toBe(false);
+  });
+
+  it('releasing a marker ends the reviewed draft number, so a later identical order is a new order', async () => {
+    stubBrowser();
+    resetReviewIds();
+    const draft = {
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      type: 'limit',
+      amount: '1',
+      price: '100',
+      timeInForce: 'GTC',
+      postOnly: false,
+    } as const;
+    const id = reviewIdFor(USER, draft);
+    expect(await reserve(USER, { ...marker, id })).toBe('reserved');
+    expect(reviewIdFor(USER, draft)).toBe(id); // an uncertain send keeps its number
+    release(USER, id); // check or send-again settled it
+    expect(reviewIdFor(USER, draft)).not.toBe(id);
   });
 
   it('is written before an order is sent, with the old desk’s key and shape', async () => {

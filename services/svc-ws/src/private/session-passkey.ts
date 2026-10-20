@@ -1,6 +1,6 @@
 /** Enrolled passkey at the `/private/stream` session door. A session without it cannot keep the stream open. Refuse if verify is unavailable. Never invent a challenge. */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export class SessionPasskeyError extends Error {
   constructor(
@@ -93,6 +93,8 @@ export interface LoadSessionPasskeyOptions {
   readonly userId: string;
   readonly identityOwnershipSecret: string;
   readonly fetch?: typeof globalThis.fetch;
+  /** svc-ws's own key. With it the read is key-signed for svc-identity; `dual` also sends the dedicated-secret form. */
+  readonly s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }
 
 /**
@@ -105,10 +107,18 @@ export async function assertIdentitySessionPasskey(options: LoadSessionPasskeyOp
   if (!id) unavailable();
   const base = options.identityUrl.replace(/\/+$/, '');
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const headers = serviceAuthHeadersForBody('svc-ws', options.identityOwnershipSecret, '');
+  const target = `${base}/internal/account/${encodeURIComponent(id)}`;
+  const sign = serviceCallSigner({
+    service: 'svc-ws',
+    audience: 'svc-identity',
+    legacySecret: options.identityOwnershipSecret,
+    s2s: options.s2s,
+  });
+  // No content-type goes out on this GET, so none is signed.
+  const headers = sign('', { method: 'GET', url: new URL(target), contentType: '' });
   let response: Response;
   try {
-    response = await fetchFn(`${base}/internal/account/${encodeURIComponent(id)}`, {
+    response = await fetchFn(target, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(5_000),

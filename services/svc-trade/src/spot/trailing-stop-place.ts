@@ -2,7 +2,8 @@ import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
 import { TradeService, type PlaceOrderInput } from './trade-service.js';
-import type { EngineSubmitRequest } from './matching-client.js';
+import { MatchingNoBookError, type EngineSubmitRequest } from './matching-client.js';
+import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
 import './oco-cancel.js';
 import './bracket-place.js';
 import { carriedPlacementBody } from './placement-extras.js';
@@ -78,6 +79,20 @@ export function bindTrailingStop(input: PlaceOrderInput): PlaceWithTrail {
   };
 }
 
+async function serverMark(service: TradeService, source: QuotedMarkSource, input: PlaceWithTrail): Promise<Amount | null> {
+  const market = await (
+    service as unknown as { requireMarket(i: { symbol?: string; marketId?: string }): Promise<{ id: string }> }
+  ).requireMarket(input);
+  try {
+    const quote = await source.quote({ marketId: market.id, at: new Date() });
+    return quote ? quote.price : null;
+  } catch (err) {
+    // A market with no book yet has no mark; the customer is told so, not given a stand-in.
+    if (err instanceof MatchingNoBookError) return null;
+    throw err;
+  }
+}
+
 export function installTrailingStopPlace(ctor: typeof TradeService): void {
   const proto = ctor.prototype as unknown as {
     placeOrder: (principal: Principal, input: PlaceOrderInput) => Promise<{ id: string; status: string }>;
@@ -89,12 +104,21 @@ export function installTrailingStopPlace(ctor: typeof TradeService): void {
 
   const origPlace = proto.placeOrder;
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
-    const bound = bindTrailingStop(input);
+    let bound = bindTrailingStop(input);
     if (bound.trail !== undefined) {
       const missingTrail = trailRefuse(bound.trail ?? null);
       if (missingTrail) throw missingTrail;
+      const source = (this as unknown as { trailingMarkSource?: QuotedMarkSource }).trailingMarkSource;
+      if (source) {
+        // The mark is ours. Whatever the request carried is dropped, so a caller cannot choose where the stop starts.
+        bound = { ...bound, mark: await serverMark(this, source, bound) };
+      }
       const missingMark = markRefuse(bound.mark ?? null);
       if (missingMark) throw missingMark;
+      if (bound.side === 'buy') {
+        // A buy stop triggers as a market order at a price the hold cannot know yet; funding it is the next slice.
+        throw new TradeError('trailing buy stops are not available yet; the funding hold is not built', 'trade.order_type_unsupported');
+      }
     }
     return origPlace.call(this, principal, bound);
   };

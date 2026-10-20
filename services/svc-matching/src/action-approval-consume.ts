@@ -10,6 +10,8 @@ import {
   founderAttestationVerdict,
   type ActionApproval,
   type ActionApprovalConsumeInput,
+  type ServiceAuthMode,
+  type ServiceSigner,
   type FounderApprovalSubject,
 } from '@intafaced/contracts';
 
@@ -111,12 +113,17 @@ export function stubApprovalConsumer(approverId: string, requesterId = 'ops-1'):
 }
 
 /** The shared client: one signed request, bounded by a timeout, accepted only when CONSUMED and echoing the request. */
-export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
+export function createIdentityApprovalClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ActionApprovalConsumer {
   return createSharedApprovalClient({
     service: 'svc-matching',
     baseUrl,
     internalSecret,
     fail: (message, code) => new ActionApprovalConsumeError(message, code),
+    ...(s2s ? { s2s } : {}),
   });
 }
 
