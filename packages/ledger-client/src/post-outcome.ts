@@ -5,6 +5,7 @@ import { LedgerError } from './types.js';
  *
  *   `refused`  the ledger refused it before committing anything. The key is free and the caller may release its claim.
  *   `unsent`   the request never left this process (the connection was never made). Same consequence as `refused`.
+ *              Only ever returned for a caller that says it made a single attempt (see `PostOutcomeOptions`).
  *   `unknown`  anything else. The post may have committed and only the reply was lost, or it may not have. Keep the
  *              claim, read the key back (`getTxByKey`) and decide from the book.
  */
@@ -35,21 +36,35 @@ export const DEFINITE_POST_REFUSAL_CODES: ReadonlySet<string> = new Set([
 /** Undici reports these on `error.cause` when the socket never connected. */
 const NEVER_SENT_CAUSE_CODES: ReadonlySet<string> = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
 
+export interface PostOutcomeOptions {
+  /**
+   * The caller made exactly ONE attempt. The shared HTTP client retries a post on a fetch failure and on 502/503/504
+   * and throws only the LAST attempt's error, so "this attempt never connected" says nothing about the earlier ones: one
+   * may have committed before a restart made the next ones fail to connect. Leave this off for any retrying client.
+   */
+  readonly singleAttempt?: boolean;
+}
+
 /**
  * Sort a post failure into `refused`, `unsent` or `unknown`.
  *
- * "Never sent" is only `cause.code` (undici), walked at most three levels. A code on the error itself is not that
- * proof. ECONNRESET, socket hang up, UND_ERR_SOCKET, every 5xx, a timeout and every untyped error stay `unknown`.
+ * "Never sent" needs `singleAttempt` and is only `cause.code` (undici), walked at most three levels. A code on the
+ * error itself is not that proof. ECONNRESET, socket hang up, UND_ERR_SOCKET, every 5xx, a timeout and every untyped
+ * error stay `unknown`.
+ *
+ * `refused` from a client that retried is proof about the LAST attempt only. An earlier attempt that timed out on the
+ * caller's side may still be queued on the ledger and commit later, so a caller that retried waits out
+ * `POST_IN_FLIGHT_BOUND_SECONDS` before it treats the key as dead.
  */
-export function classifyPostOutcome(err: unknown): PostOutcomeClass {
+export function classifyPostOutcome(err: unknown, options: PostOutcomeOptions = {}): PostOutcomeClass {
   if (err instanceof LedgerError && DEFINITE_POST_REFUSAL_CODES.has(err.code)) return 'refused';
-  if (causeNeverSent(err)) return 'unsent';
+  if (options.singleAttempt === true && causeNeverSent(err)) return 'unsent';
   return 'unknown';
 }
 
 /** True when the failure proves nothing committed under the key (`refused` or `unsent`). */
-export function provesPostNotCommitted(err: unknown): boolean {
-  return classifyPostOutcome(err) !== 'unknown';
+export function provesPostNotCommitted(err: unknown, options: PostOutcomeOptions = {}): boolean {
+  return classifyPostOutcome(err, options) !== 'unknown';
 }
 
 function causeNeverSent(err: unknown): boolean {

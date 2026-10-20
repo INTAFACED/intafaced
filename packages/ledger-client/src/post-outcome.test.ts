@@ -32,16 +32,26 @@ describe('classifyPostOutcome', () => {
     }
   });
 
-  it('a connect failure that happened before any byte was sent is unsent, up to three levels down', () => {
+  it('a connect failure that happened before any byte was sent is unsent only for a single-attempt caller', () => {
+    const once = { singleAttempt: true };
     for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
-      expect(classifyPostOutcome(withCause(code))).toBe('unsent');
-      expect(classifyPostOutcome(withCause(code, 3))).toBe('unsent');
+      expect(classifyPostOutcome(withCause(code), once)).toBe('unsent');
+      expect(classifyPostOutcome(withCause(code, 3), once)).toBe('unsent');
     }
-    expect(classifyPostOutcome(withCause('ECONNREFUSED', 4))).toBe('unknown');
+    expect(classifyPostOutcome(withCause('ECONNREFUSED', 4), once)).toBe('unknown');
+  });
+
+  it('a retrying client only reports its last attempt, so a connect failure is never proof there', () => {
+    // Attempt 0 may have committed before the ledger restarted; attempts 1 and 2 then failed to connect.
+    for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
+      expect(classifyPostOutcome(withCause(code))).toBe('unknown');
+      expect(classifyPostOutcome(withCause(code), { singleAttempt: false })).toBe('unknown');
+      expect(provesPostNotCommitted(withCause(code))).toBe(false);
+    }
   });
 
   it('a code on the error itself is not proof the request was never sent', () => {
-    expect(classifyPostOutcome(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }))).toBe('unknown');
+    expect(classifyPostOutcome(Object.assign(new Error('x'), { code: 'ECONNREFUSED' }), { singleAttempt: true })).toBe('unknown');
   });
 
   it('a reset, a hang up, a timeout, a 5xx and anything untyped stay unknown', () => {
@@ -60,7 +70,7 @@ describe('classifyPostOutcome', () => {
 
   it('provesPostNotCommitted is true for refused and unsent only', () => {
     expect(provesPostNotCommitted(new LedgerError('x', 'ledger.frozen'))).toBe(true);
-    expect(provesPostNotCommitted(withCause('ENOTFOUND'))).toBe(true);
+    expect(provesPostNotCommitted(withCause('ENOTFOUND'), { singleAttempt: true })).toBe(true);
     expect(provesPostNotCommitted(new LedgerError('x', IDEMPOTENCY_CONFLICT_CODE))).toBe(false);
     expect(provesPostNotCommitted(new Error('timeout'))).toBe(false);
   });
