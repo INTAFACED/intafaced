@@ -1,0 +1,37 @@
+import { defineCopy } from '../../shared/i18n';
+
+const messages = {
+  title: 'Authenticator app',
+  on: 'On',
+  named: 'Name',
+  unnamed: 'No name yet',
+  since: 'Set up',
+  codesLeft: 'Recovery codes left: {count}',
+  rename: 'Rename',
+  renameField: 'Name for this authenticator',
+  renameSave: 'Save name',
+  renamed: 'Name saved.',
+  replace: 'Replace',
+  disable: 'Turn off',
+  cancel: 'Cancel',
+  confirmTitle: 'Confirm it is you',
+  confirmBody: 'Enter the 6-digit code from your authenticator app.',
+  confirmField: '6-digit code',
+  confirmSubmit: 'Confirm',
+  nextBody: 'Codes work once. Wait for your app to show a new code, then enter it here. A recovery code also works and is used up.',
+  nextField: 'Next code or a recovery code',
+  disableSubmit: 'Turn off authenticator app',
+  disabled: 'Authenticator app turned off. Sign-ins no longer ask for its code.',
+  spent: 'The recovery code you used is spent.',
+  replaceBody: 'Add this key to your new authenticator app, then enter the code it shows.',
+  replaceKey: 'Setup key',
+  replaceNew: 'Code from the new app',
+  replaceSubmit: 'Replace authenticator app',
+  replaced: 'Authenticator app replaced. Your name and recovery codes are kept.',
+  working: 'Working…',
+  loadFailed: 'The authenticator status could not be loaded.',
+  invalidCode: 'Enter the 6-digit code.',
+  invalidProof: 'Enter a code or a recovery code.',
+} as const;
+
+export const authenticatorCopy = defineCopy('account.authenticator', messages);
