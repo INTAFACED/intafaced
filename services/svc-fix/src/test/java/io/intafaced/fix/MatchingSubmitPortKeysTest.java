@@ -193,8 +193,12 @@ class MatchingSubmitPortKeysTest {
         String ring = "{\"keys\":[{\"kid\":\"svc-fix.a\",\"svc\":\"svc-fix\",\"use\":\"s2s\",\"x\":\""
                 + Base64.getUrlEncoder().withoutPadding().encodeToString(raw) + "\"}]}";
         String pkcs8 = Base64.getUrlEncoder().withoutPadding().encodeToString(pair.getPrivate().getEncoded());
-        // Receiver-only (no signing key): no outbound signer, the shared secret stays the form.
-        assertNull(ServiceKeys.outboundFromEnv(Map.of("S2S_AUTH_MODE", "keypair", "S2S_KEYRING", ring), "svc-fix"));
+        // dual or keypair without a signing key stops boot: no silent fallback to the shared secret.
+        for (String mode : new String[] {"dual", "keypair"}) {
+            assertThrows(
+                    ServiceKeys.KeyError.class,
+                    () -> ServiceKeys.outboundFromEnv(Map.of("S2S_AUTH_MODE", mode, "S2S_KEYRING", ring), "svc-fix"));
+        }
         // Half a key pair stops boot.
         assertThrows(
                 ServiceKeys.KeyError.class,

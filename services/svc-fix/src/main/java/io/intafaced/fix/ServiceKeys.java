@@ -138,7 +138,7 @@ public final class ServiceKeys {
      * The signing side, as {@code s2sFromEnv} in {@code packages/contracts/src/s2s-env.ts}. Unset or {@code off}
      * returns null (the shared secret is the only form). In {@code dual} or {@code keypair} the keyring is required and
      * {@code S2S_SIGNING_KID} / {@code S2S_SIGNING_KEY} (PKCS8, base64url) are set together or not at all; with neither,
-     * this process only verifies and returns null. The private key must be the one the keyring publishes for
+     * a process that calls out (svc-fix) with neither refuses, so it never falls back to the shared secret. The private key must be the one the keyring publishes for
      * {@code self} under that key id, or boot stops.
      */
     public static Outbound outboundFromEnv(Map<String, String> env, String self) {
@@ -160,7 +160,7 @@ public final class ServiceKeys {
             throw new KeyError("S2S_SIGNING_KID and S2S_SIGNING_KEY are set together or not at all");
         }
         if (kid == null) {
-            return null;
+            throw new KeyError("S2S_AUTH_MODE=" + mode + " needs S2S_SIGNING_KID and S2S_SIGNING_KEY");
         }
         return new Outbound(Signer.create(self, kid, pkcs8, entries, Clock.systemUTC(), new SecureRandom()), mode);
     }

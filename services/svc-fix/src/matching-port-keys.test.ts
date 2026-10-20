@@ -150,6 +150,16 @@ describe('svc-fix matching submit with its own key', () => {
     expect(judged(sent[0]!, k.verifier(), 'keypair')).toMatchObject({ service: 'svc-fix', scheme: 'keypair' });
   });
 
+  it.each(['dual', 'keypair'])('%s without a signing key refuses instead of falling back to the shared secret', async (mode) => {
+    stubFetch();
+    const k = makeKeys();
+    vi.stubEnv('S2S_AUTH_MODE', mode);
+    vi.stubEnv('S2S_KEYRING', JSON.stringify({ keys: k.keyring }));
+    const out = await postMatchingSubmit(command, opts());
+    expect(out).toMatchObject({ ok: false, error: { code: 'matching_service_auth_unconfigured' } });
+    expect(sent).toHaveLength(0);
+  });
+
   it('a malformed S2S environment refuses instead of falling back to unsigned', async () => {
     stubFetch();
     vi.stubEnv('S2S_AUTH_MODE', 'bogus');

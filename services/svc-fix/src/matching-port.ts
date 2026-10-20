@@ -274,6 +274,13 @@ export async function postMatchingSubmit(command: unknown, options: MatchingPort
   if (!s2s) {
     try {
       const fromEnv = s2sFromEnv(process.env, MATCHING_SERVICE_NAME);
+      if (fromEnv.s2sMode && !fromEnv.signer) {
+        // svc-fix only calls out: dual or keypair without its own signing key must not fall back to the shared secret.
+        return refuse(
+          'matching_service_auth_unconfigured',
+          `S2S_AUTH_MODE=${fromEnv.s2sMode} needs S2S_SIGNING_KID and S2S_SIGNING_KEY; svc-fix does not POST unsigned matching orders`,
+        );
+      }
       if (fromEnv.signer && fromEnv.s2sMode) s2s = { signer: fromEnv.signer, mode: fromEnv.s2sMode };
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'invalid';
