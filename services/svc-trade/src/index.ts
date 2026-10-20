@@ -497,6 +497,18 @@ const positions = new PositionService(sql, ledger, {
 });
 // Matched futures fills settle into the position book this service owns (futures ADR slice 6).
 matchedFuturesFills.current = positions.matchedFills;
+// Resting matched orders whose limit has left the band around the mark come off the book on the liquidation cadence.
+if (env.TRADE_FUTURES_JOBS_ENABLED) {
+  futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+    const sweep = await positions.cancelMatchedOrdersOutsideBand();
+    for (const item of sweep.skipped) {
+      app.log.error(
+        { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
+        'resting futures orders not checked against the band',
+      );
+    }
+  });
+}
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
   intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,

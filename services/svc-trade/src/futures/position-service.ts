@@ -887,16 +887,21 @@ export class PositionService {
     return this.matched.cancel(principal, orderId);
   }
 
+  /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
+  async cancelMatchedOrdersOutsideBand() {
+    return this.matched.cancelOutsideBand();
+  }
+
   /** The matched-order settlement, for the matching consumers. Fills and releases run whether or not the switch is on. */
   get matchedFills(): {
     settle(fill: MatchedFillEvent): Promise<void>;
     releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
-    handlesMarket(marketId: string): Promise<boolean>;
+    ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
   } {
     return {
       settle: (fill) => this.matched.settleFill(fill),
       releaseCancelled: (orderId, remainingQty) => this.matched.releaseEngineCancellation(orderId, remainingQty),
-      handlesMarket: (marketId) => this.matched.handlesMarket(marketId),
+      ownsFill: (fill) => this.matched.ownsFill(fill),
     };
   }
 

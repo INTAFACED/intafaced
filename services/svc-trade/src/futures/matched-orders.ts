@@ -55,6 +55,7 @@ import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limit
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { isInsufficientFunds } from './futures-payouts.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
+import { defaultLiquidationId } from './liquidation-tick.js';
 import {
   FUTURES_PRICE_BAND_UNSET,
   fillMargin,
@@ -79,6 +80,9 @@ export class MatchedOrderError extends Error {
     this.name = 'MatchedOrderError';
   }
 }
+
+/** A fill that pairs a matched futures order with an order from the spot path. Neither path can settle it. */
+export const FUTURES_FILL_CROSSES_ORDER_PATHS = 'trade.futures_fill_crosses_order_paths';
 
 export const MATCHED_ORDER_STATUSES = [
   'pending',
@@ -233,6 +237,15 @@ function holdOf(order: OrderRow): Amount {
  * event says it (qty less the remainder); a fill can still arrive after it, because the engine printed the fill
  * before the cancel and the event or reply carrying it is slower.
  */
+/**
+ * What fills applied plus what was released never exceeds what the order locked. The hold is derived from the
+ * order's stored terms, so this is the check a stored hold column used to give; it runs before every apply or release.
+ */
+function assertWithinHold(order: OrderRow, applied: Amount, released: Amount): void {
+  if (applied + released <= holdOf(order)) return;
+  refuse('trade.futures_hold_exceeded', `order ${order.id} would use more than the margin it holds`, 500);
+}
+
 function engineFilled(order: OrderRow): Amount | null {
   if (order.status === 'filled') return parseAmount(order.qty);
   return order.engine_filled_qty == null ? null : parseAmount(order.engine_filled_qty);
@@ -282,6 +295,30 @@ function presentOrder(row: OrderRow): MatchedOrderView {
 
 function refuse(code: string, message: string, status = 400): never {
   throw new MatchedOrderError(message, code, status);
+}
+
+/**
+ * A fill may not grow a position that a liquidation rung, a planned ADL pair or a review hold is working on. The
+ * refusal is a 409: the event is redelivered, and once the rung or pair has finished the fill lands (on the same row,
+ * or on a new one if the row was closed). The codes are the ones the position service uses for the same states.
+ */
+async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string): Promise<void> {
+  const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean }[]>`
+    SELECT
+      EXISTS (SELECT 1 FROM trade.liquidation_rungs r
+               WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted')) AS live_rung,
+      EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
+               WHERE q.state = 'planned' AND (q.bankrupt_position_id = ${positionId} OR q.candidate_position_id = ${positionId})) AS adl_planned,
+      (COALESCE((SELECT r.state FROM trade.liquidation_rungs r WHERE r.position_id = ${positionId}
+                  ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') = 'abandoned'
+        OR EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)})) AS parked
+  `;
+  if (hold?.live_rung || hold?.adl_planned) {
+    refuse('trade.liquidation_in_progress', `position ${positionId} is being liquidated or deleveraged — the fill waits for it`, 409);
+  }
+  if (hold?.parked) {
+    refuse('trade.position_under_review', `position ${positionId} is under review — the fill waits until support resolves it`, 409);
+  }
 }
 
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
@@ -607,6 +644,14 @@ export class MatchedFuturesOrders {
         refuse('trade.futures_fill_outside_limit', `fill ${fill.sequence} prices outside order ${order.id}'s limit`, 500);
       }
       assertFillFits(order, fill.sequence, qty);
+      // Repeated under the lock in recordIntent; checked here too so that the usual case refuses the fill whole.
+      const [open] = await this.deps.sql<{ id: string }[]>`
+        SELECT id FROM trade.positions
+         WHERE user_id = ${order.user_id} AND market_id = ${order.market_id} AND side = ${positionSideOf(order.side)}
+           AND margin_mode = 'isolated' AND status = 'open'
+         LIMIT 1
+      `;
+      if (open) await refuseIfPositionBusy(this.deps.sql, open.id);
     }
   }
 
@@ -708,6 +753,9 @@ export class MatchedFuturesOrders {
     `;
     let positionId: string;
     if (open) {
+      // Checked under the position's lock, the same lock a rung or an ADL pair takes before it moves the row. A fill
+      // that landed now would post into a pot the rung or pair then closes, with no open row left to apply it to.
+      await refuseIfPositionBusy(tx, open.id);
       positionId = open.id;
     } else {
       const [count] = await tx<{ n: number }[]>`
@@ -719,6 +767,7 @@ export class MatchedFuturesOrders {
     }
 
     const step = fillMargin({ filled: filledBefore, adverseNum: BigInt(order.adverse_num) }, { side, qty, price, mark, leverage });
+    assertWithinHold(order, step.need, parseAmount(order.released_amount));
     const fillKey = `${input.marketId}:${input.sequence}:${positionId}`;
     await tx`
       INSERT INTO trade.futures_order_fills (
@@ -853,10 +902,79 @@ export class MatchedFuturesOrders {
     `;
   }
 
-  /** Whether a market is a futures market, so the matching consumers route its fills here. */
-  async handlesMarket(marketId: string): Promise<boolean> {
-    const rows = await this.deps.sql<{ kind: string }[]>`SELECT kind FROM trade.markets WHERE id = ${marketId}`;
-    return rows[0]?.kind === 'futures';
+  /**
+   * Take resting orders off the book once their limit has left the band around the current mark (futures ADR
+   * section 1). The engine's collar checks an incoming order only, so without this a resting order placed when the
+   * mark was 100 could still fill at 100 after the mark fell to 50, far beyond the margin it holds.
+   *
+   * A market whose mark cannot be read is skipped and reported, never judged against an old price. The cancel goes
+   * through the engine first; the hold is released exactly as for a customer cancel, after every printed fill settles.
+   */
+  async cancelOutsideBand(): Promise<{ cancelled: string[]; skipped: { marketId: string; reason: string }[] }> {
+    const cancelled: string[] = [];
+    const skipped: { marketId: string; reason: string }[] = [];
+    const band = this.deps.priceBand;
+    const matching = this.deps.matching;
+    const markets = await this.deps.sql<{ market_id: string; symbol: string }[]>`
+      SELECT DISTINCT o.market_id, m.symbol
+        FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
+       WHERE o.status = 'open'
+       ORDER BY o.market_id
+    `;
+    if (markets.length === 0) return { cancelled, skipped };
+    if (band === null || !matching) {
+      const reason = band === null ? FUTURES_PRICE_BAND_UNSET : 'trade.futures_matching_unconfigured';
+      return { cancelled, skipped: markets.map((m) => ({ marketId: m.market_id, reason })) };
+    }
+    const at = this.deps.now();
+    for (const market of markets) {
+      let mark: Amount;
+      try {
+        mark = await this.deps.markFor(market.market_id, market.symbol, at, null);
+      } catch (err) {
+        const code = (err as { code?: unknown }).code;
+        skipped.push({ marketId: market.market_id, reason: typeof code === 'string' ? code : 'trade.mark_unavailable' });
+        continue;
+      }
+      const bandAt = priceBandAround(mark, band);
+      const resting = await this.deps.sql<OrderRow[]>`
+        SELECT * FROM trade.futures_orders WHERE market_id = ${market.market_id} AND status = 'open' ORDER BY id
+      `;
+      for (const order of resting) {
+        if (limitWithinBand(parseAmount(order.limit_price), bandAt)) continue;
+        const result = await matching.cancel(order.market_id, order.id);
+        if (!result.cancelled) continue;
+        await this.deps.sql`
+          UPDATE trade.futures_orders SET refusal_code = 'trade.futures_price_outside_band', updated_at = now()
+           WHERE id = ${order.id} AND refusal_code IS NULL
+        `;
+        await this.markLeftBook(order.id, result.cancellation ? parseAmount(result.cancellation.remainingQty) : null);
+        await this.releaseWhenDone(order.id);
+        cancelled.push(order.id);
+      }
+    }
+    return { cancelled, skipped };
+  }
+
+  /**
+   * Whether a fill belongs here: true when both of its orders are matched futures orders, false when neither is (a
+   * spot-path order, or a house market-maker order, on any market). One of each cannot be settled by either path,
+   * since each side's money sits in a different kind of hold, so it refuses for an operator rather than settling half.
+   */
+  async ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean> {
+    const rows = await this.deps.sql<{ id: string }[]>`
+      SELECT id FROM trade.futures_orders WHERE id IN (${fill.makerOrderId}, ${fill.takerOrderId})
+    `;
+    const known = new Set(rows.map((r) => r.id));
+    const maker = known.has(fill.makerOrderId);
+    const taker = known.has(fill.takerOrderId);
+    if (maker && taker) return true;
+    if (!maker && !taker) return false;
+    refuse(
+      FUTURES_FILL_CROSSES_ORDER_PATHS,
+      `a fill pairs a matched futures order with an order from another path (maker ${fill.makerOrderId}, taker ${fill.takerOrderId}) — this needs an operator`,
+      500,
+    );
   }
 
   /**
@@ -876,6 +994,7 @@ export class MatchedFuturesOrders {
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${orderId} AND state = 'pending' LIMIT 1
     `;
     if (pending) return;
+    assertWithinHold(order, parseAmount(order.applied_amount), 0n);
     const remainder = holdOf(order) - parseAmount(order.applied_amount);
     if (remainder <= 0n) return;
     if (remainder === parseAmount(order.released_amount)) return;

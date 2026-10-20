@@ -47,11 +47,14 @@ import { bindCloseSpotTrade } from './spot/close-position.js';
  * §5.2 asks for per filled order.
  */
 /**
- * The futures side of the same two subjects (futures ADR slice 6). A matched futures fill or release goes here, and a
- * spot fill never does: the route is the market's kind. `current` is null until PositionService is built.
+ * The futures side of the same two subjects (futures ADR slice 6). A fill between two matched futures orders goes
+ * here; any other fill, including one on a futures market between orders the spot path placed, goes to the spot
+ * path. The route is the orders, not the market, the same way cancels are routed. `current` is null until
+ * PositionService is built.
  */
 export interface MatchedFillsSink {
-  handlesMarket(marketId: string): Promise<boolean>;
+  /** True when both orders are matched futures orders, false when neither is. A fill between one of each refuses. */
+  ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
   settle(fill: {
     marketId: string;
     makerOrderId: string;
@@ -76,7 +79,7 @@ export async function subscribeMatchingEvents(
     idempotent(
       async (payload) => {
         const sink = futures.current;
-        if (sink && (await sink.handlesMarket(payload.marketId))) {
+        if (sink && (await sink.ownsFill(payload))) {
           await sink.settle({
             marketId: payload.marketId,
             makerOrderId: payload.makerOrderId,

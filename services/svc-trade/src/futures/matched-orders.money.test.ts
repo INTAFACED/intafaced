@@ -858,6 +858,177 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
   });
 
+  describe('busy positions, fill routing, the band on resting orders, the hold round trip', () => {
+    async function rest(userId: string, side: 'buy' | 'sell', clientOrderId: string, limitPrice = A('100'), qty = A('1')) {
+      return build().place(principal(userId), order({ userId, side, qty, limitPrice, clientOrderId }));
+    }
+
+    /** Alice long 1 against Bob short 1, then a second resting buy from Alice and a resting sell from Carol. */
+    async function aliceLongWithAnotherBuy() {
+      const svc = build();
+      const a1 = await rest(ALICE, 'buy', 'busy-a1');
+      const b1 = await rest(BOB, 'sell', 'busy-b1');
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a1.orderId, takerOrderId: b1.orderId, price: '100', qty: '1', sequence: 1 });
+      const [held] = await positionsOf(ALICE);
+      const a2 = await rest(ALICE, 'buy', 'busy-a2');
+      const c1 = await rest(CAROL, 'sell', 'busy-c1');
+      return { svc, positionId: held!.id, bobPosition: (await positionsOf(BOB))[0]!.id, a2, c1 };
+    }
+
+    async function rung(positionId: string, state: string) {
+      const plan = { recipes: [], reason: 'closing', fromInsurance: '0', marginAsset: USDT };
+      await sql`
+        INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)
+        VALUES (${randomUUID()}, ${positionId}, ${`liq:${positionId}`}, 'closing', '1', '10', ${sql.json(plan as never)}, ${state})
+      `;
+    }
+
+    beforeEach(async () => {
+      await sql`TRUNCATE trade.liquidation_rungs, trade.futures_adl_pairs, trade.liquidation_attempts RESTART IDENTITY CASCADE`;
+    });
+
+    it('a fill on a position a live rung is closing refuses 409 and posts nothing; redelivered after the rung, it opens a new position', async () => {
+      const { svc, positionId, a2, c1 } = await aliceLongWithAnotherBuy();
+      await rung(positionId, 'planned');
+      const fill = { marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 2 };
+
+      await expect(svc.settleFill(fill)).rejects.toMatchObject({ code: 'trade.liquidation_in_progress', status: 409 });
+      // Refused whole: neither side recorded or posted anything, and both holds are intact.
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 2`).toHaveLength(0);
+      expect(await positionsOf(CAROL)).toHaveLength(0);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, a2.orderId))).toBe(A('10'));
+      expect(await bal(futuresOrderMarginAccount(CAROL, USDT, c1.orderId))).toBe(A('10'));
+
+      // The rung finishes and closes the row; the event comes again and the fill lands on a fresh position.
+      await sql`UPDATE trade.liquidation_rungs SET state = 'applied' WHERE position_id = ${positionId}`;
+      await sql`UPDATE trade.positions SET status = 'liquidated' WHERE id = ${positionId}`;
+      await svc.settleFill(fill);
+      const open = (await positionsOf(ALICE)).filter((p) => p.status === 'open');
+      expect(open).toHaveLength(1);
+      expect(open[0]!.id).not.toBe(positionId);
+      expect(await bal(positionCollateralAccount(ALICE, USDT, open[0]!.id))).toBe(parseAmount(open[0]!.margin_current));
+      expect((await orderRow(a2.orderId)).status).toBe('filled');
+    });
+
+    it('the check also runs under the position lock when the intent is recorded', async () => {
+      const { svc, positionId, a2, c1 } = await aliceLongWithAnotherBuy();
+      // The rung starts after the whole-fill check and before the intent: Carol's side records first, Alice's refuses.
+      const original = sql.begin.bind(sql);
+      let calls = 0;
+      const spy = vi.spyOn(sql, 'begin').mockImplementation(((fn: never) => {
+        calls += 1;
+        if (calls === 2) return rung(positionId, 'planned').then(() => original(fn));
+        return original(fn);
+      }) as never);
+      try {
+        await expect(
+          svc.settleFill({ marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 3 }),
+        ).rejects.toMatchObject({ code: 'trade.liquidation_in_progress', status: 409 });
+      } finally {
+        spy.mockRestore();
+      }
+      const fills = await sql<{ order_id: string }[]>`SELECT order_id FROM trade.futures_order_fills WHERE engine_sequence = 3`;
+      expect(fills.map((f) => f.order_id)).toEqual([c1.orderId]);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, a2.orderId))).toBe(A('10'));
+    });
+
+    it('a planned ADL pair on the position refuses the fill with 409', async () => {
+      const { svc, positionId, bobPosition, a2, c1 } = await aliceLongWithAnotherBuy();
+      await sql`
+        INSERT INTO trade.futures_adl_pairs (pair_id, ordinal, bankrupt_position_id, bankrupt_user_id, candidate_position_id, candidate_user_id,
+          asset_id, size, bankruptcy_price, bankrupt_margin_taken, bankrupt_initial_taken, candidate_margin_released,
+          candidate_initial_released, candidate_release_sequence, candidate_profit, disclosure_event_id)
+        VALUES (${`futures.adl:${positionId}:1:${bobPosition}`}, 1, ${positionId}, ${ALICE}, ${bobPosition}, ${BOB}, 'USDT', '1', '90',
+          '10', '10', '10', '10', 2, '10', 'evt-1')
+      `;
+      await expect(
+        svc.settleFill({ marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 4 }),
+      ).rejects.toMatchObject({ code: 'trade.liquidation_in_progress', status: 409 });
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 4`).toHaveLength(0);
+    });
+
+    it('a position under review after an abandoned rung refuses the fill with 409', async () => {
+      const { svc, positionId, a2, c1 } = await aliceLongWithAnotherBuy();
+      await rung(positionId, 'abandoned');
+      await expect(
+        svc.settleFill({ marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 5 }),
+      ).rejects.toMatchObject({ code: 'trade.position_under_review', status: 409 });
+    });
+
+    it('a fill is routed by its orders: two matched orders are ours, two others are the spot path, one of each refuses', async () => {
+      const svc = build();
+      const a = await rest(ALICE, 'buy', 'route-a');
+      const b = await rest(BOB, 'sell', 'route-b');
+      expect(await svc.ownsFill({ makerOrderId: a.orderId, takerOrderId: b.orderId })).toBe(true);
+      expect(await svc.ownsFill({ makerOrderId: randomUUID(), takerOrderId: randomUUID() })).toBe(false);
+      await expect(svc.ownsFill({ makerOrderId: a.orderId, takerOrderId: randomUUID() })).rejects.toMatchObject({
+        code: 'trade.futures_fill_crosses_order_paths',
+      });
+    });
+
+    it('a resting order whose limit leaves the band around the new mark is cancelled and its hold returned', async () => {
+      const alice = await rest(ALICE, 'buy', 'band-a', A('104'));
+      const bob = await rest(BOB, 'sell', 'band-b', A('96'));
+      // Mark 98 with a 5% band is 93.1 to 102.9: Alice's 104 is outside, Bob's 96 is inside.
+      mark = A('98');
+      const sweep = await build().cancelOutsideBand();
+      expect(sweep).toEqual({ cancelled: [alice.orderId], skipped: [] });
+      expect(engine.cancels).toEqual([alice.orderId]);
+      expect(await orderRow(alice.orderId)).toMatchObject({ status: 'cancelled', refusal_code: 'trade.futures_price_outside_band' });
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, alice.orderId))).toBe(0n);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      expect((await orderRow(bob.orderId)).status).toBe('open');
+      await assertBooksAgree();
+    });
+
+    it('a market whose mark cannot be read is skipped and reported, and nothing is cancelled', async () => {
+      const alice = await rest(ALICE, 'buy', 'band-dark', A('104'));
+      const svc = build({
+        markFor: async () => {
+          throw Object.assign(new Error('no acceptable mark'), { code: 'trade.mark_stale' });
+        },
+      });
+      expect(await svc.cancelOutsideBand()).toEqual({ cancelled: [], skipped: [{ marketId: MARKET, reason: 'trade.mark_stale' }] });
+      expect(engine.cancels).toEqual([]);
+      expect((await orderRow(alice.orderId)).status).toBe('open');
+    });
+
+    it.each([
+      ['buy', '0.0007', '7.77'],
+      ['sell', '0.0013', '3.33'],
+    ] as const)('a %s market order at the band edge holds exactly what its stored terms give back', async (side, qty, leverage) => {
+      mark = A('100.37');
+      const svc = build();
+      const view = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side, qty: A(qty), leverage: A(leverage), type: 'market', clientOrderId: `edge-${side}` }),
+      );
+      const sent = engine.submits.at(-1)!;
+      const posted = await bal(futuresOrderMarginAccount(ALICE, USDT, view.orderId));
+      // The hold posted at placement, from the terms in memory.
+      expect(posted).toBe(orderHoldAmount({ side, qty: A(qty), limit: A(sent.price!), mark: A('100.37'), leverage: A(leverage) }));
+      // The same hold, from the terms after a round trip through the row.
+      const [row] = await sql<{ qty: string; limit_price: string; mark_price: string; leverage: string }[]>`
+        SELECT qty, limit_price, mark_price, leverage FROM trade.futures_orders WHERE id = ${view.orderId}
+      `;
+      expect(
+        orderHoldAmount({
+          side,
+          qty: parseAmount(row!.qty),
+          limit: parseAmount(row!.limit_price),
+          mark: parseAmount(row!.mark_price),
+          leverage: parseAmount(row!.leverage),
+        }),
+      ).toBe(posted);
+      expect(parseAmount(view.holdAmount)).toBe(posted);
+      // Cancelled untouched, it gives back every unit it locked.
+      engine.remaining.set(view.orderId, qty);
+      await svc.cancel(principal(ALICE), view.orderId);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, view.orderId))).toBe(0n);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+    });
+  });
+
   describe('invariants', () => {
     it('after every fill across many accounts, long size equals short size and every pot and hold agrees with its row', async () => {
       const svc = build();
