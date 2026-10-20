@@ -9,7 +9,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MemoryLedger,
   formatAmount,
@@ -19,6 +19,9 @@ import {
   positionCollateralAccount,
   recipes,
   userAvailable,
+  futuresLossSink,
+  InsufficientFundsError,
+  type LedgerClient,
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
 import { FuturesError } from './position-service.js';
@@ -32,6 +35,7 @@ import { sqlAcceptedMarkStore } from './accepted-mark.js';
 import type { EngineDepth } from '../spot/matching-client.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { TEST_MAX_LEVERAGE_AMOUNT } from './initial-margin.test-harness.js';
+import { CLEARING_POT_SHORT, listPayoutsForUser, pendingPayoutTotals, runPayoutTick } from './futures-payouts.js';
 
 /**
  * A PER-RUN DATABASE, created and dropped by this suite.
@@ -90,6 +94,34 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 /** Someone else entirely — used only to route seed value into the house pot. */
 const BOB = '22222222-2222-4222-8222-222222222222';
+
+/** A trader who is not asserted on anywhere: the loser whose realised loss fills the clearing pot. */
+const POT_LOSER = '99999999-9999-4999-8999-999999999999';
+
+/**
+ * Fund the clearing pot (`futuresLossSink`, the account losers pay into and
+ * winners are paid from) the way it fills in production: a loser's deposit,
+ * margin lock and realised loss.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
+}
 
 describe('H8a money suite is not skip-green', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
@@ -152,29 +184,18 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   }
 
   /**
-   * Fund the profit pot the way it fills after #5016: a posted trade fee into
-   * `houseFees('trade')`. A realised loss debits `futuresLossSink` and leaves
-   * that fee pot at 0, so it cannot capitalise a payout.
+   * Fund the clearing pot (the account losers pay into and winners are paid
+   * from) the way it fills: a loser's deposit, margin lock and realised loss.
    */
   async function fundProfitSource(amount: string) {
     const seedId = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
-    await ledger.post(
-      recipes.feeCharge({
-        chargeId: seedId,
-        userId: BOB,
-        module: 'trade',
-        mode: 'asset',
-        assetId: 'USDT',
-        amount: amt(amount),
-      }),
-    );
+    await fundClearingPot(ledger, { loserUserId: POT_LOSER, assetId: 'USDT', amount: amt(amount), seedId: seedId });
   }
 
-  const profitPot = () => houseFees('trade', 'USDT');
+  const profitPot = () => futuresLossSink('USDT');
 
   beforeEach(async () => {
-    await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets, trade.futures_payouts RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     bus = new MemoryEventBus('svc-trade');
     marks = memoryMarkBook();
@@ -715,10 +736,12 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   // ── The payout bound ─────────────────────────────────────────────────────────
 
   /**
-   * A house account is not an insurance fund and a fee balance is not a risk
-   * budget. The balance is the ceiling, and exceeding it refuses.
+   * A short clearing pot never keeps a winner in the trade and never pays from
+   * house money (docs/adr/2026-10-20-futures-matched-traders.md section 4). The
+   * position closes, margin comes back, and the profit is owed: an intent row
+   * with `trade.clearing_pot_short`, and nothing posted from the pot.
    */
-  it('refuses a payout larger than the profit source, and nothing moves', async () => {
+  it('closes against a short clearing pot and owes the profit, paying nothing from the pot', async () => {
     feed('50000');
     await fundProfitSource('500');
     const pos = await positions.open({
@@ -733,14 +756,181 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
 
     // +1000 of profit against a pot holding 500.
     feed('51000');
-    await expect(positions.close(ALICE, pos.id!)).rejects.toMatchObject({ code: 'trade.profit_source_underfunded' });
+    const closed = await positions.close(ALICE, pos.id!);
+    expect(closed.status).toBe('closed');
 
-    // THE BALANCES, not the exception. The pot is untouched, the trader's
-    // available is untouched, the margin is still locked, the row is still open.
+    // THE BALANCES. The pot is untouched, the margin is back, the profit is not.
     expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('500');
-    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(userBefore);
-    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('5000');
-    expect(await positions.listOpen(ALICE)).toHaveLength(1);
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount - userBefore).toBe(amt('5000'));
+    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('0');
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('0');
+    expect(await positions.listOpen(ALICE)).toEqual([]);
+
+    const owed = await listPayoutsForUser(sql, ALICE);
+    expect(owed).toHaveLength(1);
+    expect(owed[0]).toMatchObject({
+      positionId: pos.id,
+      assetId: 'USDT',
+      amount: '1000',
+      state: 'pending',
+      refusalCode: CLEARING_POT_SHORT,
+      paidAt: null,
+    });
+    expect(await pendingPayoutTotals(sql)).toEqual([{ assetId: 'USDT', owed: '1000', count: 1 }]);
+  });
+
+  it('owes the profit of a partial close against an empty pot and keeps the rest of the position open', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-position-service.test-14p',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    feed('51000');
+    const reduced = await positions.closeQuantity(ALICE, pos.id!, { quantity: amt('0.4'), clientCloseId: 'partial-short-pot' });
+    expect(reduced.status).toBe('open');
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('0');
+    expect(await listPayoutsForUser(sql, ALICE)).toMatchObject([{ positionId: pos.id, amount: '400', state: 'pending' }]);
+
+    // The replay returns the stored answer and owes nothing twice.
+    await positions.closeQuantity(ALICE, pos.id!, { quantity: amt('0.4'), clientCloseId: 'partial-short-pot' });
+    expect(await pendingPayoutTotals(sql)).toEqual([{ assetId: 'USDT', owed: '400', count: 1 }]);
+  });
+
+  it('pays an owed profit exactly once when the clearing pot fills, under the close key', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-position-service.test-14b',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    feed('51000');
+    await positions.close(ALICE, pos.id!);
+    const afterClose = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+
+    // Still short: the tick leaves it owed and posts nothing.
+    await fundProfitSource('999');
+    expect(await runPayoutTick({ sql, ledger })).toMatchObject({ paid: [], errored: [] });
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount).toBe(afterClose);
+
+    await fundProfitSource('1');
+    const [row] = await listPayoutsForUser(sql, ALICE);
+    const posts = vi.spyOn(ledger, 'post');
+    expect(await runPayoutTick({ sql, ledger })).toEqual({ paid: [row!.profitId], stillPending: [], errored: [] });
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount - afterClose).toBe(amt('1000'));
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('0');
+
+    // A second tick finds nothing, and the posting is the close's own profit key.
+    expect(await runPayoutTick({ sql, ledger })).toEqual({ paid: [], stillPending: [], errored: [] });
+    const profitPosts = posts.mock.calls.map(([req]) => req).filter((req) => req.reason === 'futures.profit.realized');
+    expect(profitPosts).toHaveLength(1);
+    expect(profitPosts[0]!.idempotencyKey).toBe(`futures.profit:${row!.profitId}`);
+    expect((await listPayoutsForUser(sql, ALICE))[0]).toMatchObject({ state: 'paid', refusalCode: null });
+    expect(await pendingPayoutTotals(sql)).toEqual([]);
+  });
+
+  /**
+   * The profit posted, then the close failed and rolled back. The retry must
+   * not record that profit as still owed: the ledger recognises its key.
+   */
+  it('marks a profit paid when a retried close finds it already posted', async () => {
+    feed('50000');
+    await fundProfitSource('1000');
+    let failRelease = true;
+    const flaky = new Proxy(ledger, {
+      get(target, prop, receiver) {
+        if (prop === 'post') {
+          return async (req: Parameters<LedgerClient['post']>[0]) => {
+            if (req.reason === 'futures.margin.release' && failRelease) {
+              failRelease = false;
+              throw new Error('ledger timeout after commit');
+            }
+            return target.post(req);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const service = new PositionService(sql, flaky, {
+      marks: marks.source(),
+      profitSource: profitSourceFromConfig(PROFIT_SOURCE),
+      maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+      bus,
+      now: () => NOW,
+    });
+    const pos = await service.open({
+      clientOpenId: 't-open-position-service.test-14r',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const before = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+    feed('51000');
+    await expect(service.close(ALICE, pos.id!)).rejects.toThrow('ledger timeout after commit');
+    expect(await listPayoutsForUser(sql, ALICE)).toEqual([]);
+
+    expect((await service.close(ALICE, pos.id!)).status).toBe('closed');
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount - before).toBe(amt('6000'));
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('0');
+    expect(await listPayoutsForUser(sql, ALICE)).toMatchObject([{ state: 'paid', refusalCode: null }]);
+    expect(await pendingPayoutTotals(sql)).toEqual([]);
+  });
+
+  /**
+   * Two winners race for one pot under their own position locks: the bound
+   * read passes for both, and the ledger refuses the second. That refusal
+   * becomes an owed profit, never an error after the close's margin moved.
+   */
+  it('turns a ledger insufficient-funds answer on the profit leg into an owed profit', async () => {
+    feed('50000');
+    await fundProfitSource('1000');
+    const racing = new Proxy(ledger, {
+      get(target, prop, receiver) {
+        if (prop === 'post') {
+          return async (req: Parameters<LedgerClient['post']>[0]) => {
+            if (req.reason === 'futures.profit.realized') {
+              throw new InsufficientFundsError(formatAccountRef(profitPot()), 'USDT', '1000', '0');
+            }
+            return target.post(req);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const service = new PositionService(sql, racing, {
+      marks: marks.source(),
+      profitSource: profitSourceFromConfig(PROFIT_SOURCE),
+      maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+      bus,
+      now: () => NOW,
+    });
+    const pos = await service.open({
+      clientOpenId: 't-open-position-service.test-14c',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    feed('51000');
+    expect((await service.close(ALICE, pos.id!)).status).toBe('closed');
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('1000');
+    expect(formatAmount((await ledger.balance(positionCollateralAccount(ALICE, 'USDT', pos.id!))).amount)).toBe('0');
+    expect((await listPayoutsForUser(sql, ALICE))[0]).toMatchObject({ state: 'pending', refusalCode: CLEARING_POT_SHORT });
+
+    // The real ledger pays it on the next tick.
+    expect((await runPayoutTick({ sql, ledger })).paid).toHaveLength(1);
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('0');
   });
 
   it('pays a profit exactly equal to the source balance — the bound is a ceiling, not a margin of safety', async () => {

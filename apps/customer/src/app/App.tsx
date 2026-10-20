@@ -17,7 +17,9 @@ import { DevFeatures } from './DevFeatures';
 import { shellCopy } from './shell-copy';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { SessionNotice } from './SessionNotice';
-import { ParkedProtocolRoomAt } from '../features/protocol';
+import { ProtocolRoutes } from '../features/protocol/ProtocolRoutes';
+import { Web3Shell } from './Web3Shell';
+import { rememberShellRoute } from '../features/protocol/shell-state';
 import { TeamDesk, teamConsoleHref } from './TeamDesk';
 
 class RoomBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -93,11 +95,15 @@ export function App() {
   // One redirect rule per render, in this order: an alias row, signed-in `/`. No path is redirected for being hidden, in any
   // build, so the Docker image opens exactly what `vite dev` opens.
   const redirectTo = room?.alias ? resolveAlias(room, path, search) : path === '/' && session ? '/home' : undefined;
-  useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'parked'].includes(room.area), Boolean(redirectTo));
+  useCustomerRoomArrival(path, devFeatures || !room || !['public', 'team', 'web3'].includes(room.area), Boolean(redirectTo));
   const teamHref = room?.area === 'team' ? teamConsoleHref(current, import.meta.env.VITE_TEAM_URL, import.meta.env.DEV) : undefined;
   useEffect(() => {
     if (redirectTo) navigate(redirectTo + location.hash, true);
   }, [redirectTo]);
+  // The Exchange | Web3 switch returns to the last route of each shell. Public pages and the team desk belong to neither.
+  useEffect(() => {
+    if (room && !redirectTo && !['public', 'team'].includes(room.area)) rememberShellRoute(path);
+  }, [path, room, redirectTo]);
   useEffect(() => {
     const pair = deskPairLabel(path);
     // Each desk market gets its own tab title ("ETH/USDT · Spot"), so several desk tabs can be told apart.
@@ -192,13 +198,12 @@ export function App() {
       {ribbon}
       <TeamDesk href={teamHref} />
     </Shell>
-  ) : room?.area === 'parked' ? (
-    // Parked rooms sit in the normal shell (top bar, door "More") but stay out of customerRoomHref, so they are
-    // never a sign-in return target.
-    <Shell door="More" path={path}>
+  ) : room?.area === 'web3' ? (
+    // Web3 rooms have their own frame and stay out of customerRoomHref, so they are never a sign-in return target.
+    <Web3Shell path={path}>
       {ribbon}
-      <ParkedProtocolRoomAt path={path} />
-    </Shell>
+      <ProtocolRoutes path={path} />
+    </Web3Shell>
   ) : (
     <Shell door={room?.door} path={path}>
       {ribbon}

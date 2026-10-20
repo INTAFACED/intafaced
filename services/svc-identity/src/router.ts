@@ -1023,6 +1023,29 @@ export function createIdentityRouter(
         }),
 
       /**
+       * Username recovery. Same shape and same answer as `requestPasswordReset`: the username is mailed to a
+       * known address, and nothing in the answer says whether the address has an account.
+       */
+      requestHandleRecovery: publicProcedure
+        .input(z.object({ email: z.string().trim().email().max(320) }))
+        .output(z.object({ accepted: z.literal(true) }))
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.requestHandleRecovery({ email: input.email });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Whether recovery mail can leave the server at all. The page shows its "not live" card only when this
+       * says off. It is the same for every visitor.
+       */
+      passwordResetChannel: publicProcedure
+        .output(z.object({ emailDelivery: z.enum(['on', 'off']) }))
+        .query(() => auth.passwordResetChannel()),
+
+      /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
        * and ends the old sessions. This does not sign the caller in.
        */

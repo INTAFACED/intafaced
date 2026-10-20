@@ -6,7 +6,7 @@
  * payout larger than the named balance refuses instead of overdrawing.
  */
 import { describe, expect, it } from 'vitest';
-import { MemoryLedger, houseFees, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, futuresLossSink, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
 import {
   ProfitSourceConfigError,
   checkProfitBound,
@@ -119,7 +119,7 @@ describe('profitSourceFromConfig — refuse to boot rather than default', () => 
   it('accepts the account the recipe actually draws from, and reports the asset-specific ref', () => {
     const source = profitSourceFromConfig(RECIPE_SPELLING);
     expect(source.configured).toBe(RECIPE_SPELLING);
-    expect(source.accountFor('USDT')).toEqual(houseFees('trade', 'USDT'));
+    expect(source.accountFor('USDT')).toEqual(futuresLossSink('USDT'));
     expect(source.accountFor('EUR').assetId).toBe('EUR');
   });
 });
@@ -130,18 +130,20 @@ describe('checkProfitBound', () => {
   async function fundedLedger(amount: string) {
     const ledger = new MemoryLedger();
     if (amount !== '0') {
-      // Route value in through a real recipe so the pot's balance is a posted
-      // fact, not a fixture. Trade fees land in houseFees('trade'); a realised
-      // loss debits futuresLossSink and does not (#5016).
+      // Route value in through real recipes so the clearing pot's balance is a
+      // posted fact, not a fixture. Losers pay into futuresLossSink (the clearing
+      // pot) with a realised loss; winners are paid from it.
+      const positionId = `loser-${amount}`;
       await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `seed-${amount}` }));
+      await ledger.post(recipes.futuresMarginLock({ positionId, userId: USER, assetId: 'USDT', amount: amt(amount) }));
       await ledger.post(
-        recipes.feeCharge({
-          chargeId: `seed-${amount}`,
+        recipes.futuresRealizeLoss({
+          positionId,
           userId: USER,
-          module: 'trade',
-          mode: 'asset',
           assetId: 'USDT',
-          amount: amt(amount),
+          fromMargin: amt(amount),
+          fromInsurance: 0n,
+          lossId: `seed-${amount}`,
         }),
       );
     }
@@ -171,7 +173,7 @@ describe('checkProfitBound', () => {
     });
     expect(check.ok).toBe(false);
     expect(check.available).toBe(0n);
-    expect(check.reason).toContain(formatAccountRef(houseFees('trade', 'USDT')));
+    expect(check.reason).toContain(formatAccountRef(futuresLossSink('USDT')));
     expect(check.reason).toContain('refusing rather than overdrawing');
   });
 

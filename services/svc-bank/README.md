@@ -187,6 +187,7 @@ Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-r
 BANK_RAMP_MODE=none            # default — every ramp money path refuses bank.no_ramp_rail
 BANK_RAMP_MODE=crypto-ledger   # ledger half only; simulated: true always
 BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling_unset (never 24h)
+BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
 ```
 
 ### `ops` — operator only
@@ -288,8 +289,10 @@ Native staking uses `stake` / `unstake` in svc-token, not here.
 Business keys, never UUIDs, never clock readings (§5):
 
 ```
-bank.transfer:<scheduleId>:<occurrence>              one firing of one standing order
-bank.transfer:<transferId>:0                         one-off transfer (a schedule that fires once)
+bank.transfer.sched:<scheduleId>:<occurrence>        one firing of one standing order
+bank.transfer.own:<transferId>:0                     a user moving value between their own spaces
+bank.transfer.p2p:<transferId>:0                     a payment to another user (personal pay, a paid request)
+bank.transfer.rail:<paymentId>:<0|1>                 a send to a rail boundary (0) and its reversal (1)
 bank.earn.deposit:<positionId>                       one position opening
 bank.earn.withdraw:<positionId>                      one position closing
 bank.earn.fund:<poolId>:<fundingId>                  one reserve top-up

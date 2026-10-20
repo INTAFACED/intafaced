@@ -2,7 +2,7 @@
 -- account and provider. No provider token is stored. A flow row is a single-use state.
 -- password_set is false only for an account that never chose a password, so the last
 -- sign-in method can be told apart. Every existing account has one.
--- Reversal: 0050_social_identities.down.sql
+-- Reversal: 0054_social_identities.down.sql
 
 ALTER TABLE "identity"."users" ADD COLUMN IF NOT EXISTS "password_set" boolean NOT NULL DEFAULT true;
 

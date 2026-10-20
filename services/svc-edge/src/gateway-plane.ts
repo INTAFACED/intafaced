@@ -52,20 +52,26 @@ export function requiredScopeFor(door: GatewayDoor, method: string): Scope {
 
 export type GatewayDecision = { allow: true; sandbox: boolean } | { allow: false; status: number; body: Record<string, unknown> };
 
+/** The published permission-to-endpoint table. A fixed path: it names no account, so it tells a caller nothing about one. */
+export const PERMISSION_TABLE_DOCS = '/developers/permissions' as const;
+
 function scopeMessage(scope: Scope): string {
   return `Scope "${scope}" is required`;
 }
 
-/** Trade door: existing CCXT PermissionDenied. Pay door: existing tRPC FORBIDDEN. */
+/**
+ * Trade door: existing CCXT PermissionDenied. Pay door: existing tRPC FORBIDDEN.
+ * Both carry `docs`, the link to the permission table.
+ */
 export function scopeRefuseBody(door: GatewayDoor, scope: Scope): Record<string, unknown> {
   const message = scopeMessage(scope);
   if (door === 'trade') {
-    return { code: 'PermissionDenied', message, intafacedCode: 'scope.denied' };
+    return { code: 'PermissionDenied', message, intafacedCode: 'scope.denied', docs: PERMISSION_TABLE_DOCS };
   }
   return {
     error: {
       message,
-      data: { code: 'FORBIDDEN', httpStatus: 403, intafacedCode: 'scope.denied' },
+      data: { code: 'FORBIDDEN', httpStatus: 403, intafacedCode: 'scope.denied', docs: PERMISSION_TABLE_DOCS },
     },
   };
 }

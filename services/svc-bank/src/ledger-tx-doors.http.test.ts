@@ -143,7 +143,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
       expect(formatAmount(await bank.spaces.balanceOf(pot))).toBe('100');
       // :301/:324 asked both keys; :803 fetched the receipt by id, with its entries.
       const keys = asked('/trpc/txByKey').map((c) => c.body.idempotencyKey);
-      expect(keys).toContain(`bank.transfer:${clientId}:0`);
+      expect(keys).toContain(`bank.transfer.own:${clientId}:0`);
       expect(keys).toContain(`bank.business.hold:${clientId}`);
       expect(asked('/trpc/txById').length).toBeGreaterThan(0);
       expect(calls.every((c) => c.service === 'svc-bank')).toBe(true);
@@ -442,7 +442,7 @@ describe('svc-bank over the HTTP ledger client (#4694)', () => {
         transferId: small.clientId,
         ledgerTxId: original.ledgerTxId,
       });
-      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer:${small.clientId}:0`)).toHaveLength(1);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.own:${small.clientId}:0`)).toHaveLength(1);
     });
 
     it('a receipt the ledger cannot show fails closed, never a conflict', async () => {

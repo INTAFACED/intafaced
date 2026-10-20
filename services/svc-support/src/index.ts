@@ -61,8 +61,8 @@ const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMo
 const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 // Order status is READ from svc-trade per request. Unset TRADE_URL stays unknown.
 const orders = env.TRADE_URL ? createTicketOrderClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : new DarkTicketOrderSource();
-// Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth.
-const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql), orders);
+// Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth, orders fifth, then the blank-by-default staff heartbeat window.
+const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql), orders, env.STAFF_HEARTBEAT_WINDOW_SECONDS ?? null);
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET);
 const edgeContext = createEdgeContext({

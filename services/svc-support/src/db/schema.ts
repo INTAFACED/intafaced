@@ -22,6 +22,7 @@ export const tickets = schema.table('tickets', {
   category: text('category').notNull(),
   subject: text('subject').notNull(),
   body: text('body').notNull(),
+  messageHeaders: text('message_headers'),
   status: text('status').$type<'open' | 'pending' | 'resolved' | 'closed'>().notNull().default('open'),
   assigneeId: text('assignee_id'),
   createdAt: createdAt(),

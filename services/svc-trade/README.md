@@ -179,6 +179,8 @@ Default **OFF**. A trailing stop walks with a mark, and the mark never comes fro
 | `TRADE_TRAILING_MARK_JOBS_INTERVAL_MS` | `""`    | Tick interval in ms. Blank → refuse when enabled + markets (`trade.trailing_mark_jobs_interval_unset`). Never invent a rate. |
 | `TRADE_TRAILING_MARK_JOBS_MARKET_IDS`  | `""`    | Comma-separated **market UUIDs**. Empty → no job even if enabled.                                                            |
 
+**Placing a trailing stop** (sell side only for now): the customer sends `trail`; a `mark` in the body is refused (`trade.order_type_unsupported`). The starting mark comes from the same source, and only while the pump is enabled and the market is in `TRADE_TRAILING_MARK_JOBS_MARKET_IDS` (a stop elsewhere would never move). No usable mark refuses `trade.missing_mark`. A buy trailing stop refuses `trade.order_type_unsupported` until its funding hold is built.
+
 **Honesty bans:** invent candles, invent markets, zero-fill gaps, include seed volume in public ohlcv (seeded fills excluded — SD-3).
 
 ### Venue fabric mark (A-TRADE-VENUE-1 + A-TRADE-VENUE-OPS)
@@ -454,7 +456,7 @@ With it on, futures orders match on the **same** svc-matching book as spot, unde
 - **No funding.** Turning funding on for a market at all is reserved to the owner
   (`docs/adr/2026-08-05-futures-risk-and-mark-law.md`), and it still needs `TRADE_FUTURES_JOBS_ENABLED` plus an
   explicit `TRADE_FUTURES_FUNDING_MARKET_IDS`.
-- **No payout source invent.** `TRADE_FUTURES_PROFIT_SOURCE` is owner-named in `.env.example` as `house:fees:trade:available` (PKT-B5). Compose still has no default.
+- **No payout source invent.** `TRADE_FUTURES_PROFIT_SOURCE` names the futures clearing pot, `house:futures-loss:available` in `.env.example` (`docs/adr/2026-10-20-futures-matched-traders.md`). Compose still has no default. A winner the pot cannot cover yet closes anyway and is owed: `trade.futures_payouts` holds the intent and the `futures.payouts` job pays it once the pot holds it; the trader reads it at `GET /api/v1/futures/payouts`.
 
 **Convert and TWAP stay spot-only on both settings** (`assertSpotSurface`). They were spot-only for free while
 `assertTradable` refused every non-spot market; now that it does not, they refuse by name, because neither has been

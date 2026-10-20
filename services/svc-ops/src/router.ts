@@ -11,6 +11,7 @@ import {
   OPS_IDEMPOTENCY_CONFLICT,
   OPS_RESTORE_ARCHIVE_UNCONFIGURED,
   OPS_RESTORE_ARCHIVE_UNPROBED,
+  OPS_RESTORE_STORAGE_UNCONFIGURED,
   OPS_ALERT_SOURCE_UNCONFIGURED,
   OPS_ALERT_PROBE_UNCONFIGURED,
   OPS_CUSTODY_WRAP_UNSET,
@@ -45,6 +46,10 @@ import {
   type ApprovalConsumer,
   type WatermarkStamp,
 } from './operator-desks.js';
+import { createAlertRulesRouter } from './alerts/router.js';
+import type { AlertRules } from './alerts/rules.js';
+import type { AlertStateStore } from './alerts/state-store.js';
+import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -151,6 +156,11 @@ export interface OperatorDeskConfig {
   readonly restoreArchiveUrl?: string | null;
   readonly alertSourceUrl?: string | null;
   readonly approvals?: ApprovalConsumer;
+  /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
+  readonly restoreStamps?: RestoreStampStore;
+  /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
+  readonly alertRules?: AlertRules;
+  readonly alertState?: AlertStateStore;
 }
 
 export function createOpsRouter(
@@ -159,7 +169,6 @@ export function createOpsRouter(
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
-  const stamps: WatermarkStamp[] = [];
   const idem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskError = (err: unknown): never => {
     if (err instanceof OpsError && err.code === OPS_IDEMPOTENCY_CONFLICT) {
@@ -522,10 +531,21 @@ export function createOpsRouter(
                 ),
               })
               .nullable(),
+            storage: z.object({ configured: z.boolean(), code: z.literal(OPS_RESTORE_STORAGE_UNCONFIGURED).optional() }),
             restored: z.literal(false),
           }),
         )
-        .query(() => restoreWatermarksRead(desks.restoreArchiveUrl, stamps, now())),
+        .query(async () => {
+          try {
+            const store = desks.restoreStamps;
+            const read = restoreWatermarksRead(desks.restoreArchiveUrl, store ? await store.list() : [], now());
+            return store
+              ? { ...read, storage: { configured: true } }
+              : { ...read, watermarks: null, storage: { configured: false, code: OPS_RESTORE_STORAGE_UNCONFIGURED } };
+          } catch (err) {
+            mapError(err);
+          }
+        }),
       record: scopedProcedure('admin:treasury', guards)
         .input(
           z.object({
@@ -546,11 +566,18 @@ export function createOpsRouter(
                 'No joint-restore archive is configured. A watermark is not stamped, and nothing is marked restored.',
               );
             }
+            const store = desks.restoreStamps;
+            if (!store) {
+              throw new OpsError(
+                OPS_RESTORE_STORAGE_UNCONFIGURED,
+                'No durable storage is configured for restore stamps. A watermark is not stamped, and nothing is marked restored.',
+              );
+            }
             const key = assertIdempotencyKey(input.idempotencyKey);
             const parsed = parseWatermarkInput(input);
-            const fingerprint = JSON.stringify({ ...parsed, approvalId: input.approvalId, operationId: input.operationId });
-            const prior = takeIdempotent(idem, `restore:${key}`, fingerprint);
-            if (prior) return prior;
+            const fingerprint = stampFingerprint({ ...parsed, approvalId: input.approvalId, operationId: input.operationId });
+            const stored = await store.find(key, fingerprint);
+            if (stored) return { ...stored, archive: posture, restored: false as const };
             const consumed = await consumeFounderApproval(desks.approvals, {
               approvalId: input.approvalId,
               operationId: input.operationId,
@@ -566,17 +593,15 @@ export function createOpsRouter(
               recordedBy: consumed.requesterId,
               approverId: consumed.approverId ?? '',
             };
-            stamps.push(row);
-            return rememberIdempotent(idem, `restore:${key}`, fingerprint, {
-              ...row,
-              archive: posture,
-              restored: false as const,
-            });
+            const kept = await store.append(key, fingerprint, row);
+            return { ...kept, archive: posture, restored: false as const };
           } catch (err) {
             deskError(err);
           }
         }),
     }),
+
+    alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

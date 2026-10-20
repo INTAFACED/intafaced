@@ -106,6 +106,14 @@ describe('api.gateway plane', () => {
     expect(body.error.data).toMatchObject({ code: 'FORBIDDEN', httpStatus: 403 });
   });
 
+  it('both doors point a scope refusal at the permission table, and the link names no account', () => {
+    const trade = scopeRefuseBody('trade', 'trade:write') as { docs: string; message: string };
+    const pay = scopeRefuseBody('pay', 'pay:write') as { error: { message: string; data: { docs: string } } };
+    expect(trade.docs).toBe('/developers/permissions');
+    expect(pay.error.data.docs).toBe('/developers/permissions');
+    expect(JSON.stringify([trade, pay])).not.toMatch(/kid|user|account/i);
+  });
+
   it('same key with both read scopes passes both doors', () => {
     const quota = createQuotaStore();
     const key = principal({ scopes: ['trade:read', 'pay:read'], key_env: 'sandbox' });

@@ -163,6 +163,7 @@ import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../
 import type { TwapParentRecord } from '../algo/parent-store.js';
 import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
+import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
 import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import {
   TradeError,
@@ -283,6 +284,11 @@ export interface TradeServiceOptions {
    * creation gate refuses it — this field does not invent a replacement.
    */
   algoMarkPolicy?: AlgoMarkPolicy;
+  /**
+   * Where a trailing stop's starting mark comes from. Unset: placing a trailing stop takes no mark from the caller
+   * and refuses `trade.missing_mark`. Never a customer value.
+   */
+  trailingMarkSource?: QuotedMarkSource;
   /**
    * PTX-M21 owner fee/rebate schedule (`TRADE_FEE_SCHEDULE`).
    * Default unpublished — place/fill refuse; never listing-row 10/20.
@@ -718,6 +724,8 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
 export class TradeService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
+  /** Read by the trailing-stop placement wrapper (`trailing-stop-place.ts`). */
+  protected readonly trailingMarkSource?: QuotedMarkSource;
   private readonly spotEnabled: boolean;
   private readonly futuresEnabled: boolean;
   private readonly futuresTestSeed: boolean;
@@ -784,6 +792,7 @@ export class TradeService {
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
+    this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
     this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;

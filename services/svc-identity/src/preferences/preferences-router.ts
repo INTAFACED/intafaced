@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
-import { getPreferences, PreferencesError, setPreferences } from './preferences.js';
+import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
+import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
+import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
 import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
 
 const view = z
@@ -14,13 +16,20 @@ const view = z
   })
   .strict();
 
-const preference = z
-  .object({
-    namespace: z.literal(TRADE_VIEWS_NAMESPACE),
-    version: z.number().int(),
-    value: z.array(view).nullable(),
-  })
+const accountDisplay = z.object({ locale: z.string().nullable(), displayCurrency: z.string().nullable() }).strict();
+
+const tradeViewsPreference = z
+  .object({ namespace: z.literal(TRADE_VIEWS_NAMESPACE), version: z.number().int(), value: z.array(view).nullable() })
   .strict();
+const accountDisplayPreference = z
+  .object({ namespace: z.literal(ACCOUNT_DISPLAY_NAMESPACE), version: z.number().int(), value: accountDisplay.nullable() })
+  .strict();
+const preference = z.union([tradeViewsPreference, accountDisplayPreference]);
+const stored = z.literal('stored');
+const storedPreference = z.union([
+  tradeViewsPreference.extend({ outcome: stored }).strict(),
+  accountDisplayPreference.extend({ outcome: stored }).strict(),
+]);
 
 function preferenceError(error: unknown): never {
   if (error instanceof PreferencesError) {
@@ -35,9 +44,25 @@ function preferenceError(error: unknown): never {
   throw error;
 }
 
-export function createPreferencesRouter(sql: Sql) {
+export function createPreferencesRouter(sql: Sql, settings?: PreferenceSettings) {
   return router({
     preferences: router({
+      /** What the display page may offer: the shipped languages and the currencies the owner lists (empty = unset, USD only). */
+      options: scopedProcedure('identity:read')
+        .output(
+          z
+            .object({
+              locales: z.array(z.string()),
+              displayCurrencies: z.array(z.string()),
+              defaultDisplayCurrency: z.literal('USD'),
+            })
+            .strict(),
+        )
+        .query(() => ({
+          locales: SUPPORTED_LOCALES.map((entry) => entry.code as string),
+          displayCurrencies: [...(settings?.displayCurrencies ?? [])],
+          defaultDisplayCurrency: 'USD' as const,
+        })),
       get: scopedProcedure('identity:read')
         .input(z.object({ namespace: z.string().min(1).max(64) }).strict())
         .output(preference)
@@ -59,11 +84,13 @@ export function createPreferencesRouter(sql: Sql) {
             })
             .strict(),
         )
-        .output(preference.extend({ outcome: z.literal('stored') }).strict())
+        .output(storedPreference)
         .mutation(async ({ ctx, input }) => {
           try {
-            const stored = await setPreferences(sql, ctx, input);
-            return { namespace: stored.namespace, version: stored.version, value: stored.value, outcome: 'stored' as const };
+            const stored = await setPreferences(sql, ctx, input, settings);
+            return { namespace: stored.namespace, version: stored.version, value: stored.value, outcome: 'stored' } as PreferenceView & {
+              outcome: 'stored';
+            };
           } catch (error) {
             preferenceError(error);
           }

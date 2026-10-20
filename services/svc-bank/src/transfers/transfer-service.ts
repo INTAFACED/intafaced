@@ -1,9 +1,11 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { attachTransferMessageTx, bindTransferMessage } from './transfer-message.js';
+import { BookedTransferConflict, bookedTransferMatches } from './booked-transfer.js';
 import {
   InsufficientFundsError,
   LedgerError,
+  bankTransferKey,
   formatAmount,
   parseAmount,
   recipes,
@@ -31,7 +33,7 @@ import { withMoneySpan, withSpan } from '../tracing.js';
  *   1. `unique(schedule_id, occurrence)` on `bank.transfer_executions`. The job
  *      CLAIMS the occurrence by inserting before it posts. A second run's insert
  *      conflicts and it does nothing.
- *   2. The ledger's idempotency key `bank.transfer:<scheduleId>:<occurrence>`.
+ *   2. The ledger's idempotency key `bank.transfer.sched:<scheduleId>:<occurrence>`.
  *      Even with the claim bypassed, the second post returns the first one's
  *      transaction rather than moving value again.
  *
@@ -196,9 +198,16 @@ export class TransferService {
     amount: Amount;
     note?: string | null;
     reference?: string | null;
+    /**
+     * Whose id `transferId` is. A user moving value between their own spaces is `own` (the default);
+     * a payment to another user is `p2p`. The two never share an idempotency key, so a caller that
+     * hands both the same id books two transfers instead of being told the first one is the second.
+     */
+    keySpace?: 'own' | 'p2p';
     now?: Date;
   }): Promise<TransferResult> {
     const now = input.now ?? new Date();
+    const keySpace = input.keySpace ?? 'own';
 
     return withMoneySpan(
       'bank.transfer',
@@ -211,7 +220,7 @@ export class TransferService {
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
         const to = await this.spaces.resolveForCredit(input.toSpaceId, {
           actingUserId: from.userId,
-          alreadyBooked: async () => (await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`)) !== null,
+          alreadyBooked: async () => (await this.ledger.getTxByKey(bankTransferKey(keySpace, input.transferId, 0))) !== null,
         });
 
         if (from.assetId !== to.assetId) {
@@ -224,22 +233,31 @@ export class TransferService {
         const reference = input.reference ?? null;
         await bindTransferMessage(this.sql, this.ledger, {
           transferId: input.transferId,
+          keySpace,
           fromUserId: from.userId,
           toUserId: to.userId,
           note,
           reference,
         });
 
+        const fromAccount = accountForSpace(from);
+        const toAccount = accountForSpace(to);
         const tx = await this.ledger.post(
           recipes.bankTransfer({
             transferId: input.transferId,
             occurrence: 0,
-            from: accountForSpace(from),
-            to: accountForSpace(to),
+            from: fromAccount,
+            to: toAccount,
             amount: input.amount,
             kind: 'manual',
+            keySpace,
           }),
         );
+        // A ledger in `detect` mode answers a reused key with the ORIGINAL transaction. Never report this send as
+        // booked, or echo its amount, unless the transaction we were handed is this movement.
+        if (!(await bookedTransferMatches(this.ledger, tx, fromAccount, toAccount, input.amount))) {
+          throw new BookedTransferConflict(input.transferId);
+        }
 
         if (note !== null || reference !== null) await attachTransferMessageTx(this.sql, input.transferId, tx.id);
 
@@ -273,6 +291,7 @@ export class TransferService {
           fromSpaceId: input.fromSpaceId,
           toSpaceId: dest.id,
           amount: input.amount,
+          keySpace: 'p2p',
           now,
         });
       },
@@ -433,7 +452,7 @@ export class TransferService {
    * between jobs who wanted to hold their rent transfer for two months had to
    * cancel and later create a new schedule. That is worse than clumsy, it is
    * UNSAFE — the new schedule has a NEW id, and the ledger's idempotency key is
-   * `bank.transfer:<scheduleId>:<occurrence>`. Occurrence 0 of the replacement
+   * `bank.transfer.sched:<scheduleId>:<occurrence>`. Occurrence 0 of the replacement
    * shares no key with occurrence 3 of the original, so a replacement anchored a
    * few days early moves value on a date the original would also have moved it
    * and nothing anywhere collapses the two. Pause keeps the id, which keeps the
@@ -739,7 +758,7 @@ export class TransferService {
    * Finish the occurrences that were claimed and never posted.
    *
    * Re-driving is strictly safe: the ledger post is idempotent on
-   * `bank.transfer:<scheduleId>:<occurrence>`, so a claim whose post DID land
+   * `bank.transfer.sched:<scheduleId>:<occurrence>`, so a claim whose post DID land
    * before the process died finds the original transaction rather than moving
    * value a second time.
    */
@@ -825,7 +844,7 @@ export class TransferService {
    *   · crash after the ledger post, before the commit — the database rolls the
    *     claim back while the ledger transaction stands. The next pass re-claims
    *     and re-posts; the post is idempotent on
-   *     `bank.transfer:<schedule>:<occurrence>` so it returns the SAME
+   *     `bank.transfer.sched:<schedule>:<occurrence>` so it returns the SAME
    *     transaction and the row is written against it. Money moved once, the
    *     record catches up. Nobody's funds are stranded — the value is in the
    *     destination account the whole time, and the only thing that was ever
@@ -943,10 +962,10 @@ export class TransferService {
             (err.code === 'bank.space_locked' || err.code === 'bank.space_archived' || err.code === 'bank.recipient_cannot_receive')
           ) {
             // Crash window: claim rolled back (or never committed settle) AFTER
-            // ledger.post already moved value under bank.transfer:<id>:<n>. A
+            // ledger.post already moved value under bank.transfer.sched:<id>:<n>. A
             // later lock must RECOVER that movement as settled — never mark
             // rejected while the ledger already moved money.
-            const prior = await this.ledger.getTxByKey(`bank.transfer:${schedule.id}:${occurrence}`);
+            const prior = await this.ledger.getTxByKey(bankTransferKey('sched', schedule.id, occurrence));
             if (prior) {
               await tx`
                 UPDATE bank.transfer_executions
@@ -992,6 +1011,7 @@ export class TransferService {
           to: accountForSpace(to),
           amount: schedule.amount,
           kind: 'scheduled',
+          keySpace: 'sched',
         }),
       );
 

@@ -13,6 +13,7 @@ import {
   toPublicKb,
 } from './kb-catalog.js';
 import { SupportError, SupportService } from './support-service.js';
+import { userCopy } from './user-copy.js';
 
 describe('support Stage-2 KB catalog', () => {
   it('spine is non-empty and vendor-clean', () => {
@@ -294,5 +295,55 @@ describe('ops.kb-workflow article versions', () => {
     const hits = await svc.searchKb('account', { limit: 100 });
     expect(hits.filter((a) => a.id === 'kb-account-access')).toHaveLength(1);
     expect(hits.find((a) => a.id === 'kb-account-access')?.version).toBe(2);
+  });
+});
+
+describe('I-signin-sessions-26 scam guides', () => {
+  const GUIDES = ['kb-security-scam-tactics', 'kb-security-spoofed-sms', 'kb-security-dusting', 'kb-security-email-compromise'];
+
+  it('serves the four guides under Security, published, from the public door', () => {
+    const served = listPlatformKb();
+    for (const id of GUIDES) {
+      const hit = served.find((a) => a.id === id);
+      expect(hit, id).toBeDefined();
+      expect(hit).toMatchObject({ published: true, category: 'security', version: 1 });
+    }
+    expect(served.some((a) => a.id === 'kb-security-basics')).toBe(true);
+  });
+
+  it('finds the guides by topic word, and an unknown word stays empty', () => {
+    expect(searchKb('spoofed').map((a) => a.id)).toEqual(['kb-security-spoofed-sms']);
+    expect(searchKb('dusting').map((a) => a.id)).toEqual(['kb-security-dusting']);
+    expect(searchKb('zzz-no-such-guide')).toEqual([]);
+  });
+
+  it('every guide key resolves to catalogue copy, with no partner name and no safety promise', () => {
+    for (const id of GUIDES) {
+      const article = getKbById(id);
+      expect(article, id).not.toBeNull();
+      for (const key of [article!.titleKey, article!.bodyKey]) {
+        const copy = userCopy(key);
+        expect(copy, key).not.toBe(key);
+        expect(copy).not.toMatch(/\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i);
+        expect(copy).not.toMatch(/\b(guaranteed|safe|safely|risk-free)\b/i);
+      }
+    }
+  });
+});
+
+describe('I-signin-sessions-26 migration matches the spine', () => {
+  it('0013 seeds exactly the scam guides the spine serves, with the same keys', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const sql = readFileSync(join(here, '..', 'drizzle', '0013_kb_scam_guides.sql'), 'utf8');
+    const rows = [
+      ...sql.matchAll(/\('(kb-security-[a-z-]+)', 'support\.kb\.([a-z_]+)\.title', 'support\.kb\.([a-z_]+)\.body', 1, true\)/g),
+    ];
+    const guides = PLATFORM_KB_SPINE.filter((a) => a.tags?.includes('scams'));
+    expect(rows.map((m) => m[1])).toEqual(guides.map((a) => a.id));
+    for (const [, id, titleKey, bodyKey] of rows) {
+      const hit = guides.find((a) => a.id === id)!;
+      expect(hit.titleKey).toBe(`support.kb.${titleKey}.title`);
+      expect(hit.bodyKey).toBe(`support.kb.${bodyKey}.body`);
+    }
   });
 });

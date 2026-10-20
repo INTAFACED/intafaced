@@ -356,6 +356,12 @@ export type BankErrorCode =
   | 'bank.offramp_cooling_active'
   /** Persisted dest missing — later withdraw has no real ref before withdrawHold. */
   | 'bank.withdraw_destination_missing'
+  /** Another saved address of this customer already has this label (case ignored). */
+  | 'bank.destination_label_taken'
+  /** The address book holds as many entries as the owner allows. */
+  | 'bank.address_book_full'
+  /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
+  | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */
   | 'bank.dest_user_missing'
   /**
@@ -599,6 +605,8 @@ export type BankErrorCode =
   | 'bank.activity_range'
   /** A note command id was reused with different text. */
   | 'bank.activity_note_conflict'
+  /** A note write carried neither a note nor a report description. */
+  | 'bank.activity_note_empty'
   /** A dispute id was reused with a different reason or transaction. */
   | 'bank.activity_dispute_conflict'
   /** This customer already has an open dispute on that transaction. */

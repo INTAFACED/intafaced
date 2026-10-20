@@ -63,6 +63,11 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   priceInvalid: { title: 'Check the price', body: 'Enter a price that is close to the market price.' },
   belowMinimum: { title: 'Amount is too small', body: 'Enter a larger amount to continue.' },
   orderTypeUnsupported: { title: "That order type isn't offered", body: 'This market takes limit and market orders only.' },
+  optionUnsupported: { title: "That option isn't offered", body: "This order option isn't offered on spot orders. Nothing was held." },
+  requestExpired: {
+    title: 'That request expired',
+    body: 'Its time limit passed before it was read. Nothing was placed; review and send again.',
+  },
   exitPriceOrder: {
     title: 'Check the exit prices',
     body: 'To buy with exits, the take profit must be below the stop loss, and the stop-loss limit at or above it. Nothing was held.',

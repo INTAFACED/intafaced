@@ -25,6 +25,26 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 | `custody.wrap`                      | `ops:write`              | blank wrap → `ops.custody_wrap_unset`; never invents keys                                                                 |
 | `custody.execute`                   | `ops:write`              | freeze unset/frozen named refuse; wrap unset → `ops.custody_wrap_unset`; else `ops.custody_chain_unwired`                 |
 
+## Joint-restore stamps
+
+`restore.record` writes each stamp to the append-only table `ops.restore_stamps` (one row per idempotency key; update and delete are refused by trigger), so a stamp survives a restart and a retry with the same key and body returns the stored row. A different body under the same key is `ops.idempotency_conflict`. Without `DATABASE_URL` and `OPS_DATABASE_POOL_MAX`, stamping refuses `ops.restore_storage_unconfigured` before any approval is consumed, and `restore.watermarks` returns `watermarks: null` with `storage.configured: false`. `restored` stays false: nothing here restores a service, and the archive is not probed yet.
+
+If the process dies after identity consumes the approval and before the row is written, the retry cannot consume it again; the founders issue a new approval. No money is involved.
+
+## Alert rules
+
+`alertRules.list` / `get` / `versions` need `admin:read`. `create`, `update`, `setPaused` and `retire` need `admin:write` on a session with a second factor; `restore` of a retired rule needs `admin:treasury` as well, otherwise `ops.alert_forbidden`. Each takes a business `idempotencyKey` and a `reason`; edits also take `expectedVersion` (a stale one is `ops.alert_rule_version_stale`).
+
+A rule watches one signal from the analytics metric catalogue (`ops.alert_signal_unknown` otherwise), one condition with a decimal-string threshold, an evaluation interval and a pending period. A blank threshold is `ops.alert_threshold_unset`; a blank interval or pending period is `ops.alert_interval_unset` (a pending period of 0 is a value the operator chooses). No number is invented. A check that returns no data or errors defaults to `alerting` (fail closed). Two live rules cannot carry the same non-empty label set (`ops.alert_labels_duplicate`); a rule with no labels is exempt.
+
+Rules are rows in `ops.alert_rules`; every save appends a snapshot to `ops.alert_rule_versions` (update and delete refused by trigger), keyed by the idempotency key, so a retry returns the stored version and a retired rule is restored from its history, never destroyed. Without storage every call refuses `ops.alert_storage_unconfigured`.
+
+**Evaluation.** A 5-second tick in `src/index.ts` runs `AlertEvaluator`: for each live, unpaused rule it reads the signal (`warehouseSignalReader` over `ops.revenue()`; a missing warehouse is an `error` reading carrying the typed code, an empty one is `no_data`) and, under a per-rule advisory lock, runs the pure `step` once the rule's interval has passed. States are `normal`, `pending` (condition holds, waiting out the pending period) and `firing`; health is `ok`, `error` or `no_data`. Comparison is exact on the decimal digits, never on JS numbers. A metric with more than one point (one per dimension) is `ops.alert_signal_ambiguous` and fails closed, because a rule cannot name a dimension yet and a sum would mix units. A rule has one instance, so editing its labels never starts a second alert; pausing or retiring a rule closes its open alert (a resolved event if it was firing) and resuming starts a new episode. `alertRules.states` lists rules with their stored state (a rule never evaluated has `status: null`); `alertRules.history` lists state changes newest first, needs an explicit `limit`, says when the page was cut (`truncated`, `cap`) and reports `retention: {configured: false, code: ops.alert_history_retention_unset}` because no retention period is set and nothing is pruned.
+
+**Events.** State (`ops.alert_instances`), its history (`ops.alert_state_history`, append-only) and the announcing events commit in one transaction with an outbox row (`ops.alert_outbox`). Keys are business keys: `ops:alert_rule:<rule>:<version>` and `ops:alert:<opened|resolved>:<rule>:<instance>:<epoch>`; the epoch counts episodes, so a re-open after a resolve is a new event. `AlertOutboxPublisher` sends rows in order to an injected bus and stops at the first failure. The bus is not wired in this service yet (`/ready` reports `alerts.events: outbox_only`), so rows wait in the outbox, and nothing is announced that was not stored. `alerts.list` is still the stub.
+
+**Event subjects.** Declared in `packages/events/src/catalog.ts` and written to the outbox, not yet published: `coreOpsAlertRuleUpdated` (a rule version was created, edited, paused, resumed, retired or restored), `coreOpsAlertOpened` and `coreOpsAlertResolved`. Consumers: none yet.
+
 ## Ledger
 
 None. Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics). No recipes. No `post`.
