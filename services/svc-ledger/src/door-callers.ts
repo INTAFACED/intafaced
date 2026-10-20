@@ -23,6 +23,8 @@ export const LEDGER_DOOR_CALLERS = {
   txById: READERS,
   history: READERS,
   historyPage: READERS,
+  /** svc-ops reads fee revenue for the venue report and calls no other door. */
+  feeRevenue: ['svc-ops'],
   portfolio: [],
   statementPnl: [],
   reportExport: [],
