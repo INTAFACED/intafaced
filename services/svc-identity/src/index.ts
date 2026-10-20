@@ -369,6 +369,7 @@ installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
+auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey);
