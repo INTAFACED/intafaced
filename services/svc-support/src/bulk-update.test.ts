@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
-import type { Context } from '@intafaced/contracts';
+import type { Context, SupportBulkInput } from '@intafaced/contracts';
 import { createSupportRouter } from './router.js';
 import { SupportService } from './support-service.js';
 
@@ -78,7 +78,7 @@ describe('bulk status', () => {
   it('a replay of the same batch returns the first answers and changes nothing twice', async () => {
     const { support, lead, make } = await desk();
     const [a, b] = [await make(1), await make(2)] as [string, string];
-    const input = { batchKey: 'batch-status-2', ticketIds: [a, b], change: { kind: 'status', status: 'resolved' } } as const;
+    const input: SupportBulkInput = { batchKey: 'batch-status-2', ticketIds: [a, b], change: { kind: 'status', status: 'resolved' } };
     await lead.bulkUpdate(input);
     const again = await lead.bulkUpdate(input);
     expect(again.results.map((r) => r.outcome)).toEqual(['changed', 'changed']);
@@ -88,7 +88,7 @@ describe('bulk status', () => {
   it('a replay after a request was reopened does not resolve it a second time', async () => {
     const { support, lead, make } = await desk();
     const a = await make(1);
-    const input = { batchKey: 'batch-status-reopen', ticketIds: [a], change: { kind: 'status', status: 'resolved' } } as const;
+    const input: SupportBulkInput = { batchKey: 'batch-status-reopen', ticketIds: [a], change: { kind: 'status', status: 'resolved' } };
     await lead.bulkUpdate(input);
     await support.setStatus({ operatorId: LEAD, ticketId: a, status: 'open' });
     const again = await lead.bulkUpdate(input);
@@ -101,7 +101,11 @@ describe('bulk status', () => {
     const [a, b, c] = [await make(1), await make(2), await make(3)] as [string, string, string];
     await support.setStatus({ operatorId: LEAD, ticketId: b, status: 'resolved' });
     await support.setStatus({ operatorId: LEAD, ticketId: c, status: 'closed' });
-    const input = { batchKey: 'batch-status-mixed', ticketIds: [a, b, c], change: { kind: 'status', status: 'resolved' } } as const;
+    const input: SupportBulkInput = {
+      batchKey: 'batch-status-mixed',
+      ticketIds: [a, b, c],
+      change: { kind: 'status', status: 'resolved' },
+    };
     const first = await lead.bulkUpdate(input);
     expect(first.results.map((r) => [r.outcome, r.code])).toEqual([
       ['changed', null],
@@ -135,7 +139,7 @@ describe('bulk assign', () => {
   it('assigns each request through the single path, once, and a replay returns the first answers', async () => {
     const { support, lead, make } = await desk();
     const [a, b] = [await make(1), await make(2)] as [string, string];
-    const input = { batchKey: 'batch-assign-1', ticketIds: [a, b], change: { kind: 'assign', assigneeId: AGENT } } as const;
+    const input: SupportBulkInput = { batchKey: 'batch-assign-1', ticketIds: [a, b], change: { kind: 'assign', assigneeId: AGENT } };
     const res = await lead.bulkUpdate(input);
     expect(res.results.map((r) => r.outcome)).toEqual(['changed', 'changed']);
     expect(
