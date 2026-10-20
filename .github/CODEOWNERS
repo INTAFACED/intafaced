@@ -49,6 +49,8 @@
 /packages/venue-adapter/             @Phantom-X-007 @ZenYoda3
 /packages/venue-contracts/           @Phantom-X-007 @ZenYoda3
 /packages/connect-data-lake/         @Phantom-X-007 @ZenYoda3
+/apps/customer/                      @Phantom-X-007 @ZenYoda3
+/tooling/pay-sim/                    @Phantom-X-007 @ZenYoda3
 
 # ── The rules themselves. Changing these changes what "done" means. ──────────
 /INTAFACED_DEFINITIVE_BUILD.md       @Phantom-X-007 @ZenYoda3
