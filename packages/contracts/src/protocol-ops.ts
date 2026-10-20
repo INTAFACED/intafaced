@@ -167,7 +167,7 @@ const decisionFields = {
 const operationId = z.string().min(1).max(128);
 export const protocolOpsPoolHideInputSchema = z.object({ chainId, poolAddress: address, ...decisionFields, operationId }).strict();
 export const protocolOpsPoolRestoreInputSchema = z
-  .object({ chainId, poolAddress: address, approvalId: decisionFields.approvalId })
+  .object({ chainId, poolAddress: address, approvalId: decisionFields.approvalId, operationId })
   .strict();
 export const protocolOpsMarketDelistInputSchema = z.object({ symbol, ...decisionFields, operationId }).strict();
 export const protocolOpsMarketRestoreInputSchema = z.object({ symbol, approvalId: decisionFields.approvalId, operationId }).strict();
