@@ -100,11 +100,11 @@ if (!databaseUrl) {
   const build = (overrides: Partial<OAuthSettings> = {}) => new OAuthService(db.sql, { ...settings, ...overrides }, () => clock);
   let oauth = build();
 
-  const person = async (scopes = ['identity:read', 'identity:write']) => {
+  const person = async (scopes = ['identity:read', 'identity:write', 'trade:read'], mfa = false) => {
     const reg = await register();
-    return { userId: reg.userId, ctx: await ctx(reg.userId, reg.sessionId, scopes, false) };
+    return { userId: reg.userId, ctx: await ctx(reg.userId, reg.sessionId, scopes, mfa) };
   };
-  const operator = async () => person(['identity:read', 'identity:write', 'admin:compliance']);
+  const operator = async (mfa = true) => person(['identity:read', 'identity:write', 'admin:compliance'], mfa);
 
   const input = (userId: string, over: Record<string, unknown> = {}) => ({
     name: 'Ledger sync',
@@ -243,7 +243,43 @@ if (!databaseUrl) {
     });
   });
 
+  describe('scopes follow the person, not the app', () => {
+    it('refuses to register an app that declares a scope the registering session does not hold', async () => {
+      const dev = await person(['identity:read', 'identity:write']);
+      await failsWith(oauth.registerApp(dev.ctx, input(dev.userId, { scopes: ['trade:read'] }) as never), 'oauth.scope_not_delegable');
+      expect(await db.sql`SELECT 1 FROM oauth_apps`).toHaveLength(0);
+    });
+
+    it('gives a person without pay:write no code carrying it, from preview or from the decision', async () => {
+      const dev = await person(['identity:read', 'identity:write', 'pay:write']);
+      const op = await operator();
+      const { app } = await oauth.registerApp(dev.ctx, input(dev.userId, { scopes: ['pay:write'] }) as never);
+      await oauth.reviewApp(op.ctx, { appId: app.id, decision: 'approve' });
+      const user = await person();
+      await failsWith(oauth.preview(user.ctx, request(app.clientId, { scope: ['pay:write'] })), 'oauth.invalid_scope');
+      await failsWith(
+        oauth.decide(user.ctx, { ...request(app.clientId, { scope: ['pay:write'] }), decision: 'allow' }),
+        'oauth.invalid_scope',
+      );
+      expect(await db.sql`SELECT 1 FROM oauth_codes`).toHaveLength(0);
+      const holder = await person(['identity:read', 'identity:write', 'pay:write']);
+      expect((await oauth.preview(holder.ctx, request(app.clientId, { scope: ['pay:write'] }))).scopes).toEqual(['pay:write']);
+    });
+  });
+
   describe('operator approval', () => {
+    it('needs two-factor to approve, and the developer cannot approve their own app', async () => {
+      const dev = await person();
+      const noMfa = await operator(false);
+      const { app } = await oauth.registerApp(dev.ctx, input(dev.userId) as never);
+      await failsWith(oauth.reviewApp(noMfa.ctx, { appId: app.id, decision: 'approve' }), 'oauth.operator_denied');
+      const selfOp = await person(['identity:read', 'identity:write', 'trade:read', 'admin:compliance'], true);
+      const own = await oauth.registerApp(selfOp.ctx, input(selfOp.userId) as never);
+      await failsWith(oauth.reviewApp(selfOp.ctx, { appId: own.app.id, decision: 'approve' }), 'oauth.operator_denied');
+      expect((await oauth.reviewApp(selfOp.ctx, { appId: own.app.id, decision: 'suspend' })).status).toBe('suspended');
+      expect((await db.sql<Array<{ status: string }>>`SELECT status FROM oauth_apps WHERE id = ${app.id}`)[0]?.status).toBe('pending');
+    });
+
     it('lets only an operator decide, and an unapproved app reaches only its developer', async () => {
       const dev = await person();
       const op = await operator();
@@ -420,6 +456,34 @@ if (!databaseUrl) {
       const user = await person();
       const keyCtx = { ...user.ctx, principal: { ...user.ctx.principal!, kid: 'key-1' } } as Context;
       await failsWith(oauth.decide(keyCtx, { ...request(app.clientId), decision: 'allow' }), 'oauth.key_principal_refused');
+    });
+  });
+
+  describe('a suspension racing the exchange', () => {
+    it('wins over a token still being issued: the exchange waits for it and then refuses', async () => {
+      const { app, clientSecret } = await approvedApp();
+      const user = await person();
+      const code = await allow(user.ctx, app.clientId);
+      let release!: () => void;
+      let held!: () => void;
+      const locked = new Promise<void>((resolve) => (held = resolve));
+      const suspending = db.sql.begin(async (tx) => {
+        await tx`UPDATE oauth_apps SET status = 'suspended' WHERE id = ${app.id}`;
+        held();
+        await new Promise<void>((resolve) => (release = resolve));
+      });
+      await locked;
+      const exchanging = oauth
+        .exchange({ code, redirectUri: REDIRECT, clientId: app.clientId, codeVerifier: VERIFIER, clientSecret: clientSecret as string })
+        .then(
+          () => 'issued',
+          (e: OAuthError) => e.code,
+        );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      release();
+      await suspending;
+      expect(await exchanging).toBe('oauth.app_not_approved');
+      expect(await db.sql`SELECT 1 FROM oauth_tokens`).toHaveLength(0);
     });
   });
 

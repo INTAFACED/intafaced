@@ -14,7 +14,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
-import { assertDelegatableScopes, SCOPES, isScope } from '@intafaced/auth';
+import { assertDelegatableScopes, isScope } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
 import { transaction } from '@intafaced/db';
 import {
@@ -96,26 +96,46 @@ function sessionUser(context: Context): string {
   return principal.userId.toLowerCase();
 }
 
-function operator(context: Context): string {
+function operator(context: Context, options: { mfa?: boolean } = {}): string {
   const principal = context.principal;
   if (!principal || context.service !== null || principal.kid || principal.sub_account || !principal.scopes.includes('admin:compliance')) {
     throw new OAuthError('oauth.operator_denied');
   }
+  // `admin:compliance` is not in SESSION_MFA_SCOPES, so the scope guard does not ask for two-factor. A decision that
+  // opens an app to every user does, as the other desk decisions do.
+  if (options.mfa && !principal.mfa) throw new OAuthError('oauth.operator_denied');
   return principal.userId.toLowerCase();
+}
+
+/** The scopes the signed-in session itself holds: the most it can declare for an app or consent to for one. */
+function sessionScopes(context: Context): readonly string[] {
+  return context.principal?.scopes ?? [];
 }
 
 function normaliseScopes(scopes: readonly string[]): string[] {
   return [...new Set(scopes.map((scope) => scope.trim()))].sort();
 }
 
-/** Every declared scope must be a known, delegable scope: never an interactive-only or desk scope. */
-function assertDeclarable(scopes: readonly string[]): void {
+/**
+ * Every declared scope must be a known, delegable scope the grantor holds: never an interactive-only or desk scope,
+ * and never one the registering session does not have itself (an app is a delegation, not a way to gain authority).
+ */
+function assertDeclarable(scopes: readonly string[], grantorScopes: readonly string[]): void {
   if (scopes.length === 0) throw new OAuthError('oauth.scope_empty');
   if (scopes.some((scope) => !isScope(scope))) throw new OAuthError('oauth.invalid_scope');
   try {
-    assertDelegatableScopes(scopes, SCOPES);
+    assertDelegatableScopes(scopes, grantorScopes);
   } catch {
     throw new OAuthError('oauth.scope_not_delegable');
+  }
+}
+
+/** The consenting person can only hand an app scopes they hold. */
+function assertConsentable(scopes: readonly string[], grantorScopes: readonly string[]): void {
+  try {
+    assertDelegatableScopes(scopes, grantorScopes);
+  } catch {
+    throw new OAuthError('oauth.invalid_scope');
   }
 }
 
@@ -170,7 +190,7 @@ export class OAuthService {
     if (redirectUrls.some((url) => oauthRedirectUrlProblem(url) !== null)) throw new OAuthError('oauth.redirect_url_invalid');
     if (input.logoUrl !== undefined && oauthRedirectUrlProblem(input.logoUrl) !== null) throw new OAuthError('oauth.redirect_url_invalid');
     const scopes = normaliseScopes(input.scopes);
-    assertDeclarable(scopes);
+    assertDeclarable(scopes, sessionScopes(context));
     if (input.requestId !== oauthAppRequestId(developerId, input.name)) throw new OAuthError('oauth.idempotency_conflict');
     await this.activeUser(developerId);
     const fingerprint = fingerprintOf({ ...input, redirectUrls, scopes });
@@ -241,11 +261,13 @@ export class OAuthService {
     context: Context,
     input: { appId: string; decision: 'approve' | 'suspend'; reason?: string | undefined },
   ): Promise<OAuthApp> {
-    const reviewerId = operator(context);
+    const reviewerId = operator(context, { mfa: true });
     const status: OAuthAppStatus = input.decision === 'approve' ? 'approved' : 'suspended';
     return transaction(this.sql, async (tx) => {
       const [current] = await tx<AppRow[]>`SELECT ${tx.unsafe(APP_COLUMNS)} FROM oauth_apps WHERE id = ${input.appId} FOR UPDATE`;
       if (!current) throw new OAuthError('oauth.app_not_found');
+      // Approving your own app is self-approval: someone else on the desk decides it. Suspending your own is harmless.
+      if (status === 'approved' && current.developer_user_id === reviewerId) throw new OAuthError('oauth.operator_denied');
       if (current.status === status) return toApp(current);
       const [updated] = await tx<AppRow[]>`
         UPDATE oauth_apps SET status = ${status}, reviewed_by = ${reviewerId}, reviewed_at = ${this.now()}, review_reason = ${input.reason ?? null}
@@ -266,7 +288,11 @@ export class OAuthService {
   }
 
   /** Checks client, redirect URL and scopes. An unapproved app is open only to its own developer. */
-  private async resolveRequest(userId: string, request: OAuthAuthorizeRequest): Promise<{ app: AppRow; scopes: string[] }> {
+  private async resolveRequest(
+    userId: string,
+    grantorScopes: readonly string[],
+    request: OAuthAuthorizeRequest,
+  ): Promise<{ app: AppRow; scopes: string[] }> {
     const [app] = await this.sql<AppRow[]>`
       SELECT ${this.sql.unsafe(APP_COLUMNS)} FROM oauth_apps WHERE client_id = ${request.clientId}
     `;
@@ -276,6 +302,7 @@ export class OAuthService {
     if (app.status === 'pending' && app.developer_user_id !== userId) throw new OAuthError('oauth.app_not_approved');
     const scopes = normaliseScopes(request.scope);
     if (scopes.some((scope) => !app.scopes.includes(scope))) throw new OAuthError('oauth.invalid_scope');
+    assertConsentable(scopes, grantorScopes);
     return { app, scopes };
   }
 
@@ -287,7 +314,7 @@ export class OAuthService {
     const userId = sessionUser(context);
     this.requireLifetimes();
     await this.activeUser(userId);
-    const { app, scopes } = await this.resolveRequest(userId, request);
+    const { app, scopes } = await this.resolveRequest(userId, sessionScopes(context), request);
     return {
       appName: app.name,
       appDescription: app.description,
@@ -302,7 +329,7 @@ export class OAuthService {
     const userId = sessionUser(context);
     const { codeTtl } = this.requireLifetimes();
     await this.activeUser(userId);
-    const { app, scopes } = await this.resolveRequest(userId, request);
+    const { app, scopes } = await this.resolveRequest(userId, sessionScopes(context), request);
     if (request.decision === 'deny') {
       return { redirectTo: redirectWith(request.redirectUri, { error: 'access_denied', state: request.state }) };
     }
@@ -358,6 +385,10 @@ export class OAuthService {
       `;
       // A code issued to another app is not this client's to spend or to learn about.
       if (!row || row.app_id !== app.id) return { failure: 'oauth.invalid_grant' };
+      // Read the status again under a share lock: a suspension that commits first is seen here, and one that comes
+      // after waits for this transaction and then revokes the token it issues.
+      const [live] = await tx<Array<{ status: OAuthAppStatus }>>`SELECT status FROM oauth_apps WHERE id = ${app.id} FOR SHARE`;
+      if (!live || live.status === 'suspended') return { failure: 'oauth.app_not_approved' };
       if (row.used_at !== null || row.code_challenge === null) {
         await tx`UPDATE oauth_tokens SET revoked_at = ${now} WHERE code_hash = ${codeHash} AND revoked_at IS NULL`;
         return { failure: 'oauth.invalid_grant' };
