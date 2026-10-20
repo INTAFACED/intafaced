@@ -35,6 +35,7 @@ const base: PriceAlert = {
   message: null,
   expiresAt: null,
   lastSide: null,
+  extras: [],
 };
 
 describe('decimal string compare — no JS number', () => {

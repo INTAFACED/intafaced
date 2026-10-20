@@ -581,8 +581,14 @@ a row. A redelivery reuses the same key and cannot double-send.
   `notify.alert_text_limit_unset`, too long is `alert.text_too_long`. A message may use `{market}`, `{price}` (the mark that
   fired it), `{condition}` and `{time}` (UTC); any other `{word}` is `alert.message_placeholder_unknown`. A fired alert with a name
   or message shows those instead of the stock copy.
-- Not built here, and refused rather than faked: several conditions on one alert, trigger frequencies other than once, and
-  technical (indicator) alerts.
+- `extras` (C-alerts-scan-01b): further level conditions (`greater_than` / `less_than`, a positive decimal price) on the same
+  market. The alert fires only when its main condition and every added one hold on the same mark, so a range is "at or above
+  100 and at or below 120". A crossing main condition still needs a real crossing, and the added levels must hold when it
+  happens. The most conditions one alert may hold, the main one included, is `NOTIFY_ALERT_MAX_CONDITIONS`; blank refuses
+  `notify.alert_conditions_limit_unset` for an alert that adds any, too many is `alert.too_many_conditions`, a bad added condition
+  `alert.extra_condition_invalid`. An added crossing condition is not offered: it has no remembered side. Migration 0019.
+- Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
+  (indicator) alerts (C-alerts-scan-01d).
 
 Out of scope for this residual (tracker + §31): funding / liquidation-proximity
 alerts, whale-flow intelligence tiers, mobile watchlist sync, owner gateway

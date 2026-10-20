@@ -13,7 +13,7 @@
 
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
-import { canonicalDecimalString } from './decimal.js';
+import { canonicalDecimalString, isValidPositivePrice } from './decimal.js';
 import {
   evaluatePortfolioAlert,
   evaluatePriceAlert,
@@ -21,7 +21,7 @@ import {
   evaluateWhaleAlert,
 } from './evaluate.js';
 import { AlertValidationError, type AlertStore } from './store.js';
-import { directionOfCondition, isCrossingCondition } from './types.js';
+import { directionOfCondition, EXTRA_CONDITIONS, isCrossingCondition, type AlertExtra } from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
   AlertKindUnpublishedError,
@@ -89,6 +89,7 @@ export function assertNotifyAlertsListLimit(limit: number | null | undefined): n
 
 export const NOTIFY_ALERT_EXPIRY_MAX_UNSET = 'notify.alert_expiry_max_unset' as const;
 export const NOTIFY_ALERT_TEXT_LIMIT_UNSET = 'notify.alert_text_limit_unset' as const;
+export const NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET = 'notify.alert_conditions_limit_unset' as const;
 
 /** Owner settings an alert's expiry and text depend on. Blank (null) is never replaced by a default: the create refuses. */
 export type AlertLimits = {
@@ -96,13 +97,18 @@ export type AlertLimits = {
   readonly maxExpiryDays: number | null;
   /** Longest an alert's name or message may be (`NOTIFY_ALERT_TEXT_MAX_LENGTH`). */
   readonly textMaxLength: number | null;
+  /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). */
+  readonly maxConditions: number | null;
 };
 
-export const NO_ALERT_LIMITS: AlertLimits = { maxExpiryDays: null, textMaxLength: null };
+export const NO_ALERT_LIMITS: AlertLimits = { maxExpiryDays: null, textMaxLength: null, maxConditions: null };
 
 export type AlertLimitCode =
   | typeof NOTIFY_ALERT_EXPIRY_MAX_UNSET
   | typeof NOTIFY_ALERT_TEXT_LIMIT_UNSET
+  | typeof NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET
+  | 'alert.too_many_conditions'
+  | 'alert.extra_condition_invalid'
   | 'alert.expiry_in_past'
   | 'alert.expiry_too_far'
   | 'alert.text_too_long'
@@ -155,6 +161,23 @@ function assertAlertText(label: 'name' | 'message', text: string | null | undefi
     }
   }
   return trimmed;
+}
+
+function assertAlertExtras(extras: readonly AlertExtra[] | undefined, limits: AlertLimits): readonly AlertExtra[] {
+  if (extras === undefined || extras.length === 0) return [];
+  if (limits.maxConditions === null) {
+    throw new AlertLimitError(NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET, "added conditions need the owner's condition limit");
+  }
+  // The main condition counts toward the limit.
+  if (extras.length + 1 > limits.maxConditions) {
+    throw new AlertLimitError('alert.too_many_conditions', `an alert may hold ${limits.maxConditions} conditions`);
+  }
+  return extras.map((extra) => {
+    if (!(EXTRA_CONDITIONS as readonly string[]).includes(extra.condition) || !isValidPositivePrice(extra.targetPrice)) {
+      throw new AlertLimitError('alert.extra_condition_invalid', 'an added condition is a level with a positive decimal price');
+    }
+    return { condition: extra.condition, targetPrice: extra.targetPrice.trim() };
+  });
 }
 
 function assertAlertExpiry(expiresAt: Date | null | undefined, limits: AlertLimits, now: Date): Date | null {
@@ -286,7 +309,8 @@ export class AlertService {
     const name = assertAlertText('name', input.name, this.limits);
     const message = assertAlertText('message', input.message, this.limits);
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
-    return this.store.create({ ...input, kind, targetPrice, name, message, expiresAt });
+    const extras = assertAlertExtras(input.extras, this.limits);
+    return this.store.create({ ...input, kind, targetPrice, name, message, expiresAt, extras });
   }
 
   /**

@@ -142,7 +142,13 @@ export type PriceAlert = {
   readonly expiresAt: Date | null;
   /** Internal state of a crossing watch; never on the wire. */
   readonly lastSide: AlertSide | null;
+  /** Further level conditions on the same market. The alert fires only when the main condition AND every one of these holds. */
+  readonly extras: readonly AlertExtra[];
 };
+
+/** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
+export const EXTRA_CONDITIONS = ['greater_than', 'less_than'] as const;
+export type AlertExtra = { readonly condition: (typeof EXTRA_CONDITIONS)[number]; readonly targetPrice: string };
 
 export type CreatePriceAlertInput = {
   readonly userId: string;
@@ -154,6 +160,7 @@ export type CreatePriceAlertInput = {
   readonly name?: string | null;
   readonly message?: string | null;
   readonly expiresAt?: Date | null;
+  readonly extras?: readonly AlertExtra[];
 };
 
 /**

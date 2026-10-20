@@ -28,6 +28,8 @@ import {
   ALERT_CONDITIONS,
   AlertKindUnpublishedError,
   type AlertCondition,
+  type AlertExtra,
+  EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
   directionOfCondition,
   isSourcedAlertKind,
@@ -416,6 +418,11 @@ const alertExtras = {
   message: z.string().max(2000).optional(),
   /** ISO time. Omitted: open-ended. */
   expiresAt: z.string().datetime({ offset: true }).optional(),
+  /** Added level conditions on the same market; all must hold with the main one. */
+  extras: z
+    .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
+    .max(20)
+    .optional(),
 };
 
 const priceAlertOutput = z.object({
@@ -432,6 +439,7 @@ const priceAlertOutput = z.object({
   name: z.string().nullable(),
   message: z.string().nullable(),
   expiresAt: z.string().nullable(),
+  extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
 });
 
 /**
@@ -470,6 +478,7 @@ function priceAlertToWire(row: PriceAlert) {
     name: row.name,
     message: row.message,
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
   };
 }
 
@@ -1480,7 +1489,13 @@ export function createNotifyRouter(
             });
           }
           try {
-            const extras = input as { condition?: AlertCondition; name?: string; message?: string; expiresAt?: string };
+            const extras = input as {
+              condition?: AlertCondition;
+              name?: string;
+              message?: string;
+              expiresAt?: string;
+              extras?: AlertExtra[];
+            };
             const condition = extras.condition;
             // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
             if (condition && condition !== 'crossing' && directionOfCondition(condition) !== input.direction) {
@@ -1496,6 +1511,7 @@ export function createNotifyRouter(
               name: extras.name,
               message: extras.message,
               expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
+              ...(extras.extras ? { extras: extras.extras } : {}),
             });
             return {
               alert: priceAlertToWire(row),

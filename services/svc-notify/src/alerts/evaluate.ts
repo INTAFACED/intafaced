@@ -94,6 +94,17 @@ export function evaluateWhaleAlert(alert: PriceAlert, quote: MarkQuote): AlertEv
  * (`side`), so a watch created while the price is already past its target waits for a real crossing instead of firing at once.
  */
 function judge(alert: PriceAlert, mark: string): AlertEvalOutcome {
+  const main = judgeMain(alert, mark);
+  if (main.kind !== 'fire') return main;
+  // Added conditions are levels on the same mark: all of them must hold at the moment the main condition fires.
+  const allHold = alert.extras.every((extra) => {
+    const c = compareDecimalStrings(mark, extra.targetPrice);
+    return extra.condition === 'greater_than' ? c >= 0 : c <= 0;
+  });
+  return allHold ? main : { kind: 'hold', markPrice: mark, ...(main.side !== undefined ? { side: main.side } : {}) };
+}
+
+function judgeMain(alert: PriceAlert, mark: string): AlertEvalOutcome {
   const cmp = compareDecimalStrings(mark, alert.targetPrice);
   if (!isCrossingCondition(alert.condition)) {
     const crossed = alert.direction === 'above' ? cmp >= 0 : cmp <= 0;
