@@ -601,6 +601,10 @@ export class GlobalSendService {
           UPDATE bank.global_sends SET ledger_tx_id = ${txId}, updated_at = now()
           WHERE id = ${row.id} AND status IN ('submitted', 'held') AND ledger_tx_id IS NULL
         `;
+        // A hold that landed while the forward entry was being posted stands: the debit is recorded on the held send and no
+        // payout is made until someone else releases it. Release then carries on from here without posting again.
+        const after = await this.sendById(row.id);
+        if (after && after.status !== 'submitted') return sendView(after);
       } catch (err) {
         if (err instanceof InsufficientFundsError) return this.definite(row, 'bank.global_insufficient_funds', err.message);
         throw err;
@@ -637,7 +641,7 @@ export class GlobalSendService {
           quote_rate = ${quote.rate}, quote_fee = ${quote.fee}, quote_fee_asset = ${quote.feeAsset},
           quote_receive = ${quote.receiveAmount}, quote_valid_until = ${quote.validUntil}::timestamptz,
           quote_eta = ${quote.eta}, failure_code = NULL, failure_blocker = NULL, updated_at = now()
-      WHERE id = ${row.id} AND status IN ('submitted', 'held')
+      WHERE id = ${row.id} AND status = 'submitted'
     `;
     return sendView(await this.mustSend(row.id));
   }

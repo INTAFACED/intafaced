@@ -8,7 +8,8 @@ import { parseProofLimits, type ProofLimits } from './payee-controls.js';
  * Compliance holds on a global send, and the document a customer is asked for (BK-xfer-07).
  *
  * A hold applies only to a send that is still `submitted` with no ledger transaction, so no value has moved and none is
- * reserved: there is no hold recipe because there is nothing to hold. A settled send refuses `bank.transfer_settled`. The
+ * reserved: there is no hold recipe because there is nothing to hold. If a hold lands in the instant the forward entry is
+ * being posted, the debit stands on the held send and no payout is made until it is released. A settled send refuses `bank.transfer_settled`. The
  * hold's reason is internal and is never in anything a customer reads; the customer sees only the request an operator wrote
  * for them. Release needs a different person from the one who held (four-eyes, by the signed-in operator id, never a typed
  * one). If releasing leaves the outcome unknown and nothing was posted, the hold goes back on.

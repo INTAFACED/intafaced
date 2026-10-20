@@ -868,4 +868,50 @@ describe('personal bill pay and global send', () => {
     await expect(me.global.ops.hold({ sendId: id, holdKey: 'hold-key-07', reason: 'x' })).rejects.toBeTruthy();
     await expect(me.global.ops.holds({ limit: 5 })).rejects.toBeTruthy();
   });
+
+  it('a hold that lands while the forward entry is posted stops the payout, and release pays out once without posting again', async () => {
+    let submits = 0;
+    const { ledger, bank } = mount({
+      sendFieldRules: RULES,
+      global: liveGlobal({
+        payout: {
+          status: () => 'live',
+          railId: () => 'test-payout-rail',
+          async submit() {
+            submits += 1;
+            return { ok: true, providerRef: 'payout-9', status: 'sent' };
+          },
+        },
+      }),
+    });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const ops = caller(bank, OP_A, compliance);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-race-01', name: 'Ada', account: '123456789', country: 'DE' });
+    const post = ledger.post.bind(ledger);
+    let placed = false;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      const result = await post(...args);
+      if (!placed) {
+        placed = true;
+        const rows = await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`;
+        await ops.global.ops.hold({ sendId: rows[0]!.id, holdKey: 'hold-race-01', reason: 'late screening' });
+      }
+      return result;
+    }) as typeof ledger.post;
+    const view = await me.global.send({
+      ...sendBody,
+      idempotencyKey: 'send-race-01',
+      amount: '10',
+      fromSpaceId: space.id,
+      recipientId: saved.id,
+    });
+    expect(view.status).toBe('held');
+    expect(submits).toBe(0);
+    expect(transfers(ledger)).toHaveLength(1);
+    const released = await caller(bank, OP_B, compliance).global.ops.release({ sendId: view.id });
+    expect(released).toMatchObject({ status: 'sent', providerRef: 'payout-9' });
+    expect(submits).toBe(1);
+    expect(transfers(ledger)).toHaveLength(1);
+  });
 });
