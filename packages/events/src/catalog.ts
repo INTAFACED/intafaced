@@ -295,6 +295,26 @@ export const bankMarginCalled = defineEvent(
   'A loan crossed the margin-call threshold. The call is durable at the producer whether or not anyone was reached (§8.1).',
 );
 
+/**
+ * A support request was resolved. The business key for at-least-once delivery is the ticket: a request
+ * asks for its rating once (`rating-request:<ticketId>`), however many times this is delivered.
+ *
+ * Carries no money and no request text, only who to ask and when it was solved.
+ */
+export const supportTicketResolved = defineEvent(
+  'support',
+  'ticket',
+  'resolved',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    /** The person who raised the request, i.e. whom to ask for a rating. */
+    userId: userIdSchema,
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -887,6 +907,7 @@ export const EVENT_CATALOG = {
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
+  supportTicketResolved,
   personalRequestCreated,
   personalRequestSettled,
   blueprintCreated,
@@ -1041,6 +1062,18 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Publisher waits on a buyback ledger recipe. svc-token refuse-closes recordBuyback with token.buyback_tokens_unmoved rather than emit buybackExecuted for a buy that did not happen — no existing ledger-client recipe books tokensBought (burn spends fee-funded engine; mintEmission prints supply). Nothing observes a buy that did not happen; the recipe PR owns the publisher.',
+  },
+
+  {
+    event: 'supportTicketResolved',
+    missing: 'publisher',
+    /**
+     * CLASS A. The in-app rating prompt does not depend on this subject: it reads the request's own status.
+     * Only the emailed rating request does, and that already refuses until a mail sender is configured.
+     */
+    class: 'A',
+    reason:
+      'Declared first, as the events-then-service rule asks. svc-support publishes it when a request is resolved, in the next PR of SP-csat-01. The in-app rating prompt reads the request status and does not wait on it.',
   },
 
   // ── no subscriber ──────────────────────────────────────────────────────────
@@ -1325,6 +1358,17 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'supportTicketResolved',
+    missing: 'subscriber',
+    /**
+     * CLASS A. svc-notify consumes it in the PR after the publisher; until then nothing depends on it, since
+     * the in-app prompt reads the request status.
+     */
+    class: 'A',
+    reason:
+      'svc-notify turns it into the rating request (an inbox row, and an email where an address is confirmed and the email gateway is configured) in the last PR of SP-csat-01. Nothing derives state from it before then; the in-app rating prompt reads the request status.',
   },
 ] satisfies readonly WiringSocket[];
 
