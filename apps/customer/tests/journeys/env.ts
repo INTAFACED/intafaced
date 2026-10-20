@@ -13,6 +13,7 @@ export const stack = {
   ledger: () => need('LEDGER_HTTP_URL').replace(/\/$/, ''),
   pay: () => need('PAY_HTTP_URL').replace(/\/$/, ''),
   bank: () => need('BANK_HTTP_URL').replace(/\/$/, ''),
+  tax: () => need('TAX_HTTP_URL').replace(/\/$/, ''),
   identity: () => need('IDENTITY_HTTP_URL').replace(/\/$/, ''),
   edgeSecret: () => need('EDGE_PRINCIPAL_SECRET'),
   internalSecret: () => need('INTERNAL_SERVICE_SECRET'),
