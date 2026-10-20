@@ -375,6 +375,16 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     refuseArmIds: [],
     notes: 'Serves this matrix + refuseArms JSON — claim ≡ wire for integrators',
   },
+  {
+    name: 'fetchOrderStates',
+    method: 'GET',
+    path: '/api/v1/order-states',
+    auth: 'public',
+    scope: null,
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: 'Order states with API value and desk label, plus the owner history window; blank window reads "not_set"',
+  },
 
   // ── Public (REST_ROUTES) ──────────────────────────────────────────────────
   route('fetchMarkets', 'supported', [], 'List listings; paper + schedule flags on wire'),

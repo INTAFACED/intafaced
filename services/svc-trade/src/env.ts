@@ -686,6 +686,14 @@ const schema = serviceEnvSchema
        */
       TRADE_FEE_SCHEDULE: z.string().default(''),
 
+      /**
+       * How far back order history is kept, as a whole number of days (SP-lifecycle-history-01). NO DEFAULT.
+       *
+       * Empty = retention not set: the order-state reference says "retention not set" and no row is ever cut
+       * off. Never invent a window. A value that is not a whole number of days is reported as invalid.
+       */
+      ORDER_HISTORY_WINDOW: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),

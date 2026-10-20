@@ -707,6 +707,7 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  orderHistoryWindow: env.ORDER_HISTORY_WINDOW,
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;

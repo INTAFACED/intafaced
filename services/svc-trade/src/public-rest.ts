@@ -15,6 +15,7 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import { parseOrderHistoryWindow, presentOrderStates } from './spot/order-state-reference.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
@@ -55,6 +56,8 @@ export interface PublicRestDeps {
   marketBySymbol(symbol: string): Promise<Market | null>;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /** Owner `ORDER_HISTORY_WINDOW` as set (whole days). Blank or absent reads as "retention not set". */
+  orderHistoryWindow?: string;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -630,6 +633,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
    */
   app.get('/api/v1/time', async (_req, reply) => {
     return reply.code(200).send({ serverTime: now() });
+  });
+
+  /** SP-lifecycle-history-01: the order states with their API value and desk label, and the owner's history window. */
+  app.get('/api/v1/order-states', async (_req, reply) => {
+    return reply.code(200).send(presentOrderStates(parseOrderHistoryWindow(deps.orderHistoryWindow)));
   });
 
   app.get('/api/v1/capabilities', async (_req, reply) => {
