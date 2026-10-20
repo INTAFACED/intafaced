@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { canAddToWallet, NETWORK_PARAMS_UNSET, routerIsSunset, type NetworkEntry } from '@intafaced/contracts/protocol-networks';
 import { useApi } from '../session/session';
 import { useResource } from '../../shared/resource';
+import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../shared/ui';
 import { createProtocolApi, type Deployments, type ProtocolApi } from './api';
 import { protocolCopy as copy } from './copy';
@@ -20,6 +21,21 @@ function ExternalLink({ url, label }: { url: string; label: string }) {
     <span>{label}</span>
   );
 }
+
+/** The configured chain as the room knows it: still being read, not readable, or known. Never guessed from a null. */
+export type ChainRef =
+  | { status: 'loading' }
+  | { status: 'failed'; failure: Extract<ApiResult<unknown>, { ok: false }>; reload: () => void }
+  | { status: 'ready'; chainId: number };
+
+function ChainPending({ chain, t }: { chain: ChainRef; t: Translate }) {
+  if (chain.status === 'failed') return <Failure result={chain.failure} retry={chain.reload} />;
+  return <Loading label={t('checking', { source: t('src_chain') })} />;
+}
+
+const UNKNOWN_CHAIN = 'protocol.deployments_unknown_chain';
+const nothingRecorded = (failure: { code?: string; message: string }) =>
+  failure.code === UNKNOWN_CHAIN || failure.message.includes(UNKNOWN_CHAIN);
 
 function usePublishedApi(): ProtocolApi {
   const transport = useApi();
@@ -143,18 +159,20 @@ function NetworkCard({ network, t }: { network: NetworkEntry; t: Translate }) {
 }
 
 /** The Network card on the /chain Status tab: the owner-published entry for the configured chain, nothing filled in. */
-export function NetworkPanel({ chainId, t }: { chainId: number | null; t: Translate }) {
+export function NetworkPanel({ chain, t }: { chain: ChainRef; t: Translate }) {
   const api = usePublishedApi();
   const { resource, reload } = useResource((signal) => api.networksList(signal), 'protocol-room:networks');
   return (
     <Panel title={t('netCardTitle')}>
-      {resource.status === 'loading' ? (
+      {chain.status !== 'ready' ? (
+        <ChainPending chain={chain} t={t} />
+      ) : resource.status === 'loading' ? (
         <Loading label={t('checking', { source: t('src_networks') })} />
       ) : resource.status === 'failed' ? (
         <Failure result={resource.failure} retry={reload} />
       ) : (
         (() => {
-          const entry = chainId === null ? undefined : resource.data.networks.find((network) => network.chainId === chainId);
+          const entry = resource.data.networks.find((network) => network.chainId === chain.chainId);
           return entry ? <NetworkCard network={entry} t={t} /> : <EmptyState title={t('netNone')} />;
         })()
       )}
@@ -166,7 +184,12 @@ function ContractsTable({ chainId, t }: { chainId: number; t: Translate }) {
   const api = usePublishedApi();
   const { resource, reload } = useResource((signal) => api.deploymentsList(chainId, signal), `protocol-room:deployments:${chainId}`);
   if (resource.status === 'loading') return <Loading label={t('checking', { source: t('src_deployments') })} />;
-  if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
+  if (resource.status === 'failed')
+    return nothingRecorded(resource.failure) ? (
+      <EmptyState title={t('noDeployment')} />
+    ) : (
+      <Failure result={resource.failure} retry={reload} />
+    );
   const { contracts } = resource.data;
   return (
     <DataTable label={t('contractsTitle')} headers={[t('hdr_contract'), t('hdr_suite'), t('hdr_address'), t('hdr_verified')]}>
@@ -193,16 +216,16 @@ function ContractsTable({ chainId, t }: { chainId: number; t: Translate }) {
 }
 
 /** The Deployed contracts table for the configured chain, read from the service. There is no built-in copy to fall back on. */
-export function ContractsPanel({ chainId, t }: { chainId: number | null; t: Translate }) {
+export function ContractsPanel({ chain, t }: { chain: ChainRef; t: Translate }) {
   return (
     <Panel title={t('contractsTitle')}>
       <p className="muted">{t('contractsNote')}</p>
-      {chainId === null ? <EmptyState title={t('noDeployment')} /> : <ContractsTable chainId={chainId} t={t} />}
+      {chain.status === 'ready' ? <ContractsTable chainId={chain.chainId} t={t} /> : <ChainPending chain={chain} t={t} />}
     </Panel>
   );
 }
 
-type SupportedRow = { chainId: number; name: string | null; deployments: Deployments | null };
+type SupportedRow = { chainId: number; name: string | null; deployments: Deployments | 'unrecorded' | 'unreadable' };
 
 /** Every published network with its recorded router versions. A chain with nothing recorded gets one honest row. */
 export function SupportedNetworksPanel({ t, now = new Date() }: { t: Translate; now?: Date }) {
@@ -213,7 +236,11 @@ export function SupportedNetworksPanel({ t, now = new Date() }: { t: Translate; 
     const rows: SupportedRow[] = await Promise.all(
       list.data.networks.map(async (network) => {
         const found = await api.deploymentsList(network.chainId, signal);
-        return { chainId: network.chainId, name: network.name, deployments: found.ok ? found.data : null };
+        return {
+          chainId: network.chainId,
+          name: network.name,
+          deployments: found.ok ? found.data : nothingRecorded(found) ? ('unrecorded' as const) : ('unreadable' as const),
+        };
       }),
     );
     return { ok: true as const, data: rows };
@@ -239,7 +266,14 @@ export function SupportedNetworksPanel({ t, now = new Date() }: { t: Translate; 
           ) : (
             resource.data.flatMap((row) => {
               const chain = `${row.name ?? t('notPublished')} (${row.chainId})`;
-              const routers = row.deployments?.routers ?? [];
+              if (row.deployments === 'unreadable')
+                return [
+                  <tr key={row.chainId}>
+                    <td>{chain}</td>
+                    <td colSpan={4}>{t('routerUnreadable')}</td>
+                  </tr>,
+                ];
+              const routers = row.deployments === 'unrecorded' ? [] : row.deployments.routers;
               if (routers.length === 0)
                 return [
                   <tr key={row.chainId}>

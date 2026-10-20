@@ -188,6 +188,7 @@ const en = {
   supportedTitle: 'Supported networks',
   supportedNote: 'Every published network and its recorded router versions. A router past its sunset date is marked Sunset.',
   noRouter: 'No router recorded',
+  routerUnreadable: 'Could not read the deployment record for this chain.',
   noDeployment: 'No deployment is recorded for this chain.',
   sunsetNow: 'Sunset',
   noSunset: 'None published',

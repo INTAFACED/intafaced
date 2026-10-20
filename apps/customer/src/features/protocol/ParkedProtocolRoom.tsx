@@ -20,7 +20,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
-import { ContractsPanel, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
+import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -346,7 +346,12 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   const title = slug === 'chain' ? t('titleChain') : slug === 'dex' ? t('titleDex') : t('titleProtocol');
   const description = slug === 'chain' ? t('descChain') : slug === 'dex' ? t('descDex') : t('descProtocol');
 
-  const configuredChainId = chain.resource.status === 'ready' ? chain.resource.data.configuredChainId : null;
+  const chainRef: ChainRef =
+    chain.resource.status === 'ready'
+      ? { status: 'ready', chainId: chain.resource.data.configuredChainId }
+      : chain.resource.status === 'failed'
+        ? { status: 'failed', failure: chain.resource.failure, reload: chain.reload }
+        : { status: 'loading' };
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
       <Answer value={chain} source={t('src_chain')} t={t} shell={{ label: t('tab_status'), headers: [t('hdr_check'), t('hdr_result')] }}>
@@ -426,7 +431,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {chainStatusPanel}
-        <NetworkPanel chainId={configuredChainId} t={t} />
+        <NetworkPanel chain={chainRef} t={t} />
       </>
     );
   else if (slug === 'chain' && tab === 'blocks')
@@ -524,7 +529,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chainId={configuredChainId} t={t} />;
+  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chain={chainRef} t={t} />;
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>

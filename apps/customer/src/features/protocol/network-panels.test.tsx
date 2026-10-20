@@ -31,6 +31,7 @@ const bare: NetworkEntry = {
   faucets: null,
   ecosystem: null,
 };
+const ready84532 = { status: 'ready' as const, chainId: 84532 };
 const ready = (data: unknown) => ({ status: 'ready', data });
 const full: NetworkEntry = {
   ...bare,
@@ -43,7 +44,7 @@ const full: NetworkEntry = {
 describe('Network card', () => {
   it('shows only what is published, disables Add to wallet and names why, and lists None listed', () => {
     answers['protocol-room:networks'] = ready({ networks: [bare] });
-    const html = renderToStaticMarkup(<NetworkPanel chainId={84532} t={t} />);
+    const html = renderToStaticMarkup(<NetworkPanel chain={ready84532} t={t} />);
     expect(html).toContain('Base Sepolia test network');
     expect(html).toContain('Not published');
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Add to wallet/);
@@ -56,7 +57,7 @@ describe('Network card', () => {
   });
   it('with every wallet parameter published it asks only for a wallet, and links https addresses', () => {
     answers['protocol-room:networks'] = ready({ networks: [full] });
-    const html = renderToStaticMarkup(<NetworkPanel chainId={84532} t={t} />);
+    const html = renderToStaticMarkup(<NetworkPanel chain={ready84532} t={t} />);
     expect(html).toContain('no browser wallet was found');
     expect(html).not.toContain('protocol.network_params_unset');
     expect(html).toContain('href="https://faucet.example"');
@@ -74,7 +75,9 @@ describe('Network card', () => {
   });
   it('says so when no entry is published for the configured chain', () => {
     answers['protocol-room:networks'] = ready({ networks: [bare] });
-    expect(renderToStaticMarkup(<NetworkPanel chainId={1} t={t} />)).toContain('No entry is published for this chain.');
+    expect(renderToStaticMarkup(<NetworkPanel chain={{ status: 'ready', chainId: 1 }} t={t} />)).toContain(
+      'No entry is published for this chain.',
+    );
   });
 });
 
@@ -87,12 +90,21 @@ describe('Deployed contracts and supported networks', () => {
       routers: [],
       contracts: [{ name: 'PoolFactory', suite: 'amm', address: '0x' + '1'.repeat(40), verified: false, explorerUrl: null }],
     });
-    const html = renderToStaticMarkup(<ContractsPanel chainId={84532} t={t} />);
+    const html = renderToStaticMarkup(<ContractsPanel chain={ready84532} t={t} />);
     expect(html).toContain('PoolFactory');
     expect(html).toContain('0x' + '1'.repeat(40));
     answers['protocol-room:deployments:84532'] = { status: 'loading' };
-    expect(renderToStaticMarkup(<ContractsPanel chainId={84532} t={t} />)).not.toContain('PoolFactory');
-    expect(renderToStaticMarkup(<ContractsPanel chainId={null} t={t} />)).toContain('No deployment is recorded for this chain.');
+    expect(renderToStaticMarkup(<ContractsPanel chain={ready84532} t={t} />)).not.toContain('PoolFactory');
+    for (const chain of [
+      { status: 'loading' as const },
+      { status: 'failed' as const, failure: { ok: false as const, reason: 'unreachable' as const, message: 'x' }, reload: () => undefined },
+    ]) {
+      const loadingOrFailed =
+        renderToStaticMarkup(<ContractsPanel chain={chain} t={t} />) + renderToStaticMarkup(<NetworkPanel chain={chain} t={t} />);
+      expect(loadingOrFailed).not.toContain('No deployment is recorded');
+      expect(loadingOrFailed).not.toContain('No entry is published');
+    }
+    expect(renderToStaticMarkup(<ContractsPanel chain={{ status: 'loading' }} t={t} />)).toContain('Checking');
   });
   it('lists router versions per chain, marks a past sunset, and gives a chain with none one honest row', () => {
     const router = (version: string, sunsetAt: string | null, address: string) => ({
@@ -115,13 +127,15 @@ describe('Deployed contracts and supported networks', () => {
           routers: [router('v1', '2026-01-01T00:00:00.000Z', '0x' + 'a'.repeat(40)), router('v2', null, '0x' + 'b'.repeat(40))],
         },
       },
-      { chainId: 31337, name: 'Local test chain', deployments: null },
+      { chainId: 31337, name: 'Local test chain', deployments: 'unrecorded' },
+      { chainId: 1337, name: 'Odd chain', deployments: 'unreadable' },
     ]);
     const html = renderToStaticMarkup(<SupportedNetworksPanel t={t} now={new Date('2026-10-20T00:00:00Z')} />);
     expect(html).toContain('>Sunset<');
     expect(html).toContain('None published');
     expect(html).toContain('No router recorded');
     expect(html).toContain('Local test chain (31337)');
+    expect(html).toContain('Could not read the deployment record for this chain.');
   });
   it('keeps no hand copy of a deployment record in the app', () => {
     const root = join(__dirname, '..', '..');
