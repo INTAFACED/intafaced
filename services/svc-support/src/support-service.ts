@@ -57,6 +57,7 @@ import {
   type TicketOrderSource,
 } from './ticket-order.js';
 import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
+import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
@@ -236,6 +237,8 @@ export class SupportService implements SupportContract {
     private readonly properties: PropertiesBook = new MemoryPropertiesBook(),
     /** Who a ticket waits on, the first public reply and the follow-up link, kept beside the ticket. */
     private readonly lifecycle: LifecycleBook = new MemoryLifecycleBook(),
+    /** The ask to rate a resolved request, recorded once per ticket and published to the bus. */
+    private readonly ratingRequests: RatingRequestOutbox = new RatingRequestOutbox(new MemoryRatingRequestBook(), async () => null),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -544,6 +547,13 @@ export class SupportService implements SupportContract {
       // Finished requests wait on nobody.
       if (result.ticket.status === 'resolved' || result.ticket.status === 'closed') {
         await this.lifecycle.setWaiting(result.ticket.id, null, result.ticket.updatedAt);
+      }
+      if (result.ticket.status === 'resolved') {
+        // Never fails or waits on the status change: the ask is a row first and a message second.
+        void this.ratingRequests
+          .record({ ticketId: result.ticket.id, userId: result.ticket.userId, resolvedAt: result.ticket.updatedAt })
+          .then(() => this.ratingRequests.flush())
+          .catch(() => undefined);
       }
       return result.ticket;
     });

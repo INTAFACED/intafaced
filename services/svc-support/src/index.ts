@@ -9,6 +9,8 @@ import { SqlContactBook } from './contact-channels.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
+import { JetStreamEventBus } from '@intafaced/events';
+import { eventRatingRequestSink, RatingRequestOutbox, SqlRatingRequestBook } from './rating-request.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
@@ -61,6 +63,42 @@ await sql`SELECT 1 FROM support.contact_channels LIMIT 1`.catch(() => {
   throw new Error('support.contact_channels is missing — apply migration 0020 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
+  throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
+});
+
+/**
+ * `ownedStreams: ['support']` — this process creates `INTAFACED_SUPPORT`. The one subject
+ * on it says a request was resolved, so svc-notify can ask the customer to rate it. The bus
+ * is connected on first need and again on each sweep until it answers: a bus that cannot be
+ * reached leaves the asks pending in `support.rating_requests`, the desk still serves, and
+ * they go out once it is back, with no restart.
+ */
+let bus: JetStreamEventBus | null = null;
+let connecting: Promise<JetStreamEventBus | null> | null = null;
+const connectBus = (): Promise<JetStreamEventBus | null> => {
+  if (bus) return Promise.resolve(bus);
+  connecting ??= JetStreamEventBus.connect({
+    servers: env.NATS_URL,
+    producer: env.SERVICE_NAME,
+    streamPrefix: env.NATS_STREAM_PREFIX,
+    ownedStreams: ['support'],
+  })
+    .then((connected) => (bus = connected))
+    .catch((err: unknown) => {
+      console.error('svc-support: event bus unreachable, rating requests stay pending', err);
+      return null;
+    })
+    .finally(() => {
+      connecting = null;
+    });
+  return connecting;
+};
+const ratingRequests = new RatingRequestOutbox(new SqlRatingRequestBook(sql), async () => {
+  const connected = await connectBus();
+  return connected ? eventRatingRequestSink(connected) : null;
+});
+
 const store = new PostgresSupportStore(sql);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the outgoing reads on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-support');
@@ -82,6 +120,7 @@ const support = new SupportService(
   env.SUPPORT_ALL_GROUPS_ROLES,
   new SqlPropertiesBook(sql),
   new SqlLifecycleBook(sql),
+  ratingRequests,
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql));
@@ -103,10 +142,18 @@ const app = await createSupportHttpApp({
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info({ port: env.HTTP_PORT }, 'svc-support ready');
 
+// Publish asks a crash or a bus outage left pending: once now, then each minute.
+const sweep = (): void => void ratingRequests.flush().catch((err: unknown) => app.log.warn({ err }, 'rating request sweep failed'));
+sweep();
+const sweepTimer = setInterval(sweep, 60_000);
+sweepTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(sweepTimer);
       await app.close();
+      await bus?.close();
       await sql.end({ timeout: 5 });
       process.exit(0);
     })();

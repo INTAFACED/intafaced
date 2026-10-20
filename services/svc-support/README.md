@@ -111,8 +111,9 @@ Ratings: the owner rates a resolved or closed request once (`rate`, replay safe)
 closed now whose last change falls in it: solved count, responses, count per score 1 to 5 and the rated
 share in basis points (null with nothing solved, so the screen shows no percentage). With no ratings it
 returns zero responses and the screen shows no average. A window that does not start before it ends
-refuses `support.rating_window_invalid`. The emailed rating request waits on the mail path
-(`vendor.email`); the in-app prompt does not.
+refuses `support.rating_window_invalid`. The emailed rating request is announced on the bus (see Events);
+whether anyone is emailed is svc-notify's answer and waits on the mail path (`vendor.email`). The in-app
+prompt does not wait on either.
 
 Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
 signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,
@@ -136,8 +137,13 @@ Dev bootstrap creates role/schema via `tooling/infra/postgres-init/01-service-sc
 
 ## Events
 
-**None published.** Ticket create/status stay in-process until a bus catalog
-subject is accepted (events PR first). No orphan subjects.
+One subject, on the `support` stream: `intafaced.support.ticket.resolved`. The first time a ticket becomes
+`resolved`, a trigger writes a row in `support.rating_requests` in the same transaction as the status
+change (a reopen and a second resolve write nothing more, so the customer is asked once). The row is
+published with the key `support.rating_request:<ticketId>` and marked; a sweep at boot and every minute
+publishes the rest. A failed publish keeps the row and never fails the status change. With the bus
+unreachable the desk still serves, the rows stay pending and each sweep tries to connect again. Tickets resolved before migration
+0021 are not asked. Ticket create and other status moves stay in-process. No orphan subjects.
 
 ## Ledger
 

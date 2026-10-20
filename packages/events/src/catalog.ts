@@ -1118,18 +1118,6 @@ export const WIRING_SOCKETS = [
       'Publisher waits on a buyback ledger recipe. svc-token refuse-closes recordBuyback with token.buyback_tokens_unmoved rather than emit buybackExecuted for a buy that did not happen — no existing ledger-client recipe books tokensBought (burn spends fee-funded engine; mintEmission prints supply). Nothing observes a buy that did not happen; the recipe PR owns the publisher.',
   },
 
-  {
-    event: 'supportTicketResolved',
-    missing: 'publisher',
-    /**
-     * CLASS A. The in-app rating prompt does not depend on this subject: it reads the request's own status.
-     * Only the emailed rating request does, and that already refuses until a mail sender is configured.
-     */
-    class: 'A',
-    reason:
-      'Declared first, as the events-then-service rule asks. svc-support publishes it when a request is resolved, in the next PR of SP-csat-01. The in-app rating prompt reads the request status and does not wait on it.',
-  },
-
   // ── no subscriber ──────────────────────────────────────────────────────────
   //
   // `xpEarned` was here, and was Class B: PUBLISHED INTO THE VOID by svc-p2p and
