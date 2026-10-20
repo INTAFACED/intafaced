@@ -11,7 +11,7 @@ import { verifyServiceHeaders } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
 import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-client/testing/saga';
 import { createLedgerClient } from './ledger-client.js';
-import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture.js';
+import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
 
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
 const PAYMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';

@@ -12,7 +12,7 @@ import { PayError } from './payment-service.js';
 import { railFailure } from './rails/rail-adapter.js';
 import { createLedgerClient } from './ledger-client.js';
 import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
-import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture.js';
+import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
 
 const PAYMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';

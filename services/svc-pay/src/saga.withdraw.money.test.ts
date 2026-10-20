@@ -12,7 +12,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { PayError } from './payment-service.js';
 import { railFailure } from './rails/rail-adapter.js';
 import { UserMoneyService } from './user-money-service.js';
-import { overHarness, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture.js';
+import { overHarness, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const CLIENT_REF = 'saga-withdraw-1';
