@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { authEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { authEnvSchema, internalServiceEnvSchema, isProductionPosture, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import {
   DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
   DEFAULT_RECONCILE_MAX_STALE_HOURS,
@@ -119,3 +119,13 @@ const schema = serviceEnvSchema
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
+
+/**
+ * The mode the ledger runs with. Staging and production posture (`isProductionPosture`: APP_ENV other than
+ * dev/test, or NODE_ENV=production) always `refuse`, whatever LEDGER_IDEMPOTENCY_CONFLICT_MODE says: `detect`
+ * is a rollout mode for dev and test and must not answer a reused key's different body with the original
+ * on a real server. Dev and test keep the configured value (default `detect`).
+ */
+export const idempotencyConflictMode: 'detect' | 'refuse' = isProductionPosture(process.env)
+  ? 'refuse'
+  : env.LEDGER_IDEMPOTENCY_CONFLICT_MODE;

@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
 import { s2sFromEnv } from '@intafaced/contracts';
-import { env } from './env.js';
+import { env, idempotencyConflictMode } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -51,7 +51,7 @@ const bus = await JetStreamEventBus.connect({
 
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
-  idempotencyConflict: env.LEDGER_IDEMPOTENCY_CONFLICT_MODE,
+  idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
 });
 
