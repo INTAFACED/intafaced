@@ -26,6 +26,7 @@ import {
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
   KycRecordsListLimitUnsetError,
+  SUB_ACCOUNT_KINDS,
   SubAccountsListLimitUnsetError,
   WebauthnListLimitUnsetError,
   type AuthService,
@@ -323,6 +324,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.password_unchanged':
     case 'auth.password_policy':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.sub_account_nickname_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.sub_account_nickname_taken':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
+    case 'auth.sub_account_kind_unavailable':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
     case 'auth.sub_account_limit':
@@ -1972,9 +1979,25 @@ export function createIdentityRouter(
 
     subAccounts: router({
       create: scopedProcedure('identity:write')
-        .input(z.object({ label: z.string().min(1).max(64), purpose: z.string().max(200).optional() }))
+        .input(
+          z.object({
+            label: z.string().min(1).max(64),
+            purpose: z.string().max(200).optional(),
+            kind: z.enum(SUB_ACCOUNT_KINDS).optional(),
+            nickname: z.string().max(64).optional(),
+          }),
+        )
         .output(z.object({ id: z.string().uuid() }))
-        .mutation(({ ctx, input }) => auth.createSubAccount(ctx.principal.userId, input.label, input.purpose)),
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await auth.createSubAccount(ctx.principal.userId, input.label, input.purpose, {
+              kind: input.kind,
+              nickname: input.nickname,
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
 
       /** Limit required — omit never dumps partitions. */
       list: scopedProcedure('identity:read')
@@ -1986,6 +2009,9 @@ export function createIdentityRouter(
               label: z.string(),
               purpose: z.string().nullable(),
               revoked: z.boolean(),
+              frozen: z.boolean(),
+              kind: z.enum(SUB_ACCOUNT_KINDS),
+              nickname: z.string().nullable(),
               createdAt: z.string(),
             }),
           ),
@@ -1998,6 +2024,9 @@ export function createIdentityRouter(
               label: r.label,
               purpose: r.purpose,
               revoked: r.revoked,
+              frozen: r.frozen,
+              kind: r.kind,
+              nickname: r.nickname,
               createdAt: r.createdAt.toISOString(),
             }));
           } catch (err) {

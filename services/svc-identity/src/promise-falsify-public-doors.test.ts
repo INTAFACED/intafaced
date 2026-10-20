@@ -71,6 +71,9 @@ type Book = {
   label: string;
   purpose: string | null;
   revoked: boolean;
+  frozen: boolean;
+  kind: 'standard';
+  nickname: string | null;
   createdAt: Date;
 };
 
@@ -89,6 +92,9 @@ class MemorySubAccountAuth {
       label,
       purpose: purpose ?? null,
       revoked: false,
+      frozen: false,
+      kind: 'standard',
+      nickname: null,
       createdAt: new Date('2026-08-15T00:00:00.000Z'),
     });
     return { id };

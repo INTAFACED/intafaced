@@ -267,6 +267,7 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
   env.REFRESH_RECOVERY_SECONDS,
+  env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
