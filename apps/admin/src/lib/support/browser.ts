@@ -6,6 +6,7 @@ import type {
   SupportKbView,
   SupportLifecycleView,
   SupportPropertiesView,
+  SupportRatingSummaryView,
   SupportQueueView,
   SupportGroupsView,
   SupportStaffView,
@@ -157,6 +158,24 @@ export async function fetchTicketLifecycle(id: string, signal?: AbortSignal): Pr
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.lifecycle) ? (body as unknown as SupportLifecycleView) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchRatingSummary(
+  window: { from: string; to: string },
+  signal?: AbortSignal,
+): Promise<SupportRatingSummaryView | null> {
+  try {
+    const res = await fetch(`/api/support?view=ratings&from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.summary) ? (body as unknown as SupportRatingSummaryView) : null;
   } catch {
     return null;
   }

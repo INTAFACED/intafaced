@@ -506,6 +506,53 @@ describe('ticket properties', () => {
     expect(json.properties.kind).toBe('failed');
   });
 
+  it('reads ratingSummary for the stated window as the founder', async () => {
+    const summary = {
+      from: '2026-09-20T00:00:00.000Z',
+      to: '2026-10-20T00:00:00.000Z',
+      solved: 0,
+      responses: 0,
+      perScore: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 },
+      ratedShareBasisPoints: null,
+    };
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(summary));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get('?view=ratings&from=2026-09-20T00:00:00.000Z&to=2026-10-20T00:00:00.000Z')).json();
+    expect(json.summary).toMatchObject({ kind: 'ok', data: { responses: 0, ratedShareBasisPoints: null } });
+    expect(fn.mock.calls[0]![0]).toBe(
+      `http://edge:4000/api/support/trpc/ratingSummary?input=${encodeURIComponent(
+        JSON.stringify({ from: '2026-09-20T00:00:00.000Z', to: '2026-10-20T00:00:00.000Z' }),
+      )}`,
+    );
+  });
+
+  it('rejects a missing, unreadable or backwards window before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get('?view=ratings')).status).toBe(400);
+    expect((await get('?view=ratings&from=nope&to=2026-10-20T00:00:00.000Z')).status).toBe(400);
+    expect((await get('?view=ratings&from=2026-10-20T00:00:00.000Z&to=2026-09-20T00:00:00.000Z')).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a summary that does not add up is a failure, not a figure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        ok({
+          from: '2026-09-20T00:00:00.000Z',
+          to: '2026-10-20T00:00:00.000Z',
+          solved: 1,
+          responses: 5,
+          perScore: { '1': 0, '2': 0, '3': 0, '4': 0, '5': 5 },
+          ratedShareBasisPoints: 10000,
+        }),
+      ),
+    );
+    const json = await (await get('?view=ratings&from=2026-09-20T00:00:00.000Z&to=2026-10-20T00:00:00.000Z')).json();
+    expect(json.summary.kind).toBe('failed');
+  });
+
   it('sets only the fields given, with the request id and reason, through support.setProperties', async () => {
     const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(props({ priority: null })));
     vi.stubGlobal('fetch', fn);
