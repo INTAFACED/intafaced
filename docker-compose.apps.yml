@@ -900,6 +900,8 @@ services:
       # env.ts (`true` / `2000`). No RPC, mnemonic, hot wallet, or card rail.
       PAY_CRYPTO_WATCHER_ENABLED: ${PAY_CRYPTO_WATCHER_ENABLED:-true}
       PAY_CRYPTO_WATCHER_INTERVAL_MS: ${PAY_CRYPTO_WATCHER_INTERVAL_MS:-2000}
+      # Owner-published; blank = never dead-letter (retried every tick, other addresses unaffected). Never a default.
+      PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS: ${PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS:-}
       # Confirmation depth. No git default — blank refuses (never 6).
       # Owner may set 6 explicitly (see .env.example). Same `:?` shape as
       # webhook secrets so compose-up fails instead of settling a depth.
