@@ -6,6 +6,8 @@ import { MerchantPortal, PortalFrame } from './portal/MerchantPortal';
 import { NoBusiness } from './portal/access/NoBusiness';
 import { isLegacyTool, parsePortalRoute, portalRedirect } from './portal/routes';
 import { Checkout } from './Checkout';
+import { PersonalRooms } from './PersonalRooms';
+import { matchPersonalRoute } from './personal-room-routes';
 import type { PayBusinessAuthority } from './pay-api';
 import { payCopy } from './copy';
 import { PortalNotFound, Redirect } from './portal/chrome/PortalNotFound';
@@ -52,6 +54,8 @@ function PayRooms({ path }: { path: string }) {
     current.startsWith('/uc/ad')
   )
     return <P2P key={path} path={path} />;
+  // The personal addresses beyond the five tabs come before the portal, which would take them for business pages.
+  if (matchPersonalRoute(current)) return <PersonalRooms key={path} path={path} />;
   const redirect = portalRedirect(path);
   if (redirect) return <Redirect to={redirect} />;
   if (parsePortalRoute(path)) return <PortalEntry key={path} path={path} authority={authority} />;
