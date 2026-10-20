@@ -184,6 +184,8 @@ export function onChange(listener: () => void): () => void {
 export const ALERT_KINDS = ['price', 'funding', 'liquidation_proximity', 'whale'] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export type AlertDirection = 'above' | 'below';
+export const ALERT_CONDITIONS = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'] as const;
+export type AlertCondition = (typeof ALERT_CONDITIONS)[number];
 
 export const priceAlertSchema = z.object({
   id: z.string().uuid(),
@@ -192,9 +194,14 @@ export const priceAlertSchema = z.object({
   kind: z.enum(ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string().min(1).max(64),
-  status: z.enum(['active', 'fired', 'cancelled']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired']),
   firedAt: date.nullable(),
   createdAt: date,
+  // Added by C-alerts-scan-01. A service that does not send them still parses: the page shows only what it was given.
+  condition: z.enum(ALERT_CONDITIONS).optional(),
+  name: z.string().max(200).nullable().optional(),
+  message: z.string().max(2000).nullable().optional(),
+  expiresAt: date.nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 
