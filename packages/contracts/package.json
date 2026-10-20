@@ -22,6 +22,10 @@
       "types": "./dist/protocol-blockers.d.ts",
       "default": "./dist/protocol-blockers.js"
     },
+    "./protocol-networks": {
+      "types": "./dist/protocol-networks.d.ts",
+      "default": "./dist/protocol-networks.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
