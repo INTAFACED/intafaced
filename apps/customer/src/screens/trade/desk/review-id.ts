@@ -2,7 +2,7 @@
  * The order number of a reviewed draft.
  *
  * A draft gets its number once, when it is first reviewed, and keeps it while it is the same order: reviewing the
- * same form again (after a closed ticket, a refresh of the preview, an uncertain send) gives back the same number, so
+ * same form again (after a closed ticket, a refreshed preview, an uncertain send; the saved marker covers a page reload) gives back the same number, so
  * the trade service, which keeps one order per (user, market, number), can never place it twice. Any change to the
  * order is a different draft with a new number. Once an outcome is known the number is dropped, so a later order that
  * happens to look the same is a new order and not a replay of the old one.

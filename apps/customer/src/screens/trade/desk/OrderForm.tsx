@@ -71,7 +71,7 @@ import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refu
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
-import { forgetReviewId, reviewIdFor } from './review-id';
+import { reviewIdFor } from './review-id';
 import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
@@ -416,7 +416,6 @@ function SideForm({
     if (result.ok) {
       clearOrdersPaused();
       release(userId, sending.clientOrderId);
-      forgetReviewId(sending.clientOrderId);
       if (mounted.current) {
         const done = result.data;
         const sideWord = side === 'buy' ? t('Order placed side buy') : t('Order placed side sell');
@@ -451,7 +450,6 @@ function SideForm({
     } else if (result.reason === 'changed') {
       // Nothing was sent: the fresh preview differs from the reviewed one. Show the new numbers and ask again.
       release(userId, sending.clientOrderId);
-      forgetReviewId(sending.clientOrderId);
       if (mounted.current) {
         if (previewIsOrderable(result.preview)) setReview({ draft: sending, preview: result.preview, changed: true });
         else {
@@ -467,7 +465,6 @@ function SideForm({
     } else if (result.code === 'trade.bracket_exit_failed') {
       // The buy went through; only the exits were refused. Offer the same request again so the buy is never repeated.
       release(userId, sending.clientOrderId);
-      forgetReviewId(sending.clientOrderId);
       if (mounted.current) {
         setReview(null);
         setExitRetry(sending);
@@ -475,7 +472,6 @@ function SideForm({
       onPlaced();
     } else {
       release(userId, sending.clientOrderId);
-      forgetReviewId(sending.clientOrderId);
       if (isLedgerFrozen(result)) markOrdersPaused();
       if (mounted.current) {
         setReview(null);
