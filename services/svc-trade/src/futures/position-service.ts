@@ -43,6 +43,7 @@ import {
   userAvailable,
   type Amount,
   type LedgerClient,
+  type PostRequest,
 } from '@intafaced/ledger-client';
 import type { Position } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
@@ -61,7 +62,8 @@ import {
   type FuturesQuotedMark,
   type MarkPolicy,
 } from './mark-policy.js';
-import { PROFIT_SOURCE_UNCONFIGURED, checkProfitBound, type ProfitSource } from './profit-source.js';
+import { PROFIT_SOURCE_UNCONFIGURED, type ProfitSource } from './profit-source.js';
+import { payOrOweProfit, profitLegOf } from './futures-payouts.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { breakerBasis, readAcceptedMark, type PreviousMark } from './accepted-mark.js';
 import { TradeError } from '../spot/types.js';
@@ -2008,8 +2010,7 @@ export class PositionService {
            * forbids. The trader is not trapped: a losing or flat close is
            * untouched by this branch and still returns their margin.
            */
-          const source = this.deps.profitSource;
-          if (source == null) {
+          if (this.deps.profitSource == null) {
             throw new FuturesError(
               `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${PROFIT_SOURCE_UNCONFIGURED}`,
               'trade.profit_source_unconfigured',
@@ -2017,29 +2018,9 @@ export class PositionService {
             );
           }
 
-          /**
-           * THE PAYOUT BOUND. `bank.pool_underfunded`'s shape: an under-funded
-           * profit source is an operator problem at the moment of the trade, not an
-           * accounting surprise later. Checked before the first post, so a refusal
-           * cannot leave the margin released and the position half closed.
-           *
-           * Read inside the row lock now, which is also what makes it mean what
-           * it says: concurrent closes of one position used to read this balance
-           * before any of them had spent it.
-           */
-          const bound = await checkProfitBound({
-            source,
-            assetId: row.margin_asset,
-            amount: plan.profit,
-            balance: (ref) => this.ledger.balance(ref),
-          });
-          if (!bound.ok) {
-            throw new FuturesError(
-              `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${bound.reason}`,
-              'trade.profit_source_underfunded',
-              409,
-            );
-          }
+          // No payout bound refusal here: `postClosePlan` pays the profit from the
+          // clearing pot if it holds it, or records it as owed
+          // (docs/adr/2026-10-20-futures-matched-traders.md section 4).
         }
 
         /**
@@ -2059,9 +2040,7 @@ export class PositionService {
           }
         }
 
-        for (const recipe of plan.recipes) {
-          await this.ledger.post(recipe);
-        }
+        await this.postClosePlan(tx, { userId, positionId: row.id, assetId: row.margin_asset, posts: plan.recipes });
 
         /**
          * `accepted_mark` moves here and nowhere else on this path — INSIDE the
@@ -2114,6 +2093,32 @@ export class PositionService {
         throw new FuturesError('another close of this position is already in flight — retry in a moment', 'trade.close_in_progress', 409);
       }
       throw err;
+    }
+  }
+
+  /**
+   * Post a close plan: the profit leg first through `payOrOweProfit` (paid from
+   * the clearing pot, or owed until it holds it), then every other leg in plan
+   * order. Runs under the position row lock, inside the close transaction.
+   */
+  private async postClosePlan(
+    tx: TransactionSql,
+    input: { userId: string; positionId: string; assetId: string; posts: readonly PostRequest[] },
+  ): Promise<void> {
+    const profitLeg = profitLegOf(input.posts);
+    if (profitLeg) {
+      await payOrOweProfit({
+        tx,
+        ledger: this.ledger,
+        profitId: profitLeg.idempotencyKey.slice('futures.profit:'.length),
+        positionId: input.positionId,
+        userId: input.userId,
+        assetId: input.assetId,
+        amount: profitLeg.entries[0]!.amount,
+      });
+    }
+    for (const recipe of input.posts) {
+      if (recipe !== profitLeg) await this.ledger.post(recipe);
     }
   }
 
@@ -2356,27 +2361,16 @@ export class PositionService {
           if (!settlingFromClosing) {
             this.requirePayoutGrade(markOrDark.mark, previous, at);
           }
-          const source = this.deps.profitSource;
-          if (source == null) {
+          if (this.deps.profitSource == null) {
             throw new FuturesError(
               `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${PROFIT_SOURCE_UNCONFIGURED}`,
               'trade.profit_source_unconfigured',
               403,
             );
           }
-          const bound = await checkProfitBound({
-            source,
-            assetId: row.margin_asset,
-            amount: plan.profit,
-            balance: (ref) => this.ledger.balance(ref),
-          });
-          if (!bound.ok) {
-            throw new FuturesError(
-              `Cannot realise ${formatAmount(plan.profit)} ${row.margin_asset} of profit — ${bound.reason}`,
-              'trade.profit_source_underfunded',
-              409,
-            );
-          }
+          // No payout bound refusal here: `postClosePlan` pays the profit from the
+          // clearing pot if it holds it, or records it as owed
+          // (docs/adr/2026-10-20-futures-matched-traders.md section 4).
         }
         if (plan.fromInsurance > 0n) {
           const insurance = await checkInsuranceBound({
@@ -2388,7 +2382,7 @@ export class PositionService {
             throw new FuturesError(`Cannot close through insurance shortfall — ${insurance.reason}`, INSURANCE_UNDERFUNDED, 409);
           }
         }
-        for (const recipe of plan.recipes) await this.ledger.post(recipe);
+        await this.postClosePlan(tx, { userId, positionId: row.id, assetId: row.margin_asset, posts: plan.recipes });
 
         const closedFull = plan.full;
         const [updated] = closedFull

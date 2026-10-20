@@ -12,6 +12,8 @@ import type { ReconcileResult } from '../spot/types.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../spot/hold-outcome.js';
 import { parseConfiguredMaxLeverage, LEVERAGE_CAP_UNSET } from '../futures/initial-margin.js';
 import { recipeInsuranceAccount } from '../futures/insurance-bound.js';
+import { recipeProfitFundingAccount } from '../futures/profit-source.js';
+import { pendingPayoutTotals } from '../futures/futures-payouts.js';
 import {
   consumeApproval,
   csvLine,
@@ -410,6 +412,7 @@ export class TradeOpsAdmin {
     leverageCap: { value: string | null; reason: string | null };
     adlEvents: { value: Array<{ eventId: string; at: string; sizeToReduce: string }> | null; reason: string | null };
     insuranceFund: { value: string | null; reason: string | null; asset: string };
+    clearingPot: { value: string | null; reason: string | null; asset: string; owed: string; owedCount: number };
   }> {
     requireOperator(principal);
     const [row] = await this.deps.sql<Array<{ status: string; quote_asset: string }>>`
@@ -440,6 +443,18 @@ export class TradeOpsAdmin {
       if (!balance.accountId) insurance = { value: null, reason: 'insurance_fund_unconfigured' };
       else insurance = { value: formatAmount(balance.amount), reason: null };
     }
+    // The clearing pot and what it owes winners, side by side
+    // (docs/adr/2026-10-20-futures-matched-traders.md section 4 item 5).
+    let pot: { value: string | null; reason: string | null };
+    if (!this.deps.ledger) {
+      pot = { value: null, reason: 'clearing_pot_unconfigured' };
+    } else {
+      const balance = await this.deps.ledger.balance(recipeProfitFundingAccount(row.quote_asset));
+      pot = balance.accountId
+        ? { value: formatAmount(balance.amount), reason: null }
+        : { value: null, reason: 'clearing_pot_unconfigured' };
+    }
+    const owed = (await pendingPayoutTotals(this.deps.sql)).find((t) => t.assetId === row.quote_asset);
     await writeOperatorAudit(this.deps.sql, {
       kind: 'futures.snapshot',
       operatorId: principal.userId,
@@ -454,6 +469,7 @@ export class TradeOpsAdmin {
       leverageCap: cap == null ? { value: null, reason: LEVERAGE_CAP_UNSET } : { value: formatAmount(cap), reason: null },
       adlEvents: adl,
       insuranceFund: { ...insurance, asset: row.quote_asset },
+      clearingPot: { ...pot, asset: row.quote_asset, owed: owed?.owed ?? '0', owedCount: owed?.count ?? 0 },
     };
   }
 

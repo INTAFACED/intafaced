@@ -454,7 +454,7 @@ With it on, futures orders match on the **same** svc-matching book as spot, unde
 - **No funding.** Turning funding on for a market at all is reserved to the owner
   (`docs/adr/2026-08-05-futures-risk-and-mark-law.md`), and it still needs `TRADE_FUTURES_JOBS_ENABLED` plus an
   explicit `TRADE_FUTURES_FUNDING_MARKET_IDS`.
-- **No payout source invent.** `TRADE_FUTURES_PROFIT_SOURCE` is owner-named in `.env.example` as `house:fees:trade:available` (PKT-B5). Compose still has no default.
+- **No payout source invent.** `TRADE_FUTURES_PROFIT_SOURCE` names the futures clearing pot, `house:futures-loss:available` in `.env.example` (`docs/adr/2026-10-20-futures-matched-traders.md`). Compose still has no default. A winner the pot cannot cover yet closes anyway and is owed: `trade.futures_payouts` holds the intent and the `futures.payouts` job pays it once the pot holds it; the trader reads it at `GET /api/v1/futures/payouts`.
 
 **Convert and TWAP stay spot-only on both settings** (`assertSpotSurface`). They were spot-only for free while
 `assertTradable` refused every non-spot market; now that it does not, they refuse by name, because neither has been
