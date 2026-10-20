@@ -89,19 +89,17 @@ describe('report description and the has-note filter', () => {
   it('does not run a formula typed into a description', () => {
     const csv = statementCsv([
       {
-        ...({
-          id: 'x',
-          kind: 'other',
-          direction: 'out',
-          asset: 'USDT',
-          amount: '1',
-          postedAt: '2026-10-01T00:00:00.000Z',
-          txId: 'tx',
-          counterparty: null,
-          spaceName: null,
-        } as never),
+        id: 'x',
+        kind: 'other',
+        direction: 'out',
+        asset: 'USDT',
+        amount: '1',
+        postedAt: '2026-10-01T00:00:00.000Z',
+        txId: 'tx',
+        counterparty: null,
+        spaceName: null,
         reportDescription: '=1+1',
-      },
+      } as never,
     ]);
     expect(csv).toContain(",'=1+1");
   });
