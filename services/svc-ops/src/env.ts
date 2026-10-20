@@ -30,6 +30,8 @@ const schema = baseEnvSchema
       IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
       /** Env URL only. This process does not fetch; /ready names hardcoded-absent. */
       SUPPORT_URL: blankAsAbsent(z.string().url().optional()),
+      /** svc-ledger base URL for the fee revenue read. Blank → the venue report says ops.fee_revenue_unconfigured and gives no net. */
+      LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_URL: blankAsAbsent(z.string().url().optional()),
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),

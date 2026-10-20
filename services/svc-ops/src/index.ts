@@ -7,6 +7,7 @@ import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
+import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
 import { createPgAlertRuleStore } from './alerts/rule-store.js';
@@ -111,6 +112,11 @@ const appRouter = createOpsRouter(
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
     restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
     venueCosts: crmSql ? createPgVenueCostStore(crmSql) : undefined,
+    feeRevenue: createFeeRevenueClient({
+      ledgerUrl: env.LEDGER_URL,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
+    }),
     alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
     alertState: alertState ?? undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,

@@ -34,7 +34,9 @@ import {
   OPS_WAREHOUSE_UNWIRED,
   OpsError,
   OPS_COST_STORAGE_UNCONFIGURED,
+  OPS_FEE_REVENUE_UNCONFIGURED,
 } from './codes.js';
+import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
@@ -59,7 +61,7 @@ import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
 import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
-import { composeVenueEconomics, parseCostEntry, parseCostPeriod, readRevenue } from './venue-economics.js';
+import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, readRevenue } from './venue-economics.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -148,6 +150,17 @@ const custodyApprovalSchema = z.object({
   status: z.literal('pending'),
 });
 
+async function readFeeRevenue(port: FeeRevenuePort | undefined, period: string): Promise<FeeRevenueRead> {
+  if (!port) {
+    return {
+      ok: false,
+      code: OPS_FEE_REVENUE_UNCONFIGURED,
+      message: 'The ledger is not wired to this service. No fee revenue was invented.',
+    };
+  }
+  return port.read(periodWindow(period));
+}
+
 function requireVenueCosts(store: VenueCostStore | undefined): VenueCostStore {
   if (!store) {
     throw new OpsError(
@@ -180,6 +193,8 @@ export interface OperatorDeskConfig {
   readonly restoreStamps?: RestoreStampStore;
   /** Durable venue cost entries. Absent means the venue economics calls refuse `ops.cost_storage_unconfigured`. */
   readonly venueCosts?: VenueCostStore;
+  /** The ledger's fee revenue read. Absent means the report says `ops.fee_revenue_unconfigured` and gives no net. */
+  readonly feeRevenue?: FeeRevenuePort;
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
@@ -631,8 +646,12 @@ export function createOpsRouter(
         try {
           const store = requireVenueCosts(desks.venueCosts);
           const period = parseCostPeriod(input.period);
-          const [revenue, entries] = await Promise.all([readRevenue(() => ops.revenue()), store.list(period)]);
-          return composeVenueEconomics(now(), period, revenue, entries);
+          const [revenue, entries, fees] = await Promise.all([
+            readRevenue(() => ops.revenue()),
+            store.list(period),
+            readFeeRevenue(desks.feeRevenue, period),
+          ]);
+          return composeVenueEconomics(now(), period, revenue, entries, fees);
         } catch (err) {
           mapError(err);
         }
