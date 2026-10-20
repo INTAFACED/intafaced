@@ -5275,7 +5275,7 @@ export class TradeService {
     // The exit of a bracket whose entry already filled is never capped: refusing it leaves a position with no
     // stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
     // stored bracket intent that has no exit yet.
-    const exitOf = /^bracket:([0-9a-f-]{36}):exit$/.exec(clientOrderId)?.[1];
+    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
     if (exitOf) {
       const pending = await this.sql`
         SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
