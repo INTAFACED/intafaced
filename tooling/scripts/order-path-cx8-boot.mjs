@@ -411,7 +411,7 @@ async function main() {
     // is named. The spot smoke never touches futures. It is kept so the rig's
     // futures path stays enabled as it was; recipes.futuresRealizeProfit draws
     // from this one account, so profitSourceFromConfig refuses any other value.
-    TRADE_FUTURES_PROFIT_SOURCE: 'house:fees:trade:available', // pre-existing smoke value (#883)
+    TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available', // clearing pot (docs/adr/2026-10-20-futures-matched-traders.md)
   });
 
   await waitHealth('http://127.0.0.1:4004', 'trade');

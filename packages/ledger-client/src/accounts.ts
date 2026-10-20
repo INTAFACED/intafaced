@@ -178,6 +178,20 @@ export function subAccountPositionCollateral(subAccountId: string, assetId: stri
   return subAccountCollateral(subAccountId, assetId, `position:${positionId}`);
 }
 
+/**
+ * Initial margin held for ONE resting futures order (docs/adr/2026-10-20-futures-matched-traders.md §8).
+ * Its own pot per order, so cancelling order A can never hand back margin that
+ * is holding order B. Drawn into the position pot on a fill, returned on cancel.
+ */
+export function futuresOrderMarginAccount(userId: string, assetId: string, orderId: string): AccountRef {
+  return userHold(userId, assetId, `futures-order:${orderId}`);
+}
+
+/** The same order-margin pot for an order placed from a named sub-account. */
+export function subAccountFuturesOrderMargin(subAccountId: string, assetId: string, orderId: string): AccountRef {
+  return subAccountHold(subAccountId, assetId, `futures-order:${orderId}`);
+}
+
 /** Where a module's fee revenue lands. Staking yield is distributed from here (§4.3). */
 export function houseFees(module: string, assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: `fees:${module}`, assetId, kind: 'available' };
@@ -189,8 +203,10 @@ export function insuranceFund(assetId: string): AccountRef {
 }
 
 /**
- * Realized futures loss sink. Not `houseFees('trade')` — a fee total is only fees.
- * A loss debits this pot. It is hard non-negative, same as every other house pot.
+ * The futures clearing pot. Every realised loss pays in and every realised
+ * profit is paid out (docs/adr/2026-10-20-futures-matched-traders.md). Not
+ * `houseFees('trade')` — a fee total is only fees. It is hard non-negative,
+ * same as every other house pot. The account id keeps its old name.
  */
 export function futuresLossSink(assetId: string): AccountRef {
   return { ownerType: 'house', ownerId: 'futures-loss', assetId, kind: 'available' };

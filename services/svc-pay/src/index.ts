@@ -22,6 +22,9 @@ import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conver
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
+import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
+import { createWithdrawalLimitReader } from './limits/reader.js';
+import { createSqlLimitSource } from './limits/source.js';
 import { buildPayGuards } from './seams/registry.js';
 import { resolveMerchantControlsMode } from './control/mode.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv, isExplicitDevOrTestEnv } from '@intafaced/config';
@@ -68,6 +71,7 @@ import { createMerchantStateRouter } from './merchant-state-router.js';
 import { KybService } from './kyb-service.js';
 import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
+import { KybEntityTypeService } from './kyb-entity-types.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -249,13 +253,16 @@ const subMerchants = new SubMerchantService(sql, (tx, current) => drainPayfacPer
 resolveMerchantControlsMode(process.env.PAY_MERCHANT_CONTROLS, process.env.APP_ENV);
 // The withdrawal limit (D-148) reads the customer's KYC tier from identity. Without IDENTITY_URL the
 // tier source is unwired and PAY_WITHDRAWAL_LIMITS=required refuses every withdrawal (typed), never guesses.
-const payGuards = buildPayGuards({
-  sql,
-  ledger,
-  kycTierOf: env.IDENTITY_URL
-    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
-    : undefined,
-});
+// The figures live in `pay.withdrawal_limits` (founderAdmin.limits.change, second founder to set or raise). The retired
+// environment source must not linger as a second, silently ignored copy, so a leftover value stops the boot.
+if (process.env[PAY_WITHDRAWAL_LIMITS_ENV]?.trim()) {
+  throw new Error(`${PAY_WITHDRAWAL_LIMITS_ENV} is retired: withdrawal limits are set through founderAdmin.limits.change. Unset it.`);
+}
+const kycTierSource = env.IDENTITY_URL
+  ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+  : undefined;
+const limitSource = createSqlLimitSource();
+const payGuards = buildPayGuards({ sql, ledger, kycTierOf: kycTierSource, limitSource });
 const conversion = new ConversionService({
   sql,
   ledger,
@@ -398,6 +405,12 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
   valueMovement: railPosture.policy,
   wallet: walletPay,
   chainReader: walletChainReader,
+  withdrawalLimits: createWithdrawalLimitReader({
+    sql,
+    source: limitSource,
+    mode: loadWithdrawalLimitMode(process.env),
+    tierOf: kycTierSource,
+  }),
 });
 
 /**
@@ -469,7 +482,7 @@ export const appRouter = mergeRouters(
       await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
     }),
   ),
-  createKybPspRouter(kyb, pspMode, actionApprovals, pay),
+  createKybPspRouter(kyb, pspMode, actionApprovals, pay, new KybEntityTypeService(sql)),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any
@@ -486,6 +499,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    limits: { sql, approvals: actionApprovals },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),

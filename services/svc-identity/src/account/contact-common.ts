@@ -290,6 +290,10 @@ export async function killPasswordResetProofs(tx: Sql, userId: string, now: Date
     UPDATE password_reset_proofs SET consumed_at = ${now}
     WHERE user_id = ${userId} AND consumed_at IS NULL
   `;
+  await tx`
+    UPDATE auth_flows SET status = 'consumed', consumed_at = ${now}
+    WHERE user_id = ${userId} AND kind = 'password_reset' AND consumed_at IS NULL
+  `;
 }
 
 export async function writeAudit(

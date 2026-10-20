@@ -1,11 +1,15 @@
 import './more.css';
 import type { ScreenProps } from '../../app/screen-types';
 import { moreCopy } from './copy';
-import { visibleSections } from './tiles';
+import { doorLabel, roomTitle } from '../../app/navigation';
+import { usePreferences } from '../../shared/preferences';
+import { allServices, visibleSections, type ServiceGroupId } from './tiles';
 
 /** More (UI-SPEC 5.11): the pages that don't have a tab of their own, as tiles. Only live ones are drawn. */
 export default function MoreScreen(_props: ScreenProps) {
   const { t } = moreCopy.useCopy();
+  const { language } = usePreferences();
+  const groupLabel = (id: ServiceGroupId) => (id === 'Account' || id === 'Web3' || id === 'Information' ? t(id) : doorLabel(id, language));
   return (
     <div className="if-more">
       <h1 className="more-title">{t('More')}</h1>
@@ -31,6 +35,30 @@ export default function MoreScreen(_props: ScreenProps) {
           </ul>
         </section>
       ))}
+      <section className="more-section" aria-labelledby="more-all-services">
+        <h2 className="more-h2" id="more-all-services">
+          {t('All services')}
+        </h2>
+        <p className="more-note">{t('Every page in the app, by area')}</p>
+        <div className="more-index">
+          {allServices().map(({ id, rooms }) => (
+            <section key={id} aria-labelledby={`more-index-${id}`}>
+              <h3 className="more-h3" id={`more-index-${id}`}>
+                {groupLabel(id)}
+              </h3>
+              <ul>
+                {rooms.map((room) => (
+                  <li key={room.path}>
+                    <a href={room.path} data-service={room.path}>
+                      {roomTitle(room, language)}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

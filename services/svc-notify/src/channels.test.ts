@@ -898,7 +898,7 @@ describe('the liquidation consumer', () => {
     expect(row.severity).toBe('critical');
     expect(row.sourceSubject).toBe('intafaced.trade.position.updated');
     expect(row.sourceIdempotencyKey).toBe(`${POSITION}:liquidated`);
-    expect(row.href).toBe(`/trade/futures/positions/${POSITION}`);
+    expect(row.href).toBe('/trade/futures');
   });
 
   it('carries every amount across as the decimal string it arrived as', async () => {

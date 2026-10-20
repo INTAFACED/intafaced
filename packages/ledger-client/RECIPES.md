@@ -1,6 +1,6 @@
 # Ledger recipe matrix
 
-**67 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
+**70 pure recipes.** Every value path in the OS is a function here. Services call `ledger.post(recipes.<name>(…))` — never assemble entries by hand.
 
 Generated from `src/recipes/index.ts` registry. If this table and the registry disagree, the registry wins and this file is wrong.
 
@@ -23,6 +23,9 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 | `futuresMarginLock`             | `trade`    | `futures.margin.lock`                                            |
 | `futuresMarginAdd`              | `trade`    | `futures.margin.add`                                             |
 | `futuresMarginRelease`          | `trade`    | `futures.margin.release`                                         |
+| `futuresOrderMarginHold`        | `trade`    | `futures.order.margin.hold`                                      |
+| `futuresOrderMarginRelease`     | `trade`    | `futures.order.margin.release`                                   |
+| `futuresOrderMarginApply`       | `trade`    | `futures.order.margin.applied`                                   |
 | `futuresRealizeLoss`            | `trade`    | `futures.loss.realized`                                          |
 | `futuresRealizeProfit`          | `trade`    | `futures.profit.realized`                                        |
 | `futuresFundingPay`             | `trade`    | `futures.funding.paid`                                           |
@@ -95,3 +98,5 @@ Generated from `src/recipes/index.ts` registry. If this table and the registry d
 - Conformance + MemoryLedger prove sum-to-zero; Postgres proves CHECK constraints.
 - **orderHoldAmend** is qty-up extra size on the existing `orderHold` pot (sequenced key). Not a second hold. §13: `services/svc-trade/src/spot/qty-up-amend.ts` only reduces remaining quantity and does not post it.
 - **D26-P2-11 live-path closure:** every registry key is `live` (production caller) or an explicit §13 socket — machine inventory in `src/recipes/live-path-inventory.ts` (executed by `live-path-inventory.test.ts`). `chargebackOpen`, `chargebackShortfall`, `chargebackWon`, and `chargebackShortfallRecovered` are live in that inventory. `chargebackOpen` is posted from `services/svc-pay/src/chargeback-ledger.ts`. Do not invent recipes to close a path; socket it.
+- **Key spaces for `bankTransfer`:** name the operation with `keySpace` (`own`, `p2p`, `sched`, `rail`). The key is `bank.transfer.<space>:<id>:<occurrence>` (`bankTransferKey`), so two operations can never share a key even if a caller hands them one id. A call with no `keySpace` still posts the legacy `bank.transfer:` key (`legacyBankTransferKey`) and is the collision this closes; new callers always name a space. Read a key back with the builder, never a hand-written string.
+- **Lost replies:** one shared classifier, `classifyPostOutcome(err)` → `refused` | `unsent` | `unknown` (`src/post-outcome.ts`), and `provesPostNotCommitted(err)` for "may I release my claim?". The HTTP client stamps how many attempts a failed post took. Only a refusal or failed connect on a single attempt, and the first post ever made under that key, frees the claim. After a retry, or on a re-post under a key already posted once, keep the claim, wait `POST_IN_FLIGHT_BOUND_SECONDS` since the last attempt, and read the key back (`getTxByKey`). `ledger.idempotency_conflict` and every other failure are `unknown`.

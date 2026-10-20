@@ -9,7 +9,7 @@ import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
 import { isFeatureLive } from './feature-registry';
 import { ShellIcon } from './icons';
-import { accountMenu, tabSpecs, type TabSpec } from './menus';
+import { accountMenu, menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
 import { TopSearch } from './TopSearch';
 import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
@@ -48,8 +48,28 @@ function usePopup() {
   return { open, setOpen, ref };
 }
 
+function MenuRow({ item, close, language }: { item: MenuItem; close: () => void; language: Parameters<typeof doorLabel>[1] }) {
+  const { t } = shellCopy.useCopy();
+  const words = menuItemWords(item, t, language);
+  return (
+    <li>
+      <a className="tb-menu-item" href={item.href} onClick={close}>
+        <ShellIcon name={item.icon} />
+        <span>
+          <strong>{words.title}</strong>
+          <small>{words.description}</small>
+        </span>
+      </a>
+    </li>
+  );
+}
+
 function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
+  const { layoutMode } = usePreferences();
+  // Simple mode puts the advanced desks under a heading; Pro lists every row in one flat list. Every row is still a link either way.
+  const mainItems = tab.items.filter((item) => layoutMode === 'pro' || !item.group);
+  const advancedItems = layoutMode === 'pro' ? [] : tab.items.filter((item) => item.group === 'Advanced');
   const [open, setOpen] = useState(false);
   const wrapper = useRef<HTMLLIElement>(null);
   const link = useRef<HTMLAnchorElement>(null);
@@ -101,23 +121,27 @@ function NavTab({ tab, current, language }: { tab: TabSpec; current: Door | unde
       </a>
       {hasMenu && open && (
         // TODO(B1): swap to the Base UI NavigationMenu in @intafaced/ui (same rows, same copy).
-        <div className="tb-popover tb-menu" id={menuId}>
+        <div className="tb-popover tb-menu" id={menuId} role="group" aria-label={doorLabel(tab.door, language)}>
           {groupedPay ? (
             <GroupedMenu here={location.pathname} close={() => setOpen(false)} />
           ) : (
-            <ul>
-              {tab.items.map((item) => (
-                <li key={item.id}>
-                  <a className="tb-menu-item" href={item.href} onClick={() => setOpen(false)}>
-                    <ShellIcon name={item.icon} />
-                    <span>
-                      <strong>{t(item.title)}</strong>
-                      <small>{t(item.description)}</small>
-                    </span>
-                  </a>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul>
+                {mainItems.map((item) => (
+                  <MenuRow key={item.id} item={item} close={() => setOpen(false)} language={language} />
+                ))}
+              </ul>
+              {advancedItems.length > 0 && (
+                <>
+                  <p className="tb-menu-group">{t('Advanced')}</p>
+                  <ul aria-label={t('Advanced')}>
+                    {advancedItems.map((item) => (
+                      <MenuRow key={item.id} item={item} close={() => setOpen(false)} language={language} />
+                    ))}
+                  </ul>
+                </>
+              )}
+            </>
           )}
         </div>
       )}
@@ -251,11 +275,20 @@ export function TopBar({
   useBannerOffset();
   const notificationsLive = isFeatureLive('notifications');
   const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
+  const moreTab = tabs.find((tab) => tab.door === 'More')!;
   const signIn = `/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`;
   if (isMerchantArea(path)) return <MerchantTopBar path={path} account={<AccountButton onSignOut={onSignOut} />} />;
   return (
     <>
       <header className="tb">
+        <a
+          className="tb-more"
+          href={moreTab.href}
+          aria-label={doorLabel('More', language)}
+          aria-current={door === 'More' ? 'page' : undefined}
+        >
+          <ShellIcon name="grid" size={18} />
+        </a>
         <a className="tb-brand" href="/home" aria-label={t('Go to Home')}>
           <Wordmark />
         </a>
@@ -294,19 +327,24 @@ export function TopBar({
   );
 }
 
-/** Phone (< 768): the five tabs move to a bottom bar. */
+/** Phone (< 768): the doors move to a bottom bar, Home, Bank, Trade, Pay, Assets. */
 export function MobileTabs({ door, language }: { door: Door | undefined; language: Parameters<typeof doorLabel>[1] }) {
   const { t } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { session, restoring } = useSession();
+  const tabs = tabSpecs(layoutMode, Boolean(session) || restoring);
   return (
     <nav className="mobile-doors" aria-label={t('Customer doors on phone')}>
-      {tabSpecs(layoutMode, Boolean(session) || restoring).map((tab) => (
-        <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
-          <ShellIcon name={tab.icon} />
-          {doorLabel(tab.door, language)}
-        </a>
-      ))}
+      {MOBILE_DOOR_ORDER.map((name) => tabs.find((tab) => tab.door === name)).flatMap((tab) =>
+        tab
+          ? [
+              <a key={tab.door} href={tab.href} aria-current={door === tab.door ? 'page' : undefined}>
+                <ShellIcon name={tab.icon} />
+                {doorLabel(tab.door, language)}
+              </a>,
+            ]
+          : [],
+      )}
     </nav>
   );
 }

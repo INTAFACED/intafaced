@@ -32,6 +32,11 @@ function contract(
         await expect(store.find('restore-key-1', other)).rejects.toMatchObject({ code: OPS_IDEMPOTENCY_CONFLICT });
         await expect(store.append('restore-key-1', other, stamp('seq-2'))).rejects.toMatchObject({ code: OPS_IDEMPOTENCY_CONFLICT });
         expect(await store.list()).toEqual([first]);
+        const second = await store.append('restore-key-2', stampFingerprint({ watermark: 'seq-3' }), {
+          ...stamp('seq-3'),
+          recordedAt: '2026-10-20T06:00:01.000Z',
+        });
+        expect(await store.list()).toEqual([second, first]);
       } finally {
         await close();
       }

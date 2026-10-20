@@ -65,6 +65,21 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Close the caller's own account. Identity mints and consumes it.
   // Closing does not erase ledger, trade, or p2p history.
   'identity.step_up.close_account',
+  // Security changes on the caller's own sign-in methods and limits (identity ENGINE STP-3). Identity
+  // mints and consumes these itself. Closing an account is `close_account` above.
+  'identity.step_up.passkey_add',
+  'identity.step_up.passkey_remove',
+  'identity.step_up.passkey_rename',
+  'identity.step_up.totp_replace',
+  'identity.step_up.totp_disable',
+  'identity.step_up.recovery_codes_regenerate',
+  'identity.step_up.password_change_with_second_factor',
+  'identity.step_up.fund_password_set',
+  'identity.step_up.limits_loosen',
+  'identity.step_up.self_freeze_lift',
+  'identity.step_up.trusted_device_remove',
+  'identity.step_up.link_method',
+  'identity.step_up.unlink_method',
 ] as const;
 
 /**

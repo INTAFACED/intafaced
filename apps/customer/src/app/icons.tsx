@@ -7,6 +7,7 @@ import {
   CircleHelp,
   GraduationCap,
   House,
+  Landmark,
   LayoutGrid,
   type LucideIcon,
   Repeat2,
@@ -17,6 +18,11 @@ import {
   User,
   Wallet,
   ArrowUpFromLine,
+  CalendarClock,
+  CreditCard,
+  HandCoins,
+  Layers,
+  Sigma,
   TrendingUp,
 } from 'lucide-react';
 
@@ -38,7 +44,13 @@ export type ShellIconName =
   | 'user'
   | 'chevron'
   | 'academy'
-  | 'merchant';
+  | 'merchant'
+  | 'bank'
+  | 'margin'
+  | 'futures'
+  | 'options'
+  | 'loans'
+  | 'cards';
 
 const icons: Record<ShellIconName, LucideIcon> = {
   home: House,
@@ -59,6 +71,12 @@ const icons: Record<ShellIconName, LucideIcon> = {
   chevron: ChevronDown,
   academy: GraduationCap,
   merchant: Building2,
+  bank: Landmark,
+  margin: Layers,
+  futures: CalendarClock,
+  options: Sigma,
+  loans: HandCoins,
+  cards: CreditCard,
 };
 
 export function ShellIcon({ name, size = 20 }: { name: ShellIconName; size?: number }) {

@@ -37,6 +37,11 @@
  * page returns that rail (allow-listed: crypto-native, card-sandbox,
  * bank-crypto-ledger, local-test, else null). `local-test` is `welcome_funds`;
  * an unknown rail, or a ledger that does not send one yet, stays `deposit`.
+ *
+ * EARN, STAKING, REWARD. Added after the order kinds (PF-activity-01), from the reasons the book already
+ * posts: `bank.earn.*` is earn, `token.stake`/`token.unstake` is staking, `token.yield.distributed`, card
+ * cashback and any `reward*` or `token.yield*` reason is reward. Dividends and corporate actions have no ledger
+ * reason on this platform and are not invented. A client that does not know these kinds treats them as `other`.
  */
 
 export const ACTIVITY_KINDS = [
@@ -51,6 +56,9 @@ export const ACTIVITY_KINDS = [
   'space_move',
   'order_hold',
   'order_release',
+  'earn',
+  'staking',
+  'reward',
   'other',
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
@@ -116,10 +124,12 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   'bank/bank.business.approval.held': 'other',
   'bank/bank.business.approval.released': 'other',
 
-  // Earn, loans, tokens and rewards have no kind of their own in this contract (recipes/bank.ts, loans.ts, index.ts:897-957)
-  'bank/bank.earn.deposited': 'other',
-  'bank/bank.earn.withdrawn': 'other',
-  'bank/bank.earn.interest': 'other',
+  // Earn, staking and rewards have a kind of their own (the vocabulary analytics/spend.ts `categorise` uses).
+  // Loans and the token house postings have none in this contract (recipes/loans.ts, index.ts:897-957).
+  'bank/bank.earn.deposited': 'earn',
+  'bank/bank.earn.withdrawn': 'earn',
+  'bank/bank.earn.interest': 'earn',
+  // The pool reserve is the house's account, never a customer's; it stays unnamed.
   'bank/bank.earn.pool.funded': 'other',
   'bank/loan.collateral.locked': 'other',
   'bank/loan.collateral.released': 'other',
@@ -128,13 +138,13 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
   'bank/loan.liquidated': 'other',
   'bank/loan.bad_debt.covered': 'other',
   'bank/loan.reserve.funded': 'other',
-  'token/token.stake': 'other',
-  'token/token.unstake': 'other',
+  'token/token.stake': 'staking',
+  'token/token.unstake': 'staking',
   'token/token.emission': 'other',
   'token/token.burn': 'other',
   'token/token.fee.swept': 'other',
-  'token/token.yield.distributed': 'other',
-  'token/bank.card.cashback': 'other',
+  'token/token.yield.distributed': 'reward',
+  'token/bank.card.cashback': 'reward',
 };
 
 /**
@@ -144,6 +154,15 @@ export const KIND_BY_MODULE_REASON: Readonly<Record<string, Row>> = {
 export const KIND_BY_REASON: Readonly<Record<string, Row>> = {
   'fee.charged': 'fee',
 };
+
+/**
+ * `reason` prefixes, checked last: a reward the book posts under a reason this table has not met yet
+ * (`reward.*`, `token.yield*`) is still a reward, exactly as `categorise` files it.
+ */
+export const KIND_BY_REASON_PREFIX: ReadonlyArray<readonly [string, Row]> = [
+  ['reward', 'reward'],
+  ['token.yield', 'reward'],
+];
 
 /** Rails whose credit is a local-test "welcome funds" grant. The ledger page reports the rail (allow-listed, else null). */
 export const WELCOME_FUNDS_RAILS: ReadonlySet<string> = new Set<string>(['local-test']);
@@ -162,7 +181,11 @@ export function directionOf(direction: EntryDirection): 'in' | 'out' {
 }
 
 export function classify(input: ClassifyInput): ActivityKind {
-  const row = KIND_BY_MODULE_REASON[`${input.module}/${input.reason}`] ?? KIND_BY_REASON[input.reason] ?? 'other';
+  const row =
+    KIND_BY_MODULE_REASON[`${input.module}/${input.reason}`] ??
+    KIND_BY_REASON[input.reason] ??
+    KIND_BY_REASON_PREFIX.find(([prefix]) => input.reason.startsWith(prefix))?.[1] ??
+    'other';
   if (row === 'transfer') return input.direction === 'debit' ? 'transfer_in' : 'transfer_out';
   if (row === 'deposit' && input.rail != null && WELCOME_FUNDS_RAILS.has(input.rail)) return 'welcome_funds';
   return row;
@@ -181,5 +204,8 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   space_move: 'Moved between Spaces',
   order_hold: 'Set aside for an order',
   order_release: 'Returned from an order',
+  earn: 'Earn',
+  staking: 'Staking',
+  reward: 'Reward',
   other: 'Other',
 };

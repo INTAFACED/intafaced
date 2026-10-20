@@ -2,7 +2,7 @@
 -- token rotates into a new row, and every row of that chain shares the family. Existing rows are each
 -- their own family, which is true because only the newest row of a chain is live. user_agent and
 -- country are what the device list shows; country stays empty until a trusted geo source feeds it.
--- Reversal: 0051_session_families.down.sql
+-- Reversal: 0055_session_families.down.sql
 
 ALTER TABLE "identity"."sessions" ADD COLUMN IF NOT EXISTS "family_id" uuid;
 ALTER TABLE "identity"."sessions" ADD COLUMN IF NOT EXISTS "user_agent" text;

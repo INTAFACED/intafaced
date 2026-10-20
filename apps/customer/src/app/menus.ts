@@ -1,5 +1,6 @@
 import type { Door } from './navigation';
-import { defaultDeskPair, tradeTabHref } from './navigation';
+import { defaultDeskPair, findRoom, roomDescription, roomTitle, tradeTabHref } from './navigation';
+import type { UiLocale } from '../shared/i18n';
 import { isHiddenPath } from './feature-registry';
 import type { ShellIconName } from './icons';
 import type { shellCopy } from './shell-copy';
@@ -37,13 +38,22 @@ type PlainKey =
   | 'Display, language and notifications'
   | 'Account'
   | 'Security'
-  | 'Verification';
+  | 'Verification'
+  | 'Orders'
+  | 'Open and past orders'
+  | 'Advanced';
+/** The order of the phone bottom bar (IA-SPEC 1.3, Option A). More is not a tab there: it is the grid button in the phone header. */
+export const MOBILE_DOOR_ORDER: readonly Door[] = ['Home', 'Bank', 'Trade', 'Pay', 'Assets'];
+
 export interface MenuItem {
   id: string;
   href: string;
   icon: ShellIconName;
-  title: PlainKey;
-  description: PlainKey;
+  /** Rows without their own words take the title and description of the room they open, so a new room's name is written once. */
+  title?: PlainKey;
+  description?: PlainKey;
+  /** Rows in the Advanced group sit under a heading in Simple mode; Pro lists every row flat. */
+  group?: 'Advanced';
 }
 export interface TabSpec {
   door: Door;
@@ -67,13 +77,33 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
   const all: TabSpec[] = [
     { door: 'Home', href: '/home', icon: 'home', items: [] },
     {
-      door: 'Money',
+      door: 'Assets',
       href: '/money',
       icon: 'wallet',
       items: [
         { id: 'portfolio', href: '/money', icon: 'wallet', title: 'Portfolio', description: 'Your assets and their value' },
+        { id: 'deposit', href: '/uc/recharge', icon: 'receive' },
+        { id: 'withdraw', href: '/uc/withdraw', icon: 'send' },
+        { id: 'transfers', href: '/bank/transfers', icon: 'convert' },
         { id: 'activity', href: '/money/activity', icon: 'activity', title: 'Activity', description: 'Trades, orders and transfers' },
+        { id: 'addresses', href: '/uc/withdraw/address', icon: 'wallet' },
         { id: 'pnl', href: '/money/pnl', icon: 'activity', title: 'Profit and loss', description: 'What your trades have made or lost' },
+      ],
+    },
+    {
+      door: 'Bank',
+      href: '/bank',
+      icon: 'bank',
+      items: [
+        { id: 'bank', href: '/bank', icon: 'bank' },
+        { id: 'spaces', href: '/bank/spaces', icon: 'wallet' },
+        { id: 'bank-transfers', href: '/bank/transfers', icon: 'convert' },
+        { id: 'earn', href: '/bank/earn', icon: 'activity' },
+        { id: 'loans', href: '/bank/loans', icon: 'loans' },
+        { id: 'cards', href: '/bank/cards', icon: 'cards' },
+        { id: 'ramps', href: '/bank/ramps', icon: 'buy' },
+        { id: 'analytics', href: '/bank/analytics', icon: 'markets' },
+        { id: 'business', href: '/bank/business', icon: 'merchant' },
       ],
     },
     {
@@ -85,6 +115,21 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         { id: 'spot', href: `/trade/spot/${defaultDeskPair}`, icon: 'spot', title: 'Spot', description: 'Charts, order book and orders' },
         { id: 'buy', href: '/trade/buy', icon: 'buy', title: 'Buy and sell', description: 'Buy crypto in a few steps' },
         { id: 'convert', href: '/trade/convert', icon: 'convert', title: 'Convert', description: 'Swap one asset for another' },
+        { id: 'margin', href: '/trade/margin', icon: 'margin', group: 'Advanced' },
+        { id: 'futures', href: '/trade/futures', icon: 'futures', group: 'Advanced' },
+        { id: 'options', href: '/trade/options', icon: 'options', group: 'Advanced' },
+        { id: 'copy', href: '/trade/copy', icon: 'user', group: 'Advanced' },
+        { id: 'bots', href: '/trade/bots', icon: 'settings', group: 'Advanced' },
+        { id: 'otc', href: '/otc', icon: 'merchant', group: 'Advanced' },
+        { id: 'execution', href: '/execution', icon: 'markets', group: 'Advanced' },
+        {
+          id: 'orders',
+          href: '/money/activity?tab=orders',
+          icon: 'activity',
+          title: 'Orders',
+          description: 'Open and past orders',
+          group: 'Advanced',
+        },
       ],
     },
     {
@@ -94,6 +139,10 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
       items: [
         { id: 'send', href: '/pay/send', icon: 'send', title: 'Send', description: 'Send money to someone on INTAFACED' },
         { id: 'receive', href: '/pay/receive', icon: 'receive', title: 'Receive', description: 'Share your details to get paid' },
+        { id: 'request', href: '/pay/request', icon: 'receive' },
+        { id: 'bills', href: '/pay/bills', icon: 'activity' },
+        { id: 'global', href: '/pay/global', icon: 'send' },
+        { id: 'p2p', href: '/p2p', icon: 'user' },
         {
           id: 'merchant',
           href: '/pay/merchant',
@@ -126,3 +175,14 @@ export const accountMenu: ReadonlyArray<{ href: string; title: PlainKey }> = [
   { href: '/verification', title: 'Verification' },
   { href: '/view', title: 'Settings' },
 ];
+
+/** The words of a row: its own, or those of the room its link opens. */
+export function menuItemWords(item: MenuItem, t: (key: PlainKey) => string, locale?: UiLocale): { title: string; description: string } {
+  if (item.title && item.description) return { title: t(item.title), description: t(item.description) };
+  const room = findRoom(pathOf(item.href));
+  if (!room) throw new Error(`Menu row ${item.id} opens ${item.href}, which is not a room`);
+  return {
+    title: item.title ? t(item.title) : roomTitle(room, locale),
+    description: item.description ? t(item.description) : roomDescription(room, locale),
+  };
+}

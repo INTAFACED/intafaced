@@ -212,6 +212,45 @@ describe('serviceCallSigner', () => {
     });
   });
 
+  it('covers a forwarded principal: the same bytes verify, a swapped principal or region is refused', () => {
+    const sign = serviceCallSigner({
+      service: 'svc-agents',
+      audience: 'svc-academy',
+      legacySecret: SECRET,
+      s2s: { signer: signer('svc-agents'), mode: 'keypair' },
+    });
+    const forwarded = { raw: '{"userId":"u1"}', signature: 'ed25519:sig-one', region: 'SG' };
+    const wire = {
+      'x-intafaced-principal': forwarded.raw,
+      'x-intafaced-principal-sig': forwarded.signature,
+      'x-intafaced-region': forwarded.region,
+    };
+    const headers = sign(BODY, { ...request, forwarded });
+    const verifier = newVerifier();
+    expect(verifyServiceRequest(asRequest({ ...headers, ...wire }), { verifier, mode: 'keypair' })).toMatchObject({
+      service: 'svc-agents',
+      scheme: 'keypair',
+    });
+    for (const swapped of [
+      { 'x-intafaced-principal': '{"userId":"u2"}' },
+      { 'x-intafaced-principal-sig': 'ed25519:sig-two' },
+      { 'x-intafaced-region': 'US' },
+    ]) {
+      expect(
+        verifyServiceRequest(asRequest({ ...sign(BODY, { ...request, forwarded }), ...wire, ...swapped }), {
+          verifier: newVerifier(),
+          mode: 'keypair',
+        }),
+      ).toMatchObject({
+        service: null,
+      });
+    }
+    // A call signed as the service itself cannot have a principal attached afterwards.
+    expect(
+      verifyServiceRequest(asRequest({ ...sign(BODY, request), ...wire }), { verifier: newVerifier(), mode: 'keypair' }),
+    ).toMatchObject({ service: null });
+  });
+
   it('signs each call afresh, so a retry is not a replay', () => {
     const sign = serviceCallSigner({
       service: 'svc-agents',

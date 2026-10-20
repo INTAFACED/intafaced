@@ -267,7 +267,7 @@ describe('svc-bank — a pool full of overlapping money requests does not freeze
       expect(reports.reduce((n, r) => n + r.settled, 0)).toBe(1);
       expect(reports.flatMap((r) => r.failures)).toEqual([]);
       expect(formatAmount((await ledger.balance(userAvailable(user, 'USDT'))).amount)).toBe('900');
-      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:'))).toHaveLength(1);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.sched:'))).toHaveLength(1);
     } finally {
       pool.begin = begin;
     }

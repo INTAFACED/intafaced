@@ -282,6 +282,48 @@ export const sessions = identity.table(
 );
 
 /**
+ * One row per signed-out recovery request, known address or not. `subjectHash` is an HMAC of the
+ * address; the address itself is never stored here.
+ */
+export const authFlows = identity.table(
+  'auth_flows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').notNull(),
+    subjectHash: text('subject_hash').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 hex of the mailed code. Null for a flow that carries no code. */
+    codeHash: text('code_hash'),
+    status: text('status').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('auth_flows_subject_idx').on(t.subjectHash, t.kind, t.createdAt), index('auth_flows_user_open_idx').on(t.userId)],
+);
+
+/** The mail the relay sends. `code` and `handle` are cleared when the relay claims the row. */
+export const mailOutbox = identity.table(
+  'mail_outbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    flowId: uuid('flow_id')
+      .notNull()
+      .references(() => authFlows.id, { onDelete: 'cascade' }),
+    purpose: text('purpose').notNull(),
+    recipient: text('recipient').notNull(),
+    code: text('code'),
+    handle: text('handle'),
+    expiresAt: tstz('expires_at').notNull(),
+    status: text('status').notNull(),
+    createdAt: createdAt(),
+    sentAt: tstz('sent_at'),
+  },
+  (t) => [index('mail_outbox_pending_idx').on(t.createdAt)],
+);
+
+/**
  * One-time signed-out password reset proofs. The code itself is never stored.
  */
 export const passwordResetProofs = identity.table(
@@ -541,6 +583,8 @@ export const schema = {
   rankThresholds,
   sessions,
   passwordResetProofs,
+  authFlows,
+  mailOutbox,
   emailConfirmationProofs,
   emailConfirmationAttempts,
   emailConfirmationAudit,
