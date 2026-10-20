@@ -100,7 +100,7 @@ async function api(opts: { store?: VenueCostStore; approver?: ReturnType<typeof 
     now: () => '2026-10-20T10:00:00.000Z',
     ...(opts.store ? { venueCosts: opts.store } : {}),
     approvals: approver,
-  }).createCaller(await signed(opts.scopes ?? ['ops:read', 'ops:write']));
+  }).createCaller(await signed(opts.scopes ?? ['admin:read', 'admin:write']));
   return { caller, approver };
 }
 
@@ -196,18 +196,32 @@ describe('ops.venueEconomics and ops.recordVenueCost', () => {
     expect(approver.calls()).toBe(0);
   });
 
-  it('needs ops:write to enter and ops:read to read', async () => {
+  it('needs admin:write to enter and admin:read to read; an ordinary session scope sees nothing', async () => {
     const store = createMemoryVenueCostStore();
-    const reader = (await api({ store, scopes: ['ops:read'] })).caller;
+    const reader = (await api({ store, scopes: ['admin:read'] })).caller;
     await expect(reader.recordVenueCost(body())).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    const writer = (await api({ store, scopes: ['ops:write'] })).caller;
+    const writer = (await api({ store, scopes: ['admin:write'] })).caller;
     await expect(writer.venueEconomics({ period: '2026-10' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const ordinary = (await api({ store, scopes: ['ops:read', 'ops:write'] })).caller;
+    await expect(ordinary.venueEconomics({ period: '2026-10' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(ordinary.recordVenueCost(body())).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('refuses an amount the column cannot hold or that would be stored differently, before any approval', async () => {
+    const { caller, approver } = await api({ store: createMemoryVenueCostStore() });
+    for (const amount of ['123456789012345678901', '007', '00.5', '1e5', '1.', '.5']) {
+      await expect(caller.recordVenueCost(body({ amount }))).rejects.toMatchObject(refuses(OPS_COST_AMOUNT_INVALID));
+    }
+    expect(approver.calls()).toBe(0);
+    await expect(caller.recordVenueCost(body({ amount: '12345678901234567890.123456789012345678' }))).resolves.toMatchObject({
+      amount: '12345678901234567890.123456789012345678',
+    });
   });
 
   it('refuses an entry when identity is not wired, and stores nothing', async () => {
     const store = createMemoryVenueCostStore();
     const caller = createOpsRouter(new OpsService(), undefined, { venueCosts: store }).createCaller(
-      await signed(['ops:read', 'ops:write']),
+      await signed(['admin:read', 'admin:write']),
     );
     await expect(caller.recordVenueCost(body())).rejects.toMatchObject(refuses(OPS_APPROVAL_UNWIRED));
     expect(await store.list('2026-10')).toEqual([]);

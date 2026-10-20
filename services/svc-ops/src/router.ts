@@ -623,7 +623,8 @@ export function createOpsRouter(
         }),
     }),
 
-    venueEconomics: scopedProcedure('ops:read', guards)
+    // admin:read, not ops:read: the report is operator-only, and ops:read is held by ordinary sessions.
+    venueEconomics: scopedProcedure('admin:read', guards)
       .input(z.object({ period: z.string() }))
       .output(opsVenueEconomicsSchema)
       .query(async ({ input }) => {
@@ -636,7 +637,7 @@ export function createOpsRouter(
           mapError(err);
         }
       }),
-    recordVenueCost: scopedProcedure('ops:write', guards)
+    recordVenueCost: scopedProcedure('admin:write', guards)
       .input(opsCostEntryInputSchema)
       .output(opsCostEntrySchema)
       .mutation(async ({ ctx, input }) => {

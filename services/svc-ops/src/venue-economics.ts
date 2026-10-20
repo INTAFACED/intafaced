@@ -35,6 +35,9 @@ export function addDecimalStrings(a: string, b: string): string {
   return trimDecimal(fracLen === 0 ? whole : `${whole}.${digits.slice(split)}`);
 }
 
+/** Whole part `0` or no leading zero and up to 20 digits; up to 18 decimals. */
+export const COST_AMOUNT_STORABLE = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
+
 export function parseCostPeriod(period: string): string {
   if (!opsCostPeriodSchema.safeParse(period).success) {
     throw new OpsError(OPS_COST_PERIOD_INVALID, 'period is a month like 2026-10');
@@ -49,9 +52,14 @@ export function parseCostEntry(input: Pick<OpsCostEntryInput, 'period' | 'catego
   if (!category) {
     throw new OpsError(OPS_COST_CATEGORY_INVALID, `category is one of ${OPS_COST_CATEGORIES.join(', ')}`);
   }
+  // Stricter than the wire schema: no leading zeros (the stored form would differ from what the approver signed) and at most 20
+  // whole digits (numeric(38,18)), so a value the column cannot hold is refused before the approval is spent.
   const amount = opsCostAmountSchema.safeParse(input.amount);
-  if (!amount.success) {
-    throw new OpsError(OPS_COST_AMOUNT_INVALID, 'amount is a non-negative decimal string; no cost is guessed');
+  if (!amount.success || !COST_AMOUNT_STORABLE.test(input.amount)) {
+    throw new OpsError(
+      OPS_COST_AMOUNT_INVALID,
+      'amount is a non-negative decimal string with no leading zeros, at most 20 whole digits and 18 decimals; no cost is guessed',
+    );
   }
   if (!/^[A-Z0-9]{2,12}$/.test(input.asset)) {
     throw new OpsError(OPS_COST_AMOUNT_INVALID, 'asset is an upper-case code such as USD');
@@ -60,7 +68,7 @@ export function parseCostEntry(input: Pick<OpsCostEntryInput, 'period' | 'catego
   if (sourceNote.length < 1 || sourceNote.length > 500) {
     throw new OpsError(OPS_COST_AMOUNT_INVALID, 'a source note of 1 to 500 characters is required');
   }
-  return { period: input.period, category, amount: trimDecimal(amount.data), asset: input.asset, sourceNote };
+  return { period: input.period, category, amount: trimDecimal(input.amount), asset: input.asset, sourceNote };
 }
 
 /** Revenue as the warehouse read answered, or the typed code it refused with. */
