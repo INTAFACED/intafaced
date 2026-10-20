@@ -240,6 +240,23 @@ const schema = serviceEnvSchema
       NOTIFY_ALERT_MAX_ACTIVE_PRICE: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
 
       /**
+       * Repeating frequencies an alert may choose, comma separated (`every_crossing`). NO DEFAULT. Blank / unset leaves every
+       * alert one-shot and refuses a repeating one (`notify.alert_frequency_unset`).
+       */
+      NOTIFY_ALERT_FREQUENCIES: blankAsAbsent(
+        z
+          .string()
+          .transform((value) =>
+            value
+              .split(',')
+              .map((part) => part.trim())
+              .filter((part) => part !== ''),
+          )
+          .pipe(z.array(z.enum(['every_crossing'])))
+          .optional(),
+      ),
+
+      /**
        * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */

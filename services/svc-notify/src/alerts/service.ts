@@ -36,6 +36,7 @@ import {
   type AlertEdit,
   type AlertEditState,
   type AlertExtra,
+  type AlertFrequency,
 } from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
@@ -106,6 +107,7 @@ export const NOTIFY_ALERT_EXPIRY_MAX_UNSET = 'notify.alert_expiry_max_unset' as 
 export const NOTIFY_ALERT_TEXT_LIMIT_UNSET = 'notify.alert_text_limit_unset' as const;
 export const NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET = 'notify.alert_conditions_limit_unset' as const;
 export const NOTIFY_ALERT_QUOTA_UNSET = 'notify.alert_quota_unset' as const;
+export const NOTIFY_ALERT_FREQUENCY_UNSET = 'notify.alert_frequency_unset' as const;
 
 /** Owner settings an alert's expiry and text depend on. Blank (null) is never replaced by a default: the create refuses. */
 export type AlertLimits = {
@@ -119,6 +121,8 @@ export type AlertLimits = {
   readonly triggerLogDays: number | null;
   /** Most price alerts one person may hold open, active or paused (`NOTIFY_ALERT_MAX_ACTIVE_PRICE`). Blank refuses a create. */
   readonly maxActivePrice: number | null;
+  /** The repeating frequencies the owner allows (`NOTIFY_ALERT_FREQUENCIES`). Empty (blank) allows only `once`. */
+  readonly repeatFrequencies: readonly AlertFrequency[];
 };
 
 export const NO_ALERT_LIMITS: AlertLimits = {
@@ -127,6 +131,7 @@ export const NO_ALERT_LIMITS: AlertLimits = {
   maxConditions: null,
   triggerLogDays: null,
   maxActivePrice: null,
+  repeatFrequencies: [],
 };
 
 export type AlertLimitCode =
@@ -135,6 +140,9 @@ export type AlertLimitCode =
   | typeof NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET
   | typeof NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET
   | typeof NOTIFY_ALERT_QUOTA_UNSET
+  | typeof NOTIFY_ALERT_FREQUENCY_UNSET
+  | 'alert.frequency_not_allowed'
+  | 'alert.frequency_needs_crossing'
   | 'alert.quota_reached'
   | 'alert.too_many_conditions'
   | 'alert.extra_condition_invalid'
@@ -216,6 +224,38 @@ function assertAlertExtras(extras: readonly AlertExtra[] | undefined, limits: Al
     }
     return { condition: extra.condition, targetPrice: extra.targetPrice.trim() };
   });
+}
+
+/**
+ * The frequency a create or edit stores. `once` is always allowed. A repeating one needs the owner's list to name it (a blank list
+ * refuses with `notify.alert_frequency_unset`) and a crossing condition, because a level that holds would trigger on every sweep.
+ */
+function assertAlertFrequency(frequency: AlertFrequency | undefined, condition: AlertCondition, limits: AlertLimits): AlertFrequency {
+  if (frequency === undefined || frequency === 'once') return 'once';
+  if (limits.repeatFrequencies.length === 0) {
+    throw new AlertLimitError(NOTIFY_ALERT_FREQUENCY_UNSET, "a repeating alert needs the owner's list of allowed frequencies");
+  }
+  if (!limits.repeatFrequencies.includes(frequency)) {
+    throw new AlertLimitError('alert.frequency_not_allowed', `${frequency} is not an allowed frequency`);
+  }
+  if (!isCrossingCondition(condition)) {
+    throw new AlertLimitError('alert.frequency_needs_crossing', 'only a crossing alert can repeat');
+  }
+  return frequency;
+}
+
+/** An edit that names a frequency is checked like a create; one that does not keeps the stored one, which must still be a crossing. */
+function editedFrequency(
+  named: AlertFrequency | undefined,
+  stored: AlertFrequency,
+  condition: AlertCondition,
+  limits: AlertLimits,
+): AlertFrequency {
+  if (named !== undefined) return assertAlertFrequency(named, condition, limits);
+  if (stored !== 'once' && !isCrossingCondition(condition)) {
+    throw new AlertLimitError('alert.frequency_needs_crossing', 'only a crossing alert can repeat');
+  }
+  return stored;
 }
 
 function assertAlertExpiry(expiresAt: Date | null | undefined, limits: AlertLimits, now: Date): Date | null {
@@ -364,6 +404,7 @@ export class AlertService {
     const message = assertAlertText('message', input.message, this.limits);
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
     const extras = assertAlertExtras(input.extras, this.limits);
+    const frequency = assertAlertFrequency(input.frequency, input.condition ?? 'greater_than', this.limits);
     // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
     let maxOpen: number | undefined;
     if (kind === 'price') {
@@ -383,6 +424,7 @@ export class AlertService {
         message,
         expiresAt,
         extras,
+        frequency,
         ...(maxOpen !== undefined ? { maxOpen } : {}),
       });
     } catch (err) {
@@ -413,13 +455,24 @@ export class AlertService {
     const message = assertAlertText('message', rule.message, this.limits);
     const expiresAt = assertAlertExpiry(rule.expiresAt, this.limits, now);
     const extras = assertAlertExtras(rule.extras, this.limits);
+    const frequency = assertAlertFrequency(rule.frequency, rule.condition ?? 'greater_than', this.limits);
     if (this.limits.maxActivePrice === null) {
       throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
     }
     await this.store.expireDue(now);
     try {
       return await this.store.createMany(
-        markets.map((marketId) => ({ ...rule, kind: 'price' as const, marketId, targetPrice, name, message, expiresAt, extras })),
+        markets.map((marketId) => ({
+          ...rule,
+          kind: 'price' as const,
+          marketId,
+          targetPrice,
+          name,
+          message,
+          expiresAt,
+          extras,
+          frequency,
+        })),
         this.limits.maxActivePrice,
       );
     } catch (err) {
@@ -511,6 +564,8 @@ export class AlertService {
       message: edit.message === undefined ? row.message : assertAlertText('message', edit.message, this.limits),
       expiresAt: edit.expiresAt === undefined ? row.expiresAt : assertAlertExpiry(edit.expiresAt, this.limits, now),
       extras: edit.extras === undefined ? row.extras : assertAlertExtras(edit.extras, this.limits),
+      // A repeating alert keeps repeating unless the edit says otherwise, and must still be a crossing after the edit.
+      frequency: editedFrequency(edit.frequency, row.frequency, condition, this.limits),
     };
     return this.store.replace(userId, id, next, now);
   }
@@ -729,23 +784,27 @@ export class AlertService {
     }
 
     if (outcome.kind === 'fire') {
-      const created = await this.fireNotification(alert, outcome.markPrice, at);
+      // A repeating alert numbers its triggers, so each crossing is its own inbox row even at the same mark.
+      const repeating = alert.frequency === 'every_crossing';
+      const seq = repeating ? alert.fireCount + 1 : 1;
+      const created = await this.fireNotification(alert, outcome.markPrice, at, repeating ? seq : null);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
         notificationId = created.notification?.id ?? null;
-        // Logged after the inbox has it and before the watch is marked fired: a crash between the two retries and the
-        // alert-id key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
+        // Logged after the inbox has it and before the watch is counted or marked fired: a crash between the two retries and
+        // the (alert id, number) key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
         if (this.limits.triggerLogDays !== null) {
-          await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId));
+          await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId, seq));
         }
-        await this.store.markFired(alert.userId, alert.id, at);
+        if (repeating) await this.store.recordRepeat(alert.userId, alert.id, alert.fireCount, at, outcome.side ?? null);
+        else await this.store.markFired(alert.userId, alert.id, at);
       }
     }
 
     return { outcome, notificationId };
   }
 
-  private async fireNotification(alert: PriceAlert, markPrice: string, at: Date): Promise<CreateResult> {
+  private async fireNotification(alert: PriceAlert, markPrice: string, at: Date, repeatNumber: number | null): Promise<CreateResult> {
     const copy = FIRE_COPY[alert.kind];
     return this.notify.create({
       userId: alert.userId,
@@ -761,13 +820,14 @@ export class AlertService {
         condition: alert.condition,
         targetPrice: alert.targetPrice,
         markPrice,
+        ...(repeatNumber !== null ? { fireNumber: repeatNumber } : {}),
         ...(alert.name ? { name: alert.name } : {}),
         ...(alert.message ? { message: renderAlertMessage(alert.message, alert, markPrice, at) } : {}),
       },
       href: `/markets/${alert.marketId}`,
       severity: 'action',
       sourceSubject: copy.sourceSubject,
-      sourceIdempotencyKey: `${alert.id}:${canonicalDecimalString(markPrice)}`,
+      sourceIdempotencyKey: repeatNumber === null ? `${alert.id}:${canonicalDecimalString(markPrice)}` : `${alert.id}:n${repeatNumber}`,
     });
   }
 
