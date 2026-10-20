@@ -1,0 +1,75 @@
+# Real-screens trader journey: the customer app, the edge and the services on one assembled local stack
+# (tooling/scripts/local-test-stack.mjs), driven in a browser. Screenshots are kept as a CI artifact.
+# Not a required check; it proves the stack boots and the app answers on it.
+name: Real trader journey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/customer/tests/real-trader/**'
+      - 'tooling/scripts/local-test-stack.mjs'
+      - '.github/workflows/real-trader-journey.yml'
+
+concurrency:
+  group: real-trader-journey-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: 1
+
+jobs:
+  journey:
+    name: Real trader journey
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Get a nats-server binary
+        run: |
+          docker create --name nats-src nats:2.10.24-alpine
+          docker cp nats-src:/nats-server "$RUNNER_TEMP/nats-server"
+          docker rm nats-src
+          chmod +x "$RUNNER_TEMP/nats-server"
+
+      - name: Install the browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start the local test stack
+        env:
+          LOCAL_STACK_STATE: ${{ runner.temp }}/stack-state
+          LOCAL_STACK_NATS_BIN: ${{ runner.temp }}/nats-server
+        run: pnpm local:stack
+
+      - name: Journey in the real app
+        env:
+          REAL_TRADER_SHOTS: ${{ runner.temp }}/real-trader-shots
+        run: pnpm exec playwright test --config apps/customer/tests/real-trader/real-trader.playwright.config.mjs
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: real-trader-screenshots
+          path: ${{ runner.temp }}/real-trader-shots
+          if-no-files-found: warn
+
+      - name: Stack logs on failure
+        if: failure()
+        run: |
+          for f in "${{ runner.temp }}"/stack-state/logs/*.log; do echo "::group::$f"; tail -40 "$f"; echo "::endgroup::"; done
+
+      - name: Stop the stack
+        if: always()
+        env:
+          LOCAL_STACK_STATE: ${{ runner.temp }}/stack-state
+        run: pnpm local:stack stop
