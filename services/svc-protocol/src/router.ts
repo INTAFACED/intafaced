@@ -306,6 +306,8 @@ export interface ProtocolRouterDeps {
   peers?: Peers;
   /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
   probeTimeoutMs?: () => number | undefined;
+  /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
+  loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -500,7 +502,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     networks: router({
       list: publicProcedure.output(protocolNetworksListOutputSchema).query(() => {
         try {
-          return { networks: loadNetworkRegistry() };
+          return { networks: (deps.loadNetworks ?? loadNetworkRegistry)() };
         } catch (err) {
           throw new TRPCError({
             code: 'SERVICE_UNAVAILABLE',

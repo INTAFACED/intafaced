@@ -426,8 +426,10 @@ export class ProtocolChain {
   }> {
     let pendingTag: boolean | null = null;
     try {
-      await this.client.getBlock({ blockTag: 'pending' });
-      pendingTag = true;
+      const pending: unknown = await this.client.getBlock({ blockTag: 'pending' });
+      // A reply that is not a block (`{}`, `"0x1"`, `42`) is not proof the node serves the tag.
+      const shaped = !!pending && typeof pending === 'object' && typeof (pending as { timestamp?: unknown }).timestamp === 'bigint';
+      pendingTag = shaped ? true : null;
     } catch (err) {
       for (let link: unknown = err, depth = 0; link && typeof link === 'object' && depth < 8; depth += 1) {
         const code = (link as { code?: unknown }).code;
@@ -446,7 +448,10 @@ export class ProtocolChain {
           body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_supportedEntryPoints', params: [] }),
           signal: AbortSignal.timeout(timeoutMs),
         });
-        bundlerReachable = response.ok;
+        // Reachable means a JSON-RPC result that is a list of entry points; a 200 with an error, HTML or nothing is not.
+        const body: unknown = response.ok ? await response.json().catch(() => null) : null;
+        const result = body && typeof body === 'object' ? (body as { result?: unknown; error?: unknown }) : null;
+        bundlerReachable = !!result && result.error === undefined && Array.isArray(result.result);
       } catch {
         bundlerReachable = false;
       }

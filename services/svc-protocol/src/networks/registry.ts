@@ -34,6 +34,21 @@ export class NetworkRegistryError extends Error {
   }
 }
 
+/**
+ * An RPC URL is served to every visitor, so one that carries a credential is refused at load: userinfo, a query string, a
+ * fragment, or a path segment that looks like an API key (20+ characters of letters, digits, `_` or `-`).
+ */
+export function rpcUrlCarriesCredential(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return true;
+  }
+  if (url.username || url.password || url.search || url.hash) return true;
+  return url.pathname.split('/').some((segment) => /^[A-Za-z0-9_-]{20,}$/.test(segment));
+}
+
 export function parseNetworkRegistry(json: unknown): NetworkEntry[] {
   if (!Array.isArray(json)) throw new NetworkRegistryError('protocol.network_registry_invalid', 'the registry must be a list');
   for (const row of json) {
@@ -47,6 +62,11 @@ export function parseNetworkRegistry(json: unknown): NetworkEntry[] {
     throw new NetworkRegistryError('protocol.network_registry_invalid', parsed.error.issues[0]?.message ?? 'invalid entry');
   const seen = new Set<number>();
   for (const entry of parsed.data) {
+    if (entry.rpcUrls?.some(rpcUrlCarriesCredential))
+      throw new NetworkRegistryError(
+        'protocol.network_registry_invalid',
+        `chain ${entry.chainId} lists an RPC URL that carries a credential`,
+      );
     if (seen.has(entry.chainId))
       throw new NetworkRegistryError('protocol.network_registry_invalid', `chain ${entry.chainId} is listed twice`);
     seen.add(entry.chainId);

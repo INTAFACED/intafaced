@@ -195,12 +195,25 @@ describe('ProtocolChain.probeCapabilities', () => {
   it('does not probe a bundler without a configured URL and a published timeout', async () => {
     let called = false;
     const real = globalThis.fetch;
-    globalThis.fetch = (async () => ((called = true), new Response('{}', { status: 200 }))) as typeof fetch;
+    const answer = (body: string, status = 200) => (async () => ((called = true), new Response(body, { status }))) as typeof fetch;
+    globalThis.fetch = answer('{"jsonrpc":"2.0","id":1,"result":["0x4444444444444444444444444444444444444444"]}');
     try {
       expect((await chainOver(() => block).probeCapabilities(500)).bundlerReachable).toBeNull();
       expect((await chainOver(() => block, 'http://bundler.test').probeCapabilities(undefined)).bundlerReachable).toBeNull();
       expect(called).toBe(false);
       expect((await chainOver(() => block, 'http://bundler.test').probeCapabilities(500)).bundlerReachable).toBe(true);
+      // A 200 that is not a list of entry points is not reachable: an error body, HTML, an empty body, a non-list result.
+      for (const body of [
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}',
+        '<html>ok</html>',
+        '',
+        '{"jsonrpc":"2.0","id":1,"result":"0x1"}',
+      ]) {
+        globalThis.fetch = answer(body);
+        expect((await chainOver(() => block, 'http://bundler.test').probeCapabilities(500)).bundlerReachable).toBe(false);
+      }
+      globalThis.fetch = answer('{}', 502);
+      expect((await chainOver(() => block, 'http://bundler.test').probeCapabilities(500)).bundlerReachable).toBe(false);
       globalThis.fetch = (async () => {
         throw new Error('ECONNREFUSED');
       }) as typeof fetch;
@@ -208,5 +221,34 @@ describe('ProtocolChain.probeCapabilities', () => {
     } finally {
       globalThis.fetch = real;
     }
+  });
+
+  it('reads a pending-tag reply that is not a block as unknown, not yes', async () => {
+    for (const reply of [{}, '0x1', 42]) {
+      expect((await chainOver(() => reply).probeCapabilities(undefined)).pendingTag).toBeNull();
+    }
+  });
+});
+
+describe('networks.list credential guard', () => {
+  const withRpc = (rpcUrl: string) => () =>
+    parseNetworkRegistry([{ ...bare, rpcUrls: [rpcUrl], nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 } }]);
+
+  it('refuses a configured RPC URL that carries a credential, so it is never served', async () => {
+    for (const url of [
+      ['https://', 'user', ':', 'hunter2', '@rpc.example'].join(''),
+      'https://rpc.example/path?apikey=hunter2hunter2',
+      'https://rpc.example/v2/AbCdEfGhIjKlMnOpQrStUvWx',
+    ]) {
+      expect(withRpc(url)).toThrow(/protocol\.network_registry_invalid/);
+      const api = caller({ loadNetworks: () => parseNetworkRegistry([{ ...bare, rpcUrls: [url] }]) });
+      const err = await api.networks.list().catch((e: unknown) => e);
+      expect(JSON.stringify(err, Object.getOwnPropertyNames(err as object))).not.toMatch(/hunter2|AbCdEf/);
+    }
+  });
+
+  it('serves a clean public RPC URL through networks.list', async () => {
+    const api = caller({ loadNetworks: () => withRpc('https://sepolia.base.org')() });
+    expect((await api.networks.list()).networks[0]!.rpcUrls).toEqual(['https://sepolia.base.org']);
   });
 });
