@@ -144,7 +144,7 @@ export const scheduledTransfers = bank.table(
     cadence: transferCadenceEnum('cadence').notNull(),
     /**
      * The anchor. Occurrence N is N periods after this instant, which is what
-     * makes the idempotency key `bank.transfer:<id>:<occurrence>` derivable
+     * makes the idempotency key `bank.transfer.<space>:<id>:<occurrence>` derivable
      * from the schedule alone rather than from a counter that can be lost or
      * double-incremented.
      */
@@ -1157,7 +1157,16 @@ export const autoInvestRuns = bank.table(
 
 // ── Business maker/checker (§31:811 partial) ─────────────────────────────────
 
-export const businessMemberRoleEnum = bank.enum('business_member_role', ['admin', 'maker', 'checker']);
+export const businessMemberRoleEnum = bank.enum('business_member_role', [
+  'admin',
+  'maker',
+  'checker',
+  'signer',
+  'editor',
+  'viewer',
+  'security_auditor',
+  'non_signing_admin',
+]);
 export const businessApprovalStatusEnum = bank.enum('business_approval_status', ['pending', 'approved', 'rejected', 'cancelled']);
 
 export const businessAccounts = bank.table('business_accounts', {

@@ -1,31 +1,32 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ZodType } from 'zod';
+import type { ZodTypeAny } from 'zod';
 import { currentReturnLocation } from '../../app/location';
 import { authoredRefusal, type ApiClient } from '../../shared/api';
+import { readContract, type ContractData, type ContractProcedure } from '../../shared/contract-call';
 import type { Resource } from '../../shared/resource';
 import { Button, Loading } from '../../shared/ui';
 import { uiCopy, uiMessage } from '../../shared/ui-copy';
 import { useSession, type Session } from '../session/session';
 import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
-import { accountPerks, formatXp, rankForOwner } from './rank-perks-api';
+import { formatXp, rankGetFor, rankPerksGet } from './rank-perks-api';
 import { rankPerksCopy as copy } from './rank-perks-copy';
 import './rank-perks.css';
 
 type ReadContext = { api: ApiClient; owner: string | null; session: Session | null; href: string; departure: number };
 
-function useAccountRead<T>(
+function useAccountRead<P extends ContractProcedure<ZodTypeAny, undefined>>(
   context: ReadContext,
-  procedure: 'rank.get' | 'rank.perks',
-  schema: ZodType<T>,
+  procedure: P,
   isCurrent: (context: ReadContext) => boolean,
 ) {
+  type T = ContractData<P>;
   const [revision, setRevision] = useState(0);
   const [answer, setAnswer] = useState<{ context: ReadContext; revision: number; resource: Resource<T> } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
     if (isCurrent(context)) {
-      void context.api.query('identity', procedure, undefined, schema, { signal: controller.signal }).then(
+      void readContract(context.api, procedure, undefined, { signal: controller.signal }).then(
         (result) => {
           if (!controller.signal.aborted && isCurrent(context))
             setAnswer({
@@ -41,7 +42,7 @@ function useAccountRead<T>(
       );
     }
     return () => controller.abort();
-  }, [context, revision, procedure, schema, isCurrent]);
+  }, [context, revision, procedure, isCurrent]);
   const resource: Resource<T> =
     answer?.context === context && answer.revision === revision && isCurrent(context) ? answer.resource : { status: 'loading' };
   return {
@@ -92,9 +93,9 @@ export function RankPerks() {
       currentReturnLocation() === original.href,
     [],
   );
-  const rankSchema = useMemo(() => rankForOwner(owner ?? ''), [owner]);
-  const rank = useAccountRead(context, 'rank.get', rankSchema, isCurrent);
-  const perks = useAccountRead(context, 'rank.perks', accountPerks, isCurrent);
+  const rankProcedure = useMemo(() => rankGetFor(owner ?? ''), [owner]);
+  const rank = useAccountRead(context, rankProcedure, isCurrent);
+  const perks = useAccountRead(context, rankPerksGet, isCurrent);
   if (!owner || !session) return null;
 
   function failed<T>(resource: Resource<T>, half: 'rank' | 'perks', retry: () => void) {

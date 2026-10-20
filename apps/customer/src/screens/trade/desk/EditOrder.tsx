@@ -22,6 +22,7 @@ import { problemText } from './problem-text';
 import { canEdit } from './order-kind';
 import { outcomeOf, orderTag, tifFields, type Tif } from './tif';
 import { placesOf } from './text';
+import { replaceKey } from './replace-key';
 
 type Note = { tone: 'good' | 'bad'; text: string } | null;
 
@@ -63,8 +64,6 @@ export function EditOrder({
       mounted.current = false;
     };
   }, []);
-  // A new id whenever the numbers change, so a changed replacement is never mistaken for a retry of the first one.
-  const clientOrderId = useRef(`desk:replace:${crypto.randomUUID()}`);
   const partlyFilled = (scaled(order.filled) ?? 0n) > 0n;
   const context = { asset: market.base, pair: market.symbol.replace('/', '-') };
   const side = order.side;
@@ -77,7 +76,6 @@ export function EditOrder({
   function edit(apply: () => void) {
     if (busyRef.current || finished) return;
     apply();
-    clientOrderId.current = `desk:replace:${crypto.randomUUID()}`;
     setNote(null);
     setReview(null);
   }
@@ -155,7 +153,8 @@ export function EditOrder({
         amount: checked.amount,
         price: checked.price,
         ...tifFields(orderTag(order) === 'PO' ? 'PO' : 'GTC'),
-        clientOrderId: clientOrderId.current,
+        // The same replacement is the same number; a changed price or amount is a different one.
+        clientOrderId: replaceKey(order.id, checked.price, checked.amount),
       });
       if (!draft.success) return setNote({ tone: 'bad', text: t('Edit couldn’t check') });
       env.poller.recordExternalRequest();

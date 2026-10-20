@@ -38,8 +38,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0092      | S38WALLETPAY wallet inbounds and withdrawals          | void (S38 withdrew, number not reused)          |
 | 0093      | CHAINWATCH chain watcher dead letters                 | used                                            |
 | 0094      | KYB entity types (I-kyc-compliance-20)                | used                                            |
-| 0095-0099 | KYB application, documents, status (I-kyc-compliance-21 to 26) | reserved for the svc-pay merchant lane |
-| 0100+     | unassigned                                            | free; take the next number and add a row        |
+| 0095-0099 | svc-pay merchant lane (KYB application, documents, status) | reserved for the svc-pay merchant lane |
+| 0100-0119 | wallet lane (W-withdraw, W-deposit, W-custody slices) | 0100 used (owner-set withdrawal limits)         |
+| 0120+     | unassigned                                            | free; take the next number and add a row        |
 
 ## Why gaps are safe
 

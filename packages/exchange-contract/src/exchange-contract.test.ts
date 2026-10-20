@@ -173,6 +173,23 @@ describe('order validation at the boundary', () => {
     expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '0.000000000000000001' }).success).toBe(true);
   });
 
+  it('carries the typed self-trade mode, tag and request deadline and refuses a malformed one', () => {
+    const ok = createOrderRequestSchema.safeParse({
+      ...base,
+      type: 'limit',
+      price: '90000',
+      stpMode: 'cancel_both',
+      tag: 'desk-1',
+      requestDeadline: new Date(1750000000000).toISOString(),
+    });
+    expect(ok.success).toBe(true);
+    for (const bad of [{ stpMode: 'cancel_everything' }, { tag: '' }, { tag: 'x'.repeat(17) }, { requestDeadline: 'soon' }]) {
+      expect(createOrderRequestSchema.safeParse({ ...base, type: 'limit', price: '90000', ...bad }).success, JSON.stringify(bad)).toBe(
+        false,
+      );
+    }
+  });
+
   it('rejects a GTD order with expireAt "soon"', () => {
     const result = createOrderRequestSchema.safeParse({
       ...base,

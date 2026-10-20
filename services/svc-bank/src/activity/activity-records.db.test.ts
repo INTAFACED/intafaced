@@ -94,4 +94,21 @@ describe('activity notes, disputes and transfer messages', () => {
     expect(bob.get('other-line')?.privateNote).toBeNull();
     expect(bob.get('other-line')?.dispute).toBeNull();
   });
+
+  it('names the crypto address of a withdrawal by each of its ledger transactions, for its owner only', async () => {
+    const records = new ActivityRecordService(db.sql);
+    const address = '0xAbCdEf0123456789aBcDeF0123456789AbCdEf01';
+    await db.sql`
+      INSERT INTO bank.ramp_offramps (user_id, asset_id, amount, kind, rail, destination_ref, client_ref, status, hold_ledger_tx_id, settle_ledger_tx_id)
+      VALUES (${ALICE}, 'USDT', 5, 'crypto', 'test', ${address}, 'wd-address-1', 'settled', 'tx-hold-1', 'tx-settle-1')
+    `;
+    const found = await records.addressesFor(ALICE, ['tx-hold-1', 'tx-settle-1', 'tx-other']);
+    expect([...found.entries()].sort()).toEqual([
+      ['tx-hold-1', address],
+      ['tx-settle-1', address],
+    ]);
+    // Someone else's withdrawal is never reported for this customer.
+    expect((await records.addressesFor(BOB, ['tx-hold-1'])).size).toBe(0);
+    expect((await records.addressesFor(ALICE, [])).size).toBe(0);
+  });
 });

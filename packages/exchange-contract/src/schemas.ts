@@ -372,6 +372,12 @@ export const createOrderRequestSchema = z
     subAccountId: z.string().uuid().optional(),
     /** Caller expire instant for GTD/GTT. Never invented here. */
     expireAt: isoDatetime.optional(),
+    /** Self-trade handling. A mode the engine does not support is refused by the service, never silently ignored. */
+    stpMode: z.enum(['cancel_maker', 'cancel_taker', 'cancel_both']).optional(),
+    /** A label for the caller's own books. Never part of the idempotency key. */
+    tag: z.string().min(1).max(16).optional(),
+    /** The instant after which the caller no longer wants this order created. Past it, the service refuses the create before any hold. */
+    requestDeadline: isoDatetime.optional(),
   })
   .superRefine((order, ctx) => {
     // A limit order without a price is the single most common integration bug.

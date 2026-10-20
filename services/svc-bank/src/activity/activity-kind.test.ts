@@ -49,9 +49,9 @@ const ROWS: Array<[string, string, ActivityKind]> = [
   ['bank', 'bank.business.payroll.settled', 'payment'],
   ['bank', 'bank.business.approval.held', 'other'],
   ['bank', 'bank.business.approval.released', 'other'],
-  ['bank', 'bank.earn.deposited', 'other'],
-  ['bank', 'bank.earn.withdrawn', 'other'],
-  ['bank', 'bank.earn.interest', 'other'],
+  ['bank', 'bank.earn.deposited', 'earn'],
+  ['bank', 'bank.earn.withdrawn', 'earn'],
+  ['bank', 'bank.earn.interest', 'earn'],
   ['bank', 'bank.earn.pool.funded', 'other'],
   ['bank', 'loan.collateral.locked', 'other'],
   ['bank', 'loan.collateral.released', 'other'],
@@ -60,13 +60,13 @@ const ROWS: Array<[string, string, ActivityKind]> = [
   ['bank', 'loan.liquidated', 'other'],
   ['bank', 'loan.bad_debt.covered', 'other'],
   ['bank', 'loan.reserve.funded', 'other'],
-  ['token', 'token.stake', 'other'],
-  ['token', 'token.unstake', 'other'],
+  ['token', 'token.stake', 'staking'],
+  ['token', 'token.unstake', 'staking'],
   ['token', 'token.emission', 'other'],
   ['token', 'token.burn', 'other'],
   ['token', 'token.fee.swept', 'other'],
-  ['token', 'token.yield.distributed', 'other'],
-  ['token', 'bank.card.cashback', 'other'],
+  ['token', 'token.yield.distributed', 'reward'],
+  ['token', 'bank.card.cashback', 'reward'],
 ];
 
 describe('classify: one test per module/reason row', () => {
@@ -100,9 +100,19 @@ describe('classify: one test per module/reason row', () => {
     expect(classify({ module: 'trade', reason: 'order.hold.released', direction: 'debit' })).toBe('order_release');
     expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'credit' })).toBe('trade');
     expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'debit' })).toBe('trade');
-    expect(classify({ module: 'bank', reason: 'bank.earn.deposited', direction: 'credit' })).toBe('other');
+    expect(classify({ module: 'bank', reason: 'bank.earn.deposited', direction: 'credit' })).toBe('earn');
     // The module matters: the same reason words from another module are not a trade hold.
     expect(classify({ module: 'bank', reason: 'order.hold', direction: 'credit' })).toBe('other');
+  });
+
+  it('earn, staking and rewards are named; a reward reason the table has not met yet is still a reward', () => {
+    expect(classify({ module: 'bank', reason: 'bank.earn.interest', direction: 'debit' })).toBe('earn');
+    expect(classify({ module: 'token', reason: 'token.stake', direction: 'credit' })).toBe('staking');
+    expect(classify({ module: 'anything', reason: 'reward.referral', direction: 'debit' })).toBe('reward');
+    expect(classify({ module: 'token', reason: 'token.yield.boost', direction: 'debit' })).toBe('reward');
+    // The pool reserve and the token house postings stay unnamed.
+    expect(classify({ module: 'bank', reason: 'bank.earn.pool.funded', direction: 'debit' })).toBe('other');
+    expect(classify({ module: 'token', reason: 'token.emission', direction: 'debit' })).toBe('other');
   });
 
   it('a deposit is `deposit`; `welcome_funds` only on the local-test rail', () => {

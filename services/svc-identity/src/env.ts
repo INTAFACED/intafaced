@@ -4,6 +4,7 @@ import { founderSessionScopesFromEnv } from '@intafaced/auth';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
+import { parseDisplayCurrencyList } from './preferences/account-display.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -190,6 +191,22 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published display currencies, comma-separated codes. Blank / unset →
+       * nothing is listed: an account can only keep "no choice" (USD is shown) and the
+       * display page says the list is not set. Malformed → fail boot.
+       */
+      IDENTITY_DISPLAY_CURRENCIES: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseDisplayCurrencyList(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
       /**
        * Owner-published lifetime for a signed-out password-reset proof, in seconds.
        * Blank / unset → unpublished; the reset request refuses (`auth.reset_unwired`).
