@@ -3,6 +3,17 @@ import { z } from 'zod';
 import { marketSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import type { Fetcher } from '../../data/poll';
+import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
+
+export type MaintenanceWindow = StatusFeed['maintenance'][number];
+
+/** The published maintenance windows from the public status feed. A window with no start or end keeps that time unset. */
+export function maintenanceFetcher(api: ApiClient): Fetcher<MaintenanceWindow[]> {
+  return async (signal): Promise<ApiResult<MaintenanceWindow[]>> => {
+    const result = await readStatusFeed(api, signal);
+    return result.ok ? { ok: true, data: result.data.maintenance } : result;
+  };
+}
 
 /** One market's trading mode as the service reports it. `state` is null when the service reported none: never assumed open. */
 export interface MarketMode {

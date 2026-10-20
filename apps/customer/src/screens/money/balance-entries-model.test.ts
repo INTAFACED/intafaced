@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { gapSentence } from './balance-entries-source';
 import { accountFromSearch, assetFromPath, balanceEntriesHref, balanceEntriesSchema, shownSum, signedOf } from './balance-entries-model';
 
 const row = (direction: 'debit' | 'credit', amount: string) => ({
@@ -39,5 +40,10 @@ describe('balance entries model', () => {
     };
     expect(balanceEntriesSchema.safeParse(ok).success).toBe(true);
     expect(balanceEntriesSchema.safeParse({ ...ok, sumCheck: { ...ok.sumCheck, ok: false } }).success).toBe(false);
+  });
+  it("keeps the bank's gap sentence only when it is one", () => {
+    const sentence = 'The entries add up to 70 USDT but the balance is 71 USDT, a gap of -1';
+    expect(gapSentence(`${sentence} (portfolio.entries_do_not_sum)`)).toBe(sentence);
+    expect(gapSentence('Something else (portfolio.entries_do_not_sum)')).toBeNull();
   });
 });

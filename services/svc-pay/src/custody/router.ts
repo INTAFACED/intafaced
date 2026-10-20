@@ -24,9 +24,13 @@ import {
   walletTypeViewSchema,
   walletViewSchema,
 } from './schemas.js';
+import { createCustodyTxRouters } from './tx/router.js';
+import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
 import { CustodyFeesService, type FeeEstimator } from './fees/service.js';
 import { CustodyService } from './service.js';
+import { createCustodyUtxoRouters } from './utxo/router.js';
+import { CustodyUtxoService, type UtxoNode } from './utxo/service.js';
 
 /** What a mount supplies besides the founder authority. */
 export type CustodyMountDeps = Omit<CustodyRouterDeps, 'founderAuthority'>;
@@ -36,6 +40,10 @@ export interface CustodyRouterDeps {
   readonly sql: Sql;
   /** The chain fee estimator (W-custody-ops-10). Omitted: `fees.estimate` and `fees.check` refuse. */
   readonly feeEstimator?: FeeEstimator;
+  /** The UTXO node (W-custody-ops-13). Omitted: `utxo.list`, `utxo.due` and `utxo.consolidate` refuse `rail.crypto`. */
+  readonly utxoNode?: UtxoNode;
+  /** The chain reader for block height and hash (W-custody-ops-11). Omitted: `tx.get` shows `unwired`. */
+  readonly chainReader?: TxChainReader;
 }
 
 function actorOf(ctx: unknown): string {
@@ -60,8 +68,16 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
   const service = new CustodyService({ sql: deps.sql });
   const feeRouters = createCustodyFeesRouters(founder, new CustodyFeesService({ sql: deps.sql, estimator: deps.feeEstimator }), actorOf);
+  const utxoRouters = createCustodyUtxoRouters(
+    founder,
+    new CustodyUtxoService({ sql: deps.sql, node: deps.utxoNode, estimator: deps.feeEstimator }),
+    actorOf,
+  );
+  const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
   return router({
     ...feeRouters,
+    ...utxoRouters,
+    ...txRouters,
     walletTypes: router({
       list: founder
         .input(z.object({}).strict().optional())

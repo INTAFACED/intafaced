@@ -5,13 +5,24 @@ import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
 import { assetFromPath, balanceEntriesHref, accountFromSearch, signedOf, type BalanceEntryRow } from './balance-entries-model';
 import { useBalanceEntries } from './balance-entries-source';
+import { useNamedAccounts } from './portfolio-source';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
-const accountLabel = (accountId: string, copy: Copy) =>
-  accountId === 'main' ? copy.t('Entries main account') : copy.t('Entries other account');
+const accountLabel = (accountId: string, names: ReadonlyMap<string, string>, copy: Copy) =>
+  accountId === 'main' ? copy.t('Entries main account') : (names.get(accountId) ?? copy.t('Entries other account'));
 
-function Row({ row, hidden, zone }: { row: BalanceEntryRow; hidden: boolean; zone: ReturnType<typeof usePreferences>['timeZone'] }) {
+function Row({
+  row,
+  hidden,
+  zone,
+  names,
+}: {
+  row: BalanceEntryRow;
+  hidden: boolean;
+  zone: ReturnType<typeof usePreferences>['timeZone'];
+  names: ReadonlyMap<string, string>;
+}) {
   const copy = moneyCopy.useCopy();
   const signed = signedOf(row);
   const up = row.direction === 'debit';
@@ -21,7 +32,7 @@ function Row({ row, hidden, zone }: { row: BalanceEntryRow; hidden: boolean; zon
         <time dateTime={row.postedAt}>{stamp(row.postedAt, zone)}</time>
       </td>
       <td>{up ? copy.t('Money in direction') : copy.t('Money out direction')}</td>
-      <td>{accountLabel(row.accountId, copy)}</td>
+      <td>{accountLabel(row.accountId, names, copy)}</td>
       <td className="money-num">
         <Amount
           value={signed === null ? '—' : `${up ? '+' : '−'}${fmtAmount(row.amount)}`}
@@ -44,10 +55,13 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
   const asset = assetFromPath(rawAsset);
   const accountId = accountFromSearch(search);
   const state = useBalanceEntries(asset, accountId);
+  const named = useNamedAccounts();
+  const spaces = named.status === 'ready' ? named.data : [];
+  const names = new Map(spaces.map((space) => [space.id, space.name]));
 
   const scope = (target: string | null, label: string) => (
     <a
-      key={label}
+      key={target ?? 'all'}
       className="money-alloc__opt"
       aria-current={accountId === target ? 'true' : undefined}
       href={balanceEntriesHref(asset, target ?? undefined)}
@@ -81,7 +95,9 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
     body = <StateBlock kind="error" title={t('Couldn’t load these entries')} onRetry={state.retry} retryLabel={t('Try again')} />;
   } else if (state.status === 'refused') {
     const words = refusalCopy(state.code);
-    body = <StateBlock kind="refused" title={words.title} body={words.body} code={words.reference} action={words.action} />;
+    // The bank names the gap; it is money, so it is not shown while balances are hidden.
+    const detail = state.detail && !hideBalances ? ` ${state.detail}.` : '';
+    body = <StateBlock kind="refused" title={words.title} body={`${words.body}${detail}`} code={words.reference} action={words.action} />;
   } else if (state.rows.length === 0) {
     body = (
       <StateBlock kind="empty" title={t('No entries for this coin', { asset })} body={t('No entries for this coin body', { asset })} />
@@ -119,6 +135,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
                   row={row}
                   hidden={hideBalances}
                   zone={timeZone}
+                  names={names}
                 />
               ))}
             </tbody>
@@ -155,6 +172,7 @@ export default function BalanceEntries({ rawAsset, search }: { rawAsset: string;
       <div className="money-alloc__switch" role="group" aria-label={t('Entries account scope')}>
         {scope(null, t('Entries all accounts'))}
         {scope('main', t('Entries main account'))}
+        {spaces.map((space) => scope(space.id, space.name))}
       </div>
       {body}
     </div>
