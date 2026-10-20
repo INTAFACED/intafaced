@@ -24,7 +24,7 @@ const alertSchema = z
     kind: z.enum(['price', 'funding', 'liquidation_proximity', 'whale']),
     direction: z.enum(['above', 'below']),
     targetPrice: positive,
-    status: z.enum(['active', 'fired', 'cancelled', 'expired']),
+    status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
     firedAt: date.nullable(),
     createdAt: date,
     // Added by C-alerts-scan-01. This panel only manages level alerts (no condition, or above/below a level); a crossing alert

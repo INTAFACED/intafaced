@@ -7,6 +7,7 @@ import { MutationDialog, type ActionSpec, type BankActionContext } from './compo
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { Withdrawal } from './Withdrawal';
+import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 import { Deposit } from './Deposit';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
@@ -120,6 +121,14 @@ function MoneyRooms({ path }: { path: string }) {
   if (pathname === '/uc/recharge') content = <Deposit />;
   else if (pathname === '/uc/withdraw/address')
     content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
+  else if (pathname === '/uc/withdraw/approvals')
+    content = (
+      <WithdrawalApprovals
+        key={`withdrawal-approvals:${context.epoch}`}
+        context={{ current: sameReadContext }}
+        search={new URL(context.href).search}
+      />
+    );
   else if (pathname === '/uc/withdraw')
     content = (
       <Withdrawal key={`withdrawal:${context.epoch}`} context={{ current: sameReadContext }} search={new URL(context.href).search} />

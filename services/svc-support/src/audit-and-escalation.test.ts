@@ -262,6 +262,7 @@ describe('escalation carries its case file', () => {
       createTicket: (i) => base.createTicket(i),
       createTicketOnce: (i) => base.createTicketOnce(i),
       listByUser: (u, options) => base.listByUser(u, options),
+      openIdsByUser: (u) => base.openIdsByUser(u),
       listAll: () => base.listAll(),
       findById: (id) => base.findById(id),
       addComment: (i) => base.addComment(i),

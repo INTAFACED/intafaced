@@ -34,6 +34,10 @@
       "types": "./dist/founder-change-hash.d.ts",
       "default": "./dist/founder-change-hash.js"
     },
+    "./support-awaiting": {
+      "types": "./dist/support-awaiting.d.ts",
+      "default": "./dist/support-awaiting.js"
+    },
     "./support-trade-summary": {
       "types": "./dist/support-trade-summary.d.ts",
       "default": "./dist/support-trade-summary.js"
@@ -41,6 +45,10 @@
     "./quant-disclosure": {
       "types": "./dist/quant-disclosure.d.ts",
       "default": "./dist/quant-disclosure.js"
+    },
+    "./support-contact": {
+      "types": "./dist/support-contact.d.ts",
+      "default": "./dist/support-contact.js"
     },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
