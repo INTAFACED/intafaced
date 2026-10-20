@@ -133,7 +133,7 @@ export function validateTemplateCopy(key: string, subject: string, body: string)
   if (!isKey(key)) throw new OpsConfigError('notify.template_key_unknown');
   const s = subject.trim();
   const b = body.trim();
-  if (!s || !b) throw new OpsConfigError('notify.template_copy_unset');
+  if (!s || !b) throw new OpsConfigError('notify.template_copy_empty');
   if (s.length > TEMPLATE_SUBJECT_MAX || b.length > TEMPLATE_BODY_MAX) throw new OpsConfigError('notify.template_too_long');
   const declared = new Set(TEMPLATE_FIELDS[key]);
   const used = new Set<string>();

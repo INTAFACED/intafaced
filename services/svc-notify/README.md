@@ -367,7 +367,7 @@ the hash, target and version the second person's approval has to carry.
   codes, security notices, KYC decisions), plain text with `{{field}}` merge fields.
   Each key declares its fields; an undeclared field, a stray brace, empty copy or a
   code message with no `{{code}}` is refused at save (`notify.template_variable_unknown`,
-  `notify.template_syntax_invalid`, `notify.template_copy_unset`,
+  `notify.template_syntax_invalid`, `notify.template_copy_empty`,
   `notify.template_variable_required`). `brand` and `antiPhishingCode` are merge
   fields. A save is a new version; nothing is seeded, and a key with no version
   resolves to `notify.template_unset`. A sender calls `MessageTemplates.resolve`

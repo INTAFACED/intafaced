@@ -223,7 +223,7 @@ describe('template copy validation', () => {
       expect.objectContaining({ code: 'notify.template_syntax_invalid' }),
     );
     expect(() => validateTemplateCopy('login_code', ' ', 'Code {{code}}')).toThrow(
-      expect.objectContaining({ code: 'notify.template_copy_unset' }),
+      expect.objectContaining({ code: 'notify.template_copy_empty' }),
     );
     expect(() => validateTemplateCopy('nope', 'a', 'b')).toThrow(expect.objectContaining({ code: 'notify.template_key_unknown' }));
     expect(() => validateTemplateCopy('recovery_code', 'Hi', 'No code here')).toThrow(

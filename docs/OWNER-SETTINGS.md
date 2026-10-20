@@ -4,7 +4,7 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-95 env settings, 146 owner values read elsewhere, 198 page sizes the caller sends. 410 distinct `_unset` codes in all.
+95 env settings, 151 owner values read elsewhere, 198 page sizes the caller sends. 415 distinct `_unset` codes in all.
 
 ## TEST profile
 
@@ -185,8 +185,12 @@ Read from a database row, a published record or a caller input. The first file i
 | `notify.notice_copy_unset`                        | Notifications            | none yet                    | `services/svc-notify/src/notices/board.ts`                       |
 | `notify.price_unset`                              | Notifications            | none yet                    | `services/svc-notify/src/alerts/service.ts`                      |
 | `notify.release_held_loader_unset`                | Notifications            | none yet                    | `services/svc-notify/src/dispatch.ts`                            |
+| `notify.template_unset`                           | Notifications            | none yet                    | `services/svc-notify/src/ops-config/templates.ts`                |
 | `notify.verify_code_pepper_unset`                 | Notifications            | none yet                    | `services/svc-notify/src/notify-service.ts`                      |
 | `notify.verify_ttl_unset`                         | Notifications            | none yet                    | `apps/customer/src/features/account/NotificationTargets.tsx`     |
+| `ops.alert_history_retention_unset`               | Operations               | none yet                    | `packages/contracts/src/ops-alert-rules.ts`                      |
+| `ops.alert_interval_unset`                        | Operations               | none yet                    | `packages/contracts/src/ops-alert-rules.ts`                      |
+| `ops.alert_threshold_unset`                       | Operations               | none yet                    | `packages/contracts/src/ops-alert-rules.ts`                      |
 | `p2p.chat_thread_unset`                           | P2P                      | none yet                    | `services/svc-p2p/src/p2p-service.ts`                            |
 | `pay.checkout_max_open_sessions_unset`            | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/payment-service.ts`                        |
 | `pay.checkout_rails_unset`                        | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/checkout-page.ts`                          |
@@ -202,6 +206,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `pay.wallet_cap_unset`                            | Pay                      | trade-funding (withdraw)    | `apps/customer/src/data/refusal-codes.ts`                        |
 | `pay.wallet_fee_unset`                            | Pay                      | trade-funding (withdraw)    | `apps/customer/src/data/refusal-codes.ts`                        |
 | `portfolio.target_unset`                          | portfolio                | none yet                    | `services/svc-agents/src/portfolio-agent/plan.ts`                |
+| `portfolio.tax_year_start_unset`                  | portfolio                | none yet                    | `services/svc-bank/src/activity/activity-service.ts`             |
 | `preferences.version_unset`                       | preferences              | none yet                    | `services/svc-identity/src/preferences/trade-views.ts`           |
 | `quant.cash_unset`                                | Trade tools              | none yet                    | `services/svc-quant/src/errors.ts`                               |
 | `quant.claim_pnl_unset`                           | Trade tools              | none yet                    | `services/svc-quant/src/errors.ts`                               |
