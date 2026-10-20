@@ -78,8 +78,23 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     next: 'Nothing was changed. A lead appoints staff.',
   },
   'support.not_lead': {
-    title: 'Only a lead can set someone else’s availability',
-    body: 'You can set your own. Setting another person’s needs the lead role.',
+    title: 'Only a lead can do that',
+    body: 'Setting another person’s availability, and making or changing desk groups, need the lead role. Anyone on the staff list can set their own availability.',
+    next: 'Nothing was changed.',
+  },
+  'support.group_unknown': {
+    title: 'No such group',
+    body: 'svc-support does not have that group. It may have been removed.',
+    next: 'Refresh the groups and try again. Nothing was changed.',
+  },
+  'support.group_name_taken': {
+    title: 'A group with that name exists',
+    body: 'Group names are unique.',
+    next: 'Pick a different name. Nothing was changed.',
+  },
+  'support.group_member_duplicate': {
+    title: 'Already in that group',
+    body: 'That person is already a member.',
     next: 'Nothing was changed.',
   },
   'support.availability_invalid': {

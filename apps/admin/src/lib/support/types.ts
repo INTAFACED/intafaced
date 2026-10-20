@@ -83,3 +83,14 @@ export interface SupportStaffView {
   readonly roster: Part<readonly StaffMemberView[]>;
   readonly policy: Part<StaffPolicyView>;
 }
+
+import type { DeskGroupView, DeskScopeView } from './groups';
+
+/** Desk groups, the signed-in person's own scope and the roster to pick members from. Each its own part. */
+export interface SupportGroupsView {
+  readonly asOf: string;
+  readonly meId: string;
+  readonly groups: Part<readonly DeskGroupView[]>;
+  readonly scope: Part<DeskScopeView>;
+  readonly roster: Part<readonly StaffMemberView[]>;
+}

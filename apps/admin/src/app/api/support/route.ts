@@ -11,6 +11,7 @@ import {
   loadQueue,
   loadTicket,
   loadTicketExtras,
+  loadGroups,
   loadStaff,
   loadTicketProperties,
   runSupportAction,
@@ -51,6 +52,7 @@ export async function GET(request: Request) {
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
   }
+  if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'staff') return Response.json(await loadStaff(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'properties') {
     const id = url.searchParams.get('id');
@@ -137,7 +139,15 @@ const INVALID = {
 } as const;
 
 const targetOf = (request: SupportActionRequest) =>
-  request.action === 'staff_availability' ? (request.userId ?? 'self') : 'ticketId' in request ? request.ticketId : request.id;
+  request.action === 'staff_availability'
+    ? (request.userId ?? 'self')
+    : request.action === 'group_save'
+      ? (request.groupId ?? 'new')
+      : request.action === 'group_member'
+        ? request.groupId
+        : 'ticketId' in request
+          ? request.ticketId
+          : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -173,6 +183,10 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return 'svc-support recorded your reply on the ticket.';
     case 'status':
       return `svc-support says the ticket is now ${String(d.status)}.`;
+    case 'group_save':
+      return `svc-support saved the group as "${String(d.name)}".`;
+    case 'group_member':
+      return `svc-support says the group now has ${Array.isArray(d.memberIds) ? d.memberIds.length : 'an unknown number of'} members.`;
     case 'staff_availability':
       return `svc-support says the person is now ${String(d.availability)}.`;
     case 'properties':

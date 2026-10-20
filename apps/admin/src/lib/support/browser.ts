@@ -6,6 +6,7 @@ import type {
   SupportKbView,
   SupportPropertiesView,
   SupportQueueView,
+  SupportGroupsView,
   SupportStaffView,
   SupportTicketView,
   TicketExtrasView,
@@ -162,6 +163,24 @@ export async function fetchStaff(signal?: AbortSignal): Promise<SupportStaffView
   }
 }
 
+export async function fetchGroups(signal?: AbortSignal): Promise<SupportGroupsView | null> {
+  try {
+    const res = await fetch('/api/support?view=groups', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) &&
+      typeof body.asOf === 'string' &&
+      typeof body.meId === 'string' &&
+      isRecord(body.groups) &&
+      isRecord(body.scope) &&
+      isRecord(body.roster)
+      ? (body as unknown as SupportGroupsView)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchKb(signal?: AbortSignal): Promise<SupportKbView | null> {
   try {
     const res = await fetch('/api/support?view=kb', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
@@ -177,7 +196,17 @@ export type ActionReply =
   | { readonly ok: true; readonly action: SupportActionRequest['action']; readonly summary: string }
   | { readonly ok: false; readonly refusal: RefusalView };
 
-const ACTIONS: readonly string[] = ['reply', 'status', 'escalate', 'properties', 'staff_availability', 'kb_publish', 'kb_unpublish'];
+const ACTIONS: readonly string[] = [
+  'reply',
+  'status',
+  'escalate',
+  'properties',
+  'staff_availability',
+  'group_save',
+  'group_member',
+  'kb_publish',
+  'kb_unpublish',
+];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
 export function readActionReply(raw: unknown): ActionReply {
