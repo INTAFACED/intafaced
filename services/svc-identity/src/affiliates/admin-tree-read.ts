@@ -60,6 +60,8 @@ export type AffiliatePayoutRefuseCode =
   | 'affiliate.payout.nothing_accrued'
   /** No ledger client wired into this deployment — §0.6 forbids moving value without one. */
   | 'affiliate.payout.ledger_unwired'
+  /** No freeze service wired — the frozen set is unknown, so no plan or payment is made. */
+  | 'affiliate.payout.freeze_unwired'
   | 'affiliate.payout.invalid';
 
 /**
