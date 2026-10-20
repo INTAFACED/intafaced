@@ -373,6 +373,7 @@ describe('scope sub_accounts leaves the main account out', () => {
   it('refuses a sub-account question that names no sub-account, and an unknown scope', async () => {
     for (const body of [
       { userId: USER, subAccountIds: [], scope: 'sub_accounts' },
+      { userId: USER, subAccountIds: [USER], scope: 'sub_accounts' },
       { userId: USER, subAccountIds: [SUB], scope: 'everything' },
     ]) {
       const response = await post(body);

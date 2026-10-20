@@ -49,9 +49,10 @@ export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
     const lower = id.toLowerCase();
     if (!subAccountIds.includes(lower)) subAccountIds.push(lower);
   }
-  // A sub-account-only question with no sub-account named must not read as "nothing open".
-  if (scope === 'sub_accounts' && subAccountIds.length === 0) return null;
-  return { userId: row.userId.toLowerCase(), subAccountIds, scope };
+  // A sub-account-only question naming no real sub-account (none, or only the user's own id) must not read as "nothing open".
+  const userId = row.userId.toLowerCase();
+  if (scope === 'sub_accounts' && subAccountIds.every((id) => id === userId)) return null;
+  return { userId, subAccountIds, scope };
 }
 
 function asCount(n: number | string | undefined): number {
