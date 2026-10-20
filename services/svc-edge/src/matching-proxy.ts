@@ -17,9 +17,10 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { actionApprovalSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { actionApprovalSchema, serviceCallSigner } from '@intafaced/contracts';
 import { statusForAuthError } from './admin-api.js';
 import { MATCHING_OPERATOR_EDGE_PATHS } from './routes.js';
+import type { EdgeS2s } from './s2s.js';
 
 export const MATCHING_SERVICE_NAME = 'svc-edge' as const;
 
@@ -174,22 +175,32 @@ function errorMessage(err: unknown): string {
 /**
  * Signed call. `secret` is `MATCHING_EDGE_SIGNING_SECRET`, and the service name is
  * `svc-edge`. The body carries the human operator ids; the signature does not
- * rename them to this service.
+ * rename them to this service. With the edge's own key (`s2s`) the call to
+ * svc-matching is key-signed over its method, path and query, body and content
+ * type; `dual` also sends the secret, `keypair` does not.
  */
 export function httpMatchingControl(
   baseUrl: string,
   secret: string,
   timeoutMs: number,
   fetchFn: typeof fetch = globalThis.fetch,
+  s2s?: EdgeS2s,
 ): MatchingControlCall {
   const base = baseUrl.replace(/\/$/, '');
+  const authHeaders = serviceCallSigner({ service: MATCHING_SERVICE_NAME, audience: 'svc-matching', legacySecret: secret, s2s });
   return async (req) => {
     const payload = req.body === undefined ? '' : JSON.stringify(req.body);
+    const target = `${base}${req.path}`;
     try {
-      const res = await fetchFn(`${base}${req.path}`, {
+      const res = await fetchFn(target, {
         method: req.method,
         headers: {
-          ...serviceAuthHeadersForBody(MATCHING_SERVICE_NAME, secret, payload),
+          ...authHeaders(payload, {
+            method: req.method,
+            // Read only when a key signs; a bad target still fails inside this try, in fetch, as before.
+            url: s2s ? new URL(target) : new URL('http://unused.invalid/'),
+            contentType: payload === '' ? '' : 'application/json',
+          }),
           ...(payload === '' ? {} : { 'content-type': 'application/json' }),
         },
         body: payload === '' ? undefined : payload,

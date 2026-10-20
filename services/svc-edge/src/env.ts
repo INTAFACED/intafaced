@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, s2sEnvSchema } from '@intafaced/config';
 
 /**
  * svc-edge environment.
@@ -19,6 +19,8 @@ const schema = baseEnvSchema
   .merge(otelEnvSchema)
   // Signs the principal it forwards. Same value as every mounted service.
   .merge(edgeEnvSchema)
+  // The edge's own service key (S2S v3). Unset S2S_AUTH_MODE leaves every call on its dedicated shared secret.
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-edge'),

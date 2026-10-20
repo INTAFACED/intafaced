@@ -7,7 +7,8 @@
  *                        main-bisect.yml to find the first commit since the last green where those files fail.
  *   green after a re-run the tests that failed on attempt 1 are flaky: open (or update) one
  *                        "Flaky on main: <test file>" issue each, naming the owner.
- *   green                move the `last-green` branch to this commit, never backwards.
+ *   green                move the `last-green` branch to this commit, never backwards, and close the open
+ *                        "Main is red" issue when every red it names is this commit or older.
  *
  * Owner of a flaky test = the author of the last commit that touched the file (the PR is named in the issue),
  * unless tooling/ci/flaky-owners.json maps a path prefix to a GitHub login. Failures are confirmed by re-run
@@ -113,6 +114,32 @@ async function upsertIssue(repo, title, body, assignee) {
   return json?.number;
 }
 
+/** The commits an open "Main is red" issue names, from its body and the comments added by later reds. */
+export function redShas(texts) {
+  return [...new Set(texts.flatMap((t) => [...(t ?? '').matchAll(/Main failed twice on `([0-9a-f]{7,40})`/g)].map((m) => m[1])))];
+}
+
+/** A green commit settles the issue when each red it names is that commit or an ancestor of it. */
+export function settlesRed(compareStatuses) {
+  return compareStatuses.length > 0 && compareStatuses.every((s) => s === 'ahead' || s === 'identical');
+}
+
+async function closeSettledRed(repo, sha, runUrl) {
+  const issue = await findOpenIssue(repo, 'Main is red');
+  if (!issue) return 'no open "Main is red" issue';
+  const { json: comments } = await gh('GET', `/repos/${repo}/issues/${issue.number}/comments?per_page=100`);
+  const reds = redShas([issue.body, ...(comments ?? []).map((c) => c.body)]);
+  const statuses = [];
+  for (const red of reds) statuses.push((await gh('GET', `/repos/${repo}/compare/${red}...${sha}`)).json?.status);
+  if (!settlesRed(statuses))
+    return `"Main is red" #${issue.number} stays open (${reds.join(', ') || 'no red commit named'}: ${statuses.join(', ')})`;
+  await gh('POST', `/repos/${repo}/issues/${issue.number}/comments`, {
+    body: `Main is green again on \`${sha.slice(0, 10)}\` ([run](${runUrl})), which includes ${reds.map((r) => `\`${r.slice(0, 10)}\``).join(', ')}. Closing.\n\n_Closed by tooling/ci/main-trust.mjs._`,
+  });
+  await gh('PATCH', `/repos/${repo}/issues/${issue.number}`, { state: 'closed', state_reason: 'completed' });
+  return `closed "Main is red" #${issue.number}`;
+}
+
 async function lastCommit(repo, path) {
   const { json } = await gh('GET', `/repos/${repo}/commits?path=${encodeURIComponent(path)}&per_page=1`);
   const c = json?.[0];
@@ -163,6 +190,17 @@ function selfTest() {
   eq(decide({ conclusion: 'success', attempt: 2 }), 'green-after-rerun', 'green after re-run');
   eq(decide({ conclusion: 'success', attempt: 1 }), 'green', 'plain green');
   eq(decide({ conclusion: 'cancelled', attempt: 1 }), 'ignore', 'cancelled ignored');
+  eq(
+    redShas(['Main failed twice on `46b3f74801` (x)', 'Main failed twice on `46b3f74801`', 'Main failed twice on `abcdef1234`']),
+    ['46b3f74801', 'abcdef1234'],
+    'red shas, deduped',
+  );
+  eq(redShas([null, 'nothing here']), [], 'no red named');
+  eq(
+    [settlesRed(['ahead', 'identical']), settlesRed(['ahead', 'behind']), settlesRed(['diverged']), settlesRed([])],
+    [true, false, false, false],
+    'a green settles only reds at or behind it',
+  );
   const resolve = (rel, pkgs) => (pkgs.includes('svc-protocol') ? 'services/svc-protocol' : 'packages/x');
   eq(
     failingTestPaths(
@@ -176,7 +214,7 @@ function selfTest() {
   eq(ownerFor('services/svc-a/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'alice', 'override wins');
   eq(ownerFor('services/svc-b/x.test.ts', { 'services/svc-a/': 'alice' }, 'bob'), 'bob', 'last committer otherwise');
   eq(ownerFor('x.test.ts', {}, null), null, 'unknown owner stays null');
-  console.log('✓ main-trust --self-test OK (9 fixtures)');
+  console.log('✓ main-trust --self-test OK (12 fixtures)');
 }
 
 async function main() {
@@ -229,6 +267,7 @@ async function main() {
   }
 
   console.log(await publishLastGreen(repo, sha));
+  console.log(await closeSettledRed(repo, sha, runUrl));
 }
 
 if (process.argv.includes('--self-test')) {

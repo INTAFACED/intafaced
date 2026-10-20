@@ -1,5 +1,5 @@
 import { AuthError, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { forwardedPrincipalHeaders } from './forward-principal-signature.js';
 import { normalizeIp } from './request-client-ip.js';
 import { assertKeyNotExpired, optionalExpiresAtFromExchange, KeyExpiresError } from './api-key-expires.js';
@@ -93,6 +93,8 @@ export interface ExchangeOptions {
    * Missing configuration refuses authenticated forwarding.
    */
   identityOwnershipSecret?: string;
+  /** The edge's own key. Absent leaves the identity calls on `identityOwnershipSecret` alone. */
+  s2s?: EdgeS2s | undefined;
   /**
    * The merchant request the edge is about to forward. Present so an opted-in
    * key can be signed over these bytes. Absent on callers that only exchange
@@ -200,6 +202,7 @@ export async function exchangeApiKeyForAccessToken(
   product?: string | null,
   requestSign?: RequestSignMaterial,
   identityOwnershipSecret?: string,
+  s2s?: EdgeS2s,
 ): Promise<{
   accessToken: string;
   expiresAt?: Date;
@@ -225,16 +228,24 @@ export async function exchangeApiKeyForAccessToken(
       ? { json: { key, product: namedProduct, ...request } }
       : { json: { key, ...request } };
   const payloadText = JSON.stringify(payload);
+  const target = `${base}${path}`;
   let response: Response;
   try {
-    response = await fetchFn(`${base}${path}`, {
+    response = await fetchFn(target, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         ...(origin ? { origin } : {}),
         ...(clientIp ? { 'x-forwarded-for': clientIp, 'x-real-ip': clientIp } : {}),
         ...(namedProduct ? { 'x-product': namedProduct } : {}),
-        ...(attest ? serviceAuthHeadersForBody('svc-edge', identityOwnershipSecret!, payloadText) : {}),
+        ...(attest
+          ? identityCallHeaders(identityOwnershipSecret!, s2s, {
+              method: 'POST',
+              target,
+              body: payloadText,
+              contentType: 'application/json',
+            })
+          : {}),
       },
       body: payloadText,
       signal: AbortSignal.timeout(5_000),
@@ -339,6 +350,7 @@ export async function exchangePrincipal(
       presentedProduct,
       requestSign,
       options.identityOwnershipSecret,
+      options.s2s,
     );
     if (!exchanged) {
       return { headers: forward, principal: null, rejected: 'invalid' };

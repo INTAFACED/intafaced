@@ -5,7 +5,7 @@
  * throws so the step-up mint can refuse and issue nothing.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export type PayStepUpGrantRead = {
   readonly role: string | null;
@@ -22,14 +22,17 @@ export async function fetchPayStepUpGrant(input: {
   merchantId: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }): Promise<PayStepUpGrantRead> {
   const body = JSON.stringify({ userId: input.userId, merchantId: input.merchantId });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), input.timeoutMs ?? 2_000);
   try {
-    const res = await (input.fetchImpl ?? fetch)(new URL('/internal/merchant-pay-step-up-grant', input.payUrl), {
+    const target = new URL('/internal/merchant-pay-step-up-grant', input.payUrl);
+    const sign = serviceCallSigner({ service: 'svc-identity', audience: 'svc-pay', legacySecret: input.secret, s2s: input.s2s });
+    const res = await (input.fetchImpl ?? fetch)(target, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-identity', input.secret, body) },
+      headers: { 'content-type': 'application/json', ...sign(body, { method: 'POST', url: target, contentType: 'application/json' }) },
       body,
       signal: ctrl.signal,
     });

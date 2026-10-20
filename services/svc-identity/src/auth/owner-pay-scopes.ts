@@ -6,7 +6,7 @@
  * scopes and still sign the ordinary session.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export type OwnerPayScopeUserSnapshot = {
   accountStatus: string;
@@ -21,6 +21,7 @@ export async function fetchOwnerPayScopes(input: {
   user?: OwnerPayScopeUserSnapshot | null;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
 }): Promise<readonly string[]> {
   const body = JSON.stringify({
     userId: input.userId,
@@ -29,9 +30,11 @@ export async function fetchOwnerPayScopes(input: {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), input.timeoutMs ?? 2_000);
   try {
-    const res = await (input.fetchImpl ?? fetch)(new URL('/internal/merchant-owner-pay-scopes', input.payUrl), {
+    const target = new URL('/internal/merchant-owner-pay-scopes', input.payUrl);
+    const sign = serviceCallSigner({ service: 'svc-identity', audience: 'svc-pay', legacySecret: input.secret, s2s: input.s2s });
+    const res = await (input.fetchImpl ?? fetch)(target, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-identity', input.secret, body) },
+      headers: { 'content-type': 'application/json', ...sign(body, { method: 'POST', url: target, contentType: 'application/json' }) },
       body,
       signal: ctrl.signal,
     });
