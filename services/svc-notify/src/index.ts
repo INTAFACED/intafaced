@@ -108,6 +108,9 @@ await sql`SELECT 1 FROM notify.price_alerts LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM notify.topic_prefs LIMIT 1`.catch(() => {
   throw new Error('notify.topic_prefs is missing — run migration 0010_notify_topic_digest before starting svc-notify');
 });
+await sql`SELECT 1 FROM notify.category_prefs LIMIT 1`.catch(() => {
+  throw new Error('notify.category_prefs is missing — run migration 0012_notify_category_prefs before starting svc-notify');
+});
 await sql`SELECT 1 FROM notify.digest_holds LIMIT 1`.catch(() => {
   throw new Error('notify.digest_holds is missing — run migration 0010_notify_topic_digest before starting svc-notify');
 });
