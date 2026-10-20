@@ -1,4 +1,5 @@
 import { parseAmount } from '@intafaced/ledger-client';
+import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
@@ -53,6 +54,8 @@ export interface ActivityItem {
    * order's lines exactly instead of guessing by time.
    */
   readonly orderId?: string;
+  /** Set on the line that brought in the asset the customer bought. Absent on a sale, a refund and every other line. */
+  readonly purchase?: true;
   /**
    * Transfer note, visible to both parties. A personal send takes it from that
    * send's record. A space-to-space transfer takes it from the transfer message.
@@ -312,6 +315,19 @@ function accountOf(item: Pick<ActivityItem, 'id' | 'txId'>): string | null {
   if (rest.startsWith('u:')) return 'main';
   const m = /^s:([^:]+):/.exec(rest);
   return m ? m[1]! : null;
+}
+
+/**
+ * True for the line that brought in the asset the customer bought. The feed shows only the asset a fill paid out, so a
+ * sale looks like "USDT in" as a purchase would: a spot fill counts only when the asset received is not a quote
+ * asset (USDT, USDC, USD), the markets this platform prices against. An escrow release is always a buy of what it
+ * released. Futures margin and profit, and an escrow refund (the seller's own coin coming back), are never purchases.
+ */
+function isPurchase(entry: { module: string; reason: string; assetId: string }, direction: 'in' | 'out'): boolean {
+  if (direction !== 'in') return false;
+  const key = `${entry.module}/${entry.reason}`;
+  if (key === 'p2p/p2p.escrow.release') return true;
+  return (key === 'trade/trade.fill' || key === 'trade/trade.fill.mm_maker') && !PAR_ASSETS.has(entry.assetId.toUpperCase());
 }
 
 function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
@@ -738,6 +754,7 @@ export class ActivityService {
         counterparty: null,
         spaceName: queue.owner.spaceName,
         ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
+        ...(isPurchase(entry, dir) ? { purchase: true as const } : {}),
       };
     });
 

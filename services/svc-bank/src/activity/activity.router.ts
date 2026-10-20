@@ -66,6 +66,8 @@ const activityItem = z.object({
   spaceName: z.string().nullable(),
   /** Present only when the ledger links the line to the user's own trade order. Omitted otherwise. */
   orderId: z.string().min(1).max(128).optional(),
+  /** True on the line that brought in an asset the customer bought. Omitted on every other line. */
+  purchase: z.literal(true).optional(),
   /** Transfer note both parties can read. Omitted when the transfer had none. */
   note: z.string().min(1).max(140).optional(),
   /** Payment reference both parties can read. */
@@ -112,12 +114,12 @@ const activityDetail = z.object({
 });
 
 /**
- * The asset page for a purchase: the first trade line that brought an asset IN. A fill has one such leg (the asset
- * bought) and one leg out (what paid for it), so a sale or a plain transfer has no purchase to link to.
+ * The asset page for a purchase: the asset the first purchase line brought in. A sale, a futures settlement and an
+ * escrow refund carry no purchase line, so they have no page to link to.
  */
-export function assetPageOf(lines: ReadonlyArray<{ kind: string; direction: string; asset: string }>): string | null {
-  const bought = lines.find((line) => line.kind === 'trade' && line.direction === 'in');
-  return bought ? `/coin/${encodeURIComponent(bought.asset)}` : null;
+export function assetPageOf(lines: ReadonlyArray<{ purchase?: true; asset: string }>): string | null {
+  const bought = lines.find((line) => line.purchase === true);
+  return bought && /^[A-Za-z0-9_-]{1,16}$/.test(bought.asset) ? `/coin/${encodeURIComponent(bought.asset)}` : null;
 }
 
 export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'>) {
