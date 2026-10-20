@@ -23,6 +23,8 @@ import { assertConversionBoot, openConversionVenue, readConversionConfig } from 
 import { createRegistryReader } from './registries/read-api.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
+import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
+import { createWithdrawalHistory } from './withdrawals/history.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
 import { buildPayGuards } from './seams/registry.js';
@@ -415,6 +417,9 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     mode: loadWithdrawalLimitMode(process.env),
     tierOf: kycTierSource,
   }),
+  withdrawalHistory: createWithdrawalHistory(sql),
+  // Only the negative-balance check is answerable here (from the ledger); every other reason reads `unwired`.
+  withdrawalEligibility: createWithdrawalEligibility({ negative_balance: ledgerNegativeBalanceSource(ledger) }),
 });
 
 /**
