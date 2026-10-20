@@ -2462,7 +2462,16 @@ export function createIdentityRouter(
             }
 
             const rows = await requireAccruals().listByFeeEvent(feeEventId);
-            const frozen = freeze ? await requireFreeze().frozenIds() : new Set<string>();
+            // An unknown frozen set is not an empty one: without the freeze
+            // service we cannot tell who is frozen, so neither plan nor pay.
+            if (!freeze) {
+              throw new AffiliatePayoutRefuseError(
+                'Affiliate payout cannot run — no freeze service is wired, so the frozen beneficiary set is unknown',
+                'affiliate.payout.freeze_unwired',
+                AFFILIATE_PAYOUT_RESIDUAL,
+              );
+            }
+            const frozen = await freeze.frozenIds();
 
             const plan = planAffiliatePayout({
               feeEventId,

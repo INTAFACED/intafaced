@@ -11,6 +11,7 @@ import { stubActionApprovals } from './auth/privileged-dual-control.js';
 import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 import type { RankService } from './rank/rank-service.js';
+import type { FreezeService } from './affiliates/freeze-service.js';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
@@ -1342,6 +1343,7 @@ describe('affiliates.payout on the mount', () => {
       accruals: store,
       accrualTierLaw: opts.law,
       ledger: opts.ledger,
+      freeze: { frozenIds: async () => new Set<string>() } as unknown as FreezeService,
       actionApprovals: stubActionApprovals(CONFIRM),
     });
     return { store, router: r };
