@@ -20,7 +20,7 @@ function keys() {
   return {
     signer,
     s2s: (mode: ServiceAuthMode) => ({ signer, mode }),
-    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring, bootSecond: 0 }),
   };
 }
 

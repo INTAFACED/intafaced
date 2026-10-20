@@ -19,7 +19,7 @@ function keys() {
   const signer = createServiceSigner({ service: 'svc-bank', kid: 'svc-bank.a', privateKey: pkcs8, keyring });
   return {
     s2s: (mode: ServiceAuthMode) => ({ signer, mode }),
-    verifier: () => createServiceVerifier({ self: 'svc-trade', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-trade', keyring, bootSecond: 0 }),
   };
 }
 

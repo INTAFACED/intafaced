@@ -54,7 +54,7 @@ function fleet() {
   const signers = Object.fromEntries(
     keys.map(([service, k]) => [service, createServiceSigner({ service, kid: k.entry.kid, privateKey: k.pkcs8, keyring })]),
   ) as Record<(typeof SERVICES)[number], ReturnType<typeof createServiceSigner>>;
-  return { signers, verifier: () => createServiceVerifier({ self: 'svc-identity', keyring }) };
+  return { signers, verifier: () => createServiceVerifier({ self: 'svc-identity', keyring, bootSecond: 0 }) };
 }
 
 type Fleet = ReturnType<typeof fleet>;
