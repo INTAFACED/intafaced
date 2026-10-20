@@ -52,6 +52,7 @@ import { sqlAcceptedMarkStore } from './accepted-mark.js';
 import { durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
 import { DEFAULT_FUTURES_MARK_POLICY, acceptableForMarking, type FuturesMarkProvenance } from './mark-policy.js';
 import { liquidationJobAlerts } from './futures-jobs-health.js';
+import { runPayoutTick } from './futures-payouts.js';
 export { runDatedFuturesExpiryTick } from './dated-futures.js';
 
 export interface FuturesJobsConfig {
@@ -374,6 +375,14 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       markClosed: datedCloser,
     });
     reportDatedSettlement(results, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
+  });
+
+  // Owed winners are paid as soon as the clearing pot holds their profit
+  // (docs/adr/2026-10-20-futures-matched-traders.md section 4).
+  host.every('futures.payouts', deps.config.liqIntervalMs, async () => {
+    const tick = await runPayoutTick({ sql: deps.sql, ledger: deps.ledger });
+    const onError = deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err));
+    for (const item of tick.errored) onError('futures.payouts', new Error(`profitId=${item.profitId}: ${item.message}`));
   });
 
   host.every('futures.liquidation', deps.config.liqIntervalMs, async () => {
