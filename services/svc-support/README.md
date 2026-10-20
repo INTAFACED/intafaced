@@ -173,6 +173,14 @@ store and count as the owner's attach; the file belongs to the owner, who sees i
 `support.ticket_attachments.uploaded_by` (migration 0025) names the operator, `null` when the owner added it. A ticket that is not
 the caller's answers as not found. The retry key is the operator's own, so an operator and an owner never replay each other.
 
+Bulk update (SP-tickets-07): `bulkUpdate` (`support:ops`) applies one change (an assignee, a status or a priority) to several
+requests under one batch key; `bulkPolicy` says the batch size. The size is the owner's `SUPPORT_BULK_CAP` and stays blank by
+default: while blank, the policy answers `cap: null` and a batch refuses `support.bulk_cap_unset`; a batch over the cap
+refuses `support.bulk_too_large`; neither touches a request. Each request goes through the path a single change takes (`setStatus`,
+`assignTo`, `setTicketProperties`) under the key `bulk:<batchKey>:<ticketId>`, so each writes its own trail row and a replayed batch
+changes nothing twice. The answer lists every request as `changed`, `unchanged` (already at the asked status) or `refused` with the
+typed code the single change gives, and the rest of the batch still runs. Assigning needs a lead and is refused once up front.
+
 ## Migrations
 
 ```bash
