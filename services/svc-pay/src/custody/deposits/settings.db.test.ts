@@ -124,6 +124,11 @@ describe('deposit settings (dual-controlled)', () => {
     expect(events[0]).toMatchObject({ action: 'create', dualControl: false, before: null });
   });
 
+  it('normalises leading zeros so the stored minimum satisfies the table check', async () => {
+    expect((await ds().save(input({ minimumDeposit: '007.50' }))).minimumDeposit).toBe('7.5');
+    expect((await ds().save(input({ assetId: 'ETH', minimumDeposit: '00.5' }))).minimumDeposit).toBe('0.5');
+  });
+
   it('refuses to create a pair that is already on', async () => {
     const e = await refused(ds().save(input({ enabled: true })));
     expect(e.message).toContain('create_must_be_inert');

@@ -152,7 +152,8 @@ function canonical(minimum: string): string {
     throw new DepositSettingError('deposit_settings.minimum_invalid', 'the minimum is not an exact decimal this ledger can hold');
   }
   if (parsed <= 0n) throw new DepositSettingError('deposit_settings.minimum_invalid', 'the minimum must be above zero');
-  return minimum.includes('.') ? minimum.replace(/0+$/, '').replace(/\.$/, '') : minimum;
+  const trimmed = minimum.includes('.') ? minimum.replace(/0+$/, '').replace(/\.$/, '') : minimum;
+  return trimmed.replace(/^0+(?=\d)/, '');
 }
 
 /** What needs a second founder: switching a pair on or off, or lowering the minimum of one that is on. A new pair is created off. */
