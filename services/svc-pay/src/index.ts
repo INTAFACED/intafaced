@@ -37,6 +37,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
+import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
@@ -682,6 +683,13 @@ registerOwnerPayScopeRoute(app, {
       parentMerchantId: row.parent_merchant_id,
     };
   },
+});
+
+registerClosureCheckRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  check: (input) => runPayClosureCheck(sql, input),
 });
 
 registerSubscriptionCycleRoutes(app, {
