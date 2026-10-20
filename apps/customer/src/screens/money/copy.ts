@@ -262,6 +262,13 @@ const messages = {
   'Note one line': 'A note is one line, with no line breaks.',
   'Note unchanged': 'That is already saved.',
   'Note unsure': 'We could not confirm the save. Press Save note again to check; it will not be written twice.',
+  'Only lines with a note': 'Only lines with a note',
+  'Report description': 'Description for reports',
+  'Report description hint': 'Appears in the statements and reports you download. Only you can see this. One line, up to 500 characters.',
+  'Add a description': 'Add a description',
+  'Save description': 'Save description',
+  'Description saved': 'Description saved.',
+  'Description unsure': 'We could not confirm the save. Press Save description again to check; it will not be written twice.',
   'Dispute reason': 'There is no way to dispute a transaction online. Contact support with the reference.',
 } as const;
 
