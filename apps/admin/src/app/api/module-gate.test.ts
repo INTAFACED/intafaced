@@ -18,6 +18,7 @@ import * as moreOps from './more-ops/route';
 import * as protocolOps from './protocol-ops/route';
 import * as identityKeys from './identity-ops/keys/route';
 import * as identityOauth from './identity-ops/oauth/route';
+import * as custodyOps from './custody-ops/route';
 
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
@@ -35,6 +36,7 @@ const nonCrm = [
   ['ledger-freeze', ledgerFreeze, '/api/ledger-freeze'],
   ['identity-ops keys', identityKeys, '/api/identity-ops/keys'],
   ['identity-ops oauth', identityOauth, '/api/identity-ops/oauth'],
+  ['custody-ops', custodyOps, '/api/custody-ops'],
   ['operator-tools', operatorTools, '/api/operator-tools'],
   ['analytics/warehouse', warehouse, '/api/analytics/warehouse'],
 ] as const;
