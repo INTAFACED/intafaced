@@ -32,6 +32,13 @@ const OLD = 'correct horse battery staple';
 const NEW = 'a brand new passphrase 2026';
 const NEWER = 'another passphrase after reset';
 const RESET_TTL_SECONDS = 900;
+const POLICY = {
+  maxAttempts: 3,
+  requestMax: 5,
+  requestWindowSeconds: 3600,
+  subjectKey: 'test-only-flow-subject-key-0123456789abcdef',
+  notifyUnknown: false,
+} as const;
 const T0 = Date.parse('2026-10-17T02:00:00.000Z');
 
 const drizzleDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle');
@@ -122,6 +129,9 @@ if (!available) {
     nowMs = T0;
     auth.usePasswordResetMail(mail);
     auth.usePasswordResetTtl(RESET_TTL_SECONDS);
+    // TEST fixtures, not owner settings.
+    auth.usePasswordResetPolicy(POLICY);
+    auth.useMailRelayTrigger(async () => void (await auth.drainMailOutbox()));
     auth.usePasswordResetClock(() => new Date(nowMs));
     await db.truncateAll();
     await rank.seedTiers();
@@ -145,10 +155,13 @@ if (!available) {
       expect(sent).toHaveLength(1);
       expect(sent[0]!.email).toBe(user.email);
       expect(sent[0]!.code.length).toBeGreaterThan(20);
-      const stored = await db.sql<Array<{ code_hash: string }>>`SELECT code_hash FROM password_reset_proofs WHERE user_id = ${user.userId}`;
+      const stored = await db.sql<Array<{ code_hash: string }>>`SELECT code_hash FROM auth_flows WHERE user_id = ${user.userId}`;
       expect(stored).toHaveLength(1);
       expect(stored[0]!.code_hash).not.toBe(sent[0]!.code);
       expect(JSON.stringify(stored)).not.toContain(sent[0]!.code);
+      // The relay claimed the job, so the code is no longer anywhere in the database.
+      const outbox = await db.sql`SELECT * FROM mail_outbox`;
+      expect(JSON.stringify(outbox)).not.toContain(sent[0]!.code);
       await expect(anon().auth.refresh({ refreshToken: user.refreshToken })).resolves.toMatchObject({ userId: user.userId });
     });
 
@@ -279,20 +292,41 @@ if (!available) {
       await expect(anon().auth.refresh({ refreshToken: user.refreshToken })).resolves.toMatchObject({ userId: user.userId });
     });
 
-    it('refuses a known email and an unknown email the same way when reset is unwired', async () => {
+    it('accepts a known and an unknown email the same way with no mail transport, and marks the jobs undeliverable', async () => {
       const user = await register();
       const before = await hashOf(user.userId);
       auth.usePasswordResetMail(undefined);
 
-      const known = await refusal(anon().auth.requestPasswordReset({ email: user.email }));
-      const missing = await refusal(anon().auth.requestPasswordReset({ email: 'missing@example.com' }));
+      const known = await anon().auth.requestPasswordReset({ email: user.email });
+      const missing = await anon().auth.requestPasswordReset({ email: 'missing@example.com' });
 
       expect(known).toEqual(missing);
-      expect(known.code).toBe('auth.reset_unwired');
+      expect(known).toEqual({ accepted: true });
       expect(sent).toHaveLength(0);
+      const jobs = await db.sql<Array<{ status: string }>>`SELECT status FROM mail_outbox ORDER BY created_at`;
+      expect(jobs.map((job) => job.status)).toEqual(['undeliverable', 'suppressed']);
       expect(await hashOf(user.userId)).toBe(before);
+      await expect(anon().auth.passwordResetChannel()).resolves.toEqual({ emailDelivery: 'off' });
+    });
 
-      auth.usePasswordResetMail(mail);
+    it('refuses a known email and an unknown email the same way when a published number is missing', async () => {
+      const user = await register();
+      const before = await hashOf(user.userId);
+      const unset: Array<Partial<Parameters<typeof auth.usePasswordResetPolicy>[0]>> = [
+        { maxAttempts: undefined },
+        { requestMax: undefined },
+        { requestWindowSeconds: undefined },
+        { subjectKey: undefined },
+      ];
+      for (const gap of unset) {
+        auth.usePasswordResetPolicy({ ...POLICY, ...gap });
+        const known = await refusal(anon().auth.requestPasswordReset({ email: user.email }));
+        const missing = await refusal(anon().auth.requestPasswordReset({ email: 'missing@example.com' }));
+        expect(known).toEqual(missing);
+        expect(known.code).toBe('auth.reset_unwired');
+      }
+
+      auth.usePasswordResetPolicy(POLICY);
       auth.usePasswordResetTtl(undefined);
       const noTtl = await refusal(anon().auth.requestPasswordReset({ email: user.email }));
       const noTtlMissing = await refusal(anon().auth.requestPasswordReset({ email: 'missing@example.com' }));
@@ -300,6 +334,7 @@ if (!available) {
       expect(noTtl.code).toBe('auth.reset_unwired');
       expect(await hashOf(user.userId)).toBe(before);
       expect(sent).toHaveLength(0);
+      expect(await db.sql`SELECT 1 FROM auth_flows`).toHaveLength(0);
     });
 
     it('does not change a frozen account, and a proof issued before the freeze no longer rotates the hash', async () => {

@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { PasswordResetMail } from './password-reset.js';
+import type { MailPurpose, PasswordResetMail } from './password-reset.js';
 
 /**
  * The only mail transport this service implements. It writes a LOCAL-TEST line
@@ -43,12 +43,19 @@ export function localMailLine(message: {
   readonly email: string;
   readonly code: string;
   readonly expiresAt: Date;
-  readonly purpose?: 'password-reset' | 'email-confirm' | 'email-change' | 'email-change-notice';
+  readonly purpose?: MailPurpose;
+  readonly handle?: string;
 }): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
+  }
+  if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=no-account\n`;
+  }
+  if (purpose === 'handle-recovery') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
   }
   const link =
     purpose === 'email-confirm'
