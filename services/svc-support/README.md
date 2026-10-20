@@ -137,6 +137,31 @@ and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`);
 reaches the service and, if it does, refuses `support.kb_audience_invalid`. Per-segment visibility is not built: whether it
 is wanted is a thread decision, and `support.kb_segment_cap_unset` is not introduced until it is.
 
+Attachment limits (SP-tickets-02): the owner sets the largest file (`maxBytes`), the allowed content types and the number of
+files one request may hold (`maxCount`) in `support.attachment_settings`, one row with a revision and an append-only log
+(`support.attachment_settings_log`, keyed `support.attachment_settings:r<revision>`). All three start blank and nothing is
+seeded. `attachmentLimits` (`support:read`) answers them with `missing`, the first of the five pieces an attach lacks
+(store, scanner, size, types, count); `attachmentStatus` (`support:ops`) lists the five and whether each is set;
+`setAttachmentSettings` (`support:ops`, staff lead, a reason, the revision read) changes them. A limit the deployment's desk
+supplies wins over the owner's row. An attach with a blank piece refuses `support.attachments_unconfigured` naming the key,
+and a blank count refuses `support.attachment_count_unset`; a request already at its count refuses
+`support.attachment_count_reached`, decided under the ticket row lock so two files cannot both take the last place, and a
+replay of an attach already made is never refused for the count. The store and the scanner are deployment configuration:
+no adapter is wired at boot yet, so every attach still refuses naming `support.attachment_store`.
+
+Scan state: a file's row is written `scanning` first (`support.ticket_attachments.scan_state`, migration 0024; rows from before
+read `clean`). A clean verdict stores the bytes and then marks the row `clean`; an infected one marks it `blocked`, stores
+nothing and refuses `support.attachment_scan_refused`, and a blocked file holds no place on the request; a scanner that cannot
+say (or fails) keeps the bytes, leaves the row `scanning` and refuses `support.attachment_scan_unknown`. A row only ever leaves
+`scanning` once. `attachmentDownload` (owner) and `attachmentDownloadOps` (the assigned operator) serve a file only when it is
+clean, as base64 under the fixed type `application/octet-stream` and always as an attachment; a file that is not the caller's
+answers as not found. A retry under the same request id never scans or stores twice. `rescanHeldAttachments` scans held files
+again; it runs on a timer only when the owner has set both `SUPPORT_ATTACHMENT_RESCAN_SECONDS` and
+`SUPPORT_ATTACHMENT_RESCAN_BATCH`, and with either blank held files wait for the owner's retry. A held file whose bytes never
+reached the store stays held. `ticketAttachments` (`support:read`) lists the files on one ticket with their scan state and no store
+key, for the owner or for an operator who may see the ticket; its page size is the caller's and a blank one refuses
+`support.list_attachments_limit_unset`.
+
 ## Migrations
 
 ```bash

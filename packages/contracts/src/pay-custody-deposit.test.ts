@@ -3,10 +3,13 @@ import {
   PAY_CUSTODY_DEPOSIT_ADDRESS_PATH,
   PAY_CUSTODY_DEPOSIT_CALLERS,
   PAY_CUSTODY_DEPOSIT_CATALOGUE_PATH,
+  PAY_CUSTODY_DEPOSIT_RECORDS_PATH,
   createPayCustodyDepositClient,
   payCustodyDepositAddressInputSchema,
   payCustodyDepositAddressReplySchema,
   payCustodyDepositCatalogueSchema,
+  payCustodyDepositRecordSchema,
+  payCustodyDepositRecordsInputSchema,
   verifyServiceHeaders,
 } from './index.js';
 import { SERVICE_NAMES } from './service-keys.js';
@@ -108,5 +111,59 @@ describe('pay custody deposit client', () => {
   ])('answers unavailable for %s, never an empty catalogue', async (_name, fetcher) => {
     await expect(make(fetcher).catalogue()).resolves.toEqual({ state: 'unavailable', code: 'pay.custody_deposit_unavailable' });
     await expect(make(fetcher).address(input)).resolves.toEqual({ state: 'unavailable', code: 'pay.custody_deposit_unavailable' });
+  });
+});
+
+const record = {
+  id: 'dep-1',
+  assetId: 'USDT',
+  networkId: 'ethereum',
+  address: '0xabc',
+  txHash: '0xdead',
+  outputIndex: 0,
+  amount: '25.5',
+  confirmations: 3,
+  confirmationsRequired: 12,
+  status: 'confirming',
+  reason: null,
+  minimumDeposit: null,
+  detectedAt: '2026-10-20T10:00:00.000Z',
+  creditedAt: null,
+};
+
+describe('pay custody deposit records', () => {
+  it('parses a record and refuses a float amount, an invented state, a reason and an extra field', () => {
+    const parse = (over: object) => payCustodyDepositRecordSchema.safeParse({ ...record, ...over }).success;
+    expect(parse({})).toBe(true);
+    expect(parse({ confirmationsRequired: null })).toBe(true);
+    expect(parse({ amount: '1e3' })).toBe(false);
+    expect(parse({ amount: 25.5 })).toBe(false);
+    expect(parse({ status: 'done' })).toBe(false);
+    expect(parse({ reason: 'because' })).toBe(false);
+    expect(parse({ confirmationsRequired: 0 })).toBe(false);
+    expect(parse({ extra: 1 })).toBe(false);
+  });
+
+  it('bounds the page and defaults it', () => {
+    expect(payCustodyDepositRecordsInputSchema.parse({ userId: 'u' })).toEqual({ userId: 'u', offset: 0, limit: 50 });
+    expect(payCustodyDepositRecordsInputSchema.safeParse({ userId: 'u', limit: 201 }).success).toBe(false);
+    expect(payCustodyDepositRecordsInputSchema.safeParse({ userId: 'u', statuses: [] }).success).toBe(false);
+    expect(payCustodyDepositRecordsInputSchema.safeParse({ userId: 'u', statuses: ['paid'] }).success).toBe(false);
+  });
+
+  it('signs the records request as svc-bank and parses the page; a bad page is unavailable', async () => {
+    const fetcher = vi.fn(async () => json({ items: [record], total: 1 }));
+    await expect(make(fetcher).records({ userId: 'user-1' })).resolves.toEqual({
+      state: 'ok',
+      records: { items: [record], total: 1 },
+    });
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`http://pay.internal:4020${PAY_CUSTODY_DEPOSIT_RECORDS_PATH}`);
+    expect(JSON.parse(String(init.body))).toEqual({ userId: 'user-1', offset: 0, limit: 50 });
+    const bad = make(async () => json({ items: [{ ...record, amount: 1 }], total: 1 }));
+    await expect(bad.records({ userId: 'user-1' })).resolves.toEqual({ state: 'unavailable', code: 'pay.custody_deposit_unavailable' });
+    const none = vi.fn();
+    await expect(make(none).records({ userId: '' })).resolves.toMatchObject({ state: 'unavailable' });
+    expect(none).not.toHaveBeenCalled();
   });
 });

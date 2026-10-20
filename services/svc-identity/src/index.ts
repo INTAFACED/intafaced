@@ -92,6 +92,7 @@ import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
 import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
+import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
@@ -436,22 +437,25 @@ const account = new AccountChange({
   log: { warn() {} },
 });
 const closureSecret = env.INTERNAL_SERVICE_SECRET;
+const bankClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_BANK_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
+});
+const tradeClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_TRADE_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
+});
+const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const closure = new AccountClosureService({
   sql,
   approvals: actionApprovals,
   enabled: env.IDENTITY_ACCOUNT_CLOSE_ENABLED,
   coolingOffDays: env.IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS,
   founderUserIds: founderPair ?? [],
-  bank: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_BANK_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
-  }),
-  trade: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_TRADE_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
-  }),
+  bank: bankClosureCheck,
+  trade: tradeClosureCheck,
   p2p: httpClosureChecker({
     url: env.IDENTITY_CLOSURE_P2P_URL,
     secret: closureSecret,
@@ -486,6 +490,7 @@ export const appRouter = mergeRouters(
     profile,
     account,
     closure,
+    subAccountDelete,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),

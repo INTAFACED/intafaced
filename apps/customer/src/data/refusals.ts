@@ -153,6 +153,39 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Who can open an account has not been published',
     body: 'The countries, account types and product limits have not been published, so no statement is shown.',
   },
+  globalOff: {
+    title: 'Sending abroad is switched off',
+    body: 'Sending abroad needs a payout partner and published settings, and this build has neither. Nothing was sent.',
+  },
+  globalNoRate: {
+    title: 'No exchange rate is available',
+    body: 'We never guess a rate, so there is no quote and nothing was sent. Try again later.',
+  },
+  globalPurpose: {
+    title: 'Say what this payment is for',
+    body: 'Sends to this currency need a purpose. Add it and send again. Nothing was sent.',
+  },
+  globalSource: {
+    title: 'Say where this money comes from',
+    body: 'A send of this size needs a source of funds. Add it and send again. Nothing was sent.',
+  },
+  globalReference: {
+    title: 'That reference is too long',
+    body: 'Shorten the reference and send again. Nothing was sent.',
+  },
+  globalRecipientInvalid: {
+    title: 'Check the bank details',
+    body: 'The account or bank code is not in a shape we can use. We only check the format, not the bank. Nothing was saved.',
+  },
+  globalPayoutRefused: { title: 'The payment was refused', body: 'The receiving side refused it. Nothing was taken from your balance.' },
+  globalCorridorUnknown: {
+    title: 'We do not send there',
+    body: 'That country, currency and delivery method are not on the list. Choose one from the list.',
+  },
+  globalDetailsMissing: {
+    title: 'More details are needed',
+    body: 'This send needs details about you or the recipient that were not included. Nothing was sent.',
+  },
   activitySortBounded: {
     title: 'Too many lines to sort oldest first',
     body: 'Narrow the dates, the account or the filters, then try again.',

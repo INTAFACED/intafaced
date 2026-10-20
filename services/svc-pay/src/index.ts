@@ -53,6 +53,7 @@ import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { CustodyDepositService } from './custody/deposits/service.js';
 import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
+import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
@@ -1027,16 +1028,19 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
     onAlive: () => cryptoRail.noteAlive(),
   });
-  // The watch set is in memory: put every payment still waiting for a deposit back before the first poll.
+  // The watch set is in memory: put every payment still waiting for a deposit, and every deposit address already issued to a
+  // customer, back before the first poll.
   const restored = await restoreOpenDepositWatches(
     chain,
-    async () =>
-      (
+    async () => [
+      ...(
         await sql<Array<{ id: string; currency: string }>>`
           SELECT id, currency FROM pay.payments
            WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
         `
       ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+      ...(await listIssuedDepositWatches(sql)),
+    ],
     (msg, extra) => app.log.warn(extra ?? {}, msg),
   );
   app.log.info({ restored }, 'crypto deposit watches restored');

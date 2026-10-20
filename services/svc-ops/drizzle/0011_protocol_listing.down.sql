@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0010_protocol_listing.sql
+-- intafaced:destructive — reversal of 0011_protocol_listing.sql
 --
 -- This drops the hide and delist decisions, so every hidden pool and delisted market would list again and the signed
 -- decision log would be gone. The guard refuses to roll back while any decision exists: archive them first.

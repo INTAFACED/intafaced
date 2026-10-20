@@ -169,12 +169,31 @@ describe('account menu', () => {
     expect(host.querySelector('[data-testid="profile-gone"]')?.textContent).toContain('Personal is shown');
   });
 
-  it('shows the language and the theme as drawn, both opening View', async () => {
+  it('shows the theme as drawn, opening View', async () => {
     await open();
-    expect(link('Language')?.getAttribute('href')).toBe('/view');
-    expect(link('Language')?.textContent).toContain('English');
     expect(link('Theme')?.getAttribute('href')).toBe('/view');
     expect(link('Theme')?.textContent).toMatch(/Dark|Light/);
+  });
+
+  it('offers the language switcher in the menu: choosing one stores it on this device and names the share written', async () => {
+    await open();
+    const select = host.querySelector<HTMLSelectElement>('[data-language-menu] select')!;
+    expect(select.value).toBe(currentPreferences().language);
+    await act(async () => {
+      select.value = 'es';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(currentPreferences().language).toBe('es');
+    expect(host.querySelector('[data-language-note]')?.textContent).toMatch(/^español: el \d+% de la app/);
+    expect(host.querySelector('[data-language-machine]')).not.toBeNull();
+    // A language with no written copy stays a choice and says it shows English.
+    await act(async () => {
+      select.value = 'de';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(currentPreferences().language).toBe('de');
+    expect(host.querySelector('[data-language-note]')?.textContent).toContain('shows English');
+    await act(async () => void savePreferences({ language: 'en' }));
   });
 
   it('signs out through the one handler and closes the menu', async () => {

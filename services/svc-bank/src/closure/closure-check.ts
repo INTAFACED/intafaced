@@ -19,6 +19,8 @@ export type ClosureBalance = { assetId: string; amount: string };
 export type ClosureCheckBody = {
   userId: string;
   subAccountIds: string[];
+  /** `sub_accounts` answers for the listed sub-accounts only, leaving the main account out. */
+  scope: 'account' | 'sub_accounts';
 };
 
 type Owner = { ownerType: 'user' | 'subaccount'; ownerId: string };
@@ -35,7 +37,9 @@ function callerOf(req: FastifyRequest, secret: string, s2s?: { verifier: Service
 
 export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
-  const row = body as { userId?: unknown; subAccountIds?: unknown };
+  const row = body as { userId?: unknown; subAccountIds?: unknown; scope?: unknown };
+  if (row.scope !== undefined && row.scope !== 'account' && row.scope !== 'sub_accounts') return null;
+  const scope = row.scope === 'sub_accounts' ? 'sub_accounts' : 'account';
   if (typeof row.userId !== 'string' || !UUID.test(row.userId)) return null;
   if (!Array.isArray(row.subAccountIds)) return null;
   if (row.subAccountIds.length > MAX_SUB_ACCOUNTS) return null;
@@ -45,7 +49,10 @@ export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
     const lower = id.toLowerCase();
     if (!subAccountIds.includes(lower)) subAccountIds.push(lower);
   }
-  return { userId: row.userId.toLowerCase(), subAccountIds };
+  // A sub-account-only question naming no real sub-account (none, or only the user's own id) must not read as "nothing open".
+  const userId = row.userId.toLowerCase();
+  if (scope === 'sub_accounts' && subAccountIds.every((id) => id === userId)) return null;
+  return { userId, subAccountIds, scope };
 }
 
 function asCount(n: number | string | undefined): number {
@@ -70,7 +77,7 @@ export async function runBankClosureCheck(
 ): Promise<{ asOf: string; blockers: ClosureBlocker[]; balances: ClosureBalance[] }> {
   const subs = input.subAccountIds.filter((id) => id !== input.userId);
   const owners: Owner[] = [
-    { ownerType: 'user', ownerId: input.userId },
+    ...(input.scope === 'sub_accounts' ? [] : [{ ownerType: 'user' as const, ownerId: input.userId }]),
     ...subs.map((ownerId) => ({ ownerType: 'subaccount' as const, ownerId })),
   ];
   const totals = new Map<string, bigint>();
@@ -87,63 +94,21 @@ export async function runBankClosureCheck(
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
     .map(([assetId, amount]) => ({ assetId, amount: formatAmount(amount) }));
 
-  const both = subs.length > 0;
-  const userId = input.userId;
-  const loans = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.loans WHERE status IN ('pending', 'active', 'margin_call', 'liquidating') AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.loans WHERE status IN ('pending', 'active', 'margin_call', 'liquidating') AND user_id = ${userId}`,
-  );
-  const cards = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.cards WHERE status IN ('active', 'frozen') AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.cards WHERE status IN ('active', 'frozen') AND user_id = ${userId}`,
-  );
-  const schedules = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.scheduled_transfers WHERE status IN ('active', 'paused') AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.scheduled_transfers WHERE status IN ('active', 'paused') AND user_id = ${userId}`,
-  );
-  const onramps = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.ramp_onramps WHERE status = 'pending' AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.ramp_onramps WHERE status = 'pending' AND user_id = ${userId}`,
-  );
-  const offramps = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.ramp_offramps WHERE status = 'pending' AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.ramp_offramps WHERE status = 'pending' AND user_id = ${userId}`,
-  );
-  const customerRamps = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.customer_onramps WHERE status = 'pending_payment' AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.customer_onramps WHERE status = 'pending_payment' AND user_id = ${userId}`,
-  );
-  const earn = await nOf(
-    both
-      ? sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.earn_positions WHERE status IN ('pending', 'active') AND (user_id = ${userId} OR user_id = ANY(${subs}::text[]))`
-      : sql<
-          { n: number }[]
-        >`SELECT count(*)::int AS n FROM bank.earn_positions WHERE status IN ('pending', 'active') AND user_id = ${userId}`,
-  );
+  // user_id values whose rows count: the main account unless the question is about sub-accounts only.
+  const ids = input.scope === 'sub_accounts' ? subs : [input.userId, ...subs];
+  const count = (table: string, statuses: string[]) =>
+    nOf(
+      sql<
+        { n: number }[]
+      >`SELECT count(*)::int AS n FROM ${sql(`bank.${table}`)} WHERE status IN ${sql(statuses)} AND user_id = ANY(${ids}::text[])`,
+    );
+  const loans = await count('loans', ['pending', 'active', 'margin_call', 'liquidating']);
+  const cards = await count('cards', ['active', 'frozen']);
+  const schedules = await count('scheduled_transfers', ['active', 'paused']);
+  const onramps = await count('ramp_onramps', ['pending']);
+  const offramps = await count('ramp_offramps', ['pending']);
+  const customerRamps = await count('customer_onramps', ['pending_payment']);
+  const earn = await count('earn_positions', ['pending', 'active']);
   const blockers: ClosureBlocker[] = [];
   if (balances.length > 0) blockers.push({ code: 'balance_remaining', count: balances.length });
   push(blockers, 'open_loan', loans);

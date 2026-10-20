@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { ComplianceLive } from '@/components/compliance-live';
@@ -15,6 +16,9 @@ export default async function JurisdictionPage() {
   const initial = await loadCompliance();
   return (
     <div className="adm-stack">
+      <p>
+        <Link href="/compliance/cases">Compliance cases</Link>
+      </p>
       <ComplianceLive initial={initial} />
       <JurisdictionBoard />
     </div>

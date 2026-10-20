@@ -59,6 +59,8 @@ import {
 import { createAlertRulesRouter } from './alerts/router.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
+import { createComplianceRouter } from './compliance/router.js';
+import type { ComplianceStore } from './compliance/store.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
@@ -202,6 +204,8 @@ export interface OperatorDeskConfig {
   readonly alertState?: AlertStateStore;
   /** Protocol pool hide and market delist (D-order-controls-04). Absent means every call refuses `ops.protocol_listing_storage_unconfigured`. */
   readonly protocolListing?: ListingDesk;
+  /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
+  readonly compliance?: ComplianceStore;
 }
 
 export function createOpsRouter(
@@ -693,6 +697,8 @@ export function createOpsRouter(
     protocolListing: createProtocolListingRouter(desks.protocolListing),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
+
+    compliance: createComplianceRouter(desks.compliance, now),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

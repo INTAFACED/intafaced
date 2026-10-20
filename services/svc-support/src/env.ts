@@ -52,6 +52,13 @@ const schema = serviceEnvSchema
             .filter(Boolean),
         )
         .pipe(z.array(z.enum(['agent', 'lead']))),
+      /**
+       * Seconds between passes that scan again the attachments a crash or a scanner outage left held, and how many one
+       * pass takes. Both are owner values: while either is blank no pass runs, held files wait for the owner's retry, and
+       * the desk says so. Never defaulted.
+       */
+      SUPPORT_ATTACHMENT_RESCAN_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_ATTACHMENT_RESCAN_BATCH: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );

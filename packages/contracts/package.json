@@ -50,6 +50,10 @@
       "types": "./dist/quant-disclosure.d.ts",
       "default": "./dist/quant-disclosure.js"
     },
+    "./support-attachments": {
+      "types": "./dist/support-attachments.d.ts",
+      "default": "./dist/support-attachments.js"
+    },
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"

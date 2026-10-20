@@ -67,6 +67,15 @@ export type RefusalKind =
   | 'eligibilityUnset'
   | 'chartRange'
   | 'algoSchedulerOff'
+  | 'globalOff'
+  | 'globalNoRate'
+  | 'globalPurpose'
+  | 'globalSource'
+  | 'globalReference'
+  | 'globalRecipientInvalid'
+  | 'globalPayoutRefused'
+  | 'globalCorridorUnknown'
+  | 'globalDetailsMissing'
   | 'unknown';
 
 /** Exact codes first. */
@@ -190,6 +199,30 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.eligibility_unset': 'eligibilityUnset',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
+  'bank.global_corridors_unset': 'globalOff',
+  'bank.global_corridors_unusable': 'globalOff',
+  'bank.global_payout_unset': 'globalOff',
+  'bank.global_payout_unusable': 'globalOff',
+  'bank.global_fx_unusable': 'globalOff',
+  'bank.global_travel_rule_undecided': 'globalOff',
+  'bank.send_field_rules_unset': 'globalOff',
+  'bank.reference_rules_unset': 'globalOff',
+  'bank.global_fx_unset': 'globalNoRate',
+  'bank.global_quote_expired': 'quoteExpired',
+  'bank.send_purpose_required': 'globalPurpose',
+  'bank.source_of_funds_required': 'globalSource',
+  'bank.reference_too_long': 'globalReference',
+  'bank.global_account_format_invalid': 'globalRecipientInvalid',
+  'bank.global_bic_format_invalid': 'globalRecipientInvalid',
+  'bank.global_payout_refused': 'globalPayoutRefused',
+  'bank.global_corridor_unknown': 'globalCorridorUnknown',
+  'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
+  'bank.global_insufficient_funds': 'insufficient',
+  'bank.global_outcome_unknown': 'tryAgain',
+  'bank.global_conflict': 'duplicate',
+  'bank.global_not_found': 'notFound',
+  'bank.global_recipient_not_found': 'notFound',
+  'bank.global_space_not_found': 'notFound',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',

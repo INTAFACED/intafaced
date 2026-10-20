@@ -983,6 +983,20 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       epoch: 0,
       resolvedAt: ts(),
     },
+    coreOpsComplianceCaseCreated: {
+      caseId: 'case-1',
+      inboxId: 'inbox-1',
+      kind: 'manual',
+      subjectId: 'subject-1',
+      createdAt: ts(),
+    },
+    coreOpsComplianceInboxUpdated: {
+      inboxId: 'inbox-1',
+      version: 1,
+      change: 'defined',
+      actor: 'operator-1',
+      changedAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),

@@ -37,7 +37,7 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 
 Hiding needs a reason code from `OPS_PROTOCOL_REASON_CODES` (comma separated, owner-published). Blank refuses `owner.decision`; a code outside the list refuses `protocol.ops_reason_code_unknown`; both refuse before the approval is spent. `pools.list` and `markets.list` (`admin:read`) show every decided target with who approved it and under which policy version.
 
-`protocolListing.hidden` is the public read svc-protocol and svc-dex use: pools by chain and address and markets by symbol, no reason and no signer, with `asOf`. Without `DATABASE_URL` and `OPS_DATABASE_POOL_MAX` every call refuses `ops.protocol_listing_storage_unconfigured`, so a reader never takes an unreadable list for an empty one. Decisions are append-only rows in `ops.protocol_listing_decisions`; the current state is `ops.protocol_listing_overrides`. The rollback `0010_protocol_listing.down.sql` refuses while any decision exists.
+`protocolListing.hidden` is the public read svc-protocol and svc-dex use: pools by chain and address and markets by symbol, no reason and no signer, with `asOf`. Without `DATABASE_URL` and `OPS_DATABASE_POOL_MAX` every call refuses `ops.protocol_listing_storage_unconfigured`, so a reader never takes an unreadable list for an empty one. Decisions are append-only rows in `ops.protocol_listing_decisions`; the current state is `ops.protocol_listing_overrides`. The rollback `0011_protocol_listing.down.sql` refuses while any decision exists.
 
 ## Joint-restore stamps
 

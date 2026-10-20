@@ -1,5 +1,5 @@
 -- Protocol listing overrides for the Protocol ops desk (D-order-controls-04).
--- Reversal: 0010_protocol_listing.down.sql
+-- Reversal: 0011_protocol_listing.down.sql
 --
 -- A hide or delist is a LISTING decision, not an on-chain pause: pools have no admin and no pause by design. These
 -- tables say which pool or market INTAFACED does not list, who signed it and under which policy. They hold no balance

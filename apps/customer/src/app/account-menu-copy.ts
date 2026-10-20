@@ -21,7 +21,6 @@ const en = {
   businessGone: 'That business is not one of your accounts, so Personal is shown.',
   chip: 'Business: {name}',
   chipLabel: 'Profile in view',
-  language: 'Language',
   theme: 'Theme',
   themeDark: 'Dark',
   themeLight: 'Light',
