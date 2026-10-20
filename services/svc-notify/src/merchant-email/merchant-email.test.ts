@@ -52,7 +52,7 @@ const dispute = (over: Partial<Extract<MerchantPayEvent, { name: 'dispute_due' }
   eventId: 'evt-dispute-1',
   recipientUserId: USER,
   disputeId: 'dsp-1',
-  responseDueAt: '2026-10-20T00:00:00.000Z',
+  responseDueAt: new Date(Date.now() + 86_400_000).toISOString(),
   ...over,
 });
 
@@ -61,7 +61,7 @@ const invite = (over: Partial<Extract<MerchantPayEvent, { name: 'invited' }>> = 
   eventId: 'evt-invite-1',
   recipientUserId: USER,
   role: 'finance',
-  expiresAt: '2026-10-20T00:00:00.000Z',
+  expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
   inviteOpen: true,
   ...over,
 });
