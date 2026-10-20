@@ -11,7 +11,11 @@ import { z } from 'zod';
  * their target ids and idempotency keys so both founders sign the same thing.
  */
 
-export const PROTOCOL_OPS_TARGET_SERVICE = 'svc-protocol' as const;
+/**
+ * The hide, delist and restore writes are consumed by svc-ops, which holds identity's four-eyes role. The Protocol Plane
+ * holds no platform credential, so svc-protocol and svc-dex only READ the resulting hide list (`protocolOpsHiddenOutputSchema`).
+ */
+export const PROTOCOL_OPS_TARGET_SERVICE = 'svc-ops' as const;
 export const PROTOCOL_OPS_ACTIONS = [
   'protocol.pool.hide',
   'protocol.pool.restore',
@@ -161,6 +165,20 @@ export const protocolOpsPoolRestoreInputSchema = z
   .strict();
 export const protocolOpsMarketDelistInputSchema = z.object({ symbol, ...decisionFields }).strict();
 export const protocolOpsMarketRestoreInputSchema = z.object({ symbol, approvalId: decisionFields.approvalId }).strict();
+
+/**
+ * The public hide list: which pools and markets INTAFACED does not list. svc-dex drops them from routing and the default
+ * list, svc-protocol shows the "Hidden by INTAFACED" badge. It carries no reason text and no signer; those are the desk's.
+ * `asOf` lets a reader refuse a stale list rather than treat a missing entry as visible.
+ */
+export const protocolOpsHiddenOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    pools: z.array(z.object({ chainId, poolAddress: address }).strict()),
+    markets: z.array(z.object({ symbol }).strict()),
+  })
+  .strict();
+export type ProtocolOpsHiddenOutput = z.infer<typeof protocolOpsHiddenOutputSchema>;
 
 /** `noop` is a second approval applied to a target already in that state: it returns the stored result with a note. */
 export const protocolOpsActionResultSchema = z
