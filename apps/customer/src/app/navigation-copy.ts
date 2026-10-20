@@ -335,6 +335,8 @@ const messages = {
   chain: 'chain',
   dex: 'dex',
   protocol: 'protocol',
+  wallet: 'wallet',
+  'Your wallet and its activity': 'Your wallet and its activity',
 } as const;
 
 export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.navigation', messages, {
