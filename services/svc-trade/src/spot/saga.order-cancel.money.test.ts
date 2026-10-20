@@ -23,7 +23,7 @@ import {
   publishTestCreditLimits,
   resetAndListMarket,
   tradeOver,
-} from './saga.trade-fixture.js';
+} from './saga-trade-fixture-test.js';
 
 let db: TestDatabase | undefined;
 let stop: () => Promise<void> = async () => undefined;
