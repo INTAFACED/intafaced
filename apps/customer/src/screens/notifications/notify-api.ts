@@ -126,6 +126,41 @@ export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean
   );
 }
 
+export const CATEGORY_IDS = ['security', 'orders', 'price_alerts', 'promotions', 'news', 'status'] as const;
+export type CategoryId = (typeof CATEGORY_IDS)[number];
+export const CATEGORY_CHANNELS = ['in_app', 'email', 'push', 'sms'] as const;
+export type CategoryChannel = (typeof CATEGORY_CHANNELS)[number];
+const categoryRowSchema = z.object({
+  category: z.enum(CATEGORY_IDS),
+  channel: z.enum(CATEGORY_CHANNELS),
+  enabled: z.boolean(),
+  /** The service keeps this cell on whatever is written (security and account-risk updates). */
+  locked: z.boolean(),
+  /** The platform can send on this channel at all. */
+  configured: z.boolean(),
+  /** Why the channel cannot send, when it was never connected (`vendor.email`, `vendor.push`, `vendor.sms`). */
+  notConnected: z.enum(['vendor.email', 'vendor.push', 'vendor.sms']).nullable(),
+});
+export type CategoryPrefRow = z.infer<typeof categoryRowSchema>;
+const categoryRowsSchema = z.array(categoryRowSchema).max(64);
+
+/** `notify.categoryPrefs`: one row per category and channel for the signed-in person. */
+export const categoryPrefs = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<CategoryPrefRow[]>> =>
+  api.query('notify', 'notify.categoryPrefs', undefined, categoryRowsSchema, { signal });
+
+/** `notify.setCategoryPref`: the service answers with every row, and `locked: true` when the cell cannot be changed. */
+export function setCategoryPref(
+  api: ApiClient,
+  cell: { category: CategoryId; channel: CategoryChannel; enabled: boolean },
+): Promise<ApiResult<{ rows: CategoryPrefRow[]; locked: boolean }>> {
+  return api.mutate(
+    'notify',
+    'notify.setCategoryPref',
+    { ...cell, clientRequestId: `catpref:${cell.category}:${cell.channel}:${cell.enabled}:${crypto.randomUUID()}` },
+    z.object({ rows: categoryRowsSchema, locked: z.boolean() }),
+  );
+}
+
 /** An out-of-app channel the service can really send through today. */
 export function availableChannels(rows: readonly ChannelRow[]): OutOfAppChannel[] {
   return rows
