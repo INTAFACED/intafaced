@@ -585,6 +585,12 @@ export default function Portfolio() {
         {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}
+        {isHiddenPath('/money/pnl') ? null : (
+          <a className="money-pnl-link" href="/money/pnl">
+            <span>{t('Profit and loss')}</span>
+            <span className="money-pnl-link__hint">{t('Profit and loss hint')}</span>
+          </a>
+        )}
       </>
     );
   }

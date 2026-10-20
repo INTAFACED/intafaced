@@ -342,6 +342,14 @@ test('an older bank without the summary: falls back to the data layer and shows 
   await snap(page, 'portfolio-fallback-1440x900');
 });
 
+test('the portfolio links to the profit and loss room', async ({ page }) => {
+  await mock(page, {});
+  await open(page);
+  const link = page.locator('a.money-pnl-link');
+  await expect(link).toContainText('Profit and loss');
+  await expect(link).toHaveAttribute('href', '/money/pnl');
+});
+
 test('a dropped bank connection also falls back', async ({ page }) => {
   await mock(page, { bank: { 'portfolio.summary': 'error' } });
   await open(page);

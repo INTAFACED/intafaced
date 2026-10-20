@@ -29,6 +29,7 @@ import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
+import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
 import { withEdgeSpan } from './tracing.js';
 import { userCopy } from './user-copy.js';
@@ -173,6 +174,9 @@ const keyQuota = createQuotaStore();
 
 const edgeEd25519 = edgeEd25519Config(env);
 
+// The edge's own service key (S2S v3). Unset S2S_AUTH_MODE leaves every call exactly as it was.
+const edgeS2s = edgeS2sFromEnv(env);
+
 const tokenConfig = {
   secret: env.JWT_ACCESS_SECRET,
   issuer: env.JWT_ISSUER,
@@ -194,6 +198,7 @@ const sessionLive = async (principal: Principal) => {
       await readEdgeAuthority(principal, {
         identityUrl: env.IDENTITY_URL,
         identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+        s2s: edgeS2s,
         timeoutMs: env.EDGE_AUTHORITY_STRICT_TIMEOUT_MS,
         positiveCacheMs: authorityPositiveCacheMs,
       })
@@ -319,7 +324,8 @@ registerMatchingOperatorRoutes(app, {
   tokens: tokenConfig,
   authenticateWrite: (header) => admin.authenticate(header),
   sessionLive,
-  matching: matchingUrl && matchingSecret ? httpMatchingControl(matchingUrl, matchingSecret, env.UPSTREAM_TIMEOUT_MS) : null,
+  matching:
+    matchingUrl && matchingSecret ? httpMatchingControl(matchingUrl, matchingSecret, env.UPSTREAM_TIMEOUT_MS, undefined, edgeS2s) : null,
   blocked: !matchingUrl
     ? { code: 'matching_unconfigured', key: 'MATCHING_URL' }
     : !matchingSecret
@@ -412,6 +418,7 @@ await app.register(async (api) => {
       identityUrl: env.IDENTITY_URL,
       // Dedicated current identity read. Missing key refuses authenticated forwarding.
       identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+      s2s: edgeS2s,
       // Server-resolved hop (trust-proxy / socket). Never a client-supplied
       // x-forwarded-for — principal-exchange strips those and writes this.
       clientIp: req.ip,
@@ -486,7 +493,14 @@ await app.register(async (api) => {
     }
 
     const body = upstreamBody(req.method, req.body);
-    const upstreamHeaders = prepareUpstreamRequestHeaders(url.pathname, exchanged.headers);
+    const upstreamUrl = `${resolved.base}${target.path}${url.search}`;
+    // With the edge's own key, the key signature covers this exact forward; otherwise the headers are untouched.
+    const upstreamHeaders = signProxyHeaders(edgeS2s, target.upstream.module, {
+      method: req.method,
+      url: upstreamUrl,
+      headers: prepareUpstreamRequestHeaders(url.pathname, exchanged.headers),
+      body,
+    });
 
     return withEdgeSpan(
       'edge.proxy',
@@ -506,7 +520,7 @@ await app.register(async (api) => {
             ...(body === undefined ? {} : { body }),
             signal: AbortSignal.timeout(env.UPSTREAM_TIMEOUT_MS),
           };
-          response = await fetch(`${resolved.base}${target.path}${url.search}`, request);
+          response = await fetch(upstreamUrl, request);
         } catch (err) {
           // 502, not 500: the edge is fine, the upstream is not, and a caller
           // needs to tell those apart before deciding whether to retry.

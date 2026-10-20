@@ -57,7 +57,17 @@ export function createIdentityApprovalClient(opts: IdentityApprovalClientOptions
         const detail = await res.text().catch(() => '');
         throw opts.fail(`identity refused consume (${res.status}) ${detail}`.trim(), ACTION_APPROVAL_CONSUME_FAILED);
       }
-      const approval = actionApprovalSchema.parse(unwrapTrpcData(await res.json()));
+      let raw: unknown;
+      try {
+        raw = unwrapTrpcData(await res.json());
+      } catch {
+        throw opts.fail('identity consume result is not JSON', ACTION_APPROVAL_CONSUME_FAILED);
+      }
+      const checked = actionApprovalSchema.safeParse(raw);
+      if (!checked.success) {
+        throw opts.fail('identity consume result is not an action approval', ACTION_APPROVAL_CONSUME_FAILED);
+      }
+      const approval = checked.data;
       if (
         approval.status !== 'CONSUMED' ||
         approval.approvalId !== parsed.approvalId ||

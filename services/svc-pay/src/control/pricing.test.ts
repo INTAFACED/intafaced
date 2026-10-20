@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAmount as f, parseAmount as a } from '@intafaced/ledger-client';
 import { assertValidRule, computePricing, computeReserve, PricingConfigError, resolvePricingRule, type PricingRule } from './pricing.js';
+import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 import { payoutPayloadHash } from './approval-gate.js';
 import { MerchantControlsModeError, parseMerchantControlsMode } from './mode.js';
 
@@ -93,6 +94,14 @@ describe('pricing engine: golden values', () => {
       ),
     ).toThrow(/ascending/);
     expect(() => assertValidRule(rule({ minFee: a('2'), maxFee: a('1') }))).toThrow(/minFee/);
+  });
+
+  it('a 100% band is refused like every other merchant fee: it would net each settlement window to zero', () => {
+    const band = (feeBps: number) => rule({ bands: [{ fromAmount: 0n, feeBps, flatFee: null }] });
+    expect(() => assertValidRule(band(MAX_FEE_BPS))).not.toThrow();
+    expect(() => assertValidRule(band(MAX_FEE_BPS + 1))).toThrow(/0\.\.9999/);
+    expect(() => assertValidRule(band(10_000))).toThrow(PricingConfigError);
+    expect(() => computePricing(band(10_000), { amount: a('1'), monthlyVolumeBefore: 0n })).toThrow(PricingConfigError);
   });
 });
 

@@ -247,6 +247,12 @@ const auth = new AuthService(
   env.REFRESH_REUSE_GRACE_SECONDS,
   env.REFRESH_RECOVERY_SECONDS,
 );
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-identity');
+/** The same keys on the inbound doors: a key-signed caller is named by its own key. */
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
+/** Own-key signing for the outgoing calls; undefined leaves them on the shared secret. */
+const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 if (env.PAY_URL) {
   const payUrl = env.PAY_URL;
   auth.useOwnerPayScopeSource(async (userId) => {
@@ -256,6 +262,7 @@ if (env.PAY_URL) {
       secret: env.INTERNAL_SERVICE_SECRET,
       userId,
       ...(user ? { user } : {}),
+      ...(outS2s ? { s2s: outS2s } : {}),
     });
   });
   auth.usePayStepUpRoleSource(async ({ userId, merchantId }) => {
@@ -264,6 +271,7 @@ if (env.PAY_URL) {
       secret: env.INTERNAL_SERVICE_SECRET,
       userId,
       merchantId,
+      ...(outS2s ? { s2s: outS2s } : {}),
     });
     return {
       refundsCreate: grant.permissions['refunds.create'] === true,
@@ -283,7 +291,7 @@ const mail = openIdentityMail({
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 if (env.PAY_URL) {
-  auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET));
+  auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, fetch, outS2s));
 }
 auth.useEmailConfirmation({
   mail,
@@ -315,17 +323,7 @@ const dmaHierarchyLaw = parseDmaHierarchyLawJson(env.IDENTITY_DMA_HIERARCHY_LAW_
  * Absent (non-compose / omitted) → payout refuses `affiliate.payout.ledger_unwired`
  * rather than reporting a payment it could not make. No localhost default.
  */
-// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger call on the shared secret alone.
-const s2s = s2sFromEnv(env, 'svc-identity');
-/** The same keys on the inbound doors: a key-signed caller is named by its own key. */
-const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
-const ledger = env.LEDGER_URL
-  ? createLedgerClient(
-      env.LEDGER_URL,
-      env.INTERNAL_SERVICE_SECRET,
-      s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
-    )
-  : undefined;
+const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s) : undefined;
 
 /**
  * §10 KYC encrypted vault. Unset IDENTITY_KYC_DOC_KEY → vault null (procedures
@@ -401,9 +399,21 @@ const closure = new AccountClosureService({
   enabled: env.IDENTITY_ACCOUNT_CLOSE_ENABLED,
   coolingOffDays: env.IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS,
   founderUserIds: founderPair ?? [],
-  bank: httpClosureChecker({ url: env.IDENTITY_CLOSURE_BANK_URL, secret: closureSecret }),
-  trade: httpClosureChecker({ url: env.IDENTITY_CLOSURE_TRADE_URL, secret: closureSecret }),
-  p2p: httpClosureChecker({ url: env.IDENTITY_CLOSURE_P2P_URL, secret: closureSecret }),
+  bank: httpClosureChecker({
+    url: env.IDENTITY_CLOSURE_BANK_URL,
+    secret: closureSecret,
+    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
+  }),
+  trade: httpClosureChecker({
+    url: env.IDENTITY_CLOSURE_TRADE_URL,
+    secret: closureSecret,
+    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
+  }),
+  p2p: httpClosureChecker({
+    url: env.IDENTITY_CLOSURE_P2P_URL,
+    secret: closureSecret,
+    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-p2p' } } : {}),
+  }),
   now: () => new Date(),
 });
 account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId));

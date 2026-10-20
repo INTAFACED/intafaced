@@ -4,7 +4,8 @@
  * Consume GET /internal/account/:userId — no second store. Never invent active.
  */
 
-import { accountStateSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountStateSchema } from '@intafaced/contracts';
+import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { assertUserNotFrozen, KeyUserStatusError, optionalUserStatus } from './api-key-user-status.js';
 
 export { KeyUserStatusError };
@@ -33,6 +34,8 @@ export interface LoadAccountStatusOptions {
   readonly identityUrl: string;
   readonly userId: string;
   readonly identityOwnershipSecret: string;
+  /** The edge's own key. Absent leaves the call on `identityOwnershipSecret` alone. */
+  readonly s2s?: EdgeS2s | undefined;
   readonly fetch?: typeof globalThis.fetch;
 }
 
@@ -48,10 +51,11 @@ export async function assertIdentityUserActive(options: LoadAccountStatusOptions
   }
   const base = options.identityUrl.replace(/\/+$/, '');
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const headers = serviceAuthHeadersForBody('svc-edge', options.identityOwnershipSecret, '');
+  const target = `${base}/internal/account/${encodeURIComponent(id)}`;
+  const headers = identityCallHeaders(options.identityOwnershipSecret, options.s2s, { method: 'GET', target, body: '', contentType: '' });
   let response: Response;
   try {
-    response = await fetchFn(`${base}/internal/account/${encodeURIComponent(id)}`, {
+    response = await fetchFn(target, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(5_000),
