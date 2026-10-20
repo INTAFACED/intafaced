@@ -106,6 +106,14 @@ row. `ticket_lifecycle` (beside the ticket) keeps who it waits on, when the firs
 staff read it with `ticketLifecycle`. These facts are written just after the ticket write, so a crash
 between the two leaves them stale until the next reply or status change.
 
+Ratings: the owner rates a resolved or closed request once (`rate`, replay safe). `ratingSummary`
+(`support:ops`) takes a stated window `[from, to)` with no default and covers the requests resolved or
+closed now whose last change falls in it: solved count, responses, count per score 1 to 5 and the rated
+share in basis points (null with nothing solved, so the screen shows no percentage). With no ratings it
+returns zero responses and the screen shows no average. A window that does not start before it ends
+refuses `support.rating_window_invalid`. The emailed rating request waits on the mail path
+(`vendor.email`); the in-app prompt does not.
+
 ## Migrations
 
 ```bash
