@@ -204,6 +204,23 @@ export class AccountClosureService {
     throw new ClosureError('identity.close_nothing_open');
   }
 
+  /**
+   * What still stands in the way, read now: the same checks `request` runs, without spending a step-up or writing anything.
+   * An unreadable money service refuses (`close_check_unavailable`), never an empty list.
+   */
+  async check(input: {
+    userId: string;
+    apiKey: boolean;
+    subAccount: boolean;
+  }): Promise<{ blockers: ClosureBlocker[]; balances: ClosureBalance[] }> {
+    this.assertSession(input);
+    this.assertEnabled();
+    await this.assertAccountMayClose(input.userId);
+    const checks = await this.checksFor(input.userId);
+    if (!checks.ok) throw new ClosureError('identity.close_check_unavailable');
+    return { blockers: checks.blockers, balances: checks.balances };
+  }
+
   async status(userId: string): Promise<ClosureView | null> {
     const rows = await this.deps.sql<Row[]>`
       SELECT id, user_id, status, requested_at, effective_at, finalized_at, blockers, client_request_id
