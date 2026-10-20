@@ -32,6 +32,11 @@
  *   R-parse   hand-rolled decimal parsers (`.padEnd(n, '0')`) outside packages/ledger-client.
  *   R-fetch   service files that call `fetch(` and never set a timeout or signal.
  *
+ * Known limits (a regex scan, not a parser): a SQL string built by concatenation, a second table after a comma in FROM,
+ * a key made by destructuring, a default parameter, a reassigned variable or a function other than randomUUID, Date.now and
+ * Math.random, an arrow-function LedgerClient factory, and a file path held in a variable are not seen. The Sonnet and
+ * Opus reviews on each PR are the second line for those.
+ *
  * Known exceptions live in `tooling/ci/boundary-allow.json`, each with a written reason. An entry that no longer
  * matches anything fails, so the list can only shrink.
  *
@@ -101,7 +106,8 @@ export function keyExpression(code, from) {
   i += 1;
   const start = i;
   let depth = 0;
-  for (; i < code.length; i += 1) {
+  const end = Math.min(code.length, start + 2000);
+  for (; i < end; i += 1) {
     const c = code[i];
     if (c === '`') {
       for (i += 1; i < code.length && code[i] !== '`'; i += 1) if (code[i] === '\\') i += 1;
@@ -138,8 +144,12 @@ export function checkSource(text, ctx, schemas) {
   if (ctx.group === 'services' || ctx.group === 'packages') {
     const own = ctx.service ? schemaOf(ctx.service) : null;
     // Read the whole text, not only sql`...`: generic tags (sql<T>`...`), tx`...`, .unsafe('...') and plain strings all count.
-    for (const q of code.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+"?([a-z_]+)"?\."?[a-z_]+"?(?![a-z_"(])/gi)) {
-      const schema = q[1].toLowerCase();
+    // After FROM or JOIN a trailing `(` is a function call (prose like `ledger.balance(x)`); after INTO, UPDATE or
+    // TRUNCATE it is a column list (`INSERT INTO trade.orders(id)`), so only the first pair excludes it.
+    const TABLE =
+      /\b(?:FROM|JOIN)\s+"?([a-z_]+)"?\."?[a-z_]+"?(?![a-z_"(])|\b(?:INTO|UPDATE|TRUNCATE(?:\s+TABLE)?)\s+"?([a-z_]+)"?\."?[a-z_]+"?(?![a-z_"])/gi;
+    for (const q of code.matchAll(TABLE)) {
+      const schema = (q[1] ?? q[2]).toLowerCase();
       if (schema !== own && schemas.includes(schema)) add('B-sql', `queries ${schema}.* from ${ctx.service ?? ctx.rel}`);
     }
     // A package or service reading another service's files from disk (honesty checks, doc scrapers) is a hidden dependency.
@@ -155,7 +165,7 @@ export function checkSource(text, ctx, schemas) {
   const sharedClient = /\b(?:createHttpLedgerClient|createLedgerTransport)\b/.test(code);
   if (!ledgerOwner && ctx.group !== 'apps') {
     // A ledger entry carries `direction: 'debit'|'credit'`. A type union (`direction: 'debit' | 'credit'`) is not a value.
-    if (/\bdirection\s*:\s*['"`](?:debit|credit)['"`](?!\s*\|)/.test(code))
+    if (/\bentries\s*:\s*\[[^\]]{0,300}?\bdirection\s*:/.test(code) || /\bdirection\s*:\s*['"`](?:debit|credit)['"`](?!\s*\|)/.test(code))
       add('M-entries', 'builds a ledger entry (direction debit/credit) inline');
   }
   if (!ledgerOwner) {
@@ -176,8 +186,17 @@ export function checkSource(text, ctx, schemas) {
       at: d.index,
       random: RANDOM.test(d[2]),
     }));
+    const byName = new Map();
+    for (const d of decls) byName.set(d.name, [...(byName.get(d.name) ?? []), d]);
     const taintedAt = (name, at) => {
-      const last = decls.filter((d) => d.name === name && d.at < at).pop();
+      const list = byName.get(name) ?? [];
+      let last;
+      for (let k = list.length - 1; k >= 0; k -= 1) {
+        if (list[k].at < at) {
+          last = list[k];
+          break;
+        }
+      }
       return Boolean(last && last.random && at - last.at < 4000);
     };
     for (const m of code.matchAll(/\bidempotencyKey\b/g)) {
@@ -192,13 +211,18 @@ export function checkSource(text, ctx, schemas) {
 }
 
 /** Column names that look like a service keeping its own money: balance, available, held, locked, reserved, used, refunded. */
-const MONEY_NAME = '(?:[a-z_]*_)?(?:balance|available|held|locked|reserved|used|refunded)(?:_[a-z_]*)?|hold_amount|margin_current';
+const MONEY_NAME =
+  '[a-z_]*(?:balance|available)[a-z_]*|(?:[a-z_]*_)?(?:held|locked|reserved|used|refunded)(?:_[a-z_]*)?|hold_amount|margin_current';
 const MONEY_NOT = /_(?:count|at|id|seq|bps|ratio|pct)$/;
-const COLUMN_TYPE = '(?:numeric|bigint|integer|decimal|text)\\b';
+const COLUMN_TYPE =
+  '(?:numeric|bigint|integer|int|int4|int8|smallint|decimal|money|real|float4|float8|double\\s+precision|varchar|text)\\b';
 // `"name" numeric(...)` at the start of a line, or `ADD COLUMN [IF NOT EXISTS] name numeric` anywhere.
 const BALANCE_COLUMN = new RegExp(`(?:^\\s*|\\bADD\\s+COLUMN\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?)"?(${MONEY_NAME})"?\\s+${COLUMN_TYPE}`, 'i');
 // drizzle: numeric('balance', ...) / bigint("held", ...)
-const SCHEMA_COLUMN = new RegExp(`\\b(?:numeric|bigint|integer|decimal|text)\\(\\s*['"](${MONEY_NAME})['"]`, 'gi');
+const SCHEMA_COLUMN = new RegExp(
+  '\\b(?:numeric|bigint|integer|decimal|text|real|varchar|smallint|doublePrecision)\\(\\s*[\'"`](' + MONEY_NAME + ')[\'"`]',
+  'gi',
+);
 
 export function checkMigration(text, ctx) {
   const out = [];
@@ -501,6 +525,22 @@ function selfTest() {
     0,
     'diamond is not a cycle',
   );
+  // Second review round: forms the first version of this round lost or never saw.
+  eq(t('await sql`INSERT INTO trade.orders(id, amount) VALUES (1, 2)`'), ['B-sql'], 'INSERT INTO with no space before the column list');
+  eq(t('await sql`TRUNCATE trade.orders`'), ['B-sql'], 'TRUNCATE other schema');
+  eq(t('post({ entries:[{ account: a, direction: row.dir, amount }] });'), ['M-entries'], 'entries with a variable direction');
+  eq(
+    t("const DEBIT = 'debit';\npost({ entries: [{ account: a, direction: DEBIT }] });"),
+    ['M-entries'],
+    'entries with a constant direction',
+  );
+  eq(checkMigration('  balances numeric(38,18),', { rel: 'm.sql' }).length, 1, 'plural balance column');
+  eq(checkMigration('  availablebalance numeric,', { rel: 'm.sql' }).length, 1, 'run-together balance column');
+  eq(checkMigration('  available int8 NOT NULL,', { rel: 'm.sql' }).length, 1, 'int8 available column');
+  const big = 'idempotencyKey: '.repeat(20000);
+  const t0 = Date.now();
+  t(big);
+  if (Date.now() - t0 > 3000) throw new Error('an unterminated key expression made the scan slow');
   const f = { rule: 'B-deps', file: 'a/package.json', detail: 'devDependencies @intafaced/svc-x' };
   eq(applyAllow([f], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).open, [], 'allowed');
   eq(applyAllow([], [{ rule: 'B-deps', file: 'a/package.json', reason: 'r' }]).stale.length, 1, 'stale allow entry');
