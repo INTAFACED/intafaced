@@ -5,6 +5,8 @@ import {
   type ActionApprovalConsumeInput,
 } from './action-approval.js';
 import { serviceAuthHeadersForBody } from './service-auth.js';
+import { serviceCallSigner, type ServiceAuthMode } from './service-auth-http.js';
+import type { ServiceName, ServiceSigner } from './service-keys.js';
 
 /** tRPC HTTP is `{ result: { data } }`; superjson may wrap `{ json }`. */
 export function unwrapTrpcData(body: unknown): unknown {
@@ -27,6 +29,8 @@ export interface IdentityApprovalClientOptions {
   /** Builds the calling service's own error type. */
   readonly fail: (message: string, code: typeof ACTION_APPROVAL_CONSUME_FAILED) => Error;
   readonly timeoutMs?: number;
+  /** Present once the service has a signing key and S2S is on; absent keeps the call on the shared secret alone. */
+  readonly s2s?: { signer: ServiceSigner; mode: ServiceAuthMode } | undefined;
 }
 
 /**
@@ -40,16 +44,25 @@ export function createIdentityApprovalClient(opts: IdentityApprovalClientOptions
 } {
   const url = opts.baseUrl.replace(/\/$/, '');
   const timeoutMs = opts.timeoutMs ?? IDENTITY_CONSUME_TIMEOUT_MS;
+  const authHeadersFor = opts.s2s
+    ? serviceCallSigner({
+        service: opts.service as ServiceName,
+        audience: 'svc-identity',
+        legacySecret: opts.internalSecret,
+        s2s: opts.s2s,
+      })
+    : undefined;
   return {
     async consume(input) {
       const parsed = actionApprovalConsumeInputSchema.parse(input);
       const payload = JSON.stringify(parsed);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
+      const target = `${url}/trpc/actionApproval.consume`;
+      const authHeaders = authHeadersFor
+        ? authHeadersFor(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' })
+        : serviceAuthHeadersForBody(opts.service, opts.internalSecret, payload);
+      const res = await fetch(target, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody(opts.service, opts.internalSecret, payload),
-        },
+        headers: { 'content-type': 'application/json', ...authHeaders },
         body: payload,
         signal: AbortSignal.timeout(timeoutMs),
       });
