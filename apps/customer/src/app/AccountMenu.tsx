@@ -3,10 +3,11 @@ import { useId } from 'react';
 import { z } from 'zod';
 import { SegmentedControl } from '@intafaced/ui';
 import { fetchMe, meSchema } from '../data/identity';
+import { useAccountViewStatus } from '../features/account/ViewSync';
 import { verificationStatus } from '../features/account/verification-guards';
 import { useSession } from '../features/session/session';
 import { PERSONAL_PROFILE } from '../features/session/profiles';
-import { uiLocaleDescriptor } from '../shared/locale';
+import { LanguageMenu } from '../shared/LanguageMenu';
 import { savePreferences, useResolvedTheme, usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
 import { accountMenuCopy } from './account-menu-copy';
@@ -152,7 +153,8 @@ function ModeRow() {
 /** The contents of the account menu, in the order of the navigation spec (IA-SPEC 1.7). Mounted only while the menu is open. */
 export function AccountMenuBody({ close, onSignOut }: { close: () => void; onSignOut: () => void }) {
   const { t } = accountMenuCopy.useCopy();
-  const { language, theme } = usePreferences();
+  const { theme } = usePreferences();
+  const status = useAccountViewStatus();
   const id = useId();
   const row = (href: string, label: string, value?: string) => (
     <li>
@@ -173,7 +175,9 @@ export function AccountMenuBody({ close, onSignOut }: { close: () => void; onSig
       <Profiles close={close} />
       <li className="tb-account-divider" role="separator" />
       {isFeatureLive('pro-mode-switch') && <ModeRow />}
-      {row('/view', t('language'), uiLocaleDescriptor(language).englishName)}
+      <li className="tb-account-language">
+        <LanguageMenu keptIn={status === 'not-saved' ? 'not-saved' : 'account'} onSelect={(next) => savePreferences({ language: next })} />
+      </li>
       {row('/view', t('theme'), t(drawn === 'light' ? 'themeLight' : 'themeDark'))}
       <li className="tb-account-divider" role="separator" />
       {row('/uc/account', t('account'))}
