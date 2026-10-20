@@ -253,8 +253,8 @@ describe('ADL pairs at the bankruptcy price (PG-hard)', () => {
     await sql`
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price, band_low, band_high,
-        leverage, hold_asset, hold_amount, status
-      ) VALUES (${orderId}, ${CAROL}, ${MARKET}, 'pending-fill', 'sell', 'limit', '1', '50000', '50000', '49000', '51000', '5', 'USDT', '10000', 'open')
+        leverage, hold_asset, status
+      ) VALUES (${orderId}, ${CAROL}, ${MARKET}, 'pending-fill', 'sell', 'limit', '1', '50000', '50000', '49000', '51000', '5', 'USDT', 'open')
     `;
     await sql`
       INSERT INTO trade.futures_order_fills (

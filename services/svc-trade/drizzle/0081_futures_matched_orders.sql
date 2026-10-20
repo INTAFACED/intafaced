@@ -2,8 +2,9 @@
 -- Reversal: 0081_futures_matched_orders.down.sql
 --
 -- docs/adr/2026-10-20-futures-matched-traders.md sections 1, 2 and 8. A row in trade.futures_orders is the
--- ORDER's margin book: the amount locked into the order's ledger hold at placement, the cumulative quantity and
--- adverse distance the next fill's margin is computed from, and what fills have already moved out of the hold.
+-- ORDER's margin book: the order's terms (the hold it locked is computed from them, never stored as a figure of
+-- its own), the cumulative quantity and adverse distance the next fill's margin is computed from, and what fills
+-- and releases have already moved out of the hold.
 -- A row in trade.futures_order_fills is an intent to post one futures.fill: it is written before the ledger
 -- call, under the key `<marketId>:<sequence>:<positionId>`, and it turns `applied` once the position row has
 -- caught up with the post. Neither table is spendable. The ledger hold `futures-order:<id>` and the position
@@ -22,7 +23,6 @@ CREATE TABLE IF NOT EXISTS "trade"."futures_orders" (
   "band_high"        numeric(38, 18) NOT NULL,
   "leverage"         numeric(8, 2)   NOT NULL,
   "hold_asset"       text            NOT NULL,
-  "hold_amount"      numeric(38, 18) NOT NULL,
   "filled_qty"       numeric(38, 18) NOT NULL DEFAULT 0,
   "adverse_num"      numeric(78, 0)  NOT NULL DEFAULT 0,
   "applied_amount"   numeric(38, 18) NOT NULL DEFAULT 0,
@@ -42,15 +42,11 @@ CREATE TABLE IF NOT EXISTS "trade"."futures_orders" (
   CONSTRAINT "futures_orders_price_ck" CHECK ("limit_price" > 0 AND "mark_price" > 0 AND "band_low" > 0),
   CONSTRAINT "futures_orders_band_ck" CHECK ("band_low" <= "mark_price" AND "mark_price" <= "band_high"),
   CONSTRAINT "futures_orders_leverage_ck" CHECK ("leverage" > 0),
-  CONSTRAINT "futures_orders_hold_ck" CHECK ("hold_amount" > 0),
   CONSTRAINT "futures_orders_filled_ck" CHECK ("filled_qty" >= 0 AND "filled_qty" <= "qty" AND "adverse_num" >= 0),
   CONSTRAINT "futures_orders_engine_filled_ck" CHECK (
     "engine_filled_qty" IS NULL OR ("engine_filled_qty" >= 0 AND "engine_filled_qty" <= "qty")
   ),
-  CONSTRAINT "futures_orders_applied_ck" CHECK (
-    "applied_amount" >= 0 AND "applied_amount" <= "hold_amount"
-    AND "released_amount" >= 0 AND "applied_amount" + "released_amount" <= "hold_amount"
-  ),
+  CONSTRAINT "futures_orders_applied_ck" CHECK ("applied_amount" >= 0 AND "released_amount" >= 0),
   CONSTRAINT "futures_orders_status_ck" CHECK (
     "status" IN ('pending', 'held', 'submitting', 'open', 'filled', 'cancelled', 'rejected', 'refused', 'submit_unknown')
   )

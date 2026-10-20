@@ -23,10 +23,10 @@
  * initial margin; a fill at a better price than its limit owes less than the hold, and the rest is released when
  * the order is finished.
  */
-import { parseAmount, type Amount } from '@intafaced/ledger-client';
+import { SCALE, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { initialMargin } from './initial-margin.js';
 
-export const SCALE = 10n ** 18n;
+export { SCALE };
 
 export type OrderSide = 'buy' | 'sell';
 

@@ -200,11 +200,10 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         filled_qty: string;
         applied_amount: string;
         released_amount: string;
-        hold_amount: string;
         refusal_code: string | null;
       }[]
     >`
-      SELECT status, filled_qty, applied_amount, released_amount, hold_amount, refusal_code FROM trade.futures_orders WHERE id = ${orderId}
+      SELECT status, filled_qty, applied_amount, released_amount, refusal_code FROM trade.futures_orders WHERE id = ${orderId}
     `;
     return row!;
   }
@@ -240,13 +239,34 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     }
     expect(long, 'long size equals short size in the market').toBe(short);
 
-    const orders = await sql<{ id: string; user_id: string; hold_amount: string; applied_amount: string; released_amount: string }[]>`
-      SELECT id, user_id, hold_amount, applied_amount, released_amount FROM trade.futures_orders WHERE market_id = ${MARKET}
+    const orders = await sql<
+      {
+        id: string;
+        user_id: string;
+        side: 'buy' | 'sell';
+        qty: string;
+        limit_price: string;
+        mark_price: string;
+        leverage: string;
+        applied_amount: string;
+        released_amount: string;
+      }[]
+    >`
+      SELECT id, user_id, side, qty, limit_price, mark_price, leverage, applied_amount, released_amount
+        FROM trade.futures_orders WHERE market_id = ${MARKET}
     `;
     for (const o of orders) {
       const held = await bal(futuresOrderMarginAccount(o.user_id, USDT, o.id));
+      // The hold an order locked is a function of its terms; nothing stores it as a figure.
+      const locked = orderHoldAmount({
+        side: o.side,
+        qty: parseAmount(o.qty),
+        limit: parseAmount(o.limit_price),
+        mark: parseAmount(o.mark_price),
+        leverage: parseAmount(o.leverage),
+      });
       expect(held, `hold of ${o.id} is what it locked less applied and released`).toBe(
-        parseAmount(o.hold_amount) - parseAmount(o.applied_amount) - parseAmount(o.released_amount),
+        locked - parseAmount(o.applied_amount) - parseAmount(o.released_amount),
       );
     }
   }

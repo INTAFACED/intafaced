@@ -833,8 +833,8 @@ describe('liquidation rungs (Postgres)', () => {
       await sql`
         INSERT INTO trade.futures_orders (
           id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price, band_low, band_high,
-          leverage, hold_asset, hold_amount, status
-        ) VALUES (${orderId}, ${pos!.user_id}, ${MARKET}, 'pending-fill', 'buy', 'limit', '1', '100', '100', '95', '105', '5', 'USDT', '20', 'open')
+          leverage, hold_asset, status
+        ) VALUES (${orderId}, ${pos!.user_id}, ${MARKET}, 'pending-fill', 'buy', 'limit', '1', '100', '100', '95', '105', '5', 'USDT', 'open')
       `;
       await sql`
         INSERT INTO trade.futures_order_fills (

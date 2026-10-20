@@ -174,7 +174,6 @@ interface OrderRow {
   band_high: string;
   leverage: string;
   hold_asset: string;
-  hold_amount: string;
   filled_qty: string;
   adverse_num: string;
   applied_amount: string;
@@ -214,6 +213,20 @@ interface MarketRow {
 const ORDER_TERMINAL = ['filled', 'cancelled', 'rejected'] as const;
 /** States in which the order may still be live at the engine, so a cancel must ask it. */
 const LIVE_OR_UNKNOWN = ['held', 'submitting', 'open', 'submit_unknown'] as const;
+
+/**
+ * The hold the order locked at placement, from its own terms. It is never stored as a figure: the ledger hold is
+ * the money, and these terms are what it was opened for.
+ */
+function holdOf(order: OrderRow): Amount {
+  return orderHoldAmount({
+    side: order.side,
+    qty: parseAmount(order.qty),
+    limit: parseAmount(order.limit_price),
+    mark: parseAmount(order.mark_price),
+    leverage: parseAmount(order.leverage),
+  });
+}
 
 /**
  * How much of the order the engine filled in all, or null while that is not known. A cancel or a cancellation
@@ -258,7 +271,7 @@ function presentOrder(row: OrderRow): MatchedOrderView {
     markPrice: formatAmount(parseAmount(row.mark_price)),
     bandLow: formatAmount(parseAmount(row.band_low)),
     bandHigh: formatAmount(parseAmount(row.band_high)),
-    holdAmount: formatAmount(parseAmount(row.hold_amount)),
+    holdAmount: formatAmount(holdOf(row)),
     filledQty: formatAmount(parseAmount(row.filled_qty)),
     appliedAmount: formatAmount(parseAmount(row.applied_amount)),
     releasedAmount: formatAmount(parseAmount(row.released_amount)),
@@ -400,12 +413,12 @@ export class MatchedFuturesOrders {
     const inserted = await this.deps.sql<{ id: string }[]>`
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
-        band_low, band_high, leverage, hold_asset, hold_amount, status
+        band_low, band_high, leverage, hold_asset, status
       ) VALUES (
         ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
         ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
         ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(input.leverage)},
-        ${market.quote_asset}, ${formatAmount(hold)}, 'pending'
+        ${market.quote_asset}, 'pending'
       )
       ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
       RETURNING id
@@ -447,7 +460,7 @@ export class MatchedFuturesOrders {
             orderId: row.id,
             userId: row.user_id,
             assetId: row.hold_asset,
-            amount: parseAmount(row.hold_amount),
+            amount: holdOf(row),
           }),
         );
       } catch (err) {
@@ -863,7 +876,7 @@ export class MatchedFuturesOrders {
       SELECT 1 AS n FROM trade.futures_order_fills WHERE order_id = ${orderId} AND state = 'pending' LIMIT 1
     `;
     if (pending) return;
-    const remainder = parseAmount(order.hold_amount) - parseAmount(order.applied_amount);
+    const remainder = holdOf(order) - parseAmount(order.applied_amount);
     if (remainder <= 0n) return;
     if (remainder === parseAmount(order.released_amount)) return;
     await this.deps.ledger.post(
