@@ -1,5 +1,5 @@
 /**
- * Migration 0086 (futures spread orders): the reversal refuses while money is in flight and drops the tables once it
+ * Migration 0087 (futures spread orders): the reversal refuses while money is in flight and drops the tables once it
  * is not. Its own database, so dropping tables cannot disturb any other suite.
  */
 import { randomUUID } from 'node:crypto';
@@ -16,8 +16,8 @@ const migrations = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
   .map((f) => readFileSync(join(drizzle, f), 'utf8'));
-const up = readFileSync(join(drizzle, '0086_futures_spread_orders.sql'), 'utf8');
-const down = readFileSync(join(drizzle, '0086_futures_spread_orders.down.sql'), 'utf8');
+const up = readFileSync(join(drizzle, '0087_futures_spread_orders.sql'), 'utf8');
+const down = readFileSync(join(drizzle, '0087_futures_spread_orders.down.sql'), 'utf8');
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -30,7 +30,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
-describe('0086 futures spread orders: reversal', () => {
+describe('0087 futures spread orders: reversal', () => {
   let stop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let sql: TestDatabase['sql'];

@@ -1,5 +1,5 @@
 -- trade.futures_spread_orders, trade.futures_spread_fills and trade.futures_spread_fill_waits · futures calendar spread orders through svc-matching's spread book (CB-otc-16)
--- Reversal: 0086_futures_spread_orders.down.sql
+-- Reversal: 0087_futures_spread_orders.down.sql
 --
 -- A spread order is ONE order at a signed spread price over exactly two futures legs. It takes ONE ledger hold
 -- (`futures.order.margin.hold:<id>`) in the quote asset both legs share. The hold is not stored as a figure: it is a
