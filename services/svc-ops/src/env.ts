@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PROTOCOL_OPS_REASON_CODE_PATTERN } from '@intafaced/contracts';
 import {
   baseEnvSchema,
   edgeEnvSchema,
@@ -16,7 +17,7 @@ import {
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
 
-const schema = baseEnvSchema
+export const opsEnvSchema = baseEnvSchema
   .merge(otelEnvSchema)
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
@@ -64,12 +65,26 @@ const schema = baseEnvSchema
        */
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
       /**
-       * Owner-published reason codes for hiding a pool or delisting a market, comma separated. Blank →
-       * protocolListing hide and delist refuse owner.decision. Nothing is invented.
+       * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
+       * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.
        */
-      OPS_PROTOCOL_REASON_CODES: blankAsAbsent(z.string().optional()),
+      OPS_PROTOCOL_REASON_CODES: blankAsAbsent(
+        z
+          .string()
+          .optional()
+          .refine(
+            (value) =>
+              value === undefined ||
+              value
+                .split(',')
+                .map((code) => code.trim())
+                .filter(Boolean)
+                .every((code) => PROTOCOL_OPS_REASON_CODE_PATTERN.test(code)),
+            'OPS_PROTOCOL_REASON_CODES must be comma separated lower snake case codes (a-z, 0-9, _).',
+          ),
+      ),
     }),
   );
 
-export type OpsEnv = z.infer<typeof schema>;
-export const env: OpsEnv = loadEnv(schema);
+export type OpsEnv = z.infer<typeof opsEnvSchema>;
+export const env: OpsEnv = loadEnv(opsEnvSchema);

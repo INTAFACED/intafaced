@@ -23,6 +23,7 @@ import { createWatermarkReader } from './restore/watermark-reader.js';
 import { createPgVenueCostStore } from './venue-cost-store.js';
 import { createListingDesk } from './protocol-listing/wiring.js';
 import { createPgListingStore } from './protocol-listing/store.js';
+import { createPgReasonCodeStore, createReasonCodes } from './protocol-listing/reason-codes.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -156,7 +157,11 @@ const appRouter = createOpsRouter(
       ? createListingDesk({
           store: createPgListingStore(crmSql),
           approvals: approvalConsumer,
-          reasonCodes: () => protocolReasonCodes,
+          reasonCodes: createReasonCodes({
+            store: createPgReasonCodeStore(crmSql),
+            envCodes: protocolReasonCodes,
+            now: () => new Date().toISOString(),
+          }),
           now: () => new Date().toISOString(),
         })
       : undefined,

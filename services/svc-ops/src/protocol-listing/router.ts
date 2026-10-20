@@ -8,12 +8,15 @@ import {
   protocolOpsPoolHideInputSchema,
   protocolOpsPoolRestoreInputSchema,
   protocolOpsPoolsListOutputSchema,
+  protocolOpsReasonCodesOutputSchema,
+  protocolOpsReasonCodesSetInputSchema,
   publicProcedure,
   router,
   scopedProcedure,
 } from '@intafaced/contracts';
 import { OPS_IDEMPOTENCY_CONFLICT, OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED, OpsError } from '../codes.js';
 import type { ListingDesk } from './wiring.js';
+import type { ReasonCodesInForce } from './reason-codes.js';
 import type { ListingRow } from './store.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
@@ -43,6 +46,14 @@ const poolId = (targetId: string): { chainId: number; poolAddress: string } => {
   const [chain, address] = targetId.split(':');
   return { chainId: Number(chain), poolAddress: address ?? '' };
 };
+
+const reasonCodesOutput = (inForce: ReasonCodesInForce, asOf: string) => ({
+  asOf,
+  source: inForce.source,
+  codes: [...inForce.codes],
+  updatedAt: inForce.updatedAt,
+  updatedBy: inForce.updatedBy,
+});
 
 const hiddenOf = (row: ListingRow) =>
   row.state === 'hidden' && row.reasonCode && row.reason
@@ -119,6 +130,33 @@ export function createProtocolListingRouter(desk: ListingDesk | undefined) {
         .mutation(async ({ ctx, input }) => {
           try {
             return await require(desk).desk.restoreMarket(ctx.principal.userId, input);
+          } catch (err) {
+            return deskError(err);
+          }
+        }),
+    }),
+    /**
+     * The reasons a hide or delist may name. Reading is `admin:read`; replacing the whole list is `admin:write` and is logged with
+     * who made it. The list in force is the newest edit, else the deployment setting, else the built-in default.
+     */
+    reasonCodes: router({
+      list: scopedProcedure('admin:read', guards)
+        .output(protocolOpsReasonCodesOutputSchema)
+        .query(async () => {
+          try {
+            const d = require(desk);
+            return reasonCodesOutput(await d.reasonCodes.inForce(), d.now());
+          } catch (err) {
+            return deskError(err);
+          }
+        }),
+      set: scopedProcedure('admin:write', guards)
+        .input(protocolOpsReasonCodesSetInputSchema)
+        .output(protocolOpsReasonCodesOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const d = require(desk);
+            return reasonCodesOutput(await d.reasonCodes.set(input.codes, ctx.principal.userId), d.now());
           } catch (err) {
             return deskError(err);
           }
