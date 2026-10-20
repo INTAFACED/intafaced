@@ -15,3 +15,15 @@ export function changeLine(change: OrderChange): ChangeLine | null {
   if (change.direction === 'replaces') return { key: 'Order changes replaces', at: change.at };
   return null;
 }
+
+/** Hands out a ticket per read; only the newest ticket is current, so an older reply that lands late is dropped. */
+export function latestOnly(): { next: () => number; isCurrent: (ticket: number) => boolean; cancel: () => void } {
+  let latest = 0;
+  return {
+    next: () => ++latest,
+    isCurrent: (ticket) => ticket === latest,
+    cancel: () => {
+      latest += 1;
+    },
+  };
+}
