@@ -407,6 +407,7 @@ jobs:
     permissions:
       contents: read
       statuses: read # the `Independent review` status
+      issues: read # the review comment itself, so the seal does not wait for the sign-off runner
     needs: [changes, gates, format, build, test-full]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -425,5 +426,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           REPO: ${{ github.repository }}
         run: node tooling/ci/review-marker.mjs
