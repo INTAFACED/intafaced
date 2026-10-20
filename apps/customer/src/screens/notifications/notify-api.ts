@@ -331,3 +331,88 @@ export function cancelPriceAlert(
       .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
   );
 }
+
+// ── Managing an alert (C-alerts-scan-02) ────────────────────────────────────────────────────────────────────────
+// `notify.updateAlert`, `notify.setAlertActive` and `notify.deleteAlert` (scope notify:write); `notify.alertTriggers` (notify:read).
+// Each change sets a value rather than adding to one, so repeating it after a lost answer does no harm.
+
+/** What an edit may change. A name, message or stop time set to `null` is cleared; a field left out is not touched. */
+export interface AlertEdit {
+  targetPrice?: string;
+  condition?: AlertCondition;
+  name?: string | null;
+  message?: string | null;
+  expiresAt?: string | null;
+}
+
+/** Change an alert that is active or stopped. The answer must be this person's alert showing the values just sent, or it is not believed. */
+export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, userId: string): Promise<ApiResult<{ alert: PriceAlert }>> {
+  return api.mutate(
+    'notify',
+    'notify.updateAlert',
+    { id, ...edit },
+    z.object({
+      alert: priceAlertSchema.refine(
+        (row) =>
+          row.id === id &&
+          row.userId === userId &&
+          (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
+          (edit.condition === undefined || row.condition === edit.condition) &&
+          (edit.name === undefined || (row.name ?? null) === edit.name) &&
+          (edit.message === undefined || (row.message ?? null) === edit.message),
+        'Returned alert does not match',
+      ),
+    }),
+  );
+}
+
+/** Pause (`active: false`) an active alert or resume a stopped one. The answer carries the status it ended in. */
+export function setPriceAlertActive(
+  api: ApiClient,
+  id: string,
+  active: boolean,
+  userId: string,
+): Promise<ApiResult<{ changed: boolean; alert: PriceAlert }>> {
+  return api.mutate(
+    'notify',
+    'notify.setAlertActive',
+    { id, active },
+    z.object({
+      changed: z.boolean(),
+      alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match'),
+    }),
+  );
+}
+
+/** Delete an alert whatever its state. `deleted: false` means it was already gone. */
+export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<{ deleted: boolean }>> =>
+  api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
+
+export const alertTriggerSchema = z.object({
+  alertId: z.string().uuid(),
+  marketId: z.string().min(1).max(64),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string().min(1).max(64),
+  markPrice: z.string().min(1).max(64),
+  firedAt: date,
+  notificationId: z.string().nullable(),
+});
+export type AlertTrigger = z.infer<typeof alertTriggerSchema>;
+const alertTriggersSchema = z.object({ retentionDays: z.number().int().min(1), items: z.array(alertTriggerSchema).max(200) });
+export type AlertTriggerPage = z.infer<typeof alertTriggersSchema>;
+
+/** The person's triggers, newest first. `limit` is always sent. Refuses `notify.alert_trigger_log_retention_unset` while the platform has not set how long they are kept. */
+export const listAlertTriggers = (
+  api: ApiClient,
+  args: { alertId?: string; limit: number },
+  signal?: AbortSignal,
+): Promise<ApiResult<AlertTriggerPage>> =>
+  api.query(
+    'notify',
+    'notify.alertTriggers',
+    { limit: args.limit, ...(args.alertId ? { alertId: args.alertId } : {}) },
+    alertTriggersSchema,
+    {
+      signal,
+    },
+  );
