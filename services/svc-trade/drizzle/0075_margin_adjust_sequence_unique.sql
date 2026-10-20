@@ -1,0 +1,32 @@
+-- trade.futures · one margin adjustment per (position, ledger sequence)
+-- Reversal: 0075_margin_adjust_sequence_unique.down.sql
+--
+-- `sequence` is the ledger post key for a live futuresMarginAdd / futuresMarginRelease. Two rows with the same
+-- (position_id, sequence) would post two different adjustments under one key, and the ledger would treat the
+-- second as a replay of the first. Only the pending row was unique; completed rows were not.
+
+-- Refuses, deleting nothing, when duplicates already exist: they must be reconciled by hand first.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM "trade"."position_margin_adjustments" GROUP BY "position_id", "sequence" HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'position_margin_adjustments has rows sharing one (position_id, sequence); reconcile them before applying 0075';
+  END IF;
+END
+$$;
+
+-- A position whose counter lags its highest COMPLETED sequence (an old no-op leverage request completed a row without
+-- moving the counter) would hand the next adjustment a sequence a completed row already holds. Move the counter up first.
+-- Pending rows are left out on purpose: a pending claim sits at counter + 1 and its retry must post under that same
+-- ledger key, so raising the counter past it would make the retry post a second time under the next key.
+UPDATE "trade"."positions" p
+   SET "margin_adjust_seq" = a."max_seq"
+  FROM (
+    SELECT "position_id", max("sequence") AS "max_seq"
+      FROM "trade"."position_margin_adjustments" WHERE "status" = 'completed' GROUP BY "position_id"
+  ) a
+ WHERE a."position_id" = p."id" AND p."margin_adjust_seq" < a."max_seq";
+
+CREATE UNIQUE INDEX IF NOT EXISTS "position_margin_adjustments_position_sequence_idx"
+  ON "trade"."position_margin_adjustments" ("position_id", "sequence");
