@@ -119,63 +119,67 @@ function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone
   const [invalid, setInvalid] = useState(false);
   const values = { group, assetId: assetId.trim().toUpperCase(), address: address.trim(), label: label.trim() };
   return (
-    <form
-      className="form-stack"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!values.assetId || !values.address || !values.label) return setInvalid(true);
-        setInvalid(false);
-        setAsk({ ref: newRef() });
-      }}
-    >
-      <label className="field">
-        <span>{t('group')}</span>
-        <select value={group} onChange={(event) => setGroup(event.target.value as AllowlistGroup)}>
-          {GROUPS.map((value) => (
-            <option key={value} value={value}>
-              {t(value)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <Field
-        label={t('asset')}
-        name="allowlist-asset"
-        maxLength={32}
-        value={assetId}
-        onChange={(event) => setAssetId(event.target.value)}
-      />
-      <Field
-        label={t('address')}
-        name="allowlist-address"
-        maxLength={128}
-        autoComplete="off"
-        spellCheck={false}
-        value={address}
-        onChange={(event) => setAddress(event.target.value)}
-      />
-      <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
-      {invalid && (
-        <p className="failure" role="alert">
-          {t('formInvalid')}
-        </p>
-      )}
-      <div className="withdrawal-actions">
-        <Button type="submit">{t('submitAdd')}</Button>
-        <Button variant="ghost" onClick={onCancel}>
-          {t('formCancel')}
-        </Button>
-      </div>
+    <>
+      <form
+        className="form-stack"
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!values.assetId || !values.address || !values.label) return setInvalid(true);
+          setInvalid(false);
+          setAsk((open) => open ?? { ref: newRef() });
+        }}
+      >
+        <label className="field">
+          <span>{t('group')}</span>
+          <select value={group} onChange={(event) => setGroup(event.target.value as AllowlistGroup)}>
+            {GROUPS.map((value) => (
+              <option key={value} value={value}>
+                {t(value)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Field
+          label={t('asset')}
+          name="allowlist-asset"
+          maxLength={32}
+          value={assetId}
+          onChange={(event) => setAssetId(event.target.value)}
+        />
+        <Field
+          label={t('address')}
+          name="allowlist-address"
+          maxLength={128}
+          autoComplete="off"
+          spellCheck={false}
+          value={address}
+          onChange={(event) => setAddress(event.target.value)}
+        />
+        <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
+        {invalid && (
+          <p className="failure" role="alert">
+            {t('formInvalid')}
+          </p>
+        )}
+        <div className="withdrawal-actions">
+          <Button type="submit">{t('submitAdd')}</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            {t('formCancel')}
+          </Button>
+        </div>
+      </form>
       {ask && (
         <WithdrawStepUp
           why={t('addWhy')}
           run={(token) => createAllowlistReads(api, userId, current).proposeAdd({ ...values, clientRef: ask.ref }, token)}
-          onDone={onDone}
+          onDone={() => {
+            if (current()) onDone();
+          }}
           onCancel={() => setAsk(null)}
         />
       )}
-    </form>
+    </>
   );
 }
 
@@ -351,7 +355,7 @@ function OneTime({ current }: { current: () => boolean }) {
                   event.preventDefault();
                   if (!assetId.trim() || !positive(maxAmount.trim())) return setInvalid(true);
                   setInvalid(false);
-                  setAsk({ ref: newRef() });
+                  setAsk((open) => open ?? { ref: newRef() });
                 }}
               >
                 <label className="field">
@@ -383,25 +387,25 @@ function OneTime({ current }: { current: () => boolean }) {
                     {t('formCancel')}
                   </Button>
                 </div>
-                {ask && (
-                  <WithdrawStepUp
-                    run={(token) =>
-                      createAllowlistReads(api, userId, current).proposePolicy(
-                        { enabled, assetId: assetId.trim().toUpperCase(), maxAmount: maxAmount.trim(), clientRef: ask.ref },
-                        token,
-                      )
-                    }
-                    onDone={() => {
-                      if (!active()) return;
-                      setAsk(null);
-                      setEditing(false);
-                      setSent(true);
-                      reload();
-                    }}
-                    onCancel={() => setAsk(null)}
-                  />
-                )}
               </form>
+            )}
+            {ask && (
+              <WithdrawStepUp
+                run={(token) =>
+                  createAllowlistReads(api, userId, current).proposePolicy(
+                    { enabled, assetId: assetId.trim().toUpperCase(), maxAmount: maxAmount.trim(), clientRef: ask.ref },
+                    token,
+                  )
+                }
+                onDone={() => {
+                  if (!active()) return;
+                  setAsk(null);
+                  setEditing(false);
+                  setSent(true);
+                  reload();
+                }}
+                onCancel={() => setAsk(null)}
+              />
             )}
           </>
         )}

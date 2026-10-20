@@ -78,6 +78,8 @@ export function WithdrawStepUp({
   }
   function withCode(event: FormEvent) {
     event.preventDefault();
+    // The dialog may sit under a caller's own form; its submit is this dialog's alone.
+    event.stopPropagation();
     if (busy) return;
     if (!isStepUpCode(code)) {
       setProblem(t('codeShort'));
