@@ -24,6 +24,8 @@ import {
   walletTypeViewSchema,
   walletViewSchema,
 } from './schemas.js';
+import { createCustodyApprovalRouters } from './approvals/router.js';
+import { CustodyApprovalService, type TaskExecutor } from './approvals/service.js';
 import { createCustodyStuckRouters } from './stuck/router.js';
 import { CustodyStuckService, type DroppedReverser, type NonceChain, type TxReplacer, type WithdrawalCanceller } from './stuck/service.js';
 import { createCustodyTxRouters } from './tx/router.js';
@@ -51,6 +53,9 @@ export interface CustodyRouterDeps {
   readonly nonceChain?: NonceChain;
   readonly withdrawalCanceller?: WithdrawalCanceller;
   readonly droppedReverser?: DroppedReverser;
+  /** W-custody-ops-06: runs an approved custody transaction (W-custody-ops-09) and applies approved config changes, per scope. Omitted: those tasks are refused at submit. */
+  readonly transactionExecutor?: TaskExecutor;
+  readonly configAppliers?: ConstructorParameters<typeof CustodyApprovalService>[0]['configAppliers'];
 }
 
 function actorOf(ctx: unknown): string {
@@ -92,7 +97,13 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     }),
     actorOf,
   );
+  const approvalRouters = createCustodyApprovalRouters(
+    founder,
+    new CustodyApprovalService({ sql: deps.sql, transactionExecutor: deps.transactionExecutor, configAppliers: deps.configAppliers }),
+    actorOf,
+  );
   return router({
+    ...approvalRouters,
     ...feeRouters,
     ...utxoRouters,
     ...txRouters,
