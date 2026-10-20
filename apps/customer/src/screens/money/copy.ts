@@ -62,6 +62,7 @@ const messages = {
   '{count} coins under $1': '{count} coins under $1',
   '1 coin under $1': '1 coin under $1',
   'Shown in BTC': 'Shown in BTC at the current BTC price. In dollars: {usd}',
+  'Shown in BTC hidden': 'Shown in BTC at the current BTC price.',
   'BTC price missing': 'There is no BTC price right now, so the total is shown in dollars.',
   'Convert {asset}': 'Convert {asset}',
   'Accounts shown': 'Accounts shown',

@@ -137,7 +137,12 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
           <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
         )}
       </div>
-      {inBtc ? <p className="money-note">{t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}</p> : null}
+      {inBtc ? (
+        <p className="money-note">
+          {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
+          {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}
+        </p>
+      ) : null}
       {btcMissing ? <p className="money-note">{t('BTC price missing')}</p> : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
