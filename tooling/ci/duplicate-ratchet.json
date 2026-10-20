@@ -104,7 +104,7 @@
       "fetch": 1
     },
     "services/svc-identity/src/affiliates/commission.ts": {
-      "parse": 4
+      "parse": 2
     },
     "services/svc-indexer/scripts/dev-venue.ts": {
       "scale": 1,
