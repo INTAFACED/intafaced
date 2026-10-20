@@ -187,6 +187,21 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(100).optional()),
+      /**
+       * Owner setting: the sub-account kinds beyond `standard` that may be created, comma separated
+       * (managed, spot, derivatives). Blank = only standard is offered. Derivatives is also refused until the
+       * main account's derivatives eligibility can be read.
+       */
+      IDENTITY_SUB_ACCOUNT_KINDS: z.preprocess(
+        (v) =>
+          typeof v === 'string'
+            ? v
+                .split(',')
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : undefined,
+        z.array(z.enum(['managed', 'derivatives', 'spot'])).optional(),
+      ),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

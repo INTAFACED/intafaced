@@ -118,6 +118,9 @@ export class AuthError extends Error {
       | 'auth.sub_account_same'
       | 'auth.sub_account_limit'
       | 'auth.sub_account_cap_unset'
+      | 'auth.sub_account_nickname_invalid'
+      | 'auth.sub_account_nickname_taken'
+      | 'auth.sub_account_kind_unavailable'
       | 'auth.api_key_denied'
       | 'auth.api_key_revoked'
       | 'auth.session_denied'
@@ -157,6 +160,10 @@ export class AuthError extends Error {
 }
 
 /** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
+export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] as const;
+export type SubAccountKind = (typeof SUB_ACCOUNT_KINDS)[number];
+/** 5 to 20 letters or digits. */
+export const SUB_ACCOUNT_NICKNAME = /^[A-Za-z0-9]{5,20}$/;
 export const IDENTITY_KYC_PENDING_LIMIT_UNSET = 'identity.kyc_pending_limit_unset' as const;
 export const KYC_PENDING_LIMIT_MAX = 200;
 
@@ -416,6 +423,7 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  private readonly subAccountKinds: ReadonlySet<SubAccountKind>;
   /** How long a just-rotated refresh token may be presented again by a second tab. */
   private readonly reuseGraceMs: number;
   /**
@@ -472,8 +480,12 @@ export class AuthService {
     maxSubAccounts?: number,
     reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
     recoverySeconds?: number,
+    offeredSubAccountKinds?: readonly string[],
   ) {
     this.webauthn = webauthn;
+    this.subAccountKinds = new Set(
+      (offeredSubAccountKinds ?? []).filter((k): k is SubAccountKind => (SUB_ACCOUNT_KINDS as readonly string[]).includes(k)),
+    );
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
     this.challenges = challenges ?? new SqlChallengeStore(sql, webauthn.challengeTtlMs);
     this.pendingTotp = pendingTotp ?? new SqlPendingTotpEnrolmentStore(sql);
@@ -2541,7 +2553,22 @@ export class AuthService {
     return { userId, status: 'active' };
   }
 
-  async createSubAccount(userId: string, label: string, purpose?: string): Promise<{ id: string }> {
+  async createSubAccount(
+    userId: string,
+    label: string,
+    purpose?: string,
+    options: { kind?: SubAccountKind; nickname?: string } = {},
+  ): Promise<{ id: string }> {
+    const kind = options.kind ?? 'standard';
+    const nickname = options.nickname;
+    if (nickname !== undefined && !SUB_ACCOUNT_NICKNAME.test(nickname)) {
+      throw new AuthError('Nickname must be 5 to 20 letters or digits', 'auth.sub_account_nickname_invalid');
+    }
+    // Standard is always offered. Another kind is offered only when the owner lists it; derivatives also needs
+    // the main account's derivatives eligibility, which has no source yet, so it stays refused.
+    if (kind !== 'standard' && (kind === 'derivatives' || !this.subAccountKinds.has(kind))) {
+      throw new AuthError(`Sub-account kind ${kind} is not offered`, 'auth.sub_account_kind_unavailable');
+    }
     const users = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} LIMIT 1`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     if (users[0].status !== 'active') {
@@ -2565,9 +2592,15 @@ export class AuthService {
           'auth.sub_account_limit',
         );
       }
+      if (nickname !== undefined) {
+        const taken = await tx<
+          Array<{ id: string }>
+        >`SELECT id FROM sub_accounts WHERE parent_user_id = ${userId} AND lower(nickname) = ${nickname.toLowerCase()} LIMIT 1`;
+        if (taken[0]) throw new AuthError('Nickname already used on this account', 'auth.sub_account_nickname_taken');
+      }
       const rows = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sub_accounts (parent_user_id, label, purpose) VALUES (${userId}, ${label}, ${purpose ?? null}) RETURNING id`;
+      >`INSERT INTO sub_accounts (parent_user_id, label, purpose, kind, nickname) VALUES (${userId}, ${label}, ${purpose ?? null}, ${kind}, ${nickname ?? null}) RETURNING id`;
       return rows[0]!;
     });
   }
@@ -2575,12 +2608,41 @@ export class AuthService {
   async listSubAccounts(
     userId: string,
     limit: number,
-  ): Promise<Array<{ id: string; label: string; purpose: string | null; revoked: boolean; createdAt: Date }>> {
+  ): Promise<
+    Array<{
+      id: string;
+      label: string;
+      purpose: string | null;
+      revoked: boolean;
+      frozen: boolean;
+      kind: SubAccountKind;
+      nickname: string | null;
+      createdAt: Date;
+    }>
+  > {
     const published = publishedSubAccountsListLimit(limit);
     const rows = await this.sql<
-      Array<{ id: string; label: string; purpose: string | null; revoked: boolean; created_at: Date }>
-    >`SELECT id, label, purpose, revoked, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
-    return rows.map((r) => ({ id: r.id, label: r.label, purpose: r.purpose, revoked: r.revoked, createdAt: r.created_at }));
+      Array<{
+        id: string;
+        label: string;
+        purpose: string | null;
+        revoked: boolean;
+        frozen: number;
+        kind: SubAccountKind;
+        nickname: string | null;
+        created_at: Date;
+      }>
+    >`SELECT id, label, purpose, revoked, frozen, kind, nickname, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      purpose: r.purpose,
+      revoked: r.revoked,
+      frozen: r.frozen === 1,
+      kind: r.kind,
+      nickname: r.nickname,
+      createdAt: r.created_at,
+    }));
   }
 
   async revokeSubAccount(userId: string, subAccountId: string): Promise<boolean> {
