@@ -38,6 +38,7 @@ import {
   writeOperatorAudit,
   type ApprovalBook,
 } from './common.js';
+import { AgreementsAdmin } from './agreements.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
 import { readMarketStatusHistory } from './status-history.js';
@@ -89,8 +90,11 @@ function sumDecimals(values: readonly string[]): string {
 export class TradeOpsAdmin {
   /** Futures contract families, expiry tenors and pre-market (D-instruments-03). */
   readonly futuresContracts: FuturesContractsAdmin;
+  /** Risk agreements, margin terms and derivatives eligibility rules (D-account-07). */
+  readonly agreements: AgreementsAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.futuresContracts = new FuturesContractsAdmin({
       sql: deps.sql,
       approvals: deps.approvals,
