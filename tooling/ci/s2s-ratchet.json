@@ -112,14 +112,6 @@
       "sign": 0,
       "caller": 2
     },
-    "services/svc-support/src/account-state.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-support/src/ticket-order.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-token/src/router.ts": {
       "sign": 0,
       "caller": 1
