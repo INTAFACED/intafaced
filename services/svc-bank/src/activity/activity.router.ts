@@ -13,7 +13,9 @@ import {
   ActivityNotFoundError,
   ActivityRangeError,
   ActivitySortBoundedError,
+  ActivityTaxEffectMapUnsetError,
   ActivityTaxYearUnsetError,
+  TAX_EFFECT_BY_KIND,
   ActivityUnavailableError,
 } from './activity-service.js';
 
@@ -51,6 +53,8 @@ const activityListInput = z
     taxYear: z.number().int().min(1970).max(2200).optional(),
     /** Part of a withdrawal address. Lines with no recorded address never match. */
     address: z.string().trim().min(4).max(128).optional(),
+    /** Only lines the caller has put a note or a report description on. */
+    hasNote: z.boolean().optional(),
   })
   .strict();
 
@@ -74,6 +78,8 @@ const activityItem = z.object({
   reference: z.string().min(1).max(64).optional(),
   /** This caller's private note. */
   privateNote: z.string().max(500).optional(),
+  /** This caller's description for a report or a statement. */
+  reportDescription: z.string().max(500).optional(),
   dispute: z.object({ id: z.string().uuid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
@@ -85,7 +91,11 @@ export function activityFailure(err: unknown): never {
   if (err instanceof ActivityCursorInvalidError || err instanceof ActivityRangeError) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
-  if (err instanceof ActivityTaxYearUnsetError || err instanceof ActivitySortBoundedError) {
+  if (
+    err instanceof ActivityTaxYearUnsetError ||
+    err instanceof ActivityTaxEffectMapUnsetError ||
+    err instanceof ActivitySortBoundedError
+  ) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} (${err.code})`, cause: err });
   }
   if (err instanceof ActivityAccountUnknownError)
@@ -151,18 +161,42 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
         }
       }),
 
+    /** Lines grouped by how they are taxed. Refuses while the owner has not set the effect of each kind. */
+    taxEffects: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({}).strict())
+      .output(z.object({ effects: z.record(z.string(), z.string()) }))
+      .query(() => {
+        try {
+          if (Object.keys(TAX_EFFECT_BY_KIND).length === 0) throw new ActivityTaxEffectMapUnsetError();
+          return { effects: { ...TAX_EFFECT_BY_KIND } as Record<string, string> };
+        } catch (err) {
+          activityFailure(err);
+        }
+      }),
+
     note: router({
       set: scopedProcedure('bank:write', { module: 'bank' })
         .input(
           z
             .object({
               id: z.string().min(1).max(512),
-              text: plainWords.pipe(z.string().min(1).max(500)),
+              text: plainWords.pipe(z.string().min(1).max(500)).optional(),
+              reportDescription: plainWords.pipe(z.string().min(1).max(500)).optional(),
               commandId: z.string().min(8).max(64),
             })
-            .strict(),
+            .strict()
+            .refine((value) => value.text !== undefined || value.reportDescription !== undefined, {
+              message: 'send a note, a report description or both (bank.activity_note_empty)',
+            }),
         )
-        .output(z.object({ activityId: z.string(), text: z.string(), updatedAt: z.string().datetime() }))
+        .output(
+          z.object({
+            activityId: z.string(),
+            text: z.string().nullable(),
+            reportDescription: z.string().nullable(),
+            updatedAt: z.string().datetime(),
+          }),
+        )
         .mutation(async ({ ctx, input }) => {
           try {
             if (input.id.startsWith('order:')) {
@@ -175,6 +209,7 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
             return await bank.activityRecords.setNote(ctx.principal.userId, {
               activityId: input.id,
               text: input.text,
+              reportDescription: input.reportDescription,
               commandId: input.commandId,
             });
           } catch (err) {

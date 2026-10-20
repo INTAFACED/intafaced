@@ -439,6 +439,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.convert_markets_limit_unset':
       case 'bank.validation_failed':
       case 'bank.activity_range':
+      case 'bank.activity_note_empty':
       case 'bank.statement_range':
       case 'bank.personal_note_invalid':
       case 'bank.personal_reference_invalid':
