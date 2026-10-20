@@ -15,6 +15,7 @@ import * as p2pOps from './p2p-ops/route';
 import * as academyOps from './academy-ops/route';
 import * as moreOps from './more-ops/route';
 import * as protocolOps from './protocol-ops/route';
+import * as identityKeys from './identity-ops/keys/route';
 
 const original = process.env.ADMIN_MODULES;
 afterEach(() => {
@@ -30,6 +31,7 @@ const nonCrm = [
   ['accounts', accounts, '/api/accounts'],
   ['kill-switch', killSwitch, '/api/kill-switch'],
   ['ledger-freeze', ledgerFreeze, '/api/ledger-freeze'],
+  ['identity-ops keys', identityKeys, '/api/identity-ops/keys'],
   ['operator-tools', operatorTools, '/api/operator-tools'],
   ['analytics/warehouse', warehouse, '/api/analytics/warehouse'],
 ] as const;
