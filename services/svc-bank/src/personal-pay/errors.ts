@@ -87,6 +87,42 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
       return new PersonalPayError('This recurring bill is not active.', code, 'PRECONDITION_FAILED');
     case 'bank.bills_insufficient_funds':
       return new PersonalPayError(detail ?? 'Insufficient funds', code, 'BAD_REQUEST');
+    case 'bank.payee_controls_unset':
+      return new PersonalPayError(
+        'The owner has not published the payee controls, so no send can be checked against them. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.payee_blocked':
+      return new PersonalPayError('This payment cannot be sent to that recipient. Nothing was posted.', code, 'PRECONDITION_FAILED');
+    case 'bank.transfer_settled':
+      return new PersonalPayError('This send has already left, so it can no longer be held.', code, 'PRECONDITION_FAILED');
+    case 'bank.transfer_not_holdable':
+      return new PersonalPayError('This send is not in a state that can be held.', code, 'PRECONDITION_FAILED');
+    case 'bank.hold_not_found':
+      return new PersonalPayError('No open hold on this send.', code, 'NOT_FOUND');
+    case 'bank.hold_conflict':
+      return new PersonalPayError('This send already has a hold, or this key was used for a different hold.', code, 'CONFLICT');
+    case 'bank.release_same_operator':
+      return new PersonalPayError('A hold must be released by someone other than the person who placed it.', code, 'FORBIDDEN');
+    case 'bank.proof_limits_unset':
+      return new PersonalPayError(
+        'The owner has not published which file types and sizes can be uploaded, so no upload is accepted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.proof_type_not_allowed':
+      return new PersonalPayError('That file type is not accepted.', code, 'BAD_REQUEST');
+    case 'bank.proof_too_large':
+      return new PersonalPayError('That file is larger than the limit.', code, 'BAD_REQUEST');
+    case 'bank.proof_invalid':
+      return new PersonalPayError('That file could not be read.', code, 'BAD_REQUEST');
+    case 'bank.proof_not_requested':
+      return new PersonalPayError('No document has been asked for on this send.', code, 'PRECONDITION_FAILED');
+    case 'bank.proof_already_uploaded':
+      return new PersonalPayError('A document was already uploaded and is being reviewed.', code, 'CONFLICT');
+    case 'bank.link_reference_conflict':
+      return new PersonalPayError('That reference is already linked to a different send.', code, 'CONFLICT');
     case 'bank.personal_pay_request_invalid':
       return new PersonalPayError('That bill or send request is not usable.', code, 'BAD_REQUEST');
     case 'bank.global_corridors_unset':

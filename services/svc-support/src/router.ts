@@ -148,7 +148,8 @@ function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
 /** The wire form of a stored file: the scan state is public, the store key is not. */
 function attachmentWire(meta: AttachmentMeta): SupportAttachment {
   const { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt } = meta;
-  return { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt };
+  // No operator uploads yet: every file is its owner's. The service PR that adds agent upload stores and reads the real value.
+  return { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy: null, createdAt };
 }
 
 export function createSupportRouter(

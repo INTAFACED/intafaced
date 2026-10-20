@@ -100,7 +100,7 @@ export class SubAccountFeatureService {
       `;
       return { feature: input.feature, enabled: true, changed: result.count > 0 };
     }
-    // Turning a feature off is always allowed, including one the owner no longer offers.
+    // Turning a feature off is allowed even when the owner no longer offers it (a frozen sub-account was refused above).
     const result = await this.deps.sql`
       DELETE FROM sub_account_features WHERE sub_account_id = ${input.subAccountId} AND feature = ${input.feature}
     `;
