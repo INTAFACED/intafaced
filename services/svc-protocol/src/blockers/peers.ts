@@ -1,5 +1,12 @@
 import type { ZodType } from 'zod';
-import { dexHealthSchema, indexerStatusSchema, type BlockerSource, type DexHealth, type IndexerStatus } from '@intafaced/contracts';
+import {
+  dexHealthSchema,
+  indexerStatusSchema,
+  unwrapTrpcData,
+  type BlockerSource,
+  type DexHealth,
+  type IndexerStatus,
+} from '@intafaced/contracts';
 
 /**
  * Where `protocol.blockers` learns what the indexer and the DEX say about themselves.
@@ -50,7 +57,7 @@ async function read<T>(config: PeerConfig, procedure: string, schema: ZodType<T>
   } catch {
     return { status: 'down', reason: 'malformed', message: 'The service answered with something unreadable.' };
   }
-  const parsed = schema.safeParse((body as { result?: { data?: unknown } } | null)?.result?.data);
+  const parsed = schema.safeParse(unwrapTrpcData(body));
   return parsed.success
     ? { status: 'ok', data: parsed.data }
     : { status: 'down', reason: 'malformed', message: 'The service answered with something unreadable.' };
