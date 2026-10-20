@@ -98,6 +98,8 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: "Orders can't go through at the moment, and this one wasn't placed. Try again later.",
   },
   tifInvalid: { title: 'Check the order type', body: 'Post only needs a limit price. Choose a limit order, or another time in force.' },
+  tagInvalid: { title: 'Check the order tag', body: 'An order tag is 1 to 16 characters. Shorten it or leave it blank. Nothing was held.' },
+  expiryInvalid: { title: 'Check the expiry', body: 'The expiry time has already passed. Choose a time in the future. Nothing was held.' },
   selfTrade: { title: 'You would trade with yourself', body: 'Change the price so it does not match one of your own orders.' },
   accountOnHold: { title: 'Your account is on hold', body: 'Money cannot move right now. Contact support to find out why.' },
   notFound: { title: "We couldn't find that", body: 'It may have been removed. Go back and try again.' },

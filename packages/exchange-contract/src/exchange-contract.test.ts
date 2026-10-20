@@ -190,6 +190,11 @@ describe('order validation at the boundary', () => {
     }
   });
 
+  it('carries a fee currency on create', () => {
+    expect(createOrderRequestSchema.safeParse({ ...base, type: 'limit', price: '90000', feeCurrency: 'USDT' }).success).toBe(true);
+    expect(createOrderRequestSchema.safeParse({ ...base, type: 'limit', price: '90000', feeCurrency: '' }).success).toBe(false);
+  });
+
   it('carries a typed stop trigger source and refuses an unknown one', () => {
     for (const triggerBy of ['last', 'mark', 'index']) {
       expect(createOrderRequestSchema.safeParse({ ...base, type: 'stop', stopPrice: '90', triggerBy }).success, triggerBy).toBe(true);
@@ -441,6 +446,12 @@ describe('order exit marker', () => {
       exit: { kind: 'bracket_exit', takeProfit: '90', stopLoss: '120', stopLossLimit: '125' },
     });
     expect(buy.exit?.stopLossLimit).toBe('125');
+  });
+
+  it('carries the caller tag on the order wire, null when none, absent on older wires', () => {
+    expect(orderSchema.parse({ ...order, tag: 'desk-1' }).tag).toBe('desk-1');
+    expect(orderSchema.parse({ ...order, tag: null }).tag).toBeNull();
+    expect(orderSchema.parse(order).tag).toBeUndefined();
   });
 
   it('is absent on a plain order and on wires from before the field', () => {

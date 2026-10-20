@@ -87,6 +87,7 @@ function openOrder(clientOrderId: string): OrderRecord {
     replacementRequestHash: null,
     sessionId: SESSION,
     apiKeyId: null,
+    tag: null,
     createdAt: new Date('2026-10-18T00:00:00.000Z'),
   };
 }

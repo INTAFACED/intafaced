@@ -38,6 +38,42 @@ describe('save an alert', () => {
     expect(JSON.parse(String(init.body))).toEqual({ kind: 'price', marketId: 'market-btc', direction: 'above', targetPrice: '65000.50' });
   });
 
+  it('sends the condition, name, message and expiry only when they were reviewed', async () => {
+    const full: AlertIntent = {
+      marketId: 'market-btc',
+      direction: 'above',
+      condition: 'crossing_up',
+      targetPrice: '65000.50',
+      name: 'Breakout',
+      message: '{market} crossed {price}',
+      expiresAt: '2026-11-01T09:30:00.000Z',
+    };
+    const fetch = vi.fn(async () =>
+      trpc({
+        alert: row({
+          condition: 'crossing_up',
+          name: 'Breakout',
+          message: '{market} crossed {price}',
+          expiresAt: '2026-11-01T09:30:00.000Z',
+        }),
+        evaluation: dark,
+      }),
+    );
+    const outcome = await submitCreate(client(fetch), full, USER);
+    expect(outcome.kind).toBe('saved');
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({
+      kind: 'price',
+      marketId: 'market-btc',
+      direction: 'above',
+      condition: 'crossing_up',
+      targetPrice: '65000.50',
+      name: 'Breakout',
+      message: '{market} crossed {price}',
+      expiresAt: '2026-11-01T09:30:00.000Z',
+    });
+  });
+
   it('does not believe an answer that is not the alert that was asked for', async () => {
     for (const wrong of [
       { targetPrice: '65001' },
@@ -198,5 +234,17 @@ describe('read the alerts', () => {
   it('refuses an answer in an unknown shape instead of showing it', async () => {
     const result = await listAlerts(client(async () => trpc({ items: [{ id: 'not-a-uuid' }], evaluation: dark })));
     expect(result.ok).toBe(false);
+  });
+
+  it('sends added conditions only when there are some', async () => {
+    const extras = [{ condition: 'less_than' as const, targetPrice: '70000' }];
+    const fetch = vi.fn(async () => trpc({ alert: row({ extras }), evaluation: dark }));
+    const outcome = await submitCreate(client(fetch), { ...intent, extras }, USER);
+    expect(outcome.kind).toBe('saved');
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ extras });
+    const none = vi.fn(async () => trpc({ alert: row(), evaluation: dark }));
+    await submitCreate(client(none), { ...intent, extras: [] }, USER);
+    expect(JSON.parse(String((none.mock.calls[0] as unknown as [string, RequestInit])[1].body))).not.toHaveProperty('extras');
   });
 });

@@ -77,13 +77,52 @@ describe('the create door and the options spot does not act on', () => {
   it.each([
     ['a deadline in the past', { requestDeadline: '2026-10-20T11:59:00.000Z' }, 'the request deadline has passed'],
     ['a self-trade mode the engine does not run', { stpMode: 'cancel_both' }, 'is not supported'],
-    ['a tag', { tag: 'desk-1' }, 'order tags are not stored yet'],
   ])('refuses %s before any order is placed', async (_name, extra, text) => {
     const { app, placed } = await build();
     const res = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, ...extra } });
     expect(res.statusCode, res.body).toBe(400);
     expect(res.body).toContain(text);
     expect(placed).toHaveLength(0);
+    await app.close();
+  });
+
+  it('carries a tag to the placed order, and refuses a bad one with trade.invalid_tag', async () => {
+    const { app, placed } = await build();
+    const ok = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, tag: 'desk-1' } });
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect(placed[0]?.tag).toBe('desk-1');
+    for (const [i, tag] of ['', 'x'.repeat(17)].entries()) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/orders',
+        headers: signed(),
+        payload: { ...BASE, clientOrderId: `t-${i}`, tag },
+      });
+      expect(res.statusCode, res.body).toBe(400);
+      expect(res.json().intafacedCode).toBe('trade.invalid_tag');
+    }
+    expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('refuses a fee currency other than the asset the order receives, and accepts that asset', async () => {
+    const { app, placed } = await build();
+    const other = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'f-1', feeCurrency: 'USDT' },
+    });
+    expect(other.statusCode, other.body).toBe(400);
+    expect(other.json().intafacedCode).toBe('trade.fee_currency_unsupported');
+    const same = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'f-2', feeCurrency: 'btc' },
+    });
+    expect(same.statusCode, same.body).toBe(201);
+    expect(placed.map((p) => p.clientOrderId)).toEqual(['f-2']);
     await app.close();
   });
 
@@ -220,10 +259,10 @@ describe('the create door and the options spot does not act on', () => {
     expect(results.map((r) => r.error?.intafacedCode)).toEqual([
       'trade.request_expired',
       'trade.stp_mode_unsupported',
-      'trade.tag_unsupported',
+      undefined,
       undefined,
     ]);
-    expect(placed.map((p) => p.clientOrderId)).toEqual(['b-4']);
+    expect(placed.map((p) => p.clientOrderId)).toEqual(['b-3', 'b-4']);
     await app.close();
   });
 
@@ -231,6 +270,7 @@ describe('the create door and the options spot does not act on', () => {
     ['a deadline', { requestDeadline: '2026-10-20T12:30:00.000Z' }],
     ['a self-trade mode', { stpMode: 'cancel_maker' }],
     ['a tag', { tag: 'x' }],
+    ['a fee currency', { feeCurrency: 'BTC' }],
   ])('the replace door takes no %s and cancels nothing', async (_name, extra) => {
     const { app, replaced } = await build();
     const res = await app.inject({

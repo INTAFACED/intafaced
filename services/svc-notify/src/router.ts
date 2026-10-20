@@ -18,14 +18,22 @@ import type { Notification } from './store.js';
 import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
 import {
+  AlertLimitError,
+  AlertNotEditableError,
   assertNotifyAlertsListLimit,
   NotifyAlertsListLimitUnsetError,
   NotifyPriceUnsetError,
   type AlertService,
 } from './alerts/service.js';
+import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
 import {
+  ALERT_CONDITIONS,
   AlertKindUnpublishedError,
+  type AlertCondition,
+  type AlertExtra,
+  EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
+  directionOfCondition,
   isSourcedAlertKind,
   isUnpublishedAlertKind,
   SOURCED_ALERT_KINDS,
@@ -401,6 +409,24 @@ async function loadOperatorDeliveries(notify: NotifyService, limit: number | und
   }
 }
 
+/**
+ * What an alert may carry beyond market, side and price (C-alerts-scan-01). The lengths here are only an input bound; the owner's
+ * limits are checked by the service, which refuses when they are blank.
+ */
+const alertExtras = {
+  /** How the mark is compared with the target. Omitted: a level in the direction given. */
+  condition: z.enum(ALERT_CONDITIONS).optional(),
+  name: z.string().max(2000).optional(),
+  message: z.string().max(2000).optional(),
+  /** ISO time. Omitted: open-ended. */
+  expiresAt: z.string().datetime({ offset: true }).optional(),
+  /** Added level conditions on the same market; all must hold with the main one. */
+  extras: z
+    .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
+    .max(20)
+    .optional(),
+};
+
 const priceAlertOutput = z.object({
   id: z.string().uuid(),
   userId: z.string(),
@@ -408,9 +434,15 @@ const priceAlertOutput = z.object({
   kind: z.enum(SOURCED_ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string(),
-  status: z.enum(['active', 'fired', 'cancelled']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
   firedAt: z.string().nullable(),
   createdAt: z.string(),
+  condition: z.enum(ALERT_CONDITIONS),
+  name: z.string().nullable(),
+  message: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  updatedAt: z.string(),
+  extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
 });
 
 /**
@@ -434,6 +466,21 @@ const alertEvaluationOutput = z.object({
 /** The answer when this deployment has no alert service at all. */
 const NO_ALERT_SERVICE = { markSource: 'dark', canFire: false, code: 'alert.price_unavailable' } as const;
 
+/** The refusals an edit or pause can raise, as tRPC errors. Anything else is not ours to hide. */
+function alertManagerError(err: unknown): unknown {
+  if (err instanceof TRPCError) return err;
+  if (err instanceof NotifyPriceUnsetError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  if (err instanceof AlertLimitError) {
+    return new TRPCError({
+      code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+      message: err.message,
+      cause: err,
+    });
+  }
+  return err;
+}
+
 function priceAlertToWire(row: PriceAlert) {
   return {
     id: row.id,
@@ -445,6 +492,12 @@ function priceAlertToWire(row: PriceAlert) {
     status: row.status,
     firedAt: row.firedAt ? row.firedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    condition: row.condition,
+    name: row.name,
+    message: row.message,
+    expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    updatedAt: row.updatedAt.toISOString(),
+    extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
   };
 }
 
@@ -1366,6 +1419,7 @@ export function createNotifyRouter(
                * Blank is not a number.
                */
               targetPrice: z.string().max(64).optional(),
+              ...alertExtras,
             }),
             z.object({
               kind: z.enum(SOURCED_ALERT_KINDS).optional(),
@@ -1373,6 +1427,7 @@ export function createNotifyRouter(
               direction: z.enum(['above', 'below']),
               /** Decimal string — never a JSON number. */
               targetPrice: z.string().min(1).max(64),
+              ...alertExtras,
             }),
             z.object({
               kind: z.enum(UNPUBLISHED_ALERT_KINDS),
@@ -1453,12 +1508,29 @@ export function createNotifyRouter(
             });
           }
           try {
+            const extras = input as {
+              condition?: AlertCondition;
+              name?: string;
+              message?: string;
+              expiresAt?: string;
+              extras?: AlertExtra[];
+            };
+            const condition = extras.condition;
+            // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
+            if (condition && condition !== 'crossing' && directionOfCondition(condition) !== input.direction) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
+            }
             const row = await alerts.create({
               userId: ctx.principal.userId,
               marketId: input.marketId,
               kind,
               direction: input.direction,
               targetPrice: 'targetPrice' in input ? input.targetPrice : undefined,
+              ...(condition ? { condition } : {}),
+              name: extras.name,
+              message: extras.message,
+              expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
+              ...(extras.extras ? { extras: extras.extras } : {}),
             });
             return {
               alert: priceAlertToWire(row),
@@ -1468,6 +1540,14 @@ export function createNotifyRouter(
             if (err instanceof NotifyPriceUnsetError) {
               throw new TRPCError({
                 code: 'PRECONDITION_FAILED',
+                message: err.message,
+                cause: err,
+              });
+            }
+            if (err instanceof AlertLimitError) {
+              throw new TRPCError({
+                // A blank owner setting is a precondition; a value outside a set one is the caller's to fix.
+                code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
                 message: err.message,
                 cause: err,
               });
@@ -1484,6 +1564,112 @@ export function createNotifyRouter(
           const row = await alerts.cancel(ctx.principal.userId, input.id);
           if (!row) return { cancelled: false, alert: null };
           return { cancelled: row.status === 'cancelled', alert: priceAlertToWire(row) };
+        }),
+
+      /**
+       * Change an alert that is active or stopped. Only what is sent changes; `null` clears a name, message or expiry. Checked as a
+       * create is: a blank owner setting refuses, a value outside a set one is a bad request. Nothing is written on a refusal.
+       */
+      updateAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            id: z.string().uuid(),
+            targetPrice: z.string().min(1).max(64).optional(),
+            condition: z.enum(ALERT_CONDITIONS).optional(),
+            name: z.string().max(2000).nullable().optional(),
+            message: z.string().max(2000).nullable().optional(),
+            expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+            extras: alertExtras.extras,
+          }),
+        )
+        .output(z.object({ alert: priceAlertOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+          try {
+            const row = await alerts.edit(ctx.principal.userId, input.id, {
+              ...(input.targetPrice !== undefined ? { targetPrice: input.targetPrice } : {}),
+              ...(input.condition ? { condition: input.condition } : {}),
+              ...(input.name !== undefined ? { name: input.name } : {}),
+              ...(input.message !== undefined ? { message: input.message } : {}),
+              ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt) } : {}),
+              ...(input.extras !== undefined ? { extras: input.extras } : {}),
+            });
+            if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+            return { alert: priceAlertToWire(row) };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** Pause (`active: false`) an active alert or resume a stopped one. Repeating it is harmless: the alert is returned as it is. */
+      setAlertActive: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+        .output(z.object({ changed: z.boolean(), alert: priceAlertOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+          try {
+            const before = await alerts.get(ctx.principal.userId, input.id);
+            const row = await alerts.setActive(ctx.principal.userId, input.id, input.active);
+            if (!row || !before) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+            return { changed: row.status !== before.status, alert: priceAlertToWire(row) };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /**
+       * The person's trigger log: each time an alert fired and the mark that fired it, newest first. The owner sets how long
+       * rows are kept; blank refuses `notify.alert_trigger_log_retention_unset` rather than answering an empty list.
+       */
+      alertTriggers: scopedProcedure('notify:read', { module: 'notify' })
+        .input(z.object({ alertId: z.string().uuid().optional(), limit: z.number().int().min(1).max(200) }))
+        .output(
+          z.object({
+            retentionDays: z.number().int(),
+            items: z.array(
+              z.object({
+                alertId: z.string().uuid(),
+                marketId: z.string(),
+                condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']),
+                targetPrice: z.string(),
+                markPrice: z.string(),
+                firedAt: z.string(),
+                notificationId: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET });
+          try {
+            const log = await alerts.triggers(ctx.principal.userId, {
+              ...(input.alertId ? { alertId: input.alertId } : {}),
+              limit: input.limit,
+            });
+            return {
+              retentionDays: log.retentionDays,
+              items: log.triggers.map((t) => ({
+                alertId: t.alertId,
+                marketId: t.marketId,
+                condition: t.condition,
+                targetPrice: t.targetPrice,
+                markPrice: t.markPrice,
+                firedAt: t.firedAt.toISOString(),
+                notificationId: t.notificationId,
+              })),
+            };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** Delete an alert whatever its state. Deleting one that is already gone answers `deleted: false`. */
+      deleteAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid() }))
+        .output(z.object({ deleted: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) return { deleted: false };
+          return { deleted: await alerts.remove(ctx.principal.userId, input.id) };
         }),
 
       /**

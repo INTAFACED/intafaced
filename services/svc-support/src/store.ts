@@ -125,6 +125,8 @@ export interface SupportStore {
   createTicketOnce(input: CreateTicketOnceRow): Promise<SupportTicket>;
   /** Newest first. Omit `limit` for the full set (tests / internal dumps). */
   listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]>;
+  /** Ids only, never ticket text: the caller's requests that are not resolved or closed. */
+  openIdsByUser(userId: string): Promise<string[]>;
   /** Newest first. Omit `limit` for the full set (queue ranking). */
   listAll(options?: { limit?: number }): Promise<SupportTicket[]>;
   findById(ticketId: string): Promise<SupportTicket | null>;
@@ -632,6 +634,12 @@ export class MemorySupportStore implements SupportStore {
   async listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]> {
     const rows = [...this.tickets.values()].filter((t) => t.userId === userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
+  }
+
+  async openIdsByUser(userId: string): Promise<string[]> {
+    return [...this.tickets.values()]
+      .filter((t) => t.userId === userId && t.status !== 'resolved' && t.status !== 'closed')
+      .map((t) => t.id);
   }
 
   async listAll(options?: { limit?: number }): Promise<SupportTicket[]> {
@@ -1156,6 +1164,13 @@ export class PostgresSupportStore implements SupportStore {
       `;
       return ticket;
     });
+  }
+
+  async openIdsByUser(userId: string): Promise<string[]> {
+    const rows = await this.sql<{ id: string }[]>`
+      SELECT id FROM support.tickets WHERE user_id = ${userId} AND status NOT IN ('resolved', 'closed')
+    `;
+    return rows.map((r) => r.id);
   }
 
   async listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]> {
