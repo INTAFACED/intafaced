@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
+import type { Sql, TransactionSql } from 'postgres';
 import type { ActionApprovalConsumeInput } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -90,11 +91,11 @@ describe('screening desk (real Postgres)', () => {
       store: createSqlScreeningCaseStore(db.sql),
     });
 
-  async function send(clientRef: string, over: { userId?: string; amount?: bigint; replay?: GuardReplay; tx?: typeof db.sql } = {}) {
+  async function send(clientRef: string, over: { userId?: string; amount?: bigint; replay?: GuardReplay; tx?: Sql | TransactionSql } = {}) {
     const g = guards();
     try {
       await g.beforeUserMoneyWithdrawal!({
-        tx: over.tx ?? db.sql,
+        tx: (over.tx ?? db.sql) as unknown as Sql,
         userId: over.userId ?? USER,
         assetId: 'USDT',
         amount: over.amount ?? 5n * 10n ** 18n,
