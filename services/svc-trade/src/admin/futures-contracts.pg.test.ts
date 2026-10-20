@@ -510,7 +510,12 @@ describe('futures contract families, expiry schedule and pre-market', () => {
       { tenor: 'weekly' as const, enabled: false },
     ];
 
-    function allowSchedule(approvalId: string, tenors: typeof TENORS, version: string, reason: string) {
+    function allowSchedule(
+      approvalId: string,
+      tenors: readonly { tenor: 'weekly' | 'monthly' | 'quarterly'; enabled: boolean }[],
+      version: string,
+      reason: string,
+    ) {
       allow({
         approvalId,
         actionType: 'trade.futures_schedule_set',
@@ -872,8 +877,8 @@ describe('futures contract families, expiry schedule and pre-market', () => {
 
       const app = Fastify();
       registerPublicRest(app, {
-        markets: (limit) => trade.markets(limit),
-        marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+        markets: (limit: number) => trade.markets(limit),
+        marketBySymbol: (symbol: string) => trade.marketBySymbol(symbol),
         depth: async () => ({ bids: [], asks: [], sequence: 1 }),
         publicTape: async () => [],
         candles: async () => [],
