@@ -183,6 +183,17 @@ export function assertListCommentsLimit(limit: number | undefined): number {
   return Math.min(LIST_COMMENTS_LIMIT_MAX, n);
 }
 
+/** ticketAttachments page size unpublished. Blank is not 100. */
+export const LIST_ATTACHMENTS_LIMIT_UNSET = 'support.list_attachments_limit_unset' as const;
+
+/** Owner-published ticketAttachments page size. Blank / non-finite / <1 refuses. Never invent 100. */
+export function assertListAttachmentsLimit(limit: number | undefined): number {
+  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit) || Math.floor(limit) < 1) {
+    throw new SupportError('ticketAttachments limit unset', LIST_ATTACHMENTS_LIMIT_UNSET);
+  }
+  return Math.min(LIST_COMMENTS_LIMIT_MAX, Math.floor(limit));
+}
+
 /** events / listTicketEvents page size unpublished. Blank is not 100. */
 export const LIST_EVENTS_LIMIT_UNSET = 'support.list_events_limit_unset' as const;
 
@@ -1508,6 +1519,18 @@ export class SupportService implements SupportContract {
       'support.attachment_max_count': limits.maxCount !== null,
     };
     return { pieces: SUPPORT_ATTACHMENT_KEYS.map((key) => ({ key, set: set[key] })), limits };
+  }
+
+  /**
+   * The files on one ticket with their scan state, to its owner or to an operator who may see the ticket. A ticket the
+   * caller may not see answers as no such ticket. The page size is the caller's and a blank one refuses.
+   */
+  async listAttachments(input: { userId: string; ticketId: string; asOperator?: boolean; limit?: number }): Promise<AttachmentMeta[]> {
+    return withSupportSpan('support.ticketAttachments', { op: 'ticketAttachments', ticketId: input.ticketId }, async () => {
+      const limit = assertListAttachmentsLimit(input.limit);
+      await this.getTicket({ userId: input.userId, ticketId: input.ticketId, asOperator: input.asOperator });
+      return this.store.listAttachmentsFor(input.ticketId, limit);
+    });
   }
 
   /** Owner reads their attachment metadata. An operator reads one only on a ticket they are assigned. */

@@ -158,7 +158,9 @@ clean, as base64 under the fixed type `application/octet-stream` and always as a
 answers as not found. A retry under the same request id never scans or stores twice. `rescanHeldAttachments` scans held files
 again; it runs on a timer only when the owner has set both `SUPPORT_ATTACHMENT_RESCAN_SECONDS` and
 `SUPPORT_ATTACHMENT_RESCAN_BATCH`, and with either blank held files wait for the owner's retry. A held file whose bytes never
-reached the store stays held.
+reached the store stays held. `ticketAttachments` (`support:read`) lists the files on one ticket with their scan state and no store
+key, for the owner or for an operator who may see the ticket; its page size is the caller's and a blank one refuses
+`support.list_attachments_limit_unset`.
 
 ## Migrations
 
