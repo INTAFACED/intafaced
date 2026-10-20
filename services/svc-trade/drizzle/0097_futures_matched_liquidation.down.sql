@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0086_futures_matched_liquidation.sql; drops the liquidation order and fill links and the matched rung kind (rows of that kind must be resolved first)
+-- intafaced:destructive — reversal of 0097_futures_matched_liquidation.sql; drops the liquidation order and fill links and the matched rung kind (rows of that kind must be resolved first)
 ALTER TABLE "trade"."futures_order_fills" DROP CONSTRAINT IF EXISTS "futures_order_fills_kind_ck";
 ALTER TABLE "trade"."futures_order_fills" ADD CONSTRAINT "futures_order_fills_kind_ck" CHECK (
   ("kind" = 'open' AND num_nulls(
