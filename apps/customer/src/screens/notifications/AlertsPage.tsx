@@ -61,7 +61,13 @@ const CANCEL = {
   alreadyCancelled: 'cancelAlreadyCancelled',
   notFound: 'cancelNotFound',
 } as const satisfies Record<CancelWords, string>;
-const STATUS = { active: 'statusActive', fired: 'statusFired', cancelled: 'statusCancelled', expired: 'statusExpired' } as const;
+const STATUS = {
+  active: 'statusActive',
+  fired: 'statusFired',
+  cancelled: 'statusCancelled',
+  expired: 'statusExpired',
+  stopped: 'statusStopped',
+} as const;
 const CONDITION_KEY = {
   greater_than: 'above',
   less_than: 'below',
