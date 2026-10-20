@@ -37,6 +37,9 @@ const base: PriceAlert = {
   lastSide: null,
   extras: [],
   updatedAt: new Date('2026-10-17T08:00:00Z'),
+  frequency: 'once',
+  fireCount: 0,
+  lastFiredAt: null,
 };
 
 describe('decimal string compare — no JS number', () => {

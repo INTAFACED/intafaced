@@ -39,6 +39,9 @@ const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): 
   lastSide: null,
   extras,
   updatedAt: NOW,
+  frequency: 'once',
+  fireCount: 0,
+  lastFiredAt: null,
   ...patch,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });

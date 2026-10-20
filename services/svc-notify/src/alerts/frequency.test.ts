@@ -80,7 +80,7 @@ describe('repeating alerts', () => {
       mark(price);
       await alerts.evaluateDueAlerts(NOW);
     }
-    const rows = (await notifyStore.list({ userId: 'u1', limit: 50 })).items;
+    const rows = (await notifyStore.list({ userId: 'u1', limit: 50, unreadOnly: false })).items;
     expect(rows.filter((r) => r.kind === 'alert.price.crossed')).toHaveLength(4);
   });
 
@@ -121,7 +121,7 @@ describe('repeating alerts', () => {
     expect((await alerts.get('u1', row.id))!.fireCount).toBe(0);
     await alerts.evaluateDueAlerts(NOW);
     // The retry uses the same trigger number, so the inbox keeps the one row it already had.
-    const rows = (await notifyStore.list({ userId: 'u1', limit: 50 })).items;
+    const rows = (await notifyStore.list({ userId: 'u1', limit: 50, unreadOnly: false })).items;
     expect(rows.filter((r) => r.kind === 'alert.price.crossed')).toHaveLength(1);
     expect(rows[0]!.sourceIdempotencyKey).toBe(`${row.id}:n1`);
   });
