@@ -25,6 +25,13 @@ describe('classifyPostOutcome', () => {
     expect(classifyPostOutcome(new LedgerError('conflict', IDEMPOTENCY_CONFLICT_CODE))).toBe('unknown');
   });
 
+  it('codes raised by the HTTP door before the key is looked up are unknown, not refusals', () => {
+    for (const code of ['ledger.unauthenticated', 'ledger.recipe_required', 'ledger.freeze_attributed']) {
+      expect(DEFINITE_POST_REFUSAL_CODES.has(code)).toBe(false);
+      expect(classifyPostOutcome(new LedgerError('x', code))).toBe('unknown');
+    }
+  });
+
   it('a connect failure that happened before any byte was sent is unsent, up to three levels down', () => {
     for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
       expect(classifyPostOutcome(withCause(code))).toBe('unsent');

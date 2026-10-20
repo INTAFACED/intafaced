@@ -11,13 +11,18 @@ import { LedgerError } from './types.js';
 export type PostOutcomeClass = 'refused' | 'unsent' | 'unknown';
 
 /**
- * Codes the ledger answers with BEFORE it commits. Both engines look the key up first (`postgres-ledger.ts`, STOP
- * §4.2b #4), so a key that already committed returns its transaction and never reaches one of these. A reply that
- * carries one of them therefore proves nothing committed under this key.
+ * Codes the ledger engines raise only AFTER they have looked the key up. Both engines look the key up first
+ * (`postgres-ledger.ts`, STOP §4.2b #4), so a key that already committed returns its transaction and never reaches one
+ * of these. A reply that carries one of them therefore proves nothing committed under this key.
  *
- * `ledger.idempotency_conflict` is deliberately NOT here. It proves the opposite: the key already booked a movement and
- * this body is a different one. That caller has an unknown outcome and must read the key before it decides anything.
- * Every code not listed is `unknown` for the same reason: only a named refusal is proof.
+ * Deliberately NOT here:
+ *  - `ledger.idempotency_conflict` proves the opposite: the key already booked a movement and this body is a different
+ *    one. That caller has an unknown outcome and must read the key before it decides anything.
+ *  - `ledger.unauthenticated` and `ledger.recipe_required` are raised by the HTTP door (`s2s-http.ts`, `router.ts`)
+ *    BEFORE `post` runs, so before the key is looked up. A post that committed and lost its reply can be refused with
+ *    either when the caller's key is rotated or the recipe gate changes before the retry.
+ *  - `ledger.freeze_attributed` is raised by freeze writes, never by a post.
+ * Every code not listed is `unknown` for the same reason: only a named engine refusal is proof.
  */
 export const DEFINITE_POST_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ledger.insufficient_funds',
@@ -25,9 +30,6 @@ export const DEFINITE_POST_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ledger.unbalanced',
   'ledger.owner_identity_space',
   'ledger.frozen',
-  'ledger.unauthenticated',
-  'ledger.recipe_required',
-  'ledger.freeze_attributed',
 ]);
 
 /** Undici reports these on `error.cause` when the socket never connected. */
