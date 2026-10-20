@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   createServiceSigner,
@@ -14,7 +14,7 @@ import {
  * Shared by the `*-keys.test.ts` files: svc-agents' outgoing calls signed with its own key, judged by the contracts
  * verifier fed the request exactly as it went on the wire. Keys are generated at runtime; none is stored.
  */
-export const SECRET = 'test-internal-service-secret-32-chars';
+export const SECRET = randomBytes(24).toString('hex');
 
 export type S2s = { signer: ServiceSigner; mode: ServiceAuthMode };
 export type Sent = { url: URL; method: string; headers: Record<string, string>; body: string };
