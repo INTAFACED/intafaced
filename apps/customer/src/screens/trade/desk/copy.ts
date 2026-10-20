@@ -163,6 +163,8 @@ const messages = {
   'BBO buy hint': 'Use the best bid',
   'BBO sell hint': 'Use the best ask',
   'Percent of max': '{percent}% of max',
+  'Quick sizes': 'Quick sizes',
+  'Quick size': 'Set the amount to {size} {asset}',
   Max: 'Max',
   'Price up one step': 'Raise the price one step',
   'Price down one step': 'Lower the price one step',
