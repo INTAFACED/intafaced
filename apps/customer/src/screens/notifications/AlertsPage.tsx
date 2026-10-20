@@ -25,6 +25,7 @@ import {
 } from './alerts-model';
 import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
+import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
 import {
@@ -68,6 +69,8 @@ const REFUSAL = {
   accountChanged: 'refusedAccountChanged',
   unpublished: 'refusedUnpublished',
   notEditable: 'refusedNotEditable',
+  quotaOff: 'refusedQuotaOff',
+  quotaReached: 'refusedQuotaReached',
   notFound: 'refusedNotFound',
   logOff: 'refusedLogOff',
   other: 'refusedOther',
@@ -138,6 +141,7 @@ export default function AlertsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [view, setView] = useState<AlertView>(DEFAULT_VIEW);
   const triggers = useTriggers();
+  const quota = useAlertQuota();
   // One change at a time, even if a click lands twice before the screen redraws.
   const gate = useRef(createGate());
 
@@ -146,6 +150,16 @@ export default function AlertsPage() {
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
   const problem = touched ? priceProblem(price) : null;
+
+  // A quota that could not be read blocks nothing: the service refuses a create past the cap on its own.
+  const quotaState =
+    quota.state.status !== 'ready'
+      ? 'unknown'
+      : quota.state.quota.max === null
+        ? 'off'
+        : quota.state.quota.used >= quota.state.quota.max
+          ? 'full'
+          : 'room';
 
   const blockedReason: Parameters<typeof copy.t>[0] | null =
     busy !== null
@@ -162,7 +176,11 @@ export default function AlertsPage() {
                 ? 'reasonListLoading'
                 : state.status === 'failed'
                   ? 'reasonListFailed'
-                  : null;
+                  : quotaState === 'off'
+                    ? 'reasonQuotaOff'
+                    : quotaState === 'full'
+                      ? 'reasonQuotaFull'
+                      : null;
 
   if (mode !== 'Personal') {
     return (
@@ -247,6 +265,8 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
     }
   }
 
@@ -265,6 +285,8 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
     }
   }
 
@@ -300,6 +322,8 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
     }
   }
 
@@ -316,6 +340,16 @@ export default function AlertsPage() {
       </div>
       <NotifyNav current="alerts" />
       <p className="nf-intro">{copy.t('intro')}</p>
+      {quota.state.status === 'ready' ? (
+        <p className={`nf-banner${quotaState === 'room' ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-quota">
+          {quota.state.quota.max === null
+            ? copy.t('quotaOff')
+            : copy.t(quotaState === 'full' ? 'quotaFull' : 'quotaUsed', {
+                used: String(quota.state.quota.used),
+                max: String(quota.state.quota.max),
+              })}
+        </p>
+      ) : null}
       {evaluation ? (
         <p className={`nf-banner${evaluation.canFire ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-evaluation">
           {copy.t(evaluationNote(evaluation))}
