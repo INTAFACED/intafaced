@@ -1,7 +1,7 @@
 /** Browser hop for the support desk's bulk bar. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
-import { readBulkResults, type BulkChange, type BulkRow } from './bulk';
+import { readBulkResults, type BulkChange, type BulkExpected, type BulkRow } from './bulk';
 import { readClaimReply } from './browser';
 import type { SupportBulkPolicyView } from './types';
 
@@ -36,9 +36,9 @@ const UNKNOWN: Extract<BulkReply, { ok: false }> = {
 };
 
 /** Strict reader: only a known answer with every request in it is a success; anything else is "outcome not known". */
-export function readBulkReply(raw: unknown): BulkReply {
+export function readBulkReply(raw: unknown, sent: BulkExpected): BulkReply {
   if (isRecord(raw) && raw.ok === true && raw.action === 'bulk' && typeof raw.summary === 'string') {
-    const rows = readBulkResults({ batchKey: 'x', results: raw.results });
+    const rows = readBulkResults({ batchKey: sent.batchKey, results: raw.results }, sent);
     return rows ? { ok: true, summary: raw.summary, rows } : UNKNOWN;
   }
   const read = readClaimReply(raw);
@@ -77,7 +77,7 @@ export async function postBulk(send: BulkSend): Promise<BulkReply> {
       cache: 'no-store',
       credentials: 'same-origin',
     });
-    return readBulkReply(await res.json().catch(() => null));
+    return readBulkReply(await res.json().catch(() => null), send);
   } catch {
     return UNKNOWN;
   }

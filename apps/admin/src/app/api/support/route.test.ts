@@ -881,6 +881,29 @@ describe('bulk change', () => {
     expect(json.refusal).toMatchObject({ title: 'The batch size is not set', changed: 'no' });
   });
 
+  it('an answer that leaves out a request, or names another, is an unknown outcome, not a success', async () => {
+    for (const results of [
+      [],
+      [rows[0]],
+      [rows[0], { ticketId: '55555555-5555-4555-8555-555555555555', outcome: 'changed', code: null }],
+    ]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ok({ batchKey: 'batch-1', results })),
+      );
+      const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.refusal.changed).toBe('unknown');
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ batchKey: 'someone-else', results: rows })),
+    );
+    const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+    expect((await res.json()).ok).toBe(false);
+  });
+
   it('an answer that is not a list of requests is an unknown outcome, not a success', async () => {
     vi.stubGlobal(
       'fetch',

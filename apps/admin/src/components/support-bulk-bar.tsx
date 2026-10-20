@@ -40,6 +40,8 @@ export interface BulkBarViewProps {
   readonly form: BulkForm;
   readonly armed: boolean;
   readonly busy: boolean;
+  /** A send whose outcome is not known: the ticks and the change are held, and the next send repeats exactly that change. */
+  readonly pending: boolean;
   readonly reply: BulkReply | null;
   readonly onField: (patch: Partial<BulkForm>) => void;
   readonly onArm: (on: boolean) => void;
@@ -113,12 +115,18 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
       )}
       <p data-testid="bulk-count">
         {p.selected.length} request{p.selected.length === 1 ? '' : 's'} ticked.{' '}
-        {p.selected.length > 0 && (
+        {p.selected.length > 0 && !p.pending && (
           <button type="button" className="adm-btn" onClick={p.onClear} disabled={p.busy}>
             Untick all
           </button>
         )}
       </p>
+      {p.pending && (
+        <p className="dk-why" data-testid="bulk-pending">
+          The last send did not come back with an answer, so it is not known which requests changed. The ticks and the change are held;
+          sending again repeats exactly that change under the same key, and svc-support changes nothing twice.
+        </p>
+      )}
       <div className="dk-row">
         <div className="adm-field">
           <label htmlFor="sd-bulk-kind">Change</label>
@@ -126,7 +134,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
             id="sd-bulk-kind"
             className="adm-input"
             value={p.form.kind}
-            disabled={p.busy || p.armed}
+            disabled={p.busy || p.armed || p.pending}
             onChange={(e) => p.onField({ kind: e.target.value as BulkKind })}
           >
             {(Object.keys(KIND_LABEL) as BulkKind[]).map((k) => (
@@ -143,7 +151,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
               id="sd-bulk-status"
               className="adm-input"
               value={p.form.status}
-              disabled={p.busy || p.armed}
+              disabled={p.busy || p.armed || p.pending}
               onChange={(e) => p.onField({ status: e.target.value as TicketStatus | '' })}
             >
               <option value="">Choose…</option>
@@ -162,7 +170,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
               id="sd-bulk-priority"
               className="adm-input"
               value={p.form.priority}
-              disabled={p.busy || p.armed}
+              disabled={p.busy || p.armed || p.pending}
               onChange={(e) => p.onField({ priority: e.target.value as Priority | 'none' | '' })}
             >
               <option value="">Choose…</option>
@@ -182,7 +190,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
               id="sd-bulk-assignee"
               className="adm-input"
               value={p.form.assigneeId}
-              disabled={p.busy || p.armed || p.roster === null}
+              disabled={p.busy || p.armed || p.pending || p.roster === null}
               onChange={(e) => p.onField({ assigneeId: e.target.value })}
             >
               <option value="">{p.roster === null ? 'Staff list not read' : 'Choose…'}</option>
@@ -203,7 +211,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
           type="text"
           maxLength={REASON_MAX}
           value={p.form.reason}
-          disabled={p.busy || p.armed}
+          disabled={p.busy || p.armed || p.pending}
           onChange={(e) => p.onField({ reason: e.target.value })}
         />
       </div>
@@ -219,7 +227,7 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
       ) : (
         <div className="dk-row">
           <button type="button" className="adm-btn" data-tone="primary" disabled={!gate.ok} onClick={() => p.onArm(true)}>
-            Change {p.selected.length} request{p.selected.length === 1 ? '' : 's'}
+            {p.pending ? 'Send the same change again' : `Change ${p.selected.length} request${p.selected.length === 1 ? '' : 's'}`}
           </button>
           {!gate.ok && <span className="dk-why">{gate.why}</span>}
         </div>
@@ -250,6 +258,12 @@ export function SupportBulkBarView(p: BulkBarViewProps) {
 }
 
 /** The bar wired to svc-support. It reads the batch size and the staff list once, the first time something is ticked. */
+interface HeldSend {
+  readonly key: string;
+  readonly ids: readonly string[];
+  readonly form: BulkForm;
+}
+
 export function SupportBulkBar({ selected, onDone, onClear }: { selected: readonly string[]; onDone: () => void; onClear: () => void }) {
   const [policy, setPolicy] = useState<BulkPolicyView | null>(null);
   const [policyFailed, setPolicyFailed] = useState<string | null>(null);
@@ -258,11 +272,13 @@ export function SupportBulkBar({ selected, onDone, onClear }: { selected: readon
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<BulkReply | null>(null);
+  // A send whose outcome is not known keeps its key, its requests and its change until an answer is known, so a retry
+  // is the same command and svc-support changes nothing twice. Nothing else holds a key.
+  const [held, setHeld] = useState<HeldSend | null>(null);
   const loaded = useRef(false);
   const lock = useRef(false);
-  const batchKey = useRef('');
 
-  const first = selected.length > 0;
+  const first = selected.length > 0 || held !== null;
   useEffect(() => {
     if (!first || loaded.current) return;
     loaded.current = true;
@@ -284,27 +300,23 @@ export function SupportBulkBar({ selected, onDone, onClear }: { selected: readon
     return () => ac.abort();
   }, [first]);
 
-  function arm(on: boolean) {
-    if (on) batchKey.current = `batch:${crypto.randomUUID()}`;
-    setArmed(on);
-  }
-
   async function send() {
-    const change = bulkChangeOf(form);
+    const mine: HeldSend = held ?? { key: `batch:${crypto.randomUUID()}`, ids: [...selected], form };
+    const change = bulkChangeOf(mine.form);
     if (lock.current || !change) return;
     lock.current = true;
     setBusy(true);
     setReply(null);
+    setHeld(mine);
     try {
-      const result = await postBulk({
-        batchKey: batchKey.current,
-        ticketIds: selected,
-        change,
-        ...(form.reason.trim() ? { reason: form.reason.trim() } : {}),
-      });
+      const reason = mine.form.reason.trim();
+      const result = await postBulk({ batchKey: mine.key, ticketIds: mine.ids, change, ...(reason ? { reason } : {}) });
       setReply(result);
-      // A known answer ends this batch: the next one is a new key. A refusal that changed nothing keeps it for the retry.
-      if (result.ok || result.refusal.changed === 'no') setArmed(false);
+      if (result.ok || result.refusal.changed === 'no') {
+        // A known answer ends this send; the next one is a new command under a new key.
+        setHeld(null);
+        setArmed(false);
+      }
       if (result.ok) {
         setForm(emptyBulkForm);
         onClear();
@@ -318,16 +330,17 @@ export function SupportBulkBar({ selected, onDone, onClear }: { selected: readon
 
   return (
     <SupportBulkBarView
-      selected={selected}
+      selected={held ? held.ids : selected}
       policy={policy}
       policyFailed={policyFailed}
       roster={roster}
-      form={form}
+      form={held ? held.form : form}
       armed={armed}
       busy={busy}
+      pending={held !== null && !busy}
       reply={reply}
       onField={(patch) => setForm((f) => ({ ...f, ...patch }))}
-      onArm={arm}
+      onArm={setArmed}
       onSend={() => void send()}
       onClear={onClear}
     />

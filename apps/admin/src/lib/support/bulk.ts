@@ -65,9 +65,18 @@ export interface BulkRow {
 
 const OUTCOMES: readonly string[] = ['changed', 'unchanged', 'refused'];
 
-/** `bulkUpdate`: every row must read, or the whole answer is null; never a shorter list that hides a request. */
-export function readBulkResults(raw: unknown): BulkRow[] | null {
-  if (!isRecord(raw) || typeof raw.batchKey !== 'string' || !Array.isArray(raw.results)) return null;
+/** What the answer must cover: the batch key and exactly the requests that were sent. */
+export interface BulkExpected {
+  readonly batchKey: string;
+  readonly ticketIds: readonly string[];
+}
+
+/**
+ * `bulkUpdate`: every row must read, and the answer must carry the key that was sent and name exactly the requests that
+ * were sent, each once. Anything else is null: a shorter, longer or different list never reads as an answer.
+ */
+export function readBulkResults(raw: unknown, expected: BulkExpected): BulkRow[] | null {
+  if (!isRecord(raw) || raw.batchKey !== expected.batchKey || !Array.isArray(raw.results)) return null;
   const out: BulkRow[] = [];
   for (const row of raw.results) {
     if (!isRecord(row) || !isTicketId(row.ticketId)) return null;
@@ -75,6 +84,9 @@ export function readBulkResults(raw: unknown): BulkRow[] | null {
     if (row.code !== null && typeof row.code !== 'string') return null;
     out.push({ ticketId: row.ticketId, outcome: row.outcome as BulkOutcome, code: row.code });
   }
+  const sent = new Set(expected.ticketIds);
+  const seen = new Set(out.map((r) => r.ticketId));
+  if (out.length !== expected.ticketIds.length || seen.size !== out.length || ![...seen].every((id) => sent.has(id))) return null;
   return out;
 }
 

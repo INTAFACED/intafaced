@@ -64,14 +64,25 @@ describe('the answer', () => {
     { ticketId: B, outcome: 'unchanged', code: null },
     { ticketId: '33333333-3333-4333-8333-333333333333', outcome: 'refused', code: 'support.transition_illegal' },
   ];
+  const ids = rows.map((r) => r.ticketId);
+  const sent = { batchKey: 'k', ticketIds: ids };
   it('reads every request or none', () => {
-    expect(readBulkResults({ batchKey: 'k', results: rows })).toHaveLength(3);
-    expect(readBulkResults({ batchKey: 'k', results: [...rows, { ticketId: 'x', outcome: 'changed', code: null }] })).toBeNull();
-    expect(readBulkResults({ batchKey: 'k', results: [{ ticketId: A, outcome: 'done', code: null }] })).toBeNull();
-    expect(readBulkResults({ results: rows })).toBeNull();
+    expect(readBulkResults({ batchKey: 'k', results: rows }, sent)).toHaveLength(3);
+    expect(readBulkResults({ batchKey: 'k', results: [...rows, { ticketId: 'x', outcome: 'changed', code: null }] }, sent)).toBeNull();
+    expect(readBulkResults({ batchKey: 'k', results: [{ ticketId: A, outcome: 'done', code: null }] }, sent)).toBeNull();
+    expect(readBulkResults({ results: rows }, sent)).toBeNull();
+  });
+  it('is not an answer unless it carries the key sent and names exactly the requests sent, each once', () => {
+    expect(readBulkResults({ batchKey: 'k', results: [] }, sent)).toBeNull();
+    expect(readBulkResults({ batchKey: 'k', results: rows.slice(1) }, sent)).toBeNull();
+    expect(readBulkResults({ batchKey: 'other', results: rows }, sent)).toBeNull();
+    expect(readBulkResults({ batchKey: 'k', results: [rows[0], rows[0], rows[2]] }, sent)).toBeNull();
+    const stranger = { ticketId: '44444444-4444-4444-8444-444444444444', outcome: 'changed', code: null };
+    expect(readBulkResults({ batchKey: 'k', results: [rows[0], rows[1], stranger] }, sent)).toBeNull();
+    expect(readBulkResults({ batchKey: 'k', results: [...rows].reverse() }, sent)).toHaveLength(3);
   });
   it('counts and says it in the service words', () => {
-    const read = readBulkResults({ batchKey: 'k', results: rows })!;
+    const read = readBulkResults({ batchKey: 'k', results: rows }, sent)!;
     expect(bulkTally(read)).toEqual({ changed: 1, unchanged: 1, refused: 1 });
     expect(bulkSummary(read)).toBe('svc-support changed 1, found 1 already there and refused 1 of 3 requests.');
   });
@@ -80,10 +91,15 @@ describe('the answer', () => {
     expect(bulkCodeWords('support.something_new')).toBe('support.something_new');
     expect(bulkCodeWords(null)).toBe('');
   });
-  it('the browser reply is a success only with every request in it', () => {
-    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's', results: rows })).toMatchObject({ ok: true });
-    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's' })).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
-    expect(readBulkReply({ ok: true, action: 'status', summary: 's', results: rows })).toMatchObject({ ok: false });
-    expect(readBulkReply(null)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+  it('the browser reply is a success only with every request sent in it', () => {
+    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's', results: rows }, sent)).toMatchObject({ ok: true });
+    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's' }, sent)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's', results: [] }, sent)).toMatchObject({
+      ok: false,
+      refusal: { changed: 'unknown' },
+    });
+    expect(readBulkReply({ ok: true, action: 'bulk', summary: 's', results: rows.slice(1) }, sent)).toMatchObject({ ok: false });
+    expect(readBulkReply({ ok: true, action: 'status', summary: 's', results: rows }, sent)).toMatchObject({ ok: false });
+    expect(readBulkReply(null, sent)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
 });

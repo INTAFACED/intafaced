@@ -275,7 +275,7 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           change: request.change,
           ...(request.reason ? { reason: request.reason } : {}),
         },
-        readBulkResults,
+        (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
       );
     case 'kb_publish':
       return founderCall(

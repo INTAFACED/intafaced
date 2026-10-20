@@ -13,6 +13,7 @@ const base = (over: Partial<BulkBarViewProps> = {}): BulkBarViewProps => ({
   form: { ...emptyBulkForm, kind: 'status', status: 'resolved' },
   armed: false,
   busy: false,
+  pending: false,
   reply: null,
   onField: () => undefined,
   onArm: () => undefined,
@@ -78,6 +79,14 @@ describe('the bulk bar', () => {
     const refusal = { title: 'The batch size is not set', body: 'b', next: 'n', code: 'support.bulk_cap_unset', changed: 'no' as const };
     expect(html(base({ reply: { ok: false, refusal } }))).toContain('data-tone="danger"');
     expect(html(base({ reply: { ok: false, refusal: { ...refusal, changed: 'unknown' } } }))).toContain('data-tone="warn"');
+  });
+
+  it('holds the change and says so while a send has no known answer, and sends the same change again', () => {
+    const out = html(base({ pending: true }));
+    expect(out).toContain('data-testid="bulk-pending"');
+    expect(out).toContain('Send the same change again');
+    expect(out).not.toContain('Untick all');
+    expect(out).toMatch(/<select[^>]*id="sd-bulk-kind"[^>]*disabled=""/);
   });
 
   it('offers the staff list for an assignment, and says when it was not read', () => {
