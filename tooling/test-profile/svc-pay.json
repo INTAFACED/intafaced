@@ -1,0 +1,19 @@
+{
+  "service": "svc-pay",
+  "label": "TEST",
+  "note": "Illustrative values for the test stack only. Production keeps every one of these blank until the owner sets it.",
+  "custodyDeposits": {
+    "settings": [
+      {
+        "assetId": "USDT",
+        "networkId": "TEST-net",
+        "label": "TEST network",
+        "minimumDeposit": "10",
+        "estimatedArrivalMinutes": 5,
+        "enabled": true,
+        "haltNote": null
+      }
+    ],
+    "networks": [{ "networkId": "TEST-net", "confirmationsRequired": 3 }]
+  }
+}
