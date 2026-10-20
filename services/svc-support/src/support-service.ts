@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
+import {
+  SUPPORT_LABELS_MAX,
+  supportLabelSchema,
+  supportTicketPrioritySchema,
+  supportTicketTypeSchema,
+  type SupportTicketPriority,
+  type SupportTicketProperties,
+  type SupportTicketType,
+} from '@intafaced/contracts';
 import type {
   CreateTicketInput,
   EscalateTicketInput,
@@ -45,8 +54,21 @@ import {
   type TicketOrderRead,
   type TicketOrderSource,
 } from './ticket-order.js';
+import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
+
+const INVALID = Symbol('invalid');
+
+/** undefined stays undefined, null stays null, a known value passes, anything else is INVALID. */
+function parseEnumField<T extends string>(
+  schema: { safeParse(v: unknown): { success: boolean; data?: T } },
+  value: string | null | undefined,
+): T | null | undefined | typeof INVALID {
+  if (value === undefined || value === null) return value;
+  const parsed = schema.safeParse(value);
+  return parsed.success ? (parsed.data as T) : INVALID;
+}
 
 export class SupportError extends Error {
   constructor(
@@ -207,6 +229,8 @@ export class SupportService implements SupportContract {
     private readonly groups: GroupBook = new MemoryGroupBook(),
     /** Roles the owner marked as seeing every group. Blank (empty) marks none. */
     private readonly allGroupsRoles: readonly StaffRole[] = [],
+    /** Agent-set priority, type and labels, kept beside the ticket (operator-only). */
+    private readonly properties: PropertiesBook = new MemoryPropertiesBook(),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -791,10 +815,15 @@ export class SupportService implements SupportContract {
   }
 
   /** Stage-2 — prioritised open/pending queue for operators. No money. */
-  async listOperatorQueue(options: { limit?: number; viewerId?: string } = {}): Promise<QueueResult> {
+  async listOperatorQueue(options: { limit?: number; viewerId?: string; label?: string } = {}): Promise<QueueResult> {
     return withSupportSpan('support.listOperatorQueue', { op: 'listOperatorQueue' }, async () => {
       const limit = assertOperatorQueueLimit(options.limit);
-      const tickets = await this.visibleTickets(options.viewerId, await this.store.listAll());
+      let tickets = await this.visibleTickets(options.viewerId, await this.store.listAll());
+      if (options.label !== undefined) {
+        if (!supportLabelSchema.safeParse(options.label).success) throw new SupportError('label is not valid', 'support.label_invalid');
+        const carrying = await this.properties.ticketsWithLabel(options.label);
+        tickets = tickets.filter((t) => carrying.has(t.id));
+      }
       return buildOperatorQueue(tickets, { limit });
     });
   }
@@ -863,6 +892,64 @@ export class SupportService implements SupportContract {
       const limit = assertListAllTicketsLimit(options.limit);
       return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
     });
+  }
+
+  async getTicketProperties(input: { operatorId: string; ticketId: string }): Promise<SupportTicketProperties> {
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    return this.properties.get(input.ticketId);
+  }
+
+  /**
+   * An operator sets priority, type and labels. Omitted fields are left alone,
+   * null clears priority or type, labels replace the set. A repeat of the same
+   * client request id returns the first answer; a changed set writes one log
+   * row with the operator and reason. A closed ticket takes no further writes.
+   */
+  async setTicketProperties(input: {
+    operatorId: string;
+    ticketId: string;
+    priority?: string | null;
+    ticketType?: string | null;
+    labels?: string[];
+    reason?: string;
+    clientRequestId: string;
+  }): Promise<SupportTicketProperties> {
+    this.requireClientRequestId(input.clientRequestId);
+    const priority = parseEnumField(supportTicketPrioritySchema, input.priority);
+    const ticketType = parseEnumField(supportTicketTypeSchema, input.ticketType);
+    if (priority === INVALID || ticketType === INVALID) {
+      throw new SupportError('priority or type is not one of the allowed values', 'support.property_invalid');
+    }
+    if (
+      input.labels !== undefined &&
+      (input.labels.length > SUPPORT_LABELS_MAX || !input.labels.every((l) => supportLabelSchema.safeParse(l).success))
+    ) {
+      throw new SupportError('a label may hold letters, digits, hyphen and underscore only', 'support.label_invalid');
+    }
+    if (priority === undefined && ticketType === undefined && input.labels === undefined) {
+      throw new SupportError('set at least one of priority, type or labels', 'support.property_invalid');
+    }
+    const change = { priority, ticketType };
+    const labels = input.labels === undefined ? undefined : normaliseLabels(input.labels);
+    return this.withIdempotency(
+      `props:${input.operatorId}:${input.clientRequestId}`,
+      JSON.stringify([input.ticketId, change.priority ?? null, change.ticketType ?? null, labels ?? null, input.reason ?? null]),
+      async () => {
+        await this.assertDeskVisible(input.operatorId, input.ticketId);
+        const ticket = await this.store.findById(input.ticketId);
+        if (!ticket) throw ticketNotFound();
+        if (ticket.status === 'closed') throw new SupportError('a closed request takes no further changes', 'support.ticket_closed');
+        return this.properties.set({
+          ticketId: input.ticketId,
+          ...change,
+          ...(labels === undefined ? {} : { labels }),
+          by: input.operatorId,
+          reason: input.reason?.trim() ? input.reason.trim() : null,
+          at: this.now().toISOString(),
+        });
+      },
+    );
   }
 
   async listStaff(): Promise<StaffMember[]> {

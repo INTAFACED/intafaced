@@ -5,7 +5,13 @@ import {
   publishedKbArticles,
   createTicketInputSchema,
   searchKbInputSchema,
+  SUPPORT_LABELS_MAX,
   SUPPORT_MESSAGE_HEADERS_MAX,
+  setTicketPropertiesInputSchema,
+  supportLabelSchema,
+  supportTicketPropertiesSchema,
+  supportTicketPrioritySchema,
+  supportTicketTypeSchema,
   supportTicketCategorySchema,
   supportTicketSchema,
   supportKbArticleSchema,
@@ -156,5 +162,46 @@ describe('phishing report contract (I-signin-sessions-27)', () => {
     expect(supportTicketSchema.safeParse(row).success).toBe(true);
     expect(supportTicketSchema.safeParse({ ...row, messageHeaders: null }).success).toBe(true);
     expect(supportTicketSchema.safeParse({ ...row, messageHeaders: 'Received: from mx' }).success).toBe(true);
+  });
+});
+
+describe('ticket properties contract (SP-tickets-04)', () => {
+  const ticketId = '11111111-1111-4111-8111-111111111111';
+
+  it('priority and type are closed sets', () => {
+    for (const p of ['low', 'normal', 'high', 'urgent']) expect(supportTicketPrioritySchema.safeParse(p).success, p).toBe(true);
+    expect(supportTicketPrioritySchema.safeParse('critical').success).toBe(false);
+    for (const t of ['question', 'problem', 'incident']) expect(supportTicketTypeSchema.safeParse(t).success, t).toBe(true);
+    expect(supportTicketTypeSchema.safeParse('task').success).toBe(false);
+  });
+
+  it('a label is letters, digits, hyphen and underscore; a space or empty is refused', () => {
+    for (const l of ['vip', 'chargeback-2026', 'needs_kyc', 'A1']) expect(supportLabelSchema.safeParse(l).success, l).toBe(true);
+    for (const l of ['two words', '', 'tag!', 'x'.repeat(65)]) expect(supportLabelSchema.safeParse(l).success, l).toBe(false);
+  });
+
+  it('set takes any one field, clears with null, and refuses an empty change', () => {
+    const base = { ticketId, clientRequestId: 'k-1' };
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, priority: 'high' }).success).toBe(true);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, priority: null }).success).toBe(true);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, labels: [] }).success).toBe(true);
+    expect(setTicketPropertiesInputSchema.safeParse(base).success).toBe(false);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, priority: 'high', clientRequestId: '' }).success).toBe(false);
+  });
+
+  it('refuses more labels than the bound and a bad label inside the list', () => {
+    const base = { ticketId, clientRequestId: 'k-1' };
+    const ok = Array.from({ length: SUPPORT_LABELS_MAX }, (_, i) => `l${i}`);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, labels: ok }).success).toBe(true);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, labels: [...ok, 'extra'] }).success).toBe(false);
+    expect(setTicketPropertiesInputSchema.safeParse({ ...base, labels: ['fine', 'not fine'] }).success).toBe(false);
+  });
+
+  it('stored properties are null until set, and the owner-read ticket schema carries none of them', () => {
+    expect(
+      supportTicketPropertiesSchema.safeParse({ ticketId, priority: null, ticketType: null, labels: [], updatedAt: null }).success,
+    ).toBe(true);
+    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    for (const key of ['priority', 'ticketType', 'labels']) expect(shape).not.toContain(key);
   });
 });

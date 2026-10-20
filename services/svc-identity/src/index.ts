@@ -34,6 +34,7 @@ import { createApiKeyAccountRouter } from './api-key-account-router.js';
 import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
+import { createSessionFamiliesRouter } from './session-families-router.js';
 import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
@@ -49,6 +50,8 @@ import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
+import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
+import { createAuthKeysRouter } from './auth-keys-router.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
@@ -57,12 +60,19 @@ import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
+import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { TotpLifecycle } from './auth/totp-lifecycle.js';
+import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
+import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
+import { SecurityStepUp } from './auth/security-step-up.js';
 import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
 import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
+import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
@@ -224,17 +234,24 @@ const blueprintSubs = await subscribeBlueprintProfileEvents(bus, sql);
  */
 const xpSub = await subscribeXpEvents(bus, rank);
 
+// Signing keys with rotation overlap: the ring is read live by the token config below.
+const authKeyRing = new AuthKeyRing(sql, env.JWT_ACCESS_SECRET, parseAuthKeys(env.IDENTITY_AUTH_KEYS), {
+  consume: (service, input) => actionApprovals.consume(service, input),
+});
+await authKeyRing.refresh();
+authKeyRing.start();
+
 const auth = new AuthService(
   sql,
   bus,
   rank,
-  {
+  authKeyRing.tokenConfig({
     secret: env.JWT_ACCESS_SECRET,
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE,
     accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
     refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
-  },
+  }),
   {
     rpID: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -366,6 +383,7 @@ installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
+auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey);
@@ -390,6 +408,7 @@ const actionApprovals = new ActionApprovalService(
     }),
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
+const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
@@ -476,6 +495,7 @@ export const appRouter = mergeRouters(
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
+  createSessionFamiliesRouter(sql),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),
@@ -485,6 +505,7 @@ export const appRouter = mergeRouters(
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
+  createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
@@ -496,6 +517,7 @@ export const appRouter = mergeRouters(
       origin: env.WEBAUTHN_ORIGIN,
     },
     founderPair ?? [],
+    { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT },
   ),
   createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
@@ -503,6 +525,11 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
+  createTotpLifecycleRouter(
+    new TotpLifecycle({ sql, key: parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY), pending: new SqlPendingTotpEnrolmentStore(sql) }),
+    securityStepUp,
+  ),
+  createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -512,12 +539,12 @@ export const appRouter = mergeRouters(
   }),
   createStepUpRouter(customerStepUp),
   createTradeIdentityAuthRouter(sql, {
-    tokens: {
+    tokens: authKeyRing.tokenConfig({
       secret: env.JWT_ACCESS_SECRET,
       issuer: env.JWT_ISSUER,
       audience: env.JWT_AUDIENCE,
       accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
-    },
+    }),
   }),
 );
 export type AppRouter = typeof appRouter;
@@ -559,8 +586,10 @@ app.addHook('onRequest', (req, _reply, done) => {
   const rawProduct = req.headers['x-product'];
   const productHeader = Array.isArray(rawProduct) ? rawProduct[0] : rawProduct;
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
+  const rawAgent = req.headers['user-agent'];
+  const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => done());
+    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
   });
 });
 

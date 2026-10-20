@@ -234,6 +234,15 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'trade-news-calendar',
+    label: 'News and economic calendar',
+    paths: ['/trade/news', '/trade/calendar'],
+    status: 'blocked',
+    reason: 'feed.news: no news data feed is connected and no content store is mounted',
+    unlock: 'connect a news data vendor and mount the content store',
+    tab: 'trade',
+  },
+  {
     id: 'p2p',
     label: 'Person-to-person',
     paths: ['/p2p', '/ctc', '/uc/ad', '/uc/ad/*', '/uc/order', '/p2p/orders', '/p2p/orders/*', '/chat', '/checkuser'],

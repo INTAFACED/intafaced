@@ -2,6 +2,7 @@ import { ParkedProtocolRoom } from './ParkedProtocolRoom';
 import { NotFoundRoute, PendingRoute } from './PendingRoute';
 import { matchWeb3Route } from './routes';
 import { SUBNAV } from './blockers';
+import { WalletRoom } from './wallet/WalletRoom';
 
 /**
  * Mounts one component per Web3 route (IA-SPEC 2.8). A tab route renders its room's tab; a detail route renders its full
@@ -11,6 +12,7 @@ export function ProtocolRoutes({ path }: { path: string }) {
   const found = matchWeb3Route(path);
   if (!found) return <NotFoundRoute path={path} />;
   const { route, params } = found;
+  if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.pending) {
     const { param } = route.pending;
     const value = param ? params[param.name] : undefined;

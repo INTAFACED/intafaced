@@ -191,6 +191,8 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  { path: '/trade/news', title: 'News', description: 'Market news by category, language and symbol', door: 'Trade', area: 'trade' },
+  { path: '/trade/calendar', title: 'Economic calendar', description: 'Scheduled releases and their values', door: 'Trade', area: 'trade' },
   {
     path: '/trade/convert',
     title: 'Convert',

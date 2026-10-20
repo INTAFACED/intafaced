@@ -22,7 +22,10 @@
  * once. A planned pair blocks every trader change on both positions, top-ups
  * included (`assertLiquidationHold`), as well as funding, dated settlement and new
  * liquidation rungs. The liquidation tick (which still lists the pair after a dated
- * expiry) drives it before deciding anything else for either position.
+ * expiry) drives it before deciding anything else for either position. A funding
+ * period frozen before the plan can still post against the rows; the driver then
+ * abandons a pair whose loss the ledger refuses for funds (nothing posted), and
+ * releases what the candidate actually holds once the loss has posted (`drive`).
  *
  * Keys: `futures.adl:<bankruptPositionId>:<ordinal>:<candidatePositionId>` with
  * `:loss` and `:profit` legs. The ordinal is the bankrupt position's ADL count
@@ -31,11 +34,20 @@
  * Ranking is the owner's formula and stays blank on live (`trade.adl_unconfigured`).
  * `TEST_ADL_RANKING` exists for the test rig and says so in its label.
  */
-import { div, formatAmount, mul, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  div,
+  formatAmount,
+  mul,
+  parseAmount,
+  positionCollateralAccount,
+  recipes,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import type { Sql, TransactionSql } from 'postgres';
 import type { AdlBankruptPosition, AdlCandidate, AdlReducePort } from './adl-last-resort.js';
 import { unrealizedPnl } from './liquidation-planner.js';
-import { payOrOweProfit } from './futures-payouts.js';
+import { isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 
 export const ADL_PAIR_REPLAYED = 'trade.adl_pair_replayed' as const;
 
@@ -182,7 +194,7 @@ export interface AdlPairReducer extends AdlReducePort {
  * The ADL reducer on Postgres and the ledger: plan the pair under both row
  * locks, post its legs, then apply both rows. See the header.
  */
-export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 'balance'>): AdlPairReducer {
+export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 'balance' | 'getTxByKey'>): AdlPairReducer {
   async function lockPair(tx: TransactionSql, a: string, b: string): Promise<Map<string, PositionRow>> {
     await tx`SELECT p.id FROM trade.positions p WHERE p.id IN (${a}, ${b}) ORDER BY p.id FOR UPDATE OF p`;
     // Read the rows and their holds in a second statement, after the locks. Under READ COMMITTED a statement's
@@ -245,40 +257,86 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
     });
   }
 
-  /** Post the pair's legs (loss first) and move both rows. Safe to run again. */
-  async function drive(pair: PairRow): Promise<void> {
+  /** What the ledger holds as a position's collateral right now. */
+  async function collateral(userId: string, assetId: string, positionId: string): Promise<Amount> {
+    return (await ledger.balance(positionCollateralAccount(userId, assetId, positionId))).amount;
+  }
+
+  /**
+   * Post the pair's legs (loss first) and move both rows, all under the pair row lock. Safe to run again:
+   * each leg is looked up by its key before it posts.
+   *
+   * The plan fixed its amounts from the rows. A funding period frozen before the plan can still post
+   * against either position afterwards. If it leaves the bankrupt short of the planned loss, the ledger
+   * refuses the loss for funds; a refusal for funds means the key had not posted, so (after one more
+   * look, for an earlier attempt that may have landed meanwhile) the pair is abandoned with nothing
+   * posted and the next tick plans afresh from the moved rows. Once the loss has posted the pair goes
+   * ahead, and the candidate's release is the collateral it actually holds (all of it on a full close,
+   * never more than planned on a partial one), read back from the ledger on a replay.
+   *
+   * Not covered: funding that pays the bankrupt after the plan stays in its collateral when the pair
+   * closes it, as it does for any position a frozen period pays after its close.
+   */
+  async function drive(pair: PairRow): Promise<'applied' | 'abandoned' | 'gone'> {
     const size = parseAmount(pair.size);
     const taken = parseAmount(pair.bankrupt_margin_taken);
-    const released = parseAmount(pair.candidate_margin_released);
-    if (taken > 0n) {
-      await ledger.post(
-        recipes.futuresRealizeLoss({
-          positionId: pair.bankrupt_position_id,
-          userId: pair.bankrupt_user_id,
-          assetId: pair.asset_id,
-          fromMargin: taken,
-          fromInsurance: 0n,
-          lossId: `${pair.pair_id}:loss`,
-        }),
-      );
-    }
-    if (released > 0n) {
-      await ledger.post(
-        recipes.futuresMarginRelease({
-          positionId: pair.candidate_position_id,
-          userId: pair.candidate_user_id,
-          assetId: pair.asset_id,
-          amount: released,
-          sequence: pair.candidate_release_sequence,
-        }),
-      );
-    }
-    await sql.begin(async (tx) => {
+    const loss = recipes.futuresRealizeLoss({
+      positionId: pair.bankrupt_position_id,
+      userId: pair.bankrupt_user_id,
+      assetId: pair.asset_id,
+      fromMargin: taken,
+      fromInsurance: 0n,
+      lossId: `${pair.pair_id}:loss`,
+    });
+    const release = (amount: Amount) =>
+      recipes.futuresMarginRelease({
+        positionId: pair.candidate_position_id,
+        userId: pair.candidate_user_id,
+        assetId: pair.asset_id,
+        amount,
+        sequence: pair.candidate_release_sequence,
+      });
+    return sql.begin(async (tx) => {
       const [still] = await tx<{ state: string }[]>`
         SELECT state FROM trade.futures_adl_pairs WHERE pair_id = ${pair.pair_id} FOR UPDATE
       `;
-      if (still?.state !== 'planned') return;
-      await lockPair(tx, pair.bankrupt_position_id, pair.candidate_position_id);
+      if (still?.state !== 'planned') return 'gone';
+      const rows = await lockPair(tx, pair.bankrupt_position_id, pair.candidate_position_id);
+      const fullCandidate = parseAmount(rows.get(pair.candidate_position_id)?.size ?? '0') === size;
+      let released = parseAmount(pair.candidate_margin_released);
+
+      if (taken > 0n && !(await ledger.getTxByKey(loss.idempotencyKey))) {
+        try {
+          await ledger.post(loss);
+        } catch (err) {
+          if (!isInsufficientFunds(err)) throw err;
+          // The ledger checks the key before the funds, so a refusal for funds means this key had not
+          // posted when it checked. An earlier attempt whose outcome was unknown may have landed since,
+          // so look once more: only a loss that is still unposted abandons the pair.
+          if (!(await ledger.getTxByKey(loss.idempotencyKey))) {
+            await tx`
+              UPDATE trade.futures_adl_pairs SET state = 'abandoned', abandoned_at = now() WHERE pair_id = ${pair.pair_id}
+            `;
+            return 'abandoned';
+          }
+        }
+      }
+
+      const posted = await ledger.getTxByKey(release(1n).idempotencyKey);
+      if (posted) {
+        // Posted on an earlier run whose row writes rolled back: the amount that posted is the ledger's,
+        // not the column's (an adjusted amount is written in the same transaction and may not have committed).
+        released = posted.entries[0]!.amount;
+      } else {
+        const held = await collateral(pair.candidate_user_id, pair.asset_id, pair.candidate_position_id);
+        released = fullCandidate || held < released ? held : released;
+        if (released > 0n) await ledger.post(release(released));
+      }
+      await tx`
+        UPDATE trade.futures_adl_pairs SET candidate_margin_released = ${formatAmount(released)}::numeric
+         WHERE pair_id = ${pair.pair_id} AND candidate_margin_released <> ${formatAmount(released)}::numeric
+      `;
+
       await payOrOweProfit({
         tx,
         ledger,
@@ -307,7 +365,7 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
         UPDATE trade.positions
            SET size = CASE WHEN size = ${formatAmount(size)}::numeric THEN size ELSE size - ${formatAmount(size)}::numeric END,
                margin_current = CASE WHEN size = ${formatAmount(size)}::numeric THEN margin_current
-                                     ELSE margin_current - ${pair.candidate_margin_released}::numeric END,
+                                     ELSE margin_current - ${formatAmount(released)}::numeric END,
                margin_initial = CASE WHEN size = ${formatAmount(size)}::numeric THEN margin_initial
                                      ELSE margin_initial - ${pair.candidate_initial_released}::numeric END,
                margin_adjust_seq = GREATEST(margin_adjust_seq, ${pair.candidate_release_sequence}),
@@ -315,16 +373,17 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
                closed_at = CASE WHEN size = ${formatAmount(size)}::numeric THEN now() ELSE closed_at END,
                updated_at = now()
          WHERE id = ${pair.candidate_position_id} AND status = 'open'
-           AND size >= ${formatAmount(size)}::numeric AND margin_current >= ${pair.candidate_margin_released}::numeric
+           AND size >= ${formatAmount(size)}::numeric AND margin_current >= ${formatAmount(released)}::numeric
       `;
       if (moved.count !== 1 || movedCandidate.count !== 1) {
-        // Both legs posted and a row no longer holds what the plan took from it. Throwing
-        // keeps the pair planned (and both positions held) for the next tick and the operator.
+        // A leg posted and a row no longer holds what the plan took from it. Throwing rolls the row
+        // moves back and keeps the pair planned (and both positions held) for the next tick and the operator.
         throw new Error(`ADL pair ${pair.pair_id} posted but a position row no longer matches its plan`);
       }
       await tx`
         UPDATE trade.futures_adl_pairs SET state = 'applied', applied_at = now() WHERE pair_id = ${pair.pair_id}
       `;
+      return 'applied';
     });
   }
 
@@ -351,8 +410,8 @@ export function sqlAdlPairReducer(sql: Sql, ledger: Pick<LedgerClient, 'post' | 
         disclosureEventId: input.disclosureEventId,
       });
       if (!pair) return { sizeClosed: 0n };
-      await drive(pair);
-      return { sizeClosed: parseAmount(pair.size) };
+      // An abandoned pair moved nothing; the next tick plans again from the moved rows.
+      return { sizeClosed: (await drive(pair)) === 'applied' ? parseAmount(pair.size) : 0n };
     },
   };
 }

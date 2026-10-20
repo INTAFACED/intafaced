@@ -31,8 +31,6 @@ const HEADERS: Record<PendingPage, readonly Header[]> = {
   poolDetail: ['hdr_pair', 'hdr_liquidity', 'hdr_time'],
   positionDetail: ['hdr_pool', 'hdr_range', 'hdr_liquidity'],
   tokenDetail: ['hdr_token', 'hdr_pool', 'hdr_price'],
-  walletHome: ['hdr_token', 'hdr_balance'],
-  walletActivity: ['hdr_time', 'hdr_event', 'hdr_status'],
   blockDetail: ['hdr_block', 'hdr_time', 'hdr_status'],
   txDetail: ['hdr_hash', 'hdr_from', 'hdr_to', 'hdr_status'],
   addressDetail: ['hdr_hash', 'hdr_time', 'hdr_amount'],

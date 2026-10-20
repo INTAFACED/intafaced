@@ -4,6 +4,8 @@ import { isServiceNotConnected, networkLabel } from '../features/protocol/blocke
 import { createProtocolApi } from '../features/protocol/api';
 import { protocolCopy } from '../features/protocol/copy';
 import { lastShellRoute } from '../features/protocol/shell-state';
+import { shortAddress } from '../features/protocol/wallet/eip1193';
+import { WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
 import { useApi } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
@@ -28,6 +30,15 @@ const PHONE = ['nav_swap', 'nav_pools', 'nav_wallet', 'nav_explorer'] as const;
  * through `networkLabel`; nothing here ever says INTACHAIN mainnet.
  */
 export function Web3Shell({ path, children }: { path: string; children: ReactNode }) {
+  return (
+    <WalletProvider>
+      <Web3Frame path={path}>{children}</Web3Frame>
+    </WalletProvider>
+  );
+}
+
+function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
+  const wallet = useWallet();
   const { language } = usePreferences();
   const { t } = protocolCopy.forLocale(language);
   const transport = useApi();
@@ -80,7 +91,13 @@ export function Web3Shell({ path, children }: { path: string; children: ReactNod
                   {t('bannerPill')}
                 </span>
                 <span className="web3-chip" data-chip="wallet">
-                  {t('walletNone')}
+                  {wallet.status === 'connecting'
+                    ? t('walletConnecting')
+                    : wallet.status === 'connected' && wallet.address && wallet.connected
+                      ? wallet.guard?.ok
+                        ? `${wallet.connected.info.name} · ${shortAddress(wallet.address)}`
+                        : `${t('walletWrongNetwork')} · ${shortAddress(wallet.address)}`
+                      : t('walletNone')}
                 </span>
               </div>
             </header>
