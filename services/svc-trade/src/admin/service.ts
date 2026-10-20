@@ -14,6 +14,7 @@ import { parseConfiguredMaxLeverage, LEVERAGE_CAP_UNSET } from '../futures/initi
 import { recipeInsuranceAccount } from '../futures/insurance-bound.js';
 import { recipeProfitFundingAccount } from '../futures/profit-source.js';
 import { pendingPayoutTotals } from '../futures/futures-payouts.js';
+import { readInsuranceHistory, readLiquidationDesk, type InsuranceHistory, type LiquidationDesk } from './futures-desk.js';
 import {
   consumeApproval,
   csvLine,
@@ -470,6 +471,43 @@ export class TradeOpsAdmin {
       insuranceFund: { ...insurance, asset: row.quote_asset },
       clearingPot: { ...pot, asset: row.quote_asset, owed: owed?.owed ?? '0', owedCount: owed?.count ?? 0 },
     };
+  }
+
+  /** The liquidation desk (D-ops-06): rungs, parked positions, nearest to liquidation, ADL pairs, owed payouts. */
+  async futuresLiquidations(principal: Principal, input: { market?: string | null; limit: number }): Promise<LiquidationDesk> {
+    requireOperator(principal);
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+      throw new TradeOpsError('liquidations_limit_unset', 'limit is required (1–200); this desk does not invent a page size');
+    }
+    const market = input.market?.trim() || null;
+    const desk = await readLiquidationDesk(this.deps.sql, { market, limit: input.limit });
+    await writeOperatorAudit(this.deps.sql, {
+      kind: 'futures.liquidations',
+      operatorId: principal.userId,
+      accountId: null,
+      objectId: market ?? 'futures',
+      approverId: null,
+      reason: null,
+    });
+    return desk;
+  }
+
+  /** Insurance fund balance and the draws this service booked against it (D-ops-06). */
+  async futuresInsuranceHistory(principal: Principal, input: { asset: string; limit: number }): Promise<InsuranceHistory> {
+    requireOperator(principal);
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+      throw new TradeOpsError('insurance_history_limit_unset', 'limit is required (1–200); this history does not invent a page size');
+    }
+    const history = await readInsuranceHistory(this.deps.sql, this.deps.ledger, { asset: input.asset, limit: input.limit });
+    await writeOperatorAudit(this.deps.sql, {
+      kind: 'futures.insurance_history',
+      operatorId: principal.userId,
+      accountId: null,
+      objectId: input.asset,
+      approverId: null,
+      reason: null,
+    });
+    return history;
   }
 
   async createExport(
