@@ -176,6 +176,18 @@ Until this landed the edge sent **no CORS headers at all** — not a permissive 
 
 Authenticated forwarding now checks current identity authority on every request with the dedicated `IDENTITY_OWNERSHIP_SECRET`, matching identity's `IDENTITY_EDGE_AUTHORITY_SECRET`. It never substitutes the generic internal service secret, a WebSocket read key or an owner money-admission key. Missing configuration, a revoked or expired credential, unavailable identity or a response beyond the bounded three-second read refuses authenticated forwarding. Anonymous public enquiry routes remain reachable. The check covers the response body, avoids cached responses and redirects, and binds the original user/credential/subaccount. API keys additionally use current owner, expiry, IP, origin, product and account restrictions; the route determines the product. Identity's current KYC tier replaces the token's older tier. Ordinary interactive TOTP sessions can use the platform; existing explicit passkey and money-admission policies retain their own gates.
 
+## Service keys: outgoing calls
+
+With `S2S_AUTH_MODE` set to `dual` or `keypair` (plus `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY`, the edge's own key), svc-edge signs the service calls it makes with that key instead of hand-signing them with a shared secret:
+
+| Call                                                                                                                                                   | Callee         |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| Current-authority read, API-key ownership, account status, session ownership, passkey read, API-key exchange attestation (`IDENTITY_OWNERSHIP_SECRET`) | `svc-identity` |
+| Operator controls and reads (`MATCHING_EDGE_SIGNING_SECRET`)                                                                                           | `svc-matching` |
+| The proxy forward, for the module behind each `/api/*` prefix                                                                                          | that service   |
+
+The signature binds the method, the path and query as sent, the exact body bytes and the content type. On the proxy forward the forwarded principal, its signature and the region are inside the signed context too. `dual` also sends the dedicated shared secret on the identity and matching calls; `keypair` sends the key only. The edge holds no shared secret for the other upstreams, so the proxy forward carries the key signature alone in both modes. The modules blueprint, dex, indexer and protocol have no service role and are forwarded unsigned. Unset `S2S_AUTH_MODE` leaves every call exactly as before (the shared secret). Browsers cannot supply these headers: every `x-intafaced-*` request header is stripped.
+
 ## Not built yet
 
 - **Full geo topology + CDN contract.** Mechanism: trusted header + trustProxy (`EDGE_GEO_COUNTRY_HEADER`). Still needs deployment topology proof (socket.geo-region-resolution residual) and Class X counsel list content.
