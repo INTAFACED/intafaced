@@ -96,6 +96,25 @@ describe('bulk status', () => {
     const events = await support.listTicketEvents({ userId: LEAD, ticketId: a, asOperator: true, limit: 50 });
     expect(events.filter((e) => e.kind === 'status_changed').map((e) => e.toStatus)).toEqual(['resolved', 'open']);
   });
+  it('a replay answers an unchanged request unchanged and a refused one with its real reason, even after the ticket moved', async () => {
+    const { support, lead, make } = await desk();
+    const [a, b, c] = [await make(1), await make(2), await make(3)] as [string, string, string];
+    await support.setStatus({ operatorId: LEAD, ticketId: b, status: 'resolved' });
+    await support.setStatus({ operatorId: LEAD, ticketId: c, status: 'closed' });
+    const input = { batchKey: 'batch-status-mixed', ticketIds: [a, b, c], change: { kind: 'status', status: 'resolved' } } as const;
+    const first = await lead.bulkUpdate(input);
+    expect(first.results.map((r) => [r.outcome, r.code])).toEqual([
+      ['changed', null],
+      ['unchanged', null],
+      ['refused', 'support.transition_illegal'],
+    ]);
+    expect((await lead.bulkUpdate(input)).results).toEqual(first.results);
+    // The unchanged request is reopened, then the batch is replayed: it must not be resolved a second time.
+    await support.setStatus({ operatorId: LEAD, ticketId: b, status: 'open' });
+    expect((await lead.bulkUpdate(input)).results[1]).toMatchObject({ ticketId: b, outcome: 'unchanged' });
+    const events = await support.listTicketEvents({ userId: LEAD, ticketId: b, asOperator: true, limit: 50 });
+    expect(events.filter((e) => e.kind === 'status_changed').map((e) => e.toStatus)).toEqual(['resolved', 'open']);
+  });
   it('reports an unknown request as refused, not found, and keeps going', async () => {
     const { lead, make } = await desk();
     const a = await make(1);

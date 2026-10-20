@@ -1325,9 +1325,32 @@ export class SupportService implements SupportContract {
   }): Promise<void> {
     const { operatorId, ticketId, key, change, reason } = input;
     if (change.kind === 'status') {
-      await this.withIdempotency(`bulk-status:${key}`, `${operatorId}:${ticketId}:${change.status}`, () =>
-        this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) }),
-      );
+      // Only an answer is kept: a request that was changed, or found already at the status. A refusal changed nothing,
+      // so a retry judges it afresh and never meets a half-recorded key.
+      const stateKey = `bulk-status:${key}`;
+      const fingerprint = `${operatorId}:${ticketId}:${change.status}`;
+      try {
+        await this.staff.begin(stateKey, fingerprint);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
+      const prior = await this.staff.read<{ outcome: 'changed' | 'unchanged' }>(stateKey);
+      if (prior?.outcome === 'changed') return;
+      if (prior?.outcome === 'unchanged') {
+        throw new SupportError('the request is already at that status', 'support.transition_same_status');
+      }
+      try {
+        await this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) });
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.transition_same_status') {
+          await this.staff.save(stateKey, { outcome: 'unchanged' });
+        }
+        throw err;
+      }
+      await this.staff.save(stateKey, { outcome: 'changed' });
     } else if (change.kind === 'assign') {
       await this.assignTo({ operatorId, ticketId, assigneeId: change.assigneeId, idempotencyKey: key });
     } else {
