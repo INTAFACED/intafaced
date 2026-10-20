@@ -942,11 +942,6 @@
   .if-business .pp-kpi {
     padding: 14px;
   }
-  @keyframes pp-shimmer {
-    to {
-      background-position: -200% 0;
-    }
-  }
 }
 
 /* The portal keeps lime for the primary action and the active tab: a loading dot is neutral here. */
@@ -970,5 +965,11 @@
   .if-business .pp-row-actions .pay-action > [data-slot='button'] {
     align-self: stretch;
     width: 100%;
+  }
+}
+
+@keyframes pp-shimmer {
+  to {
+    background-position: -200% 0;
   }
 }
