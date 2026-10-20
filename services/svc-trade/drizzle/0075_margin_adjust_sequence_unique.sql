@@ -16,13 +16,15 @@ BEGIN
 END
 $$;
 
--- A position whose counter lags its highest stored sequence (an old no-op leverage request completed a row without
+-- A position whose counter lags its highest COMPLETED sequence (an old no-op leverage request completed a row without
 -- moving the counter) would hand the next adjustment a sequence a completed row already holds. Move the counter up first.
+-- Pending rows are left out on purpose: a pending claim sits at counter + 1 and its retry must post under that same
+-- ledger key, so raising the counter past it would make the retry post a second time under the next key.
 UPDATE "trade"."positions" p
    SET "margin_adjust_seq" = a."max_seq"
   FROM (
     SELECT "position_id", max("sequence") AS "max_seq"
-      FROM "trade"."position_margin_adjustments" GROUP BY "position_id"
+      FROM "trade"."position_margin_adjustments" WHERE "status" = 'completed' GROUP BY "position_id"
   ) a
  WHERE a."position_id" = p."id" AND p."margin_adjust_seq" < a."max_seq";
 

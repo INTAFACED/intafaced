@@ -186,9 +186,19 @@ describe('migration 0075 over a lagging counter (Postgres)', () => {
       // A no-op leverage request completed at sequence 2 under the old code; the counter stayed at 1.
       await s`INSERT INTO trade.position_margin_adjustments (position_id, client_adjustment_id, request_fingerprint, sequence, status, result, completed_at)
         VALUES (${p!.id}, 'noop', 'leverage:10', 2, 'completed', '{}'::jsonb, now())`;
+      // A second position with a PENDING claim at counter + 1 (its ledger post may already have happened).
+      const [q] = await s<{ id: string }[]>`
+        INSERT INTO trade.positions (user_id, market_id, side, status, margin_mode, size, entry_price, leverage,
+          margin_initial, margin_current, margin_asset, funding_paid, margin_adjust_request)
+        VALUES (${ALICE}, ${MARKET}, 'short', 'open', 'isolated', '1', '50000', '10', '5000', '5000', 'USDT', '0', 'pend') RETURNING id`;
+      await s`INSERT INTO trade.position_margin_adjustments (position_id, client_adjustment_id, request_fingerprint, sequence)
+        VALUES (${q!.id}, 'pend', 'leverage:5', 2)`;
       await s.unsafe(readFileSync(join(drizzle, names[idx]!), 'utf8'));
       const [pos] = await s<{ margin_adjust_seq: number }[]>`SELECT margin_adjust_seq FROM trade.positions WHERE id = ${p!.id}`;
       expect(pos!.margin_adjust_seq).toBe(2);
+
+      const [pend] = await s<{ margin_adjust_seq: number }[]>`SELECT margin_adjust_seq FROM trade.positions WHERE id = ${q!.id}`;
+      expect(pend!.margin_adjust_seq).toBe(1); // a pending claim does not move the counter
 
       const ledger = new MemoryLedger();
       await ledger.post(
@@ -206,6 +216,21 @@ describe('migration 0075 over a lagging counter (Postgres)', () => {
       const seqs = await s<{ sequence: number }[]>`
         SELECT sequence FROM trade.position_margin_adjustments WHERE position_id = ${p!.id} ORDER BY sequence`;
       expect(seqs.map((r) => r.sequence)).toEqual([2, 3]);
+
+      // The retry of the pending claim reuses its own sequence, so it posts under the same ledger key.
+      const retried = await svc.setLeverage({
+        userId: ALICE,
+        symbol: SYMBOL,
+        positionId: q!.id,
+        leverage: amt('5'),
+        clientAdjustmentId: 'pend',
+      });
+      expect(retried.leverage).toBe('5');
+      const [after] = await s<{ margin_adjust_seq: number }[]>`SELECT margin_adjust_seq FROM trade.positions WHERE id = ${q!.id}`;
+      expect(after!.margin_adjust_seq).toBe(2);
+      const pendSeqs = await s<{ sequence: number }[]>`
+        SELECT sequence FROM trade.position_margin_adjustments WHERE position_id = ${q!.id}`;
+      expect(pendSeqs.map((r) => r.sequence)).toEqual([2]);
     } finally {
       await db3.drop();
       await stopC();
