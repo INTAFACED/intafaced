@@ -24,6 +24,10 @@ export {
   OPS_COST_STORAGE_UNCONFIGURED,
 };
 
+/** The ledger's fee revenue read for the venue report could not be asked or did not answer cleanly. */
+export const OPS_FEE_REVENUE_UNCONFIGURED = 'ops.fee_revenue_unconfigured' as const;
+export const OPS_FEE_REVENUE_UNAVAILABLE = 'ops.fee_revenue_unavailable' as const;
+
 /** Machine-readable refuses. The code leads the tRPC message so IxState can quote it. */
 export const OPS_WAREHOUSE_UNWIRED = 'ops.warehouse_unwired' as const;
 export const OPS_WAREHOUSE_LAG_UNKNOWN = 'ops.warehouse_lag_unknown' as const;
