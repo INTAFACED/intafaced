@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BalanceEntry } from '../../../data/derive';
 import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
+import { usePreferences } from '../../../shared/preferences';
+import { fitsPlaces } from '../../../features/account/trading-settings';
 import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
@@ -181,6 +183,7 @@ function SideForm({
   const [stopLimit, setStopLimit] = useState('');
   // A bracket buy that went through but whose exits were refused: the SAME request is sent again to place them, never a new buy.
   const [exitRetry, setExitRetry] = useState<Draft | null>(null);
+  const preferences = usePreferences();
   const [amount, setAmount] = useState('');
   const [totalEdit, setTotalEdit] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -442,8 +445,10 @@ function SideForm({
                   : t('Order placed done', { side: sideWord }),
           );
           setReview(null);
-          setAmount('');
-          setTotalEdit(null);
+          if (preferences.resetSizeOnSubmit) {
+            setAmount('');
+            setTotalEdit(null);
+          }
         }
       }
       onPlaced();
@@ -499,8 +504,10 @@ function SideForm({
       if (result.ok) {
         setExitRetry(null);
         setStatus(t('Exits placed'));
-        setAmount('');
-        setTotalEdit(null);
+        if (preferences.resetSizeOnSubmit) {
+          setAmount('');
+          setTotalEdit(null);
+        }
         onPlaced();
       } else if (result.code === 'trade.bracket_exit_failed' || result.reason === 'uncertain') setHint(t('Exits still not placed'));
       else setFailure(failureOf(result, context));
@@ -665,6 +672,21 @@ function SideForm({
           </button>
         ))}
       </div>
+      {preferences.quickSizes.length > 0 ? (
+        <div className="dk-percents" role="group" aria-label={t('Quick sizes')}>
+          {preferences.quickSizes.map((size) => (
+            <button
+              key={size}
+              type="button"
+              disabled={!fitsPlaces(size, amountPlaces)}
+              aria-label={t('Quick size', { size, asset: market.base })}
+              onClick={() => edit(() => (setAmount(size), setTotalEdit(null)))}
+            >
+              {size}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <AmountInput
         label={priced ? t('Total') : marketBuy ? t('Spend up to') : t('Total estimate')}
         value={total}
