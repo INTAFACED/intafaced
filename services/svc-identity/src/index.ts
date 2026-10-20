@@ -61,6 +61,9 @@ import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { TotpLifecycle } from './auth/totp-lifecycle.js';
+import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
 import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
 import { SecurityStepUp } from './auth/security-step-up.js';
 import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
@@ -522,6 +525,10 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
+  createTotpLifecycleRouter(
+    new TotpLifecycle({ sql, key: parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY), pending: new SqlPendingTotpEnrolmentStore(sql) }),
+    securityStepUp,
+  ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
