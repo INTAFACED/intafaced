@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
+import { SqlGroupBook, deskCanSee } from './desk-groups.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { PostgresSupportStore } from './store.js';
 
@@ -73,6 +74,61 @@ if (!url) {
       expect(await staff.begin('appoint:k1', 'lead')).toBe('replay');
       expect(await staff.read('appoint:k1')).toMatchObject({ userId: LEAD, role: 'lead' });
       await expect(staff.begin('appoint:k1', 'agent')).rejects.toThrow(/idempotency_conflict/);
+    });
+
+    it('stores availability, logs one row per change, and writes nothing for an unchanged value', async () => {
+      const staff = new SqlStaffBook(db.sql);
+      const at = '2026-10-20T08:00:00.000Z';
+      await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at });
+      expect(await staff.get(AGENT)).toMatchObject({ availability: 'offline', availabilitySetAt: null, lastHeartbeatAt: null });
+      const set = { userId: AGENT, value: 'busy' as const, by: LEAD, reason: 'covering', at, heartbeat: true };
+      expect(await staff.setAvailability(set)).toMatchObject({ availability: 'busy', availabilitySetAt: at, lastHeartbeatAt: at });
+      await staff.setAvailability({ ...set, at: '2026-10-20T08:05:00.000Z' });
+      const log = await db.sql`SELECT user_id, availability, set_by, reason FROM support.staff_availability_log`;
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ user_id: AGENT, availability: 'busy', set_by: LEAD, reason: 'covering' });
+      expect((await staff.heartbeat(AGENT, '2026-10-20T08:10:00.000Z'))?.lastHeartbeatAt).toBe('2026-10-20T08:10:00.000Z');
+      expect(await staff.setAvailability({ ...set, userId: USER })).toBeNull();
+      expect(await staff.heartbeat(USER, at)).toBeNull();
+    });
+
+    it('stores groups, members and ticket placement, logs each change once, and refuses duplicates and unknown groups', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const groups = new SqlGroupBook(db.sql);
+      const at = '2026-10-20T09:00:00.000Z';
+      const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Grouped', body: 'Please look' });
+      const g = (await groups.save({ name: 'Trading', by: LEAD, at }))!;
+      expect(g).toMatchObject({ name: 'Trading', memberIds: [] });
+      await expect(groups.save({ name: 'Trading', by: LEAD, at })).rejects.toThrow(/group_name_taken/);
+      expect(await groups.save({ id: g.id, name: 'Trading desk', by: LEAD, at })).toMatchObject({ name: 'Trading desk' });
+      expect(await groups.addMember({ groupId: g.id, userId: AGENT, by: LEAD, at })).toBe('added');
+      expect(await groups.addMember({ groupId: g.id, userId: AGENT, by: LEAD, at })).toBe('duplicate');
+      expect(await groups.addMember({ groupId: USER, userId: AGENT, by: LEAD, at })).toBe('unknown_group');
+      expect(await groups.groupsOfUser(AGENT)).toEqual([g.id]);
+      expect(await groups.setTicketGroup({ ticketId: ticket.id, groupId: g.id, by: LEAD, at })).toBe('ok');
+      expect(await groups.setTicketGroup({ ticketId: ticket.id, groupId: g.id, by: LEAD, at })).toBe('ok');
+      expect(await groups.setTicketGroup({ ticketId: ticket.id, groupId: USER, by: LEAD, at })).toBe('unknown_group');
+      expect(await groups.groupOfTicket(ticket.id)).toBe(g.id);
+      expect((await groups.get(g.id))?.memberIds).toEqual([AGENT]);
+      expect(await groups.removeMember({ groupId: g.id, userId: AGENT, by: LEAD, at })).toBe('removed');
+      expect(await groups.removeMember({ groupId: g.id, userId: AGENT, by: LEAD, at })).toBe('absent');
+      expect(await groups.setTicketGroup({ ticketId: ticket.id, groupId: null, by: LEAD, at })).toBe('ok');
+      const log = await db.sql`SELECT action FROM support.group_log WHERE group_id = ${g.id} ORDER BY id`;
+      expect(log.map((r) => r.action)).toEqual([
+        'created',
+        'renamed',
+        'member_added',
+        'ticket_grouped',
+        'member_removed',
+        'ticket_ungrouped',
+      ]);
+      expect(deskCanSee({ userId: AGENT, role: 'agent', groupIds: [g.id] }, { assigneeId: null }, g.id, [])).toBe(true);
+    });
+
+    it('rejects an availability outside online, busy and offline in the database', async () => {
+      const staff = new SqlStaffBook(db.sql);
+      await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at: '2026-10-20T08:00:00.000Z' });
+      await expect(db.sql`UPDATE support.staff SET availability = 'away' WHERE user_id = ${AGENT}`).rejects.toThrow();
     });
 
     it('unclaims only the assignee and lets a lead assign the ticket to another staff id', async () => {
