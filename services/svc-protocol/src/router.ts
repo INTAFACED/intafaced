@@ -10,6 +10,9 @@ import {
   protocolNetworksListOutputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
+  protocolOpsLabelsOutputSchema,
+  protocolOpsMetricsInputSchema,
+  protocolOpsMetricsOutputSchema,
   publicJurisdictionProcedure,
   publicProcedure,
   router,
@@ -55,6 +58,8 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
+import { labelsOutput, serviceLabelEntries } from './ops/labels.js';
+import { buildMetrics } from './ops/metrics.js';
 
 /**
  * svc-protocol's API.
@@ -306,6 +311,8 @@ export interface ProtocolRouterDeps {
   peers?: Peers;
   /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
   probeTimeoutMs?: () => number | undefined;
+  /** `PROTOCOL_OPS_WINDOW_SECONDS`: the ops metrics window when the caller names none. Blank = refuse `owner.decision`. */
+  opsWindowSeconds?: () => number | undefined;
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
 }
@@ -512,6 +519,42 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           });
         }
       }),
+    }),
+
+    /**
+     * The Protocol ops desk reads: founder metrics and the compliance label audit. The hide, delist and restore writes
+     * live in svc-ops, which consumes identity's four-eyes approval; this plane holds no platform credential.
+     */
+    ops: router({
+      metrics: scopedProcedure('admin:read', { module: 'protocol', plane: 'protocol' })
+        .input(protocolOpsMetricsInputSchema.default({}))
+        .output(protocolOpsMetricsOutputSchema)
+        .query(async ({ input, ctx }) => {
+          const windowSeconds = input.windowSeconds ?? deps.opsWindowSeconds?.();
+          if (windowSeconds === undefined) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'owner.decision: the owner has not published a metrics window.' });
+          }
+          const region = typeof ctx.region === 'string' ? ctx.region : undefined;
+          const [indexer, dex, reachable] = await Promise.all([
+            peers.indexer(region),
+            peers.dex(region),
+            chain
+              .status()
+              .then((status) => status.reachable)
+              .catch(() => null),
+          ]);
+          return buildMetrics({ now: new Date(), windowSeconds, indexer, dex, chainReachable: reachable });
+        }),
+
+      labels: scopedProcedure('admin:compliance', { module: 'protocol', plane: 'protocol' })
+        .output(protocolOpsLabelsOutputSchema)
+        .query(async () => {
+          const audit = await loadInternalSmartAccountsPackage();
+          return labelsOutput(
+            serviceLabelEntries({ networks: loadNetworkRegistry(), configuredChainId: chain.config.chainId, audit }),
+            new Date(),
+          );
+        }),
     }),
 
     /** The deployed-contract registry and router versions for a chain. A chain with no recorded deployment is NOT_FOUND. */
