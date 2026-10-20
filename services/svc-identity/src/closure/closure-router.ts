@@ -1,5 +1,5 @@
 /**
- * `accountClosure.request`, `.cancel`, `.status`. Own account, session only.
+ * `accountClosure.request`, `.cancel`, `.check`, `.status`. Own account, session only.
  * No operator cancel lives here.
  */
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { userCopy } from '../user-copy.js';
 import { AccountClosureService, ClosureError, type ClosureView } from './closure-service.js';
 
 const blocker = z.object({ code: z.string(), count: z.number().int() });
+const balance = z.object({ assetId: z.string(), amount: z.string() });
 const view = z.object({
   id: z.string().uuid(),
   status: z.enum(['requested', 'cancelled', 'blocked', 'closed']),
@@ -79,6 +80,13 @@ export function createAccountClosureRouter(closure: AccountClosureService | unde
           toTrpc(err);
         }
       }),
+    check: protectedProcedure.output(z.object({ blockers: z.array(blocker), balances: z.array(balance) })).query(async ({ ctx }) => {
+      try {
+        return await service().check(actor(ctx.principal));
+      } catch (err) {
+        toTrpc(err);
+      }
+    }),
     status: protectedProcedure.output(z.object({ closure: view.nullable() })).query(async ({ ctx }) => {
       try {
         if (ctx.principal.kid || ctx.principal.sub_account) throw new ClosureError('identity.close_delegated');
