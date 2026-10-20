@@ -8,9 +8,10 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { z } from 'zod';
+import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { AffiliatePayoutRefuseError, AFFILIATE_PAYOUT_RESIDUAL } from './admin-tree-read.js';
 import type { AccrualStore } from './accrual-store.js';
 import type { AccrualTierLaw } from './commission-rate-law.js';
@@ -24,6 +25,8 @@ const bodySchema = z.object({ feeEventId: z.string().min(1).max(120) }).strict()
 
 export type AffiliateProducerPayoutDeps = {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
+  readonly s2s?: IdentityS2s;
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
@@ -50,10 +53,7 @@ export function registerAffiliateProducerPayout(app: FastifyInstance, deps: Affi
   }
 
   app.post(AFFILIATE_PRODUCER_PAYOUT_PATH, async (req, reply) => {
-    const { service, rejected } = verifyServiceHeaders(req.headers, deps.internalSecret, {
-      rawBody: rawBodyOf(req),
-      mode: 'require',
-    });
+    const { service, rejected } = serviceOfRequest(req, deps.internalSecret, 'require', deps.s2s);
     if (service === null) {
       return reply.code(401).send({
         error: 'service credentials required',

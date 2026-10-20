@@ -6,7 +6,8 @@
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders, type ServiceBodyBindMode } from '@intafaced/contracts';
+import { retainRawBody, type ServiceBodyBindMode } from '@intafaced/contracts';
+import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { NavigatorSessionPublishError, type NavigatorSessionStore } from './navigator-session-store.js';
 
 export const NAVIGATOR_SESSION_PATH = '/internal/agents/navigator-session' as const;
@@ -50,6 +51,8 @@ export type NavigatorSessionBody = NavigatorSessionRefuse | NavigatorSessionOk;
 
 export type NavigatorSessionRouteDeps = {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
+  readonly s2s?: IdentityS2s;
   readonly store?: NavigatorSessionStore;
   readonly bodyBind?: ServiceBodyBindMode;
   /** Isolated tests need this. Production `index.ts` already installed via accrue. */
@@ -73,11 +76,7 @@ export function registerNavigatorSessionRoutes(app: FastifyInstance, deps: Navig
   if (deps.installRawBody !== false) {
     retainRawBody(app);
   }
-  const authorised = (req: FastifyRequest): boolean =>
-    verifyServiceHeaders(req.headers, deps.internalSecret, {
-      rawBody: rawBodyOf(req),
-      mode: deps.bodyBind,
-    }).service !== null;
+  const authorised = (req: FastifyRequest): boolean => serviceOfRequest(req, deps.internalSecret, deps.bodyBind, deps.s2s).service !== null;
 
   app.get<{ Params: { sessionId: string } }>(`${NAVIGATOR_SESSION_PATH}/:sessionId`, async (req, reply) => {
     if (!authorised(req)) {

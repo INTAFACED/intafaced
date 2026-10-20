@@ -155,7 +155,7 @@ describe('401 vs 403 on public / order-like / admin doors', () => {
       const start = src.indexOf(path);
       expect(start, path).toBeGreaterThanOrEqual(0);
       const block = src.slice(start, start + 700);
-      expect(block).toMatch(/verifyServiceHeaders/);
+      expect(block).toMatch(/serviceOfRequest/);
       expect(block).toMatch(/reply\.code\(401\)/);
       expect(block).toMatch(/identity\.unauthenticated/);
       expect(block).not.toMatch(/reply\.code\(403\)/);

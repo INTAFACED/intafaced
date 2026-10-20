@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { mergeRouters, rawBodyOf, s2sFromEnv, verifyServiceHeaders } from '@intafaced/contracts';
+import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
+import { serviceOfRequest } from './s2s-door.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -316,6 +317,8 @@ const dmaHierarchyLaw = parseDmaHierarchyLawJson(env.IDENTITY_DMA_HIERARCHY_LAW_
  */
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger call on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
+/** The same keys on the inbound doors: a key-signed caller is named by its own key. */
+const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const ledger = env.LEDGER_URL
   ? createLedgerClient(
       env.LEDGER_URL,
@@ -496,6 +499,7 @@ const identityRequestContext = createIdentityRequestContext({
   ...edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  ...(doorS2s ? { serviceVerifier: doorS2s.verifier, s2sMode: doorS2s.mode } : {}),
   // The tRPC door has no v1 callers (every outbound client signs v2), so it is
   // `require` whatever INTERNAL_SERVICE_BODY_BIND says: that fleet knob exists
   // for the raw /internal routes that still need a migration window, and letting
@@ -554,6 +558,7 @@ app.get('/ready', async () => ({
  */
 registerAffiliateProducerAccrue(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   referral,
   freeze,
   accruals,
@@ -562,13 +567,15 @@ registerAffiliateProducerAccrue(app, {
 
 registerBusinessDirectoryRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   store: sqlBusinessDirectory(sql),
   installRawBody: false,
 });
 
-registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, closure });
+registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
 registerAffiliateProducerPayout(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   freeze,
   accruals,
   accrualTierLaw,
@@ -582,6 +589,7 @@ const navigatorSessionStore = createNavigatorSessionStore(sql);
 // hardcode require — do not mill the fleet INTERNAL_SERVICE_BODY_BIND default.
 registerNavigatorSessionRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   store: navigatorSessionStore,
   bodyBind: 'require',
   installRawBody: false,
@@ -593,12 +601,7 @@ registerNavigatorSessionRoutes(app, {
  * Previously unauthenticated (full audit L2-3).
  */
 app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (req, reply) => {
-  if (
-    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-      rawBody: rawBodyOf(req),
-      mode: env.INTERNAL_SERVICE_BODY_BIND,
-    }).service === null
-  ) {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
   }
   return rank.perks(req.params.userId);
@@ -611,12 +614,7 @@ app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (r
  * Body is the published `subAccountOwnershipSchema` contract.
  */
 app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccountId', async (req, reply) => {
-  if (
-    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-      rawBody: rawBodyOf(req),
-      mode: env.INTERNAL_SERVICE_BODY_BIND,
-    }).service === null
-  ) {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
   }
   const row = await auth.getSubAccountOwnership(req.params.subAccountId);
@@ -640,6 +638,7 @@ registerApiKeyOwnershipRoute(app, {
   operationAdmissionSecrets: { 'svc-trade': env.IDENTITY_TRADE_ADMISSION_SECRET, 'svc-pay': env.IDENTITY_PAY_ADMISSION_SECRET },
   door: placeDoor,
   internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   installRawBody: false,
 });
@@ -650,12 +649,7 @@ registerApiKeyOwnershipRoute(app, {
  * Body is the published `sessionOwnershipSchema` contract (includes revoked:true).
  */
 app.get<{ Params: { sessionId: string } }>('/internal/sessions/:sessionId', async (req, reply) => {
-  if (
-    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-      rawBody: rawBodyOf(req),
-      mode: env.INTERNAL_SERVICE_BODY_BIND,
-    }).service === null
-  ) {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
   }
   const row = await placeDoor.getSessionOwnership(req.params.sessionId);
@@ -679,12 +673,7 @@ app.get<{ Params: { sessionId: string } }>('/internal/sessions/:sessionId', asyn
  * render as an account in good standing.
  */
 app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req, reply) => {
-  if (
-    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-      rawBody: rawBodyOf(req),
-      mode: env.INTERNAL_SERVICE_BODY_BIND,
-    }).service === null
-  ) {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
   }
   const state = await auth.accountState(req.params.userId);
@@ -700,12 +689,7 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
  * a handle; the caller does not learn the status from this route.
  */
 app.get<{ Params: { userId: string } }>('/internal/handle/:userId', async (req, reply) => {
-  if (
-    verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, {
-      rawBody: rawBodyOf(req),
-      mode: env.INTERNAL_SERVICE_BODY_BIND,
-    }).service === null
-  ) {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
   }
   const userId = req.params.userId;

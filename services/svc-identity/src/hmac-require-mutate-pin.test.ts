@@ -130,8 +130,8 @@ describe('the deployed svc-identity mutate mounts require body-bound HMAC', () =
       '/internal/account/:userId',
     ]) {
       const block = getRouteBlock(live, path);
-      expect(block, path).toMatch(/mode:\s*env\.INTERNAL_SERVICE_BODY_BIND/);
-      expect(block, path).not.toMatch(/mode:\s*'require'/);
+      expect(block, path).toMatch(/serviceOfRequest\([^)]*env\.INTERNAL_SERVICE_BODY_BIND/);
+      expect(block, path).not.toMatch(/serviceOfRequest\([^)]*'require'/);
     }
   });
 

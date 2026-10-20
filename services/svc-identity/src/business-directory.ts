@@ -6,10 +6,11 @@
  * Frozen, closed and missing accounts are the same `{ found: false }`.
  */
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Sql } from 'postgres';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts';
 import { z } from 'zod';
+import { serviceOfRequest, type IdentityS2s } from './s2s-door.js';
 
 export const BUSINESS_DIRECTORY_HANDLES_PATH = '/internal/business-directory/handles';
 export const BUSINESS_DIRECTORY_RECIPIENT_PATH = '/internal/business-directory/recipient';
@@ -64,18 +65,18 @@ const recipientInput = z
 
 export function registerBusinessDirectoryRoutes(
   app: FastifyInstance,
-  deps: { readonly internalSecret: string; readonly store: BusinessDirectoryStore; readonly installRawBody?: boolean },
+  deps: {
+    readonly internalSecret: string;
+    /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
+    readonly s2s?: IdentityS2s;
+    readonly store: BusinessDirectoryStore;
+    readonly installRawBody?: boolean;
+  },
 ): void {
   if (deps.installRawBody !== false) retainRawBody(app);
 
-  async function caller(
-    req: { headers: Parameters<typeof verifyServiceHeaders>[0] },
-    reply: { code: (n: number) => { send: (b: unknown) => unknown } },
-  ) {
-    const { service } = verifyServiceHeaders(req.headers, deps.internalSecret, {
-      rawBody: rawBodyOf(req as never),
-      mode: 'require',
-    });
+  async function caller(req: FastifyRequest, reply: { code: (n: number) => { send: (b: unknown) => unknown } }) {
+    const { service } = serviceOfRequest(req, deps.internalSecret, 'require', deps.s2s);
     if (service === null) {
       return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
     }
