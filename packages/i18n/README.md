@@ -131,19 +131,21 @@ native speaker files a bug.
 
 ## Adding a language
 
-**This is an owner decision, not an engineering one.** A language costs a human writing 118 strings
-of money copy and someone competent reviewing them. Do not machine-translate it, and do not add a
-row "to make the list look better" — a declared locale with no catalog is now visibly zero, which is
-the honest outcome, but it is still a promise the picker will show a user.
+**This is an owner decision, not an engineering one.** A language costs a human writing the money
+copy and someone competent reviewing it. A machine-written file is allowed only with
+`"provenance": "machine"`, so it is never shown as reviewed. Do not add a row "to make the list look
+better" — a declared locale with no catalog is visibly zero, which is the honest outcome, but it is
+still a promise the picker will show a user.
 
 1. Add a row to `SUPPORTED_LOCALES` in `src/locales.ts` — code, English name, native name, RTL
    flag, and the tag handed to `Intl`. Set `rtl: true` for Arabic-, Hebrew-, Persian- and
    Urdu-script languages; the layout mirrors off that flag.
-2. Add a catalog file that exports either `defineCatalog({...})` (complete) or
-   `definePartialCatalog({...})` (in progress). Both are checked against the English key set — a
-   partial catalog may omit keys, but it may not invent one.
-3. Register it in `CATALOGS` in `src/catalogs.ts`. Until this line exists, the language is declared
-   and not written, and every count in this package will say so.
+2. Add `src/locales/<code>.json` — `{ "meta": { "provenance": "human" | "machine", "reviewedAt": null },
+"messages": { "<key>": "<text>" } }`. The test checks every key against the English key set: a file
+   may omit keys, but it may not invent one.
+3. Run `pnpm --filter @intafaced/i18n locales`. It rebuilds `src/locale-files.generated.ts`, and
+   `catalogs.ts` picks the file up from there. Until the file exists, the language is declared and not
+   written, and every count in this package will say so.
 4. There is no step four. No component changes, no route changes, no build changes.
 
 A translation that lags is normal and safe: `createTranslator` serves the English string for any key
@@ -230,16 +232,18 @@ The gate that actually holds is the type system in this package.
 
 ## Layout
 
-| File           | What it is                                                             |
-| -------------- | ---------------------------------------------------------------------- |
-| `catalog.ts`   | English source of truth, catalog types, placeholder type extraction    |
-| `catalogs.ts`  | Which locales actually have a catalog — `catalogFor`, `localeCoverage` |
-| `locales.ts`   | Supported-locale registry, RTL flags, `Accept-Language` negotiation    |
-| `format.ts`    | Money, number, percent, date and relative-time formatting              |
-| `t.ts`         | `createTranslator`, interpolation, pluralisation, missing-key policy   |
-| `i18n.test.ts` | The tests — including the compile-time assertions                      |
+| File                        | What it is                                                             |
+| --------------------------- | ---------------------------------------------------------------------- |
+| `catalog.ts`                | English source of truth, catalog types, placeholder type extraction    |
+| `catalogs.ts`               | Which locales actually have a catalog — `catalogFor`, `localeCoverage` |
+| `locales/*.json`            | Drop-in language files, with `provenance` and `reviewedAt`             |
+| `locale-files.generated.ts` | Generated index of `locales/*.json` (`pnpm locales`)                   |
+| `locales.ts`                | Supported-locale registry, RTL flags, `Accept-Language` negotiation    |
+| `format.ts`                 | Money, number, percent, date and relative-time formatting              |
+| `t.ts`                      | `createTranslator`, interpolation, pluralisation, missing-key policy   |
+| `i18n.test.ts`              | The tests — including the compile-time assertions                      |
 
-Nothing here does I/O. Catalogs are data; loading them is the app's job.
+Nothing in the library does I/O. Catalogs are data; loading them is the app's job.
 
 Copy in this package obeys Doctrine §0.7: user-facing strings name only _Identity Blueprint_,
 _Sovereign Intelligence_, and _Neural Engine_ — never a third-party system.

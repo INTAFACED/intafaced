@@ -39,7 +39,8 @@ const WRITTEN: Readonly<Partial<Record<LocaleCode, PartialCatalog>>> = {
 export function localeProvenance(code: string): Provenance | null {
   const descriptor = findLocale(code);
   if (!descriptor || descriptor.code === 'en') return null;
-  return LOCALE_FILES[descriptor.code]?.meta.provenance ?? null;
+  const file = LOCALE_FILES[descriptor.code] ?? LOCALE_FILES[code];
+  return file?.meta.provenance ?? null;
 }
 
 /** An empty catalog: every key falls through to English and is reported `untranslated`. */
