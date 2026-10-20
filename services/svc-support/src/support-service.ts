@@ -212,12 +212,28 @@ export class SupportService implements SupportContract {
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
-      const ticket = await this.store.createTicket({
+      if (input.messageHeaders !== undefined && input.category !== 'phishing') {
+        throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
+      }
+      const row = {
         userId: input.userId,
         category: input.category,
         subject: input.subject,
         body: input.body,
-      });
+        ...(input.messageHeaders !== undefined ? { messageHeaders: input.messageHeaders } : {}),
+      };
+      let ticket: SupportTicket;
+      try {
+        ticket =
+          input.clientRequestId !== undefined
+            ? await this.store.createTicketOnce({ ...row, clientRequestId: input.clientRequestId })
+            : await this.store.createTicket(row);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different request', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });
