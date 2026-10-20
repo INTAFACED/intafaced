@@ -148,6 +148,24 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         code,
         'PRECONDITION_FAILED',
       );
+    case 'bank.send_field_rules_unset':
+      return new PersonalPayError(
+        'The owner has not published what a send needs for purpose, source of funds and reference. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.reference_rules_unset':
+      return new PersonalPayError(
+        'The owner has not published a reference length for this rail and country. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.reference_too_long':
+      return new PersonalPayError(detail ?? 'The reference is longer than this rail allows.', code, 'BAD_REQUEST');
+    case 'bank.send_purpose_required':
+      return new PersonalPayError('Sends to this currency need a purpose. Nothing was posted.', code, 'BAD_REQUEST');
+    case 'bank.source_of_funds_required':
+      return new PersonalPayError('A send of this size needs a source of funds. Nothing was posted.', code, 'BAD_REQUEST');
     case 'bank.global_outcome_unknown':
       return new PersonalPayError(
         'Global send did not get a definite answer from the rail. Retry the same idempotency key. Do not start a second send.',

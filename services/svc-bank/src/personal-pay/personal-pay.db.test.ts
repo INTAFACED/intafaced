@@ -141,6 +141,15 @@ function liveGlobal(over: Partial<GlobalPorts> = {}): GlobalPorts {
             maxAmount: null,
             cutOffTime: '16:00 Europe/Berlin',
           },
+          // TEST corridor so the purpose rule can be reached for a currency the owner's table names.
+          {
+            country: 'DE',
+            currency: 'INR',
+            deliveryMethods: ['bank'],
+            minAmount: '1.00',
+            maxAmount: null,
+            cutOffTime: '16:00 Europe/Berlin',
+          },
         ];
       },
     },
@@ -172,6 +181,15 @@ function transfers(ledger: MemoryLedger) {
   return ledger.journal().filter((tx) => tx.reason === 'bank.transfer.manual');
 }
 
+const RULES = JSON.stringify({
+  reference: [
+    { deliveryMethod: 'bank', maxLength: 18 },
+    { deliveryMethod: 'bank', country: 'DE', maxLength: 12 },
+  ],
+  purposeRequired: ['INR'],
+  sourceOfFunds: [{ asset: 'USDT', threshold: '50' }],
+});
+
 describe('personal bill pay and global send', () => {
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
@@ -197,13 +215,14 @@ describe('personal bill pay and global send', () => {
     `;
   });
 
-  function mount(options: { bills?: BillPorts; global?: GlobalPorts } = {}) {
+  function mount(options: { bills?: BillPorts; global?: GlobalPorts; sendFieldRules?: string } = {}) {
     const ledger = new MemoryLedger();
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients: memoryRecipientState(),
       bills: options.bills,
       global: options.global,
+      sendFieldRules: options.sendFieldRules,
     });
     return { ledger, bank };
   }
@@ -533,6 +552,7 @@ describe('personal bill pay and global send', () => {
 
     let submits = 0;
     const { ledger: ledger4, bank: bank4 } = mount({
+      sendFieldRules: RULES,
       global: liveGlobal({
         payout: {
           status: () => 'live',
@@ -574,5 +594,77 @@ describe('personal bill pay and global send', () => {
     expect(founder.rails.blocker).toBe('socket.psp-partners');
     const named = await me4.global.recipients.validate({ account: '123456789', bic: 'DEUTDEFF' });
     expect(named.bicLookup).toEqual({ status: 'matched', bic: 'DEUTDEFF', bankName: 'TEST BANK' });
+  });
+
+  it('holds a send to the owner table for reference, purpose and source of funds, and posts nothing when it refuses', async () => {
+    const attempt = async (
+      rules: string | undefined,
+      over: { amount?: string; toCurrency?: string; compliance?: Record<string, string> },
+      key: string,
+    ) => {
+      const { ledger, bank } = mount({ sendFieldRules: rules, global: liveGlobal() });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({ idempotencyKey: `recip-${key}`, name: 'Ada', account: '123456789', country: 'DE' });
+      const result = await me.global
+        .send({
+          idempotencyKey: key,
+          fromSpaceId: space.id,
+          amount: over.amount ?? '10',
+          toCurrency: over.toCurrency ?? 'EUR',
+          recipientId: saved.id,
+          country: 'DE',
+          deliveryMethod: 'bank',
+          compliance: { originatorName: 'Ada', ...over.compliance },
+        })
+        .then(
+          () => 'sent',
+          (err: { cause?: { code?: string; message?: string } }) => err.cause,
+        );
+      return { result, posted: transfers(ledger).length };
+    };
+
+    // The table was never published: refused, nothing posted.
+    expect(await attempt(undefined, {}, 'fields-01')).toMatchObject({ result: { code: 'bank.send_field_rules_unset' }, posted: 0 });
+    expect(await attempt('{"reference": "x"}', {}, 'fields-02')).toMatchObject({
+      result: { code: 'bank.send_field_rules_unset' },
+      posted: 0,
+    });
+    // A reference on a rail the table has no rule for.
+    expect(
+      await attempt(
+        JSON.stringify({ reference: [{ deliveryMethod: 'wire', maxLength: 10 }] }),
+        { compliance: { reference: 'INV1' } },
+        'fields-03',
+      ),
+    ).toMatchObject({
+      result: { code: 'bank.reference_rules_unset' },
+      posted: 0,
+    });
+    // The country rule wins over the rail rule, and the limit is named.
+    expect(await attempt(RULES, { compliance: { reference: 'x'.repeat(13) } }, 'fields-04')).toMatchObject({
+      result: { code: 'bank.reference_too_long', message: expect.stringContaining('12') },
+      posted: 0,
+    });
+    // Purpose is needed for the owner's currencies, not for others.
+    expect(await attempt(RULES, { toCurrency: 'INR' }, 'fields-05')).toMatchObject({
+      result: { code: 'bank.send_purpose_required' },
+      posted: 0,
+    });
+    // Source of funds is needed above the threshold, not at it.
+    expect(await attempt(RULES, { amount: '50.000000000000000001' }, 'fields-06')).toMatchObject({
+      result: { code: 'bank.source_of_funds_required' },
+      posted: 0,
+    });
+    expect(await attempt(RULES, { amount: '50', compliance: { reference: 'x'.repeat(12) } }, 'fields-07')).toEqual({
+      result: 'sent',
+      posted: 1,
+    });
+    expect(
+      await attempt(RULES, { amount: '60', toCurrency: 'INR', compliance: { purpose: 'family', sourceOfFunds: 'salary' } }, 'fields-08'),
+    ).toEqual({
+      result: 'sent',
+      posted: 1,
+    });
   });
 });

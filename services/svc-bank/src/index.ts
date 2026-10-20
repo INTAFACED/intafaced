@@ -204,6 +204,8 @@ const bank = createBankServices(sql, ledger, history, {
         }
       : {}),
   },
+  /** Purpose, source-of-funds and reference rules of a global send: the owner's table, blank refuses. */
+  sendFieldRules: env.BANK_SEND_FIELD_RULES_JSON,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
