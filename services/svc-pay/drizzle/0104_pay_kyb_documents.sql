@@ -1,8 +1,8 @@
 -- KYB DOCUMENTS: THE FILES A BUSINESS UPLOADS FOR ITS VERIFICATION (I-kyc-compliance-22).
 --
 -- Bytes are stored encrypted (AES-256-GCM, key from the environment); the table holds ciphertext, a nonce and the
--- plaintext SHA-256, never the plaintext. One row per (application, document key, sha256), so the same bytes for the
--- same key sent twice are one row. The latest row for a key is the one the checklist shows. A row starts `provided`;
+-- plaintext SHA-256, never the plaintext. Every upload is a row; the latest row for a key is the one the checklist
+-- shows. Sending the bytes that are already the latest for a key changes nothing (the service checks that, under a lock). A row starts `provided`;
 -- accepted and rejected come from compliance review (slice 25). The upload rules are owner data: no row means unset
 -- and uploads refuse. Not money.
 
@@ -27,8 +27,7 @@ CREATE TABLE IF NOT EXISTS "pay"."kyb_documents" (
   "rejection_reason" text,
   "uploaded_by"      text NOT NULL,
   "created_at"       timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "kyb_documents_reason_only_when_rejected" CHECK (("state" = 'rejected') = ("rejection_reason" IS NOT NULL)),
-  CONSTRAINT "kyb_documents_one_per_bytes" UNIQUE ("application_id", "document_key", "sha256")
+  CONSTRAINT "kyb_documents_reason_only_when_rejected" CHECK (("state" = 'rejected') = ("rejection_reason" IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS "kyb_documents_seq_idx" ON "pay"."kyb_documents" ("seq");

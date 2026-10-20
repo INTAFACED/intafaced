@@ -196,6 +196,50 @@ describe('kyb documents', () => {
     expect(view.rows[0]?.document?.id).toBe(second.row.document?.id);
   });
 
+  it('sending an earlier file again makes it the current one, and the latest bytes again change nothing', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const base = { applicationId: id, key: 'trust_deed', contentType: PDF };
+    const a = await owner.kyb.documents.upload({ ...base, bytesBase64: b64('file A') });
+    await owner.kyb.documents.upload({ ...base, bytesBase64: b64('file B') });
+    const again = await owner.kyb.documents.upload({ ...base, bytesBase64: b64('file A') });
+    expect(again.row.document?.sha256).toBe(a.row.document?.sha256);
+    const view = await owner.kyb.documents.checklist({ applicationId: id });
+    expect(view.rows[0]?.document?.id).toBe(again.row.document?.id);
+    await owner.kyb.documents.upload({ ...base, bytesBase64: b64('file A') });
+    const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(count[0]?.n).toBe('3');
+  });
+
+  it('two uploads of the same bytes at once are one document', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('same') };
+    await Promise.all([owner.kyb.documents.upload(input), owner.kyb.documents.upload(input), owner.kyb.documents.upload(input)]);
+    const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(count[0]?.n).toBe('1');
+  });
+
+  it('an upload racing a submit either lands before it or is refused, never after', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('late') };
+    const holder = sql.begin(async (tx) => {
+      await tx`SELECT 1 FROM pay.kyb_applications WHERE id = ${id} FOR UPDATE`;
+      await new Promise((r) => setTimeout(r, 300));
+      await tx`UPDATE pay.kyb_applications SET state = 'submitted', kyb_ref = 'ref', submitted_at = now() WHERE id = ${id}`;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const outcome = await rejection(owner.kyb.documents.upload(input));
+    await holder;
+    expect(outcome).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_application_submitted' }) });
+    const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(count[0]?.n).toBe('0');
+  });
+
   it('refuses an oversize file with the cap, a type that is not accepted, and a key the type is not asked for', async () => {
     const id = await startApplication();
     await publishRules(8);

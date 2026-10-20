@@ -1,5 +1,6 @@
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import type { Sql } from 'postgres';
+import { transaction } from '@intafaced/db';
 import {
   kybDocumentRowSchema,
   kybUploadRulesSchema,
@@ -30,9 +31,15 @@ export function parseKybDocKey(raw: string | undefined | null): Buffer | null {
   return buf.length === 32 ? buf : null;
 }
 
-function encrypt(key: Buffer, plaintext: Buffer): { ciphertext: Buffer; nonce: Buffer } {
+/** The ciphertext is bound to its row: swapped between applications, keys or contents it fails to open. */
+function aad(applicationId: string, documentKey: string, sha256: string): Buffer {
+  return Buffer.from(`kyb-document:${applicationId}:${documentKey}:${sha256}`);
+}
+
+function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { ciphertext: Buffer; nonce: Buffer } {
   const nonce = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(additional);
   const body = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   return { ciphertext: Buffer.concat([body, cipher.getAuthTag()]), nonce };
 }
@@ -101,8 +108,10 @@ export class KybDocumentService {
 
   /**
    * Store one document for a required key of an open draft. Refusals, in order: rules unset, key unset, application
-   * submitted, key not on the type's list, content type not accepted, bytes over the cap. The same bytes for the same
-   * key again return the same row. The ciphertext and the row are one insert, so a crash leaves nothing half-written.
+   * submitted, key not on the type's list, content type not accepted, bytes over the cap. Sending the bytes that are
+   * already the key's latest returns that row; any other bytes, including an earlier file sent again, become the new
+   * latest. The application row is read under a share lock, so a submit in flight either finishes first (refused) or
+   * waits for this upload; a lock per (application, key) serialises uploads of one document.
    */
   async upload(input: {
     applicationId: string;
@@ -129,7 +138,7 @@ export class KybDocumentService {
       });
     }
     const contentType = input.contentType.toLowerCase();
-    if (!rules.contentTypes.includes(contentType)) {
+    if (!rules.contentTypes.some((t) => t.toLowerCase() === contentType)) {
       throw new KybError(`${contentType} is not an accepted document type`, 'pay.kyb_document_type_refused', {
         contentTypes: rules.contentTypes,
       });
@@ -142,20 +151,35 @@ export class KybDocumentService {
       });
     }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
-    const { ciphertext, nonce } = encrypt(this.docKey, bytes);
-    await this.sql`
-      INSERT INTO pay.kyb_documents (application_id, document_key, content_type, byte_length, sha256, ciphertext, nonce, uploaded_by)
-      SELECT ${input.applicationId}, ${input.key}, ${contentType}, ${bytes.length}, ${sha256}, ${ciphertext}, ${nonce}, ${input.actorId}
-       WHERE EXISTS (SELECT 1 FROM pay.kyb_applications WHERE id = ${input.applicationId} AND state = 'draft')
-      ON CONFLICT ON CONSTRAINT kyb_documents_one_per_bytes DO NOTHING
-    `;
-    const [stored] = await this.sql<DocumentRow[]>`
-      SELECT id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
-        FROM pay.kyb_documents
-       WHERE application_id = ${input.applicationId} AND document_key = ${input.key} AND sha256 = ${sha256}
-    `;
-    if (!stored) throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
-    return toRow(input.key, stored);
+    const { ciphertext, nonce } = encrypt(this.docKey, bytes, aad(input.applicationId, input.key, sha256));
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const [open] = await tx<Array<{ state: 'draft' | 'submitted' }>>`
+          SELECT state FROM pay.kyb_applications WHERE id = ${input.applicationId} FOR SHARE
+        `;
+        if (!open) throw new KybError('No such application', 'pay.kyb_application_not_found');
+        if (open.state !== 'draft') {
+          throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
+        }
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`kyb-document:${input.applicationId}:${input.key}`}, 0))`;
+        const [latest] = await tx<DocumentRow[]>`
+          SELECT id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
+            FROM pay.kyb_documents
+           WHERE application_id = ${input.applicationId} AND document_key = ${input.key}
+           ORDER BY seq DESC LIMIT 1
+        `;
+        if (latest && latest.sha256 === sha256) return toRow(input.key, latest);
+        const [stored] = await tx<DocumentRow[]>`
+          INSERT INTO pay.kyb_documents (application_id, document_key, content_type, byte_length, sha256, ciphertext, nonce, uploaded_by)
+          VALUES (${input.applicationId}, ${input.key}, ${contentType}, ${bytes.length}, ${sha256}, ${ciphertext}, ${nonce}, ${input.actorId})
+          RETURNING id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
+        `;
+        if (!stored) throw new KybError('The document was not stored', 'pay.kyb_document_not_written');
+        return toRow(input.key, stored);
+      },
+      { isolation: 'read committed', maxAttempts: 3 },
+    );
   }
 
   private async application(applicationId: string): Promise<{ entity_type: never; country: string; state: 'draft' | 'submitted' }> {
