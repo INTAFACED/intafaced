@@ -26,6 +26,10 @@
       "types": "./dist/protocol-networks.d.ts",
       "default": "./dist/protocol-networks.js"
     },
+    "./protocol-ops": {
+      "types": "./dist/protocol-ops.d.ts",
+      "default": "./dist/protocol-ops.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
