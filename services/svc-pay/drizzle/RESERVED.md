@@ -55,6 +55,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0114      | wallet lane (withdrawal multi-approval)               | used                                            |
 | 0115      | wallet lane (withdrawal allowlist)                    | used                                            |
 | 0116      | wallet lane (custody approval tasks)                  | used                                            |
+| 0117      | wallet lane (deposit addresses and settings)          | used                                            |
 | 0115+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe

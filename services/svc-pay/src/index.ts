@@ -51,6 +51,8 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
+import { CustodyDepositService } from './custody/deposits/service.js';
+import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
@@ -761,6 +763,15 @@ registerClosureCheckRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   check: (input) => runPayClosureCheck(sql, input),
+});
+
+const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });
+registerCustodyDepositRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  catalogue: () => custodyDeposits.catalogue(),
+  address: (input) => custodyDeposits.address(input),
 });
 
 registerSubscriptionCycleRoutes(app, {
