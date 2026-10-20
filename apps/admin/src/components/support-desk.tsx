@@ -10,6 +10,7 @@ import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, Tick
 import { Failed } from './support-action-parts';
 import { TicketActions } from './support-ticket-actions';
 import { TicketExtras } from './support-ticket-extras';
+import { TicketProperties } from './support-ticket-properties';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 
@@ -223,6 +224,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
+      <TicketProperties ticket={t} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
