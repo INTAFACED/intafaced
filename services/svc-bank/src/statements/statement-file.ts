@@ -27,6 +27,7 @@ export const STATEMENT_CSV_HEADER = [
   'Record',
   'Note',
   'Payment reference',
+  'Report description',
 ] as const;
 
 export function signedAmount(item: Pick<ActivityItem, 'direction' | 'amount'>): string {
@@ -50,6 +51,7 @@ export function statementCsv(items: readonly ActivityItem[]): string {
         cell(item.id, true),
         cell(item.note ?? '', true),
         cell(item.reference ?? '', true),
+        cell(item.reportDescription ?? '', true),
       ].join(','),
     );
   }

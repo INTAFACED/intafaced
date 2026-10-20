@@ -2,7 +2,7 @@
 -- material stays in the host environment (IDENTITY_AUTH_KEYS), never in this table.
 -- A removed id keeps its row so it can never sign again.
 -- No rows = the single JWT_ACCESS_SECRET signs and verifies, as before rotation.
--- Reversal: 0053_auth_signing_keys.down.sql
+-- Reversal: 0056_auth_signing_keys.down.sql
 
 CREATE TABLE IF NOT EXISTS "identity"."auth_signing_keys" (
   "key_id" text PRIMARY KEY CHECK ("key_id" ~ '^[a-z0-9][a-z0-9._-]{0,31}$'),

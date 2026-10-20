@@ -66,7 +66,7 @@ export const TILES: readonly Tile[] = [
   { id: 'p2p', href: '/p2p', icon: Users, title: 'P2P tile', line: 'P2P line', section: 'Money and pay' },
   { id: 'promotions', href: '/uc/promotion', icon: Gift, title: 'Promotions tile', line: 'Promotions line', section: 'Rewards' },
   { id: 'campaigns', href: '/campaigns', icon: Megaphone, title: 'Campaigns tile', line: 'Campaigns line', section: 'Rewards' },
-  // The Web3 rooms open to their named blockers; their routes stay area `parked` until the Web3 shell re-homes them.
+  // The Web3 rooms open to their named blockers; their routes sit in area `web3`, behind the Web3 shell.
   { id: 'dex', href: '/dex', icon: ArrowLeftRight, title: 'DEX tile', line: 'DEX line', section: 'Web3' },
   { id: 'chain', href: '/chain', icon: Link2, title: 'Chain tile', line: 'Chain line', section: 'Web3' },
   { id: 'protocol', href: '/protocol', icon: Network, title: 'Protocol tile', line: 'Protocol line', section: 'Web3' },
@@ -132,7 +132,7 @@ function groupOf(room: Room): ServiceGroupId | undefined {
   // Business-only pages belong to the merchant portal's own menu; its Merchant home and Business bank are the way in.
   if (room.business && room.path !== '/pay/merchant' && room.path !== '/bank/business') return undefined;
   if (room.area === 'public') return 'Information';
-  if (room.area === 'parked') return 'Web3';
+  if (room.area === 'web3') return 'Web3';
   if (room.area === 'person') return 'Account';
   return room.door;
 }

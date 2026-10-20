@@ -72,7 +72,6 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
   { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
-  { name: 'futuresInsuranceTopup', fingerprint: 'de1438cd42bc' },
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'futuresOrderMarginHold', fingerprint: '2798399dbc5f' },
   { name: 'futuresOrderMarginRelease', fingerprint: '172422305939' },
@@ -93,7 +92,6 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
-  ['futuresInsuranceTopup', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['futuresOrderMarginHold', [RECIPE_GATE_CATALOG]],
   ['futuresOrderMarginRelease', [RECIPE_GATE_CATALOG]],
@@ -112,11 +110,11 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (70 = 61 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (70 = 62 live + 8 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 61, socket: 9 });
+    expect(counts).toEqual({ live: 62, socket: 8 });
     expect(inventory.recipes).toHaveLength(70);
-    expect(liveRecipeKeys(inventory)).toHaveLength(61);
+    expect(liveRecipeKeys(inventory)).toHaveLength(62);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });
 
@@ -194,7 +192,7 @@ describe('D26-P2-11 executed MemoryLedger for §13 socket recipes', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('futuresInsuranceTopup conserves (socket — no admin top-up door)', async () => {
+  it('futuresInsuranceTopup conserves (live — the trade operator desk top-up door)', async () => {
     await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('80'), rail: 'test', railRef: 'd26-ins' }));
     await ledger.post(
       recipes.feeCharge({

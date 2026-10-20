@@ -84,6 +84,17 @@ Refusing to boot without it is deliberate: a desk that started anyway would
 report every account as unread, which from an operator's chair is
 indistinguishable from every account genuinely being unreadable.
 `IDENTITY_URL` defaults to `http://localhost:4002` for a dev stack.
+`STAFF_HEARTBEAT_WINDOW_SECONDS` is an owner value and stays blank by default:
+blank means staff availability (online, busy, offline) is manual, the desk says
+automatic offline is not set (`staffAvailabilityPolicy`), and a heartbeat
+refuses `support.heartbeat_window_unset`.
+Desk groups: while no group exists every support:ops caller sees the whole queue
+(`deskScope` says `restricted: false`). Once any group exists an agent sees the
+tickets of their groups plus tickets assigned to them, a lead also sees tickets in
+no group (so a new one can reach a group), and a ticket outside the scope answers
+as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
+`agent`, `lead`) is an owner value, blank by default: it marks roles that see every group.
+A lead can add themselves to any group, so group scope limits agents, not leads.
 
 ## Migrations
 

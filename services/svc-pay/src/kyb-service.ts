@@ -136,6 +136,8 @@ export class KybService {
     actorId: string;
     actorScope: string;
     reason?: string;
+    /** Runs inside the transaction once the merchant row is locked and KYB may move, before the status write. */
+    beforeWrite?: (tx: Sql) => Promise<void>;
   }): Promise<{ changed: boolean; kybStatus: KybStatus; kybRef: string; event: KybEventRecord | null }> {
     const ref = input.kybRef.trim();
     if (!ref || ref.length > 128) {
@@ -157,6 +159,8 @@ export class KybService {
             kybStatus: merchant.kyb_status,
           });
         }
+
+        if (input.beforeWrite) await input.beforeWrite(tx);
 
         const [updated] = await tx<Array<{ id: string }>>`
           UPDATE pay.merchants

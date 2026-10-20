@@ -253,6 +253,11 @@ export const sessions = identity.table(
     refreshHash: text('refresh_hash').notNull(),
     device: text('device'),
     ip: text('ip'),
+    /** One sign-in on one device: every row a refresh token rotates into shares it. */
+    familyId: uuid('family_id').notNull().defaultRandom(),
+    userAgent: text('user_agent'),
+    /** Empty until a trusted geo source feeds it. */
+    country: text('country'),
     /** True once this session has passed a second factor. */
     mfa: boolean('mfa').notNull().default(false),
     expiresAt: tstz('expires_at').notNull(),
@@ -274,6 +279,48 @@ export const sessions = identity.table(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex('sessions_refresh_idx').on(t.refreshHash), index('sessions_user_idx').on(t.userId, t.revoked)],
+);
+
+/**
+ * One row per signed-out recovery request, known address or not. `subjectHash` is an HMAC of the
+ * address; the address itself is never stored here.
+ */
+export const authFlows = identity.table(
+  'auth_flows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    kind: text('kind').notNull(),
+    subjectHash: text('subject_hash').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    /** SHA-256 hex of the mailed code. Null for a flow that carries no code. */
+    codeHash: text('code_hash'),
+    status: text('status').notNull(),
+    attempts: integer('attempts').notNull().default(0),
+    expiresAt: tstz('expires_at').notNull(),
+    consumedAt: tstz('consumed_at'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('auth_flows_subject_idx').on(t.subjectHash, t.kind, t.createdAt), index('auth_flows_user_open_idx').on(t.userId)],
+);
+
+/** The mail the relay sends. `code` and `handle` are cleared when the relay claims the row. */
+export const mailOutbox = identity.table(
+  'mail_outbox',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    flowId: uuid('flow_id')
+      .notNull()
+      .references(() => authFlows.id, { onDelete: 'cascade' }),
+    purpose: text('purpose').notNull(),
+    recipient: text('recipient').notNull(),
+    code: text('code'),
+    handle: text('handle'),
+    expiresAt: tstz('expires_at').notNull(),
+    status: text('status').notNull(),
+    createdAt: createdAt(),
+    sentAt: tstz('sent_at'),
+  },
+  (t) => [index('mail_outbox_pending_idx').on(t.createdAt)],
 );
 
 /**
@@ -536,6 +583,8 @@ export const schema = {
   rankThresholds,
   sessions,
   passwordResetProofs,
+  authFlows,
+  mailOutbox,
   emailConfirmationProofs,
   emailConfirmationAttempts,
   emailConfirmationAudit,

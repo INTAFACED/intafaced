@@ -197,6 +197,15 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner-published lifetime of a social sign-in flow, in seconds. Blank / unset →
+       * unpublished; a start refuses (`identity.social_flow_ttl_unset`). Never git-default.
+       */
+      IDENTITY_SOCIAL_FLOW_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3600).optional()),
+      /**
        * Owner-published display currencies, comma-separated codes. Blank / unset →
        * nothing is listed: an account can only keep "no choice" (USD is shown) and the
        * display page says the list is not set. Malformed → fail boot.
@@ -222,6 +231,53 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published wrong-code cap for a password reset. Blank / unset → unpublished; a reset request
+       * refuses (`auth.reset_unwired`). The ceiling is 5. A higher number is not a published cap.
+       */
+      IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Owner-published reset and username-recovery requests per address per window. Blank / unset, or a
+       * window without a max, stays unpublished and the request refuses (`auth.reset_unwired`). The
+       * ceiling is technical. It is not a default budget.
+       */
+      IDENTITY_PASSWORD_RESET_REQUEST_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1_000).optional()),
+      IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Secret that turns an address into the identifier recovery flows are counted by (an HMAC key).
+       * Blank / unset → unpublished; recovery requests refuse (`auth.reset_unwired`). At least 32 characters.
+       */
+      IDENTITY_FLOW_SUBJECT_KEY: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.string().min(32).optional()),
+      /**
+       * When true, an address with no account is mailed a "no account here" notice. Unset, blank, false,
+       * off, or 0 stays off: nothing is mailed to an address that is not ours by default.
+       */
+      IDENTITY_RESET_NOTIFY_UNKNOWN: z.preprocess((v) => {
+        if (v === undefined || v === null) return false;
+        if (typeof v === 'boolean') return v;
+        if (typeof v === 'string') {
+          const text = v.trim().toLowerCase();
+          if (text === '' || text === '0' || text === 'false' || text === 'off' || text === 'no') return false;
+          if (text === '1' || text === 'true' || text === 'on' || text === 'yes') return true;
+        }
+        return v;
+      }, z.boolean().default(false)),
       /**
        * Owner-published lifetime for an email or phone change proof, in seconds.
        * Blank / unset → unpublished; the change refuses (`auth.change_unwired`).

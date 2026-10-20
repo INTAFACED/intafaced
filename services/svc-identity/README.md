@@ -153,6 +153,12 @@ Kill-switch: `WEBAUTHN_ENABLED=false`. Relying party: `WEBAUTHN_RP_ID`, `WEBAUTH
 
 ---
 
+## Signed-out recovery (password reset and username)
+
+`auth.requestPasswordReset` and `auth.requestHandleRecovery` do the same work for every address: lock the address identifier (an HMAC of the lower-cased address, `IDENTITY_FLOW_SUBJECT_KEY`), count the recent flows, and write one `auth_flows` row and one `mail_outbox` row. Both answer `{accepted:true}`. Past the request cap nothing is written for any address and the answer is the same. The mail leaves from the outbox: a relay claims each row once (clearing the code or username) and sends it, so a lost reply leaves the flow valid and never sends twice. With no mail transport the row is marked `undeliverable` and `auth.passwordResetChannel` reports `off`. An address with no account is mailed a notice only when `IDENTITY_RESET_NOTIFY_UNKNOWN` is on.
+
+Owner settings, all blank by default and all refusing `auth.reset_unwired` when blank: `IDENTITY_PASSWORD_RESET_TTL_SECONDS`, `IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS`, `IDENTITY_PASSWORD_RESET_REQUEST_MAX`, `IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS`, `IDENTITY_FLOW_SUBJECT_KEY`. A wrong code counts against the newest open flow for the address, with or without an account; at the cap the flow is `locked` and the answer is `auth.too_many_attempts` with `retryAfterSeconds`. A correct code still replaces the hash and ends every session. Reset moved from `password_reset_proofs` to `auth_flows`; the old table stays for old rows and is no longer read.
+
 ## Concurrency
 
 `awardXp` takes `FOR UPDATE` on the user's `rank_state` row **before** any write, then runs at READ COMMITTED. Same reasoning as svc-ledger's chain-tip lock: when a lock already establishes the ordering, SERIALIZABLE only adds aborts.

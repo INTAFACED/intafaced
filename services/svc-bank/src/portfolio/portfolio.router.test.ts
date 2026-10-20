@@ -438,3 +438,53 @@ describe("Spaces: everything the user owns is in the total, and nobody else's", 
     expect(out.totalUsd).toBe('60000.00');
   });
 });
+
+describe('bank.portfolio.summary display currency and scope (PF-overview-03)', () => {
+  const rows = [
+    bal(ALICE, 'USDT', 'available', '1000'),
+    bal(ALICE, 'BTC', 'available', '0.5'),
+    bal('space-alice-1', 'BTC', 'available', '1', 'subaccount'),
+    bal('space-bob-1', 'BTC', 'available', '100', 'subaccount'),
+  ];
+  const spaces = fakeSpaces([space('space-alice-1', ALICE), space('space-bob-1', BOB)]);
+  const prices = () => fakeTrade({ 'BTC/USDT': { last: '60000', open: '60000', windowStart: null } }).source;
+  const make = () => new PortfolioService(fakeLedger(rows).ledger, spaces, { tickers: prices(), now: () => NOW });
+
+  it('shows BTC when the display currency is BTC, from the same price book', async () => {
+    const out = await callerFor(make(), principal(ALICE)).portfolio.summary({ displayCurrency: 'btc' });
+    expect(out.totalUsd).toBe('91000.00'); // 1000 + 1.5 x 60000
+    expect(out.btc).toEqual({ total: '1.51666667', priceUsd: '60000', reason: null });
+  });
+
+  it('keeps USD and adds no BTC block when the display currency is USD', async () => {
+    const out = await callerFor(make(), principal(ALICE)).portfolio.summary({ displayCurrency: 'USD' });
+    expect(out.totalUsd).toBe('91000.00');
+    expect(out.btc).toBeUndefined();
+  });
+
+  it('refuses a currency with no rate source by name and never falls back to a guess', async () => {
+    await expect(callerFor(make(), principal(ALICE)).portfolio.summary({ displayCurrency: 'EUR' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+    });
+  });
+
+  it('scopes to main, to one named space, and the parts add up to the combined total', async () => {
+    const caller = callerFor(make(), principal(ALICE));
+    const main = await caller.portfolio.summary({ scope: 'main' });
+    const one = await caller.portfolio.summary({ scope: 'space-alice-1' });
+    const all = await caller.portfolio.summary({ scope: 'combined' });
+    expect(main.totalUsd).toBe('31000.00');
+    expect(one.totalUsd).toBe('60000.00');
+    expect(all.totalUsd).toBe('91000.00');
+    expect(Number(main.totalUsd) + Number(one.totalUsd)).toBe(Number(all.totalUsd));
+  });
+
+  it("refuses a space that is not the caller's without reading it", async () => {
+    const { ledger, asked } = fakeLedger(rows);
+    const svc = new PortfolioService(ledger, spaces, { tickers: prices(), now: () => NOW });
+    await expect(callerFor(svc, principal(ALICE)).portfolio.summary({ scope: 'space-bob-1' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(asked.some(([, id]) => id === 'space-bob-1')).toBe(false);
+  });
+});
