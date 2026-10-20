@@ -7,6 +7,7 @@ import {
   compareAmounts,
   destinationsFrom,
   progressOf,
+  proofProblem,
   recipientKey,
   sendInput,
   sendStepUpRequest,
@@ -111,6 +112,15 @@ describe('refusals', () => {
       'bank.global_payout_refused',
       'bank.global_corridor_unknown',
       'bank.global_travel_rule_incomplete',
+      'bank.payee_blocked',
+      'bank.exchange_allowance_exceeded',
+      'bank.proof_limits_unset',
+      'bank.proof_type_not_allowed',
+      'bank.proof_too_large',
+      'bank.proof_invalid',
+      'bank.proof_not_requested',
+      'bank.proof_already_uploaded',
+      'bank.transfer_settled',
     ];
     for (const code of codes) {
       const words = refusalCopy(code);
@@ -123,10 +133,22 @@ describe('refusals', () => {
 
 describe('tracking and recipients', () => {
   it('counts the steps a send has passed and none for a failed one', () => {
-    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed'].map((s) => progressOf(s as never))).toEqual([0, 1, 2, 3, 0]);
+    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed', 'held'].map((s) => progressOf(s as never))).toEqual([0, 1, 2, 3, 0, 0]);
   });
   it('keys a saved recipient by the person, the country and the normalised account', () => {
     expect(recipientKey('u1', 'de', 'de89 3704 0044 0532 0130 00')).toBe('global-recipient:u1:DE:DE89370400440532013000');
+  });
+});
+
+describe('proof files', () => {
+  const limits = { allowedTypes: ['application/pdf', 'image/png'], maxBytes: 1000 };
+  it('judges a file only by the limits the service published', () => {
+    expect(proofProblem({ type: 'application/pdf', size: 10 }, limits)).toBeNull();
+    expect(proofProblem({ type: 'IMAGE/PNG', size: 1000 }, limits)).toBeNull();
+    expect(proofProblem({ type: 'text/html', size: 10 }, limits)).toBe('type');
+    expect(proofProblem({ type: 'application/pdf', size: 1001 }, limits)).toBe('size');
+    expect(proofProblem({ type: 'application/pdf', size: 0 }, limits)).toBe('empty');
+    expect(proofProblem({ type: 'application/pdf', size: 10 }, null)).toBe('noLimits');
   });
 });
 
@@ -152,6 +174,8 @@ describe('the api', () => {
     await api.addRecipient({ idempotencyKey: 'k1234567', name: 'n', account: 'a', country: 'DE' });
     await api.removeRecipient({ recipientId: 'r', idempotencyKey: 'k1234567' });
     await api.send(draft, 'approval');
+    await api.hold('s1');
+    await api.uploadProof({ id: 's1', name: 'a.pdf', type: 'application/pdf', contentBase64: 'AA==' });
     expect(calls).toEqual([
       'bank.global.corridors.list',
       'bank.global.recipients.list',
@@ -161,6 +185,8 @@ describe('the api', () => {
       'bank.global.recipients.add',
       'bank.global.recipients.remove',
       'bank.global.send',
+      'bank.global.hold.get',
+      'bank.global.hold.uploadProof',
     ]);
   });
 });
