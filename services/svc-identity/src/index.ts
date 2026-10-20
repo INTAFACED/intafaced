@@ -45,6 +45,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
@@ -446,6 +447,8 @@ export const appRouter = mergeRouters(
     registrationOpen: env.REGISTRATION_OPEN,
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
+    // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
+    social: new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS }),
     referral,
     share,
     freeze,
