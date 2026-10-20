@@ -270,6 +270,7 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.request_expired': { ccxt: 'InvalidOrder', status: 400 },
   'trade.stp_mode_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.tag_unsupported': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.trigger_source_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_price': { ccxt: 'InvalidOrder', status: 400 },
   /** JSON number on an OCO/bracket leg — decimal string required. */

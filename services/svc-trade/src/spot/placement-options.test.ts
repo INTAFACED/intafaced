@@ -36,6 +36,15 @@ describe('create-body options spot does not act on', () => {
     );
   });
 
+  it('refuses a stop trigger source other than the last trade, before any hold', () => {
+    for (const triggerBy of ['mark', 'index']) {
+      expect(() => refuseUnsupportedPlacementOptions({ triggerBy }, NOW)).toThrowError(
+        expect.objectContaining({ code: 'trade.trigger_source_unset' }),
+      );
+    }
+    expect(() => refuseUnsupportedPlacementOptions({ triggerBy: 'last' }, NOW)).not.toThrow();
+  });
+
   it('reports the expired deadline first', () => {
     expect(() => refuseUnsupportedPlacementOptions({ requestDeadline: '2026-10-20T11:00:00.000Z', tag: 'x' }, NOW)).toThrowError(
       expect.objectContaining({ code: 'trade.request_expired' }),
