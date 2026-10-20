@@ -130,7 +130,7 @@ describe('recipient cannot receive — svc-bank refuses before posting', () => {
       expect(closed?.message).toBe(frozen?.message);
       expect(unknown?.message).toBe(frozen?.message);
       expect(frozen?.message).not.toMatch(/frozen|closed/i);
-      expect(journalKeys().filter((k) => k.startsWith('bank.transfer:'))).toEqual([]);
+      expect(journalKeys().filter((k) => k.startsWith('bank.transfer'))).toEqual([]);
     });
 
     it('pays an active recipient', async () => {
@@ -555,7 +555,7 @@ describe('router: a stranger learns nothing about the recipient', () => {
       const missing = await call(randomUUID(), 'router-missing-1');
       expect(frozen).toEqual(missing);
       expect(frozen.error).toBe('No such space');
-      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:'))).toHaveLength(0);
+      expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer'))).toHaveLength(0);
     } finally {
       await app.close();
     }

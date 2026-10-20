@@ -1,4 +1,12 @@
-import { railBoundary, recipes, type AccountRef, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  bankTransferKey,
+  railBoundary,
+  recipes,
+  type AccountRef,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 
 /**
  * Move a space's available balance to a named rail boundary, or back.
@@ -23,6 +31,7 @@ export async function postToRail(
       to: railBoundary(railId, from.assetId),
       amount,
       kind: 'manual',
+      keySpace: 'rail',
     }),
   );
 }
@@ -42,10 +51,11 @@ export async function reverseFromRail(
       to,
       amount,
       kind: 'manual',
+      keySpace: 'rail',
     }),
   );
 }
 
 export function forwardKey(transferId: string): string {
-  return `bank.transfer:${transferId}:0`;
+  return bankTransferKey('rail', transferId, 0);
 }
