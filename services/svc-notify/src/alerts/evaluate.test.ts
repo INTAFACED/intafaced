@@ -36,6 +36,7 @@ const base: PriceAlert = {
   expiresAt: null,
   lastSide: null,
   extras: [],
+  updatedAt: new Date('2026-10-17T08:00:00Z'),
 };
 
 describe('decimal string compare — no JS number', () => {

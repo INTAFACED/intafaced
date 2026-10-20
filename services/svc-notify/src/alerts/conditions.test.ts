@@ -47,6 +47,7 @@ const watch = (condition: AlertCondition, lastSide: PriceAlert['lastSide'] = nul
   expiresAt: null,
   lastSide,
   extras: [],
+  updatedAt: NOW,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
 

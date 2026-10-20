@@ -30,6 +30,7 @@ const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): 
   expiresAt: null,
   lastSide: null,
   extras,
+  updatedAt: NOW,
   ...patch,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });

@@ -13,6 +13,7 @@ import {
   directionOfCondition,
   isSourcedAlertKind,
   type AlertCondition,
+  type AlertEditState,
   type AlertExtra,
   type AlertDirection,
   type AlertSide,
@@ -47,6 +48,16 @@ export interface AlertStore {
   activeMarkets(): Promise<readonly string[]>;
   markFired(userId: string, id: string, at: Date): Promise<PriceAlert | null>;
   cancel(userId: string, id: string): Promise<PriceAlert | null>;
+  /**
+   * Replace the editable state of an alert that is active or stopped. The side a crossing was last seen on is forgotten, so a
+   * changed target waits for a real crossing. `null` when the alert is not the person's or has already triggered, expired or
+   * been cancelled.
+   */
+  replace(userId: string, id: string, next: AlertEditState, at: Date): Promise<PriceAlert | null>;
+  /** Pause (`true`) an active alert or resume (`false`) a stopped one. Any other state is returned as it is. */
+  setStopped(userId: string, id: string, stopped: boolean, at: Date): Promise<PriceAlert | null>;
+  /** Remove an alert whatever its state. True when there was one to remove. */
+  remove(userId: string, id: string): Promise<boolean>;
   /** Retire every active watch whose expiry has passed. Returns how many were expired. */
   expireDue(at: Date): Promise<number>;
   /** Remember which side of the target a crossing watch was last seen on. No-op for a watch that is not active. */
@@ -93,6 +104,7 @@ export class MemoryAlertStore implements AlertStore {
 
   async create(input: CreatePriceAlertInput): Promise<PriceAlert> {
     const kind = assertCreate(input);
+    const createdAt = new Date();
     const row: PriceAlert = {
       id: randomUUID(),
       userId: input.userId,
@@ -102,13 +114,14 @@ export class MemoryAlertStore implements AlertStore {
       targetPrice: input.targetPrice.trim(),
       status: 'active',
       firedAt: null,
-      createdAt: new Date(),
+      createdAt,
       condition: conditionOf(input),
       name: input.name ?? null,
       message: input.message ?? null,
       expiresAt: input.expiresAt ?? null,
       lastSide: null,
       extras: input.extras ?? [],
+      updatedAt: createdAt,
     };
     this.byId.set(row.id, row);
     return row;
@@ -144,15 +157,38 @@ export class MemoryAlertStore implements AlertStore {
     const row = await this.get(userId, id);
     if (!row || row.status === 'cancelled') return row;
     if (row.status === 'fired' || row.status === 'expired') return row;
-    const next: PriceAlert = { ...row, status: 'cancelled' };
+    const next: PriceAlert = { ...row, status: 'cancelled', updatedAt: new Date() };
     this.byId.set(id, next);
     return next;
+  }
+
+  async replace(userId: string, id: string, next: AlertEditState, at: Date): Promise<PriceAlert | null> {
+    const row = await this.get(userId, id);
+    if (!row || (row.status !== 'active' && row.status !== 'stopped')) return null;
+    const updated: PriceAlert = { ...row, ...next, lastSide: null, updatedAt: at };
+    this.byId.set(id, updated);
+    return updated;
+  }
+
+  async setStopped(userId: string, id: string, stopped: boolean, at: Date): Promise<PriceAlert | null> {
+    const row = await this.get(userId, id);
+    if (!row) return null;
+    if (stopped && row.status !== 'active') return row;
+    if (!stopped && row.status !== 'stopped') return row;
+    const updated: PriceAlert = { ...row, status: stopped ? 'stopped' : 'active', lastSide: null, updatedAt: at };
+    this.byId.set(id, updated);
+    return updated;
+  }
+
+  async remove(userId: string, id: string): Promise<boolean> {
+    const row = await this.get(userId, id);
+    return row ? this.byId.delete(id) : false;
   }
 
   async expireDue(at: Date): Promise<number> {
     let expired = 0;
     for (const row of this.byId.values()) {
-      if (row.status === 'active' && row.expiresAt !== null && row.expiresAt.getTime() <= at.getTime()) {
+      if ((row.status === 'active' || row.status === 'stopped') && row.expiresAt !== null && row.expiresAt.getTime() <= at.getTime()) {
         this.byId.set(row.id, { ...row, status: 'expired' });
         expired += 1;
       }
@@ -180,7 +216,7 @@ export class PostgresAlertStore implements AlertStore {
       INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions)
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
         ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${this.sql.json((input.extras ?? []) as never)})
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
     `;
     return mapRow(rows[0]!);
   }
@@ -189,13 +225,13 @@ export class PostgresAlertStore implements AlertStore {
     const rows =
       limit == null
         ? await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
           `
         : await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
@@ -206,7 +242,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async get(userId: string, id: string): Promise<PriceAlert | null> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
       FROM notify.price_alerts
       WHERE user_id = ${userId} AND id = ${id}
       LIMIT 1
@@ -216,7 +252,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async listActiveByMarket(marketId: string): Promise<readonly PriceAlert[]> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
       FROM notify.price_alerts
       WHERE market_id = ${marketId} AND status = 'active'
     `;
@@ -238,7 +274,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'fired', fired_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -246,19 +282,49 @@ export class PostgresAlertStore implements AlertStore {
   async cancel(userId: string, id: string): Promise<PriceAlert | null> {
     const rows = await this.sql<AlertRow[]>`
       UPDATE notify.price_alerts
-      SET status = 'cancelled'
-      WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions
+      SET status = 'cancelled', updated_at = now()
+      WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
+  }
+
+  async replace(userId: string, id: string, next: AlertEditState, at: Date): Promise<PriceAlert | null> {
+    const rows = await this.sql<AlertRow[]>`
+      UPDATE notify.price_alerts
+      SET direction = ${next.direction}, target_price = ${next.targetPrice}, condition = ${next.condition}, name = ${next.name},
+          message = ${next.message}, expires_at = ${next.expiresAt}, extra_conditions = ${this.sql.json(next.extras as never)},
+          last_side = NULL, updated_at = ${at}
+      WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+    `;
+    return rows[0] ? mapRow(rows[0]) : null;
+  }
+
+  async setStopped(userId: string, id: string, stopped: boolean, at: Date): Promise<PriceAlert | null> {
+    const from = stopped ? 'active' : 'stopped';
+    const to = stopped ? 'stopped' : 'active';
+    const rows = await this.sql<AlertRow[]>`
+      UPDATE notify.price_alerts
+      SET status = ${to}, last_side = NULL, updated_at = ${at}
+      WHERE user_id = ${userId} AND id = ${id} AND status = ${from}
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+    `;
+    if (rows[0]) return mapRow(rows[0]);
+    return this.get(userId, id);
+  }
+
+  async remove(userId: string, id: string): Promise<boolean> {
+    const rows = await this.sql<{ id: string }[]>`DELETE FROM notify.price_alerts WHERE user_id = ${userId} AND id = ${id} RETURNING id`;
+    return rows.length > 0;
   }
 
   async expireDue(at: Date): Promise<number> {
     const rows = await this.sql<{ id: string }[]>`
       UPDATE notify.price_alerts
       SET status = 'expired'
-      WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at <= ${at}
+      WHERE status IN ('active', 'stopped') AND expires_at IS NOT NULL AND expires_at <= ${at}
       RETURNING id
     `;
     return rows.length;
@@ -289,6 +355,7 @@ type AlertRow = {
   expires_at: Date | null;
   last_side: AlertSide | null;
   extra_conditions: AlertExtra[] | null;
+  updated_at: Date;
 };
 
 function mapRow(r: AlertRow): PriceAlert {
@@ -308,5 +375,6 @@ function mapRow(r: AlertRow): PriceAlert {
     expiresAt: r.expires_at,
     lastSide: r.last_side,
     extras: r.extra_conditions ?? [],
+    updatedAt: r.updated_at,
   };
 }

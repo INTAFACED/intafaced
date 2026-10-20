@@ -48,6 +48,8 @@ describe.skipIf(!available)('migration 0018', () => {
     await sql!.unsafe(migration('0018_notify_alert_conditions.sql'));
     await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
     await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
+    await sql!.unsafe(migration('0020_notify_alert_stopped.sql'));
+    await sql!.unsafe(migration('0020_notify_alert_stopped.sql'));
     const rows = await sql!<{ id: string; condition: string; status: string; last_side: string | null }[]>`
       SELECT id, condition, status, last_side FROM notify.price_alerts WHERE user_id = ${userId}`;
     expect(rows.find((r) => r.id === above)).toMatchObject({ condition: 'greater_than', status: 'active', last_side: null });
@@ -55,11 +57,71 @@ describe.skipIf(!available)('migration 0018', () => {
     // Existing rows come out of 0019 with no added conditions.
     const extra = await sql!<{ extra_conditions: unknown }[]>`SELECT extra_conditions FROM notify.price_alerts WHERE id = ${above}`;
     expect(extra[0]!.extra_conditions).toEqual([]);
+    // ...and take their creation time as the time they last changed.
+    const times = await sql!<{ same: boolean }[]>`SELECT (updated_at = created_at) AS same FROM notify.price_alerts WHERE id = ${above}`;
+    expect(times[0]!.same).toBe(true);
   });
 });
 
 describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
   const store = () => new PostgresAlertStore(sql!);
+
+  it('replaces the editable state of an active or stopped alert and forgets the remembered side', async () => {
+    const userId = fresh();
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', condition: 'crossing_up' });
+    await store().setLastSide(userId, row.id, 'below');
+    expect((await store().get(userId, row.id))!.lastSide).toBe('below');
+    const next = {
+      direction: 'below' as const,
+      targetPrice: '90.000000000000000001',
+      condition: 'less_than' as const,
+      name: 'Dip',
+      message: null,
+      expiresAt: null,
+      extras: [{ condition: 'greater_than' as const, targetPrice: '80' }],
+    };
+    const edited = await store().replace(userId, row.id, next, NOW);
+    expect(edited).toMatchObject({ ...next, lastSide: null, status: 'active' });
+    expect(edited!.updatedAt).toEqual(NOW);
+    await store().setStopped(userId, row.id, true, NOW);
+    expect(await store().replace(userId, row.id, { ...next, name: 'Still editable' }, NOW)).toMatchObject({
+      status: 'stopped',
+      name: 'Still editable',
+    });
+    await store().cancel(userId, row.id);
+    expect(await store().replace(userId, row.id, next, NOW)).toBeNull();
+  });
+
+  it('stops and resumes only the right way round, and keeps the alert', async () => {
+    const userId = fresh();
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('active');
+    expect((await store().setStopped(userId, row.id, true, NOW))!.status).toBe('stopped');
+    expect((await store().setStopped(userId, row.id, true, NOW))!.status).toBe('stopped');
+    expect(
+      await store()
+        .listActiveByMarket('BTC-USD')
+        .then((rows) => rows.some((r) => r.id === row.id)),
+    ).toBe(false);
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('active');
+    expect(await store().setStopped('someone-else', row.id, true, NOW)).toBeNull();
+    const cancelled = await store().cancel(userId, row.id);
+    expect(cancelled!.status).toBe('cancelled');
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('cancelled');
+  });
+
+  it('expires a stopped alert whose time has passed, and deletes any alert once', async () => {
+    const userId = fresh();
+    const past = new Date(NOW.getTime() - 1000);
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', expiresAt: past });
+    await store().setStopped(userId, row.id, true, NOW);
+    await store().expireDue(NOW);
+    expect((await store().get(userId, row.id))!.status).toBe('expired');
+    expect(await store().remove('someone-else', row.id)).toBe(false);
+    expect(await store().remove(userId, row.id)).toBe(true);
+    expect(await store().remove(userId, row.id)).toBe(false);
+    expect(await store().get(userId, row.id)).toBeNull();
+  });
 
   it('stores added conditions as an array and reads them back exactly', async () => {
     const userId = fresh();

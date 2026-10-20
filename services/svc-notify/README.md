@@ -587,6 +587,13 @@ a row. A redelivery reuses the same key and cannot double-send.
   happens. The most conditions one alert may hold, the main one included, is `NOTIFY_ALERT_MAX_CONDITIONS`; blank refuses
   `notify.alert_conditions_limit_unset` for an alert that adds any, too many is `alert.too_many_conditions`, a bad added condition
   `alert.extra_condition_invalid`. An added crossing condition is not offered: it has no remembered side. Migration 0019.
+- Alert manager (C-alerts-scan-02): `notify.updateAlert` changes an alert that is active or stopped (price, condition, name,
+  message, expiry, added conditions; `null` clears a name, message or expiry). It is checked as a create is, so a blank owner
+  setting still refuses, and an alert that has triggered, expired or been cancelled is `alert.not_editable`. An edit forgets the
+  side a crossing was last seen on. `notify.setAlertActive` pauses an active alert (`stopped`: never fires, keeps its place) or
+  resumes it; repeating either is harmless, and a stopped alert past its expiry becomes `expired`. `notify.deleteAlert` removes an
+  alert in any state, once, for its owner only. `updatedAt` is when the person last changed it. Migration 0020. The trigger log
+  (`notify.alertTriggers`) and its owner-set retention are the next PR.
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

@@ -19,6 +19,7 @@ import { CHANNEL_IDS, OUT_OF_APP_CHANNELS } from './channels/channel.js';
 import { renderInboxCopy } from './channels/render.js';
 import {
   AlertLimitError,
+  AlertNotEditableError,
   assertNotifyAlertsListLimit,
   NotifyAlertsListLimitUnsetError,
   NotifyPriceUnsetError,
@@ -432,13 +433,14 @@ const priceAlertOutput = z.object({
   kind: z.enum(SOURCED_ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string(),
-  status: z.enum(['active', 'fired', 'cancelled', 'expired']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
   firedAt: z.string().nullable(),
   createdAt: z.string(),
   condition: z.enum(ALERT_CONDITIONS),
   name: z.string().nullable(),
   message: z.string().nullable(),
   expiresAt: z.string().nullable(),
+  updatedAt: z.string(),
   extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
 });
 
@@ -463,6 +465,21 @@ const alertEvaluationOutput = z.object({
 /** The answer when this deployment has no alert service at all. */
 const NO_ALERT_SERVICE = { markSource: 'dark', canFire: false, code: 'alert.price_unavailable' } as const;
 
+/** The refusals an edit or pause can raise, as tRPC errors. Anything else is not ours to hide. */
+function alertManagerError(err: unknown): unknown {
+  if (err instanceof TRPCError) return err;
+  if (err instanceof NotifyPriceUnsetError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+  if (err instanceof AlertLimitError) {
+    return new TRPCError({
+      code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+      message: err.message,
+      cause: err,
+    });
+  }
+  return err;
+}
+
 function priceAlertToWire(row: PriceAlert) {
   return {
     id: row.id,
@@ -478,6 +495,7 @@ function priceAlertToWire(row: PriceAlert) {
     name: row.name,
     message: row.message,
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
+    updatedAt: row.updatedAt.toISOString(),
     extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
   };
 }
@@ -1545,6 +1563,66 @@ export function createNotifyRouter(
           const row = await alerts.cancel(ctx.principal.userId, input.id);
           if (!row) return { cancelled: false, alert: null };
           return { cancelled: row.status === 'cancelled', alert: priceAlertToWire(row) };
+        }),
+
+      /**
+       * Change an alert that is active or stopped. Only what is sent changes; `null` clears a name, message or expiry. Checked as a
+       * create is: a blank owner setting refuses, a value outside a set one is a bad request. Nothing is written on a refusal.
+       */
+      updateAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            id: z.string().uuid(),
+            targetPrice: z.string().min(1).max(64).optional(),
+            condition: z.enum(ALERT_CONDITIONS).optional(),
+            name: z.string().max(2000).nullable().optional(),
+            message: z.string().max(2000).nullable().optional(),
+            expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+            extras: alertExtras.extras,
+          }),
+        )
+        .output(z.object({ alert: priceAlertOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+          try {
+            const row = await alerts.edit(ctx.principal.userId, input.id, {
+              ...(input.targetPrice !== undefined ? { targetPrice: input.targetPrice } : {}),
+              ...(input.condition ? { condition: input.condition } : {}),
+              ...(input.name !== undefined ? { name: input.name } : {}),
+              ...(input.message !== undefined ? { message: input.message } : {}),
+              ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt) } : {}),
+              ...(input.extras !== undefined ? { extras: input.extras } : {}),
+            });
+            if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+            return { alert: priceAlertToWire(row) };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** Pause (`active: false`) an active alert or resume a stopped one. Repeating it is harmless: the alert is returned as it is. */
+      setAlertActive: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+        .output(z.object({ changed: z.boolean(), alert: priceAlertOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+          try {
+            const before = await alerts.get(ctx.principal.userId, input.id);
+            const row = await alerts.setActive(ctx.principal.userId, input.id, input.active);
+            if (!row || !before) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
+            return { changed: row.status !== before.status, alert: priceAlertToWire(row) };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** Delete an alert whatever its state. Deleting one that is already gone answers `deleted: false`. */
+      deleteAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid() }))
+        .output(z.object({ deleted: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) return { deleted: false };
+          return { deleted: await alerts.remove(ctx.principal.userId, input.id) };
         }),
 
       /**
