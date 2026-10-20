@@ -19,6 +19,7 @@ import { MemoryNotifyStore } from '../store.js';
 import { AlertService } from './service.js';
 import { MemoryAlertStore } from './store.js';
 import type { MarkQuote, MarkSource } from './types.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
 
 /** A mark source that answers per market, and states its own wiring honestly. */
 function marks(kind: 'dark' | 'live', quotes: Record<string, MarkQuote> = {}): MarkSource {
@@ -33,7 +34,7 @@ function marks(kind: 'dark' | 'live', quotes: Record<string, MarkQuote> = {}): M
 function harness(source: MarkSource) {
   const notifyStore = new MemoryNotifyStore();
   const notify = new NotifyService(notifyStore, { fanoutEnabled: true });
-  const alerts = new AlertService(new MemoryAlertStore(), source, notify);
+  const alerts = new AlertService(new MemoryAlertStore(), source, notify, undefined, TEST_ALERT_LIMITS);
   return { alerts, notifyStore };
 }
 
@@ -146,6 +147,8 @@ describe('the alert sweep — evaluation that actually runs', () => {
       new MemoryAlertStore(),
       marks('live', { 'BTC-USD': { kind: 'ok', price: '100.5', at: new Date() } }),
       notify,
+      undefined,
+      TEST_ALERT_LIMITS,
     );
     await alerts.create(watch('u1', 'BTC-USD', '100'));
 

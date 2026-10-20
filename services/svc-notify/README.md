@@ -598,6 +598,12 @@ a row. A redelivery reuses the same key and cannot double-send.
   after a crash writes it once. `notify.alertTriggers` reads the person's own rows, newest first, for all alerts or one. How long
   rows are kept is `NOTIFY_ALERT_TRIGGER_LOG_DAYS`; blank writes no log, the read refuses `notify.alert_trigger_log_retention_unset`,
   and alerts still fire. The sweep prunes rows past the retention. Migration 0021.
+- Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
+  paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
+  `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
+  and an alert past its stop time is expired before the count. The count and the write happen under one per-person lock, so
+  two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank).
+  Other alert kinds have no quota setting and are not counted. Burst auto-stop (03b) and watchlist expansion (03c) are separate.
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

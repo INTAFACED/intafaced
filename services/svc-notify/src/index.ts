@@ -279,6 +279,7 @@ const alerts = new AlertService(
     textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
     maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
     triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
   },
   new PostgresAlertTriggerLog(sql),
 );

@@ -234,6 +234,12 @@ const schema = serviceEnvSchema
       NOTIFY_ALERT_MAX_CONDITIONS: blankAsAbsent(z.coerce.number().int().min(2).max(20).optional()),
 
       /**
+       * Most price alerts one person may hold open, active or paused. NO DEFAULT. Blank / unset refuses every price alert create
+       * (`notify.alert_quota_unset`); at the cap a create is refused `alert.quota_reached`.
+       */
+      NOTIFY_ALERT_MAX_ACTIVE_PRICE: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
+
+      /**
        * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */

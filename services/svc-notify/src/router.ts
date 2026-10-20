@@ -473,7 +473,7 @@ function alertManagerError(err: unknown): unknown {
   if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertLimitError) {
     return new TRPCError({
-      code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+      code: err.code.startsWith('notify.') || err.code === 'alert.quota_reached' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
       message: err.message,
       cause: err,
     });
@@ -1547,7 +1547,7 @@ export function createNotifyRouter(
             if (err instanceof AlertLimitError) {
               throw new TRPCError({
                 // A blank owner setting is a precondition; a value outside a set one is the caller's to fix.
-                code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+                code: err.code.startsWith('notify.') || err.code === 'alert.quota_reached' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
                 message: err.message,
                 cause: err,
               });
@@ -1615,6 +1615,14 @@ export function createNotifyRouter(
           } catch (err) {
             throw alertManagerError(err);
           }
+        }),
+
+      /** How many price alerts the person holds open and the cap the owner set. `max: null` is a blank setting: creates refuse. */
+      alertQuota: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() }))
+        .query(async ({ ctx }) => {
+          if (!alerts) return { kind: 'price' as const, used: 0, max: null };
+          return alerts.quota(ctx.principal.userId);
         }),
 
       /**

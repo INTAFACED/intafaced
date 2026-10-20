@@ -12,7 +12,7 @@ import { MemoryAlertTriggerLog, NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from 
 import type { MarkSource } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3, triggerLogDays: 7 };
+const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3, triggerLogDays: 7, maxActivePrice: 20 };
 const base = { userId: 'u1', marketId: 'BTC-USD', direction: 'above' as const, targetPrice: '100' };
 
 function rig(limits: AlertLimits = LIMITS, price = '120') {
@@ -67,7 +67,7 @@ describe('trigger log', () => {
   });
 
   it('blank retention writes no log, refuses the read, and the alert still fires', async () => {
-    const { alerts, log } = rig({ ...LIMITS, triggerLogDays: null });
+    const { alerts, log } = rig({ ...LIMITS, triggerLogDays: null, maxActivePrice: 20 });
     const row = await alerts.create(base, NOW);
     expect((await alerts.evaluateDueAlerts(NOW)).fired).toBe(1);
     expect((await alerts.get('u1', row.id))!.status).toBe('fired');

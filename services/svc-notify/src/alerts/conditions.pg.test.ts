@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PostgresAlertStore } from './store.js';
+import { AlertQuotaReachedError, PostgresAlertStore } from './store.js';
 import { PostgresAlertTriggerLog } from './trigger-log.js';
 
 /** The Postgres engine of alert conditions, expiry and the 0018 backfill, against a real database with fresh user ids. */
@@ -230,5 +230,37 @@ describe.skipIf(!available)('PostgresAlertTriggerLog and migration 0021', () => 
     expect(await log.prune(new Date(NOW.getTime() + 500))).toBeGreaterThanOrEqual(2);
     expect(await log.list(userId, { since: new Date(0), limit: 10 })).toHaveLength(1);
     await sql!`DELETE FROM notify.alert_triggers WHERE user_id IN (${userId}, ${other})`;
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore quota', () => {
+  const input = (userId: string, targetPrice: string, maxOpen?: number) => ({
+    userId,
+    marketId: 'BTC-USD',
+    direction: 'above' as const,
+    targetPrice,
+    ...(maxOpen !== undefined ? { maxOpen } : {}),
+  });
+  it('counts active and paused alerts only, and refuses the create past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const a = await store.create(input(userId, '100', 2));
+    const b = await store.create(input(userId, '101', 2));
+    await expect(store.create(input(userId, '102', 2))).rejects.toBeInstanceOf(AlertQuotaReachedError);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.setStopped(userId, a.id, true, NOW);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.cancel(userId, b.id);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await expect(store.create(input(userId, '103', 2))).resolves.toMatchObject({ status: 'active' });
+  });
+  it('lets two creates racing for the last place through only once, and a create with no cap is unchecked', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled(['100', '101', '102', '103'].map((price) => store.create(input(userId, price, 1))));
+    expect(settled.filter((s) => s.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await store.create(input(userId, '104'));
+    expect(await store.countOpen(userId, 'price')).toBe(2);
   });
 });

@@ -16,6 +16,7 @@ import { runAlertSweepPass } from './sweep-driver.js';
 import { AlertService } from './service.js';
 import { MemoryAlertStore } from './store.js';
 import type { MarkSource } from './types.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
 
 const darkMarks: MarkSource = {
   kind: 'dark',
@@ -27,7 +28,7 @@ const darkMarks: MarkSource = {
 describe('runAlertSweepPass — the mounted job path', () => {
   it('records a completed pass from evaluateDueAlerts', async () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
-    const alerts = new AlertService(new MemoryAlertStore(), darkMarks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), darkMarks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({ userId: 'u1', marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
 
     const onComplete = vi.fn();
