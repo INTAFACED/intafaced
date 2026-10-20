@@ -43,6 +43,7 @@ export * from './crm-privacy.js';
 export * from './merchant-control.js';
 export * from './merchant-metrics.js';
 export * from './conversion.js';
+export * from './custody-approval-tasks.js';
 export * from './pay-halts.js';
 export * from './protocol-blockers.js';
 export * from './ui-view-preferences.js';

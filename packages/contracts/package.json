@@ -57,6 +57,10 @@
     "./oauth": {
       "types": "./dist/oauth.d.ts",
       "default": "./dist/oauth.js"
+    },
+    "./custody-approval-tasks": {
+      "types": "./dist/custody-approval-tasks.d.ts",
+      "default": "./dist/custody-approval-tasks.js"
     }
   },
   "scripts": {
