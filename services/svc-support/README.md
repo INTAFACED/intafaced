@@ -94,6 +94,7 @@ tickets of their groups plus tickets assigned to them, a lead also sees tickets 
 no group (so a new one can reach a group), and a ticket outside the scope answers
 as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
 `agent`, `lead`) is an owner value, blank by default: it marks roles that see every group.
+A lead can add themselves to any group, so group scope limits agents, not leads.
 
 ## Migrations
 

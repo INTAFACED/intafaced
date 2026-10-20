@@ -109,8 +109,9 @@ describe('desk groups and visibility (SP-desk-04)', () => {
   });
 
   it('a ticket assigned to the agent stays visible after it is moved to another group', async () => {
-    const { as, lead, two, inOne } = await twoGroups();
+    const { as, lead, one, two, inOne } = await twoGroups();
     const a = await as(AGENT_A);
+    await lead.groupsAddMember({ groupId: one.id, userId: LEAD });
     await a.claim({ ticketId: inOne.id });
     await lead.ticketSetGroup({ ticketId: inOne.id, groupId: two.id });
     expect((await a.listAll({ limit: 100 })).map((t) => t.id)).toEqual([inOne.id]);
@@ -152,6 +153,18 @@ describe('desk groups and visibility (SP-desk-04)', () => {
     await expect(lead.ticketSetGroup({ ticketId: inOne.id, groupId: MISSING })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     await expect(lead.groupsAddMember({ groupId: one.id, userId: AGENT_A })).rejects.toMatchObject({ code: 'CONFLICT' });
     await expect(lead.groupsSave({ name: 'Trading', idempotencyKey: 'group-trading-2' })).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('a lead cannot move a hidden ticket into their own group to see it, and the answer matches a missing ticket', async () => {
+    const { lead, groups, one, inTwo } = await twoGroups();
+    await lead.groupsAddMember({ groupId: one.id, userId: LEAD });
+    const [h, m] = await Promise.allSettled([
+      lead.ticketSetGroup({ ticketId: inTwo.id, groupId: one.id }),
+      lead.ticketSetGroup({ ticketId: MISSING, groupId: one.id }),
+    ]);
+    expect(h.status).toBe('rejected');
+    expect((h as PromiseRejectedResult).reason.message).toBe((m as PromiseRejectedResult).reason.message);
+    expect(await groups.groupOfTicket(inTwo.id)).not.toBe(one.id);
   });
 
   it('a replayed group save returns the first group; the same key with another name is a conflict', async () => {

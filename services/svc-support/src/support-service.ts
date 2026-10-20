@@ -262,8 +262,9 @@ export class SupportService implements SupportContract {
 
   /** Creates a group (no groupId) or renames one. A replay of the same key returns the first answer. */
   async saveGroup(input: { actorId: string; groupId?: string; name: string; idempotencyKey: string }): Promise<DeskGroup> {
+    // Authority is checked before the key is begun, so a refusal leaves the key free to retry.
+    await this.requireLead(input.actorId);
     return this.withIdempotency(`group.save:${input.idempotencyKey}`, `${input.actorId}:${input.groupId ?? ''}:${input.name}`, async () => {
-      await this.requireLead(input.actorId);
       try {
         const saved = await this.groups.save({
           id: input.groupId,
@@ -305,6 +306,8 @@ export class SupportService implements SupportContract {
     groupId: string | null;
   }): Promise<{ ticketId: string; groupId: string | null }> {
     await this.requireLead(input.actorId);
+    // A lead cannot move a ticket they cannot see into their own group to gain sight of it.
+    await this.assertDeskVisible(input.actorId, input.ticketId);
     if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
     const result = await this.groups.setTicketGroup({ ...input, by: input.actorId, at: this.now().toISOString() });
     if (result === 'unknown_group') throw new SupportError('no such group', 'support.group_unknown');
@@ -976,13 +979,13 @@ export class SupportService implements SupportContract {
     return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
       const actor = await this.staff.get(input.operatorId);
       if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      const target = await this.staff.get(input.assigneeId);
+      if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
       await this.assertDeskVisible(
         input.operatorId,
         input.ticketId,
         () => new SupportError('assign refused: not_found', 'support.assign.not_found'),
       );
-      const target = await this.staff.get(input.assigneeId);
-      if (!target) throw new SupportError('assignee is not desk staff', 'support.not_staff');
       const result = await this.store.assignTicket({
         ticketId: input.ticketId,
         operatorId: input.operatorId,
