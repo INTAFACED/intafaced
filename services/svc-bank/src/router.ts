@@ -25,7 +25,7 @@ import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
-import { createActivityRouter } from './activity/activity.router.js';
+import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -876,6 +876,74 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   });
 
   const transfers = router({
+    /**
+     * The caller's own transfer history: money sent to or received from another person, and moves between their own
+     * accounts. It is the activity feed narrowed to those kinds, so it has the same sources, paging and ownership
+     * rules and no second list of its own. Every line is a posted ledger entry, so every line is `completed`; a failed
+     * or skipped standing-order run is read with `transfers.executions`.
+     */
+    list: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(16_384).optional(),
+            assetId: z.string().min(1).max(16).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
+          })
+          .strict()
+          .optional(),
+      )
+      .output(
+        z.object({
+          items: z.array(
+            z.object({
+              id: z.string(),
+              txId: z.string(),
+              kind: z.enum(['transfer_in', 'transfer_out', 'space_move']),
+              direction: z.enum(['in', 'out']),
+              asset: z.string(),
+              amount: amountString,
+              postedAt: z.string().datetime(),
+              status: z.literal('completed'),
+              counterparty: z.object({ handle: z.string() }).nullable(),
+              spaceName: z.string().nullable(),
+              note: z.string().optional(),
+              reference: z.string().optional(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          const page = await bank.activity.list(ctx.principal.userId, {
+            ...input,
+            kind: ['transfer_in', 'transfer_out', 'space_move'],
+          });
+          return {
+            items: page.items.map((item) => ({
+              id: item.id,
+              txId: item.txId,
+              kind: item.kind as 'transfer_in' | 'transfer_out' | 'space_move',
+              direction: item.direction,
+              asset: item.asset,
+              amount: item.amount,
+              postedAt: item.postedAt,
+              status: 'completed' as const,
+              counterparty: item.counterparty,
+              spaceName: item.spaceName,
+              ...(item.note ? { note: item.note } : {}),
+              ...(item.reference ? { reference: item.reference } : {}),
+            })),
+            nextCursor: page.nextCursor,
+          };
+        } catch (err) {
+          activityFailure(err);
+        }
+      }),
+
     /**
      * `transferId` is supplied by the client so a retried request is the same
      * transfer, not a second one (§5: idempotency keys are business keys).

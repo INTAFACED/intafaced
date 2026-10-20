@@ -64,7 +64,7 @@ const activityItem = z.object({
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
 
-function activityFailure(err: unknown): never {
+export function activityFailure(err: unknown): never {
   if (err instanceof ActivityCursorInvalidError || err instanceof ActivityRangeError) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
