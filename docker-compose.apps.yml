@@ -1142,6 +1142,9 @@ services:
       # rather than inventing 24. Zero is a real choice (no wait). Dest-elapsed
       # uses the dest row's updated_at — compose must not invent a number.
       BANK_OFFRAMP_COOLING_HOURS: ${BANK_OFFRAMP_COOLING_HOURS:-}
+      # Owner-set number of saved withdrawal addresses per customer. Blank refuses
+      # `bank.address_book_cap_unset` on save rather than inventing a limit.
+      BANK_ADDRESS_BOOK_CAP: ${BANK_ADDRESS_BOOK_CAP:-}
       # Money-out step-up (off | required). `off` leaves every door as it was.
       # `required` makes sends to other people, standing orders to them, business
       # payments, card unfreeze/issue need a same-person identity approval. Flip it

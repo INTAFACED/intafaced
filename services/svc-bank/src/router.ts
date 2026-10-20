@@ -102,6 +102,22 @@ const portfolioSummaryOutput = z.object({
     .optional(),
 });
 
+const destinationViewOutput = z.object({
+  destinationId: z.string(),
+  label: z.string().nullable(),
+  kind: z.enum(['crypto', 'bank']),
+  ref: z.string(),
+  refMasked: z.string(),
+  assetId: z.string().nullable(),
+  network: z.string().nullable(),
+  tag: z.string().nullable(),
+  origin: z.enum(['legacy', 'customer']),
+  state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']),
+  addedAt: z.string(),
+  coolingOffEndsAt: z.string().nullable(),
+  coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+});
+
 const balanceAccountsOutput = z.object({
   /** Every account the caller can read balances for: `main`, then each named Space. */
   accounts: z.array(z.object({ accountId: z.string(), walletType: z.enum(['main', 'space']), name: z.string().nullable() })),
@@ -468,6 +484,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.deposit_asset_unpublished':
       case 'bank.deposit_pending_unbounded':
       case 'bank.withdraw_destination_missing':
+      case 'bank.withdraw_destination_ambiguous':
+      case 'bank.destination_label_taken':
+      case 'bank.address_book_full':
+      case 'bank.address_book_cap_unset':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
       case 'bank.recipient_check_unset':
@@ -3571,22 +3591,53 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      */
     destinations: router({
       list: scopedProcedure('bank:read', { module: 'bank' })
-        .output(
-          z.array(
-            z.object({
-              destinationId: z.string(),
-              label: z.string().nullable(),
-              kind: z.enum(['crypto', 'bank']),
-              ref: z.string(),
-              addedAt: z.string(),
-              coolingOffEndsAt: z.string().nullable(),
-              coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
-            }),
-          ),
-        )
+        .output(z.array(destinationViewOutput))
         .query(async ({ ctx }) => guard(async () => bank.ramps.listDestinations(ctx.principal.userId))),
 
-      remove: scopedProcedure('bank:write', { module: 'bank' })
+      /**
+       * Save an address-book entry. `trade:withdraw` (the step-up scope), like removing one: a leaked key or a
+       * stolen access token must not be able to add the address that money is then sent to. The same
+       * (asset, network, address, tag) again returns the stored entry. The label is unique per customer, and the
+       * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`).
+       */
+      save: scopedProcedure('trade:withdraw', { module: 'bank' })
+        .input(
+          z
+            .object({
+              assetId: z.string().min(1).max(16),
+              network: z.string().min(2).max(32),
+              ref: z.string().min(1).max(256),
+              tag: z.string().min(1).max(64).optional(),
+              label: z.string().min(1).max(64),
+            })
+            .strict(),
+        )
+        .output(destinationViewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.ramps.saveDestination({
+              userId: ctx.principal.userId,
+              assetId: input.assetId,
+              network: input.network,
+              ref: input.ref,
+              ...(input.tag !== undefined ? { tag: input.tag } : {}),
+              label: input.label,
+            }),
+          ),
+        ),
+
+      /** Rename. Changes only the label, so `bank:write` is enough and the cooling window does not restart. */
+      rename: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ destinationId: z.string().uuid(), label: z.string().min(1).max(64) }).strict())
+        .output(destinationViewOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.ramps.renameDestination({ userId: ctx.principal.userId, destinationId: input.destinationId, label: input.label }),
+          ),
+        ),
+
+      /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
+      remove: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(z.object({ destinationId: z.string().uuid(), idempotencyKey: z.string().min(1).max(128) }))
         .output(z.object({ destinationId: z.string(), removed: z.literal(true) }))
         .mutation(async ({ ctx, input }) =>
