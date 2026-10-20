@@ -188,23 +188,22 @@ export class WithdrawalApprovalService {
 
   /**
    * The direct withdrawal door asks this first. It refuses `required` when the user's policy needs approvals for this
-   * withdrawal, and when a request already exists for the client reference and has not reached its approvals: a pending,
-   * rejected, expired, canceled or failed request must never be sent by calling the direct door with the same reference.
-   * A request that reached its approvals (or was executed) may resume there.
+   * withdrawal, and when a request already exists for the client reference, whatever its status: a request is resumed only
+   * by `approve` or `settleDue`, which send its frozen terms, never by the direct door, which would send the caller's.
+   * A failed earlier attempt is a fresh ask and meets the policy again.
    */
   async assertDirectAllowed(input: { userId: string; assetId: string; amount: Amount; clientRef: string }): Promise<void> {
-    const [request] = await this.deps.sql<Array<{ status: ApprovalStatus; required_approvals: number; team_account_id: string }>>`
-      SELECT status, required_approvals, team_account_id FROM pay.withdrawal_approval_requests
+    const [request] = await this.deps.sql<Array<{ status: ApprovalStatus }>>`
+      SELECT status FROM pay.withdrawal_approval_requests
        WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}`;
     if (request) {
-      if (request.status === 'approved' || request.status === 'executed') return;
       throw new WithdrawalApprovalError('withdrawal_approval.required', `this withdrawal is a request that is ${request.status}`, {
         status: request.status,
       });
     }
-    const [existing] = await this.deps.sql`
-      SELECT 1 FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}`;
-    if (existing) return; // already admitted: a resume, not a fresh ask
+    const [existing] = await this.deps.sql<Array<{ status: string }>>`
+      SELECT status FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}`;
+    if (existing && existing.status !== 'failed') return; // already admitted: a resume, not a fresh ask
     const policy = await this.applicable(this.deps.sql, input.userId, input.assetId, input.amount, input.clientRef);
     if (policy) {
       throw new WithdrawalApprovalError('withdrawal_approval.required', 'this withdrawal needs approvals; submit it as a request', {
@@ -214,9 +213,41 @@ export class WithdrawalApprovalService {
     }
   }
 
+  /**
+   * Run a direct withdrawal behind the gate. The threshold sums the user's other withdrawals in the window, so two
+   * withdrawals that are each under it and together over it must not both read the same sum: the check and the claim run
+   * under one lock per user and asset, held until `run` returns. `propose` takes the same lock, so a request and a direct
+   * withdrawal cannot slip past each other either.
+   */
+  async runDirect<T>(input: { userId: string; assetId: string; amount: Amount; clientRef: string }, run: () => Promise<T>): Promise<T> {
+    return this.withUserAssetLock(input.userId, input.assetId, async () => {
+      await this.assertDirectAllowed(input);
+      return run();
+    });
+  }
+
+  private async withUserAssetLock<T>(userId: string, assetId: string, fn: () => Promise<T>): Promise<T> {
+    const key = `pay.withdrawal_approval:${userId}:${assetId}`;
+    const connection = await this.deps.sql.reserve();
+    try {
+      await connection`SELECT pg_advisory_lock(hashtext(${key}))`;
+      return await fn();
+    } finally {
+      try {
+        await connection`SELECT pg_advisory_unlock(hashtext(${key}))`;
+      } finally {
+        connection.release();
+      }
+    }
+  }
+
   // ── submit ────────────────────────────────────────────────────────────────
 
   async propose(userId: string, input: ProposeInput): Promise<RequestView> {
+    return this.withUserAssetLock(userId, input.assetId, () => this.proposeLocked(userId, input));
+  }
+
+  private async proposeLocked(userId: string, input: ProposeInput): Promise<RequestView> {
     const amount = parseAmount(input.amount);
     if (amount <= 0n) throw new WithdrawalApprovalError('withdrawal_approval.amount_invalid', 'a withdrawal is a positive amount');
     const wanted = {

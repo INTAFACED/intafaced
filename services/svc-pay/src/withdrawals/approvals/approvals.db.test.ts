@@ -202,6 +202,37 @@ describe('multi-approval withdrawals (real Postgres)', () => {
     );
   });
 
+  it('the direct door refuses a reference that names an approved request: only approve or the sweep sends its frozen terms', async () => {
+    await service.setPolicy('founder', policy());
+    const req = await service.propose(USER, ask());
+    await db.sql`UPDATE pay.withdrawal_approval_requests SET status = 'approved' WHERE id = ${req.id}`;
+    await expect(code(service.assertDirectAllowed({ userId: USER, assetId: 'USDT', amount: amt('1'), clientRef: 'w-1' }))).resolves.toBe(
+      'withdrawal_approval.required',
+    );
+  });
+
+  it('a failed earlier attempt of a reference is a fresh ask and meets the policy again', async () => {
+    await db.sql`
+      INSERT INTO pay.withdrawals (user_id, client_ref, asset_id, amount, rail, destination, status, failure_code)
+      VALUES (${USER}, 'retry-1', 'USDT', 1, 'card-sandbox', ${db.sql.json(DESTINATION as never)}, 'failed', 'pay.rail_declined')`;
+    await service.setPolicy('founder', policy());
+    await expect(
+      code(service.assertDirectAllowed({ userId: USER, assetId: 'USDT', amount: amt('60'), clientRef: 'retry-1' })),
+    ).resolves.toBe('withdrawal_approval.required');
+  });
+
+  it('two direct withdrawals that are each under the threshold and together over it cannot both go', async () => {
+    await service.setPolicy('founder', policy());
+    const go = (clientRef: string) =>
+      service.runDirect({ userId: USER, assetId: 'USDT', amount: amt('30'), clientRef }, () =>
+        money.withdraw({ userId: USER, assetId: 'USDT', amount: amt('30'), rail: 'card-sandbox', destination: DESTINATION, clientRef }),
+      );
+    const results = await Promise.allSettled([go('race-1'), go('race-2')]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect((refused.reason as { code?: string }).code).toBe('withdrawal_approval.required');
+  });
+
   // ── the approvals ─────────────────────────────────────────────────────────
 
   it('2-of-3: the same person approving twice counts once; the second distinct approver runs the withdrawal once', async () => {

@@ -172,7 +172,7 @@ describe('the direct door', () => {
   it('asks the approval gate with the caller and the amount before it withdraws, and does not withdraw when refused', async () => {
     const withdraw = vi.fn();
     const gate = {
-      assertDirectAllowed: vi.fn(async () => {
+      runDirect: vi.fn(async () => {
         throw new WithdrawalApprovalError('withdrawal_approval.required', 'needs approvals');
       }),
     };
@@ -194,7 +194,10 @@ describe('the direct door', () => {
       code: 'PRECONDITION_FAILED',
       message: expect.stringContaining('withdrawal_approval.required'),
     });
-    expect(gate.assertDirectAllowed).toHaveBeenCalledWith({ userId: USER, assetId: 'USDT', amount: parseAmount('60'), clientRef: 'w-1' });
+    expect(gate.runDirect).toHaveBeenCalledWith(
+      { userId: USER, assetId: 'USDT', amount: parseAmount('60'), clientRef: 'w-1' },
+      expect.any(Function),
+    );
     expect(withdraw).not.toHaveBeenCalled();
   });
 
@@ -214,7 +217,7 @@ describe('the direct door', () => {
       createdAt: new Date(),
     };
     const withdraw = vi.fn(async () => record);
-    const gate = { assertDirectAllowed: vi.fn(async () => undefined) };
+    const gate = { runDirect: vi.fn(async (_input: unknown, run: () => Promise<unknown>) => run()) };
     const caller = createPayRouter(
       {} as PayService,
       rails,

@@ -267,7 +267,7 @@ export function createPayRouter(
   /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
   withdrawalQuotes: WithdrawalQuoteService | null = null,
   /** W-withdraw-11: the approval gate on the direct door. Absent in unit stubs; the direct door is then never gated. */
-  withdrawalApprovals: Pick<WithdrawalApprovalService, 'assertDirectAllowed'> | null = null,
+  withdrawalApprovals: Pick<WithdrawalApprovalService, 'runDirect'> | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2108,25 +2108,25 @@ export function createPayRouter(
           wrap(async () => {
             // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
             // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
-            await withdrawalApprovals?.assertDirectAllowed({
-              userId: ctx.principal.userId,
-              assetId: input.assetId,
-              amount: parseAmount(input.amount),
-              clientRef: input.clientRef,
-            });
-            return toWithdrawalOut(
-              await userMoney.withdraw({
-                // From the token. There is no `userId` input, so there is no way
-                // to withdraw from an account that is not the caller's — an
-                // input the caller cannot supply cannot be forged.
-                userId: ctx.principal.userId,
-                assetId: input.assetId,
-                amount: parseAmount(input.amount),
-                rail: input.railId,
-                destination: input.destination,
-                clientRef: input.clientRef,
-                ...sandboxKeyEnv(ctx.principal),
-              }),
+            const run = async () =>
+              toWithdrawalOut(
+                await userMoney.withdraw({
+                  // From the token. There is no `userId` input, so there is no way
+                  // to withdraw from an account that is not the caller's — an
+                  // input the caller cannot supply cannot be forged.
+                  userId: ctx.principal.userId,
+                  assetId: input.assetId,
+                  amount: parseAmount(input.amount),
+                  rail: input.railId,
+                  destination: input.destination,
+                  clientRef: input.clientRef,
+                  ...sandboxKeyEnv(ctx.principal),
+                }),
+              );
+            if (!withdrawalApprovals) return run();
+            return withdrawalApprovals.runDirect(
+              { userId: ctx.principal.userId, assetId: input.assetId, amount: parseAmount(input.amount), clientRef: input.clientRef },
+              run,
             );
           }),
         ),
