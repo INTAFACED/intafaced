@@ -126,6 +126,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.algo_insufficient_balance': 'insufficient',
   'trade.algo_balance_unreadable': 'tryAgain',
   'trade.fee_schedule_blank': 'notSetUp',
+  'trade.fee_product_unpublished': 'notSetUp',
+  // A maker rebate or a minimum fee the ledger has no recipe to post yet: not switched on, never shown as paid.
+  'trade.rebate_recipe_unavailable': 'notSetUp',
+  'trade.min_fee_recipe_unavailable': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
