@@ -251,6 +251,21 @@ const bankSections: readonly DeskSection[] = [
     links: [],
   },
   {
+    id: 'global-holds',
+    title: 'Global send holds',
+    intro: 'Sends held before they were debited: the queue, the owner settings behind it, and who may release.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/holds',
+        label: 'Global send holds',
+        why: 'The hold queue, release, information requests and the customer’s file are on their own page.',
+      },
+    ],
+  },
+  {
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
