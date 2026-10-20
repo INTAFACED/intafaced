@@ -57,6 +57,8 @@ import {
   type WatermarkStamp,
 } from './operator-desks.js';
 import { createAlertRulesRouter } from './alerts/router.js';
+import { createComplianceRouter } from './compliance/router.js';
+import type { ComplianceStore } from './compliance/store.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
@@ -198,6 +200,8 @@ export interface OperatorDeskConfig {
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
+  /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
+  readonly compliance?: ComplianceStore;
 }
 
 export function createOpsRouter(
@@ -687,6 +691,8 @@ export function createOpsRouter(
       }),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
+
+    compliance: createComplianceRouter(desks.compliance, now),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)
