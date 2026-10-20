@@ -1,6 +1,6 @@
 import postgres from 'postgres';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext } from '@intafaced/contracts';
+import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
@@ -54,10 +54,13 @@ await sql`SELECT 1 FROM support.staff LIMIT 1`.catch(() => {
 });
 
 const store = new PostgresSupportStore(sql);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the outgoing reads on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-support');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 // Account state is READ from svc-identity per request, never cached here.
-const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
+const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 // Order status is READ from svc-trade per request. Unset TRADE_URL stays unknown.
-const orders = env.TRADE_URL ? createTicketOrderClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET) : new DarkTicketOrderSource();
+const orders = env.TRADE_URL ? createTicketOrderClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : new DarkTicketOrderSource();
 // Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth.
 const support = new SupportService(store, accounts, undefined, new SqlStaffBook(sql), orders);
 const loop = createTicketKbLoopObserver();
