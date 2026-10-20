@@ -359,6 +359,26 @@ describe('POST desk writes', () => {
     ]);
   });
 
+  it('sets who can read an article, quoting the revision, and says what svc-support answered', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(kbArticle({ revision: 3, audience: 'signed_in' })));
+    vi.stubGlobal('fetch', fn);
+    const res = await (await post({ action: 'kb_audience', id: 'kb-a', baseRevision: 2, audience: 'signed_in' })).json();
+    expect(res.summary).toBe('svc-support says kb-a is now readable by signed-in customers only. Its revision is now 3.');
+    expect(calls(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/setKbAudience', body: { id: 'kb-a', baseRevision: 2, audience: 'signed_in' } },
+    ]);
+  });
+
+  it('turns a stale audience change into plain words and says nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'support.kb.revision_stale')),
+    );
+    const res = await post({ action: 'kb_audience', id: 'kb-a', baseRevision: 1, audience: 'staff' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { title: 'Someone changed this article first', changed: 'no' } });
+  });
+
   it('refuses a malformed write before the network', async () => {
     const fn = vi.fn();
     vi.stubGlobal('fetch', fn);
@@ -370,6 +390,8 @@ describe('POST desk writes', () => {
       { action: 'escalate', ticketId: T1, reason: 'other', summary: '' },
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: -1 },
       { action: 'kb_unpublish', id: 'a', baseRevision: 0 },
+      { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'everyone' },
+      { action: 'kb_audience', id: 'a', baseRevision: 0, audience: 'staff' },
       { action: 'settle', ticketId: T1 },
     ]) {
       const res = await post(body);
@@ -385,6 +407,7 @@ describe('POST desk writes', () => {
     ['escalate', { action: 'escalate', ticketId: T1, reason: 'other', summary: 's' }],
     ['kb_publish', { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 0 }],
     ['kb_unpublish', { action: 'kb_unpublish', id: 'a', baseRevision: 1 }],
+    ['kb_audience', { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'staff' }],
   ])('%s: a founder without the permission is told so and nothing is shown as done', async (_name, body) => {
     vi.stubGlobal(
       'fetch',

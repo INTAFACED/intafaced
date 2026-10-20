@@ -194,6 +194,12 @@ async function writeAction(session: Session, raw: Record<string, unknown>) {
   return Response.json({ ok: true, action: request.action, summary: summaryOf(request, result.data) }, { headers: NO_STORE });
 }
 
+function audienceWords(audience: unknown): string {
+  if (audience === 'signed_in') return 'signed-in customers only';
+  if (audience === 'staff') return 'staff only';
+  return 'everyone';
+}
+
 /** What svc-support says happened, in a sentence, taken from its own answer and not from what was sent. */
 function summaryOf(request: SupportActionRequest, data: unknown): string {
   const d = data as Record<string, unknown>;
@@ -214,6 +220,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
     case 'kb_publish':
       return `svc-support says ${String(d.id)} is published at revision ${String(d.revision)}.`;
+    case 'kb_audience':
+      return `svc-support says ${String(d.id)} is now readable by ${audienceWords(d.audience)}. Its revision is now ${String(d.revision)}.`;
     case 'kb_unpublish':
       return `svc-support says ${String(d.id)} is hidden from customers. Its revision is now ${String(d.revision)}; quote it to publish it again.`;
   }

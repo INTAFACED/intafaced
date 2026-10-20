@@ -241,6 +241,7 @@ const ACTIONS: readonly string[] = [
   'group_member',
   'kb_publish',
   'kb_unpublish',
+  'kb_audience',
 ];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */

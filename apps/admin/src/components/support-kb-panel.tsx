@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import type { SupportKbArticle } from '@intafaced/contracts';
+import { SUPPORT_KB_AUDIENCES, type SupportKbArticle, type SupportKbAudience } from '@intafaced/contracts';
 import { en } from '@intafaced/i18n';
 import { fetchKb, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import type { SupportActionRequest } from '@/lib/support/model';
@@ -31,7 +31,19 @@ export interface KbForm {
 
 export const emptyKbForm: KbForm = { id: '', titleKey: '', bodyKey: '', baseRevision: '0', category: '', tags: '' };
 
-export type KbStep = { readonly kind: 'publish' } | { readonly kind: 'unpublish'; readonly id: string; readonly revision: number };
+export type KbStep =
+  | { readonly kind: 'publish' }
+  | { readonly kind: 'unpublish'; readonly id: string; readonly revision: number }
+  | { readonly kind: 'audience'; readonly id: string; readonly revision: number; readonly audience: SupportKbAudience };
+
+/** The words for who may read an article. An article with no audience on the wire is public. */
+export const KB_AUDIENCE_WORDS: Record<SupportKbAudience, string> = {
+  public: 'Everyone',
+  signed_in: 'Signed-in customers only',
+  staff: 'Staff only',
+};
+
+export const kbAudienceOf = (a: SupportKbArticle): SupportKbAudience => a.audience ?? 'public';
 
 export function kbPublishRequest(form: KbForm): SupportActionRequest | null {
   const base = form.baseRevision.trim() === '' ? NaN : Number(form.baseRevision);
@@ -122,6 +134,7 @@ export function KbPanelView(p: KbPanelViewProps) {
                     <th>Title key</th>
                     <th>Topic</th>
                     <th>Revision</th>
+                    <th>Who can read it</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -135,6 +148,26 @@ export function KbPanelView(p: KbPanelViewProps) {
                       <td className="dk-packet">{a.titleKey}</td>
                       <td>{a.category ?? '—'}</td>
                       <td>{a.revision ?? '—'}</td>
+                      <td>
+                        <select
+                          className="adm-input"
+                          aria-label={`Who can read ${a.id}`}
+                          data-testid="kb-audience"
+                          value={kbAudienceOf(a)}
+                          disabled={p.busy || editing || a.revision === undefined}
+                          onChange={(e) => {
+                            const next = e.target.value as SupportKbAudience;
+                            if (a.revision !== undefined && next !== kbAudienceOf(a))
+                              p.onStep({ kind: 'audience', id: a.id, revision: a.revision, audience: next });
+                          }}
+                        >
+                          {SUPPORT_KB_AUDIENCES.map((v) => (
+                            <option key={v} value={v}>
+                              {KB_AUDIENCE_WORDS[v]}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td>
                         <div className="dk-row">
                           <button type="button" className="adm-btn" disabled={p.busy || editing} onClick={() => p.onEdit(a)}>
@@ -163,6 +196,17 @@ export function KbPanelView(p: KbPanelViewProps) {
           title={`Hide ${p.step.id} from customers?`}
           consequence="It disappears from the help library and from search. Publish it again with the revision svc-support gives you."
           confirmLabel="Yes, unpublish"
+          busy={p.busy}
+          onConfirm={p.onSend}
+          onCancel={() => p.onStep(null)}
+        />
+      )}
+
+      {p.step?.kind === 'audience' && (
+        <ConfirmStep
+          title={`Make ${p.step.id} readable by ${KB_AUDIENCE_WORDS[p.step.audience].toLowerCase()}?`}
+          consequence="The article revision goes up by one. A reader outside that audience gets the same answer as for an article that does not exist."
+          confirmLabel="Yes, change who can read it"
           busy={p.busy}
           onConfirm={p.onSend}
           onCancel={() => p.onStep(null)}
@@ -291,7 +335,11 @@ export function KbPanel({ initial }: { initial: SupportKbView | null }) {
   async function send() {
     if (lock.current || !step) return;
     const request: SupportActionRequest | null =
-      step.kind === 'publish' ? kbPublishRequest(form) : { action: 'kb_unpublish', id: step.id, baseRevision: step.revision };
+      step.kind === 'publish'
+        ? kbPublishRequest(form)
+        : step.kind === 'audience'
+          ? { action: 'kb_audience', id: step.id, baseRevision: step.revision, audience: step.audience }
+          : { action: 'kb_unpublish', id: step.id, baseRevision: step.revision };
     if (!request) return;
     lock.current = true;
     setBusy(true);

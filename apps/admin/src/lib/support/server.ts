@@ -280,5 +280,14 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
         { id: request.id, baseRevision: request.baseRevision },
         parseWith(supportKbArticleSchema),
       );
+    case 'kb_audience':
+      return founderCall(
+        ctx,
+        'support',
+        'setKbAudience',
+        'POST',
+        { id: request.id, baseRevision: request.baseRevision, audience: request.audience },
+        parseWith(supportKbArticleSchema),
+      );
   }
 }

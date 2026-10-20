@@ -137,6 +137,11 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'The id or the text keys are not valid for the help library.',
     next: 'Check the id and both keys against the translation catalogue. Nothing was changed.',
   },
+  'support.kb_audience_invalid': {
+    title: 'svc-support did not accept that audience',
+    body: 'The audience must be everyone, signed-in customers only, or staff only.',
+    next: 'Pick one of the three and try again. Nothing was changed.',
+  },
   'support.kb_vendor_name': {
     title: 'Article keys may not name another company’s product',
     body: 'The help library refuses keys that carry a third-party product name.',
