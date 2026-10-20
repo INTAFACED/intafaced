@@ -3,9 +3,17 @@ import { useSession } from '../../features/session/session';
 import { classifyFailure } from '../../data/poll';
 import { BALANCE_ENTRIES_PAGE, balanceEntriesSchema, type BalanceEntriesPage, type BalanceEntryRow } from './balance-entries-model';
 
+const MISMATCH = 'portfolio.entries_do_not_sum';
+
+/** The bank's sentence naming the gap, without the trailing code. Null if it does not look like one: nothing is made up. */
+export function gapSentence(message: string): string | null {
+  const text = message.replace(/\s*\(portfolio\.entries_do_not_sum\)\s*$/, '').trim();
+  return /^The entries add up to .+ a gap of \S+$/.test(text) ? text : null;
+}
+
 export type BalanceEntriesState =
   | { status: 'loading' }
-  | { status: 'refused'; code: string }
+  | { status: 'refused'; code: string; /** The bank's own sentence when it carries the gap, else null. */ detail: string | null }
   | { status: 'error'; retry: () => void }
   | {
       status: 'ready';
@@ -66,7 +74,9 @@ export function useBalanceEntries(assetId: string, accountId: string | null): Ba
       }
       const failure = classifyFailure(result);
       setState(
-        failure.kind === 'refused' ? { status: 'refused', code: failure.code } : { status: 'error', retry: () => startRef.current() },
+        failure.kind === 'refused'
+          ? { status: 'refused', code: failure.code, detail: failure.code === MISMATCH ? gapSentence(result.message) : null }
+          : { status: 'error', retry: () => startRef.current() },
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
