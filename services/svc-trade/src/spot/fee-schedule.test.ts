@@ -156,7 +156,7 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
   it('place/fill hitch uses owner schedule, not market.makerBps', () => {
     const service = readFileSync(join(here, 'trade-service.ts'), 'utf8');
     expect(service).toContain('assertOwnerFeeSchedulePublished');
-    expect(service).toMatch(/feeRatesForFill\(this\.feeSchedule/);
+    expect(service).toMatch(/feeRatesForFill\(\s*this\.feeSchedule/);
     expect(service).not.toMatch(/ratesForFill\(market/);
   });
 

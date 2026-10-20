@@ -19,7 +19,7 @@ import {
 } from './risk.js';
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import { FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -496,8 +496,18 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         ));
     const rests = orderType === 'limit' && !takes;
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
-    const makerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'maker', discountBps) : null;
-    const takerFeeBps = discountKnown ? previewFeeBps(deps.feeSchedule, 'taker', discountBps) : null;
+    // A schedule row that refuses (no row, rebate or minimum with no recipe) leaves the fee unavailable, never a guess.
+    const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
+      if (!discountKnown) return null;
+      try {
+        return previewFeeBps(deps.feeSchedule, role, discountBps, { symbol: market.symbol });
+      } catch (err) {
+        if (err instanceof FeeScheduleError) return null;
+        throw err;
+      }
+    };
+    const makerFeeBps = feeBpsFor('maker');
+    const takerFeeBps = feeBpsFor('taker');
     const feeScheduleVersion = deps.feeSchedule.published === true ? deps.feeSchedule.version : null;
     const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;

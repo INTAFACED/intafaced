@@ -32,7 +32,7 @@ import {
 import type { Position } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { MARKETS_LIMIT_MAX, OpenOrdersLimitUnsetError, type AmendOrderInput, type PlaceOrderInput } from './spot/trade-service.js';
-import { FEE_SCHEDULE_RESIDUAL, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
 import {
   TradeError,
   type AmendOrderOutcome,
@@ -638,17 +638,24 @@ export function presentAccountFees(
   markets: readonly Market[],
   schedule: Extract<OwnerFeeSchedule, { published: true }>,
 ): Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> {
-  const maker = bpsToFeeRate(schedule.makerBps);
-  const taker = bpsToFeeRate(schedule.takerBps);
   const out: Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> = {};
   for (const market of markets) {
+    let rates: { makerBps: number; takerBps: number } | null;
+    try {
+      rates = publishedProductBps(schedule, 'spot', { symbol: market.symbol });
+    } catch (err) {
+      // A market whose schedule row refuses shows no rate; the order path refuses it with the typed code.
+      if (err instanceof FeeScheduleError) continue;
+      throw err;
+    }
+    if (!rates) continue;
     out[market.symbol] = {
       symbol: market.symbol,
-      maker,
-      taker,
+      maker: bpsToFeeRate(rates.makerBps),
+      taker: bpsToFeeRate(rates.takerBps),
       percentage: true,
-      makerBps: schedule.makerBps,
-      takerBps: schedule.takerBps,
+      makerBps: rates.makerBps,
+      takerBps: rates.takerBps,
       version: schedule.version,
     };
   }
@@ -657,6 +664,9 @@ export function presentAccountFees(
 
 /** Where the operator fee read gets its numbers. Listing-row bps are not charged and never appear on this wire. */
 export const ADMIN_FEE_SOURCE = 'TRADE_FEE_SCHEDULE' as const;
+
+export type AdminFeeRefusal =
+  'trade.fee_product_unpublished' | 'trade.fee_schedule_blank' | 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
 
 export interface AdminMarketFee {
   readonly symbol: string;
@@ -670,7 +680,7 @@ export interface AdminMarketFee {
     readonly makerRate: string;
     readonly takerRate: string;
   } | null;
-  readonly refusal: 'trade.fee_product_unpublished' | null;
+  readonly refusal: AdminFeeRefusal | null;
 }
 
 /**
@@ -681,7 +691,16 @@ export interface AdminMarketFee {
 export function presentAdminFees(markets: readonly Market[], schedule: Extract<OwnerFeeSchedule, { published: true }>) {
   const rows: AdminMarketFee[] = markets.map((market) => {
     const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
-    const rates = product ? publishedProductBps(schedule, product) : null;
+    let rates: { makerBps: number; takerBps: number } | null = null;
+    let refusal: AdminFeeRefusal | null = null;
+    if (product) {
+      try {
+        rates = publishedProductBps(schedule, product, product === 'spot' ? { symbol: market.symbol } : undefined);
+      } catch (err) {
+        if (!(err instanceof FeeScheduleError)) throw err;
+        refusal = err.code === 'trade.fee_schedule_invalid' ? 'trade.fee_schedule_blank' : err.code;
+      }
+    }
     return {
       symbol: market.symbol,
       kind: market.kind,
@@ -694,7 +713,7 @@ export function presentAdminFees(markets: readonly Market[], schedule: Extract<O
             takerRate: bpsToFeeRate(rates.takerBps),
           }
         : null,
-      refusal: rates ? null : ('trade.fee_product_unpublished' as const),
+      refusal: rates ? null : (refusal ?? 'trade.fee_product_unpublished'),
     };
   });
   return { source: ADMIN_FEE_SOURCE, version: schedule.version, markets: rows };
