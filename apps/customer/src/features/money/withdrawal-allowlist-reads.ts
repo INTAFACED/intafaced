@@ -58,6 +58,10 @@ export const policySchema = z.object({
 });
 export type AllowlistPolicy = z.infer<typeof policySchema>;
 
+export const setModeResultSchema = z.object({ mode: modeSchema, change: changeSchema.nullable() });
+export type AllowlistSetModeResult = z.infer<typeof setModeResultSchema>;
+export type AllowlistGroup = z.infer<typeof entrySchema>['group'];
+
 const changeIdSchema = id.transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
 
@@ -135,6 +139,36 @@ export function createAllowlistReads(api: ApiClient, userId: string | null, curr
       const parsed = changeIdSchema.safeParse(changeId);
       if (!parsed.success) return refuse('allowlist.input_invalid', 'invalidId');
       return api.mutate('pay', 'allowlist.cancel', { changeId: parsed.data }, changeSchema);
+    },
+    // The four calls below need `trade:withdraw`. Each carries the one-use token from `WithdrawStepUp` as its own bearer;
+    // the session is never swapped. `clientRef` is the request's own reference, fixed when the person starts the action
+    // so a retry of the same action is the same request.
+    /** Switch the list on (applies at once) or ask to switch it off (a request for the team). */
+    async setMode(enabled: boolean, clientRef: string, token: string): Promise<ApiResult<AllowlistSetModeResult>> {
+      const denied = admission();
+      if (denied) return denied;
+      return api.mutate('pay', 'allowlist.setMode', { enabled, clientRef }, setModeResultSchema, { bearer: token });
+    },
+    async proposeAdd(
+      input: { group: AllowlistGroup; assetId: string; address: string; label: string; clientRef: string },
+      token: string,
+    ): Promise<ApiResult<AllowlistChange>> {
+      const denied = admission();
+      if (denied) return denied;
+      return api.mutate('pay', 'allowlist.proposeAdd', input, changeSchema, { bearer: token });
+    },
+    async proposeDelete(entryId: string, clientRef: string, token: string): Promise<ApiResult<AllowlistChange>> {
+      const denied = admission();
+      if (denied) return denied;
+      return api.mutate('pay', 'allowlist.proposeDelete', { entryId, clientRef }, changeSchema, { bearer: token });
+    },
+    async proposePolicy(
+      input: { enabled: boolean; assetId: string; maxAmount: string; clientRef: string },
+      token: string,
+    ): Promise<ApiResult<AllowlistChange>> {
+      const denied = admission();
+      if (denied) return denied;
+      return api.mutate('pay', 'allowlist.proposePolicy', input, changeSchema, { bearer: token });
     },
   };
 }

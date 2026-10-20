@@ -1,15 +1,21 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource, type Resource } from '../../shared/resource';
-import { Button, EmptyState, Failure, Loading, Page } from '../../shared/ui';
+import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
-import { createAllowlistReads, requestedChange, type AllowlistChange } from './withdrawal-allowlist-reads';
+import { createAllowlistReads, requestedChange, type AllowlistChange, type AllowlistGroup } from './withdrawal-allowlist-reads';
+import { WithdrawStepUp } from './WithdrawStepUp';
 import './withdrawal.css';
 
 export type AllowlistReadContext = { current: () => boolean };
 const href = (id: string) => `/uc/withdraw/allowlist?changeId=${encodeURIComponent(id)}`;
+
+/** One reference per started action: a retry inside the confirmation is the same request, a new action is a new one. */
+const newRef = () => crypto.randomUUID();
+const POSITIVE = /^\d+(\.\d{1,18})?$/;
+const positive = (value: string) => POSITIVE.test(value) && /[1-9]/.test(value);
 
 function useHandlerCurrent(current: () => boolean) {
   const rendering = {};
@@ -55,6 +61,8 @@ function Mode({ current }: { current: () => boolean }) {
   const { t } = allowlistCopy.useCopy();
   const active = useHandlerCurrent(current);
   const { resource, reload } = useResource((signal) => createAllowlistReads(api, userId, current).mode(signal), `${userId}:allowlist-mode`);
+  const [ask, setAsk] = useState<{ ref: string; enabled: boolean } | null>(null);
+  const [sent, setSent] = useState<'sentApplied' | 'sentRequest' | null>(null);
   return (
     <Section title={t('modeTitle')} description={t('modeNote')}>
       <ReadResult
@@ -69,18 +77,105 @@ function Mode({ current }: { current: () => boolean }) {
               <strong>{mode.enabled ? t('modeOn') : t('modeOff')}</strong>{' '}
               <span className="muted">{mode.setAt ? t('modeSince', { when: date(mode.setAt) }) : t('modeNever')}</span>
             </p>
+            {sent && <p role="status">{t(sent)}</p>}
             <div className="withdrawal-actions">
-              <Button disabled aria-describedby="allowlist-change-blocked">
+              <Button
+                onClick={() => {
+                  if (active()) setAsk({ ref: newRef(), enabled: !mode.enabled });
+                }}
+              >
                 {mode.enabled ? t('turnOff') : t('turnOn')}
               </Button>
             </div>
-            <p id="allowlist-change-blocked" className="muted">
-              {t('changeBlocked')}
-            </p>
+            {ask && (
+              <WithdrawStepUp
+                run={(token) => createAllowlistReads(api, userId, current).setMode(ask.enabled, ask.ref, token)}
+                onDone={() => {
+                  if (!active()) return;
+                  setSent(ask.enabled ? 'sentApplied' : 'sentRequest');
+                  setAsk(null);
+                  reload();
+                }}
+                onCancel={() => setAsk(null)}
+              />
+            )}
           </>
         )}
       </ReadResult>
     </Section>
+  );
+}
+
+const GROUPS: readonly AllowlistGroup[] = ['external_wallet', 'internal_wallet', 'contract'];
+
+function AddForm({ current, onDone, onCancel }: { current: () => boolean; onDone: () => void; onCancel: () => void }) {
+  const { api, userId } = useSession();
+  const { t } = allowlistCopy.useCopy();
+  const [group, setGroup] = useState<AllowlistGroup>('external_wallet');
+  const [assetId, setAssetId] = useState('');
+  const [address, setAddress] = useState('');
+  const [label, setLabel] = useState('');
+  const [ask, setAsk] = useState<{ ref: string } | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const values = { group, assetId: assetId.trim().toUpperCase(), address: address.trim(), label: label.trim() };
+  return (
+    <form
+      className="form-stack"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!values.assetId || !values.address || !values.label) return setInvalid(true);
+        setInvalid(false);
+        setAsk({ ref: newRef() });
+      }}
+    >
+      <label className="field">
+        <span>{t('group')}</span>
+        <select value={group} onChange={(event) => setGroup(event.target.value as AllowlistGroup)}>
+          {GROUPS.map((value) => (
+            <option key={value} value={value}>
+              {t(value)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Field
+        label={t('asset')}
+        name="allowlist-asset"
+        maxLength={32}
+        value={assetId}
+        onChange={(event) => setAssetId(event.target.value)}
+      />
+      <Field
+        label={t('address')}
+        name="allowlist-address"
+        maxLength={128}
+        autoComplete="off"
+        spellCheck={false}
+        value={address}
+        onChange={(event) => setAddress(event.target.value)}
+      />
+      <Field label={t('label')} name="allowlist-label" maxLength={64} value={label} onChange={(event) => setLabel(event.target.value)} />
+      {invalid && (
+        <p className="failure" role="alert">
+          {t('formInvalid')}
+        </p>
+      )}
+      <div className="withdrawal-actions">
+        <Button type="submit">{t('submitAdd')}</Button>
+        <Button variant="ghost" onClick={onCancel}>
+          {t('formCancel')}
+        </Button>
+      </div>
+      {ask && (
+        <WithdrawStepUp
+          why={t('addWhy')}
+          run={(token) => createAllowlistReads(api, userId, current).proposeAdd({ ...values, clientRef: ask.ref }, token)}
+          onDone={onDone}
+          onCancel={() => setAsk(null)}
+        />
+      )}
+    </form>
   );
 }
 
@@ -93,6 +188,9 @@ function Entries({ current }: { current: () => boolean }) {
     (signal) => createAllowlistReads(api, userId, current).entries(limit, signal),
     `${userId}:allowlist-entries:${limit}`,
   );
+  const [removing, setRemoving] = useState<{ ref: string; entryId: string } | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [sent, setSent] = useState(false);
   return (
     <Section
       title={t('entriesTitle')}
@@ -132,20 +230,56 @@ function Entries({ current }: { current: () => boolean }) {
                       <span>{entry.lastUsedAt ? <time dateTime={entry.lastUsedAt}>{date(entry.lastUsedAt)}</time> : t('never')}</span>
                     </div>
                     {entry.state === 'suspended' && <p className="muted">{t('suspendedNote')}</p>}
-                    <Button variant="secondary" disabled aria-describedby="allowlist-change-blocked">
-                      {t('remove')}
-                    </Button>
+                    {entry.state !== 'removed' && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          if (active()) setRemoving({ ref: newRef(), entryId: entry.id });
+                        }}
+                      >
+                        {t('remove')}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>
             ) : (
               <EmptyState title={t('entriesEmpty')}>{t('entriesEmptyNote')}</EmptyState>
             )}
+            {sent && <p role="status">{t('sentRequest')}</p>}
             <div className="withdrawal-actions">
-              <Button disabled aria-describedby="allowlist-change-blocked">
+              <Button
+                onClick={() => {
+                  if (active()) setAdding(true);
+                }}
+              >
                 {t('add')}
               </Button>
             </div>
+            {adding && (
+              <AddForm
+                current={current}
+                onDone={() => {
+                  setAdding(false);
+                  setSent(true);
+                  reload();
+                }}
+                onCancel={() => setAdding(false)}
+              />
+            )}
+            {removing && (
+              <WithdrawStepUp
+                why={t('removeWhy')}
+                run={(token) => createAllowlistReads(api, userId, current).proposeDelete(removing.entryId, removing.ref, token)}
+                onDone={() => {
+                  if (!active()) return;
+                  setRemoving(null);
+                  setSent(true);
+                  reload();
+                }}
+                onCancel={() => setRemoving(null)}
+              />
+            )}
             <div className="withdrawal-window" role="status">
               <p>
                 {t('returned', { count: entries.length, limit })} {entries.length >= limit ? t('more') : ''}
@@ -176,6 +310,13 @@ function OneTime({ current }: { current: () => boolean }) {
     (signal) => createAllowlistReads(api, userId, current).policy(signal),
     `${userId}:allowlist-policy`,
   );
+  const [editing, setEditing] = useState(false);
+  const [enabled, setEnabled] = useState(true);
+  const [assetId, setAssetId] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [ask, setAsk] = useState<{ ref: string } | null>(null);
+  const [invalid, setInvalid] = useState(false);
+  const [sent, setSent] = useState(false);
   return (
     <Section title={t('oneTimeTitle')} description={t('oneTimeNote')}>
       <ReadResult
@@ -191,11 +332,77 @@ function OneTime({ current }: { current: () => boolean }) {
                 ? t('oneTimeOn', { max: amount(policy.maxAmount, policy.assetId) })
                 : t('oneTimeOff')}
             </p>
+            {sent && <p role="status">{t('sentRequest')}</p>}
             <div className="withdrawal-actions">
-              <Button variant="secondary" disabled aria-describedby="allowlist-change-blocked">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (active()) setEditing(true);
+                }}
+              >
                 {t('oneTimeChange')}
               </Button>
             </div>
+            {editing && (
+              <form
+                className="form-stack"
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!assetId.trim() || !positive(maxAmount.trim())) return setInvalid(true);
+                  setInvalid(false);
+                  setAsk({ ref: newRef() });
+                }}
+              >
+                <label className="field">
+                  <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> {t('policyOn')}
+                </label>
+                <Field
+                  label={t('policyAsset')}
+                  name="allowlist-policy-asset"
+                  maxLength={32}
+                  value={assetId}
+                  onChange={(event) => setAssetId(event.target.value)}
+                />
+                <Field
+                  label={t('policyMax')}
+                  name="allowlist-policy-max"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={maxAmount}
+                  onChange={(event) => setMaxAmount(event.target.value)}
+                />
+                {invalid && (
+                  <p className="failure" role="alert">
+                    {t('policyInvalid')}
+                  </p>
+                )}
+                <div className="withdrawal-actions">
+                  <Button type="submit">{t('policySubmit')}</Button>
+                  <Button variant="ghost" onClick={() => setEditing(false)}>
+                    {t('formCancel')}
+                  </Button>
+                </div>
+                {ask && (
+                  <WithdrawStepUp
+                    run={(token) =>
+                      createAllowlistReads(api, userId, current).proposePolicy(
+                        { enabled, assetId: assetId.trim().toUpperCase(), maxAmount: maxAmount.trim(), clientRef: ask.ref },
+                        token,
+                      )
+                    }
+                    onDone={() => {
+                      if (!active()) return;
+                      setAsk(null);
+                      setEditing(false);
+                      setSent(true);
+                      reload();
+                    }}
+                    onCancel={() => setAsk(null)}
+                  />
+                )}
+              </form>
+            )}
           </>
         )}
       </ReadResult>

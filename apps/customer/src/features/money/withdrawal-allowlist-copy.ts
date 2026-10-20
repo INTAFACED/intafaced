@@ -12,8 +12,6 @@ const en = {
   turnOn: 'Switch on',
   turnOff: 'Request to switch off',
   modeNote: 'Switching on takes effect at once. Switching off needs your team’s approval.',
-  changeBlocked:
-    'Switch on, Add address, Remove and the one-time setting are off because this app does not offer the withdrawal sign-in step they require, so nothing is sent without it.',
   entriesTitle: 'Listed addresses',
   entriesWindow: 'Up to {limit} addresses',
   refresh: 'Refresh',
@@ -80,6 +78,18 @@ const en = {
   more: 'There may be more.',
   load: 'Load up to {limit}',
   returned: '{count} shown · up to {limit}.',
+  submitAdd: 'Request to add',
+  formCancel: 'Close',
+  formInvalid: 'Fill in every field. The address has to be one you control or trust.',
+  sentApplied: 'Done. The address list is now on.',
+  sentRequest: 'Sent to your team for approval. It changes nothing until enough of them approve.',
+  policyOn: 'Allow one-time sends',
+  policyAsset: 'Asset',
+  policyMax: 'Largest single send',
+  policySubmit: 'Request this setting',
+  policyInvalid: 'Enter an asset and a positive amount.',
+  removeWhy: 'Removing an address is a request your team approves.',
+  addWhy: 'Adding an address is a request your team approves, and it names exactly this address.',
 } as const;
 
 const es = {
@@ -94,8 +104,6 @@ const es = {
   turnOn: 'Activar',
   turnOff: 'Solicitar desactivar',
   modeNote: 'Activar surte efecto al instante. Desactivar necesita la aprobación de tu equipo.',
-  changeBlocked:
-    'Activar, Añadir dirección, Quitar y el ajuste de envío único están desactivados porque esta app no ofrece el paso de inicio de sesión para retiros que requieren, así que no se envía nada sin él.',
   entriesTitle: 'Direcciones en la lista',
   entriesWindow: 'Hasta {limit} direcciones',
   refresh: 'Actualizar',
@@ -163,6 +171,18 @@ const es = {
   more: 'Puede haber más.',
   load: 'Cargar hasta {limit}',
   returned: '{count} mostradas · hasta {limit}.',
+  submitAdd: 'Solicitar añadir',
+  formCancel: 'Cerrar',
+  formInvalid: 'Rellena todos los campos. La dirección debe ser una que controles o en la que confíes.',
+  sentApplied: 'Listo. La lista de direcciones está activada.',
+  sentRequest: 'Enviado a tu equipo para su aprobación. No cambia nada hasta que lo aprueben suficientes personas.',
+  policyOn: 'Permitir envíos únicos',
+  policyAsset: 'Activo',
+  policyMax: 'Envío único máximo',
+  policySubmit: 'Solicitar este ajuste',
+  policyInvalid: 'Introduce un activo y un importe positivo.',
+  removeWhy: 'Quitar una dirección es una solicitud que aprueba tu equipo.',
+  addWhy: 'Añadir una dirección es una solicitud que aprueba tu equipo, y nombra exactamente esta dirección.',
 } as const;
 
 const fr = {
@@ -177,8 +197,6 @@ const fr = {
   turnOn: 'Activer',
   turnOff: 'Demander la désactivation',
   modeNote: 'L’activation est immédiate. La désactivation demande l’approbation de ton équipe.',
-  changeBlocked:
-    'Activer, Ajouter une adresse, Retirer et le réglage d’envoi unique sont désactivés car cette app ne propose pas l’étape de connexion pour les retraits qu’ils exigent, donc rien n’est envoyé sans elle.',
   entriesTitle: 'Adresses de la liste',
   entriesWindow: 'Jusqu’à {limit} adresses',
   refresh: 'Actualiser',
@@ -246,6 +264,18 @@ const fr = {
   more: 'Il y en a peut-être d’autres.',
   load: 'Charger jusqu’à {limit}',
   returned: '{count} affichées · jusqu’à {limit}.',
+  submitAdd: 'Demander l’ajout',
+  formCancel: 'Fermer',
+  formInvalid: 'Remplis tous les champs. L’adresse doit être une adresse que tu contrôles ou en laquelle tu as confiance.',
+  sentApplied: 'C’est fait. La liste d’adresses est activée.',
+  sentRequest: 'Envoyé à ton équipe pour approbation. Rien ne change tant que assez de personnes n’ont pas approuvé.',
+  policyOn: 'Autoriser les envois uniques',
+  policyAsset: 'Actif',
+  policyMax: 'Envoi unique maximal',
+  policySubmit: 'Demander ce réglage',
+  policyInvalid: 'Saisis un actif et un montant positif.',
+  removeWhy: 'Retirer une adresse est une demande que ton équipe approuve.',
+  addWhy: 'Ajouter une adresse est une demande que ton équipe approuve, et elle nomme exactement cette adresse.',
 } as const;
 
 export const allowlistCopy = defineCopy('customer.money.withdrawalAllowlist', en, { es, fr });

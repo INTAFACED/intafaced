@@ -77,11 +77,12 @@ describe('the withdrawal address list room', () => {
     expect(html).toContain(`changeId=${id}`);
   });
 
-  it('keeps every owner control visible and off, with the real blocker named', () => {
+  it('offers every owner control, each behind the withdrawal confirmation, with no blocker note', () => {
     const html = page();
     for (const name of ['Request to switch off', 'Add address', 'Remove', 'Request a change'])
-      expect(html).toMatch(new RegExp(`<button[^>]*disabled[^>]*>${name}</button>`));
-    expect(html).toContain('withdrawal sign-in step');
+      expect(html).toMatch(new RegExp(`<button[^>]*>${name}</button>`));
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>(Request to switch off|Add address|Remove|Request a change)</);
+    expect(html).not.toContain('withdrawal sign-in step');
   });
 
   it('says the list is off when it is off, and shows honest empty states', () => {
