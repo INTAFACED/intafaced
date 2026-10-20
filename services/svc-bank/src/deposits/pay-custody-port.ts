@@ -1,4 +1,4 @@
-import type { PayCustodyDepositPort } from '@intafaced/contracts';
+import { PAY_CUSTODY_DEPOSIT_PENDING_STATUSES, type PayCustodyDepositPort } from '@intafaced/contracts';
 import type { CustodyDepositPort, DepositAsset } from './custody-port.js';
 
 /**
@@ -7,8 +7,8 @@ import type { CustodyDepositPort, DepositAsset } from './custody-port.js';
  *
  * `null` means custody is not answering, and the deposit service turns it into `bank.deposit_custody_unset`: a pay that is
  * unreachable, a refused pair and a reply that did not parse all look the same to the customer, and none of them invents an
- * asset, a minimum, a confirmation count or an address. `pending` stays `null` until the deposit record lands (W-deposit-05):
- * there is nothing true to report as incoming yet, and an empty list would say "connected, nothing incoming".
+ * asset, a minimum, a confirmation count or an address. `pending` and `records` read svc-pay's deposit record (W-deposit-05); an
+ * unreachable pay is `null`, never an empty list that would say "connected, nothing incoming".
  */
 export function createPayCustodyDepositPort(pay: PayCustodyDepositPort): CustodyDepositPort {
   return {
@@ -39,8 +39,23 @@ export function createPayCustodyDepositPort(pay: PayCustodyDepositPort): Custody
       return { address: answer.address.address, memo: answer.address.memo, qrPayload: answer.address.qrPayload };
     },
 
-    async pending() {
-      return null;
+    async pending(userId) {
+      // One more than the door publishes, so a full page is seen as too many and never silently cut.
+      const answer = await pay.records({ userId, statuses: [...PAY_CUSTODY_DEPOSIT_PENDING_STATUSES], offset: 0, limit: 101 });
+      if (answer.state !== 'ok') return null;
+      return answer.records.items.map((record) => ({
+        id: record.id,
+        assetId: record.assetId,
+        networkId: record.networkId,
+        amount: record.amount,
+        confirmations: record.confirmations,
+        confirmationsRequired: record.confirmationsRequired,
+      }));
+    },
+
+    async records(query) {
+      const answer = await pay.records({ ...query, statuses: query.statuses ? [...query.statuses] : undefined });
+      return answer.state === 'ok' ? answer.records : null;
     },
   };
 }

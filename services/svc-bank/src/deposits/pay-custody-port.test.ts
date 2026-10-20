@@ -76,12 +76,52 @@ describe('pay custody deposit port', () => {
     }
   });
 
-  it('reports no incoming deposits as not connected until the deposit record exists', async () => {
-    const port = createPayCustodyDepositPort({
-      catalogue: async () => UNAVAILABLE,
-      address: async () => UNAVAILABLE,
-      records: async () => UNAVAILABLE,
+  const record = (over: object = {}) => ({
+    id: 'dep-1',
+    assetId: 'USDT',
+    networkId: 'ethereum',
+    address: '0xabc',
+    txHash: '0xdead',
+    outputIndex: 0,
+    amount: '25',
+    confirmations: 3,
+    confirmationsRequired: 12,
+    status: 'confirming' as const,
+    reason: null,
+    minimumDeposit: '10',
+    detectedAt: '2026-10-20T10:00:00.000Z',
+    creditedAt: null,
+    ...over,
+  });
+  const withRecords = (records: PayCustodyDepositPort['records']) =>
+    createPayCustodyDepositPort({ catalogue: async () => UNAVAILABLE, address: async () => UNAVAILABLE, records });
+
+  it('reports incoming deposits from the pay record, asking only for the open states and one past the door cap', async () => {
+    const asked: unknown[] = [];
+    const port = withRecords(async (query) => {
+      asked.push(query);
+      return { state: 'ok', records: { items: [record(), record({ id: 'dep-2', confirmationsRequired: null })], total: 2 } };
     });
-    expect(await port.pending('user-1')).toBeNull();
+    expect(await port.pending('user-1')).toEqual([
+      { id: 'dep-1', assetId: 'USDT', networkId: 'ethereum', amount: '25', confirmations: 3, confirmationsRequired: 12 },
+      { id: 'dep-2', assetId: 'USDT', networkId: 'ethereum', amount: '25', confirmations: 3, confirmationsRequired: null },
+    ]);
+    expect(asked).toEqual([{ userId: 'user-1', statuses: ['detected', 'confirming'], offset: 0, limit: 101 }]);
+  });
+
+  it('keeps an empty pending list empty, and an unreachable pay not published', async () => {
+    expect(await withRecords(async () => ({ state: 'ok', records: { items: [], total: 0 } })).pending('u')).toEqual([]);
+    expect(await withRecords(async () => UNAVAILABLE).pending('u')).toBeNull();
+    expect(await withRecords(async () => UNAVAILABLE).records?.({ userId: 'u', offset: 0, limit: 5 })).toBeNull();
+  });
+
+  it('passes the history filters through and returns the page with its total', async () => {
+    const port = withRecords(async (query) => {
+      expect(query).toMatchObject({ userId: 'u', assetId: 'USDT', statuses: ['credited'], txHash: '0xdead', offset: 5, limit: 10 });
+      return { state: 'ok', records: { items: [record({ status: 'credited' })], total: 6 } };
+    });
+    const page = await port.records?.({ userId: 'u', assetId: 'USDT', statuses: ['credited'], txHash: '0xdead', offset: 5, limit: 10 });
+    expect(page?.total).toBe(6);
+    expect(page?.items).toHaveLength(1);
   });
 });

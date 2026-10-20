@@ -9,6 +9,9 @@ import {
   BANK_APPROVER_ELIGIBILITY_CALLERS,
   bankApproverEligibilityInputSchema,
   bankApproverEligibilitySchema,
+  PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT,
+  PAY_CUSTODY_DEPOSIT_STATUSES,
+  payCustodyDepositRecordSchema,
 } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -4668,12 +4671,33 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 networkId: z.string(),
                 amount: amountString,
                 confirmations: z.number().int().nonnegative(),
-                confirmationsRequired: z.number().int().nonnegative(),
+                confirmationsRequired: z.number().int().nonnegative().nullable(),
               }),
             ),
           }),
         )
         .query(async ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId))),
+
+      /**
+       * The customer's own deposit history with its state and reason (W-deposit-05). Filters: coin, network, status, tx id,
+       * address. A page with the true total. A blank port refuses `bank.deposit_custody_unset`.
+       */
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(
+          z
+            .object({
+              assetId: z.string().min(1).max(16).optional(),
+              networkId: z.string().min(1).max(32).optional(),
+              status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES).optional(),
+              txId: z.string().min(1).max(128).optional(),
+              address: z.string().min(1).max(256).optional(),
+              offset: z.number().int().min(0).max(1_000_000).default(0),
+              limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
+            })
+            .default({}),
+        )
+        .output(z.object({ items: z.array(payCustodyDepositRecordSchema), total: z.number().int().nonnegative() }))
+        .query(async ({ ctx, input }) => guard(async () => bank.deposits.list(ctx.principal.userId, input))),
     }),
     autoInvest,
     business,
