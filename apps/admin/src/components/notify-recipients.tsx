@@ -49,7 +49,7 @@ function Failed({ part }: { part: Extract<RecipientsView, { kind: 'failed' }> })
   );
 }
 
-function ReleaseForm({ row, onDone }: { row: RecipientRow; onDone: () => void }) {
+function ReleaseForm({ row, onDone }: { row: RecipientRow; onDone: (reply: ReleaseReply) => void }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -66,17 +66,9 @@ function ReleaseForm({ row, onDone }: { row: RecipientRow; onDone: () => void })
     setBusy(false);
     setReply(result);
     // A definite success, or an outcome nobody can be sure of, both change what the list should say: read it again.
-    if (result.ok || result.changed === 'unknown') onDone();
+    if (result.ok || result.changed === 'unknown') onDone(result);
   };
   const id = `release-${row.userId}-${row.channel}`;
-  if (reply?.ok)
-    return (
-      <p className="dk-why" role="status" data-testid="release-done">
-        {reply.replayed
-          ? 'This address had already been released with this reason. Nothing more was changed.'
-          : 'Released. The next notification will try this address again.'}
-      </p>
-    );
   return (
     <div className="dk-stack" data-testid="release-form">
       <label htmlFor={id}>
@@ -118,7 +110,7 @@ export function RecipientTable({
 }: {
   read: RecipientsRead;
   notConnected: NotConnected;
-  onChanged: () => void;
+  onChanged: (reply: ReleaseReply) => void;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const { items, state } = read;
@@ -178,9 +170,9 @@ export function RecipientTable({
                         {open === key ? (
                           <ReleaseForm
                             row={r}
-                            onDone={() => {
+                            onDone={(reply) => {
                               setOpen(null);
-                              onChanged();
+                              onChanged(reply);
                             }}
                           />
                         ) : (
@@ -207,10 +199,30 @@ export function RecipientTable({
   );
 }
 
+/** What happened to the last release, kept on screen after the list reloads (the row that was released leaves the list). */
+export function ReleaseNotice({ reply }: { reply: ReleaseReply }) {
+  if (reply.ok)
+    return (
+      <p className="dk-why" role="status" data-testid="release-done">
+        {reply.replayed
+          ? 'This address had already been released with this reason. Nothing more was changed.'
+          : 'Released. The next notification will try this address again. It now belongs on the Active tab.'}
+      </p>
+    );
+  return (
+    <div className="adm-callout" data-tone="warn" role="alert" data-testid="release-unknown">
+      <strong>{reply.title}</strong>
+      <p>{reply.body}</p>
+      <p className="dk-muted">{reply.next}</p>
+    </div>
+  );
+}
+
 export function RecipientsPanel({ initial, notConnected }: { initial: RecipientsView | null; notConnected: NotConnected }) {
   const [tab, setTab] = useState<RecipientState>('quarantined');
   const [views, setViews] = useState<Partial<Record<RecipientState, RecipientsView | null>>>({ quarantined: initial });
   const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState<ReleaseReply | null>(null);
   const sequence = useRef(0);
   const load = useCallback(async (state: RecipientState) => {
     const mine = ++sequence.current;
@@ -221,9 +233,16 @@ export function RecipientsPanel({ initial, notConnected }: { initial: Recipients
       setLoading(false);
     }
   }, []);
+  const changed = (reply: ReleaseReply) => {
+    setNotice(reply);
+    // A release moves an address to another tab: drop every cached tab but this one so none shows a stale list.
+    setViews((v) => ({ [tab]: v[tab] }));
+    void load(tab);
+  };
   const choose = (state: RecipientState) => {
     setTab(state);
     if (views[state] === undefined) void load(state);
+    setNotice(null);
   };
   const view = views[tab];
   return (
@@ -251,6 +270,7 @@ export function RecipientsPanel({ initial, notConnected }: { initial: Recipients
           {loading ? 'Reading…' : 'Refresh'}
         </button>
       </div>
+      {notice && <ReleaseNotice reply={notice} />}
       {view === undefined && <p className="dk-muted">Reading…</p>}
       {view === null && (
         <p className="dk-why" data-testid="recipients-unreadable">
@@ -258,7 +278,7 @@ export function RecipientsPanel({ initial, notConnected }: { initial: Recipients
         </p>
       )}
       {view && view.kind === 'failed' && <Failed part={view} />}
-      {view && view.kind === 'ok' && <RecipientTable read={view.data} notConnected={notConnected} onChanged={() => void load(tab)} />}
+      {view && view.kind === 'ok' && <RecipientTable read={view.data} notConnected={notConnected} onChanged={changed} />}
     </div>
   );
 }

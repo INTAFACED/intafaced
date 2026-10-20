@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { RecipientTable } from './notify-recipients';
+import { RecipientTable, ReleaseNotice } from './notify-recipients';
 import type { RecipientRow, RecipientState, RecipientsRead } from '@/lib/notify/recipients-model';
 
 const row = (over: Partial<RecipientRow> = {}): RecipientRow => ({
@@ -47,5 +47,16 @@ describe('recipient health', () => {
     const html = render(read([row({ channel: 'sms' })], { limit: 1 }), { sms: 'vendor.sms' });
     expect(html).toContain('vendor.sms');
     expect(html).toContain('The page is full (1)');
+  });
+  it('keeps the release answer on screen: success, replay, and an unknown outcome that says to read the list', () => {
+    expect(renderToStaticMarkup(<ReleaseNotice reply={{ ok: true, replayed: false }} />)).toContain('Released.');
+    expect(renderToStaticMarkup(<ReleaseNotice reply={{ ok: true, replayed: true }} />)).toContain('already been released');
+    const html = renderToStaticMarkup(
+      <ReleaseNotice
+        reply={{ ok: false, title: 'The outcome is not known', body: 'Dropped.', next: 'Read the list again.', changed: 'unknown' }}
+      />,
+    );
+    expect(html).toContain('data-testid="release-unknown"');
+    expect(html).toContain('The outcome is not known');
   });
 });
