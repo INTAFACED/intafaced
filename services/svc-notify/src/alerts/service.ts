@@ -21,7 +21,15 @@ import {
   evaluateWhaleAlert,
 } from './evaluate.js';
 import { AlertValidationError, type AlertStore } from './store.js';
-import { directionOfCondition, EXTRA_CONDITIONS, isCrossingCondition, type AlertExtra } from './types.js';
+import {
+  ALERT_CONDITIONS,
+  directionOfCondition,
+  EXTRA_CONDITIONS,
+  isCrossingCondition,
+  type AlertEdit,
+  type AlertEditState,
+  type AlertExtra,
+} from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
   AlertKindUnpublishedError,
@@ -113,6 +121,15 @@ export type AlertLimitCode =
   | 'alert.expiry_too_far'
   | 'alert.text_too_long'
   | 'alert.message_placeholder_unknown';
+
+/** An edit or pause refused because the alert has already triggered, expired or been cancelled. */
+export class AlertNotEditableError extends Error {
+  readonly code = 'alert.not_editable' as const;
+  constructor(status: string) {
+    super(`alert.not_editable: the alert is ${status}`);
+    this.name = 'AlertNotEditableError';
+  }
+}
 
 /** A create refused for its expiry or text: a blank owner setting, or a value outside it. Nothing is stored. */
 export class AlertLimitError extends Error {
@@ -348,8 +365,54 @@ export class AlertService {
     return this.store.list(userId, limit);
   }
 
+  get(userId: string, id: string): Promise<PriceAlert | null> {
+    return this.store.get(userId, id);
+  }
+
   cancel(userId: string, id: string): Promise<PriceAlert | null> {
     return this.store.cancel(userId, id);
+  }
+
+  /**
+   * Change an alert that is active or stopped. The edit is merged over what is stored and checked exactly as a create is, so an
+   * owner setting that is blank still refuses, and nothing is written unless every part passes. A changed alert forgets the side
+   * a crossing was last seen on. `null` when the alert is not the person's.
+   */
+  async edit(userId: string, id: string, edit: AlertEdit, now: Date = new Date()): Promise<PriceAlert | null> {
+    await this.store.expireDue(now);
+    const row = await this.store.get(userId, id);
+    if (!row) return null;
+    if (row.status !== 'active' && row.status !== 'stopped') throw new AlertNotEditableError(row.status);
+    const condition = edit.condition ?? row.condition;
+    if (!(ALERT_CONDITIONS as readonly string[]).includes(condition)) {
+      throw new AlertLimitError('alert.extra_condition_invalid', `condition=${String(condition)}`);
+    }
+    const targetPrice = edit.targetPrice === undefined ? row.targetPrice : assertRealAlertPrice(edit.targetPrice).trim();
+    if (!isValidPositivePrice(targetPrice)) throw new AlertLimitError('alert.extra_condition_invalid', `targetPrice=${targetPrice}`);
+    const next: AlertEditState = {
+      direction: condition === 'crossing' ? row.direction : directionOfCondition(condition),
+      targetPrice,
+      condition,
+      name: edit.name === undefined ? row.name : assertAlertText('name', edit.name, this.limits),
+      message: edit.message === undefined ? row.message : assertAlertText('message', edit.message, this.limits),
+      expiresAt: edit.expiresAt === undefined ? row.expiresAt : assertAlertExpiry(edit.expiresAt, this.limits, now),
+      extras: edit.extras === undefined ? row.extras : assertAlertExtras(edit.extras, this.limits),
+    };
+    return this.store.replace(userId, id, next, now);
+  }
+
+  /**
+   * Pause an active alert or resume a stopped one. Pausing twice or resuming twice is harmless and returns the alert as it is.
+   * A stopped alert whose expiry has passed is expired, not resumed. `null` when the alert is not the person's.
+   */
+  async setActive(userId: string, id: string, active: boolean, now: Date = new Date()): Promise<PriceAlert | null> {
+    await this.store.expireDue(now);
+    return this.store.setStopped(userId, id, !active, now);
+  }
+
+  /** Delete an alert whatever its state. True when there was one. */
+  remove(userId: string, id: string): Promise<boolean> {
+    return this.store.remove(userId, id);
   }
 
   /**

@@ -232,7 +232,7 @@ export const priceAlerts = schema.table('price_alerts', {
   kind: text('kind').$type<'price' | 'funding' | 'liquidation_proximity' | 'whale'>().notNull().default('price'),
   direction: text('direction').$type<'above' | 'below'>().notNull(),
   targetPrice: text('target_price').notNull(),
-  status: text('status').$type<'active' | 'fired' | 'cancelled' | 'expired'>().notNull().default('active'),
+  status: text('status').$type<'active' | 'fired' | 'cancelled' | 'expired' | 'stopped'>().notNull().default('active'),
   firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }),
   createdAt: createdAt(),
   condition: text('condition')
@@ -243,6 +243,7 @@ export const priceAlerts = schema.table('price_alerts', {
   message: text('message'),
   expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }),
   lastSide: text('last_side').$type<'below' | 'at_or_above'>(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
   extraConditions: jsonb('extra_conditions')
     .$type<{ condition: 'greater_than' | 'less_than'; targetPrice: string }[]>()
     .notNull()
