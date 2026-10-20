@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0084_futures_reduce_only_orders.sql; drops the reduce-only order columns and the reduce fill intents' amounts
+-- intafaced:destructive — reversal of 0085_futures_reduce_only_orders.sql; drops the reduce-only order columns and the reduce fill intents' amounts
 ALTER TABLE "trade"."futures_order_fills" DROP CONSTRAINT IF EXISTS "futures_order_fills_kind_ck";
 ALTER TABLE "trade"."futures_order_fills"
   DROP COLUMN IF EXISTS "closes_position",
