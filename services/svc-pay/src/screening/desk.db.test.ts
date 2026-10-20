@@ -14,7 +14,7 @@ import {
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from '../action-approval-consume.js';
-import { FRESH, settleGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
+import { FRESH, settleGuardRefusal, type GuardReplay, type PartialPayGuards } from '../seams/guards.js';
 import { createScreeningRouter } from './desk-router.js';
 import { ScreeningDeskService } from './desk-service.js';
 import { createScreeningGuards, screeningSubjectKey, type ScreeningScreener } from './guard.js';
@@ -90,18 +90,18 @@ describe('screening desk (real Postgres)', () => {
       store: createSqlScreeningCaseStore(db.sql),
     });
 
-  async function send(clientRef: string, over: { userId?: string; amount?: bigint } = {}) {
+  async function send(clientRef: string, over: { userId?: string; amount?: bigint; replay?: GuardReplay; tx?: typeof db.sql } = {}) {
     const g = guards();
     try {
       await g.beforeUserMoneyWithdrawal!({
-        tx: db.sql,
+        tx: over.tx ?? db.sql,
         userId: over.userId ?? USER,
         assetId: 'USDT',
         amount: over.amount ?? 5n * 10n ** 18n,
         rail: 'card-sandbox',
         destination: { kind: 'bank', ref: 'DE89370400440532013000' },
         clientRef,
-        replay: FRESH,
+        replay: over.replay ?? FRESH,
       });
       return 'passed' as const;
     } catch (error) {
@@ -347,6 +347,33 @@ describe('screening desk (real Postgres)', () => {
       // ...and not twice.
       expect(await send('s3', { amount: 1n * 10n ** 18n })).toBe('pay.guard_screening_review');
       expect((await desk().get('withdrawal', keyOf('s1'))).events.map((e) => e.action)).toEqual(['release_spent', 'release']);
+    });
+
+    it('a send that spent its release keeps it on a retry: recovery or fresh, with the screener dark, and a rolled-back claim leaves nothing', async () => {
+      await send('k1');
+      await release('k1');
+      // A claim that rolls back after the spend gives the release back and leaves no clear case behind.
+      await db.sql
+        .begin(async (tx) => {
+          expect(await send('k2', { amount: 1n * 10n ** 18n, tx })).toBe('passed');
+          throw new Error('claim rolled back');
+        })
+        .catch(() => undefined);
+      expect((await desk().get('withdrawal', keyOf('k1'))).case.releaseSpentAt).toBeNull();
+      expect(await createSqlScreeningCaseStore(db.sql).read('withdrawal', keyOf('k2'))).toBeNull();
+      // The claim commits: the release is spent for k2.
+      expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
+      expect((await desk().get('withdrawal', keyOf('k1'))).case.releaseSpentAt).not.toBeNull();
+      // The process died after the claim: the retry classifies as recovery, and the screener is dark. It must not refuse.
+      answer = 'down';
+      expect(await send('k2', { amount: 1n * 10n ** 18n, replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe('passed');
+      // Or the claim committed before the hold: the retry is still fresh. It spends no second release.
+      expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
+      answer = 'review';
+      await send('k4');
+      await release('k4');
+      expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
+      expect((await desk().get('withdrawal', keyOf('k4'))).case.releaseSpentAt).toBeNull();
     });
 
     it('two sends racing for one release: exactly one spends it', async () => {

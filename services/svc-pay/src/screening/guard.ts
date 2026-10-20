@@ -6,6 +6,7 @@ import { PayGuardRefusal, type PartialPayGuards, type PayoutExecuteContext, type
 import { applyListPosture, screeningCaseFromAnswer, type ScreeningAnswer, type ScreeningDecision } from './decision.js';
 import {
   createSqlScreeningCaseStore,
+  RELEASE_FACTOR,
   screeningSubjectKey,
   type ScreeningCaseRecord,
   type ScreeningCaseStore,
@@ -101,15 +102,25 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
     if (replayKind === 'replay') return;
     const subjectKey = screeningSubjectKey(kind, parts);
     const context = { partyRef: party.merchantId, amount: formatAmount(party.amount), assetId: party.assetId };
-    let released: ScreeningDecision | null = null;
     // A fresh send may spend a compliance release (a person decided a held send of this party was fine). Never on a blank
     // list: the list is the thing that cannot be argued with, and a release never touches the case it came from.
-    if (replayKind === 'fresh' && tx && posture === 'named' && store.spendRelease) {
-      const from = await store.spendRelease(tx, { ...context, exceptKey: subjectKey });
-      if (from !== null) released = { status: 'clear', factors: [{ code: 'compliance_release' }] };
+    if (tx && posture === 'named' && store.spendRelease) {
+      // A send that already spent its release (the claim committed, then the process died) keeps it: a retry, whether
+      // it classifies as recovery or still as fresh, is honoured from its own case and never spends a second one.
+      const own = await store.read(kind, subjectKey);
+      if (own?.status === 'clear' && own.factors.some((item) => item.code === RELEASE_FACTOR)) return;
+      if (replayKind === 'fresh') {
+        const from = await store.spendRelease(tx, { ...context, exceptKey: subjectKey });
+        if (from !== null) {
+          // The spend wrote this send's own clear case inside `tx`; a pool write here would wait on that uncommitted row.
+          return;
+        }
+      }
     }
-    const decision: ScreeningDecision =
-      released ?? applyListPosture(screeningCaseFromAnswer(await answerFrom(screener, timeoutMs, { kind, ...context })), posture);
+    const decision: ScreeningDecision = applyListPosture(
+      screeningCaseFromAnswer(await answerFrom(screener, timeoutMs, { kind, ...context })),
+      posture,
+    );
     const record: ScreeningCaseRecord = {
       subjectKind: kind,
       subjectKey,
