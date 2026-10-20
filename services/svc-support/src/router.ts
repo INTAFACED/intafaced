@@ -12,6 +12,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
 } from '@intafaced/contracts';
@@ -76,6 +77,7 @@ function mapError(err: unknown): never {
       err.code === 'support.list_kb_limit_unset' ||
       err.code === 'support.staff_bootstrap' ||
       err.code === 'support.heartbeat_window_unset' ||
+      err.code === 'support.ticket_closed' ||
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
@@ -504,6 +506,8 @@ export function createSupportRouter(
              * explicitly when that is the page you want.
              */
             limit: z.number().int().positive().max(500).optional(),
+            /** Only tickets carrying this label. */
+            label: z.string().max(200).optional(),
           })
           .optional(),
       )
@@ -511,8 +515,13 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          const q =
-            scope && (await scope.deskIsRestricted())
+          const q = input?.label
+            ? await support.listOperatorQueue({
+                limit: input.limit,
+                label: input.label,
+                viewerId: scope && (await scope.deskIsRestricted()) ? ctx.principal!.userId : undefined,
+              })
+            : scope && (await scope.deskIsRestricted())
               ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
               : await support.listOperatorQueue({ limit: input?.limit });
           if (q.status === 'empty') return q;
@@ -864,6 +873,45 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Priority, type and labels an agent set on a ticket. Null and no labels until set. */
+    ticketProperties: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid() }))
+      .output(supportTicketPropertiesSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.getTicketProperties({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Set priority, type and labels. Values arrive as text so a bad one reaches
+     * the service and is refused by name (`support.property_invalid`,
+     * `support.label_invalid`) instead of a schema message.
+     */
+    setProperties: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          priority: z.string().max(40).nullable().optional(),
+          ticketType: z.string().max(40).nullable().optional(),
+          labels: z.array(z.string().max(200)).max(200).optional(),
+          reason: z.string().min(1).max(500).optional(),
+          clientRequestId: z.string().min(1).max(200),
+        }),
+      )
+      .output(supportTicketPropertiesSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.setTicketProperties({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

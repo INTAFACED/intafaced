@@ -6,6 +6,7 @@ import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlGroupBook } from './desk-groups.js';
+import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
@@ -73,6 +74,7 @@ const support = new SupportService(
   undefined,
   new SqlGroupBook(sql),
   env.SUPPORT_ALL_GROUPS_ROLES,
+  new SqlPropertiesBook(sql),
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support);

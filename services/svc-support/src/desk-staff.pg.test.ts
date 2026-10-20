@@ -5,6 +5,7 @@ import postgres from 'postgres';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { SqlGroupBook, deskCanSee } from './desk-groups.js';
+import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { PostgresSupportStore } from './store.js';
 
@@ -123,6 +124,23 @@ if (!url) {
         'ticket_ungrouped',
       ]);
       expect(deskCanSee({ userId: AGENT, role: 'agent', groupIds: [g.id] }, { assigneeId: null }, g.id, [])).toBe(true);
+    });
+
+    it('stores priority, type and labels beside the ticket, logs a change once, and the database refuses a bad value', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const book = new SqlPropertiesBook(db.sql);
+      const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Props', body: 'Please look' });
+      const at = '2026-10-20T09:30:00.000Z';
+      expect(await book.get(ticket.id)).toEqual({ ticketId: ticket.id, priority: null, ticketType: null, labels: [], updatedAt: null });
+      const set = await book.set({ ticketId: ticket.id, priority: 'high', labels: ['vip', 'a-b'], by: LEAD, reason: 'deadline', at });
+      expect(set).toMatchObject({ priority: 'high', ticketType: null, labels: ['a-b', 'vip'], updatedAt: at });
+      await book.set({ ticketId: ticket.id, priority: 'high', labels: ['vip', 'a-b'], by: LEAD, reason: 'again', at });
+      expect(await db.sql`SELECT set_by, reason FROM support.ticket_property_log WHERE ticket_id = ${ticket.id}`).toHaveLength(1);
+      expect(await book.ticketsWithLabel('vip')).toEqual(new Set([ticket.id]));
+      expect(await book.ticketsWithLabel('absent')).toEqual(new Set());
+      const cleared = await book.set({ ticketId: ticket.id, priority: null, by: LEAD, reason: null, at: '2026-10-20T09:31:00.000Z' });
+      expect(cleared).toMatchObject({ priority: null, labels: ['a-b', 'vip'] });
+      await expect(db.sql`UPDATE support.ticket_properties SET priority = 'critical' WHERE ticket_id = ${ticket.id}`).rejects.toThrow();
     });
 
     it('rejects an availability outside online, busy and offline in the database', async () => {
