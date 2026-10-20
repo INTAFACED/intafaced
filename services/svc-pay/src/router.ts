@@ -2476,6 +2476,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.fee_bps_unset':
       case 'pay.starter_fee_unpublished':
       case 'pay.link_ttl_unset':
+      case 'pay.purchase_hold_period_unset':
       case 'pay.link_max_ttl_unset':
       case 'pay.checkout_session_ttl_unset':
       case 'pay.checkout_max_open_sessions_unset':
@@ -2522,6 +2523,7 @@ function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_ledger_conflict':
       case 'pay.settlement_not_pending':
       case 'pay.settlement_released':
+      case 'pay.withdrawal_amount_held':
         return 'CONFLICT' as const;
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':

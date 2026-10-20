@@ -18,6 +18,7 @@ import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardRepl
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
 import { assertStoredTransition } from './withdrawals/status.js';
 import type { WithdrawalEligibility, EligibilityView } from './withdrawals/eligibility.js';
+import type { PurchaseHoldGuard } from './withdrawals/purchase-holds/service.js';
 import type { WithdrawalHistory, WithdrawalHistoryFilter, WithdrawalHistoryPage } from './withdrawals/history.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
@@ -187,6 +188,12 @@ export interface UserMoneyOptions {
 
   /** The pre-submit eligibility read (W-withdraw-06). Omitted: the read refuses. */
   readonly withdrawalEligibility?: WithdrawalEligibility;
+
+  /**
+   * Funds from a card, ACH or PayPal purchase that may be traded but not withdrawn until released (W-withdraw-13).
+   * Omitted: no purchase is held back, which is the state before any hold is recorded.
+   */
+  readonly purchaseHolds?: PurchaseHoldGuard;
 }
 
 /**
@@ -213,6 +220,7 @@ export class UserMoneyService {
   private readonly withdrawalLimits: WithdrawalLimitReader | undefined;
   private readonly withdrawalHistory: WithdrawalHistory | undefined;
   private readonly withdrawalEligibility: WithdrawalEligibility | undefined;
+  private readonly purchaseHolds: PurchaseHoldGuard | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -229,6 +237,7 @@ export class UserMoneyService {
     this.withdrawalLimits = options.withdrawalLimits;
     this.withdrawalHistory = options.withdrawalHistory;
     this.withdrawalEligibility = options.withdrawalEligibility;
+    this.purchaseHolds = options.purchaseHolds;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -496,7 +505,10 @@ export class UserMoneyService {
             SELECT status FROM pay.withdrawals
              WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
           `;
-          if (!priorClaim || priorClaim.status === 'failed') this.refuseFreshWithdrawal(adapter);
+          if (!priorClaim || priorClaim.status === 'failed') {
+            this.refuseFreshWithdrawal(adapter);
+            await this.assertNotHeldFromPurchase(input);
+          }
 
           let claimed = await this.claimWithdrawal(input, connection);
 
@@ -1054,6 +1066,33 @@ export class UserMoneyService {
   async withdrawalEligibilityFor(userId: string, assetId: string): Promise<EligibilityView> {
     if (!this.withdrawalEligibility) throw new PayError('Withdrawal eligibility is not wired', 'pay.withdrawal_eligibility_unwired');
     return this.withdrawalEligibility.read(userId, assetId);
+  }
+
+  /**
+   * Funds bought by card, ACH or PayPal and still held are tradable but cannot leave (W-withdraw-13). The limit is the
+   * ledger's available balance minus what is held; the ledger stays the balance and nothing is booked here. A fresh ask
+   * only, before the claim, so a refusal inserts nothing. A blank release period refuses with its own code.
+   */
+  private async assertNotHeldFromPurchase(input: { userId: string; assetId: string; amount: Amount }): Promise<void> {
+    if (!this.purchaseHolds) return;
+    const held = await this.purchaseHolds.held(input.userId, input.assetId);
+    if (held.heldAmount === 0n) return;
+    const available = await this.availableBalance(input.userId, input.assetId);
+    const withdrawable = available > held.heldAmount ? available - held.heldAmount : 0n;
+    if (input.amount <= withdrawable) return;
+    const facts = { heldAmount: formatAmount(held.heldAmount), withdrawable: formatAmount(withdrawable) };
+    if (!held.periodSet) {
+      throw new PayError(
+        'Part of your balance is held after a card, ACH or PayPal purchase and the release period is not set, so it cannot be withdrawn yet',
+        'pay.purchase_hold_period_unset',
+        facts,
+      );
+    }
+    throw new PayError(
+      `Part of your balance is held after a card, ACH or PayPal purchase until ${held.earliestReleaseAt}; you can withdraw up to ${facts.withdrawable} now`,
+      'pay.withdrawal_amount_held',
+      facts,
+    );
   }
 
   /** What is currently immobilised for one in-flight withdrawal. An operator question, answered from the book. */

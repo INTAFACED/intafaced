@@ -24,6 +24,8 @@ import { createRegistryReader } from './registries/read-api.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
+import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
+import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
@@ -404,6 +406,8 @@ const walletPay = new WalletPay({
   now: () => new Date(),
 });
 
+const purchaseHolds = new PurchaseHoldService({ sql }).guard();
+
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
   haltStore,
@@ -418,8 +422,12 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     tierOf: kycTierSource,
   }),
   withdrawalHistory: createWithdrawalHistory(sql),
-  // Only the negative-balance check is answerable here (from the ledger); every other reason reads `unwired`.
-  withdrawalEligibility: createWithdrawalEligibility({ negative_balance: ledgerNegativeBalanceSource(ledger) }),
+  // The negative-balance and purchase-hold checks are answerable here (from the ledger and our own hold records); every other reason reads `unwired`.
+  withdrawalEligibility: createWithdrawalEligibility({
+    negative_balance: ledgerNegativeBalanceSource(ledger),
+    purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
+  }),
+  purchaseHolds,
 });
 
 /**
@@ -515,6 +523,7 @@ export const appRouter = mergeRouters(
     sql,
     limits: { sql, approvals: actionApprovals },
     custody: { sql },
+    purchaseHolds: { sql },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
