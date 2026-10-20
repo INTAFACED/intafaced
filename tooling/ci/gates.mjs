@@ -203,9 +203,12 @@ export const GATES = [
     doctrine: 'architecture refactor W7 (2026-10-19)',
     why:
       'services never reach into each other and money moves only through the ledger. Fails on an @intafaced/svc-* dependency ' +
-      'between workspace packages, an import that climbs into another service, SQL against another service’s schema, inline ' +
-      'ledger entries outside ledger-client and svc-ledger, a balance column in a service migration, and a randomUUID or ' +
-      'Date.now idempotency key. Green on main when added; exceptions are named with a reason in tooling/ci/boundary-allow.json.',
+      'or a workspace dependency cycle, an import or disk read that climbs into another service, SQL against another ' +
+      'service’s schema (any tag, string or .unsafe), a ledger entry, hand-built LedgerClient or /trpc/post outside ' +
+      'ledger-client and svc-ledger, a balance-like column (also via ADD COLUMN or a drizzle schema), and a randomUUID, ' +
+      'Date.now or Math.random idempotency key (also through a variable or on the next line). A duplicate ratchet ' +
+      '(tooling/ci/duplicate-ratchet.json) lets local 10n ** 18n scales, result?.data unwraps, padEnd parsers and ' +
+      'timeout-less fetch calls only shrink. Exceptions are named with a reason in tooling/ci/boundary-allow.json.',
   },
   {
     id: 'workspace',
