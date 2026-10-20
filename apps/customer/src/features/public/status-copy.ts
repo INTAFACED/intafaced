@@ -35,7 +35,10 @@ export const statusCopy = defineCopy('public-status', {
   REFUSED: 'Unavailable',
   REFUSED_effect: 'The service could not confirm this market’s mode. Treat it as not tradable.',
   maintenanceTitle: 'Scheduled maintenance',
-  maintenanceBody:
-    'No maintenance schedule is shown here: the notice feed has no public read yet, so there is nothing to list and nothing is made up. A blank schedule is not a promise that none is planned.',
+  maintenanceNone: 'No maintenance window has been published. This lists only what an operator has published.',
+  maintenanceLoading: 'Loading the maintenance schedule…',
+  maintenanceFailed: 'Couldn’t load the maintenance schedule.',
+  windowNotSet: 'time not set',
+  windowTo: 'to',
   noticesLink: 'Open notices',
 });
