@@ -418,33 +418,19 @@ export class UserMoneyService {
   }
 
   /**
-   * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
-   *
-   * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
-   * one `payoutSettlement` already uses for a merchant, and it is the same
-   * because the shape is the same: there is no moment at which the user's money
-   * is neither in their available balance, nor in a hold that names this
-   * withdrawal, nor gone with a rail reference against it.
-   *
-   * P0-3: the hold is PURPOSE-KEYED — `withdraw:<withdrawalId>:<attempt>`, via
-   * `withdrawalHoldAccount`. With one shared hold per (user, asset) a settle
-   * could consume value an open order had reserved, and the books would balance
-   * while the order went unfunded.
-   *
-   * RESUMABLE ON `clientRef`. A client that retries a timed-out request must
-   * resume this withdrawal, not open a second one — a second one is a second
-   * debit. That is why `clientRef` is required rather than recommended.
+   * Everything `withdraw` checks before a row exists: the amount, the customer withdrawal gate for a fresh ask, a sandbox key,
+   * the rail and the destination kind. Nothing is claimed or held. W-withdraw-11 runs it when a request is submitted, so a
+   * withdrawal that could never run is refused up front and not after its approvals.
    */
-  async withdraw(input: {
+  async preflightWithdrawal(input: {
     userId: string;
     assetId: string;
     amount: Amount;
     rail: string;
     destination: { kind: string; ref: string };
     clientRef: string;
-    /** A sandbox API key cannot debit a live balance. */
     keyEnv?: 'sandbox';
-  }): Promise<WithdrawalRecord> {
+  }): Promise<RailAdapter> {
     if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
     if (this.wallet) {
       const prior = await this.sql<Array<{ status: string }>>`
@@ -499,6 +485,46 @@ export class UserMoneyService {
       }
       throw err;
     }
+    return adapter;
+  }
+
+  /**
+   * A user moves their own balance off the platform. THE OUTBOUND MONEY PATH.
+   *
+   * hold → rail → settle, or hold → rail refuses → reverse. The sequence is the
+   * one `payoutSettlement` already uses for a merchant, and it is the same
+   * because the shape is the same: there is no moment at which the user's money
+   * is neither in their available balance, nor in a hold that names this
+   * withdrawal, nor gone with a rail reference against it.
+   *
+   * P0-3: the hold is PURPOSE-KEYED — `withdraw:<withdrawalId>:<attempt>`, via
+   * `withdrawalHoldAccount`. With one shared hold per (user, asset) a settle
+   * could consume value an open order had reserved, and the books would balance
+   * while the order went unfunded.
+   *
+   * RESUMABLE ON `clientRef`. A client that retries a timed-out request must
+   * resume this withdrawal, not open a second one — a second one is a second
+   * debit. That is why `clientRef` is required rather than recommended.
+   */
+  async withdraw(
+    input: {
+      userId: string;
+      assetId: string;
+      amount: Amount;
+      rail: string;
+      destination: { kind: string; ref: string };
+      clientRef: string;
+      /** A sandbox API key cannot debit a live balance. */
+      keyEnv?: 'sandbox';
+    },
+    /**
+     * `stopAfterHold` (W-withdraw-11, hold at submission): run the claim and post the hold, then stop. The row stays
+     * `pending` with its hold booked, the state a crash between the hold and the rail already leaves, so a later `withdraw`
+     * on the same client reference resumes it and `cancelWithdrawal` can give the hold back. The rail is never asked.
+     */
+    options: { stopAfterHold?: boolean } = {},
+  ): Promise<WithdrawalRecord> {
+    const adapter = await this.preflightWithdrawal(input);
 
     return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: input.rail, amount: formatAmount(input.amount) }, async (span) => {
       try {
@@ -591,11 +617,14 @@ export class UserMoneyService {
                 { withdrawalId: claimed.id },
               );
             }
+            // The hold is booked and the row is still `pending`: stop here when the caller asked to.
+            if (options.stopAfterHold) return claimed;
             await connection`
           UPDATE pay.withdrawals SET status = 'held', failure_code = NULL, updated_at = now()
            WHERE id = ${claimed.id} AND status = 'pending'
         `;
           }
+          if (options.stopAfterHold) return claimed;
 
           // ── Phase 2: the rail.
           //
