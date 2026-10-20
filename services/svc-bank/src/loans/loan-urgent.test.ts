@@ -151,6 +151,36 @@ describe('N4: margin-call notice is sent once per call, not once per sweep', () 
   });
 });
 
+describe('N4: a crash between the call row and the loan update heals on the next sweep', () => {
+  it('sets margin_called_at from the open call row, without re-sending a delivered notice', async () => {
+    const ledger = await reset();
+    const opener = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { loans: { priceSource: price('10000') } });
+    const opened = await seedOpenLoan(opener, ledger, '1');
+
+    // The state after a crash: the call row is written (and delivered), the loan row is not updated.
+    await sql`
+      INSERT INTO bank.loan_margin_calls (loan_id, sequence, ltv_bps, cure_collateral_amount, called_at, grace_expires_at, notified_at)
+      VALUES (${opened.loan.id}, 0, 7700, 0.1, ${NOW}, ${new Date(NOW.getTime() + 3_600_000)}, ${NOW})
+    `;
+    expect((await opener.loans.loan(opened.loan.id)).marginCalledAt).toBeNull();
+
+    const sent: Sent[] = [];
+    const sweeper = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+      loans: {
+        priceSource: price('6500', () => LATER),
+        marginCalls: { send: async (i) => void sent.push({ loanId: i.loanId, sequence: i.sequence }) },
+      },
+    });
+    await sweeper.loans.runRiskSweep({ now: LATER, limit: 100 });
+
+    const loan = await sweeper.loans.loan(opened.loan.id);
+    expect(loan.status).toBe('margin_call');
+    expect(loan.marginCalledAt?.getTime()).toBe(NOW.getTime());
+    expect(sent).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM bank.loan_margin_calls WHERE loan_id = ${opened.loan.id}`).toHaveLength(1);
+  });
+});
+
 describe('N5: a ticker with no timestamp gives no mark', () => {
   it('omits the mark instead of stamping it with the current time', async () => {
     const fetchImpl = (async () =>

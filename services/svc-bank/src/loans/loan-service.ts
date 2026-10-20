@@ -2138,7 +2138,7 @@ export class LoanService {
   }
 
   /**
-   * Raise (or refresh) a margin call.
+   * Raise a margin call. A call already open for the loan is reused, not repeated.
    *
    * A new row per call, and `marginCalledAt` set only if it is not already —
    * refreshing the figure must NOT restart the grace clock, or a borrower could
@@ -2180,6 +2180,13 @@ export class LoanService {
        LIMIT 1
     `;
     if (open[0]) {
+      // A crash between the call row and the loan update leaves the loan without
+      // its grace clock. Finish that update from the row's own call time.
+      await this.sql`
+        UPDATE bank.loans
+           SET status = 'margin_call', margin_called_at = COALESCE(margin_called_at, ${open[0].called_at}), updated_at = now()
+         WHERE id = ${loan.id} AND status IN ('active', 'margin_call')
+      `;
       if (open[0].notified_at) return;
       await this.deliverMarginCall(loan, {
         sequence: Number(open[0].sequence),
