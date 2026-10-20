@@ -13,12 +13,12 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { parseAmount as amt, recipes, type LedgerClient, type MemoryLedger } from '@intafaced/ledger-client';
-import { TradeService } from '../controls/test-admission.js';
-import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from './testing.js';
-import type { Market } from './types.js';
+import { TradeService } from '../../controls/test-admission.js';
+import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks } from '../testing.js';
+import type { Market } from '../types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const drizzle = join(here, '..', '..', 'drizzle');
+const drizzle = join(here, '..', '..', '..', 'drizzle');
 export const migrations = readdirSync(drizzle)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()

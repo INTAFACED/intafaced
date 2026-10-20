@@ -4,7 +4,7 @@
  * a lost acknowledgement on each post, and a crash after each post, and requires the book of one clean run every time.
  * The same `clientRef` is the business key on every call. Postgres survives a crash, as it would for real.
  */
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, vi } from 'vitest';
 import { verifyServiceHeaders } from '@intafaced/contracts';
 import { formatAmount, MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-client/testing/saga';
@@ -13,6 +13,9 @@ import { PayError } from './payment-service.js';
 import { railFailure } from './rails/rail-adapter.js';
 import { UserMoneyService } from './user-money-service.js';
 import { overHarness, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
+
+// Each replay boots a database and runs the door several times; the 5s default is too tight on a loaded CI runner.
+vi.setConfig({ testTimeout: 30_000 });
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const CLIENT_REF = 'saga-withdraw-1';
