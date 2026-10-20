@@ -294,6 +294,7 @@ export type TradeErrorCode =
   // halted the listing and the caller should stop asking, this one means the
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
+  | 'trade.mode_limit_only'
   | 'trade.market_halted'
   /** Matching operator halt of ALL markets. New submits refuse; cancel stays. Distinct from one-market halt. */
   | 'trade.venue_halted'
