@@ -64,7 +64,12 @@ export const opsAlertConditionSchema = z.object({
 
 export const opsAlertAnnotationsSchema = z.object({
   summary: z.string().min(1).max(500).optional(),
-  runbookUrl: z.string().url().max(500).optional(),
+  runbookUrl: z
+    .string()
+    .url()
+    .max(500)
+    .refine((u) => u.startsWith('https://'), { message: 'runbook link is an https address' })
+    .optional(),
 });
 
 const ruleName = z.string().trim().min(1).max(120);
@@ -111,7 +116,11 @@ export const opsAlertRuleSchema = z.object({
 });
 export type OpsAlertRule = z.infer<typeof opsAlertRuleSchema>;
 
-/** The business key of one alert instance: stable across an evaluator restart because the epoch is a stored counter, not a clock. */
-export function opsAlertBusinessKey(ruleId: string, instance: string, epoch: number): string {
-  return `ops:alert:${ruleId}:${instance}:${epoch}`;
+/**
+ * The business key of one alert event: stable across an evaluator restart because the epoch is a stored counter, not a clock.
+ * The kind is part of the key, because JetStream drops a second message that reuses a message id inside its duplicate window,
+ * and a resolve that shares the open's key would be dropped.
+ */
+export function opsAlertBusinessKey(kind: 'opened' | 'resolved', ruleId: string, instance: string, epoch: number): string {
+  return `ops:alert:${kind}:${ruleId}:${instance}:${epoch}`;
 }

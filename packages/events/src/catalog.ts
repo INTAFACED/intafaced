@@ -853,7 +853,7 @@ export const coreOpsAlertOpened = defineEvent(
     state: z.enum(['firing', 'error', 'no_data']),
     openedAt: z.string().datetime({ offset: true }),
   }),
-  'A platform alert instance started firing. Business key ops:alert:<ruleId>:<instance>:<epoch>; consumers are idempotent on it.',
+  'A platform alert instance started firing. Business key ops:alert:opened:<ruleId>:<instance>:<epoch>; consumers are idempotent on it.',
 );
 
 export const coreOpsAlertResolved = defineEvent(
@@ -867,7 +867,7 @@ export const coreOpsAlertResolved = defineEvent(
     epoch: z.number().int().min(0),
     resolvedAt: z.string().datetime({ offset: true }),
   }),
-  'A platform alert instance returned to normal. Same business key as the opened event it closes.',
+  'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
 // ── The registry ─────────────────────────────────────────────────────────────

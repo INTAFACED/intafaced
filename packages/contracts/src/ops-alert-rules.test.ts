@@ -66,8 +66,15 @@ describe('alert rule', () => {
     expect(opsAlertRuleSchema.safeParse({ ...rule, condition: { operator: 'lt' } }).success).toBe(false);
   });
 
-  it('builds the business key from the stored epoch', () => {
-    expect(opsAlertBusinessKey('r', 'abc', 3)).toBe('ops:alert:r:abc:3');
+  it('builds the business key from the stored epoch, and an open and its resolve never share one', () => {
+    expect(opsAlertBusinessKey('opened', 'r', 'abc', 3)).toBe('ops:alert:opened:r:abc:3');
+    expect(opsAlertBusinessKey('resolved', 'r', 'abc', 3)).not.toBe(opsAlertBusinessKey('opened', 'r', 'abc', 3));
+  });
+
+  it('accepts only an https runbook link', () => {
+    const base = { ...draft, annotations: {} };
+    expect(opsAlertRuleDraftSchema.safeParse({ ...base, annotations: { runbookUrl: 'https://docs.example/run' } }).success).toBe(true);
+    expect(opsAlertRuleDraftSchema.safeParse({ ...base, annotations: { runbookUrl: 'javascript:alert(1)' } }).success).toBe(false);
   });
 
   it('names six refusals, all in the ops namespace', () => {
