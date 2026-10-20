@@ -18,7 +18,7 @@ import { SqlChallengeStore, type ChallengeStorePort } from './webauthn.js';
 export class EnrollPasskeyError extends Error {
   constructor(
     message: string,
-    readonly code: 'auth.rp_id_missing' | 'auth.origin_missing' | 'auth.not_found' | 'auth.webauthn_invalid',
+    readonly code: 'auth.rp_id_missing' | 'auth.origin_missing' | 'auth.not_found' | 'auth.webauthn_invalid' | 'identity.passkey_limit',
   ) {
     super(message);
     this.name = 'EnrollPasskeyError';
@@ -62,7 +62,26 @@ export type StoredPasskey = {
   counter: number;
   transports?: string[];
   createdAt: string;
+  /** Owner-visible name; absent until the person sets one. */
+  label?: string;
+  /** Derived at registration from the transports; absent on older rows (read with `passkeyKind`). */
+  kind?: PasskeyKind;
 };
+
+export type PasskeyKind = 'platform' | 'cross_device' | 'security_key' | 'unknown';
+
+/**
+ * What the authenticator said about itself, never a guess: `internal` alone is a device passkey,
+ * `hybrid` is a phone used from another device, usb/nfc/ble only is a security key. Anything else
+ * (no transports, a mix that proves nothing) is `unknown`.
+ */
+export function passkeyKind(transports: readonly string[] | undefined): PasskeyKind {
+  const t = new Set(transports ?? []);
+  if (t.has('hybrid')) return 'cross_device';
+  if (t.has('internal')) return 'platform';
+  if (t.size > 0 && [...t].every((x) => x === 'usb' || x === 'nfc' || x === 'ble')) return 'security_key';
+  return 'unknown';
+}
 
 export type PasskeyCeremony = {
   generate: typeof generateRegistrationOptions;
@@ -162,6 +181,7 @@ export async function enrollPasskey(
   challenges: ChallengeStorePort,
   actor: FactorActor,
   ceremony: PasskeyCeremony = defaultCeremony,
+  limits: { readonly maxPerAccount?: number | undefined } = {},
 ): Promise<{ credentialId: string }> {
   const { rpId, origins } = requireRp(rp);
   const rows = await sql<Array<{ webauthn_creds: unknown }>>`
@@ -201,6 +221,7 @@ export async function enrollPasskey(
     counter: cred.counter,
     transports: cred.transports,
     createdAt: new Date().toISOString(),
+    kind: passkeyKind(cred.transports),
   };
   // The ceremony above is pure crypto, so it runs before the lock. Re-read the
   // list under a row lock: a racing enrol, login counter write or unenrol that
@@ -217,6 +238,10 @@ export async function enrollPasskey(
     const existing = asCreds(locked[0].webauthn_creds);
     if (existing.some((c) => c.credentialId === stored.credentialId)) {
       throw new EnrollPasskeyError('That authenticator is already registered', 'auth.webauthn_invalid');
+    }
+    // Owner setting; unset states no limit and refuses nothing.
+    if (limits.maxPerAccount !== undefined && existing.length >= limits.maxPerAccount) {
+      throw new EnrollPasskeyError('Passkey limit reached', 'identity.passkey_limit');
     }
     const next = [...existing, stored];
     await tx`

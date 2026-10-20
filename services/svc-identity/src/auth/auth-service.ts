@@ -106,6 +106,7 @@ export class AuthError extends Error {
       | 'auth.kyc_not_pending'
       | 'auth.kyc_agent_refused'
       | 'auth.mfa_not_enrolled'
+      | 'identity.passkey_limit'
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
       | 'auth.domain_not_allowed'
@@ -592,6 +593,13 @@ export class AuthService {
       now: this.emailConfirmNow,
       log: this.log,
     };
+  }
+
+  private passkeyLimit: number | undefined;
+
+  /** Owner setting PASSKEY_MAX_PER_ACCOUNT; unset states no limit and refuses nothing. */
+  usePasskeyLimit(maxPerAccount: number | undefined): void {
+    this.passkeyLimit = maxPerAccount;
   }
 
   /** Founder desk scopes are added only when this directory says the user is a live founder. */
@@ -1575,6 +1583,9 @@ export class AuthService {
       const existing = asCredentialList(locked[0].webauthn_creds);
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
         throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
+      }
+      if (this.passkeyLimit !== undefined && existing.length >= this.passkeyLimit) {
+        throw new AuthError('Passkey limit reached', 'identity.passkey_limit');
       }
       const next = [...existing, stored];
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
