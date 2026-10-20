@@ -110,7 +110,7 @@ const en = {
   feesSend: 'Send to a person',
   feesRequest: 'Receive by request',
   feesGlobal: 'Send abroad',
-  feesReason: 'No fee is published, so none is shown. Send shows the fee on the payment itself once one is set.',
+  feesReason: 'No fee is published, so none is shown. A fee appears on the payment itself only when one is published.',
   // Preferences
   preferencesTitle: 'Pay preferences',
   preferencesLine: 'How you pay and get paid.',
