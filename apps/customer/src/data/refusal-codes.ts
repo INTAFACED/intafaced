@@ -35,6 +35,7 @@ export type RefusalKind =
   | 'belowMinimum'
   | 'selfTrade'
   | 'orderTypeUnsupported'
+  | 'marketLimitOnly'
   | 'optionUnsupported'
   | 'requestExpired'
   | 'exitPriceOrder'
@@ -138,6 +139,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.mode_limit_only': 'marketLimitOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',
   'trade.tag_unsupported': 'optionUnsupported',
   'trade.trigger_source_unset': 'optionUnsupported',
