@@ -79,7 +79,7 @@ export const EVENT_BUS_MATRIX = {
   ledgerTxPosted: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationFailed: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationRunFailed: { kind: 'socket', socketClass: 'A' },
-  ledgerFreezeUpdated: { kind: 'socket', socketClass: 'A' },
+  ledgerFreezeUpdated: { kind: 'live' },
   coreOpsAlertRuleUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertOpened: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertResolved: { kind: 'socket', socketClass: 'A' },
