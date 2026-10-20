@@ -101,13 +101,18 @@ export function createSqlScreeningCaseStore(sql: Sql): ScreeningCaseStore {
       `;
     },
     async spendRelease(q, want) {
-      // A send that already spent a release (its claim committed, then the process died) is given the same one again
-      // while it is still in force and still covers the amount: a retry never draws a second release.
-      const again = await q<Array<{ subject_key: string }>>`
-        SELECT subject_key FROM pay.screening_cases
-         WHERE subject_kind = 'withdrawal' AND release_spent_for = ${want.exceptKey}
-           AND release_expires_at > now() AND amount::numeric >= ${want.amount}::numeric`;
-      if (again[0]) return again[0].subject_key;
+      // A send that already spent a release (its claim committed, then the process died) is given the same one again,
+      // never a second. A recovery honours it whenever it was in force when the claim spent it, because the hold is
+      // already booked and must be settled; a fresh retry (a failed send reopened) only while it is still in force.
+      const again = await q<Array<{ subject_key: string; covers: boolean; in_force: boolean; spent_in_time: boolean }>>`
+        SELECT subject_key,
+               amount::numeric >= ${want.amount}::numeric AS covers,
+               release_expires_at > now() AS in_force,
+               release_consumed_at <= release_expires_at AS spent_in_time
+          FROM pay.screening_cases
+         WHERE subject_kind = 'withdrawal' AND release_spent_for = ${want.exceptKey}`;
+      const grant = again[0];
+      if (grant) return grant.covers && (want.draw ? grant.in_force : grant.spent_in_time) ? grant.subject_key : null;
       if (!want.draw) return null;
       // A send whose own case was refused or upheld cannot be covered by someone else's release.
       const own = await q<Array<{ status: string; decision: string | null }>>`

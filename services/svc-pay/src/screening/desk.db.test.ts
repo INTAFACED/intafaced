@@ -377,11 +377,12 @@ describe('screening desk (real Postgres)', () => {
       // A recovery with no release of its own draws none.
       expect(await send('k5', { replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe('pay.guard_screening_review');
       expect((await desk().get('withdrawal', keyOf('k4'))).case.releaseSpentAt).toBeNull();
-      // Once the release has expired, the same send is not honoured again.
-      await db.sql`UPDATE pay.screening_cases SET release_expires_at = now() - interval '1 second' WHERE subject_key = ${keyOf('k1')}`;
-      expect(await send('k2', { amount: 1n * 10n ** 18n, replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe(
-        'pay.guard_screening_review',
-      );
+      // Once the release has expired, a recovery still gets it (the hold is booked and must settle); a fresh retry does
+      // not, and draws no second one.
+      await db.sql`UPDATE pay.screening_cases SET release_consumed_at = now() - interval '1 hour', release_expires_at = now() - interval '1 second' WHERE subject_key = ${keyOf('k1')}`;
+      expect(await send('k2', { amount: 1n * 10n ** 18n, replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe('passed');
+      expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('pay.guard_screening_review');
+      expect((await desk().get('withdrawal', keyOf('k4'))).case.releaseSpentAt).toBeNull();
     });
 
     it('a send whose own case was refused or upheld is not covered by another send’s release', async () => {
