@@ -78,3 +78,11 @@ describe('which sentence answers a support refusal', () => {
     expect(actionFailurePresentation(plain, 'en')).toEqual({ message: deskCopy.t('refuseAlreadyRated'), language: 'en' });
   });
 });
+
+describe('phishing report refusals', () => {
+  it('reads support.headers_not_allowed as its own plain sentence', () => {
+    expect(supportRefusalKey(fail({ message: 'support.headers_not_allowed', code: 'BAD_REQUEST', status: 400 }))).toBe(
+      'refuseHeadersNotAllowed',
+    );
+  });
+});
