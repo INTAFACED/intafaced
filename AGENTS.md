@@ -25,7 +25,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 
 ## Services and events
 
-1. One service per pull request. If another open PR touches the same service or files, take a different part.
+1. One service per pull request. Two open PRs may touch one service when their files do not overlap (owner decision 2026-10-20); if another open PR touches the same files, take a different part. `Main trust` stays the safety net: a breaking commit is reverted first.
 2. A cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first, then the service PR.
 3. Services never read each other's tables. Use tRPC through `packages/contracts` or an event. Publish only subjects declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
 4. User-facing copy names no partner or model vendor (`pnpm scan:brand`).
@@ -39,7 +39,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 5. A merge is not a launch. Deploys, purchases, live credentials, real funds and outside contact need the owner.
 6. On a 403 or 429 from GitHub, stop all GitHub calls and report the exact response; the one exception is `403 This workflow is already running` on a re-run, which only means wait for that run to finish, then re-run. Do not retry in a loop, switch accounts or create a token. Keep working locally.
 7. Never push `main`.
-8. The independent review's PASS for the exact head sha is posted as a comment on the PR, in this form on its own line: `Independent review: PASS <full 40-character head sha>`, by a login listed in `tooling/ci/reviewers.json`. The `Review sign-off` workflow turns it into the status `Independent review`, which the `CI merge seal` requires, and re-runs a failed seal itself; a comment from anyone else counts for nothing. The status carries over a clean rebase (same changed lines); any change to the patch needs a new review. Turn auto-merge on when you open an in-repo PR from a listed author, so a green, reviewed head merges without a wake or a check-in; never for a gate-file PR (the workflow switches it off). Enable it from your own account so the merge runs main's CI.
+8. The independent review's PASS for the exact head sha is posted as a comment on the PR, in this form on its own line: `Independent review: PASS <full 40-character head sha>`, by a login listed in `tooling/ci/reviewers.json`. The `Review sign-off` workflow turns it into the status `Independent review`, which the `CI merge seal` requires, and re-runs a failed seal itself; a comment from anyone else counts for nothing. The status carries over a clean rebase (same changed lines); any change to the patch needs a new review. Turn auto-merge on when you open an in-repo PR, so a green, reviewed head merges without a wake or a check-in; a gate-file PR may auto-merge too, with the same fresh review and full run (owner decision 2026-10-20). Enable it from your own account so the merge runs main's CI.
 9. `main` must stay green: the `Main trust` workflow re-runs a red `main` once and, if it stays red, opens a `Main is red` issue naming the failing test files. Fix or revert the breaking commit before merging anything else that touches the same packages.
 
 ## Git
