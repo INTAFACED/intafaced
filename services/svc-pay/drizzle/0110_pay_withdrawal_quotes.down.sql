@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0108_pay_withdrawal_quotes.sql
+-- intafaced:destructive — reversal of 0110_pay_withdrawal_quotes.sql
 --
 -- Drops the stored withdrawal quotes, their acceptances and the quote policy history. No balance lives in these tables
 -- (a quote moves nothing); this is for CI proof of reversibility and a database that stored no real quote.
