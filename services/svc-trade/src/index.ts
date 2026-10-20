@@ -9,6 +9,7 @@ import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
+import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
@@ -156,15 +157,13 @@ await assertNoLocalTestLifecycleRows(sql, process.env);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-trade');
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
-const ledger = createLedgerClient(
-  env.LEDGER_URL,
-  env.INTERNAL_SERVICE_SECRET,
-  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
-);
-bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET));
+const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+bindMatchingCloseS2s(outS2s);
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s));
 const tradingControls = new TradingControls(
   sql,
-  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET }),
+  createLiveTradingOperator({ url: env.IDENTITY_URL, serviceSecret: env.INTERNAL_SERVICE_SECRET, s2s: outS2s }),
   createIdentityOperationDecisionClient({
     owner: 'svc-trade',
     identityUrl: env.IDENTITY_URL,
@@ -174,12 +173,12 @@ const tradingControls = new TradingControls(
         : undefined,
   }),
 );
-const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET);
-const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
-const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET);
+const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const marketLifecycleStore = new SqlMarketLifecycleEvidenceStore(sql);
 const marketLifecycle = new SqlMarketLifecycleAuthority(sql, matching, {
   spotEnabled: env.TRADE_SPOT_ENABLED,
@@ -242,7 +241,7 @@ const venueBookPort =
       }
     : undefined;
 const otcDeskLaw = parseOtcDeskLawJson(env.TRADE_OTC_DESK_LAW);
-const otcStakes = createOtcStakeSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET);
+const otcStakes = createOtcStakeSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const otcMidBuilt = createOtcMidSourceFromConfig({
   midsEnv: env.TRADE_OTC_MIDS,
   midFromVenue: env.TRADE_OTC_MID_FROM_VENUE,
@@ -369,7 +368,7 @@ export const appRouter = createTradeRouter(
     sql,
     trade,
     ledger,
-    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+    approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
   }),
 );
 export type AppRouter = typeof appRouter;
@@ -760,7 +759,7 @@ registerInternalFundingRate(app, {
   recordFundingHistory: (row) => fundingHistory.record(row),
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
-  approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
+  approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

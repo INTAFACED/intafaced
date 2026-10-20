@@ -1,4 +1,10 @@
-import { serviceAuthHeadersForBody, subAccountOwnershipSchema, type SubAccountOwnership } from '@intafaced/contracts';
+import {
+  serviceCallSigner,
+  subAccountOwnershipSchema,
+  type ServiceAuthMode,
+  type ServiceSigner,
+  type SubAccountOwnership,
+} from '@intafaced/contracts';
 import { TradeError } from './types.js';
 
 /**
@@ -37,17 +43,23 @@ export class NoSubAccounts implements SubAccountOwnershipSource {
  * Same service-credential pattern as `createRankPerksClient` — unauthenticated
  * callers hard-401, and we treat every non-success (except 404) as unavailable.
  */
-export function createSubAccountOwnershipClient(baseUrl: string, internalSecret: string): SubAccountOwnershipSource {
+export function createSubAccountOwnershipClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): SubAccountOwnershipSource {
   const url = baseUrl.replace(/\/$/, '');
-  const authHeaders = () => serviceAuthHeadersForBody('svc-trade', internalSecret, '');
+  const sign = serviceCallSigner({ service: 'svc-trade', audience: 'svc-identity', legacySecret: internalSecret, s2s });
+  const authHeaders = (target: string) => sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' });
 
   return {
     async get(subAccountId: string): Promise<SubAccountOwnership | null> {
       let response: Response;
       try {
-        response = await fetch(`${url}/internal/sub-accounts/${encodeURIComponent(subAccountId)}`, {
+        const target = `${url}/internal/sub-accounts/${encodeURIComponent(subAccountId)}`;
+        response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...authHeaders() },
+          headers: { 'content-type': 'application/json', ...authHeaders(target) },
         });
       } catch (err) {
         throw new TradeError(`sub-account ownership unavailable: ${(err as Error).message}`, 'trade.sub_account_unavailable');

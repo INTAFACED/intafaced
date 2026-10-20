@@ -1,4 +1,4 @@
-import { accountOperatorEntitlementSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountOperatorEntitlementSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { LiveTradingOperatorPort } from './trading-controls.js';
 
 /**
@@ -8,7 +8,7 @@ import type { LiveTradingOperatorPort } from './trading-controls.js';
  * both live. No principal is signed or forwarded, so nothing here holds the shared edge secret.
  */
 export function createLiveTradingOperator(
-  config: { url: string; serviceSecret: string },
+  config: { url: string; serviceSecret: string; s2s?: { signer: ServiceSigner; mode: ServiceAuthMode } },
   fetcher: typeof fetch = fetch,
 ): LiveTradingOperatorPort | null {
   try {
@@ -18,6 +18,12 @@ export function createLiveTradingOperator(
     return null;
   }
   if (config.serviceSecret.length < 32) return null;
+  const authHeaders = serviceCallSigner({
+    service: 'svc-trade',
+    audience: 'svc-identity',
+    legacySecret: config.serviceSecret,
+    s2s: config.s2s,
+  });
   async function post(path: string, input: unknown): Promise<unknown> {
     const body = JSON.stringify(input);
     const abort = new AbortController();
@@ -25,6 +31,7 @@ export function createLiveTradingOperator(
     try {
       return await Promise.race([
         (async () => {
+          const target = new URL('/trpc/' + path, config.url);
           const request = {
             method: 'POST',
             redirect: 'error' as const,
@@ -32,12 +39,12 @@ export function createLiveTradingOperator(
             headers: {
               'content-type': 'application/json',
               'cache-control': 'no-store',
-              ...serviceAuthHeadersForBody('svc-trade', config.serviceSecret, body),
+              ...authHeaders(body, { method: 'POST', url: target, contentType: 'application/json' }),
             },
             body,
             signal: abort.signal,
           };
-          const response = await fetcher(new URL('/trpc/' + path, config.url), request);
+          const response = await fetcher(target, request);
           if (!response.ok) throw new Error('Identity authority refused');
           const wire = (await response.json()) as { result?: { data?: unknown } };
           if (!wire.result || !('data' in wire.result)) throw new Error('Invalid identity authority envelope');

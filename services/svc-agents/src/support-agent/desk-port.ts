@@ -7,7 +7,14 @@
  * tests only — production `index.ts` constructs the HTTP port iff SUPPORT_URL is set.
  */
 
-import { accountStateSchema, serviceAuthHeadersForBody, supportKbArticleSchema, supportTicketSchema } from '@intafaced/contracts';
+import {
+  accountStateSchema,
+  serviceCallSigner,
+  supportKbArticleSchema,
+  supportTicketSchema,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 import { AgentError, assertKbSearchPageLimit } from '../errors.js';
 import { accountProjectionHasInventMoney, type AccountProjectionFixture, type KbArticleFixture, type TicketFixture } from './data-tools.js';
 
@@ -134,6 +141,8 @@ export type HttpSupportDeskOptions = {
   readonly supportUrl: string;
   readonly identityUrl?: string;
   readonly internalSecret: string;
+  /** svc-agents' own key. With it the identity account read is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  readonly s2s?: { readonly signer: ServiceSigner; readonly mode: ServiceAuthMode };
   readonly fetchImpl?: typeof fetch;
 };
 
@@ -167,6 +176,12 @@ export function createHttpSupportDeskPort(options: HttpSupportDeskOptions): Supp
   const supportUrl = options.supportUrl.replace(/\/$/, '');
   const identityUrl = options.identityUrl?.replace(/\/$/, '') ?? '';
   const fetchImpl = options.fetchImpl ?? fetch;
+  const signIdentity = serviceCallSigner({
+    service: 'svc-agents',
+    audience: 'svc-identity',
+    legacySecret: options.internalSecret,
+    s2s: options.s2s,
+  });
 
   return {
     async searchKb(query, limit) {
@@ -211,9 +226,13 @@ export function createHttpSupportDeskPort(options: HttpSupportDeskOptions): Supp
       if (!identityUrl) return { status: 'unread' };
       let response: Response;
       try {
-        response = await fetchImpl(`${identityUrl}/internal/account/${encodeURIComponent(userId)}`, {
+        const target = `${identityUrl}/internal/account/${encodeURIComponent(userId)}`;
+        response = await fetchImpl(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-agents', options.internalSecret, '') },
+          headers: {
+            'content-type': 'application/json',
+            ...signIdentity('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
         });
       } catch {
         return { status: 'unreachable' };
