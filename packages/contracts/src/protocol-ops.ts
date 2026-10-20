@@ -159,12 +159,18 @@ const decisionFields = {
   reason: z.string().min(1).max(500),
   approvalId: z.string().min(1).max(128),
 };
-export const protocolOpsPoolHideInputSchema = z.object({ chainId, poolAddress: address, ...decisionFields }).strict();
+/**
+ * The operation id identity issued when the approval was proposed. Consume refuses any other (`target_mismatch`), so the
+ * caller carries it from the approval it is spending. It is not the business idempotency key: that is derived from the
+ * action, the target and the approval id (`protocolOpsIdempotencyKey`).
+ */
+const operationId = z.string().min(1).max(128);
+export const protocolOpsPoolHideInputSchema = z.object({ chainId, poolAddress: address, ...decisionFields, operationId }).strict();
 export const protocolOpsPoolRestoreInputSchema = z
   .object({ chainId, poolAddress: address, approvalId: decisionFields.approvalId })
   .strict();
-export const protocolOpsMarketDelistInputSchema = z.object({ symbol, ...decisionFields }).strict();
-export const protocolOpsMarketRestoreInputSchema = z.object({ symbol, approvalId: decisionFields.approvalId }).strict();
+export const protocolOpsMarketDelistInputSchema = z.object({ symbol, ...decisionFields, operationId }).strict();
+export const protocolOpsMarketRestoreInputSchema = z.object({ symbol, approvalId: decisionFields.approvalId, operationId }).strict();
 
 /**
  * The public hide list: which pools and markets INTAFACED does not list. svc-dex drops them from routing and the default

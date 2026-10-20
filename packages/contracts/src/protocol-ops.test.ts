@@ -68,9 +68,23 @@ describe('label verdict', () => {
 
 describe('pool control', () => {
   it('needs a reason, a code and an approval, and refuses any extra field', () => {
-    const input = { chainId: 84532, poolAddress: pool, reasonCode: 'scam_report', reason: 'reported', approvalId: 'ap_1' };
+    const input = {
+      chainId: 84532,
+      poolAddress: pool,
+      reasonCode: 'scam_report',
+      reason: 'reported',
+      approvalId: 'ap_1',
+      operationId: 'op_1',
+    };
     expect(protocolOpsPoolHideInputSchema.safeParse(input).success).toBe(true);
-    for (const patch of [{ reason: '' }, { reasonCode: '' }, { approvalId: '' }, { poolAddress: '0x1' }, { extra: 1 }]) {
+    for (const patch of [
+      { reason: '' },
+      { reasonCode: '' },
+      { approvalId: '' },
+      { operationId: '' },
+      { poolAddress: '0x1' },
+      { extra: 1 },
+    ]) {
       expect(protocolOpsPoolHideInputSchema.safeParse({ ...input, ...patch }).success, JSON.stringify(patch)).toBe(false);
     }
   });
