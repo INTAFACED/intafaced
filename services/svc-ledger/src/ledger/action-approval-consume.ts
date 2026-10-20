@@ -7,7 +7,8 @@ import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
   founderAttestationVerdict,
-  serviceAuthHeadersForBody,
+  createIdentityApprovalClient as createSharedIdentityApprovalClient,
+  unwrapTrpcData,
   type ActionApproval,
   type ActionApprovalConsumeInput,
   type FounderApprovalSubject,
@@ -77,66 +78,17 @@ export function stubApprovalConsumer(approverId: string): ActionApprovalConsumer
   };
 }
 
+/** Identity answers or the door refuses: the shared client bounds the call with a timeout and checks the echo. */
 export function createIdentityApprovalClient(baseUrl: string, internalSecret: string): ActionApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  return {
-    async consume(input) {
-      const parsed = actionApprovalConsumeInputSchema.parse(input);
-      const payload = JSON.stringify(parsed);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-ledger', internalSecret, payload),
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        const detail = await res.text().catch(() => '');
-        throw new ActionApprovalConsumeError(`identity refused consume (${res.status}) ${detail}`.trim(), 'action_approval.consume_failed');
-      }
-      let raw: unknown;
-      try {
-        raw = unwrapTrpcData(await res.json());
-      } catch {
-        throw new ActionApprovalConsumeError(
-          'identity consume body is not a consumed approval for this request',
-          'action_approval.consume_failed',
-        );
-      }
-      const parsedBody = actionApprovalSchema.safeParse(raw);
-      if (!parsedBody.success || !consumedApprovalMatchesRequest(parsedBody.data, parsed)) {
-        throw new ActionApprovalConsumeError(
-          'identity consume body is not a consumed approval for this request',
-          'action_approval.consume_failed',
-        );
-      }
-      return parsedBody.data;
-    },
-  };
+  return createSharedIdentityApprovalClient({
+    service: 'svc-ledger',
+    baseUrl,
+    internalSecret,
+    fail: (message, code) => new ActionApprovalConsumeError(message, code),
+  });
 }
 
-/** HTTP 200 is not consume. Status must be CONSUMED, and the approval, operation, target, and payload hash must be the ones asked for. */
-function consumedApprovalMatchesRequest(row: ActionApproval, request: ActionApprovalConsumeInput): boolean {
-  return (
-    row.status === 'CONSUMED' &&
-    row.approvalId === request.approvalId &&
-    row.operationId === request.operationId &&
-    row.targetService === request.targetService &&
-    row.targetId === request.targetId &&
-    row.expectedVersion === request.expectedVersion &&
-    row.payloadHash === request.payloadHash
-  );
-}
-
-/** tRPC HTTP is `{ result: { data } }`; superjson may wrap `{ json }`. */
-export function unwrapTrpcData(body: unknown): unknown {
-  if (!body || typeof body !== 'object') return body;
-  const envelope = body as { result?: { data?: unknown }; json?: unknown };
-  const data = envelope.result?.data ?? body;
-  if (data && typeof data === 'object' && 'json' in data) return (data as { json: unknown }).json;
-  return data;
-}
+export { unwrapTrpcData };
 
 export function readApprovalIds(cmd: { readonly approvalId?: string | null; readonly operationId?: string | null }): {
   readonly approvalId: string;
