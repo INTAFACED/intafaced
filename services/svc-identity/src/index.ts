@@ -48,6 +48,8 @@ import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
+import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
+import { createAuthKeysRouter } from './auth-keys-router.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
@@ -223,17 +225,24 @@ const blueprintSubs = await subscribeBlueprintProfileEvents(bus, sql);
  */
 const xpSub = await subscribeXpEvents(bus, rank);
 
+// Signing keys with rotation overlap: the ring is read live by the token config below.
+const authKeyRing = new AuthKeyRing(sql, env.JWT_ACCESS_SECRET, parseAuthKeys(env.IDENTITY_AUTH_KEYS), {
+  consume: (service, input) => actionApprovals.consume(service, input),
+});
+await authKeyRing.refresh();
+authKeyRing.start();
+
 const auth = new AuthService(
   sql,
   bus,
   rank,
-  {
+  authKeyRing.tokenConfig({
     secret: env.JWT_ACCESS_SECRET,
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE,
     accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
     refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
-  },
+  }),
   {
     rpID: env.WEBAUTHN_RP_ID,
     rpName: env.WEBAUTHN_RP_NAME,
@@ -463,6 +472,7 @@ export const appRouter = mergeRouters(
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
+  createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),

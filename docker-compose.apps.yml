@@ -377,6 +377,8 @@ services:
       # TOTP enrol at rest. Pass-through only — no compose default, no invented key.
       # Host sets IDENTITY_TOTP_SECRET_KEY → enrol can run. Blank stays refuse-closed.
       IDENTITY_TOTP_SECRET_KEY: ${IDENTITY_TOTP_SECRET_KEY:-}
+      # Access-token signing keys for rotation (id:secret list). Pass-through only — no compose default, no invented key.
+      IDENTITY_AUTH_KEYS: ${IDENTITY_AUTH_KEYS:-}
       # API-key HMAC secret at rest. Pass-through only — no compose default, no invented key.
       # Host sets API_KEY_SIGNING_ENC_KEY. Blank stays refuse-closed. Prod and staging boot refuse if missing.
       API_KEY_SIGNING_ENC_KEY: ${API_KEY_SIGNING_ENC_KEY:-}

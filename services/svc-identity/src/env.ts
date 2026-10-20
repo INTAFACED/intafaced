@@ -147,6 +147,11 @@ const schema = serviceEnvSchema
        */
       IDENTITY_TOTP_SECRET_KEY: z.string().optional().default(''),
       /**
+       * Access-token signing keys for rotation: `id:secret,id2:secret2` (each secret at least 32 characters;
+       * the id `legacy` is JWT_ACCESS_SECRET). Blank = no rotation possible; `authKeys.rotate` refuses.
+       */
+      IDENTITY_AUTH_KEYS: z.string().optional().default(''),
+      /**
        * 32-byte AES-256 key (base64 or 64-char hex) for api_keys.request_signing_secret.
        * Blank = signing opt-in refuses (no plaintext write). Prod and staging boot refuse if missing.
        */

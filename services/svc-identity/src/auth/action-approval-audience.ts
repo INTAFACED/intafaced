@@ -57,7 +57,13 @@ export const TRADE_OPS_OPERATOR_PERMISSION = 'admin:write';
 export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 'ledger.', 'bank.', 'token.', 'treasury.'];
 
 /** Individual types outside those namespaces that are treasury or fee/limit policy. */
-export const FOUNDER_ACTION_TYPES: readonly string[] = ['identity.change_fee_tier', 'identity.change_limit', 'affiliates.payout'];
+export const FOUNDER_ACTION_TYPES: readonly string[] = [
+  'identity.change_fee_tier',
+  'identity.change_limit',
+  'affiliates.payout',
+  'identity.auth_key_rotate',
+  'identity.auth_key_remove_old',
+];
 
 /**
  * Target services whose approvals are operator-level (they do not move money, a venue or the book). A request filed
