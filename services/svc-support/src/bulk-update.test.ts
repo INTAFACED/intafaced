@@ -75,15 +75,26 @@ describe('bulk status', () => {
       expect(moved[0]).toMatchObject({ toStatus: 'resolved', actorId: LEAD, note: 'duplicate noise' });
     }
   });
-  it('a replay of the same batch changes nothing twice and says unchanged', async () => {
+  it('a replay of the same batch returns the first answers and changes nothing twice', async () => {
     const { support, lead, make } = await desk();
     const [a, b] = [await make(1), await make(2)] as [string, string];
     const input = { batchKey: 'batch-status-2', ticketIds: [a, b], change: { kind: 'status', status: 'resolved' } } as const;
     await lead.bulkUpdate(input);
     const again = await lead.bulkUpdate(input);
-    expect(again.results.map((r) => r.outcome)).toEqual(['unchanged', 'unchanged']);
+    expect(again.results.map((r) => r.outcome)).toEqual(['changed', 'changed']);
     const events = await support.listTicketEvents({ userId: LEAD, ticketId: a, asOperator: true, limit: 50 });
     expect(events.filter((e) => e.kind === 'status_changed')).toHaveLength(1);
+  });
+  it('a replay after a request was reopened does not resolve it a second time', async () => {
+    const { support, lead, make } = await desk();
+    const a = await make(1);
+    const input = { batchKey: 'batch-status-reopen', ticketIds: [a], change: { kind: 'status', status: 'resolved' } } as const;
+    await lead.bulkUpdate(input);
+    await support.setStatus({ operatorId: LEAD, ticketId: a, status: 'open' });
+    const again = await lead.bulkUpdate(input);
+    expect(again.results.map((r) => r.outcome)).toEqual(['changed']);
+    const events = await support.listTicketEvents({ userId: LEAD, ticketId: a, asOperator: true, limit: 50 });
+    expect(events.filter((e) => e.kind === 'status_changed').map((e) => e.toStatus)).toEqual(['resolved', 'open']);
   });
   it('reports an unknown request as refused, not found, and keeps going', async () => {
     const { lead, make } = await desk();

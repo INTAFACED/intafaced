@@ -178,7 +178,7 @@ requests under one batch key; `bulkPolicy` says the batch size. The size is the 
 default: while blank, the policy answers `cap: null` and a batch refuses `support.bulk_cap_unset`; a batch over the cap
 refuses `support.bulk_too_large`; neither touches a request. Each request goes through the path a single change takes (`setStatus`,
 `assignTo`, `setTicketProperties`) under the key `bulk:<batchKey>:<ticketId>`, so each writes its own trail row and a replayed batch
-changes nothing twice. The answer lists every request as `changed`, `unchanged` (already at the asked status) or `refused` with the
+changes nothing twice and returns the first answers. The answer lists every request as `changed`, `unchanged` (already at the asked status) or `refused` with the
 typed code the single change gives, and the rest of the batch still runs. Assigning needs a lead and is refused once up front.
 
 ## Migrations

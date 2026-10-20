@@ -1325,7 +1325,9 @@ export class SupportService implements SupportContract {
   }): Promise<void> {
     const { operatorId, ticketId, key, change, reason } = input;
     if (change.kind === 'status') {
-      await this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) });
+      await this.withIdempotency(`bulk-status:${key}`, `${operatorId}:${ticketId}:${change.status}`, () =>
+        this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) }),
+      );
     } else if (change.kind === 'assign') {
       await this.assignTo({ operatorId, ticketId, assigneeId: change.assigneeId, idempotencyKey: key });
     } else {
