@@ -141,6 +141,18 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Too many entries to check at once',
     body: 'This balance has a long history. Use the activity list for this coin instead.',
   },
+  noBankPartner: {
+    title: 'Account details need a banking partner',
+    body: 'Account numbers come from a banking partner, and none is connected in this build. No number is shown rather than a made-up one.',
+  },
+  detailsCurrenciesUnset: {
+    title: 'Which currencies have account details has not been published',
+    body: 'Which currencies have account details has not been published, so none are listed.',
+  },
+  eligibilityUnset: {
+    title: 'Who can open an account has not been published',
+    body: 'The countries, account types and product limits have not been published, so no statement is shown.',
+  },
   activitySortBounded: {
     title: 'Too many lines to sort oldest first',
     body: 'Narrow the dates, the account or the filters, then try again.',
