@@ -154,7 +154,7 @@ public final class ServiceAuth {
                 + lengthPrefixed(bodyDigest);
     }
 
-    private static String lengthPrefixed(String value) {
+    static String lengthPrefixed(String value) {
         int bytes = value.getBytes(StandardCharsets.UTF_8).length;
         return bytes + ":" + value + '\n';
     }
