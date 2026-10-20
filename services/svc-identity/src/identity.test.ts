@@ -191,6 +191,13 @@ if (!available) {
     return auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple', region: 'DE' });
   };
 
+  /** A reviewed approval: pending record, then an operator's decision (never a direct approved insert). */
+  const grantKyc = async (userId: string, tier: 'basic' | 'full') => {
+    const operator = await register();
+    const submitted = await auth.submitKyc({ userId, tier, jurisdiction: 'DE' });
+    await auth.approveKycRecord({ recordId: submitted.id, reviewerId: operator.userId });
+  };
+
   beforeEach(async () => {
     bus.reset();
     /**
@@ -334,6 +341,16 @@ if (!available) {
       expect(after[0]!.totp_secret).not.toBe(secret);
       expect(after[0]!.totp_secret).toMatch(/^enc:v1:/);
       expect(after[0]!.totp_secret).not.toContain(secret);
+    });
+
+    it('L231: enrolling TOTP revokes every other session of the account; the enrolling one survives', async () => {
+      const first = await register();
+      const rows = await db.sql<Array<{ handle: string }>>`SELECT handle FROM users WHERE id = ${first.userId}`;
+      const second = await auth.login({ identifier: rows[0]!.handle, password: 'correct horse battery staple' });
+      const { secret } = await auth.startTotpEnrolment(first.userId, PASSWORD_SESSION);
+      await auth.confirmTotpEnrolment(first.userId, { ...PASSWORD_SESSION, sessionId: first.sessionId }, secret, totp(secret));
+      await expect(auth.refresh(second.refreshToken)).rejects.toBeInstanceOf(AuthError);
+      await expect(auth.refresh(first.refreshToken)).resolves.toBeDefined();
     });
 
     it('rejects a wrong confirmation code', async () => {
@@ -1282,12 +1299,19 @@ if (!available) {
   });
 
   describe('KYC', () => {
+    it('L232: there is no door that writes an already-approved record without a pending record and an operator', async () => {
+      const session = await register();
+      expect('approveKyc' in auth).toBe(false);
+      const rows = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM kyc_records WHERE user_id = ${session.userId}`;
+      expect(rows[0]!.n).toBe('0');
+    });
+
     it('raises the tier on the next issued token', async () => {
       const handle = unique();
       const session = await auth.register({ handle, email: `${handle}@example.com`, password: 'correct horse battery staple' });
       expect((await verifyAccessToken(session.accessToken, tokenConfig)).tier).toBe('none');
 
-      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      await grantKyc(session.userId, 'full');
 
       const refreshed = await auth.refresh(session.refreshToken);
       expect((await verifyAccessToken(refreshed.accessToken, tokenConfig)).tier).toBe('full');
@@ -1295,14 +1319,14 @@ if (!available) {
 
     it('reports the highest approved tier', async () => {
       const session = await register();
-      await auth.approveKyc({ userId: session.userId, tier: 'basic', jurisdiction: 'DE' });
-      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      await grantKyc(session.userId, 'basic');
+      await grantKyc(session.userId, 'full');
       expect(await auth.kycTier(session.userId)).toBe('full');
     });
 
     it('ignores an expired record', async () => {
       const session = await register();
-      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      await grantKyc(session.userId, 'full');
       await db.sql`UPDATE kyc_records SET expires_at = now() - interval '1 day' WHERE user_id = ${session.userId}`;
       expect(await auth.kycTier(session.userId)).toBe('none');
     });
@@ -1400,7 +1424,7 @@ if (!available) {
 
     it('still refuses an unconfigured sanctions list for a verified identity', async () => {
       const session = await register();
-      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      await grantKyc(session.userId, 'full');
       expect(screeningFailClosedFromEnv({})).toBe(true);
       const decision = checkAccess({
         module: 'bank',
@@ -2164,7 +2188,7 @@ if (!available) {
         }).allowed,
       ).toBe(false);
 
-      await auth.approveKyc({ userId: session.userId, tier: 'full', jurisdiction: 'DE' });
+      await grantKyc(session.userId, 'full');
 
       expect(
         checkAccess({
