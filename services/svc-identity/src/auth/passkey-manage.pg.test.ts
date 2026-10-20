@@ -141,10 +141,10 @@ if (!available) {
           registrationInfo: { credential: { id, publicKey: new Uint8Array([1, 2, 3]), counter: 0, transports: ['hybrid'] } },
         })) as never,
       });
-      const challenges = (): ChallengeStorePort => ({
+      const challenges = (userId: string): ChallengeStorePort => ({
         async put() {},
         async take(challenge, kind) {
-          return { challenge, userId: '', kind: kind as 'registration', expiresAt: Date.now() + 60_000 };
+          return { challenge, userId, kind: kind as 'registration', expiresAt: Date.now() + 60_000 };
         },
       });
       const body = (id: string) =>
@@ -161,17 +161,17 @@ if (!available) {
         });
       const actor = { mfa: true, privileged: false };
       const user = await seed([], { totp: true });
-      await enrollPasskey(db.sql, user, rp, body('p1'), challenges(), actor, ceremonyFor('p1'), { maxPerAccount: 2 });
-      await enrollPasskey(db.sql, user, rp, body('p2'), challenges(), actor, ceremonyFor('p2'), { maxPerAccount: 2 });
+      await enrollPasskey(db.sql, user, rp, body('p1'), challenges(user), actor, ceremonyFor('p1'), { maxPerAccount: 2 });
+      await enrollPasskey(db.sql, user, rp, body('p2'), challenges(user), actor, ceremonyFor('p2'), { maxPerAccount: 2 });
       await expect(
-        enrollPasskey(db.sql, user, rp, body('p3'), challenges(), actor, ceremonyFor('p3'), { maxPerAccount: 2 }),
+        enrollPasskey(db.sql, user, rp, body('p3'), challenges(user), actor, ceremonyFor('p3'), { maxPerAccount: 2 }),
       ).rejects.toMatchObject({
         code: 'identity.passkey_limit',
       });
       const rows = await listPasskeys(db.sql, user, 10);
       expect(rows).toHaveLength(2);
       expect(rows[0]!.kind).toBe('cross_device');
-      await enrollPasskey(db.sql, user, rp, body('p3'), challenges(), actor, ceremonyFor('p3'), {});
+      await enrollPasskey(db.sql, user, rp, body('p3'), challenges(user), actor, ceremonyFor('p3'), {});
       expect(await listPasskeys(db.sql, user, 10)).toHaveLength(3);
     });
   });
