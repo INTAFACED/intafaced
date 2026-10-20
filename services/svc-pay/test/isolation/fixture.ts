@@ -27,6 +27,8 @@ import { defaultDisputeCaseStore } from '../../src/fraud/dispute-case.js';
 import { recordMerchantNotification } from '../../src/merchant-ops/index.js';
 import { createFounderAuthority, type FounderAuthority } from '../../src/founder-authority.js';
 import { createKybPspRouter } from '../../src/kyb-router.js';
+import { KybEntityTypeService } from '../../src/kyb-entity-types.js';
+import { KybApplicationService } from '../../src/kyb-application.js';
 import { KybService } from '../../src/kyb-service.js';
 import { MerchantStateService } from '../../src/merchant-state-service.js';
 import { createMerchantStateRouter } from '../../src/merchant-state-router.js';
@@ -250,6 +252,8 @@ function composeRouter(parts: {
 }) {
   // src/index.ts: `actionApprovals` is the identity client when IDENTITY_URL is set, else this refusing consumer.
   const actionApprovals = unwiredApprovalConsumer();
+  const kybService = new KybService(parts.sql);
+  const kybEntityTypes = new KybEntityTypeService(parts.sql);
   return mergeRouters(
     createPayRouter(
       parts.pay,
@@ -263,7 +267,14 @@ function composeRouter(parts: {
       parts.sql,
     ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
-    createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
+    createKybPspRouter(
+      kybService,
+      new PspModeService(parts.sql),
+      actionApprovals,
+      parts.pay,
+      kybEntityTypes,
+      new KybApplicationService(parts.sql, kybService, kybEntityTypes),
+    ),
     createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({

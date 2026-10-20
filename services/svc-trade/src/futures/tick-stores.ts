@@ -432,6 +432,14 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
 
         const row = locked[0];
         if (!row || row.status !== 'open' || !row.size_ok || !row.margin_ok) return { status: 'changed' as const };
+        // A planned ADL pair is about to move this row (adl-pairing.ts); the next tick drives it first.
+        const [adl] = await tx<{ planned: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM trade.futures_adl_pairs q
+             WHERE q.state = 'planned' AND (q.bankrupt_position_id::text = ${input.positionId} OR q.candidate_position_id::text = ${input.positionId})
+          ) AS planned
+        `;
+        if (adl?.planned) return { status: 'changed' as const };
 
         const inserted = await tx<RungRow[]>`
           INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)

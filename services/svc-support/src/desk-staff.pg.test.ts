@@ -75,6 +75,28 @@ if (!url) {
       await expect(staff.begin('appoint:k1', 'agent')).rejects.toThrow(/idempotency_conflict/);
     });
 
+    it('stores availability, logs one row per change, and writes nothing for an unchanged value', async () => {
+      const staff = new SqlStaffBook(db.sql);
+      const at = '2026-10-20T08:00:00.000Z';
+      await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at });
+      expect(await staff.get(AGENT)).toMatchObject({ availability: 'offline', availabilitySetAt: null, lastHeartbeatAt: null });
+      const set = { userId: AGENT, value: 'busy' as const, by: LEAD, reason: 'covering', at, heartbeat: true };
+      expect(await staff.setAvailability(set)).toMatchObject({ availability: 'busy', availabilitySetAt: at, lastHeartbeatAt: at });
+      await staff.setAvailability({ ...set, at: '2026-10-20T08:05:00.000Z' });
+      const log = await db.sql`SELECT user_id, availability, set_by, reason FROM support.staff_availability_log`;
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ user_id: AGENT, availability: 'busy', set_by: LEAD, reason: 'covering' });
+      expect((await staff.heartbeat(AGENT, '2026-10-20T08:10:00.000Z'))?.lastHeartbeatAt).toBe('2026-10-20T08:10:00.000Z');
+      expect(await staff.setAvailability({ ...set, userId: USER })).toBeNull();
+      expect(await staff.heartbeat(USER, at)).toBeNull();
+    });
+
+    it('rejects an availability outside online, busy and offline in the database', async () => {
+      const staff = new SqlStaffBook(db.sql);
+      await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at: '2026-10-20T08:00:00.000Z' });
+      await expect(db.sql`UPDATE support.staff SET availability = 'away' WHERE user_id = ${AGENT}`).rejects.toThrow();
+    });
+
     it('unclaims only the assignee and lets a lead assign the ticket to another staff id', async () => {
       const store = new PostgresSupportStore(db.sql);
       const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Stuck', body: 'Please look' });

@@ -1,5 +1,5 @@
 -- svc-pay · W-custody-ops-01 custody account model: entities, vault accounts, wallets, and their history.
--- Reversal: 0102_pay_custody_accounts.down.sql
+-- Reversal: 0104_pay_custody_accounts.down.sql
 --
 -- NOTHING HERE HOLDS A BALANCE. The ledger is the only book (AGENTS.md money rule 1). These rows say who owns a
 -- vault and which network and asset a wallet is for; an address is filled in later by address assignment

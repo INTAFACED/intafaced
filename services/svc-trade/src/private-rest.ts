@@ -53,6 +53,7 @@ import {
 } from './futures/margin-mode.js';
 import { CANCEL_NOT_CLOSE } from './futures/cancel-not-close.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
+import type { FuturesPayout } from './futures/futures-payouts.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
 import { AdlDisclosureError } from './futures/adl-disclosure.js';
@@ -97,6 +98,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   POST   /api/v1/futures/adl-disclosure/ack scope: trade:write (ack before open)
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
+ *   GET    /api/v1/futures/payouts           scope: trade:read  (caller's profit payouts: paid, or owed while the clearing pot is short)
  *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
  *   POST   /api/v1/positions       scope: trade:write (open funded position — F3)
  *   DELETE /api/v1/positions/:id   scope: trade:write (cancel-not-close — does not release margin)
@@ -325,6 +327,8 @@ export interface PrivateRestDeps {
   }>;
   /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
   listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
+  /** The caller's futures profit payouts, newest first: paid, or owed while the clearing pot is short. */
+  listFuturesPayouts?(principal: Principal): Promise<{ payouts: readonly FuturesPayout[] }>;
 }
 
 /**
@@ -1591,6 +1595,26 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     try {
       requireScope(principal, 'trade:read');
       return reply.code(200).send(await deps.listLiquidations(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/payouts', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listFuturesPayouts) {
+      return reply.code(503).send({
+        error: 'trade.futures_payouts_unwired',
+        message: 'futures payout history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listFuturesPayouts(principal));
     } catch (err) {
       if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);

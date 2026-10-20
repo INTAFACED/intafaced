@@ -54,6 +54,8 @@ export interface AdlBankruptPosition {
   readonly side: 'long' | 'short';
   /** Shortfall the insurance fund could not cover (quote units). Diagnostic. */
   readonly uncoveredShortfall: Amount;
+  /** Size still open. When set, no single reduce is sized past it. */
+  readonly size?: Amount;
 }
 
 /** Observable record that disclosure happened BEFORE any size change. */
@@ -76,12 +78,18 @@ export interface AdlDisclosureEventStore {
 }
 
 export interface AdlReducePort {
+  /**
+   * Reduce `positionId` (the candidate) by up to `sizeClosed` against the bankrupt
+   * position. A reducer that pairs both sides (`adl-pairing.ts`) answers with the
+   * size it actually closed; 0 means it found the pair no longer allowed.
+   */
   reduce(input: {
     positionId: string;
+    bankruptPositionId: string;
     sizeClosed: Amount;
     reason: typeof ADL_DISCLOSURE_BEFORE_ACTION;
     disclosureEventId: string;
-  }): Promise<void>;
+  }): Promise<{ sizeClosed: Amount } | void>;
 }
 
 export type AdlLastResortOutcome =
@@ -163,7 +171,8 @@ export async function runAdlLastResort(input: AdlLastResortInput): Promise<AdlLa
       continue;
     }
 
-    const sizeToReduce = sizeUnderAdlCap(candidate.size, policy.maxReduceBps);
+    let sizeToReduce = sizeUnderAdlCap(candidate.size, policy.maxReduceBps);
+    if (input.bankrupt.size !== undefined && sizeToReduce > input.bankrupt.size) sizeToReduce = input.bankrupt.size;
     if (sizeToReduce <= 0n) continue;
 
     const event: AdlActionDisclosureEvent = {
@@ -181,18 +190,21 @@ export async function runAdlLastResort(input: AdlLastResortInput): Promise<AdlLa
     await input.events.record(event);
     disclosuresEmitted += 1;
 
-    await input.reducer.reduce({
+    const reduced = await input.reducer.reduce({
       positionId: candidate.positionId,
+      bankruptPositionId: input.bankrupt.positionId,
       sizeClosed: sizeToReduce,
       reason: ADL_DISCLOSURE_BEFORE_ACTION,
       disclosureEventId: event.eventId,
     });
+    const sizeReduced = reduced ? reduced.sizeClosed : sizeToReduce;
+    if (sizeReduced <= 0n) continue;
 
     return {
       action: 'reduced',
       code: ADL_DISCLOSURE_BEFORE_ACTION,
       event,
-      sizeReduced: sizeToReduce,
+      sizeReduced,
       candidatePositionId: candidate.positionId,
     };
   }

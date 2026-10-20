@@ -100,6 +100,18 @@ function btcValuation(summary: PortfolioSummary, prices: PriceBook): BtcValuatio
   return { total: formatAmount(rounded), priceUsd: formatAmount(price), reason: null };
 }
 
+/**
+ * The unit a total is shown in. USD and BTC are priced from the same book; any other currency has no rate source (an owner
+ * value that stays blank) and refuses by name instead of quietly showing USD.
+ */
+function displayUnit(displayCurrency: string | undefined, valueIn: 'usd' | 'btc' | undefined): 'usd' | 'btc' | undefined {
+  if (displayCurrency === undefined) return valueIn;
+  const code = displayCurrency.toUpperCase();
+  if (code === 'USD') return 'usd';
+  if (code === 'BTC') return 'btc';
+  throw new BankError(`No exchange rate is set for ${code}`, 'bank.fx_rate_unset');
+}
+
 /** The port. One method: current prices. Throws on any failure. */
 export interface TickerSource {
   prices(): Promise<PriceBook>;
@@ -207,10 +219,11 @@ export class PortfolioService {
    */
   async summary(
     userId: string,
-    options: { assetId?: string; valueIn?: 'usd' | 'btc' } = {},
+    options: { assetId?: string; valueIn?: 'usd' | 'btc'; displayCurrency?: string; scope?: string } = {},
   ): Promise<PortfolioSummary & { btc?: BtcValuation }> {
-    const { summary, prices } = await this.valued(userId, options.assetId, options.valueIn === 'btc');
-    return options.valueIn === 'btc' ? { ...summary, btc: btcValuation(summary, prices) } : summary;
+    const valueIn = displayUnit(options.displayCurrency, options.valueIn);
+    const { summary, prices } = await this.valued(userId, options.assetId, valueIn === 'btc', options.scope);
+    return valueIn === 'btc' ? { ...summary, btc: btcValuation(summary, prices) } : summary;
   }
 
   /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
@@ -223,8 +236,9 @@ export class PortfolioService {
     userId: string,
     assetId?: string,
     wantBtc = false,
+    scope?: string,
   ): Promise<{ summary: PortfolioSummary; holdings: Holding[]; prices: PriceBook }> {
-    const rows = await this.everythingOwnedBy(userId);
+    const rows = await this.rowsInScope(userId, scope);
     const only = assetId?.toUpperCase();
     const holdings = holdingsFromBalances(rows).filter((h) => only === undefined || h.assetId.toUpperCase() === only);
     let prices: PriceBook = { tickers: new Map() as TickerMap, listed: new Set() };
@@ -292,6 +306,20 @@ export class PortfolioService {
       out.push({ assetId, total: formatAmount(total), available: formatAmount(available), locked });
     }
     return { assets: out };
+  }
+
+  /**
+   * `combined` (the default) is main plus every named space; `main` is the person's own accounts only; anything else must be
+   * the id of one of the caller's own named spaces. A space that is not the caller's is refused, never read, so the sum of
+   * the spaces plus main is always the combined total.
+   */
+  private async rowsInScope(userId: string, scope?: string): Promise<Balance[]> {
+    if (scope === undefined || scope === 'combined') return this.everythingOwnedBy(userId);
+    if (scope === 'main') return this.ledger.balances('user', userId);
+    const wanted = scope.toLowerCase();
+    const space = (await this.namedOf(userId)).find((s) => s.id.toLowerCase() === wanted);
+    if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
+    return this.ledger.balances('subaccount', space.id);
   }
 
   private async namedOf(userId: string): Promise<SpaceRecord[]> {

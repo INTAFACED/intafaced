@@ -14,7 +14,14 @@ import type {
   SupportTicketStatus,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
-import { MemoryStaffBook, type StaffBook, type StaffMember, type StaffRole } from './desk-staff.js';
+import {
+  MemoryStaffBook,
+  STAFF_AVAILABILITIES,
+  type StaffAvailability,
+  type StaffBook,
+  type StaffMember,
+  type StaffRole,
+} from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
 import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
@@ -188,6 +195,13 @@ export class SupportService implements SupportContract {
      * svc-trade says the read is unknown rather than cancelled.
      */
     private readonly orders: TicketOrderSource = new DarkTicketOrderSource(),
+    /**
+     * Seconds without a heartbeat before an online or busy agent reads as
+     * offline. Blank (null) is an owner value left unset: availability stays
+     * as last set and the desk says automatic offline is not set.
+     */
+    private readonly heartbeatWindowSeconds: number | null = null,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   private async withIdempotency<T>(key: string, fingerprint: string, run: () => Promise<T>): Promise<T> {
@@ -212,12 +226,28 @@ export class SupportService implements SupportContract {
 
   async createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket> {
     return withSupportSpan('support.createTicket', { op: 'createTicket' }, async (span) => {
-      const ticket = await this.store.createTicket({
+      if (input.messageHeaders !== undefined && input.category !== 'phishing') {
+        throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
+      }
+      const row = {
         userId: input.userId,
         category: input.category,
         subject: input.subject,
         body: input.body,
-      });
+        ...(input.messageHeaders !== undefined ? { messageHeaders: input.messageHeaders } : {}),
+      };
+      let ticket: SupportTicket;
+      try {
+        ticket =
+          input.clientRequestId !== undefined
+            ? await this.store.createTicketOnce({ ...row, clientRequestId: input.clientRequestId })
+            : await this.store.createTicket(row);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different request', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });
@@ -702,7 +732,65 @@ export class SupportService implements SupportContract {
   }
 
   async listStaff(): Promise<StaffMember[]> {
-    return this.staff.list();
+    return (await this.staff.list()).map((member) => this.withEffectiveAvailability(member));
+  }
+
+  /** Whether the automatic offline window is an owner value or still blank. */
+  staffAvailabilityPolicy(): { automaticOffline: 'set' | 'not_set'; heartbeatWindowSeconds: number | null } {
+    return {
+      automaticOffline: this.heartbeatWindowSeconds === null ? 'not_set' : 'set',
+      heartbeatWindowSeconds: this.heartbeatWindowSeconds,
+    };
+  }
+
+  private withEffectiveAvailability(member: StaffMember): StaffMember {
+    if (this.heartbeatWindowSeconds === null || member.availability === 'offline') return member;
+    const beat = member.lastHeartbeatAt ? Date.parse(member.lastHeartbeatAt) : Number.NEGATIVE_INFINITY;
+    return this.now().getTime() - beat > this.heartbeatWindowSeconds * 1000 ? { ...member, availability: 'offline' } : member;
+  }
+
+  /**
+   * An agent sets their own availability; a lead sets anyone's, and that
+   * change is logged with the lead and the reason. Setting the value a
+   * member already has writes nothing. Going online or busy counts as a
+   * heartbeat when a window is set, so the agent does not read offline
+   * the moment they arrive.
+   */
+  async setStaffAvailability(input: {
+    actorId: string;
+    userId: string;
+    availability: StaffAvailability;
+    reason?: string | null;
+  }): Promise<StaffMember> {
+    if (!STAFF_AVAILABILITIES.includes(input.availability)) {
+      throw new SupportError('availability must be online, busy or offline', 'support.availability_invalid');
+    }
+    const actor = await this.staff.get(input.actorId);
+    if (!actor) throw new SupportError('only staff can set availability', 'support.not_staff');
+    if (input.userId !== input.actorId && actor.role !== 'lead') {
+      throw new SupportError("only a lead can set someone else's availability", 'support.not_lead');
+    }
+    const at = this.now().toISOString();
+    const stored = await this.staff.setAvailability({
+      userId: input.userId,
+      value: input.availability,
+      by: input.actorId,
+      reason: input.reason?.trim() ? input.reason.trim() : null,
+      at,
+      heartbeat: this.heartbeatWindowSeconds !== null && input.availability !== 'offline',
+    });
+    if (!stored) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
+    return this.withEffectiveAvailability(stored);
+  }
+
+  /** Own heartbeat. Refuses while the owner has not set the window. */
+  async staffHeartbeat(input: { actorId: string }): Promise<StaffMember> {
+    if (this.heartbeatWindowSeconds === null) {
+      throw new SupportError('automatic offline window is not set', 'support.heartbeat_window_unset');
+    }
+    const stored = await this.staff.heartbeat(input.actorId, this.now().toISOString());
+    if (!stored) throw new SupportError('only staff can send a heartbeat', 'support.not_staff');
+    return this.withEffectiveAvailability(stored);
   }
 
   async appointStaff(input: { actorId: string; userId: string; role: StaffRole; idempotencyKey: string }): Promise<StaffMember> {

@@ -9,6 +9,7 @@ export interface PlacementOptions {
   readonly stpMode?: string;
   readonly tag?: string;
   readonly requestDeadline?: string;
+  readonly triggerBy?: string;
 }
 
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
@@ -32,6 +33,17 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
   if (options.tag !== undefined) {
     throw new TradeError('order tags are not stored yet; resend without a tag', 'trade.tag_unsupported');
   }
+  refuseUnsetTriggerSource(options);
+}
+
+/** A stop is released by the last trade only. The mark and index prices have no owner-published source yet. */
+export function refuseUnsetTriggerSource(options: Pick<PlacementOptions, 'triggerBy'>): void {
+  if (options.triggerBy !== undefined && options.triggerBy !== 'last') {
+    throw new TradeError(
+      `a stop is released by the last trade only; ${options.triggerBy} has no published source`,
+      'trade.trigger_source_unset',
+    );
+  }
 }
 
 /**
@@ -42,4 +54,5 @@ export function refuseOptionsOnReplacement(options: PlacementOptions): void {
   if (options.requestDeadline !== undefined || options.stpMode !== undefined || options.tag !== undefined) {
     throw new TradeError('a replacement does not take a request deadline, a self-trade mode or a tag', 'trade.order_type_unsupported');
   }
+  refuseUnsetTriggerSource(options);
 }

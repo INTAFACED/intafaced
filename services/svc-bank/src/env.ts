@@ -238,6 +238,14 @@ const schema = serviceEnvSchema
       BANK_OFFRAMP_COOLING_HOURS: z.string().optional(),
 
       /**
+       * Owner-set number of saved withdrawal addresses one customer may hold.
+       *
+       * No default. Blank / unset / zero / not a whole number → saving an address refuses
+       * `bank.address_book_cap_unset`. Boot stays up; the save is the refuse.
+       */
+      BANK_ADDRESS_BOOK_CAP: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.

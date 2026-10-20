@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0102_pay_custody_accounts.sql
+-- intafaced:destructive — reversal of 0104_pay_custody_accounts.sql
 --
 -- Drops the custody entities, vaults, wallets and their history. Vault rows are never deleted in service, so this
 -- is for CI proof of reversibility and for a database that never held a real vault. No balance lives here.

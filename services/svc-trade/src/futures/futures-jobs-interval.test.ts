@@ -41,7 +41,7 @@ describe('funding interval is not an invented 8h', () => {
         fundingMaxAbsRate: '1', // fixture — not product law (D2)
       },
     });
-    expect(handle.host.list().sort()).toEqual(['futures.dated_settlement', 'futures.liquidation']);
+    expect(handle.host.list().sort()).toEqual(['futures.dated_settlement', 'futures.liquidation', 'futures.payouts']);
     handle.stop();
   });
 });

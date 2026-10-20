@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import type {
   SupportAccountGrounding,
@@ -46,7 +46,12 @@ export type CreateTicketRow = {
   category: SupportTicket['category'];
   subject: string;
   body: string;
+  /** Pasted headers of a reported message; only a `phishing` ticket carries them. */
+  messageHeaders?: string;
 };
+
+/** A create that carries its caller's key, so a replay returns the first ticket. */
+export type CreateTicketOnceRow = CreateTicketRow & { clientRequestId: string };
 
 export type AddCommentInput = {
   ticketId: string;
@@ -112,6 +117,12 @@ export type SetStatusInput = {
 
 export interface SupportStore {
   createTicket(input: CreateTicketRow): Promise<SupportTicket>;
+  /**
+   * Idempotent create. The first call stores the ticket and its receipt together;
+   * a replay with the same key and the same content returns that ticket and writes
+   * nothing. The same key with different content throws `support.idempotency_conflict`.
+   */
+  createTicketOnce(input: CreateTicketOnceRow): Promise<SupportTicket>;
   /** Newest first. Omit `limit` for the full set (tests / internal dumps). */
   listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]>;
   /** Newest first. Omit `limit` for the full set (queue ranking). */
@@ -301,6 +312,7 @@ type PgTicket = {
   category: SupportTicket['category'];
   subject: string;
   body: string;
+  message_headers: string | null;
   status: SupportTicketStatus;
   assignee_id: string | null;
   created_at: Date;
@@ -316,6 +328,26 @@ type PgComment = {
   created_at: Date;
 };
 
+type CreateReceipt = { fingerprint: string; ticket: SupportTicket };
+
+/** What makes two creates "the same submission": everything the caller chose except the key. */
+function createFingerprint(input: CreateTicketRow): string {
+  return createHash('sha256')
+    .update(JSON.stringify([input.category, input.subject, input.body, input.messageHeaders ?? null]))
+    .digest('hex');
+}
+
+async function insertTicketWithOpened(tx: TransactionSql, input: CreateTicketRow): Promise<SupportTicket> {
+  const rows = await tx<PgTicket[]>`
+    INSERT INTO support.tickets (user_id, category, subject, body, message_headers, status)
+    VALUES (${input.userId}, ${input.category}, ${input.subject}, ${input.body}, ${input.messageHeaders ?? null}, 'open')
+    RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
+  `;
+  const ticket = ticketFromPg(rows[0]!);
+  await insertEvent(tx, { ticketId: ticket.id, kind: 'opened', actorId: input.userId, actorRole: 'user' });
+  return ticket;
+}
+
 function ticketFromPg(row: PgTicket): SupportTicket {
   return {
     id: row.id,
@@ -323,6 +355,7 @@ function ticketFromPg(row: PgTicket): SupportTicket {
     category: row.category,
     subject: row.subject,
     body: row.body,
+    ...(row.message_headers != null ? { messageHeaders: row.message_headers } : {}),
     status: row.status,
     assigneeId: row.assignee_id,
     createdAt: toIso(row.created_at),
@@ -566,6 +599,7 @@ export class MemorySupportStore implements SupportStore {
       category: input.category,
       subject: input.subject,
       body: input.body,
+      ...(input.messageHeaders !== undefined ? { messageHeaders: input.messageHeaders } : {}),
       status: 'open',
       assigneeId: null,
       createdAt: now,
@@ -575,6 +609,19 @@ export class MemorySupportStore implements SupportStore {
     this.comments.set(ticket.id, []);
     this.events.set(ticket.id, []);
     this.record({ ticketId: ticket.id, kind: 'opened', actorId: input.userId, actorRole: 'user', at: now });
+    return ticket;
+  }
+
+  async createTicketOnce(input: CreateTicketOnceRow): Promise<SupportTicket> {
+    const key = this.receiptKey('support.create', input.userId, input.clientRequestId);
+    const fingerprint = createFingerprint(input);
+    const prior = this.receipts.get(key) as CreateReceipt | undefined;
+    if (prior) {
+      if (prior.fingerprint !== fingerprint) throw new Error('support.idempotency_conflict');
+      return prior.ticket;
+    }
+    const ticket = await this.createTicket(input);
+    this.receipts.set(key, { fingerprint, ticket } satisfies CreateReceipt);
     return ticket;
   }
 
@@ -1056,14 +1103,28 @@ export class PostgresSupportStore implements SupportStore {
 
   /** Ticket + its first trail row, atomically. `opened` is sequence 1, always. */
   async createTicket(input: CreateTicketRow): Promise<SupportTicket> {
+    return this.sql.begin(async (tx) => insertTicketWithOpened(tx, input));
+  }
+
+  async createTicketOnce(input: CreateTicketOnceRow): Promise<SupportTicket> {
+    const fingerprint = createFingerprint(input);
     return this.sql.begin(async (tx) => {
-      const rows = await tx<PgTicket[]>`
-        INSERT INTO support.tickets (user_id, category, subject, body, status)
-        VALUES (${input.userId}, ${input.category}, ${input.subject}, ${input.body}, 'open')
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+      // Two submissions of one key serialise here; the second then reads the first's receipt.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.create:${input.userId.length}:${input.userId}:${input.clientRequestId}`}, 0))`;
+      const prior = await tx<{ result: CreateReceipt }[]>`
+        SELECT result FROM support.write_receipts
+        WHERE procedure = 'support.create' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        LIMIT 1
       `;
-      const ticket = ticketFromPg(rows[0]!);
-      await insertEvent(tx, { ticketId: ticket.id, kind: 'opened', actorId: input.userId, actorRole: 'user' });
+      if (prior[0]) {
+        if (prior[0].result.fingerprint !== fingerprint) throw new Error('support.idempotency_conflict');
+        return prior[0].result.ticket;
+      }
+      const ticket = await insertTicketWithOpened(tx, input);
+      await tx`
+        INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+        VALUES ('support.create', ${input.userId}, ${input.clientRequestId}, ${tx.json({ fingerprint, ticket } as never)})
+      `;
       return ticket;
     });
   }
@@ -1072,13 +1133,13 @@ export class PostgresSupportStore implements SupportStore {
     const rows =
       options?.limit === undefined
         ? await this.sql<PgTicket[]>`
-            SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
           `
         : await this.sql<PgTicket[]>`
-            SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
@@ -1091,12 +1152,12 @@ export class PostgresSupportStore implements SupportStore {
     const rows =
       options?.limit === undefined
         ? await this.sql<PgTicket[]>`
-            SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             ORDER BY created_at DESC
           `
         : await this.sql<PgTicket[]>`
-            SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
             FROM support.tickets
             ORDER BY created_at DESC
             LIMIT ${options.limit}
@@ -1106,7 +1167,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async findById(ticketId: string): Promise<SupportTicket | null> {
     const rows = await this.sql<PgTicket[]>`
-      SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+      SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       FROM support.tickets
       WHERE id = ${ticketId}
       LIMIT 1
@@ -1117,7 +1178,7 @@ export class PostgresSupportStore implements SupportStore {
   async addComment(input: AddCommentInput): Promise<AddCommentResult> {
     return this.sql.begin(async (tx): Promise<AddCommentResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
@@ -1140,13 +1201,13 @@ export class PostgresSupportStore implements SupportStore {
             UPDATE support.tickets
             SET status = 'open', assignee_id = NULL, updated_at = now()
             WHERE id = ${input.ticketId}
-            RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
           `
         : await tx<PgTicket[]>`
             UPDATE support.tickets
             SET updated_at = now()
             WHERE id = ${input.ticketId}
-            RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+            RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
           `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
@@ -1236,7 +1297,7 @@ export class PostgresSupportStore implements SupportStore {
         UPDATE support.tickets
         SET status = ${input.status}, updated_at = now()
         WHERE id = ${input.ticketId}
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
@@ -1269,7 +1330,7 @@ export class PostgresSupportStore implements SupportStore {
 
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
@@ -1297,7 +1358,7 @@ export class PostgresSupportStore implements SupportStore {
         WHERE id = ${input.ticketId}
           AND status IN ('open', 'pending')
           AND (assignee_id IS NULL OR assignee_id = ${operatorId})
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       `;
       // Holding FOR UPDATE, this should always return a row when the checks
       // above passed. Zero rows means another writer slipped past — treat as
@@ -1325,7 +1386,7 @@ export class PostgresSupportStore implements SupportStore {
     if (!operatorId) return { status: 'refuse', reason: 'invalid_operator' };
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
@@ -1336,7 +1397,7 @@ export class PostgresSupportStore implements SupportStore {
         UPDATE support.tickets
         SET assignee_id = NULL, updated_at = now()
         WHERE id = ${input.ticketId} AND assignee_id = ${operatorId}
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       `;
       if (!released[0]) return { status: 'refuse', reason: 'not_assignee' };
       await insertEvent(tx, {
@@ -1356,7 +1417,7 @@ export class PostgresSupportStore implements SupportStore {
     if (!operatorId || !assigneeId) return { status: 'refuse', reason: 'invalid_operator' };
     return this.sql.begin(async (tx): Promise<ClaimResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
@@ -1369,7 +1430,7 @@ export class PostgresSupportStore implements SupportStore {
             status = CASE WHEN status = 'open' THEN 'pending' ELSE status END,
             updated_at = now()
         WHERE id = ${input.ticketId}
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       `;
       if (!assigned[0]) return { status: 'refuse', reason: 'not_found' };
       await insertEvent(tx, {
@@ -1628,7 +1689,7 @@ export class PostgresSupportStore implements SupportStore {
   async closeByOwner(input: { userId: string; ticketId: string; clientRequestId: string }): Promise<CloseByOwnerResult> {
     return this.sql.begin(async (tx): Promise<CloseByOwnerResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE
@@ -1662,7 +1723,7 @@ export class PostgresSupportStore implements SupportStore {
         UPDATE support.tickets
         SET status = 'closed', updated_at = now()
         WHERE id = ${input.ticketId}
-        RETURNING id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
       `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
       await insertEvent(tx, {
@@ -1692,7 +1753,7 @@ export class PostgresSupportStore implements SupportStore {
   }): Promise<RateByOwnerResult> {
     return this.sql.begin(async (tx): Promise<RateByOwnerResult> => {
       const locked = await tx<PgTicket[]>`
-        SELECT id, user_id, category, subject, body, status, assignee_id, created_at, updated_at
+        SELECT id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
         FROM support.tickets
         WHERE id = ${input.ticketId}
         FOR UPDATE

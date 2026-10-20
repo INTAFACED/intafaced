@@ -343,6 +343,7 @@ export type TradeErrorCode =
   | 'trade.stp_mode_unsupported'
   /** Order tags are not stored yet. */
   | 'trade.tag_unsupported'
+  | 'trade.trigger_source_unset'
   | 'trade.invalid_qty'
   | 'trade.invalid_price'
   /** JSON number on an OCO/bracket leg — decimal string required. IEEE 0.1 is not a price. */

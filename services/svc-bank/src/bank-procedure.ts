@@ -12,6 +12,7 @@ const STATUS: Partial<Record<BankErrorCode, TRPCError['code']>> = {
   'bank.activity_lookup_bounded': 'PRECONDITION_FAILED',
   'bank.activity_range': 'BAD_REQUEST',
   'bank.activity_note_conflict': 'CONFLICT',
+  'bank.activity_note_empty': 'BAD_REQUEST',
   'bank.activity_dispute_conflict': 'CONFLICT',
   'bank.activity_dispute_exists': 'CONFLICT',
   'bank.statement_range': 'BAD_REQUEST',
