@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-pay's `requestViewSchema` lives in the service, not in a browser-safe @intafaced/contracts export yet; moving it there is a contracts follow-up.
 import { z } from 'zod';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { decimalSchema } from '../../shared/money';
