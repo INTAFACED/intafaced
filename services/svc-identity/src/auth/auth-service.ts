@@ -53,6 +53,7 @@ import {
   SqlChallengeStore,
   createAuthenticationOptions,
   createRegistrationOptions,
+  decoyCredentialIds,
   generateChallenge,
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
@@ -109,6 +110,7 @@ export class AuthError extends Error {
       | 'identity.passkey_limit'
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
+      | 'auth.webauthn_unconfigured'
       | 'auth.domain_not_allowed'
       | 'auth.sub_account_required'
       | 'auth.sub_account_denied'
@@ -1604,14 +1606,22 @@ export class AuthService {
   }
 
   async startWebauthnAuthentication(identifier: string): Promise<AuthenticationOptionsJSON> {
+    // The decoy ids come from the server secret; without it the answer would be an empty list that gives accounts away.
+    if (!this.tokens.secret) throw new AuthError('The sign-in secret is not set', 'auth.webauthn_unconfigured');
     const rows = await this.sql<
       Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
     const challenge = generateChallenge();
     const creds = user && user.status === 'active' ? asCredentialList(user.webauthn_creds) : [];
-    await this.challenges.put('authentication', challenge, user?.status === 'active' ? user.id : null);
-    return createAuthenticationOptions(this.webauthn, creds, challenge);
+    // Only an active account with a passkey can sign in; every other identifier gets decoys and a challenge with no user.
+    const real = user !== undefined && creds.length > 0;
+    await this.challenges.put('authentication', challenge, real ? user.id : null);
+    // Transport hints are left out of every answer so a real list and a decoy list have the same shape.
+    const listed = real
+      ? creds.map((c) => ({ credentialId: c.credentialId }) as StoredWebAuthnCredential)
+      : decoyCredentialIds(this.tokens.secret, identifier).map((credentialId) => ({ credentialId }) as StoredWebAuthnCredential);
+    return createAuthenticationOptions(this.webauthn, listed, challenge);
   }
 
   async confirmWebauthnAuthentication(
@@ -1623,18 +1633,16 @@ export class AuthService {
       Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
-    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const refuse = (): never => {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    };
+    // Unknown, frozen and passkey-less accounts were offered decoy ids, so they fail exactly like a wrong signature.
+    if (!user || user.status !== 'active' || asCredentialList(user.webauthn_creds).length === 0) return refuse();
     const clientChallenge = readClientChallenge(response.response.clientDataJSON);
-    if (!clientChallenge) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (!clientChallenge) return refuse();
     const held = await this.challenges.take(clientChallenge, 'authentication');
-    if (!held || held.userId !== user.id) {
-      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    }
-    if (asCredentialList(user.webauthn_creds).length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
-    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, () => {
-      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    });
+    if (!held || held.userId !== user.id) return refuse();
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse);
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
   }
 
