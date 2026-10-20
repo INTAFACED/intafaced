@@ -1,0 +1,9 @@
+{
+  "meta": { "provenance": "machine", "reviewedAt": null },
+  "messages": {
+    "auth.login.title": "Connexion",
+    "auth.logout": "Déconnexion",
+    "common.action.confirm": "Confirmer",
+    "common.action.cancel": "Annuler"
+  }
+}

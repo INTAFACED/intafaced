@@ -34,9 +34,13 @@ reports `no-catalog` once plus `untranslated` per key, so the gap is counted. `d
 `locale` label follow the language the text is really in, not the one that was asked for: an English
 string stamped `ar` makes a renderer mirror the layout around left-to-right words.
 
-Adding a language is an **owner decision with a content cost**, not an engineering task. Nothing
-here is machine-translated and nothing here ever will be: a mistranslated "confirm withdrawal" in a
-money product is a loss, not a typo.
+Adding a language is an **owner decision with a content cost**. The mechanics are a drop-in: put
+`src/locales/<code>.json` in the shape `{ "meta": { "provenance": "human" | "machine", "reviewedAt": null | "YYYY-MM-DD" },
+"messages": { "<key>": "<text>" } }` there and run `pnpm --filter @intafaced/i18n locales`; the test fails on a key English does
+not have. `localeProvenance(code)` says who wrote a locale's words and `pnpm --filter @intafaced/i18n coverage` (after a build)
+prints translated, total, missing and provenance per locale. Words a program wrote carry `provenance: machine` and are never
+presented as reviewed: a mistranslated "confirm withdrawal" in a money product is a loss, not a typo. `es` and `fr` are machine
+files of four words each, and nothing money-related relies on them.
 
 The old `apps/web` bypass scan was retired with the Vue front end (the scan is deleted; see git history).
 
