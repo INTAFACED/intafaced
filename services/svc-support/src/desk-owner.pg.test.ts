@@ -47,6 +47,7 @@ function desk(overrides: Partial<AttachmentDesk> = {}): AttachmentDesk {
     scanner: new MemoryMalwareScanner('clean'),
     maxBytes: 8,
     allowedTypes: ['text/plain'],
+    maxCount: 10,
     ...overrides,
   };
 }
@@ -212,8 +213,13 @@ describe('support desk owner procedures', () => {
             }),
           )
         ).code,
-      ).toBe('support.attachment_scan_refused');
-      expect(scanStore.puts).toBe(0);
+      ).toBe(verdict === 'infected' ? 'support.attachment_scan_refused' : 'support.attachment_scan_unknown');
+      // An infected file's bytes are never stored. A file the scanner could not judge is held with its bytes, to be scanned again.
+      expect(scanStore.puts).toBe(verdict === 'infected' ? 0 : 1);
+      const [held] = await sql<{ scan_state: string }[]>`
+        SELECT scan_state FROM support.ticket_attachments WHERE client_request_id = ${`attach-${verdict}`}
+      `;
+      expect(held?.scan_state).toBe(verdict === 'infected' ? 'blocked' : 'scanning');
     }
 
     const bare = new MemoryAttachmentStore();
@@ -257,7 +263,9 @@ describe('support desk owner procedures', () => {
     });
     expect(replay).toEqual(saved);
     expect(cleanStore.puts).toBe(1);
-    const count = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM support.ticket_attachments WHERE ticket_id = ${ticket.id}`;
+    const count = await sql<
+      { n: number }[]
+    >`SELECT count(*)::int AS n FROM support.ticket_attachments WHERE ticket_id = ${ticket.id} AND scan_state = 'clean'`;
     expect(count[0]!.n).toBe(1);
     expect(cleanStore.objects.get(saved.storeKey)?.bytes).toEqual(new Uint8Array(Buffer.from('hello')));
 

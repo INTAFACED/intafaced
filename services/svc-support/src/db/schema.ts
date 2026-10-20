@@ -174,6 +174,7 @@ export const ticketAttachments = schema.table(
     storeKey: text('store_key').notNull(),
     contentType: text('content_type').notNull(),
     byteLength: integer('byte_length').notNull(),
+    scanState: text('scan_state').$type<'scanning' | 'clean' | 'blocked'>().notNull().default('clean'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('ticket_attachments_owner_request_idx').on(t.ownerId, t.clientRequestId)],
