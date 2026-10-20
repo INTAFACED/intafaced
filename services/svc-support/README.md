@@ -126,6 +126,17 @@ Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's
 which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries
 `waitingOn`; a resolved or closed request waits on nobody.
 
+Help article audiences (SP-help-centre-02): every article has an audience, `public` (the default), `signed_in` or `staff`,
+kept on the immutable version row. `listKb`, `searchKb`, `getKb` (with or without a version), `kbRelated` and `kbFeedback`
+show an article only to a reader its audience allows, decided from the signed principal on every path: a visitor has no
+principal, the desk is a `support:ops` principal. The filter runs before the page limit, so a hidden article takes no
+place in a page and is in no count, and it answers exactly like a missing id (`null`, or the same refusal). `setKbAudience`
+(`support:ops`) takes the revision the desk read, writes a new version that keeps the keys and topic, and one audit row
+(`support.kb_audience_changes`: article, from, to, revisions, actor; append-only). The same audience again changes nothing
+and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`); an audience outside the list never
+reaches the service and, if it does, refuses `support.kb_audience_invalid`. Per-segment visibility is not built: whether it
+is wanted is a thread decision, and `support.kb_segment_cap_unset` is not introduced until it is.
+
 ## Migrations
 
 ```bash

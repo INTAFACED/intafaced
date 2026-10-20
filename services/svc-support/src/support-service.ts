@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
+  kbAudienceVisibleTo,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
@@ -20,6 +22,8 @@ import type {
   SupportComment,
   SupportContract,
   SupportKbArticle,
+  SupportKbAudience,
+  SupportKbViewer,
   SupportTicket,
   SupportTicketEvent,
   SupportTicketStatus,
@@ -179,6 +183,17 @@ export function assertListEventsLimit(limit: number | undefined): number {
     throw new SupportError('listTicketEvents limit unset', LIST_EVENTS_LIMIT_UNSET);
   }
   return Math.min(LIST_EVENTS_LIMIT_MAX, n);
+}
+
+/** setKbAudience got something outside public, signed_in and staff. */
+export const KB_AUDIENCE_INVALID = 'support.kb_audience_invalid' as const;
+
+/** The reader of a public help door when the caller did not say: a signed-out visitor sees public articles only. */
+const ANONYMOUS_KB_VIEWER: SupportKbViewer = { signedIn: false, staff: false };
+
+/** The audiences a reader may see: public always, signed_in once signed in, staff for the desk. */
+function audiencesFor(viewer: SupportKbViewer): SupportKbAudience[] {
+  return SUPPORT_KB_AUDIENCES.filter((audience) => kbAudienceVisibleTo(audience, viewer));
 }
 
 /** listKb page size unpublished. Blank is not 100. */
@@ -781,36 +796,81 @@ export class SupportService implements SupportContract {
     return this.store.latestCaseFile(ticket.id);
   }
 
-  async listKb(options: { limit?: number } = {}): Promise<SupportKbArticle[]> {
+  async listKb(options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
-    return (await this.store.listPublishedKb({ limit })).map(toPublicKb);
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
+    // The store applies the audience before the page, so a hidden article takes no place in it and shows in no count.
+    const page = await this.store.listPublishedKb({ limit, audiences: audiencesFor(viewer) });
+    return this.visibleKb(page, viewer).map(toPublicKb);
   }
 
   /**
    * Search published KB by id/key fragment, then page.
    * Empty query → published catalog, then slice. Blank limit refuses
    * (`support.list_kb_limit_unset`) — never invent 100 / catalog.length.
+   * Only articles the viewer's audience allows are searched.
    */
-  async searchKb(query: string, options: { limit?: number } = {}): Promise<SupportKbArticle[]> {
+  async searchKb(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
-    const hits = searchKb(query, await this.store.listPublishedKb());
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
+    const hits = searchKb(query, this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer));
     return [...hits].slice(0, limit).map(toPublicKb);
   }
 
-  async getKbArticle(idOrQuery: string | { id: string; version?: number }): Promise<SupportKbArticle | null> {
+  /** A hidden article answers exactly like a missing one: null, never a refusal that names it. */
+  async getKbArticle(
+    idOrQuery: string | { id: string; version?: number },
+    options: { viewer?: SupportKbViewer } = {},
+  ): Promise<SupportKbArticle | null> {
     const query = typeof idOrQuery === 'string' ? { id: idOrQuery } : idOrQuery;
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
     if (query.version === undefined) {
       const article = await this.store.getPublishedKb(query.id);
-      return article ? toPublicKb(article) : null;
+      return article && kbAudienceVisibleTo(article.audience, viewer) ? toPublicKb(article) : null;
     }
     try {
       const history = await this.store.listKbVersions(query.id);
+      // The head decides first, so an unknown version of a hidden article is not told apart from a missing one.
+      const head = history[history.length - 1];
+      if (head && !kbAudienceVisibleTo(head.audience, viewer)) return null;
       const article = getKb({ id: query.id, version: query.version }, history);
-      return article ? toPublicKb(article) : null;
+      return article && kbAudienceVisibleTo(article.audience, viewer) ? toPublicKb(article) : null;
     } catch (err) {
       if (err instanceof KbCatalogError) throw new SupportError(err.message, err.code);
       throw err;
     }
+  }
+
+  private visibleKb(articles: readonly SupportKbArticle[], viewer: SupportKbViewer): SupportKbArticle[] {
+    return articles.filter((article) => kbAudienceVisibleTo(article.audience, viewer));
+  }
+
+  /**
+   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb.revision_stale`;
+   * an unknown article is `support.kb_invalid`. The same audience again changes nothing and writes no audit row.
+   */
+  async setKbAudience(input: {
+    operatorId: string;
+    id: string;
+    baseRevision: number;
+    audience: SupportKbAudience;
+  }): Promise<SupportKbArticle> {
+    return withSupportSpan('support.setKbAudience', { op: 'setKbAudience' }, async () => {
+      if (!(SUPPORT_KB_AUDIENCES as readonly string[]).includes(input.audience)) {
+        throw new SupportError('audience must be public, signed_in or staff', KB_AUDIENCE_INVALID);
+      }
+      const result = await this.store.setKbAudience({
+        id: input.id,
+        baseRevision: input.baseRevision,
+        audience: input.audience,
+        actorId: input.operatorId,
+      });
+      if (result.status === 'refuse') {
+        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB article refused', 'support.kb_invalid');
+      }
+      return toPublicKb(result.article);
+    });
   }
 
   /**
@@ -1299,9 +1359,20 @@ export class SupportService implements SupportContract {
   }
 
   /** One vote per account per published version. A repeat returns the first vote and updates nothing. */
-  async kbFeedback(input: { userId: string; id: string; helpful: boolean; clientRequestId: string }): Promise<KbFeedbackVote> {
+  async kbFeedback(input: {
+    userId: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+  }): Promise<KbFeedbackVote> {
     return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
       this.requireClientRequestId(input.clientRequestId);
+      // A vote on an article the reader may not see answers like a vote on a missing one.
+      const article = await this.store.getPublishedKb(input.id);
+      if (article && !kbAudienceVisibleTo(article.audience, input.viewer ?? ANONYMOUS_KB_VIEWER)) {
+        throw new SupportError('article is not published', 'support.kb.not_published');
+      }
       const result = await this.store.recordKbFeedback({
         userId: input.userId,
         articleId: input.id,
@@ -1314,9 +1385,9 @@ export class SupportService implements SupportContract {
   }
 
   /** Published articles sharing a category or tag. Never the article itself. */
-  async kbRelated(input: { id: string }): Promise<SupportKbArticle[]> {
+  async kbRelated(input: { id: string; viewer?: SupportKbViewer }): Promise<SupportKbArticle[]> {
     return withSupportSpan('support.kbRelated', { op: 'kbRelated' }, async () => {
-      const catalog = await this.store.listPublishedKb();
+      const catalog = this.visibleKb(await this.store.listPublishedKb(), input.viewer ?? ANONYMOUS_KB_VIEWER);
       return relatedPublished(input.id, catalog);
     });
   }

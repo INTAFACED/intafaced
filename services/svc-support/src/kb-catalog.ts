@@ -138,6 +138,8 @@ export function toPublicKb(article: SupportKbArticle): SupportKbArticle {
     ...(article.published != null ? { published: article.published } : {}),
     ...(article.category != null && article.category !== '' ? { category: article.category } : {}),
     ...(article.tags != null && article.tags.length > 0 ? { tags: [...article.tags] } : {}),
+    // Public is the default and stays off the wire, so an article that was never restricted reads as it always did.
+    ...(article.audience != null && article.audience !== 'public' ? { audience: article.audience } : {}),
   };
 }
 
