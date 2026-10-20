@@ -141,6 +141,7 @@ const messages = {
   'accountroutes.a.customer.referral.tree.commission.balance.and':
     'Your referral tree, commission balance and promotion-card history aren’t connected. No reward total or payout is guessed from a visit count.',
   'view.preferences.saved.on.this.device': 'Preferences saved on this device.',
+  'view.account.sync.not.saved': 'Not saved to your account. This device keeps your choice and sends it again after your next change.',
   'view.view': 'Display',
   'view.choose.how.the.product.feels.on.this': 'These choices are saved on this device.',
   'view.display': 'General',
