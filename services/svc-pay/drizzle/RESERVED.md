@@ -37,7 +37,9 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0091      | FRAUDQUEUE fraud review cases                         | used                                            |
 | 0092      | S38WALLETPAY wallet inbounds and withdrawals          | void (S38 withdrew, number not reused)          |
 | 0093      | CHAINWATCH chain watcher dead letters                 | used                                            |
-| 0094+     | unassigned                                            | free; ask W0 before using                       |
+| 0094-0099 | unassigned                                            | free; ask W0 before using                       |
+| 0100-0119 | wallet lane (W-withdraw, W-deposit, W-custody slices) | 0100, 0101 used (withdrawal limits; screening desk) |
+| 0120+     | unassigned                                            | free; ask W0 before using                       |
 
 ## Why gaps are safe
 

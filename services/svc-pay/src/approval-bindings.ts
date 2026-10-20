@@ -143,3 +143,23 @@ export const PAY_SCREENING_RELEASE = 'pay.screening_release';
 export function screeningReleaseFields(input: { subjectKind: string; caseId: string; reason: string }): Record<string, string> {
   return { subjectKind: input.subjectKind, caseId: input.caseId, reason: input.reason };
 }
+
+/** The action a second founder's approval must be issued for when a withdrawal limit is set or raised. */
+export const PAY_WITHDRAWAL_LIMIT_CHANGE = 'pay.withdrawal_limit_change';
+
+/** `after` is `perTx/rolling24h` as canonical decimals, or `clear`. */
+export function withdrawalLimitChangeFields(input: {
+  tier: string;
+  assetId: string;
+  expectedVersion: string;
+  after: string;
+  reason: string;
+}): Record<string, string> {
+  return {
+    tier: input.tier,
+    assetId: input.assetId,
+    expectedVersion: input.expectedVersion,
+    after: input.after,
+    reason: input.reason,
+  };
+}
