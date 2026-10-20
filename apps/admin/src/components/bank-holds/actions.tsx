@@ -94,8 +94,10 @@ export function HoldRowActions({ sendId, canRelease, hasProof }: { sendId: strin
           disabled={busy || reference.trim().length < 6}
           data-testid="hold-link-reference"
           onClick={() =>
-            void run({ action: 'linkReference', reference: reference.trim() }, 'The reference is linked and the hold is released.', () =>
-              setReference(''),
+            void run(
+              { action: 'linkReference', reference: reference.trim() },
+              'The reference is linked. If the send was held, it is released.',
+              () => setReference(''),
             )
           }
         >

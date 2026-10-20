@@ -110,6 +110,9 @@ export function parseControls(raw: unknown): HoldControls | null {
   };
 }
 
+/** The most the service lists in one read; the desk asks for all of it and never sums or pages on its own. */
+export const QUEUE_LIMIT = 100;
+
 export interface HoldDesk {
   readonly asOf: string;
   readonly queue: Part<HoldRow[]>;
@@ -125,7 +128,7 @@ const labels = {
 /** Both parts are read on their own, so a refused queue never hides the controls and the other way round. */
 export async function readHoldDesk(ctx: FounderCallContext): Promise<HoldDesk> {
   const [queue, controls] = await Promise.all([
-    founderCall(ctx, 'bank', 'global.ops.holds', 'GET', {}, parseQueue),
+    founderCall(ctx, 'bank', 'global.ops.holds', 'GET', { limit: QUEUE_LIMIT }, parseQueue),
     founderCall(ctx, 'bank', 'global.ops.controls', 'GET', undefined, parseControls),
   ]);
   return { asOf: new Date().toISOString(), queue: partFrom(queue, (d) => d, labels), controls: partFrom(controls, (d) => d, labels) };

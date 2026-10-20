@@ -20,6 +20,7 @@ export const REFUSAL_WORDS: Readonly<Record<string, string>> = {
   'bank.proof_not_requested': 'No file was asked for on this hold.',
   'bank.global_outcome_unknown':
     'The payout step gave no clear answer after the release. The send is still open; read the queue before trying again.',
+  'bank.global_list_limit_unset': 'The owner has not set how many sends a list shows, so the queue cannot be read.',
   'bank.personal_pay_request_invalid': 'That request was not accepted. Nothing was sent.',
 };
 
