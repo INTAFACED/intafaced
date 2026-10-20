@@ -27,7 +27,7 @@ export function makeKeys(audience: ServiceName) {
   const signer = createServiceSigner({ service: 'svc-agents', kid: 'svc-agents.a', privateKey: pkcs8, keyring });
   return {
     s2s: (mode: ServiceAuthMode): S2s => ({ signer, mode }),
-    verifier: () => createServiceVerifier({ self: audience, keyring }),
+    verifier: () => createServiceVerifier({ self: audience, keyring, bootSecond: 0 }),
   };
 }
 

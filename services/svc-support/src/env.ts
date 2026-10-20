@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
 /**
  * svc-support — durable tickets in Postgres (schema `support`).
@@ -21,6 +21,7 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } fr
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       HTTP_PORT: z.coerce.number().int().positive().default(4017),
