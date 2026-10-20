@@ -154,6 +154,15 @@ describe('language sync (RC-home-ia-05)', () => {
     expect(a.state.language).toBe('en');
   });
 
+  it('applies nothing when the sign-in ended while the read was out', async () => {
+    const server = accountServer({ version: 1, value: { locale: 'fr', displayCurrency: null } });
+    const a = device(server, 'en');
+    const controller = new AbortController();
+    server.hooks.onRead = () => controller.abort();
+    expect(await a.sync.pull(controller.signal)).toBe('not-saved');
+    expect(a.state.language).toBe('en');
+  });
+
   it('ignores a language the catalogue does not hold', async () => {
     const server = accountServer({ version: 1, value: { locale: 'zz-ZZ', displayCurrency: null } });
     const a = device(server, 'es');

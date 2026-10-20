@@ -3,6 +3,7 @@ import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
+import { useAccountViewStatus } from '../account/ViewSync';
 import { savePreferences } from '../../shared/preferences';
 import { passwordIssue } from '../../shared/password';
 import { useSession, sessionSchema, type Session } from '../session/session';
@@ -41,6 +42,7 @@ export function AuthForm({ register }: { register: boolean }) {
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
   const { Copy: SharedCopy } = uiCopy.useCopy();
   const { api, commit, userId, restoring } = useSession();
+  const accountStatus = useAccountViewStatus();
   const context = useLocation();
   const authContext = publicAuthContext(location.pathname, location.search);
   const { destination, invite: inviteToken } = authContext;
@@ -338,7 +340,7 @@ export function AuthForm({ register }: { register: boolean }) {
       <div className="auth-form">
         <LanguageMenu
           className="public-auth-language"
-          keptIn={userId ? 'account' : 'browser'}
+          keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
           onSelect={(language) => savePreferences({ language })}
         />
         {journal.records.length > 0 && (

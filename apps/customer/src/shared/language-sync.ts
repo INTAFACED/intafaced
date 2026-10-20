@@ -69,7 +69,7 @@ export function createLanguageSync(options: {
 
   async function pull(signal?: AbortSignal): Promise<ViewSyncStatus> {
     const asked = local();
-    if (!(await read(signal))) return 'not-saved';
+    if (!(await read(signal)) || signal?.aborted) return 'not-saved';
     const during = local();
     const remote = canonicalUiLocale(record?.locale);
     if (remote) applyRemote(remote);
