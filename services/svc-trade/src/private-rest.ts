@@ -73,7 +73,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/orders/open     scope: trade:read  (?symbol=&limit=)
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
- *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=)
+ *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=&type=)
  *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
  *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
@@ -179,6 +179,7 @@ export interface PrivateRestDeps {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
+      type?: ClosedOrderType;
     },
   ): Promise<OrderRecord[]>;
   getOrder(principal: Principal, orderId: string): Promise<OrderRecord>;
@@ -737,11 +738,23 @@ const CLOSED_STATUS_WORDS: Record<string, 'filled' | 'cancelled' | 'rejected' | 
 };
 
 /** Optional `side` and `status` filters of orders/closed; CCXT status words, anything else is a 400. */
+export type ClosedOrderType = 'market' | 'limit' | 'stop_limit';
+const CLOSED_ORDER_TYPES: readonly string[] = ['market', 'limit', 'stop_limit'];
+
 export function parseClosedFilters(query: {
   side?: unknown;
   status?: unknown;
-}): { ok: true; side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } | { ok: false; message: string } {
-  const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired' } = {};
+  type?: unknown;
+}):
+  | { ok: true; side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType }
+  | { ok: false; message: string } {
+  const out: { side?: 'buy' | 'sell'; status?: 'filled' | 'cancelled' | 'rejected' | 'expired'; type?: ClosedOrderType } = {};
+  if (query.type !== undefined && query.type !== '') {
+    if (typeof query.type !== 'string' || !CLOSED_ORDER_TYPES.includes(query.type)) {
+      return { ok: false, message: 'type must be market, limit or stop_limit' };
+    }
+    out.type = query.type as ClosedOrderType;
+  }
   if (query.side !== undefined && query.side !== '') {
     if (query.side !== 'buy' && query.side !== 'sell') return { ok: false, message: 'side must be buy or sell' };
     out.side = query.side;
@@ -1214,6 +1227,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         ...(untilParsed.sinceMs !== undefined ? { untilMs: untilParsed.sinceMs } : {}),
         ...(filters.side ? { side: filters.side } : {}),
         ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.type ? { type: filters.type } : {}),
       });
       const symbolByMarket = new Map<string, string>();
       const wire = [];

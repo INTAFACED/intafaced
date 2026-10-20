@@ -73,12 +73,26 @@ describe('GET /api/v1/orders/closed filters', () => {
     }
   });
 
+  it('passes a type filter through and refuses an unknown one', async () => {
+    for (const type of ['market', 'limit', 'stop_limit']) {
+      const { res, seen } = await get(`?limit=10&type=${type}`);
+      expect(res.statusCode, type).toBe(200);
+      expect(seen[0]?.type, type).toBe(type);
+    }
+    for (const type of ['stop', 'trailing', 'toString']) {
+      const { res, seen } = await get(`?limit=10&type=${type}`);
+      expect(res.statusCode, type).toBe(400);
+      expect(seen, type).toEqual([]);
+    }
+  });
+
   it('without filters nothing extra is sent', async () => {
     const { res, seen } = await get('?limit=10');
     expect(res.statusCode).toBe(200);
     expect(seen[0]).toMatchObject({ limit: 10 });
     expect(seen[0]?.side).toBeUndefined();
     expect(seen[0]?.status).toBeUndefined();
+    expect(seen[0]?.type).toBeUndefined();
     expect(seen[0]?.untilMs).toBeUndefined();
   });
 

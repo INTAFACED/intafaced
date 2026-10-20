@@ -112,6 +112,14 @@ describe('orderHistory filters (PG-hard)', () => {
     expect(await history({ status: 'rejected' })).toEqual([]);
   });
 
+  it('filters by order type, telling a stop-limit from a plain limit by its stored trigger', async () => {
+    await db.sql`INSERT INTO trade.order_stop_trigger (order_id, user_id, stop_price) VALUES (${ids.b}, ${ALICE}, 45)`;
+    expect(await history({ type: 'stop_limit' })).toEqual([ids.b]);
+    expect(await history({ type: 'limit' })).toEqual([ids.c, ids.a]);
+    expect(await history({ type: 'market' })).toEqual([]);
+    expect(await history({ type: 'stop_limit', side: 'sell' })).toEqual([]);
+  });
+
   it('until is inclusive and pairs with since to page a window', async () => {
     expect(await history({ untilMs: T2 })).toEqual([ids.b, ids.a]);
     expect(await history({ sinceMs: T2, untilMs: T2 })).toEqual([ids.b]);
