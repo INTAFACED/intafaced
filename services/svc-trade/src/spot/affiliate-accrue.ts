@@ -11,7 +11,7 @@
  */
 
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export const AFFILIATE_PRODUCER_PATH = '/internal/affiliates/accrue';
 
@@ -78,8 +78,13 @@ export async function fireAffiliateAccrue(port: AffiliateAccruePort, legs: reado
 
 const FETCH_MS = 2_000;
 
-export function createAffiliateAccrueClient(baseUrl: string, internalSecret: string): AffiliateAccruePort {
+export function createAffiliateAccrueClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): AffiliateAccruePort {
   const url = `${baseUrl.replace(/\/$/, '')}${AFFILIATE_PRODUCER_PATH}`;
+  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async accrueTradeFee(leg) {
@@ -92,7 +97,7 @@ export function createAffiliateAccrueClient(baseUrl: string, internalSecret: str
       });
       const headers = {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-trade', internalSecret, body),
+        ...authHeaders(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
       };
       const response = await fetch(url, {
         method: 'POST',
