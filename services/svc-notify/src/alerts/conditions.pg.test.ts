@@ -263,4 +263,21 @@ describe.skipIf(!available)('PostgresAlertStore quota', () => {
     await store.create(input(userId, '104'));
     expect(await store.countOpen(userId, 'price')).toBe(2);
   });
+  it('creates a batch as one step: all of it, or none of it past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const batch = (prices: string[]) => prices.map((price) => input(userId, price));
+    const made = await store.createMany(batch(['100', '101', '102']), 4);
+    expect(made).toHaveLength(3);
+    await expect(store.createMany(batch(['103', '104']), 4)).rejects.toMatchObject({ limit: 4, held: 3, wanted: 2 });
+    expect(await store.countOpen(userId, 'price')).toBe(3);
+    await expect(store.createMany(batch(['105']), 4)).resolves.toHaveLength(1);
+  });
+  it('lets two batches racing for the last places through only once', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled([0, 1, 2].map((n) => store.createMany([input(userId, `${n}1`), input(userId, `${n}2`)], 2)));
+    expect(settled.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+  });
 });

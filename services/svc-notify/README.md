@@ -603,7 +603,12 @@ a row. A redelivery reuses the same key and cannot double-send.
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
   and an alert past its stop time is expired before the count. The count and the write happen under one per-person lock, so
   two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank).
-  Other alert kinds have no quota setting and are not counted. Burst auto-stop (03b) and watchlist expansion (03c) are separate.
+  Other alert kinds have no quota setting and are not counted. Burst auto-stop (03b) needs repeating alerts (01c) and is not built.
+- Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
+  market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole
+  (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap
+  or price refuses as a single create does. The service holds no watchlist: the caller sends the list, so a market added to a
+  list later is not picked up (C-alerts-scan-03d needs the account-side list).
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

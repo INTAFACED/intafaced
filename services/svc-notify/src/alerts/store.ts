@@ -34,7 +34,12 @@ export class AlertValidationError extends Error {
 
 /** A create refused because the person already holds as many open alerts of the kind as the owner allows. Nothing was stored. */
 export class AlertQuotaReachedError extends Error {
-  constructor(readonly limit: number) {
+  /** `held` and `wanted` are set when several were asked for at once: the person holds `held` and asked for `wanted` more. */
+  constructor(
+    readonly limit: number,
+    readonly held?: number,
+    readonly wanted?: number,
+  ) {
     super(`alert.quota_reached: ${limit}`);
     this.name = 'AlertQuotaReachedError';
   }
@@ -42,6 +47,11 @@ export class AlertQuotaReachedError extends Error {
 
 export interface AlertStore {
   create(input: CreatePriceAlertInput): Promise<PriceAlert>;
+  /**
+   * Create several price alerts for one person as one step: all of them or none. Refused with `AlertQuotaReachedError` when the
+   * person's open price alerts plus these would pass `maxOpen`, with nothing stored.
+   */
+  createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]>;
   /** How many alerts of a kind the person holds that are active or paused. Triggered, expired and cancelled ones do not count. */
   countOpen(userId: string, kind: SourcedAlertKind): Promise<number>;
   list(userId: string, limit?: number): Promise<readonly PriceAlert[]>;
@@ -139,6 +149,17 @@ export class MemoryAlertStore implements AlertStore {
     };
     this.byId.set(row.id, row);
     return row;
+  }
+
+  async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
+    const first = inputs[0];
+    if (!first) return [];
+    // Counted and written with no pause between, and checked for every input before any is written.
+    const held = this.openCount(first.userId, 'price');
+    if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
+    for (const input of inputs) assertCreate(input);
+    // Each create writes before it first pauses, so every row is in before anything else can run.
+    return Promise.all(inputs.map((input) => this.create({ ...input })));
   }
 
   private openCount(userId: string, kind: SourcedAlertKind): number {
@@ -253,6 +274,33 @@ export class PostgresAlertStore implements AlertStore {
       `;
       if ((counted?.n ?? 0) >= maxOpen) throw new AlertQuotaReachedError(maxOpen);
       return mapRow((await insert(tx as unknown as Sql))[0]!);
+    });
+  }
+
+  async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
+    const first = inputs[0];
+    if (!first) return [];
+    for (const input of inputs) assertCreate(input);
+    // One transaction under the same per-person lock a single create takes, so the batch is all in or all out.
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
+      const [counted] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM notify.price_alerts
+        WHERE user_id = ${first.userId} AND kind = 'price' AND status IN ('active', 'stopped')
+      `;
+      const held = counted?.n ?? 0;
+      if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
+      const rows: PriceAlert[] = [];
+      for (const input of inputs) {
+        const [row] = await tx<AlertRow[]>`
+          INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions)
+          VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
+            ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)})
+          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+        `;
+        rows.push(mapRow(row!));
+      }
+      return rows;
     });
   }
 

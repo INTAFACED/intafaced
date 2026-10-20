@@ -26,6 +26,7 @@ import {
   type AlertService,
 } from './alerts/service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
+import { AlertValidationError } from './alerts/store.js';
 import {
   ALERT_CONDITIONS,
   AlertKindUnpublishedError,
@@ -1553,6 +1554,45 @@ export function createNotifyRouter(
               });
             }
             throw err;
+          }
+        }),
+
+      /**
+       * A watchlist alert: the same price rule on each market named, one alert per market, all or none. Held to the price-alert
+       * quota as a whole (a batch that would pass it creates nothing), and checked like a single create in every other way.
+       */
+      createAlerts: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            marketIds: z.array(z.string().min(1).max(64)).min(1).max(100),
+            direction: z.enum(['above', 'below']),
+            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
+            targetPrice: z.string().max(64).optional(),
+            ...alertExtras,
+          }),
+        )
+        .output(z.object({ alerts: z.array(priceAlertOutput).min(1), evaluation: alertEvaluationOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'alert.price_unavailable' });
+          if (input.condition && input.condition !== 'crossing' && directionOfCondition(input.condition) !== input.direction) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
+          }
+          try {
+            const rows = await alerts.createMany({
+              userId: ctx.principal.userId,
+              marketIds: input.marketIds,
+              direction: input.direction,
+              targetPrice: input.targetPrice,
+              ...(input.condition ? { condition: input.condition } : {}),
+              name: input.name,
+              message: input.message,
+              expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
+              ...(input.extras ? { extras: input.extras } : {}),
+            });
+            return { alerts: rows.map(priceAlertToWire), evaluation: alerts.evaluationStatus() };
+          } catch (err) {
+            if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+            throw alertManagerError(err);
           }
         }),
 

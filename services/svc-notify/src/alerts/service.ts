@@ -393,6 +393,48 @@ export class AlertService {
     }
   }
 
+  /**
+   * A watchlist alert: the same price rule on each of several markets, one alert per market, all or none. Each is checked and
+   * stored exactly as a single create is. The number of markets is held to the price-alert quota: if the person's open alerts
+   * plus these would pass it, nothing is created. A market named twice is created once.
+   */
+  async createMany(
+    input: Omit<CreatePriceAlertInput, 'targetPrice' | 'marketId' | 'kind' | 'maxOpen'> & {
+      readonly marketIds: readonly string[];
+      readonly targetPrice?: string | null;
+    },
+    now: Date = new Date(),
+  ): Promise<readonly PriceAlert[]> {
+    const { marketIds, ...rule } = input;
+    const markets = [...new Set(marketIds.map((id) => id.trim()).filter((id) => id !== ''))];
+    if (markets.length === 0) throw new AlertValidationError('alert.invalid_market', 'at least one market is needed');
+    const targetPrice = assertRealAlertPrice(rule.targetPrice);
+    const name = assertAlertText('name', rule.name, this.limits);
+    const message = assertAlertText('message', rule.message, this.limits);
+    const expiresAt = assertAlertExpiry(rule.expiresAt, this.limits, now);
+    const extras = assertAlertExtras(rule.extras, this.limits);
+    if (this.limits.maxActivePrice === null) {
+      throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
+    }
+    await this.store.expireDue(now);
+    try {
+      return await this.store.createMany(
+        markets.map((marketId) => ({ ...rule, kind: 'price' as const, marketId, targetPrice, name, message, expiresAt, extras })),
+        this.limits.maxActivePrice,
+      );
+    } catch (err) {
+      if (err instanceof AlertQuotaReachedError) {
+        throw new AlertLimitError(
+          'alert.quota_reached',
+          err.wanted === undefined
+            ? `a person may hold ${err.limit} open price alerts`
+            : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
+        );
+      }
+      throw err;
+    }
+  }
+
   /** How many price alerts the person holds open and the owner's cap (`null` while it is blank). */
   async quota(
     userId: string,
