@@ -15,6 +15,8 @@ export const CATEGORY_WEIGHT: Readonly<Record<string, number>> = {
   account: 40,
   trading: 30,
   deposit_withdraw: 70,
+  /** A reported scam is read before an ordinary question, below a stuck deposit. */
+  phishing: 60,
   other: 10,
 };
 

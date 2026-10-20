@@ -105,8 +105,9 @@ describe('bank ramps money-out needs a step-up', () => {
       'ramps.live',
       // Customer on-ramp is bank:write (money in, partner instruction). It does not send funds out.
       'ramps.onrampCreate',
-      // Removing a saved destination does not send money.
-      'ramps.destinations.remove',
+      // Renaming a saved destination changes only its label. Saving and removing one need the step-up scope,
+      // so they are not listed: they must refuse a plain session like every other value-out mutation.
+      'ramps.destinations.rename',
     ]);
     const procedures = (router as unknown as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures;
     const mutations = Object.entries(procedures)

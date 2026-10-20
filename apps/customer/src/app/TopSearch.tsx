@@ -4,13 +4,14 @@ import { CoinIcon } from '@intafaced/ui';
 import { fmtPrice, useMarkets, useTickers, type Loadable, type MarketRow, type TickerRow } from '../data';
 import { assetName, homeCopy } from '../screens/home/copy';
 import { navigate } from './location';
-import { coinHref, roomTitle, roomDescription, searchRooms } from './navigation';
+import { coinHref, roomTitle, roomDescription, roomPath, searchRooms } from './navigation';
+import { HELP_RESULT_CAP, useHelpSearch, type HelpState } from './search-help';
 import { ShellIcon } from './icons';
 import { shellCopy } from './shell-copy';
 import { usePreferences } from '../shared/preferences';
 import { isUsdQuote, listings } from '../screens/home/select';
 
-type Group = 'Coins' | 'Markets' | 'Pages';
+type Group = 'Coins' | 'Markets' | 'Pages' | 'Help';
 interface Row {
   key: string;
   group: Group;
@@ -21,17 +22,23 @@ interface Row {
   asset?: string;
   /** Right-aligned last price, when the ticker list has one. */
   price?: string;
+  /** Language of a Help article's title, when it differs from the page's. */
+  lang?: string;
 }
 const perGroup = 8;
 
 const isMac = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform);
 
+/** True when a key press is going into a field, so `/` must stay a character there. */
+const typingTarget = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+
 /**
- * Header search (UI-SPEC 3.1): coins, markets and pages. Enter on a coin opens its page;
+ * Header search (UI-SPEC 3.1): coins, markets, pages and Help articles. Ctrl or Cmd K, or `/` outside a field, opens the results. Enter on a coin opens its page;
  * Enter on a market opens the desk in Pro and the coin page in Simple.
  * The markets come from the shared data layer (useMarkets). TODO(B1): swap the hand-built list to the kit Autocomplete.
  */
-export function TopSearch({ compact }: { compact?: boolean }) {
+export function TopSearch({ compact, helpCap = HELP_RESULT_CAP }: { compact?: boolean; helpCap?: number | null }) {
   const { t, requestedLocale } = shellCopy.useCopy();
   const { layoutMode } = usePreferences();
   const { mode } = useSession();
@@ -46,7 +53,9 @@ export function TopSearch({ compact }: { compact?: boolean }) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      const slash =
+        event.key === '/' && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey && !typingTarget(event.target);
+      if (slash || ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) {
         event.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -75,14 +84,17 @@ export function TopSearch({ compact }: { compact?: boolean }) {
     () =>
       searchRooms(query, mode, requestedLocale)
         .slice(0, perGroup)
-        .map<Row>((room) => ({
-          key: `page:${room.path}`,
-          group: 'Pages',
-          label: roomTitle(room, requestedLocale),
-          hint: roomDescription(room, requestedLocale),
-          href: room.path,
-        })),
-    [query, mode, requestedLocale],
+        .map<Row>((room) => {
+          const path = roomPath(room, requestedLocale);
+          // Where it lives ("Bank > Earn"); a parked room says it opens to its blockers, which the room itself names live.
+          const hint = path
+            ? room.area === 'web3'
+              ? `${path} · ${t('Opens to its blockers')}`
+              : path
+            : roomDescription(room, requestedLocale);
+          return { key: `page:${room.path}`, group: 'Pages', label: roomTitle(room, requestedLocale), hint, href: room.path };
+        }),
+    [query, mode, requestedLocale, t],
   );
 
   return (
@@ -128,6 +140,7 @@ export function TopSearch({ compact }: { compact?: boolean }) {
           id={listId}
           query={query}
           pages={pages}
+          helpCap={helpCap}
           layoutMode={layoutMode}
           active={active}
           setActive={setActive}
@@ -141,16 +154,18 @@ export function TopSearch({ compact }: { compact?: boolean }) {
 }
 
 /** Loads the listed markets once, after the first use, and keeps them for the session. */
-function SearchData({ open, ...props }: PanelProps & { open: boolean }) {
+function SearchData({ open, helpCap, ...props }: Omit<PanelProps, 'help'> & { open: boolean; helpCap: number | null }) {
   const markets = useMarkets();
   const tickers = useTickers();
-  return open ? <SearchPanel {...props} source={markets} tickers={tickers} /> : null;
+  const help = useHelpSearch(props.query, open, helpCap);
+  return open ? <SearchPanel {...props} help={help} source={markets} tickers={tickers} /> : null;
 }
 
 interface PanelProps {
   id: string;
   query: string;
   pages: Row[];
+  help: HelpState;
   layoutMode: 'simple' | 'pro';
   active: number;
   setActive: (index: number) => void;
@@ -163,6 +178,7 @@ function SearchPanel({
   id,
   query,
   pages,
+  help,
   layoutMode,
   active,
   setActive,
@@ -182,8 +198,24 @@ function SearchPanel({
     return isUsdQuote(market.quote) ? `$${price}` : `${price} ${market.quote}`;
   };
   const words = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const helpList = useMemo<Row[]>(() => {
+    if (help.status === 'idle') return [];
+    const articles =
+      help.status === 'ready'
+        ? help.rows.map<Row>((row) => ({
+            key: `help:${row.id}`,
+            group: 'Help',
+            label: row.title,
+            hint: '',
+            href: row.href,
+            lang: row.lang,
+          }))
+        : [];
+    // Always one way on to the Help room, so a search with nothing found still has somewhere to go.
+    return [...articles, { key: 'help:all', group: 'Help', label: t('Open Help'), hint: '', href: '/support' }];
+  }, [help, query, t]);
   const rows = useMemo(() => {
-    if (source.status !== 'ready') return pages;
+    if (source.status !== 'ready') return [...pages, ...helpList];
     const listed = source.data.filter((market) => market.orderable);
     const fits = (text: string) => words.every((word) => text.toLowerCase().includes(word));
     const coins = listings(listed)
@@ -215,8 +247,8 @@ function SearchPanel({
         price: priceOf(market),
         href: coinHref(market.base, layoutMode, market.symbol, signedIn),
       }));
-    return [...coins, ...markets, ...pages];
-  }, [source, tickers, pages, layoutMode, query, signedIn]);
+    return [...coins, ...markets, ...pages, ...helpList];
+  }, [source, tickers, pages, helpList, layoutMode, query, signedIn]);
 
   function choose(row: Row | undefined) {
     if (!row) return;
@@ -244,7 +276,7 @@ function SearchPanel({
     };
   });
 
-  const groups: Group[] = ['Coins', 'Markets', 'Pages'];
+  const groups: Group[] = ['Coins', 'Markets', 'Pages', 'Help'];
   const loading = source.status === 'loading';
   let index = -1;
   return (
@@ -253,6 +285,7 @@ function SearchPanel({
         {groups.map((group) => {
           const inGroup = rows.filter((row) => row.group === group);
           if (!inGroup.length) return null;
+          const note = group === 'Help' ? helpNote(help, t) : null;
           return (
             <li key={group} role="presentation">
               <div className="tb-group-title" role="presentation">
@@ -275,7 +308,7 @@ function SearchPanel({
                     >
                       <span className="tb-option-main">
                         {row.asset ? <CoinIcon asset={row.asset} size={20} /> : null}
-                        <span>{row.label}</span>
+                        <span lang={row.lang}>{row.label}</span>
                         {row.asset && row.hint ? <small className="tb-option-name">{row.hint}</small> : null}
                       </span>
                       {row.price ? (
@@ -289,11 +322,16 @@ function SearchPanel({
                   );
                 })}
               </ul>
+              {note && (
+                <p className="tb-empty" role="status">
+                  {note}
+                </p>
+              )}
             </li>
           );
         })}
       </ul>
-      {!rows.length && !loading && (
+      {!rows.some((row) => row.group !== 'Help') && !loading && help.status !== 'loading' && words.length > 0 && (
         <p className="tb-empty" role="status">
           {t('No results for "{query}"', { query })}
         </p>
@@ -305,4 +343,12 @@ function SearchPanel({
       )}
     </div>
   );
+}
+
+/** What the Help group says when it has no articles to show: still looking, no result limit set, or the call failed. */
+function helpNote(help: HelpState, t: ReturnType<typeof shellCopy.useCopy>['t']): string | null {
+  if (help.status === 'loading') return t('Searching Help');
+  if (help.status === 'unset') return t('Help articles are hidden: no limit for the number of results is set.');
+  if (help.status === 'failed') return t('Help articles did not load.');
+  return null;
 }

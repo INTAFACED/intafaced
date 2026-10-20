@@ -187,6 +187,7 @@ Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-r
 BANK_RAMP_MODE=none            # default — every ramp money path refuses bank.no_ramp_rail
 BANK_RAMP_MODE=crypto-ledger   # ledger half only; simulated: true always
 BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling_unset (never 24h)
+BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
 ```
 
 ### `ops` — operator only

@@ -4,16 +4,36 @@ import { SCREENING_CASE_STATUSES, type ScreeningCaseStatus, type ScreeningFactor
 
 export type ScreeningSubjectKind = 'payout' | 'withdrawal';
 
+/** What a person needs to read a case. An id and an amount, never a name, address or list content. */
+export interface ScreeningCaseContext {
+  readonly partyRef: string;
+  readonly amount: string;
+  readonly assetId: string;
+  /** Which supplier answered; `none` when no supplier is connected. */
+  readonly provider: string;
+}
+
 export interface ScreeningCaseRecord {
   readonly subjectKind: ScreeningSubjectKind;
   readonly subjectKey: string;
   readonly status: ScreeningCaseStatus;
   readonly factors: readonly ScreeningFactor[];
+  /** Written when present. A read through `ScreeningCaseStore.read` does not return it; the desk (desk.ts) does. */
+  readonly context?: ScreeningCaseContext;
 }
 
 export interface ScreeningCaseStore {
   save(record: ScreeningCaseRecord): Promise<void>;
   read(subjectKind: ScreeningSubjectKind, subjectKey: string): Promise<ScreeningCaseRecord | null>;
+  /**
+   * Spend one compliance release, on the caller's own transaction: an unspent, unexpired release for the same party
+   * and asset that covers `amount`, of a case other than `exceptKey`. Returns the key of the case it came from, or null.
+   * Optional: a store without it never honours a release.
+   */
+  spendRelease?(
+    q: Sql,
+    want: { partyRef: string; assetId: string; amount: string; exceptKey: string; draw: boolean },
+  ): Promise<string | null>;
 }
 
 /** Subject key is a hash. The case row does not store names, addresses, or client text. */
@@ -65,12 +85,59 @@ export function createSqlScreeningCaseStore(sql: Sql): ScreeningCaseStore {
         throw Object.assign(new Error('screening.case_invalid'), { code: 'screening_case_invalid' });
       }
       const factors = record.factors.map((item) => ({ code: item.code }));
+      const c = record.context;
+      // A case a person has decided is final: a repeat of the same send leaves it as decided.
       await sql`
-        INSERT INTO pay.screening_cases (subject_kind, subject_key, status, factors)
-        VALUES (${record.subjectKind}, ${record.subjectKey}, ${record.status}, ${sql.json(factors)})
+        INSERT INTO pay.screening_cases (subject_kind, subject_key, status, factors, party_ref, amount, asset_id, provider)
+        VALUES (${record.subjectKind}, ${record.subjectKey}, ${record.status}, ${sql.json(factors)},
+                ${c?.partyRef ?? null}, ${c?.amount ?? null}, ${c?.assetId ?? null}, ${c?.provider ?? null})
         ON CONFLICT (subject_kind, subject_key) DO UPDATE
-        SET status = EXCLUDED.status, factors = EXCLUDED.factors, updated_at = now()
+        SET status = EXCLUDED.status, factors = EXCLUDED.factors, updated_at = now(),
+            party_ref = COALESCE(EXCLUDED.party_ref, pay.screening_cases.party_ref),
+            amount = COALESCE(EXCLUDED.amount, pay.screening_cases.amount),
+            asset_id = COALESCE(EXCLUDED.asset_id, pay.screening_cases.asset_id),
+            provider = COALESCE(EXCLUDED.provider, pay.screening_cases.provider)
+        WHERE pay.screening_cases.decision IS NULL
       `;
+    },
+    async spendRelease(q, want) {
+      // A send that already spent a release (its claim committed, then the process died) is given the same one again,
+      // never a second. A recovery honours it whenever it was in force when the claim spent it, because the hold is
+      // already booked and must be settled; a fresh retry (a failed send reopened) only while it is still in force.
+      const again = await q<Array<{ subject_key: string; covers: boolean; in_force: boolean; spent_in_time: boolean }>>`
+        SELECT subject_key,
+               amount::numeric >= ${want.amount}::numeric AS covers,
+               release_expires_at > now() AS in_force,
+               release_consumed_at <= release_expires_at AS spent_in_time
+          FROM pay.screening_cases
+         WHERE subject_kind = 'withdrawal' AND release_spent_for = ${want.exceptKey}`;
+      const grant = again[0];
+      if (grant) return grant.covers && (want.draw ? grant.in_force : grant.spent_in_time) ? grant.subject_key : null;
+      if (!want.draw) return null;
+      // A send whose own case was refused or upheld cannot be covered by someone else's release.
+      const own = await q<Array<{ status: string; decision: string | null }>>`
+        SELECT status, decision FROM pay.screening_cases
+         WHERE subject_kind = 'withdrawal' AND subject_key = ${want.exceptKey}`;
+      if (own[0] && (own[0].status === 'refuse' || own[0].decision === 'upheld')) return null;
+      const rows = await q<Array<{ subject_key: string; status: string }>>`
+        UPDATE pay.screening_cases SET release_consumed_at = now(), release_spent_for = ${want.exceptKey}
+         WHERE (subject_kind, subject_key) = (
+                 SELECT subject_kind, subject_key FROM pay.screening_cases
+                  WHERE subject_kind = 'withdrawal' AND decision = 'released' AND release_consumed_at IS NULL
+                    AND release_expires_at > now()
+                    AND party_ref = ${want.partyRef} AND asset_id = ${want.assetId}
+                    AND amount::numeric >= ${want.amount}::numeric
+                    AND subject_key <> ${want.exceptKey}
+                  ORDER BY decided_at, subject_key
+                  LIMIT 1 FOR UPDATE SKIP LOCKED)
+        RETURNING subject_key, status`;
+      const spent = rows[0]?.subject_key ?? null;
+      if (spent !== null) {
+        await q`
+          INSERT INTO pay.screening_case_events (subject_kind, subject_key, action, actor_id, from_status, to_status, decision, reason)
+          VALUES ('withdrawal', ${spent}, 'release_spent', 'guard', ${rows[0]?.status ?? 'review'}, ${rows[0]?.status ?? 'review'}, 'released', ${`spent by a new withdrawal ${want.exceptKey}`})`;
+      }
+      return spent;
     },
     async read(subjectKind, subjectKey) {
       const rows = await sql<Array<{ subject_kind: string; subject_key: string; status: string; factors: unknown }>>`

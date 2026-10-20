@@ -29,13 +29,21 @@ import {
 } from './passwords.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
-import { completePasswordReset, publishedPasswordResetTtlSeconds, requestPasswordReset, type PasswordResetMail } from './password-reset.js';
+import {
+  completePasswordReset,
+  publishedPasswordResetTtlSeconds,
+  relayMailOutbox,
+  requestHandleRecovery,
+  requestPasswordReset,
+  type PasswordResetMail,
+} from './password-reset.js';
 import type { MerchantEmailInviteClaimer } from './merchant-email-invite-claim.js';
 
 export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
+import { currentRequestIp, currentUserAgent } from './request-meta.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
@@ -415,6 +423,13 @@ export class AuthService {
   /** Owner-published reset lifetime. Undefined = unpublished — reset refuses, never invents 900. */
   private passwordResetTtlSeconds: number | undefined;
   private passwordResetMail: PasswordResetMail | undefined;
+  private passwordResetMaxAttempts: number | undefined;
+  private passwordResetRequestMax: number | undefined;
+  private passwordResetRequestWindowSeconds: number | undefined;
+  private flowSubjectKey: string | undefined;
+  private resetNotifyUnknown = false;
+  /** Starts the mail relay after a recovery request commits. Off the response path; unset in tests that drain by hand. */
+  private mailRelayTrigger: (() => void | Promise<void>) | undefined;
   private passwordResetNow: () => Date = () => new Date();
   /** Unset: confirmation does not call pay. Email invites stay pending. */
   private merchantEmailInviteClaimer: MerchantEmailInviteClaimer | undefined;
@@ -506,6 +521,39 @@ export class AuthService {
   /** Install the svc-pay role read used by `stepUpPay`. Unset refuses every mint. */
   usePayStepUpRoleSource(source: ((input: { userId: string; merchantId: string }) => Promise<PayStepUpGrant>) | null): void {
     this.payStepUpRoleSource = source;
+  }
+
+  /**
+   * Install the owner-published recovery numbers and the identifier key. Anything unset keeps reset and
+   * username recovery refusing `auth.reset_unwired`; nothing here is a default.
+   */
+  usePasswordResetPolicy(policy: {
+    readonly maxAttempts?: number | undefined;
+    readonly requestMax?: number | undefined;
+    readonly requestWindowSeconds?: number | undefined;
+    readonly subjectKey?: string | undefined;
+    readonly notifyUnknown?: boolean | undefined;
+  }): void {
+    this.passwordResetMaxAttempts = policy.maxAttempts;
+    this.passwordResetRequestMax = policy.requestMax;
+    this.passwordResetRequestWindowSeconds = policy.requestWindowSeconds;
+    this.flowSubjectKey = policy.subjectKey;
+    this.resetNotifyUnknown = policy.notifyUnknown === true;
+  }
+
+  /** Run the mail relay after a recovery request commits. A returned promise is awaited (tests); production returns nothing. Unset: rows wait for `drainMailOutbox`. */
+  useMailRelayTrigger(trigger: (() => void | Promise<void>) | undefined): void {
+    this.mailRelayTrigger = trigger;
+  }
+
+  /** Send the pending recovery mail, once each. Safe to call from a timer and from a trigger at the same time. */
+  async drainMailOutbox(): Promise<{ sent: number; undeliverable: number; unknown: number }> {
+    return relayMailOutbox(this.resetDeps());
+  }
+
+  /** Whether recovery mail can leave this process. A server-wide fact, not per address. */
+  passwordResetChannel(): { emailDelivery: 'on' | 'off' } {
+    return { emailDelivery: this.passwordResetMail ? 'on' : 'off' };
   }
 
   /** Test clock. Production uses the real clock. */
@@ -628,8 +676,14 @@ export class AuthService {
       sql: this.sql,
       mail: this.passwordResetMail,
       ttlSeconds: this.passwordResetTtlSeconds,
+      maxAttempts: this.passwordResetMaxAttempts,
+      requestMax: this.passwordResetRequestMax,
+      requestWindowSeconds: this.passwordResetRequestWindowSeconds,
+      subjectKey: this.flowSubjectKey,
+      notifyUnknown: this.resetNotifyUnknown,
       now: this.passwordResetNow,
       log: this.log,
+      afterCommit: this.mailRelayTrigger,
     };
   }
 
@@ -851,6 +905,28 @@ export class AuthService {
     return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
   }
 
+  /**
+   * Open a session for an account whose identity a trusted outside party has just confirmed (a linked
+   * provider identity). The second factor is still required: an account with TOTP needs its code,
+   * counted and checked the same way as `login`, and a session without one is not marked `mfa`.
+   */
+  async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+    const [user] = await this.sql<
+      Array<{ id: string; status: string; totp_secret: string | null }>
+    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    let mfa = false;
+    if (user.totp_secret) {
+      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
+      mfa = true;
+      await recordSuccess(this.sql, user.id, 'mfa');
+    }
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+  }
+
   private async issueSession(
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
@@ -864,7 +940,7 @@ export class AuthService {
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
           Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}) RETURNING id`;
       },
       { isolation: 'read committed' },
     );
@@ -903,6 +979,9 @@ export class AuthService {
       successor_id: string | null;
       successor_refresh: string | null;
       device: string | null;
+      family_id: string;
+      ip: string | null;
+      user_agent: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
@@ -921,7 +1000,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -975,7 +1054,7 @@ export class AuthService {
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
@@ -1296,6 +1375,11 @@ export class AuthService {
    */
   async requestPasswordReset(input: { email: string }): Promise<{ accepted: true }> {
     return requestPasswordReset(this.resetDeps(), input);
+  }
+
+  /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
+  async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
+    return requestHandleRecovery(this.resetDeps(), input);
   }
 
   /** Signed-in. Mails a one-time link to this account's own address. Never returns the token. */

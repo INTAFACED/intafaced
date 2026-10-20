@@ -9,12 +9,9 @@ import { helpHref } from '../public/help-guards';
 import { t as legacyText } from './copy';
 import { Details, Read, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
-import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
+import { HIDDEN_FEATURE_ARTICLES, KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from './support-desk';
 import { kbSchema, type KbArticle } from './support-schemas';
 import { readRelated, sendArticleFeedback } from './support-calls';
-
-/** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
-const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
 
 const CATEGORY_KEY = {
   all: 'categoryAll',

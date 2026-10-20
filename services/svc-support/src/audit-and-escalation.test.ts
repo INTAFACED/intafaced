@@ -260,6 +260,7 @@ describe('escalation carries its case file', () => {
     const base = new MemorySupportStore();
     const store: SupportStore = {
       createTicket: (i) => base.createTicket(i),
+      createTicketOnce: (i) => base.createTicketOnce(i),
       listByUser: (u, options) => base.listByUser(u, options),
       listAll: () => base.listAll(),
       findById: (id) => base.findById(id),

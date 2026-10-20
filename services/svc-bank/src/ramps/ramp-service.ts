@@ -24,6 +24,8 @@ import {
   quoteOfframp,
   quoteOnramp,
   removeDestination,
+  renameDestination,
+  saveDestination,
   type CustomerOnrampView,
   type CustomerRampDeps,
   type DestinationView,
@@ -32,8 +34,10 @@ import {
 } from './customer-ramps.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
+  BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
   UserWithdrawDestinationStore,
+  type SaveDestinationInput,
   type UserWithdrawDestinations,
   type WithdrawDestination,
 } from '../withdraw-destination.js';
@@ -189,6 +193,11 @@ export interface RampServiceOptions {
    */
   offrampCoolingHours?: string;
   /**
+   * Owner-set address-book size (`BANK_ADDRESS_BOOK_CAP`). Omit to read the env at save time.
+   * Blank / unset refuses `bank.address_book_cap_unset`. Never defaulted.
+   */
+  addressBookCap?: string;
+  /**
    * Rate/fee source for `ramps.onrampQuote`. Unset refuses `bank.onramp_rate_unset`.
    * The service does not invent a pay amount, fee, or rate.
    */
@@ -221,7 +230,11 @@ export class RampService {
   ) {
     this.programme = options.programme ?? NO_RAMP_PROGRAMME;
     this.payFiat = options.payFiat ?? emptyPayFiatRampPort;
-    this.destinations = options.destinations ?? new UserWithdrawDestinationStore(sql);
+    this.destinations =
+      options.destinations ??
+      new UserWithdrawDestinationStore(sql, {
+        addressBookCap: () => (options.addressBookCap !== undefined ? options.addressBookCap : process.env[BANK_ADDRESS_BOOK_CAP_ENV]),
+      });
     this.offrampCoolingHours = options.offrampCoolingHours;
     this.onrampQuotes = options.onrampQuotes ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
@@ -277,6 +290,16 @@ export class RampService {
   /** Saved wallets and bank accounts. Cooling end is the owner window, or a named unset. */
   listDestinations(userId: string): Promise<DestinationView[]> {
     return listDestinations(this.customerDeps(), userId);
+  }
+
+  /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */
+  saveDestination(input: SaveDestinationInput) {
+    return saveDestination(this.customerDeps(), input);
+  }
+
+  /** Rename one saved destination. The cooling clock does not restart. */
+  renameDestination(input: { userId: string; destinationId: string; label: string }) {
+    return renameDestination(this.customerDeps(), input);
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */
