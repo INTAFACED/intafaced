@@ -265,4 +265,29 @@ describe('payout reconciler job', { timeout: 30_000 }, () => {
     expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 1 })).toMatchObject({ examined: 1, paidOut: 1 });
     expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 1 })).toMatchObject({ examined: 1, paidOut: 1 });
   });
+
+  it('limit 1: an older payout the rail cannot resolve does not starve a newer resolvable one', async () => {
+    const stuck = await crashedAfterSend('recon-starve-old');
+    const newer = await crashedAfterSend('recon-starve-new');
+    const originalQuery = crypto.queryPayout.bind(crypto);
+    crypto.queryPayout = async (key) => {
+      if (key === `pay.payout:${stuck.settlement.id}`) throw new Error('rail cannot say');
+      return originalQuery(key);
+    };
+    const first = await runPayoutReconcilePass(sql, pay, { batchLimit: 1 });
+    expect(first).toMatchObject({ examined: 1, stillUnknown: 1, paidOut: 0 });
+    expect(first.nextCursor).not.toBeNull();
+    const second = await runPayoutReconcilePass(sql, pay, { batchLimit: 1, after: first.nextCursor });
+    expect(second).toMatchObject({ examined: 1, paidOut: 1 });
+    expect((await pay.getSettlement(newer.settlement.id)).status).toBe('paid_out');
+    expect((await pay.getSettlement(stuck.settlement.id)).status).toBe('posted');
+    // the cursor wraps once the page is short, so the stuck one is asked again
+    const third = await runPayoutReconcilePass(sql, pay, { batchLimit: 1, after: second.nextCursor });
+    expect(third.examined).toBe(0);
+    expect(third.nextCursor).toBeNull();
+    expect(await runPayoutReconcilePass(sql, pay, { batchLimit: 1, after: third.nextCursor })).toMatchObject({
+      examined: 1,
+      stillUnknown: 1,
+    });
+  });
 });
