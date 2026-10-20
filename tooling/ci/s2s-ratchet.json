@@ -44,18 +44,6 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-execution/src/oms-basket-matching.ts": {
-      "sign": 2,
-      "caller": 0
-    },
-    "services/svc-execution/src/oms-kill-parent-matching.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-execution/src/operator-desk.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-execution/src/router.ts": {
       "sign": 0,
       "caller": 1

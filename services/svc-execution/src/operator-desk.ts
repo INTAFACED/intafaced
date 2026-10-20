@@ -7,9 +7,11 @@ import { createHash } from 'node:crypto';
 import {
   actionApprovalSchema,
   founderAttestationVerdict,
-  serviceAuthHeadersForBody,
+  serviceCallSigner,
   type ActionApproval,
   type ActionApprovalConsumeInput,
+  type ServiceAuthMode,
+  type ServiceSigner,
 } from '@intafaced/contracts';
 import type { EmsOrderEvidence, EmsOrderState } from './oms-ems-store.js';
 
@@ -89,16 +91,22 @@ export interface ApprovalConsumer {
   consume(input: ActionApprovalConsumeInput): Promise<ActionApproval>;
 }
 
-export function createExecutionApprovalClient(baseUrl: string, internalSecret: string): ApprovalConsumer {
+export function createExecutionApprovalClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ApprovalConsumer {
   const url = baseUrl.replace(/\/$/, '');
+  const authHeaders = serviceCallSigner({ service: 'svc-execution', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   return {
     async consume(input) {
       const payload = JSON.stringify(input);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
+      const target = `${url}/trpc/actionApproval.consume`;
+      const res = await fetch(target, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-execution', internalSecret, payload),
+          ...authHeaders(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
         },
         body: payload,
       });

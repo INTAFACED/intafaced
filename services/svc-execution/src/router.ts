@@ -46,6 +46,7 @@ import { listUnconfirmedChildFills } from './oms-unconfirmed.js';
 import { assignOrphanedChildFill, listOrphanedChildFills } from './oms-assign.js';
 import { killUnattendedLiveParent } from './oms-unattended-kill.js';
 import { handleKillParentDoor } from './oms-kill-parent-http.js';
+import type { OmsMatchingS2s } from './oms-kill-parent-matching.js';
 import { claimLiveAlgoParent, readLiveAlgoParentOwnership, unclaimLiveAlgoParent } from './oms-claim.js';
 import { acceptLiveAlgoParentPass, passLiveAlgoParent, rejectLiveAlgoParentPass, timeoutLiveAlgoParentPass } from './oms-pass.js';
 import { shiftLiveAlgoParent } from './oms-shift.js';
@@ -379,6 +380,7 @@ export function createExecutionRouter(
   matchingUrl: string | null | undefined = undefined,
   fetchImpl: typeof fetch | undefined = undefined,
   operatorApprovals?: { consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> },
+  matchingS2s?: OmsMatchingS2s,
 ) {
   const haltIdem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskFail = (err: unknown): never => {
@@ -756,6 +758,7 @@ export function createExecutionRouter(
               matchingVenueHalt,
               matchingUrl,
               fetch: fetchImpl,
+              matchingS2s,
             });
           });
         }),
@@ -765,6 +768,7 @@ export function createExecutionRouter(
             return handleKillBasketDoor(input, {
               matchingUrl,
               fetch: fetchImpl,
+              matchingS2s,
             });
           });
         }),
@@ -1028,6 +1032,7 @@ export function createExecutionRouter(
                 cancelByVenue,
                 matchingUrl,
                 fetch: fetchImpl,
+                matchingS2s,
               }),
             ),
           ),
