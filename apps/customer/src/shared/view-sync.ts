@@ -72,7 +72,12 @@ export function createViewSync(options: {
     return true;
   }
 
-  function adopt(): void {
+  /**
+   * `asked` is this device's view when the read was sent. A field the person changed while the read was out, and that the
+   * account does not hold, stays unagreed so the next push sends it; a field the account holds wins, as on any sign-in.
+   */
+  function adopt(asked: Fields): void {
+    const during = accountFields(local());
     const patch: Partial<Fields> = {};
     for (const field of SYNCED) {
       const value = record[field];
@@ -80,11 +85,15 @@ export function createViewSync(options: {
     }
     if (Object.keys(patch).length) applyRemote(patch);
     agreed = accountFields(local());
+    for (const field of SYNCED) {
+      if (record[field] === undefined && during[field] !== asked[field]) (agreed as Record<string, unknown>)[field] = asked[field];
+    }
   }
 
   async function pull(signal?: AbortSignal): Promise<ViewSyncStatus> {
+    const asked = accountFields(local());
     if (!(await read(signal))) return 'not-saved';
-    adopt();
+    adopt(asked);
     return 'synced';
   }
 

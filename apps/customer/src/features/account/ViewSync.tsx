@@ -36,7 +36,7 @@ export function AccountViewSync() {
   const preferences = usePreferences();
   const apiRef = useRef(api);
   apiRef.current = api;
-  const sync = useRef<ViewSync | null>(null);
+  const sync = useRef<{ view: ViewSync; signal: AbortSignal } | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     if (!userId) {
@@ -52,7 +52,7 @@ export function AccountViewSync() {
       local: currentPreferences,
       applyRemote: (patch) => savePreferences(patch),
     });
-    sync.current = next;
+    sync.current = { view: next, signal: controller.signal };
     void next.pull(controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       setStatus(result);
@@ -60,14 +60,18 @@ export function AccountViewSync() {
     });
     return () => {
       controller.abort();
-      if (sync.current === next) sync.current = null;
+      sync.current = null;
       setReady(false);
     };
   }, [userId]);
   const fields = JSON.stringify(accountFields(preferences));
   useEffect(() => {
     if (!ready) return;
-    const timer = setTimeout(() => void sync.current?.push().then(setStatus), SETTLE_MS);
+    const timer = setTimeout(() => {
+      // Tied to the sign-in that made it: a result that lands after sign-out or an account switch is dropped.
+      const current = sync.current;
+      if (current) void current.view.push(current.signal).then((result) => sync.current === current && setStatus(result));
+    }, SETTLE_MS);
     return () => clearTimeout(timer);
   }, [ready, fields]);
   return null;
