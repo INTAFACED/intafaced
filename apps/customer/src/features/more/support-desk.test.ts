@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SUPPORT_EMAIL,
   RATING_SCORES,
+  canFollowUp,
   canReply,
+  followUpDraft,
   filterTickets,
   inKbCategory,
   kbCategory,
@@ -144,5 +146,20 @@ describe('contact address', () => {
   it('builds a mailto that carries only the text it was given, encoded', () => {
     const href = supportMailto('a@b.co', "Can't sign in", 'Hi & thanks');
     expect(href).toBe("mailto:a@b.co?subject=Can't%20sign%20in&body=Hi%20%26%20thanks");
+  });
+});
+
+describe('follow-up on a closed request', () => {
+  it('is offered on a closed request only', () => {
+    expect(canFollowUp('closed')).toBe(true);
+    for (const status of ['open', 'pending', 'resolved'] as const) expect(canFollowUp(status)).toBe(false);
+  });
+
+  it('starts from the same topic with a subject that names what it follows, within the subject limit', () => {
+    expect(followUpDraft({ category: 'trading', subject: 'Order stuck' }, 'Follow-up:')).toEqual({
+      category: 'trading',
+      subject: 'Follow-up: Order stuck',
+    });
+    expect(followUpDraft({ category: 'other', subject: 'x'.repeat(200) }, 'Follow-up:').subject).toHaveLength(200);
   });
 });

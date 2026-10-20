@@ -63,6 +63,16 @@ export function ticketReference(id: string): string {
   return `#${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
 }
 
+/** A closed request cannot be reopened, so the way on is a new request that follows it. */
+export function canFollowUp(status: TicketStatus): boolean {
+  return status === 'closed';
+}
+
+/** The starting point of a follow-up: the same topic, and a subject that names what it follows (the 200-letter limit kept). */
+export function followUpDraft(ticket: Pick<TicketLike, 'category' | 'subject'>, prefix: string): { category: string; subject: string } {
+  return { category: ticket.category, subject: `${prefix} ${ticket.subject}`.slice(0, 200) };
+}
+
 /** A closed request takes no more messages. A resolved one reopens when the person replies. */
 export function canReply(status: TicketStatus): boolean {
   return status !== 'closed';
