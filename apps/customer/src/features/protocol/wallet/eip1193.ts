@@ -188,18 +188,18 @@ export function walkTyped(typedData: TypedDataDocument): { leaves: Leaf[]; undec
   const leaves: Leaf[] = [];
   const undeclared: string[] = [];
   const visit = (typeName: string, value: unknown, depth: number) => {
-    const fields = typedData.types[typeName];
-    if (!fields || typeof value !== 'object' || value === null || depth > 6) return;
+    const fields = Object.hasOwn(typedData.types, typeName) ? typedData.types[typeName] : undefined;
+    if (!Array.isArray(fields) || typeof value !== 'object' || value === null || depth > 6) return;
     const record = value as Record<string, unknown>;
     const declared = new Set(fields.map((field) => field.name));
     for (const key of Object.keys(record)) if (!declared.has(key)) undeclared.push(key);
     for (const field of fields) {
-      const base = field.type.replace(/\[\d*\]$/, '');
+      const base = field.type.replace(/(\[\d*\])+$/, '');
       const isArray = base !== field.type;
       const entry = record[field.name];
-      const items = isArray ? (Array.isArray(entry) ? entry : []) : [entry];
+      const items = isArray ? (Array.isArray(entry) ? entry.flat(Infinity) : []) : [entry];
       for (const item of items) {
-        if (typedData.types[base]) visit(base, item, depth + 1);
+        if (Object.hasOwn(typedData.types, base)) visit(base, item, depth + 1);
         else if (item !== undefined && item !== null && typeof item !== 'object') leaves.push({ name: field.name, value: String(item) });
       }
     }
@@ -218,7 +218,14 @@ export function refuseReason(request: SignRequest): string | null {
   if (request.kind === 'typedData') {
     const { domain, types, primaryType } = request.typedData;
     if (domain.chainId === undefined) return 'The signature does not name a chain.';
-    if (!types[primaryType]) return 'The signature does not declare its own fields.';
+    if (!Object.hasOwn(types, primaryType) || !Array.isArray(types[primaryType])) return 'The signature does not declare its own fields.';
+    // The wallet hashes the domain from the fields EIP712Domain declares, so only declared domain fields are signed.
+    const declared =
+      Object.hasOwn(types, 'EIP712Domain') && Array.isArray(types.EIP712Domain) ? types.EIP712Domain.map((field) => field.name) : null;
+    if (!declared || !declared.includes('chainId')) return 'The signature does not declare its chain in its domain.';
+    if (Object.keys(domain).some((key) => !declared.includes(key))) return 'The signature domain carries fields it does not declare.';
+    if (declared.some((name) => (domain as Record<string, unknown>)[name] === undefined))
+      return 'The signature domain is missing a declared field.';
     if (walkTyped(request.typedData).undeclared.length > 0) return 'The signature carries fields it does not declare.';
   }
   return null;

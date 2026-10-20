@@ -32,6 +32,11 @@ const PERMIT_TYPES = {
     { name: 'deadline', type: 'uint256' },
   ],
 };
+/** Declares exactly the domain keys given, the way a wallet hashes them. */
+const withDomain = (types: Record<string, Array<{ name: string; type: string }>>, domain: Record<string, unknown>) => ({
+  EIP712Domain: Object.keys(domain).map((name) => ({ name, type: 'string' })),
+  ...types,
+});
 const T1 = '0x3333333333333333333333333333333333333333';
 const T2 = '0x4444444444444444444444444444444444444444';
 const PERMIT2_TYPES = {
@@ -55,7 +60,7 @@ const permitDoc = (
   domain: Record<string, unknown> = { chainId: 84532 },
   message: Record<string, unknown> = { spender: ADDR, value: '1', deadline: '9' },
 ) => ({
-  types: PERMIT_TYPES,
+  types: withDomain(PERMIT_TYPES, domain),
   primaryType: 'Permit',
   domain,
   message,
@@ -212,7 +217,7 @@ describe('the plain-words sheet facts', () => {
     const permit2 = describeRequest({
       kind: 'typedData',
       typedData: {
-        types: PERMIT2_TYPES,
+        types: withDomain(PERMIT2_TYPES, { name: 'Permit2', chainId: 84532 }),
         primaryType: 'PermitSingle',
         domain: { name: 'Permit2', chainId: 84532 },
         message: {
@@ -230,7 +235,7 @@ describe('the plain-words sheet facts', () => {
     const facts = describeRequest({
       kind: 'typedData',
       typedData: {
-        types: PERMIT_TYPES,
+        types: withDomain(PERMIT_TYPES, { chainId: 84532, verifyingContract: '0x2222222222222222222222222222222222222222' }),
         primaryType: 'Permit',
         domain: { chainId: 84532, verifyingContract: '0x2222222222222222222222222222222222222222' },
         message: { spender: ADDR, value: '1000000', deadline: '1900000000' },
@@ -250,7 +255,12 @@ describe('the plain-words sheet facts', () => {
 describe('what the sheet shows is what the signature carries', () => {
   const single = (message: Record<string, unknown>) => ({
     kind: 'typedData' as const,
-    typedData: { types: PERMIT2_TYPES, primaryType: 'PermitSingle', domain: { name: 'Permit2', chainId: 84532 }, message },
+    typedData: {
+      types: withDomain(PERMIT2_TYPES, { name: 'Permit2', chainId: 84532 }),
+      primaryType: 'PermitSingle',
+      domain: { name: 'Permit2', chainId: 84532 },
+      message,
+    },
   });
   const details = { token: T1, amount: 'max', expiration: '99' };
   it('refuses a message that carries fields its types do not declare (a spoofed top-level token and amount)', async () => {
@@ -274,7 +284,7 @@ describe('what the sheet shows is what the signature carries', () => {
     const batch = {
       kind: 'typedData' as const,
       typedData: {
-        types: PERMIT2_TYPES,
+        types: withDomain(PERMIT2_TYPES, { name: 'Permit2', chainId: 84532 }),
         primaryType: 'PermitBatch',
         domain: { name: 'Permit2', chainId: 84532 },
         message: {
@@ -298,5 +308,46 @@ describe('what the sheet shows is what the signature carries', () => {
     expect(refuseReason({ kind: 'transaction', to: 'nope' })).toMatch(/recipient/);
     expect(refuseReason({ kind: 'transaction', to: ADDR, data: '0xabc' })).toMatch(/calldata/);
     expect(refuseReason({ kind: 'transaction', to: ADDR, value: '0x10', data: '0x095ea7b3' })).toBeNull();
+  });
+  it('refuses a domain that shows a chain or contract the wallet would not sign, and a missing EIP712Domain', () => {
+    // The wallet hashes only the fields EIP712Domain declares: chainId is shown but not signed here.
+    const unsignedChain = permitDoc({ name: 'X', chainId: 84532, verifyingContract: ADDR });
+    unsignedChain.types.EIP712Domain = [
+      { name: 'name', type: 'string' },
+      { name: 'verifyingContract', type: 'address' },
+    ];
+    expect(refuseReason({ kind: 'typedData', typedData: unsignedChain })).toMatch(/domain/);
+    // chainId is signed but the contract fact shown is not.
+    const unsignedContract = permitDoc({ name: 'X', chainId: 84532, verifyingContract: ADDR });
+    unsignedContract.types.EIP712Domain = [
+      { name: 'name', type: 'string' },
+      { name: 'chainId', type: 'uint256' },
+    ];
+    expect(refuseReason({ kind: 'typedData', typedData: unsignedContract })).toMatch(/domain/);
+    const none = permitDoc();
+    delete (none.types as Record<string, unknown>).EIP712Domain;
+    expect(refuseReason({ kind: 'typedData', typedData: none })).toMatch(/domain/);
+    expect(refuseReason({ kind: 'typedData', typedData: permitDoc() })).toBeNull();
+  });
+  it('returns invalid_request, never throws, for names that exist on every object', () => {
+    for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
+      const doc = { ...permitDoc(), primaryType: name };
+      expect(() => refuseReason({ kind: 'typedData', typedData: doc })).not.toThrow();
+      expect(refuseReason({ kind: 'typedData', typedData: doc })).toMatch(/declare/);
+      expect(() => describeRequest({ kind: 'typedData', typedData: doc })).not.toThrow();
+    }
+  });
+  it('lists the entries of nested arrays', () => {
+    const doc = {
+      types: withDomain({ Batch: [{ name: 'rows', type: 'Row[][]' }], Row: [{ name: 'token', type: 'address' }] }, { chainId: 84532 }),
+      primaryType: 'Batch',
+      domain: { chainId: 84532 },
+      message: { rows: [[{ token: T1 }], [{ token: T2 }]] },
+    };
+    expect(
+      describeRequest({ kind: 'typedData', typedData: doc })
+        .filter((fact) => fact.label === 'token')
+        .map((fact) => fact.value),
+    ).toEqual([T1, T2]);
   });
 });

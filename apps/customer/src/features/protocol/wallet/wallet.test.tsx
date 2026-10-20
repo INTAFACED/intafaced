@@ -13,7 +13,7 @@ const calls: string[] = [];
 let captured: unknown;
 const listeners = new Map<string, (value: unknown) => void>();
 const PERMIT = {
-  types: { Permit: [{ name: 'spender', type: 'address' }] },
+  types: { EIP712Domain: [{ name: 'chainId', type: 'uint256' }], Permit: [{ name: 'spender', type: 'address' }] },
   primaryType: 'Permit',
   domain: { chainId: 84532 },
   message: { spender: ADDR },
