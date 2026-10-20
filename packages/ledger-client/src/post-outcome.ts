@@ -57,17 +57,11 @@ function attemptsOf(err: unknown): number | null {
 
 export interface PostOutcomeOptions {
   /**
-   * The caller knows it made exactly ONE attempt. Needed only for a transport that does not stamp its attempt count;
-   * the shared HTTP client does, and an error that carries a count of 1 is treated the same way.
+   * The caller knows it made exactly ONE attempt, and no earlier post under this key. Needed only for a transport that
+   * does not stamp its attempt count; the shared HTTP client does, and an error that carries a count of 1 is treated
+   * the same way.
    */
   readonly singleAttempt?: boolean;
-  /**
-   * When the first attempt started. A retried call is released only once `POST_IN_FLIGHT_BOUND_SECONDS` have passed
-   * since then (see `provesPostNotCommitted`).
-   */
-  readonly firstAttemptAt?: Date;
-  /** Injectable clock for `firstAttemptAt`. */
-  readonly now?: Date;
 }
 
 /**
@@ -77,8 +71,8 @@ export interface PostOutcomeOptions {
  * error itself is not that proof. ECONNRESET, socket hang up, UND_ERR_SOCKET, every 5xx, a timeout and every untyped
  * error stay `unknown`.
  *
- * This is the class of the LAST attempt. Whether it frees the claim also depends on how many attempts there were:
- * `provesPostNotCommitted`.
+ * This is the class of the LAST attempt. Whether it frees the claim also depends on how many attempts there were
+ * and whether the key was posted before: `provesPostNotCommitted`.
  */
 export function classifyPostOutcome(err: unknown, options: PostOutcomeOptions = {}): PostOutcomeClass {
   if (err instanceof LedgerError && DEFINITE_POST_REFUSAL_CODES.has(err.code)) return 'refused';
@@ -93,20 +87,18 @@ function isSingleAttempt(err: unknown, options: PostOutcomeOptions): boolean {
 /**
  * True when the failure proves nothing committed under the key, so the caller may release its claim.
  *
- * The shared HTTP client retries a post after a network error or a 502/503/504 and throws only the LAST attempt's
- * error. An earlier attempt that timed out on the caller's side may still be queued on the ledger and commit later, so
- * a refusal or a failed connect from attempt 2 proves nothing about attempt 1. Therefore:
- *   - a single attempt (stamped count of 1, or `singleAttempt: true`): `refused` and `unsent` both prove it;
- *   - a retried or uncounted call: only once `firstAttemptAt` is older than `POST_IN_FLIGHT_BOUND_SECONDS`;
- *   - otherwise false. Read the key back (`getTxByKey`) and decide from the book.
+ * Only a call that made a SINGLE attempt, and is the FIRST post ever made under this key, proves it (stamped count of 1,
+ * or `singleAttempt: true`):
+ *   - The shared HTTP client retries a post after a network error or a 502/503/504 and throws only the LAST attempt's
+ *     error. An earlier attempt that timed out on the caller's side may still be queued on the ledger and commit later,
+ *     so a refusal or failed connect from attempt 2 proves nothing about attempt 1. A retried or uncounted call is
+ *     never released from its error alone.
+ *   - The count covers one call, not the key. A caller that re-posts under a key it already posted once (the lost-reply
+ *     flow) must not use this at all: its earlier call may still land. It keeps the claim, reads the key back
+ *     (`getTxByKey`) once `POST_IN_FLIGHT_BOUND_SECONDS` have passed since its LAST attempt, and decides from the book.
  */
 export function provesPostNotCommitted(err: unknown, options: PostOutcomeOptions = {}): boolean {
-  const outcome = classifyPostOutcome(err, options);
-  if (outcome === 'unknown') return false;
-  if (isSingleAttempt(err, options)) return true;
-  if (outcome !== 'refused' || options.firstAttemptAt === undefined) return false;
-  const now = (options.now ?? new Date()).getTime();
-  return now - options.firstAttemptAt.getTime() >= POST_IN_FLIGHT_BOUND_SECONDS * 1000;
+  return classifyPostOutcome(err, options) !== 'unknown' && isSingleAttempt(err, options);
 }
 
 function causeNeverSent(err: unknown): boolean {

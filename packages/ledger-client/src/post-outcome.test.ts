@@ -90,18 +90,13 @@ describe('classifyPostOutcome', () => {
     expect(provesPostNotCommitted(new Error('timeout'), once)).toBe(false);
   });
 
-  it('provesPostNotCommitted: a refusal from a retried call proves nothing until the in-flight bound has passed', () => {
+  it('provesPostNotCommitted: a refusal or failed connect from a retried or uncounted call never frees the claim', () => {
     const retried = new LedgerError('x', 'ledger.insufficient_funds');
     stampPostAttempts(retried, 2);
-    const start = new Date('2026-10-20T00:00:00.000Z');
-    const at = (seconds: number) => new Date(start.getTime() + seconds * 1000);
     expect(provesPostNotCommitted(retried)).toBe(false);
-    expect(provesPostNotCommitted(retried, { firstAttemptAt: start, now: at(POST_IN_FLIGHT_BOUND_SECONDS - 1) })).toBe(false);
-    expect(provesPostNotCommitted(retried, { firstAttemptAt: start, now: at(POST_IN_FLIGHT_BOUND_SECONDS) })).toBe(true);
-    // A failed connect on a retried call never proves it, however old.
     const connect = withCause('ECONNREFUSED');
     stampPostAttempts(connect, 3);
-    expect(provesPostNotCommitted(connect, { firstAttemptAt: start, now: at(10_000) })).toBe(false);
+    expect(provesPostNotCommitted(connect)).toBe(false);
     // An error with no count is treated as possibly retried.
     expect(provesPostNotCommitted(new LedgerError('x', 'ledger.frozen'))).toBe(false);
   });
