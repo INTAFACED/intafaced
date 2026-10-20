@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0101_pay_screening_case_desk.sql
+-- intafaced:destructive — reversal of 0103_pay_screening_case_desk.sql
 --
 -- Drops the desk columns and the decision history. A decision on a case is lost,
 -- so this is for CI proof of reversibility and for a database that never held a

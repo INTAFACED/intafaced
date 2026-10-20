@@ -210,6 +210,7 @@ const bank = createBankServices(sql, ledger, history, {
   ramps: {
     programme: rampProgrammeFor(env.BANK_RAMP_MODE),
     offrampCoolingHours: env.BANK_OFFRAMP_COOLING_HOURS,
+    addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
   },
 });
 

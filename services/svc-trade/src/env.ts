@@ -375,10 +375,11 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_FUNDING_MAX_ABS_RATE: z.string().default(''),
 
       /**
-       * THE ACCOUNT REALISED FUTURES PROFIT IS PAID FROM, and therefore the
-       * ceiling on what a winning position can be paid.
+       * THE ACCOUNT REALISED FUTURES PROFIT IS PAID FROM: the futures clearing
+       * pot that realised losses fill (docs/adr/2026-10-20-futures-matched-traders.md).
+       * What it cannot cover yet is owed, not refused (`futures/futures-payouts.ts`).
        *
-       * `ownerType:ownerId:kind[:purpose]`, e.g. `house:fees:trade:available`.
+       * `ownerType:ownerId:kind[:purpose]`, i.e. `house:futures-loss:available`.
        *
        * NO DEFAULT, and that is the decision. `futuresRealizeProfit` used to
        * draw on a fee pot with no ceiling — a house account is not an insurance

@@ -93,7 +93,7 @@ The 2026-08-13 seal stands. This addendum names three sentences that were implie
 
 Capital into the pot is already `futuresInsuranceTopup` (`packages/ledger-client/src/recipes/index.ts`: seed/top-up from house trade fees; shortfalls draw via `futuresRealizeLoss({ fromInsurance })`). List-gate tests seed that path (`insurance-listing-gate.test.ts`: `deposit` → `futuresMarginLock` → `futuresRealizeLoss` with `fromInsurance: 0n` → `futuresInsuranceTopup`) and refuse active real-money futures when the MemoryLedger pot is empty (`trade.insurance_fund_empty`). T1d (`insurance-shortfall-balance.test.ts`, #1684) proves a funded shortfall moves the named insurance balance by exactly the shortfall using the same recipes (`deposit` → `futuresMarginLock` · `feeCharge` → `futuresInsuranceTopup`, then `futuresRealizeLoss({ fromInsurance })`). Test seeds are fixtures, not product law.
 
-The live-path inventory records `futuresInsuranceTopup` as a **§13 socket for an ops/admin writer**, not as a missing recipe. Agents do **not** invent a second top-up recipe, an inline post, or insurance bps to close that socket.
+The writer now exists: the trade operator desk door `admin.insurance.topup` in `svc-trade` (`admin/insurance-topup.ts`; futures ADR 2026-10-20, slice 4) posts `futuresInsuranceTopup` with a second person's approval, and the live-path inventory lists it as live. Before that, the inventory recorded `futuresInsuranceTopup` as a **§13 socket for an ops/admin writer**, not as a missing recipe. Agents do **not** invent a second top-up recipe, an inline post, or insurance bps to close that socket.
 
 ### Empty vs unset vs owner-unset size
 

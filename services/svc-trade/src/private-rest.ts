@@ -18,6 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
+import { refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -52,6 +53,7 @@ import {
 } from './futures/margin-mode.js';
 import { CANCEL_NOT_CLOSE } from './futures/cancel-not-close.js';
 import type { MarginCallWire } from './futures/margin-call-transport.js';
+import type { FuturesPayout } from './futures/futures-payouts.js';
 import type { AdlDisclosureWire } from './futures/adl-disclosure.js';
 import type { AdlActionDisclosureWire } from './futures/adl-last-resort.js';
 import { AdlDisclosureError } from './futures/adl-disclosure.js';
@@ -96,6 +98,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   POST   /api/v1/futures/adl-disclosure/ack scope: trade:write (ack before open)
  *   GET    /api/v1/futures/adl-events         scope: trade:read  (disclosure-before-action; ?limit= 1..500)
  *   GET    /api/v1/futures/liquidations      scope: trade:read  (caller's rungs; adlRank null until published)
+ *   GET    /api/v1/futures/payouts           scope: trade:read  (caller's profit payouts: paid, or owed while the clearing pot is short)
  *   GET    /api/v1/positions/:id/funding-payments scope: trade:read (?cursor=)
  *   POST   /api/v1/positions       scope: trade:write (open funded position — F3)
  *   DELETE /api/v1/positions/:id   scope: trade:write (cancel-not-close — does not release margin)
@@ -122,6 +125,20 @@ export const TRADE_POSITIONS_CLOSED_LIMIT_UNSET = 'trade.positions_closed_limit_
 export const TRADE_ADL_EVENTS_LIMIT_UNSET = 'trade.adl_events_limit_unset' as const;
 /** Batch size is deliberately finite: each item owns its own retry fence and money path. */
 export const MAX_BATCH_ORDERS = 100;
+
+/**
+ * A request deadline that has passed is waived for a replay of a booked clientOrderId. The lookup runs only then, so an
+ * order without a spent deadline pays no extra read and has no new failure mode.
+ */
+async function isDeadlineReplay(
+  deps: PrivateRestDeps,
+  principal: Principal,
+  body: { requestDeadline?: string; symbol: string; clientOrderId: string },
+  now: Date,
+): Promise<boolean> {
+  if (body.requestDeadline === undefined || Date.parse(body.requestDeadline) > now.getTime() || !deps.findClientOrder) return false;
+  return (await deps.findClientOrder(principal, { symbol: body.symbol, clientOrderId: body.clientOrderId })) !== null;
+}
 
 /** Spot-supported order types only (TradeService rejects stop-market and take-profit). */
 function isSpotOrderType(type: string): type is (typeof SPOT_ORDER_TYPES)[number] {
@@ -310,6 +327,8 @@ export interface PrivateRestDeps {
   }>;
   /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
   listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
+  /** The caller's futures profit payouts, newest first: paid, or owed while the clearing pot is short. */
+  listFuturesPayouts?(principal: Principal): Promise<{ payouts: readonly FuturesPayout[] }>;
 }
 
 /**
@@ -1584,6 +1603,26 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   });
 
+  app.get('/api/v1/futures/payouts', async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listFuturesPayouts) {
+      return reply.code(503).send({
+        error: 'trade.futures_payouts_unwired',
+        message: 'futures payout history is not wired on this process',
+      });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listFuturesPayouts(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
   app.get<{ Params: { id: string }; Querystring: { cursor?: string } }>('/api/v1/positions/:id/funding-payments', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
@@ -2127,6 +2166,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       let input: PlaceOrderInput;
       try {
         refuseExitLegs(rawItem);
+        const now = (deps.now ?? (() => new Date()))();
+        const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
+        refuseUnsupportedPlacementOptions(parsed.data, now, replay);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
@@ -2412,6 +2454,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let displayQty: string | null = null;
     let stopTrigger: string | null = null;
     try {
+      const now = (deps.now ?? (() => new Date()))();
+      const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
+      refuseUnsupportedPlacementOptions(parsed.data, now, replay);
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
@@ -2662,6 +2707,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
+      refuseOptionsOnReplacement(parsed.data);
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);

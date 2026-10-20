@@ -963,6 +963,26 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       actor: 'reconciliation',
       changedAt: ts(),
     },
+    coreOpsAlertRuleUpdated: {
+      ruleId: uid(),
+      version: 1,
+      change: 'created',
+      actor: uid(),
+      changedAt: ts(),
+    },
+    coreOpsAlertOpened: {
+      ruleId: uid(),
+      instance: 'a'.repeat(64),
+      epoch: 0,
+      state: 'firing',
+      openedAt: ts(),
+    },
+    coreOpsAlertResolved: {
+      ruleId: uid(),
+      instance: 'a'.repeat(64),
+      epoch: 0,
+      resolvedAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),

@@ -1,7 +1,18 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { coinHref, customerRoomHref, deskPairLabel, findRoom, resolveAlias, rooms, safeReturnTo, searchRooms } from './navigation';
+import {
+  coinHref,
+  customerRoomHref,
+  deskPairLabel,
+  findRoom,
+  resolveAlias,
+  roomPath,
+  roomTitle,
+  rooms,
+  safeReturnTo,
+  searchRooms,
+} from './navigation';
 import { screens } from './screens';
 import { isHiddenPath } from './feature-registry';
 
@@ -228,4 +239,13 @@ it('a coin link needs a session for the coin page, so a signed-out visitor gets 
   expect(coinHref('BTC', 'simple')).toBe('/coin/BTC');
   expect(coinHref('BTC', 'simple', null, false)).toBe('/trade/buy?asset=BTC');
   expect(coinHref('BTC', 'pro', 'BTC/USDT', false)).toBe('/trade/spot/BTC-USDT');
+});
+
+it('gives each searchable room the place it lives, as "Door > Room"; parked Web3 rooms sit under More', () => {
+  const earn = findRoom('/bank/earn')!;
+  expect(roomPath(earn, 'en')).toBe(`Bank > ${roomTitle(earn, 'en')}`);
+  const chain = findRoom('/chain')!;
+  expect(roomPath(chain, 'en')).toBe(`More > ${roomTitle(chain, 'en')}`);
+  // Rooms outside every door (a person setting, a public page) have no path.
+  expect(roomPath(findRoom('/view')!, 'en')).toBeUndefined();
 });

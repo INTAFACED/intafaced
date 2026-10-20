@@ -1,5 +1,5 @@
 -- svc-pay · W-compliance-notices-02 screening cases a compliance desk can read and decide.
--- Reversal: 0101_pay_screening_case_desk.down.sql
+-- Reversal: 0103_pay_screening_case_desk.down.sql
 --
 -- Adds, to the case row of 0062, what a person needs to read it: who the send was
 -- for (an id, never a name or address), how much of what asset, which provider

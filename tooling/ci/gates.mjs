@@ -333,7 +333,7 @@ export const NOT_GATES = {
   'review-signoff.mjs':
     'runs from review-signoff.yml on a review comment or a push to a pull request: posts the `Independent review` status for a listed reviewer, carries it across a clean rebase. Needs a GitHub token and an event payload, so a laptop verify has no input. `node tooling/ci/review-signoff.mjs --self-test` runs the policy on fixtures and is wired in the `changes` job of ci.yml.',
   'review-marker.mjs':
-    "merge-seal step: needs the success status `Independent review` on the PR head, which review-signoff.yml posts for a listed reviewer's `Independent review: PASS <head sha>` comment. Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the status reader and the comment matcher.",
+    "merge-seal step: needs the success status `Independent review` on the PR head, which review-signoff.yml posts for a listed reviewer's `Independent review: PASS <head sha>` comment, or that comment itself (read here so the seal does not wait for the sign-off runner). Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the status reader and the comment matcher.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',

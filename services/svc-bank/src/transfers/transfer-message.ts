@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
+import { bankTransferKey, type BankTransferKeySpace } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 
 /**
@@ -10,6 +11,8 @@ import { BankError } from '../errors.js';
 
 export interface TransferMessageInput {
   readonly transferId: string;
+  /** The key space the transfer posts under, so the "already booked" read looks at the right key. Defaults to `own`. */
+  readonly keySpace?: BankTransferKeySpace;
   readonly fromUserId: string;
   readonly toUserId: string;
   readonly note: string | null;
@@ -41,7 +44,7 @@ export async function bindTransferMessage(sql: Sql, ledger: LedgerKey, input: Tr
         }
         return;
       }
-      const posted = await ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
+      const posted = await ledger.getTxByKey(bankTransferKey(input.keySpace ?? 'own', input.transferId, 0));
       if (posted) {
         throw new BankError('This transfer already completed without this note or reference', 'bank.transfer_message_conflict');
       }

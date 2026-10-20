@@ -22,6 +22,7 @@ const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_au
 const MIGRATION_0009 = readFileSync(join(here, '..', 'drizzle', '0009_support_ratings.sql'), 'utf8');
 const MIGRATION_0010 = readFileSync(join(here, '..', 'drizzle', '0010_support_attachments.sql'), 'utf8');
 const MIGRATION_0011 = readFileSync(join(here, '..', 'drizzle', '0011_kb_topic_and_feedback.sql'), 'utf8');
+const MIGRATION_0014 = readFileSync(join(here, '..', 'drizzle', '0014_ticket_phishing_report.sql'), 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OP_A = '33333333-3333-4333-8333-333333333333';
@@ -47,6 +48,7 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0009);
   await sql.unsafe(MIGRATION_0010);
   await sql.unsafe(MIGRATION_0011);
+  await sql.unsafe(MIGRATION_0014);
 }
 
 afterAll(async () => {
@@ -100,6 +102,96 @@ describe.skipIf(!available)('PostgresSupportStore — durable desk', () => {
     const final = await s.findById(t.id);
     expect(final?.assigneeId).toBeTruthy();
     expect([OP_A, OP_B]).toContain(final!.assigneeId);
+  });
+
+  describe('PostgresSupportStore — phishing reports (I-signin-sessions-27)', () => {
+    const store = () => new PostgresSupportStore(sql!);
+    const REPORT = {
+      userId: USER,
+      category: 'phishing' as const,
+      subject: 'Fake sign-in email',
+      body: 'Forwarded below',
+      messageHeaders: 'Received: from mx.example.test\nFrom: "Support" <help@lookalike.example.test>',
+    };
+
+    beforeEach(async () => {
+      await sql!.unsafe(
+        'TRUNCATE TABLE support.comments, support.ticket_events, support.case_files, support.tickets RESTART IDENTITY CASCADE',
+      );
+      await sql!`DELETE FROM support.write_receipts WHERE procedure = 'support.create'`;
+    });
+
+    it('stores the pasted headers on a phishing ticket and reads them back from every door', async () => {
+      const s = store();
+      const t = await s.createTicket(REPORT);
+      expect(t).toMatchObject({ category: 'phishing', messageHeaders: REPORT.messageHeaders });
+      expect((await s.findById(t.id))?.messageHeaders).toBe(REPORT.messageHeaders);
+      expect((await s.listByUser(USER))[0]?.messageHeaders).toBe(REPORT.messageHeaders);
+      expect((await s.listAll())[0]?.messageHeaders).toBe(REPORT.messageHeaders);
+    });
+
+    it('a ticket without headers carries none', async () => {
+      const t = await store().createTicket({ userId: USER, category: 'account', subject: 's', body: 'b' });
+      expect(t).not.toHaveProperty('messageHeaders');
+    });
+
+    it('the database refuses headers on another category and over the cap', async () => {
+      const other = await tryInsert('account', 'Received: x');
+      const oversize = await tryInsert('phishing', 'x'.repeat(10_001));
+      const empty = await tryInsert('phishing', '');
+      const atCap = await tryInsert('phishing', 'x'.repeat(10_000));
+      expect(other).toBe('23514');
+      expect(oversize).toBe('23514');
+      expect(empty).toBe('23514');
+      expect(atCap).toBeUndefined();
+    });
+
+    it('a replay with the same key returns the first ticket and writes one ticket and one trail row', async () => {
+      const s = store();
+      const first = await s.createTicketOnce({ ...REPORT, clientRequestId: 'report-1' });
+      const replay = await s.createTicketOnce({ ...REPORT, clientRequestId: 'report-1' });
+      expect(replay).toEqual(first);
+      expect(await s.listByUser(USER)).toHaveLength(1);
+      const events = await sql!`SELECT 1 FROM support.ticket_events WHERE ticket_id = ${first.id}`;
+      expect(events).toHaveLength(1);
+    });
+
+    it('two concurrent submissions of one key make one ticket', async () => {
+      const s = store();
+      const [a, b, c] = await Promise.all([
+        s.createTicketOnce({ ...REPORT, clientRequestId: 'report-race' }),
+        s.createTicketOnce({ ...REPORT, clientRequestId: 'report-race' }),
+        s.createTicketOnce({ ...REPORT, clientRequestId: 'report-race' }),
+      ]);
+      expect(new Set([a.id, b.id, c.id]).size).toBe(1);
+      expect(await s.listByUser(USER)).toHaveLength(1);
+    });
+
+    it('the same key with different content is a conflict and stores nothing new', async () => {
+      const s = store();
+      await s.createTicketOnce({ ...REPORT, clientRequestId: 'report-2' });
+      await expect(s.createTicketOnce({ ...REPORT, body: 'A different message', clientRequestId: 'report-2' })).rejects.toThrow(
+        'support.idempotency_conflict',
+      );
+      expect(await s.listByUser(USER)).toHaveLength(1);
+    });
+
+    it('a key is per caller: another user with the same key gets their own ticket', async () => {
+      const s = store();
+      const mine = await s.createTicketOnce({ ...REPORT, clientRequestId: 'shared-key' });
+      const theirs = await s.createTicketOnce({ ...REPORT, userId: OP_A, clientRequestId: 'shared-key' });
+      expect(theirs.id).not.toBe(mine.id);
+      expect(theirs.userId).toBe(OP_A);
+    });
+
+    async function tryInsert(category: string, headers: string): Promise<string | undefined> {
+      try {
+        await sql!`INSERT INTO support.tickets (user_id, category, subject, body, message_headers) VALUES (${USER}, ${category}, 's', 'b', ${headers})`;
+        return undefined;
+      } catch (err) {
+        return typeof err === 'object' && err !== null && 'code' in err && typeof err.code === 'string' ? err.code : 'unknown';
+      }
+    }
   });
 });
 

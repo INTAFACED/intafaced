@@ -75,6 +75,7 @@ function mapError(err: unknown): never {
       err.code === 'support.list_events_limit_unset' ||
       err.code === 'support.list_kb_limit_unset' ||
       err.code === 'support.staff_bootstrap' ||
+      err.code === 'support.heartbeat_window_unset' ||
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
@@ -772,6 +773,9 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
             role: z.enum(['agent', 'lead']),
             appointedBy: z.string(),
             appointedAt: z.string(),
+            availability: z.enum(['online', 'busy', 'offline']),
+            availabilitySetAt: z.string().nullable(),
+            lastHeartbeatAt: z.string().nullable(),
           }),
         ),
       )
@@ -779,6 +783,48 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
         requireSupportOps(ctx.principal!);
         return support.listStaff();
       }),
+
+    /** Says whether automatic offline is an owner value or still blank. */
+    staffAvailabilityPolicy: scopedProcedure('support:ops')
+      .output(z.object({ automaticOffline: z.enum(['set', 'not_set']), heartbeatWindowSeconds: z.number().int().positive().nullable() }))
+      .query(({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.staffAvailabilityPolicy();
+      }),
+
+    /** An agent sets their own availability (omit userId); a lead may set anyone's. */
+    staffSetAvailability: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          userId: z.string().uuid().optional(),
+          availability: z.string().max(20),
+          reason: z.string().max(500).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          const actorId = ctx.principal!.userId;
+          return await support.setStaffAvailability({
+            actorId,
+            userId: input.userId ?? actorId,
+            availability: input.availability as never,
+            reason: input.reason,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Own heartbeat; refused while the owner has not set the offline window. */
+    staffHeartbeat: scopedProcedure('support:ops').mutation(async ({ ctx }) => {
+      try {
+        requireSupportOps(ctx.principal!);
+        return await support.staffHeartbeat({ actorId: ctx.principal!.userId });
+      } catch (err) {
+        mapError(err);
+      }
+    }),
 
     staffAppoint: scopedProcedure('support:ops')
       .input(

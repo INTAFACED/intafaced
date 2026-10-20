@@ -49,6 +49,13 @@ export interface TokenConfig {
   issuer: string;
   audience: string;
   accessTtlSeconds: number;
+  /**
+   * Signing-key rotation (I-signin-sessions-31). `keyId` names `secret` in the JWT
+   * header (`kid`, which is not the API-key `kid` claim). `verifyOnly` keys stay valid
+   * for verification during the overlap and never sign. Absent: one secret, no header id.
+   */
+  keyId?: string;
+  verifyOnly?: readonly { keyId: string; secret: string }[];
 }
 
 export interface Principal extends AccessClaims {
@@ -102,6 +109,23 @@ function key(secret: string): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+/**
+ * Keys a token may be checked against. A token naming an id uses only that key (an id
+ * that is not in the ring, such as a removed key, matches nothing). A token with no id
+ * predates rotation, so every key is tried: the signing key, then the verify-only ones.
+ */
+function candidateKeys(token: string, config: TokenConfig): Uint8Array[] {
+  const ring = [{ keyId: config.keyId, secret: config.secret }, ...(config.verifyOnly ?? [])];
+  let kid: unknown;
+  try {
+    kid = (JSON.parse(Buffer.from(token.split('.')[0] ?? '', 'base64url').toString()) as { kid?: unknown }).kid;
+  } catch {
+    throw new AuthError('Access token could not be verified', 'token.invalid');
+  }
+  if (kid === undefined) return ring.map((k) => key(k.secret));
+  return ring.filter((k) => k.keyId === kid).map((k) => key(k.secret));
+}
+
 export interface IssueAccessInput {
   userId: string;
   sessionId: string;
@@ -130,7 +154,7 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
     ...(input.stepUpScopes && input.stepUpScopes.length > 0 ? { stp: [...input.stepUpScopes] } : {}),
   } satisfies JWTPayload)
-    .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
+    .setProtectedHeader({ alg: 'HS256', typ: 'JWT', ...(config.keyId ? { kid: config.keyId } : {}) })
     .setSubject(input.userId)
     .setIssuer(config.issuer)
     .setAudience(config.audience)
@@ -145,10 +169,10 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
 export async function verifyAccessToken(token: string, config: TokenConfig): Promise<Principal> {
   let payload: JWTPayload;
   try {
-    const result = await jwtVerify(token, key(config.secret), {
+    const options = {
       issuer: config.issuer,
       audience: config.audience,
-      algorithms: ['HS256'],
+      algorithms: ['HS256'] as string[],
       /**
        * `exp` is REQUIRED, not merely checked when present.
        *
@@ -165,8 +189,21 @@ export async function verifyAccessToken(token: string, config: TokenConfig): Pro
        * — which are the two highest-value doors in the platform.
        */
       requiredClaims: ['exp'],
-    });
-    payload = result.payload;
+    };
+    let verified: JWTPayload | undefined;
+    let failure: unknown = new AuthError('Access token key is not accepted', 'token.invalid');
+    for (const candidate of candidateKeys(token, config)) {
+      try {
+        verified = (await jwtVerify(token, candidate, options)).payload;
+        break;
+      } catch (err) {
+        // A claim failure (expired, wrong issuer) means the signature matched this key: report it, stop.
+        if (err instanceof joseErrors.JWTExpired || err instanceof joseErrors.JWTClaimValidationFailed) throw err;
+        failure = err;
+      }
+    }
+    if (!verified) throw failure;
+    payload = verified;
   } catch (err) {
     if (err instanceof joseErrors.JWTExpired) throw new AuthError('Access token expired', 'token.expired');
     if (err instanceof joseErrors.JWTClaimValidationFailed) throw new AuthError('Token claims rejected', 'token.invalid');

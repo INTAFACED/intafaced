@@ -9,10 +9,19 @@
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
 import type { Sql, TransactionSql } from 'postgres';
-import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import {
+  bankTransferKey,
+  formatAmount,
+  provesPostNotCommitted,
+  parseAmount,
+  type Amount,
+  type LedgerClient,
+  type LedgerTx,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import type { TransferService } from './transfer-service.js';
+import { BookedTransferConflict } from './booked-transfer.js';
 import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handles.js';
 import type { PersonalRequestNotices } from './request-notices.js';
 
@@ -274,7 +283,7 @@ export class PersonalPayService {
       }
       // Timeout, network, or 5xx: the post may still land. Keep the reservation
       // and the request claim. Adopt the key only when its entries are this send.
-      const already = await this.ledger.getTxByKey(`bank.transfer:${input.transferId}:0`);
+      const already = await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0));
       if (!already) throw err;
       if (!(await this.bookedSendMatches(already, input.fromSpaceId, toUserId, from.assetId, input.amount))) {
         throw new BankError(
@@ -724,7 +733,7 @@ export class PersonalPayService {
        WHERE from_user_id = ${userId} AND status = 'reserved' AND created_at < ${cutoff}
     `;
     for (const row of rows) {
-      const posted = await this.ledger.getTxByKey(`bank.transfer:${row.transfer_id}:0`);
+      const posted = await this.ledger.getTxByKey(bankTransferKey('p2p', row.transfer_id, 0));
       if (!posted) {
         await this.abandon(row.transfer_id, row.request_id);
         continue;
@@ -951,46 +960,15 @@ function sameTransfer(
 }
 
 /**
- * Codes svc-ledger answers with 4xx (`s2s-http.ts` `httpError`). A typed one of
- * these, or any other `ledger.*` code carrying a 4xx status, proved this send
- * did not commit. A 5xx and a transport error did not.
+ * A BankError, or a failure that proves the ledger committed nothing under the key (`classifyPostOutcome`).
+ * `ledger.idempotency_conflict` is NOT one: it proves the key already booked something. A timeout, a 5xx and
+ * anything untyped may have committed. A `BookedTransferConflict` means the ledger answered with a movement that is
+ * not this send, so it stays an unknown outcome too.
  */
-const LEDGER_CLIENT_4XX: ReadonlySet<string> = new Set([
-  'ledger.insufficient_funds',
-  'ledger.owner_identity_space',
-  'ledger.unauthenticated',
-  'ledger.idempotency_conflict',
-  'ledger.frozen',
-  'ledger.history_range_invalid',
-  'ledger.history_range_too_large',
-  'ledger.history_page_socket',
-  'ledger.history_cursor_invalid',
-  'ledger.recipe_required',
-]);
-
-function ledgerRefusalCode(err: unknown): string | null {
-  if (typeof err !== 'object' || err === null || !('code' in err)) return null;
-  const code = (err as { code: unknown }).code;
-  if (typeof code !== 'string' || !code.startsWith('ledger.')) return null;
-  return code;
-}
-
-function httpStatus(err: unknown): number | null {
-  if (typeof err !== 'object' || err === null) return null;
-  const record = err as { status?: unknown; statusCode?: unknown };
-  if (typeof record.status === 'number') return record.status;
-  if (typeof record.statusCode === 'number') return record.statusCode;
-  return null;
-}
-
-/** A BankError or a 4xx ledger refusal. Anything else may have committed. */
 function isDefinitePersonalRefusal(err: unknown): boolean {
+  if (err instanceof BookedTransferConflict) return false;
   if (err instanceof BankError) return true;
-  const code = ledgerRefusalCode(err);
-  if (code === null) return false;
-  const status = httpStatus(err);
-  if (status !== null) return status >= 400 && status < 500;
-  return LEDGER_CLIENT_4XX.has(code);
+  return provesPostNotCommitted(err);
 }
 
 function sameRequest(

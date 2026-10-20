@@ -1,6 +1,20 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
-import { kybDecisionBindingSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  kybApplicationCurrentInputSchema,
+  kybApplicationRestartInputSchema,
+  kybApplicationSaveSectionInputSchema,
+  kybApplicationStartInputSchema,
+  kybApplicationSubmitInputSchema,
+  kybApplicationViewSchema,
+  kybDecisionBindingSchema,
+  kybEntityTypesViewSchema,
+  kybRequirementsReadInputSchema,
+  kybRequirementsViewSchema,
+  router,
+  scopedProcedure,
+  TRPCError,
+} from '@intafaced/contracts';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -12,6 +26,8 @@ import {
 import { pspEnableModeFields, pspSetPricingFields } from './approval-bindings.js';
 import { PAY_KYB_DECIDE, kybApprovalFields, kybDecisionBindingView } from './kyb-decision-binding.js';
 import { KybError, KYB_STATUSES, type KybService } from './kyb-service.js';
+import { KybEntityTypeService } from './kyb-entity-types.js';
+import type { KybApplicationService } from './kyb-application.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from './merchant-ownership.js';
 import { PayError } from './payment-service.js';
 import { PspModeError, type PspModeService } from './psp-mode.js';
@@ -82,11 +98,25 @@ function toTrpcError(err: unknown): unknown {
     if (err.code === 'pay.merchant_not_found') {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_history_limit_unset' || err.code === 'pay.psp_pricing_history_limit_unset') {
+    if (
+      err.code === 'pay.kyb_history_limit_unset' ||
+      err.code === 'pay.psp_pricing_history_limit_unset' ||
+      err.code === 'pay.kyb_requirements_unset'
+    ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_identity_changed') {
+    if (
+      err.code === 'pay.kyb_identity_changed' ||
+      err.code === 'pay.kyb_section_version_conflict' ||
+      err.code === 'pay.kyb_application_exists'
+    ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    }
+    if (err.code === 'pay.kyb_application_not_found') {
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+    }
+    if (err.code === 'pay.kyb_incomplete' || err.code === 'pay.kyb_application_submitted' || err.code === 'pay.kyb_application_unwired') {
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -102,7 +132,28 @@ export function createKybPspRouter(
       throw new PayError('Merchant ownership lookup is unavailable', 'pay.merchant_forbidden');
     },
   },
+  /** Unwired means the owner's entity-type data cannot be read: nothing is offered. */
+  entityTypes: Pick<KybEntityTypeService, 'list' | 'requirements'> = {
+    list: async () => [],
+    requirements: async (entityType) => {
+      throw new KybError(`Requirements for ${entityType} are not published.`, 'pay.kyb_requirements_unset', { entityType });
+    },
+  },
+  /** Unwired means no application can be kept: every call refuses. */
+  applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'submit'>,
 ) {
+  const applicationService = () => {
+    if (!applications) throw new KybError('Business applications are not wired in this build', 'pay.kyb_application_unwired');
+    return applications;
+  };
+  /** The caller must own the merchant the application belongs to. An unknown id and someone else's refuse alike. */
+  const ownedApplication = async (userId: string, applicationId: string): Promise<{ merchantId: string }> => {
+    const merchantId = await applicationService().merchantOf(applicationId);
+    if (merchantId === null) throw new PayError('Merchant not found', 'pay.merchant_not_found');
+    await assertMerchantOwnership(merchants, userId, merchantId);
+    return { merchantId };
+  };
+
   const wrap = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
       return await fn();
@@ -113,6 +164,85 @@ export function createKybPspRouter(
 
   return router({
     kyb: router({
+      entityTypes: router({
+        /**
+         * The entity types the owner has published, each with the documents, people roles and questionnaires it
+         * requires and the countries it is offered in. Empty when none are published. The door is `pay:onboard`
+         * because a business reads this before it has a merchant row; nothing here names a merchant.
+         */
+        read: scopedProcedure('pay:onboard', { module: 'pay' })
+          .output(kybEntityTypesViewSchema)
+          .query(() => wrap(async () => ({ entityTypes: await entityTypes.list() }))),
+      }),
+
+      application: router({
+        /** Start the merchant's draft for a published entity type and a country it is offered in. Same type again returns the same draft. */
+        start: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationStartInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
+              return applicationService().start({ ...input, actorId: ctx.principal.userId });
+            }),
+          ),
+
+        /** The merchant's open draft, or its latest submitted application; null when none was started. */
+        current: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationCurrentInputSchema)
+          .output(kybApplicationViewSchema.nullable())
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertMerchantOwnership(merchants, ctx.principal.userId, input.merchantId);
+              return applicationService().current(input.merchantId);
+            }),
+          ),
+
+        /** Save one section; names the version it read. A stale version is a conflict. */
+        saveSection: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationSaveSectionInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return applicationService().saveSection({ ...input, actorId: ctx.principal.userId });
+            }),
+          ),
+
+        /** Clear the draft's sections (needs `confirm: true`). The history of earlier saves is kept. */
+        restart: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationRestartInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return applicationService().restart({ applicationId: input.applicationId, actorId: ctx.principal.userId });
+            }),
+          ),
+
+        /** Submit once every required section is complete (`pay.kyb_incomplete` names the rest). Moves KYB to pending. */
+        submit: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationSubmitInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              const { merchantId } = await ownedApplication(ctx.principal.userId, input.applicationId);
+              return applicationService().submit({ applicationId: input.applicationId, merchantId, actorId: ctx.principal.userId });
+            }),
+          ),
+      }),
+
+      requirements: router({
+        /**
+         * One entity type's published requirements for a country. Refuses `pay.kyb_requirements_unset` when the type
+         * is not published and `pay.kyb_country_not_served` when the country is not on its list.
+         */
+        read: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybRequirementsReadInputSchema)
+          .output(kybRequirementsViewSchema)
+          .query(({ input }) => wrap(() => entityTypes.requirements(input.entityType, input.country))),
+      }),
+
       /**
        * Merchant submits a dossier reference. Durable — writes history.
        * Does not invent a partner decision.
