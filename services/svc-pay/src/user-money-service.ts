@@ -497,7 +497,9 @@ export class UserMoneyService {
              WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
           `;
           // The customer cancelled this one. The same reference never reopens it; a new one is a new withdrawal.
-          if (priorClaim && customerStatus(priorClaim.status, priorClaim.failure_code) === 'canceled') {
+          // The cancel writes its intent on a `pending` row before it reverses anything, so a row still `pending` that
+          // carries the code is a cancel that crashed part-way: it is cancelled too, never resumed as a send.
+          if (priorClaim?.failure_code === WITHDRAWAL_CANCELED_CODE) {
             throw new PayError('This withdrawal was cancelled; start a new one with a new client reference', 'pay.withdrawal_canceled');
           }
           if (!priorClaim || priorClaim.status === 'failed') this.refuseFreshWithdrawal(adapter);
@@ -988,6 +990,8 @@ export class UserMoneyService {
       const current = toWithdrawal(row!);
       const shown = customerStatus(current.status, current.failureCode);
       if (shown === 'canceled') return current;
+      // `pending` with the cancel code is a cancel that wrote its intent and crashed before it finished: resume it.
+      const resuming = current.status === 'pending' && current.failureCode === WITHDRAWAL_CANCELED_CODE;
       const refuse = (reason: string): never => {
         throw new PayError(reason, 'pay.withdrawal_not_cancellable', { withdrawalId: current.id, state: shown });
       };
@@ -1009,6 +1013,14 @@ export class UserMoneyService {
           'pay.ledger_outcome_unknown',
           { withdrawalId: current.id },
         );
+      }
+      // The intent goes down BEFORE the reverse, while the row is still `pending`: from here `withdraw` refuses this client
+      // reference, so a crash after the reverse can never let a retry send funds the reverse already returned.
+      if (!resuming) {
+        await connection`
+          UPDATE pay.withdrawals SET failure_code = ${WITHDRAWAL_CANCELED_CODE}, updated_at = now()
+           WHERE id = ${current.id} AND status = 'pending'
+        `;
       }
       if (holdBooked) {
         try {

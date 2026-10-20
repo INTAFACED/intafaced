@@ -143,6 +143,56 @@ describe('cancel a withdrawal (real Postgres)', () => {
     expect(await holdOf(id, 0)).toBe('0');
   });
 
+  it('a crash after the reverse and before the row update never lets a retry send the returned funds', async () => {
+    const id = await row('pending', { clientRef: 'w-crash' });
+    await holdFor(id);
+    // The ledger commits the reverse, then the caller dies before it hears back.
+    const dying = new Proxy(ledger, {
+      get(target, prop) {
+        if (prop === 'post') {
+          return async (req: Parameters<LedgerClient['post']>[0]) => {
+            const out = await target.post(req);
+            if (req.idempotencyKey.startsWith('withdraw.reverse:')) throw new Error('process died');
+            return out;
+          };
+        }
+        const value = Reflect.get(target, prop) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as LedgerClient;
+    const crashing = new UserMoneyService(db.sql, dying, rails, { operatorCreditRails: ['card-sandbox'] });
+    await expect(crashing.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toBeDefined();
+    expect(await availableOf()).toBe('100');
+    const [mid] = await db.sql<
+      Array<{ status: string; failure_code: string | null }>
+    >`SELECT status::text, failure_code FROM pay.withdrawals WHERE id = ${id}`;
+    expect(mid).toEqual({ status: 'pending', failure_code: WITHDRAWAL_CANCELED_CODE });
+
+    // The client retries the send with the same reference: refused, nothing leaves, nothing is held again.
+    await expect(
+      money.withdraw({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('40'),
+        rail: 'card-sandbox',
+        destination: DESTINATION,
+        clientRef: 'w-crash',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.withdrawal_canceled' });
+    expect(await availableOf()).toBe('100');
+    expect(await holdOf(id, 0)).toBe('0');
+    const [attempts] = await db.sql<
+      Array<{ n: string }>
+    >`SELECT count(*)::text AS n FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${id}`;
+    expect(attempts!.n).toBe('0');
+
+    // A repeat of the cancel finishes it, with the one reverse.
+    const done = await money.cancelWithdrawal({ userId: USER, withdrawalId: id });
+    expect(done).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE });
+    expect(await availableOf()).toBe('100');
+    expect(await reverseTxs(id, 0)).toBe(true);
+  });
+
   it('a held withdrawal stays held with its funds in the hold', async () => {
     const id = await row('held');
     await holdFor(id);
