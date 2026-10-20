@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { featureById, features, hiddenFeatureFor, isFeatureLive, isHiddenPath, tabHome } from './feature-registry';
-import { findRoom } from './navigation';
+import { findRoom, rooms } from './navigation';
 import { matchPath } from './path-match';
-import { tabSpecs } from './menus';
+import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs } from './menus';
 import { shellCopy } from './shell-copy';
 
 describe('feature registry (UI-SPEC 3.4)', () => {
@@ -140,20 +140,51 @@ describe('path matching', () => {
 });
 
 describe('top-bar menus link rooms that open', () => {
+  const { t } = shellCopy.forLocale('en');
   const titles = (door: string, mode: 'simple' | 'pro' = 'simple') =>
     tabSpecs(mode)
       .find((tab) => tab.door === door)!
-      .items.map((item) => item.title);
+      .items.map((item) => menuItemWords(item, t, 'en').title);
+  it('has six doors in the order of the spec: Home, Assets, Bank, Trade, Pay, More', () => {
+    expect(tabSpecs('simple').map((tab) => tab.door)).toEqual(['Home', 'Assets', 'Bank', 'Trade', 'Pay', 'More']);
+  });
   it('matches the spec rows', () => {
     expect(titles('Home')).toEqual([]);
-    expect(titles('Money')).toEqual(['Portfolio', 'Activity', 'Profit and loss']);
+    expect(titles('Assets')).toEqual(['Portfolio', 'Deposit', 'Withdraw', 'Transfers', 'Activity', 'Addresses', 'Profit and loss']);
+    expect(titles('Bank')).toEqual([
+      'Bank',
+      'Spaces',
+      'Transfers',
+      'Earn',
+      'Loans',
+      'Cards',
+      'Cash and crypto',
+      'Spending',
+      'Business approvals',
+    ]);
     // Buy and Convert are live with their M2 screens (B8, Opus money review PASS 2026-10-14).
-    expect(titles('Trade')).toEqual(['Markets', 'Spot', 'Buy and sell', 'Convert']);
-    expect(titles('Pay')).toEqual(['Send', 'Receive', 'Merchant']);
+    expect(titles('Trade')).toEqual([
+      'Markets',
+      'Spot',
+      'Buy and sell',
+      'Convert',
+      'Margin',
+      'Futures',
+      'Options',
+      'Copy',
+      'Trading bots',
+      'Quote desk',
+      'Execution',
+      'Orders',
+    ]);
+    expect(titles('Pay')).toEqual(['Send', 'Receive', 'Request', 'Bill pay', 'Send globally', 'Person-to-person', 'Merchant']);
     expect(titles('More')).toEqual(['Academy', 'All rooms', 'Help', 'Settings']);
   });
+  it('lists every row in both modes: mode only changes grouping, never what is reachable', () => {
+    const hrefs = (mode: 'simple' | 'pro') => tabSpecs(mode).flatMap((tab) => tab.items.map((item) => item.href));
+    expect(hrefs('pro')).toEqual(hrefs('simple'));
+  });
   it('links the Merchant home from Pay and Academy from More, and uses only plain words', () => {
-    const { t } = shellCopy.forLocale('en');
     expect(
       tabSpecs('simple')
         .find((tab) => tab.door === 'Pay')!
@@ -161,12 +192,20 @@ describe('top-bar menus link rooms that open', () => {
     ).toContain('/pay/merchant');
     for (const tab of tabSpecs('simple'))
       for (const item of tab.items) {
+        const words = menuItemWords(item, t, 'en');
+        const room = findRoom(item.href.split('?')[0] ?? '');
+        expect(room, item.href).toBeDefined();
+        expect(room?.alias, `${item.href} is an alias, link its target`).toBeUndefined();
         expect(isHiddenPath(item.href.split('?')[0] ?? ''), item.href).toBe(false);
         // The "All rooms" row is named by the founder order (2026-10-17), so its title is the one place the word may appear.
-        expect(`${t(item.title).replace('All rooms', '')} ${t(item.description)}`).not.toMatch(
+        expect(`${words.title.replace('All rooms', '')} ${words.description}`).not.toMatch(
           /unavailable|not connected|restricted|fixture|lifecycle|room|door|ledger/i,
         );
       }
+  });
+  it('gives every Bank room the Bank door and every other money room the Assets door', () => {
+    for (const room of rooms.filter((r) => r.path === '/bank' || r.path.startsWith('/bank/'))) expect(room.door, room.path).toBe('Bank');
+    expect(findRoom('/money')?.door).toBe('Assets');
   });
   it('sends a signed-out visitor to the public Help centre, never to a page that needs a session', () => {
     const more = tabSpecs('simple', false).find((tab) => tab.door === 'More')!;
@@ -180,5 +219,13 @@ describe('top-bar menus link rooms that open', () => {
   it('points the Trade tab at the markets list in Simple and the desk in Pro', () => {
     expect(tabSpecs('simple').find((tab) => tab.door === 'Trade')?.href).toBe('/trade');
     expect(tabSpecs('pro').find((tab) => tab.door === 'Trade')?.href).toBe('/trade/spot/BTC-USDT');
+  });
+  it('puts Home, Bank, Trade, Pay and Assets on the phone bar, with More as the grid button', () => {
+    expect(MOBILE_DOOR_ORDER).toEqual(['Home', 'Bank', 'Trade', 'Pay', 'Assets']);
+    for (const door of MOBILE_DOOR_ORDER)
+      expect(
+        tabSpecs('simple').some((tab) => tab.door === door),
+        door,
+      ).toBe(true);
   });
 });
