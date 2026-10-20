@@ -72,3 +72,14 @@ export interface SupportPropertiesView {
   readonly asOf: string;
   readonly properties: Part<SupportTicketProperties>;
 }
+
+import type { StaffMemberView, StaffPolicyView } from './staff';
+
+/** The staff roster and the automatic-offline policy. Each is its own part, so one failing never hides the other. */
+export interface SupportStaffView {
+  readonly asOf: string;
+  /** The signed-in person's own id, so the page can tell which row is theirs. Taken from the session, not from the roster. */
+  readonly meId: string;
+  readonly roster: Part<readonly StaffMemberView[]>;
+  readonly policy: Part<StaffPolicyView>;
+}

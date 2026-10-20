@@ -1,3 +1,4 @@
+import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
 /**
@@ -192,6 +193,7 @@ export function propertiesGate(ticket: { status: string }, change: PropertiesCha
 }
 
 export type SupportActionRequest =
+  | StaffAvailabilityRequest
   | ({
       readonly action: 'properties';
       readonly ticketId: string;
@@ -257,6 +259,8 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         ...(cited && cited.length > 0 ? { citedArticleIds: cited } : {}),
       };
     }
+    case 'staff_availability':
+      return readStaffAvailabilityRequest(raw);
     case 'properties': {
       if (!isTicketId(raw.ticketId) || !isText(raw.clientRequestId, 200)) return null;
       if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;

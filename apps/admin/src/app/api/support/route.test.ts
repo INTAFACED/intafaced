@@ -550,3 +550,70 @@ describe('ticket properties', () => {
     expect(json).toMatchObject({ ok: false, refusal: { title: 'This ticket is closed', changed: 'no' } });
   });
 });
+
+describe('staff roster and availability', () => {
+  const member = (userId: string, over: Record<string, unknown> = {}) => ({
+    userId,
+    role: 'agent',
+    appointedBy: U,
+    appointedAt: '2026-10-20T01:00:00.000Z',
+    availability: 'offline',
+    availabilitySetAt: null,
+    lastHeartbeatAt: null,
+    ...over,
+  });
+  const policy = { automaticOffline: 'not_set', heartbeatWindowSeconds: null };
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads the roster and the policy as the founder, each on its own, and names the signed-in person from the session', async () => {
+    const fn = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/staffList') ? ok([member(FOUNDER)]) : ok(policy)));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get('?view=staff')).json();
+    expect(json.meId).toBe(FOUNDER);
+    expect(json.roster).toMatchObject({ kind: 'ok', data: [{ userId: FOUNDER }] });
+    expect(json.policy).toMatchObject({ kind: 'ok', data: { automaticOffline: 'not_set' } });
+  });
+
+  it('a roster row it cannot read is a failure, not a shorter roster', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.includes('/staffList') ? ok([member(FOUNDER), { userId: U }]) : ok(policy))),
+    );
+    const json = await (await get('?view=staff')).json();
+    expect(json.roster.kind).toBe('failed');
+    expect(json.policy.kind).toBe('ok');
+  });
+
+  it('sets the founder’s own availability with no userId, and another person’s with one', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(member(FOUNDER, { availability: 'busy' })));
+    vi.stubGlobal('fetch', fn);
+    expect(await (await post({ action: 'staff_availability', availability: 'busy' })).json()).toMatchObject({
+      ok: true,
+      action: 'staff_availability',
+    });
+    await post({ action: 'staff_availability', availability: 'online', userId: U, reason: ' cover ' });
+    expect(sent(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/staffSetAvailability', body: { availability: 'busy' } },
+      { url: 'http://edge:4000/api/support/trpc/staffSetAvailability', body: { availability: 'online', userId: U, reason: 'cover' } },
+    ]);
+  });
+
+  it('refuses a bad availability before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await post({ action: 'staff_availability', availability: 'away' })).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a person who is not staff is told that, not that the permission is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'support.not_staff')),
+    );
+    const res = await post({ action: 'staff_availability', availability: 'busy' });
+    const json = await res.json();
+    expect(res.status).toBe(403);
+    expect(json.refusal).toMatchObject({ title: 'You are not on the support staff list', changed: 'no' });
+  });
+});

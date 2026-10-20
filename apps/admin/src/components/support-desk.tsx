@@ -224,7 +224,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
-      <TicketProperties ticket={t} />
+      <TicketProperties key={t.id} ticket={t} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
