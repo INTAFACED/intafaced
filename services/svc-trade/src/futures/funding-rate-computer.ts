@@ -47,6 +47,12 @@ import type { VenueLatencyHealth } from './venue-latency-health.js';
 export const FUNDING_SAMPLES_INSUFFICIENT = 'trade.funding_samples_insufficient';
 export const FUNDING_INDEX_STALE = 'trade.funding_index_stale';
 export const FUNDING_PERIOD_OPEN = 'trade.funding_period_open';
+/**
+ * A window that overlaps a published period of the market without being that period. A period length or anchor
+ * change would otherwise charge the overlap twice (a shorter or re-anchored window) or skip time (a longer window
+ * reusing a settled period id).
+ */
+export const FUNDING_WINDOW_OVERLAPS = 'trade.funding_window_overlaps';
 
 // ── Pure math ────────────────────────────────────────────────────────────────
 
@@ -166,6 +172,10 @@ export interface FundingRatePeriodStore {
   save(row: FundingRatePeriodWrite): Promise<FundingRatePeriodRecord>;
   /** Newest first. `limit` is required. */
   recent(input: { marketId: string | null; limit: number }): Promise<readonly FundingRatePeriodRecord[]>;
+  /** The end of the market's latest published period, or null when none is published. */
+  latestPublishedEnd(marketId: string): Promise<Date | null>;
+  /** A published period of the market that overlaps `[start, end)` and is not exactly that window, or null. */
+  overlappingPublished(marketId: string, start: Date, end: Date): Promise<FundingRatePeriodRecord | null>;
 }
 
 interface PeriodRow {
@@ -246,6 +256,23 @@ export function sqlFundingRatePeriodStore(sql: Sql): FundingRatePeriodStore {
          ORDER BY computed_at DESC, period_id DESC
          LIMIT ${limit}`;
       return rows.map(presentPeriod);
+    },
+    async latestPublishedEnd(marketId) {
+      const [row] = await sql<{ end: Date | null }[]>`
+        SELECT max(period_end) AS end FROM trade.funding_rate_periods WHERE market_id = ${marketId} AND status = 'published'`;
+      return row?.end ?? null;
+    },
+    async overlappingPublished(marketId, start, end) {
+      const [row] = await sql<PeriodRow[]>`
+        SELECT period_id, market_id, period_start, period_end, status, code, message, rate, premium, base_component, cap,
+               clamped, params_version::text, inputs, attempts, computed_at
+          FROM trade.funding_rate_periods
+         WHERE market_id = ${marketId} AND status = 'published'
+           AND period_start < ${end} AND period_end > ${start}
+           AND NOT (period_start = ${start} AND period_end = ${end})
+         ORDER BY period_end DESC
+         LIMIT 1`;
+      return row ? presentPeriod(row) : null;
     },
   };
 }
@@ -427,9 +454,10 @@ export async function computeFundingPeriod(
 
   const entryFor = (rate: string): FundingRateEntry => ({ marketId, periodId, rate, asOfMs: now.getTime(), periodEndIso: endIso });
 
-  // Closed means closed: a published period returns what was stored.
+  // Closed means closed: a published period returns what was stored. A published period under this id with another
+  // end is a different window (the period length changed): it is refused below, never replayed as this one.
   const prior = await deps.periods.get(periodId);
-  if (prior && prior.status === 'published') {
+  if (prior && prior.status === 'published' && prior.periodEnd === endIso) {
     if (opts.republish) deps.publish(entryFor(prior.rate!));
     return { status: 'published', periodId, rate: prior.rate!, clamped: prior.clamped, replayed: true, record: prior };
   }
@@ -440,6 +468,31 @@ export async function computeFundingPeriod(
   }
 
   const pv = await deps.params(marketId);
+
+  // Funding time is charged once: a window that overlaps a settled period, without being it, is refused. The refusal
+  // is stored under its own id, since a published period is never overwritten.
+  const overlap = await deps.periods.overlappingPublished(marketId, periodStart, periodEnd);
+  if (overlap) {
+    const message = `${FUNDING_WINDOW_OVERLAPS}: window ${startIso} to ${endIso} overlaps published period ${overlap.periodStart} to ${overlap.periodEnd}; set the period anchor so a boundary falls on its end`;
+    const record = await deps.periods.save({
+      periodId: `${marketId}:window_overlap:${startIso}:${endIso}`,
+      marketId,
+      periodStart: startIso,
+      periodEnd: endIso,
+      status: 'refused',
+      code: FUNDING_WINDOW_OVERLAPS,
+      message,
+      rate: null,
+      premium: null,
+      baseComponent: pv.params.baseComponent,
+      cap: pv.params.cap,
+      clamped: false,
+      paramsVersion: pv.version,
+      inputs: { paramsVersion: pv.version, overlaps: overlap.periodId },
+    });
+    return { status: 'refused', periodId: record.periodId, code: FUNDING_WINDOW_OVERLAPS, message, record };
+  }
+
   const base = { periodId, marketId, periodStart: startIso, periodEnd: endIso, paramsVersion: pv.version };
 
   const refuse = async (

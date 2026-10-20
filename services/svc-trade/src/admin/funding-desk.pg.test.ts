@@ -263,6 +263,57 @@ describe('operator funding desk', () => {
     ).rejects.toMatchObject({ code: 'funding_param_invalid' });
   });
 
+  it('refuses an approval the writer gave themselves', async () => {
+    book.put({
+      approvalId: 'ap-self',
+      actionType: 'trade.funding_params_set',
+      targetService: 'svc-trade',
+      targetId: MARKET,
+      expectedVersion: '0',
+      payloadHash: payloadHash({
+        actionType: 'trade.funding_params_set',
+        market: MARKET,
+        change: PARAMS,
+        expectedVersion: '0',
+        reason: REASON,
+      }),
+      requesterId: OP,
+      approverId: OP,
+    });
+    await expect(setParams({ approvalId: 'ap-self' })).rejects.toMatchObject({ code: 'approval_mismatch' });
+    expect((await desk.paramsGet(reader(), MARKET)).version).toBe('0');
+  });
+
+  it('refuses a period grid with no boundary at the latest published period end, and burns no approval', async () => {
+    const start = new Date('2026-10-20T00:00:00.000Z');
+    await db.sql`INSERT INTO trade.funding_rate_periods (period_id, market_id, period_start, period_end, status, rate, premium, inputs)
+      VALUES (${`${MARKET}:${start.toISOString()}`}, ${MARKET}, ${start.toISOString()}, '2026-10-20T01:00:00.000Z',
+              'published', '0.0101', '0.01', '{}'::jsonb)`;
+    const hourly = { ...PARAMS, periodSeconds: 3600, periodAnchor: '2026-10-20T00:00:00.000Z' };
+    // Re-anchored to the half hour, and lengthened to two hours: both would overlap or skip the settled hour.
+    for (const [i, params] of [
+      { ...hourly, periodAnchor: '2026-10-19T23:30:00.000Z' },
+      { ...hourly, periodSeconds: 7200 },
+    ].entries()) {
+      allow(`ap-bad-${i}`, 'trade.funding_params_set', MARKET, '0', params);
+      await expect(setParams({ params, approvalId: `ap-bad-${i}`, clientRequestId: `req-bad-${i}` })).rejects.toMatchObject({
+        code: 'funding_window_overlaps',
+      });
+    }
+    expect((await desk.paramsGet(reader(), MARKET)).version).toBe('0');
+    // A grid with a boundary at 01:00 is fine: the same hour, a half hour from 00:00, or two hours from 01:00.
+    allow('ap-bad-0', 'trade.funding_params_set', MARKET, '0', { ...hourly, periodAnchor: '2026-10-19T23:30:00.000Z' });
+    for (const [i, params] of [
+      hourly,
+      { ...hourly, periodSeconds: 1800 },
+      { ...hourly, periodSeconds: 7200, periodAnchor: '2026-10-20T01:00:00.000Z' },
+    ].entries()) {
+      allow(`ap-ok-${i}`, 'trade.funding_params_set', MARKET, String(i), params);
+      const saved = await setParams({ params, approvalId: `ap-ok-${i}`, expectedVersion: String(i), clientRequestId: `req-ok-${i}` });
+      expect(saved.version).toBe(String(i + 1));
+    }
+  });
+
   it('reads recent computed and refused periods with their samples, newest first', async () => {
     const start = new Date('2026-10-20T00:00:00.000Z');
     await db.sql`INSERT INTO trade.funding_rate_samples (market_id, sampled_at, mark, index_price, gap_reason) VALUES

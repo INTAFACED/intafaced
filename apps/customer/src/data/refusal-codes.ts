@@ -54,6 +54,9 @@ export type RefusalKind =
   | 'walletCap'
   | 'walletFields'
   | 'walletAddress'
+  | 'addressLabelTaken'
+  | 'addressBookFull'
+  | 'activitySortBounded'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -161,6 +164,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+  'bank.activity_account_unknown': 'notFound',
+  'bank.activity_sort_bounded': 'activitySortBounded',
+  'bank.destination_label_taken': 'addressLabelTaken',
+  'bank.address_book_full': 'addressBookFull',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',

@@ -8,7 +8,8 @@ import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, orderHoldAccount, parseAmount, type AccountRef } from '@intafaced/ledger-client';
-import type { ReconcileResult } from '../spot/types.js';
+import type { ListMarketInput } from '../spot/trade-service.js';
+import type { Market, ReconcileResult } from '../spot/types.js';
 import { HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS } from '../spot/hold-outcome.js';
 import { parseConfiguredMaxLeverage, LEVERAGE_CAP_UNSET } from '../futures/initial-margin.js';
 import { recipeInsuranceAccount } from '../futures/insurance-bound.js';
@@ -37,6 +38,7 @@ import {
   writeOperatorAudit,
   type ApprovalBook,
 } from './common.js';
+import { FuturesContractsAdmin } from './futures-contracts.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
@@ -49,6 +51,8 @@ export interface TradeOpsDeps {
   /** Existing `TradeService.reconcileOrder`. */
   readonly reconcileOrder: (orderId: string) => Promise<ReconcileResult>;
   readonly ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
+  /** Existing `TradeService.listMarket`, for `admin.futuresListing.create`. Absent: that door refuses unconfigured. */
+  readonly listMarket?: (input: ListMarketInput) => Promise<Market>;
   readonly now?: () => Date;
 }
 
@@ -83,7 +87,18 @@ function sumDecimals(values: readonly string[]): string {
 }
 
 export class TradeOpsAdmin {
-  constructor(private readonly deps: TradeOpsDeps) {}
+  /** Futures contract families, expiry tenors and pre-market (D-instruments-03). */
+  readonly futuresContracts: FuturesContractsAdmin;
+
+  constructor(private readonly deps: TradeOpsDeps) {
+    this.futuresContracts = new FuturesContractsAdmin({
+      sql: deps.sql,
+      approvals: deps.approvals,
+      ledger: deps.ledger,
+      ...(deps.listMarket ? { listMarket: deps.listMarket } : {}),
+      now: () => nowOf(deps),
+    });
+  }
 
   /** Funding parameters, index sources and computed periods (D-instruments-01). */
   get funding(): FundingDesk {

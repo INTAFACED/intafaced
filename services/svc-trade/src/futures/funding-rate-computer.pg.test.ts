@@ -9,6 +9,7 @@ import {
   FUNDING_INDEX_STALE,
   FUNDING_PERIOD_OPEN,
   FUNDING_SAMPLES_INSUFFICIENT,
+  FUNDING_WINDOW_OVERLAPS,
   computeFundingPeriod,
   indexHealthFromProvider,
   indexProviderFromFeed,
@@ -494,6 +495,62 @@ describe('funding sampler and job', () => {
     expect(rows[0]).toMatchObject({ attempts: 1, periodStart: null });
     expect(rows[0]!.inputs).toMatchObject({ missing: ['periodSeconds', 'periodAnchor'] });
     expect(published).toEqual([]);
+  });
+
+  describe('a period length or anchor change never charges funding time twice or skips it', () => {
+    const at = (iso: string) => new Date(iso);
+    function jobDeps(now: Date, published: FundingRateEntry[]) {
+      return {
+        ...samplerDeps('101', okIndex('100')),
+        periods: sqlFundingRatePeriodStore(db.sql),
+        indexHealth: { check: async () => GREEN },
+        publish: (e: FundingRateEntry) => published.push(e),
+        maxAbsRate: '1',
+        now: () => now,
+      };
+    }
+    async function settleFirstHour(published: FundingRateEntry[]) {
+      await seedFundingParams(db, MARKET, { ...FULL, periodSeconds: 3600, periodAnchor: START.toISOString() });
+      await seedSamples(db, MARKET, START, 60, CADENCE);
+      const first = await runFundingComputerJob(jobDeps(NOW, published), MARKET);
+      expect(first.period).toMatchObject({ status: 'published', periodId: periodIdFor(MARKET, START.toISOString()) });
+      published.length = 0;
+    }
+
+    it('a re-anchored window that starts inside the settled hour is refused, recorded and not published', async () => {
+      const published: FundingRateEntry[] = [];
+      await settleFirstHour(published);
+      await seedFundingParams(db, MARKET, { ...FULL, periodSeconds: 3600, periodAnchor: '2026-10-19T23:30:00.000Z' });
+      const run = await runFundingComputerJob(jobDeps(at('2026-10-20T01:10:00.000Z'), published), MARKET);
+      expect(run.period).toMatchObject({ status: 'refused', code: FUNDING_WINDOW_OVERLAPS });
+      expect(published).toEqual([]);
+      const rows = await db.sql<Array<{ status: string; period_start: Date }>>`
+        SELECT status, period_start FROM trade.funding_rate_periods WHERE market_id = ${MARKET} AND status = 'published'`;
+      expect(rows.map((r) => r.period_start.toISOString())).toEqual([START.toISOString()]);
+    });
+
+    it('a shorter period skips the half hour already settled and publishes the first window after it', async () => {
+      const published: FundingRateEntry[] = [];
+      await settleFirstHour(published);
+      await seedFundingParams(db, MARKET, { ...FULL, minSamples: 30, periodSeconds: 1800, periodAnchor: START.toISOString() });
+      const early = await runFundingComputerJob(jobDeps(at('2026-10-20T01:10:00.000Z'), published), MARKET);
+      expect(early.period).toMatchObject({ status: 'refused', code: FUNDING_WINDOW_OVERLAPS });
+      await seedSamples(db, MARKET, END, 30, CADENCE);
+      const next = await runFundingComputerJob(jobDeps(at('2026-10-20T01:30:30.000Z'), published), MARKET);
+      expect(next.period).toMatchObject({ status: 'published', periodId: periodIdFor(MARKET, END.toISOString()) });
+      expect(published.map((e) => [e.periodId, e.periodEndIso])).toEqual([
+        [periodIdFor(MARKET, END.toISOString()), '2026-10-20T01:30:00.000Z'],
+      ]);
+    });
+
+    it('a longer period that reuses the settled period id is refused, not replayed as if 01:00 to 02:00 were paid', async () => {
+      const published: FundingRateEntry[] = [];
+      await settleFirstHour(published);
+      await seedFundingParams(db, MARKET, { ...FULL, periodSeconds: 7200, periodAnchor: START.toISOString() });
+      const run = await runFundingComputerJob(jobDeps(at('2026-10-20T02:10:00.000Z'), published), MARKET);
+      expect(run.period).toMatchObject({ status: 'refused', code: FUNDING_WINDOW_OVERLAPS });
+      expect(published).toEqual([]);
+    });
   });
 
   it('the job computes the latest closed period and re-publishes it on the next run', async () => {

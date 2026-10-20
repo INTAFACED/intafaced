@@ -191,6 +191,20 @@ export class FundingDesk {
   ): Promise<FundingParamsView> {
     requireOperatorWrite(principal);
     const params = validateFundingParams(input.params);
+    // A new period grid must have a boundary at the latest published period end, or start after it. Otherwise the
+    // next window overlaps a settled period (charged twice) or reuses its id (time skipped). The computer refuses
+    // such a window too (`trade.funding_window_overlaps`); this stops the write that would cause it.
+    const latestEnd = await sqlFundingRatePeriodStore(this.deps.sql).latestPublishedEnd(input.market);
+    if (latestEnd && params.periodSeconds != null && params.periodAnchor != null) {
+      const anchorMs = Date.parse(params.periodAnchor);
+      const sinceAnchor = latestEnd.getTime() - anchorMs;
+      if (sinceAnchor > 0 && sinceAnchor % (params.periodSeconds * 1000) !== 0) {
+        throw new TradeOpsError(
+          'funding_window_overlaps',
+          `the latest published funding period ends ${latestEnd.toISOString()}; set periodAnchor at or after it, or keep a period boundary there`,
+        );
+      }
+    }
     return versionedSet<FundingParamsView>(this.deps, principal, {
       kind: 'funding_params',
       actionType: 'trade.funding_params_set',

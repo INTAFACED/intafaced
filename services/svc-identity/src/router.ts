@@ -72,6 +72,7 @@ import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
+import { SocialError, SocialSignin } from './social/social-signin.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -287,6 +288,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.webauthn_invalid':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'identity.passkey_limit':
+      // The owner's per-account limit: removing a passkey is what helps.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':
@@ -428,6 +432,34 @@ const kycDocMetaOutput = z.object({
   createdAt: z.string(),
 });
 
+const socialProviderName = z.string().regex(/^[a-z0-9-]{1,32}$/);
+
+/** No registry configured is the same as no provider registered. */
+function socialOrNone(social: SocialSignin | undefined): SocialSignin {
+  return social ?? new SocialSignin(null as never, { providers: new Map(), flowTtlSeconds: undefined });
+}
+
+function toSocialTrpcError(err: unknown): TRPCError {
+  if (err instanceof SocialError) {
+    const message = `${err.message} [${err.code}]`;
+    switch (err.code) {
+      case 'identity.social_flow_invalid':
+      case 'identity.social_exchange_failed':
+        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+      case 'identity.social_not_linked':
+        return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+      case 'identity.provider_taken':
+        return new TRPCError({ code: 'CONFLICT', message, cause: err });
+      case 'auth.not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message: err.code, cause: err });
+      default:
+        // idp.social and the settings refusals: the build or the owner has not provided it.
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
+    }
+  }
+  return toTrpcError(err);
+}
+
 export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
@@ -445,6 +477,8 @@ export function createIdentityRouter(
      */
     founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
+    /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
+    social?: SocialSignin;
     /**
      * Founder pair (user ids). These identities may not self-enrol a FIRST
      * second factor on a password-only session (`auth.privileged_enrolment_requires_invite`).
@@ -863,6 +897,53 @@ export function createIdentityRouter(
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Social sign-in, step 1. With no provider registered this answers the allowlisted `idp.social`.
+       * The same answer for every provider name, so a name tells a caller nothing.
+       */
+      oauthStart: publicProcedure
+        .input(z.object({ provider: socialProviderName }).strict())
+        .output(z.object({ provider: z.string(), authorizationUrl: z.string(), expiresAt: z.string() }).strict())
+        .mutation(async ({ input }) => {
+          try {
+            const started = await socialOrNone(options.social).start({ provider: input.provider, purpose: 'signin' });
+            return { provider: started.provider, authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt.toISOString() };
+          } catch (err) {
+            throw toSocialTrpcError(err);
+          }
+        }),
+
+      /**
+       * Social sign-in, step 2. Signs in only an account that already linked this provider identity;
+       * the provider's email never links or creates one. An account with a second factor still needs its code.
+       */
+      oauthComplete: publicProcedure
+        .input(
+          z
+            .object({
+              provider: socialProviderName,
+              state: z.string().min(1).max(200),
+              code: z.string().min(1).max(2000),
+              totpCode: z.string().optional(),
+            })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const social = socialOrNone(options.social);
+            const done = await social.complete({ provider: input.provider, purpose: 'signin', state: input.state, code: input.code });
+            const userId = await social.findLinked(input.provider, done.profile.subject);
+            if (!userId) throw new SocialError('That provider account is not linked to an account', 'identity.social_not_linked');
+            return sessionWire(
+              ctx,
+              await auth.signInVerifiedIdentity(userId, input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+            );
+          } catch (err) {
+            throw toSocialTrpcError(err);
           }
         }),
 

@@ -43,6 +43,7 @@ export { isEmailConfirmed };
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
+import { currentRequestIp, currentUserAgent } from './request-meta.js';
 import { recordSuccess, reserveAttempt, type AttemptKind } from './attempt-lockout.js';
 import { matchInvite, type FounderEnrolmentConfig } from './founder-enrolment.js';
 import { SqlPendingTotpEnrolmentStore, type PendingTotpEnrolmentStore } from './pending-totp-store.js';
@@ -105,6 +106,7 @@ export class AuthError extends Error {
       | 'auth.kyc_not_pending'
       | 'auth.kyc_agent_refused'
       | 'auth.mfa_not_enrolled'
+      | 'identity.passkey_limit'
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
       | 'auth.domain_not_allowed'
@@ -593,6 +595,13 @@ export class AuthService {
     };
   }
 
+  private passkeyLimit: number | undefined;
+
+  /** Owner setting PASSKEY_MAX_PER_ACCOUNT; unset states no limit and refuses nothing. */
+  usePasskeyLimit(maxPerAccount: number | undefined): void {
+    this.passkeyLimit = maxPerAccount;
+  }
+
   /** Founder desk scopes are added only when this directory says the user is a live founder. */
   useFounderDirectory(directory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined): void {
     this.founderDirectory = directory;
@@ -904,6 +913,28 @@ export class AuthService {
     return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
   }
 
+  /**
+   * Open a session for an account whose identity a trusted outside party has just confirmed (a linked
+   * provider identity). The second factor is still required: an account with TOTP needs its code,
+   * counted and checked the same way as `login`, and a session without one is not marked `mfa`.
+   */
+  async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+    const [user] = await this.sql<
+      Array<{ id: string; status: string; totp_secret: string | null }>
+    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    let mfa = false;
+    if (user.totp_secret) {
+      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
+      mfa = true;
+      await recordSuccess(this.sql, user.id, 'mfa');
+    }
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+  }
+
   private async issueSession(
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
@@ -917,7 +948,7 @@ export class AuthService {
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
           Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}) RETURNING id`;
       },
       { isolation: 'read committed' },
     );
@@ -956,6 +987,9 @@ export class AuthService {
       successor_id: string | null;
       successor_refresh: string | null;
       device: string | null;
+      family_id: string;
+      ip: string | null;
+      user_agent: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
@@ -974,7 +1008,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1028,7 +1062,7 @@ export class AuthService {
       const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, refresh_hash, device, ip, mfa, expires_at) VALUES (${session.user_id}, ${hashToken(nextToken)}, ${options.device ?? null}, ${options.ip ?? null}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
@@ -1549,6 +1583,9 @@ export class AuthService {
       const existing = asCredentialList(locked[0].webauthn_creds);
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
         throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
+      }
+      if (this.passkeyLimit !== undefined && existing.length >= this.passkeyLimit) {
+        throw new AuthError('Passkey limit reached', 'identity.passkey_limit');
       }
       const next = [...existing, stored];
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;

@@ -88,7 +88,7 @@ export function TopSearch({ compact, helpCap = HELP_RESULT_CAP }: { compact?: bo
           const path = roomPath(room, requestedLocale);
           // Where it lives ("Bank > Earn"); a parked room says it opens to its blockers, which the room itself names live.
           const hint = path
-            ? room.area === 'parked'
+            ? room.area === 'web3'
               ? `${path} · ${t('Opens to its blockers')}`
               : path
             : roomDescription(room, requestedLocale);
