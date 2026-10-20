@@ -18,7 +18,7 @@ type LotBook = {
  * trades made. Every figure is TEST money worked by hand: bought 0.1 at 77 (cost 7.7), sold 0.1 at 133 (proceeds 13.3), realised 5.6.
  */
 describe('pro trader: profit and loss', () => {
-  it('realises the gain on a bought-then-sold coin and names an open position it cannot price from fills alone', async () => {
+  it('reads a bought lot as open, then realises the gain once it is sold', async () => {
     const seller = await newCustomer();
     const subject = await newCustomer({ kycTier: 'full' });
     const buyer = await newCustomer();

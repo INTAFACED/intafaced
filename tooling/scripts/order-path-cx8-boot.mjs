@@ -356,6 +356,7 @@ async function main() {
       HTTP_HOST: '127.0.0.1',
       HTTP_PORT: '4020',
       LEDGER_URL: 'http://127.0.0.1:4001',
+      INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
     });
 
   await waitHealth('http://127.0.0.1:4001', 'ledger');
