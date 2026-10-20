@@ -173,3 +173,8 @@ export function supportMailto(address: string, subject: string, body: string): s
 function fold(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase().trim();
 }
+
+/** The "rate this request" prompt shows only on a solved request whose stored rating has been read and found empty. */
+export function showRatePrompt(status: TicketStatus, ratingRead: boolean, rated: boolean): boolean {
+  return ratingRead && !rated && requestActionStates(status, rated).rate.available;
+}
