@@ -147,6 +147,22 @@ export const positionPreviewSchema = z.object({
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });
+/** One stored convert quote as `convert.list` reads it. A quote that was never accepted shows as `quoted` or `expired`. */
+export const convertHistoryRowSchema = z.object({
+  quoteId: z.string(),
+  inAsset: z.string(),
+  outAsset: z.string(),
+  inAmount: decimalSchema,
+  outAmount: decimalSchema,
+  lifecycle: z.enum(['quoted', 'accepted', 'settled', 'refused', 'expired', 'unknown']),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  acceptedAt: z.string().nullable(),
+  settledAt: z.string().nullable(),
+});
+export type ConvertHistoryRow = z.infer<typeof convertHistoryRowSchema>;
+export const convertHistorySchema = z.object({ rows: z.array(convertHistoryRowSchema), nextCursor: z.string().nullable() });
+
 /**
  * `convert.quote` takes exactly one size: a base amount (`qty`, buy or sell) or a spend in the quote asset
  * (`quoteQty`, buy only; the service never charges more than it). The union makes sending both, or neither, a type error.
@@ -157,6 +173,9 @@ export type ConvertQuoteInput =
 export function createToolApi(api: ApiClient) {
   return {
     convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
+    /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
+    convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>
+      api.query('trade', 'convert.list', input, convertHistorySchema, { signal }),
     convertAccept: (quoteId: string, clientConvertId: string) =>
       api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),
     algoGet: (algoId: string, signal?: AbortSignal) => api.query('trade', 'algo.get', { algoId }, algoSchema, { signal }),

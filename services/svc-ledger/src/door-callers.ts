@@ -10,7 +10,7 @@ import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
  * then judges the recipe and module. The read doors add the services that read
  * balances or history without posting.
  */
-const READERS_WITHOUT_POSTS = ['svc-matching', 'svc-mining-pool', 'svc-tax'] as const satisfies readonly ServiceName[];
+const READERS_WITHOUT_POSTS = ['svc-matching', 'svc-tax'] as const satisfies readonly ServiceName[];
 
 const POSTERS: readonly ServiceName[] = LEDGER_CALLER_SERVICES;
 const READERS: readonly ServiceName[] = [...POSTERS, ...READERS_WITHOUT_POSTS];

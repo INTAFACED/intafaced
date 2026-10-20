@@ -1,4 +1,4 @@
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
 /**
@@ -429,7 +429,11 @@ export class MatchingNoBookError extends Error {
  */
 export const MATCHING_RESTING_ORDERS_PAGE = 500;
 
-export function createMatchingClient(baseUrl: string, internalSecret: string): MatchingClient {
+export function createMatchingClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): MatchingClient {
   const url = baseUrl.replace(/\/$/, '');
 
   /**
@@ -440,7 +444,15 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
    * to submit one. Those routes accepted anyone at all until this change.
    */
   // Body-bound S2S (L2-6). Empty body for GET/DELETE; serialize once on POST.
-  const authHeaders = (payload = '') => serviceAuthHeadersForBody('svc-trade', internalSecret, payload);
+  const sign = serviceCallSigner({ service: 'svc-trade', audience: 'svc-matching', legacySecret: internalSecret, s2s });
+  // The request is what a key signature binds: method, full URL, body and content type.
+  // GET and DELETE send no content-type, so the signed content type is empty; calls with a body send JSON.
+  const authHeaders = (method: string, path: string, payload?: string) =>
+    sign(payload ?? '', {
+      method,
+      url: new URL(`${url}${path}`),
+      contentType: payload === undefined ? '' : 'application/json',
+    });
 
   async function call<T>(path: string, init: RequestInit): Promise<T> {
     let response: Response;
@@ -461,9 +473,10 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
   return {
     async submit(marketId, request) {
       const payload = JSON.stringify(request);
-      return call<EngineSubmitResult>(`/markets/${encodeURIComponent(marketId)}/orders`, {
+      const path = `/markets/${encodeURIComponent(marketId)}/orders`;
+      return call<EngineSubmitResult>(path, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders(payload) },
+        headers: { 'content-type': 'application/json', ...authHeaders('POST', path, payload) },
         body: payload,
       });
     },
@@ -472,7 +485,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       const path = `/markets/${encodeURIComponent(marketId)}/orders/${encodeURIComponent(orderId)}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'DELETE', headers: authHeaders('') });
+        response = await fetch(`${url}${path}`, { method: 'DELETE', headers: authHeaders('DELETE', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
@@ -499,7 +512,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       try {
         response = await fetch(`${url}${path}`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', ...authHeaders(payload) },
+          headers: { 'content-type': 'application/json', ...authHeaders('POST', path, payload) },
           body: payload,
         });
       } catch (err) {
@@ -535,7 +548,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       try {
         response = await fetch(`${url}${path}`, {
           method: 'PATCH',
-          headers: { 'content-type': 'application/json', ...authHeaders(payload) },
+          headers: { 'content-type': 'application/json', ...authHeaders('PATCH', path, payload) },
           body: payload,
         });
       } catch (err) {
@@ -579,7 +592,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       const path = `/markets/${encodeURIComponent(marketId)}/depth?limit=${published}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('') });
+        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
@@ -607,7 +620,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       const path = `/markets/${encodeURIComponent(marketId)}/orders?limit=${MATCHING_RESTING_ORDERS_PAGE}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('') });
+        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
@@ -633,7 +646,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
     async listMarkets() {
       return call<EngineMarketList>('/markets', {
         method: 'GET',
-        headers: authHeaders(''),
+        headers: authHeaders('GET', '/markets'),
       });
     },
 
@@ -645,7 +658,7 @@ export function createMatchingClient(baseUrl: string, internalSecret: string): M
       const payload = JSON.stringify({ orders });
       return call<ReconcileReport>('/reconcile', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', ...authHeaders(payload) },
+        headers: { 'content-type': 'application/json', ...authHeaders('POST', '/reconcile', payload) },
         body: payload,
       });
     },
