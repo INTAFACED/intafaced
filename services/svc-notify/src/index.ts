@@ -16,6 +16,8 @@ import { PostgresMuteStore } from './preferences/mute-store.js';
 import { AccountPrefs } from './preferences/account.js';
 import { PostgresCommandLog, PostgresDigestPrefStore, PostgresHoldStore, PostgresTopicPrefStore } from './preferences/account.pg.js';
 import { planOutOfApp } from './preferences/gate.js';
+import { CategoryPrefs } from './preferences/categories.js';
+import { PostgresCategoryPrefStore } from './preferences/categories.pg.js';
 import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
 import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
@@ -106,6 +108,9 @@ await sql`SELECT 1 FROM notify.price_alerts LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM notify.topic_prefs LIMIT 1`.catch(() => {
   throw new Error('notify.topic_prefs is missing — run migration 0010_notify_topic_digest before starting svc-notify');
 });
+await sql`SELECT 1 FROM notify.category_prefs LIMIT 1`.catch(() => {
+  throw new Error('notify.category_prefs is missing — run migration 0012_notify_category_prefs before starting svc-notify');
+});
 await sql`SELECT 1 FROM notify.digest_holds LIMIT 1`.catch(() => {
   throw new Error('notify.digest_holds is missing — run migration 0010_notify_topic_digest before starting svc-notify');
 });
@@ -155,6 +160,7 @@ const digestStore = new PostgresDigestPrefStore(sql);
 const commandLog = new PostgresCommandLog(sql);
 const holdStore = new PostgresHoldStore(sql);
 const account = new AccountPrefs(topicStore, digestStore, commandLog, () => channels.status());
+const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), commandLog, () => channels.status());
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door and the approval call stay on the shared secrets alone.
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
@@ -164,7 +170,7 @@ const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
   mutePrefsOf: (userId) => muteStore.get(userId),
-  planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date() }),
+  planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date(), categories }),
   loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
 });
 
@@ -177,7 +183,7 @@ const notify = new NotifyService(
     verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
-  { targets, deliveries, channels, dispatcher, muteStore, account, holds: holdStore, notices },
+  { targets, deliveries, channels, dispatcher, muteStore, account, categories, holds: holdStore, notices },
 );
 
 /**
