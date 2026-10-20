@@ -17,6 +17,8 @@ import {
   supportTicketSchema,
   supportTicketStatusSchema,
 } from '@intafaced/contracts';
+import { MemoryContactBook, type ContactBook } from './contact-channels.js';
+import { contactProcedures } from './contact-router.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -125,8 +127,11 @@ export function createSupportRouter(
   loop?: TicketKbLoopObserver,
   internalServiceSecret?: string | null,
   scope?: DeskScopeReader,
+  contact: ContactBook = new MemoryContactBook(),
 ) {
   return router({
+    ...contactProcedures(contact, support),
+
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
