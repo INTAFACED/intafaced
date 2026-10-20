@@ -34,14 +34,14 @@ export function supportTradeSummaryRouter(reader?: SupportTradeSummaryReader) {
     tradeSummary: serviceProcedureFor(SUPPORT_TRADE_SUMMARY_CALLERS)
       .input(supportTradeSummaryInputSchema)
       .output(supportTradeSummarySchema)
-      .query(async ({ ctx, input }) => {
+      .query(async ({ input }) => {
         if (!reader) {
           throw toTrpcError(
             new SupportTradeSummaryError('trade.support_summary_unavailable', 'the support trade summary is not wired on this service'),
           );
         }
         try {
-          return await reader.read(ctx.service as string, input);
+          return await reader.read(input);
         } catch (err) {
           throw toTrpcError(err);
         }

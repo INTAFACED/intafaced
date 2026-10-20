@@ -352,7 +352,6 @@ describe('support.tradeSummary', () => {
       agentId: AGENT,
       userId: ALICE,
       limit: 10,
-      calledBy: 'svc-support',
       positions: { count: 2, truncated: false },
       liquidations: { count: 1, truncated: false },
       orders: { count: 3, truncated: false },
@@ -361,22 +360,19 @@ describe('support.tradeSummary', () => {
 
   it('derives auditId from the read, never at random: the same read is one row, a later read is its own row', async () => {
     await seedAlice();
-    const first = await reader().read('svc-support', ask() as never);
-    const again = await reader().read('svc-support', ask() as never);
+    const first = await reader().read(ask() as never);
+    const again = await reader().read(ask() as never);
     expect(again.auditId).toBe(first.auditId);
     expect(await auditCount()).toBe(1);
     expect(first.auditId).toBe(
       supportTradeSummaryAuditId({ caseId: CASE, agentId: AGENT, userId: ALICE, limit: 10, readAt: NOW.toISOString() }),
     );
 
-    const later = await new SupportTradeSummaryReader({ sql: db.sql, now: () => new Date(NOW.getTime() + 1) }).read(
-      'svc-support',
-      ask() as never,
-    );
+    const later = await new SupportTradeSummaryReader({ sql: db.sql, now: () => new Date(NOW.getTime() + 1) }).read(ask() as never);
     expect(later.auditId).not.toBe(first.auditId);
     expect(await auditCount()).toBe(2);
     // Different case or agent, same instant: a different record.
-    const other = await reader().read('svc-support', { ...ask(), caseId: randomUUID() } as never);
+    const other = await reader().read({ ...ask(), caseId: randomUUID() } as never);
     expect(other.auditId).not.toBe(first.auditId);
   });
 

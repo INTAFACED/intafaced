@@ -164,10 +164,10 @@ export class SupportTradeSummaryReader {
   }
 
   /**
-   * `caller` is the proven service name from the door; it goes in the audit detail. `limit` absent refuses: there is no
-   * default bound.
+   * The door (`serviceProcedureFor(SUPPORT_TRADE_SUMMARY_CALLERS)`) has proven the caller before this runs; the audit row
+   * records the agent, case and customer the read was for. `limit` absent refuses: there is no default bound.
    */
-  async read(caller: string, input: SupportTradeSummaryInput): Promise<SupportTradeSummary> {
+  async read(input: SupportTradeSummaryInput): Promise<SupportTradeSummary> {
     const limit = input.limit;
     if (limit === undefined) {
       throw new SupportTradeSummaryError(
@@ -238,7 +238,6 @@ export class SupportTradeSummaryReader {
                 agentId: input.agentId,
                 userId: input.userId,
                 limit,
-                calledBy: caller,
                 positions: { count: summary.positions.items.length, truncated: summary.positions.truncated },
                 liquidations: { count: summary.liquidations.items.length, truncated: summary.liquidations.truncated },
                 orders: { count: summary.orders.items.length, truncated: summary.orders.truncated },
