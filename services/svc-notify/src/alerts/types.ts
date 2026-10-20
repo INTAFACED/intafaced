@@ -177,6 +177,11 @@ export type CreatePriceAlertInput = {
   readonly message?: string | null;
   readonly expiresAt?: Date | null;
   readonly extras?: readonly AlertExtra[];
+  /**
+   * The most open (active or paused) alerts of this kind the person may hold, counting this one. The store checks it in the
+   * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
+   */
+  readonly maxOpen?: number;
 };
 
 /**

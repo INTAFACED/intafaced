@@ -20,7 +20,7 @@ import {
   evaluateUnpublishedKind as unpublishedKindOutcome,
   evaluateWhaleAlert,
 } from './evaluate.js';
-import { AlertValidationError, type AlertStore } from './store.js';
+import { AlertQuotaReachedError, AlertValidationError, type AlertStore } from './store.js';
 import {
   MemoryAlertTriggerLog,
   NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET,
@@ -105,6 +105,7 @@ export function assertNotifyAlertsListLimit(limit: number | null | undefined): n
 export const NOTIFY_ALERT_EXPIRY_MAX_UNSET = 'notify.alert_expiry_max_unset' as const;
 export const NOTIFY_ALERT_TEXT_LIMIT_UNSET = 'notify.alert_text_limit_unset' as const;
 export const NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET = 'notify.alert_conditions_limit_unset' as const;
+export const NOTIFY_ALERT_QUOTA_UNSET = 'notify.alert_quota_unset' as const;
 
 /** Owner settings an alert's expiry and text depend on. Blank (null) is never replaced by a default: the create refuses. */
 export type AlertLimits = {
@@ -116,6 +117,8 @@ export type AlertLimits = {
   readonly maxConditions: number | null;
   /** Days the trigger log keeps a row (`NOTIFY_ALERT_TRIGGER_LOG_DAYS`). Blank: no log is written and reading it refuses. */
   readonly triggerLogDays: number | null;
+  /** Most price alerts one person may hold open, active or paused (`NOTIFY_ALERT_MAX_ACTIVE_PRICE`). Blank refuses a create. */
+  readonly maxActivePrice: number | null;
 };
 
 export const NO_ALERT_LIMITS: AlertLimits = {
@@ -123,6 +126,7 @@ export const NO_ALERT_LIMITS: AlertLimits = {
   textMaxLength: null,
   maxConditions: null,
   triggerLogDays: null,
+  maxActivePrice: null,
 };
 
 export type AlertLimitCode =
@@ -130,6 +134,8 @@ export type AlertLimitCode =
   | typeof NOTIFY_ALERT_TEXT_LIMIT_UNSET
   | typeof NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET
   | typeof NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET
+  | typeof NOTIFY_ALERT_QUOTA_UNSET
+  | 'alert.quota_reached'
   | 'alert.too_many_conditions'
   | 'alert.extra_condition_invalid'
   | 'alert.expiry_in_past'
@@ -358,7 +364,42 @@ export class AlertService {
     const message = assertAlertText('message', input.message, this.limits);
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
     const extras = assertAlertExtras(input.extras, this.limits);
-    return this.store.create({ ...input, kind, targetPrice, name, message, expiresAt, extras });
+    // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
+    let maxOpen: number | undefined;
+    if (kind === 'price') {
+      if (this.limits.maxActivePrice === null) {
+        throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
+      }
+      maxOpen = this.limits.maxActivePrice;
+      // An alert past its time is not open, so it must not use up a place.
+      await this.store.expireDue(now);
+    }
+    try {
+      return await this.store.create({
+        ...input,
+        kind,
+        targetPrice,
+        name,
+        message,
+        expiresAt,
+        extras,
+        ...(maxOpen !== undefined ? { maxOpen } : {}),
+      });
+    } catch (err) {
+      if (err instanceof AlertQuotaReachedError) {
+        throw new AlertLimitError('alert.quota_reached', `a person may hold ${err.limit} open price alerts`);
+      }
+      throw err;
+    }
+  }
+
+  /** How many price alerts the person holds open and the owner's cap (`null` while it is blank). */
+  async quota(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<{ readonly kind: 'price'; readonly used: number; readonly max: number | null }> {
+    await this.store.expireDue(now);
+    return { kind: 'price', used: await this.store.countOpen(userId, 'price'), max: this.limits.maxActivePrice };
   }
 
   /**

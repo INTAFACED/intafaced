@@ -12,6 +12,7 @@ import type { MarkSource } from './alerts/types.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter } from './router.js';
 import { MemoryNotifyStore } from './store.js';
+import { TEST_ALERT_LIMITS } from './alerts/test-limits.js';
 
 const SECRET = 'a-notify-notices-test-edge-secret-long';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -57,7 +58,7 @@ function darkMarks(): MarkSource {
 
 function openCaller() {
   const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
-  const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify);
+  const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify, undefined, TEST_ALERT_LIMITS);
   return createNotifyRouter(notify, alerts).createCaller(signed());
 }
 
@@ -147,7 +148,7 @@ describe('alerts list', () => {
 describe('public announcement', () => {
   it('refuses until real content exists and does not invent filler', async () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
-    const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify);
+    const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify, undefined, TEST_ALERT_LIMITS);
     const router = createNotifyRouter(notify, alerts);
     const anon = router.createCaller(anonymous());
     const filler = 'The house is open. Trading is free today.';

@@ -26,6 +26,7 @@ import {
 import { AlertService } from './service.js';
 import { MemoryAlertStore } from './store.js';
 import type { MarkSource } from './types.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
 
 describe('acceptAlertMark — dark/absent never become a live price', () => {
   it('a dark source that invents an ok quote is still unavailable', () => {
@@ -131,7 +132,7 @@ describe('AlertService — dark kind cannot fire even with an invented quote', (
         return { kind: 'ok', price: '100.5', at: new Date() };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -165,7 +166,7 @@ describe('AlertService — dark kind cannot fire even with an invented quote', (
         return { kind: 'ok', price: '100.5', at: new Date(now.getTime() - 301_000) };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -199,7 +200,7 @@ describe('AlertService — dark kind cannot fire even with an invented quote', (
         return undefined as unknown as Awaited<ReturnType<MarkSource['quote']>>;
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -234,7 +235,7 @@ describe('AlertService — dark kind cannot fire even with an invented quote', (
         return { kind: 'ok', price: '100.5', at: new Date() };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
