@@ -43,8 +43,9 @@ export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
     if (!subAccountIds.includes(lower)) subAccountIds.push(lower);
   }
   // A sub-account-only question naming no real sub-account (none, or only the user's own id) must not read as "nothing open".
-  if (scope === 'sub_accounts' && subAccountIds.every((id) => id === row.userId.toLowerCase())) return null;
-  return { userId: row.userId.toLowerCase(), subAccountIds, scope };
+  const userId = row.userId.toLowerCase();
+  if (scope === 'sub_accounts' && subAccountIds.every((id) => id === userId)) return null;
+  return { userId, subAccountIds, scope };
 }
 
 export async function runTradeClosureCheck(sql: Sql, input: ClosureCheckBody): Promise<{ asOf: string; blockers: ClosureBlocker[] }> {
