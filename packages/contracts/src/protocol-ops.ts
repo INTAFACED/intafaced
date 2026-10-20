@@ -172,6 +172,38 @@ export const protocolOpsPoolRestoreInputSchema = z
 export const protocolOpsMarketDelistInputSchema = z.object({ symbol, ...decisionFields, operationId }).strict();
 export const protocolOpsMarketRestoreInputSchema = z.object({ symbol, approvalId: decisionFields.approvalId, operationId }).strict();
 
+// ---------------------------------------------------------------- reason codes (admin-editable)
+
+/** A reason code is lower snake case so a list reads the same everywhere and a typo cannot pass as a second code. */
+export const PROTOCOL_OPS_REASON_CODE_PATTERN = /^[a-z][a-z0-9_]{1,63}$/;
+const reasonCode = z.string().regex(PROTOCOL_OPS_REASON_CODE_PATTERN);
+
+/**
+ * The reasons a hide or delist may name. `source` says where the list comes from: the built-in default, the deployment's
+ * setting, or an admin edit. Every edit is logged with who made it, and a hide checks the list in force at that moment.
+ */
+export const protocolOpsReasonCodesOutputSchema = z
+  .object({
+    asOf: z.string().datetime(),
+    source: z.enum(['default', 'env', 'admin']),
+    codes: z.array(reasonCode).min(1),
+    updatedAt: z.string().datetime().nullable(),
+    updatedBy: z.string().min(1).nullable(),
+  })
+  .strict();
+export type ProtocolOpsReasonCodesOutput = z.infer<typeof protocolOpsReasonCodesOutputSchema>;
+
+/** The whole new list, replacing the old one. Never empty: a hide with no valid reason would be unusable. */
+export const protocolOpsReasonCodesSetInputSchema = z
+  .object({
+    codes: z
+      .array(reasonCode)
+      .min(1)
+      .max(50)
+      .refine((codes) => new Set(codes).size === codes.length, 'reason codes must be unique'),
+  })
+  .strict();
+
 /**
  * The public hide list: which pools and markets INTAFACED does not list. svc-dex drops them from routing and the default
  * list, svc-protocol shows the "Hidden by INTAFACED" badge. It carries no reason text and no signer; those are the desk's.

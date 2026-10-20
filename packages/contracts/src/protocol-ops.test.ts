@@ -13,6 +13,8 @@ import {
   protocolOpsPoolHideInputSchema,
   protocolOpsPoolRestoreInputSchema,
   protocolOpsPoolsListOutputSchema,
+  protocolOpsReasonCodesOutputSchema,
+  protocolOpsReasonCodesSetInputSchema,
 } from './protocol-ops.js';
 
 const pool = '0x' + 'aB'.repeat(20);
@@ -141,5 +143,26 @@ describe('hide list read', () => {
     ).toBe(false);
     expect(protocolOpsHiddenOutputSchema.safeParse({ asOf: now, pools: [], markets: [], extra: 1 }).success).toBe(false);
     expect(protocolOpsHiddenOutputSchema.safeParse({ pools: [], markets: [] }).success).toBe(false);
+  });
+});
+
+describe('reason codes', () => {
+  it('accepts a lower snake case list and refuses an empty, duplicated or oddly spelled one', () => {
+    const ok = (codes: string[]) => protocolOpsReasonCodesSetInputSchema.safeParse({ codes }).success;
+    expect(ok(['scam_or_fraud', 'security_incident'])).toBe(true);
+    expect(ok([])).toBe(false);
+    expect(ok(['scam_or_fraud', 'scam_or_fraud'])).toBe(false);
+    expect(ok(['Scam'])).toBe(false);
+    expect(ok(['has space'])).toBe(false);
+    expect(ok(Array.from({ length: 51 }, (_, i) => `code_${i}`))).toBe(false);
+    expect(protocolOpsReasonCodesSetInputSchema.safeParse({ codes: ['scam_or_fraud'], extra: 1 }).success).toBe(false);
+  });
+
+  it('names where the list in force came from, and who last changed it', () => {
+    const base = { asOf: now, codes: ['scam_or_fraud'], updatedAt: null, updatedBy: null };
+    expect(protocolOpsReasonCodesOutputSchema.safeParse({ ...base, source: 'default' }).success).toBe(true);
+    expect(protocolOpsReasonCodesOutputSchema.safeParse({ ...base, source: 'admin', updatedAt: now, updatedBy: 'u1' }).success).toBe(true);
+    expect(protocolOpsReasonCodesOutputSchema.safeParse({ ...base, source: 'owner' }).success).toBe(false);
+    expect(protocolOpsReasonCodesOutputSchema.safeParse({ ...base, source: 'default', codes: [] }).success).toBe(false);
   });
 });
