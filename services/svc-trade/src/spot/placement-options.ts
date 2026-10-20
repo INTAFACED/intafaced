@@ -2,7 +2,7 @@ import { TradeError } from './types.js';
 
 /**
  * Create-body options the typed schema carries but spot does not act on yet are refused, never dropped: a caller who
- * sends a self-trade mode or a tag must be told it was not applied. A request whose own deadline has passed is
+ * sends a self-trade mode the engine lacks must be told it was not applied. A request whose own deadline has passed is
  * refused before any hold, whatever else is wrong with it.
  */
 export interface PlacementOptions {
@@ -34,9 +34,6 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
       `self-trade mode ${options.stpMode} is not supported; the engine cancels the resting order`,
       'trade.stp_mode_unsupported',
     );
-  }
-  if (options.tag !== undefined) {
-    throw new TradeError('order tags are not stored yet; resend without a tag', 'trade.tag_unsupported');
   }
   refuseUnsetTriggerSource(options);
 }

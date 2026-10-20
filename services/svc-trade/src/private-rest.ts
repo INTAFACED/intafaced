@@ -78,7 +78,7 @@ import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from 
  *   GET    /api/v1/admin/orders/open scope: admin:read (canonical order rows)
  *   GET    /api/v1/admin/fees        scope: admin:read (fee schedule customers are charged, per market, with its source)
  *   GET    /api/v1/orders/closed   scope: trade:read  (?symbol=&limit=&since= ms&until= ms&side=&status=&type=)
- *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required)
+ *   GET    /api/v1/orders/by-client-id/:clientOrderId  scope: trade:read   (?symbol= required; also /orders/by-client/:clientOrderId)
  *   DELETE /api/v1/orders/by-client-id/:clientOrderId  scope: trade:write  (?symbol= required)
  *   GET    /api/v1/orders/:id      scope: trade:read
  *   GET    /api/v1/orders/:id/amendments  scope: trade:read   (each amend and replace, oldest first)
@@ -589,6 +589,7 @@ export function presentCcxtOrder(order: OrderRecord, symbol: string, opts?: { fi
     cost,
     status: toCcxtOrderStatus(order.status),
     rejectCode: order.rejectCode,
+    tag: order.tag ?? null,
     /** Additive frozen-spine evidence; unresolved is never flattened to open/rejected. */
     recoveryReason: order.recoveryReason,
     reconciliationKey: order.reconciliationKey,
@@ -820,6 +821,39 @@ export function parseClosedFilters(query: {
  * Map CCXT create body → PlaceOrderInput (decimal strings → Amount).
  * Only market/limit; postOnly becomes tif PO when no other tif is set.
  */
+/**
+ * The 400 body for a create body the typed schema refused. A bad `tag` names its own code; anything else keeps the
+ * generic one with the offending field in `issues`.
+ */
+function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<string | number>; message: string }> }, fallback: string) {
+  const first = error.issues[0];
+  const typed =
+    first?.path[0] === 'tag'
+      ? invalidOrder('tag must be 1 to 16 characters', 'trade.invalid_tag').body
+      : invalidOrder(first?.message ?? fallback).body;
+  return { ...typed, issues: error.issues.map((i) => ({ path: i.path, message: i.message })) };
+}
+
+/**
+ * Spot takes the fee in the asset the order receives (base on a buy, quote on a sell) and has no fee token, so a
+ * different `feeCurrency` is refused rather than dropped. A market that does not exist is left to the place door.
+ */
+async function refuseFeeCurrency(
+  deps: Pick<PrivateRestDeps, 'marketBySymbol'>,
+  body: { symbol: string; side: string; feeCurrency?: string },
+): Promise<void> {
+  if (body.feeCurrency === undefined) return;
+  const market = await deps.marketBySymbol(body.symbol);
+  if (!market) return;
+  const received = body.side === 'buy' ? market.baseAsset : market.quoteAsset;
+  if (body.feeCurrency.toUpperCase() !== received.toUpperCase()) {
+    throw new TradeError(
+      `fees are taken in ${received}, the asset this order receives; there is no fee token to pay them in ${body.feeCurrency}`,
+      'trade.fee_currency_unsupported',
+    );
+  }
+}
+
 export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLimit?: boolean } = {}): PlaceOrderInput {
   if (!isSpotOrderType(body.type) || (body.type === 'stop_limit' && opts.allowStopLimit !== true)) {
     throw new TradeError(
@@ -853,6 +887,7 @@ export function mapCreateOrderBody(body: CreateOrderRequest, opts: { allowStopLi
     tif,
     clientOrderId: body.clientOrderId,
     subAccountId: body.subAccountId,
+    ...(body.tag !== undefined ? { tag: body.tag } : {}),
     ...(stopLimit ? { stopPx: parseAmount(body.stopPrice as string) } : {}),
   } as PlaceOrderInput;
 }
@@ -2302,14 +2337,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const base = { index, clientOrderId };
       const parsed = createOrderRequestSchema.safeParse(rawItem);
       if (!parsed.success) {
-        results.push({
-          ...base,
-          status: 'refused',
-          error: {
-            ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid create order body').body,
-            issues: parsed.error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
-          },
-        });
+        results.push({ ...base, status: 'refused', error: createBodyRefusal(parsed.error, 'invalid create order body') });
         continue;
       }
 
@@ -2319,6 +2347,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         const now = (deps.now ?? (() => new Date()))();
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
+        await refuseFeeCurrency(deps, parsed.data);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
@@ -2594,10 +2623,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       // CCXT `InvalidOrder`, not `BadRequest`: it is specifically the order
       // that is wrong, and that is the branch a client's order-builder listens
       // on. `issues` rides alongside so the integrator sees which field.
-      return reply.code(400).send({
-        ...invalidOrder(parsed.error.issues[0]?.message ?? 'invalid create order body').body,
-        issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
-      });
+      return reply.code(400).send(createBodyRefusal(parsed.error, 'invalid create order body'));
     }
 
     let input: PlaceOrderInput;
@@ -2607,6 +2633,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       const now = (deps.now ?? (() => new Date()))();
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
+      await refuseFeeCurrency(deps, parsed.data);
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
@@ -2956,9 +2983,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     return order;
   }
 
-  app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
-    '/api/v1/orders/by-client-id/:clientOrderId',
-    async (req, reply) => {
+  for (const path of ['/api/v1/orders/by-client-id/:clientOrderId', '/api/v1/orders/by-client/:clientOrderId']) {
+    app.get<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, async (req, reply) => {
       const principal = requirePrincipal(req, reply);
       if (!principal) return;
       try {
@@ -2976,12 +3002,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         if (sent) return sent;
         throw err;
       }
-    },
-  );
+    });
 
-  app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(
-    '/api/v1/orders/by-client-id/:clientOrderId',
-    async (req, reply) => {
+    app.delete<{ Params: { clientOrderId: string }; Querystring: { symbol?: string } }>(path, async (req, reply) => {
       const principal = requirePrincipal(req, reply);
       if (!principal) return;
       if (!requireTradeJurisdiction(req, reply, principal)) return;
@@ -3000,8 +3023,8 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
         if (sent) return sent;
         throw err;
       }
-    },
-  );
+    });
+  }
 
   // ── By id ─────────────────────────────────────────────────────────────────
 
@@ -3101,6 +3124,7 @@ export function fakeOrder(partial: {
     holdAmount: 100_000_000_000_000_000_000n,
     amendReleased: 0n,
     feeDiscountBps: 0,
+    tag: null,
     protectionPrice: partial.protectionPrice === undefined ? null : partial.protectionPrice,
     engineSequence: 1,
     engineVersion: 1,
