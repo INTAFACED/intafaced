@@ -73,7 +73,9 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
     return () => controller.abort();
   }, [global, sendId]);
 
-  async function choose(file: File | undefined, limits: GlobalHold['proofLimits']) {
+  async function choose(input: HTMLInputElement, limits: GlobalHold['proofLimits']) {
+    const file = input.files?.[0];
+    input.value = '';
     if (!file) return;
     const why = proofProblem(file, limits);
     if (why) {
@@ -97,7 +99,13 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
     const result = await global.uploadProof({ id: sendId, name: file.name, type: file.type.toLowerCase(), contentBase64 });
     setBusy(false);
     if (result.ok) setHold({ state: 'ready', data: result.data });
-    else setProblem(sayFor(result.code, result.message));
+    else {
+      setProblem(sayFor(result.code, result.message));
+      if (result.code === 'bank.proof_already_uploaded' || result.code === 'bank.proof_not_requested') {
+        const fresh = await global.hold(sendId);
+        if (fresh.ok) setHold({ state: 'ready', data: fresh.data });
+      }
+    }
   }
 
   const data = hold.state === 'ready' ? hold.data : null;
@@ -121,7 +129,7 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
               type="file"
               disabled={busy}
               accept={data.proofLimits.allowedTypes.join(',')}
-              onChange={(event) => void choose(event.target.files?.[0], data.proofLimits)}
+              onChange={(event) => void choose(event.currentTarget, data.proofLimits)}
             />
           </label>
         ) : (
