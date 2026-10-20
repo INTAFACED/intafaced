@@ -59,6 +59,11 @@ describe('withdrawal quotes (real Postgres)', () => {
     await adminStop();
   }, 30_000);
 
+  const rows = async (table: string): Promise<string | undefined> => {
+    const [row] = await db.sql.unsafe<Array<{ n: string }>>(`SELECT count(*)::text AS n FROM ${table}`);
+    return row?.n;
+  };
+
   /** A registered network. `fee` null is a blank fee; `source` is the registry's fee source. */
   async function network(
     id: string,
@@ -142,8 +147,7 @@ describe('withdrawal quotes (real Postgres)', () => {
     expect(await code(quotes.quote(USER, ask('q1')))).toBe('withdrawal_quote.fee_source_unwired');
     await network('tron-test', { source: 'venue_quote', fee: null });
     expect(await code(quotes.quote(USER, ask('q2')))).toBe('withdrawal_quote.fee_source_unwired');
-    const [{ count }] = await db.sql<Array<{ count: string }>>`SELECT count(*)::text AS count FROM pay.withdrawal_quotes`;
-    expect(count).toBe('0');
+    expect(await rows('pay.withdrawal_quotes')).toBe('0');
   });
 
   it('a deducted fee that leaves nothing refuses; one cent of net is enough', async () => {
@@ -171,8 +175,7 @@ describe('withdrawal quotes (real Postgres)', () => {
     await quotes.setPolicy(FOUNDER, { feeMode: 'deducted', ttlSeconds: 30 });
     const again = await quotes.quote(USER, ask('q1'));
     expect(again).toEqual(first);
-    const [{ count }] = await db.sql<Array<{ count: string }>>`SELECT count(*)::text AS count FROM pay.withdrawal_quotes`;
-    expect(count).toBe('1');
+    expect(await rows('pay.withdrawal_quotes')).toBe('1');
     // A new reference reads the new terms.
     expect(await quotes.quote(USER, ask('q2'))).toMatchObject({ feeTotal: '9', feeMode: 'deducted', netAmount: '91' });
   });
@@ -189,8 +192,7 @@ describe('withdrawal quotes (real Postgres)', () => {
     await quotes.setPolicy(FOUNDER, { feeMode: 'on_top', ttlSeconds: 300 });
     const results = await Promise.all(Array.from({ length: 5 }, () => quotes.quote(USER, ask('q1'))));
     expect(new Set(results.map((r) => r.expiresAt)).size).toBe(1);
-    const [{ count }] = await db.sql<Array<{ count: string }>>`SELECT count(*)::text AS count FROM pay.withdrawal_quotes`;
-    expect(count).toBe('1');
+    expect(await rows('pay.withdrawal_quotes')).toBe('1');
   });
 
   it('expires at the lifetime and an expired quote cannot be accepted', async () => {
@@ -222,8 +224,7 @@ describe('withdrawal quotes (real Postgres)', () => {
       ['w-1', 'w-2', 'w-3', 'w-4'].map((clientRef) => quotes.accept(USER, { quoteRef: 'q1', clientRef })),
     );
     expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
-    const [{ count }] = await db.sql<Array<{ count: string }>>`SELECT count(*)::text AS count FROM pay.withdrawal_quote_acceptances`;
-    expect(count).toBe('1');
+    expect(await rows('pay.withdrawal_quote_acceptances')).toBe('1');
   });
 
   it("another account's quote reads as not found", async () => {

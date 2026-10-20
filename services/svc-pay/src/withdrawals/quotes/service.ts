@@ -1,16 +1,7 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { WithdrawalQuoteError } from './errors.js';
-import type {
-  AcceptInput,
-  AdminQuoteView,
-  FeeMode,
-  ListInput,
-  PolicyView,
-  QuoteInput,
-  QuoteView,
-  SetPolicyInput,
-} from './schemas.js';
+import type { AcceptInput, AdminQuoteView, FeeMode, ListInput, PolicyView, QuoteInput, QuoteView, SetPolicyInput } from './schemas.js';
 
 /**
  * Withdrawal fee quotes (W-withdraw-04). A quote previews one withdrawal: the fee parts, whether the fee is on top of
@@ -147,14 +138,23 @@ export class WithdrawalQuoteService {
     const same =
       row.asset_id === input.assetId && row.network_id === input.networkId && parseAmount(row.amount) === parseAmount(input.amount);
     if (!same) {
-      throw new WithdrawalQuoteError('withdrawal_quote.quote_differs', `quote ${input.quoteRef} exists with other terms; use a new reference`);
+      throw new WithdrawalQuoteError(
+        'withdrawal_quote.quote_differs',
+        `quote ${input.quoteRef} exists with other terms; use a new reference`,
+      );
     }
     return this.view(row, at);
   }
 
   private async networkFee(input: QuoteInput): Promise<{ fee: Amount; source: string; registryVersion: number }> {
     const [net] = await this.deps.sql<
-      Array<{ enabled: boolean; asset_codes: unknown; fee_estimate_source: string | null; fee_estimate_amount: string | null; version: number }>
+      Array<{
+        enabled: boolean;
+        asset_codes: unknown;
+        fee_estimate_source: string | null;
+        fee_estimate_amount: string | null;
+        version: number;
+      }>
     >`SELECT enabled, asset_codes, fee_estimate_source, fee_estimate_amount, version
         FROM pay.network_registry WHERE network_id = ${input.networkId}`;
     if (!net) throw new WithdrawalQuoteError('withdrawal_quote.network_unknown', `network "${input.networkId}" is not in the registry`);
@@ -210,7 +210,10 @@ export class WithdrawalQuoteService {
     const [taken] = await this.deps.sql<Array<{ quote_id: string }>>`
       SELECT quote_id FROM pay.withdrawal_quote_acceptances WHERE user_id = ${userId} AND client_ref = ${input.clientRef}`;
     if (taken) {
-      throw new WithdrawalQuoteError('withdrawal_quote.client_ref_taken', `client reference ${input.clientRef} already accepted another quote`);
+      throw new WithdrawalQuoteError(
+        'withdrawal_quote.client_ref_taken',
+        `client reference ${input.clientRef} already accepted another quote`,
+      );
     }
     const inserted = await this.deps.sql<Array<{ quote_id: string }>>`
       INSERT INTO pay.withdrawal_quote_acceptances (quote_id, user_id, client_ref, accepted_at)

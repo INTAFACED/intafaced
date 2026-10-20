@@ -14,9 +14,7 @@ import type { WithdrawalQuoteService } from './service.js';
 const SECRET = 'a-pay-quote-test-edge-secret-long-enough-x';
 const USER = '11111111-1111-4111-8111-111111111111';
 const edgeContext = createEdgeContext({ secret: SECRET, serviceName: 'svc-pay' });
-const rails = new RailRegistry([
-  new CardSandboxAdapter({ secret: 'pay-quote-test-rail-secret-at-least-32-chars', toleranceSeconds: 300 }),
-]);
+const rails = new RailRegistry([new CardSandboxAdapter({ secret: 'pay-quote-test-rail-secret-at-least-32-chars', toleranceSeconds: 300 })]);
 
 function signed(scopes: string[]) {
   const p = {
