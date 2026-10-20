@@ -18,7 +18,7 @@ import {
   type Amount,
   type Balance,
 } from '@intafaced/ledger-client';
-import { refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
+import { refuseOptionsOnReplacement, refuseUnsupportedPlacementOptions } from './spot/placement-options.js';
 import {
   UNAUTHENTICATED,
   badRequest,
@@ -2128,6 +2128,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       let input: PlaceOrderInput;
       try {
         refuseExitLegs(rawItem);
+        const replay = deps.findClientOrder
+          ? (await deps.findClientOrder(principal, { symbol: parsed.data.symbol, clientOrderId: parsed.data.clientOrderId })) !== null
+          : false;
+        refuseUnsupportedPlacementOptions(parsed.data, (deps.now ?? (() => new Date()))(), replay);
         input = mapCreateOrderBody(parsed.data);
       } catch (err) {
         const mapped = toCcxtError(err);
@@ -2413,7 +2417,10 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let displayQty: string | null = null;
     let stopTrigger: string | null = null;
     try {
-      refuseUnsupportedPlacementOptions(parsed.data, (deps.now ?? (() => new Date()))());
+      const replay = deps.findClientOrder
+        ? (await deps.findClientOrder(principal, { symbol: parsed.data.symbol, clientOrderId: parsed.data.clientOrderId })) !== null
+        : false;
+      refuseUnsupportedPlacementOptions(parsed.data, (deps.now ?? (() => new Date()))(), replay);
       input = carryPlacement(mapCreateOrderBody(parsed.data, { allowStopLimit: deps.stopTriggers !== undefined }), req.body, true);
       const attached = await attachIcebergDisplay(deps, input, parsed.data, readRawDisplayQty(req.body));
       input = attached.input;
@@ -2664,6 +2671,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
     let input: PlaceOrderInput;
     try {
+      refuseOptionsOnReplacement(parsed.data);
       // Replace has no stop door: a raw stopPx would reach the engine with no stored trigger.
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);

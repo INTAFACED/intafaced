@@ -101,6 +101,9 @@ export function registerOutcomesRest(app: FastifyInstance, deps: OutcomesRestDep
     const parsed = createOrderRequestSchema.safeParse(req.body);
     if (!parsed.success)
       return sendError(reply, 400, 'trade.outcome_order_invalid', 'order fields must match the decimal-string order schema');
+    if (parsed.data.requestDeadline !== undefined || parsed.data.stpMode !== undefined || parsed.data.tag !== undefined) {
+      return sendError(reply, 400, 'trade.outcome_order_invalid', 'outcome orders take no request deadline, self-trade mode or tag');
+    }
     const market = deps.catalogue.byInstrument(parsed.data.symbol);
     if (!market) return sendError(reply, 404, 'trade.outcome_market_not_found', 'outcome instrument is not listed');
     if (Date.parse(market.closeAt) <= now()) return sendError(reply, 409, 'trade.outcome_market_closed', 'outcome market is closed');

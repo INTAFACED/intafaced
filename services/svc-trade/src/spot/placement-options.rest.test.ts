@@ -34,10 +34,19 @@ function signed(): Record<string, string> {
 
 const BASE = { symbol: 'BTC/USDT', type: 'limit', side: 'buy', amount: '1', price: '100', clientOrderId: 'p-1' };
 
-async function build() {
+async function build(existing: Set<string> = new Set()) {
   const placed: PlaceOrderInput[] = [];
+  const replaced: string[] = [];
   const app = Fastify();
   registerPrivateRest(app, {
+    findClientOrder: async (_p: Principal, input: { clientOrderId?: string }) =>
+      input.clientOrderId && existing.has(input.clientOrderId)
+        ? fakeOrder({ marketId: market.id, clientOrderId: input.clientOrderId })
+        : null,
+    replaceOrder: async (_p: Principal, id: string) => {
+      replaced.push(id);
+      throw new Error('unreachable');
+    },
     edgeSecret: SECRET,
     serviceName: 'svc-trade',
     now: () => NOW,
@@ -56,7 +65,7 @@ async function build() {
     },
   } as unknown as PrivateRestDeps);
   await app.ready();
-  return { app, placed };
+  return { app, placed, replaced };
 }
 
 describe('the create door and the options spot does not act on', () => {
@@ -83,6 +92,63 @@ describe('the create door and the options spot does not act on', () => {
     });
     expect(res.statusCode, res.body).toBe(201);
     expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('does not refuse an already-booked order as expired: a replay returns the order that exists', async () => {
+    const { app, placed } = await build(new Set(['p-1']));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, requestDeadline: '2026-10-20T11:59:00.000Z' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(placed).toHaveLength(1);
+    await app.close();
+  });
+
+  it('refuses the same options per item on the batch door, and places the rest', async () => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/batch',
+      headers: signed(),
+      payload: {
+        orders: [
+          { ...BASE, clientOrderId: 'b-1', requestDeadline: '2026-10-20T11:59:00.000Z' },
+          { ...BASE, clientOrderId: 'b-2', stpMode: 'cancel_both' },
+          { ...BASE, clientOrderId: 'b-3', tag: 'x' },
+          { ...BASE, clientOrderId: 'b-4' },
+        ],
+      },
+    });
+    const results = res.json().results as Array<{ status: string; error?: { intafacedCode?: string } }>;
+    expect(results.map((r) => r.error?.intafacedCode)).toEqual([
+      'trade.request_expired',
+      'trade.stp_mode_unsupported',
+      'trade.tag_unsupported',
+      undefined,
+    ]);
+    expect(placed.map((p) => p.clientOrderId)).toEqual(['b-4']);
+    await app.close();
+  });
+
+  it.each([
+    ['a deadline', { requestDeadline: '2026-10-20T12:30:00.000Z' }],
+    ['a self-trade mode', { stpMode: 'cancel_maker' }],
+    ['a tag', { tag: 'x' }],
+  ])('the replace door takes no %s and cancels nothing', async (_name, extra) => {
+    const { app, replaced } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/33333333-3333-4333-8333-333333333333/replace',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'r-1', ...extra },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('a replacement does not take');
+    expect(replaced).toHaveLength(0);
     await app.close();
   });
 });

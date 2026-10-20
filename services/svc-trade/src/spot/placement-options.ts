@@ -14,8 +14,13 @@ export interface PlacementOptions {
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
 const ENGINE_STP_MODE = 'cancel_maker';
 
-export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now: Date): void {
-  if (options.requestDeadline !== undefined && Date.parse(options.requestDeadline) <= now.getTime()) {
+/**
+ * `replay` is true when the caller's clientOrderId already names an order. A deadline means "do not create this after
+ * T"; a replay creates nothing and returns the order that exists, so it is never refused as expired (the booked key
+ * is always replayed).
+ */
+export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now: Date, replay = false): void {
+  if (!replay && options.requestDeadline !== undefined && Date.parse(options.requestDeadline) <= now.getTime()) {
     throw new TradeError('the request deadline has passed; nothing was placed', 'trade.request_expired');
   }
   if (options.stpMode !== undefined && options.stpMode !== ENGINE_STP_MODE) {
@@ -26,5 +31,15 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
   }
   if (options.tag !== undefined) {
     throw new TradeError('order tags are not stored yet; resend without a tag', 'trade.tag_unsupported');
+  }
+}
+
+/**
+ * A replacement cancels the original first, so an option that could be refused or ignored after that point is refused
+ * before it: the replace door takes none of the three.
+ */
+export function refuseOptionsOnReplacement(options: PlacementOptions): void {
+  if (options.requestDeadline !== undefined || options.stpMode !== undefined || options.tag !== undefined) {
+    throw new TradeError('a replacement does not take a request deadline, a self-trade mode or a tag', 'trade.order_type_unsupported');
   }
 }
