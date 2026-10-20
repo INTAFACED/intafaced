@@ -1,6 +1,13 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
-import { publicProcedure, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  opsCostEntryInputSchema,
+  opsCostEntrySchema,
+  opsVenueEconomicsSchema,
+  publicProcedure,
+  router,
+  scopedProcedure,
+} from '@intafaced/contracts';
 import {
   OPS_CONTACTS_LIST_LIMIT_UNSET,
   OPS_CUSTODY_CHAIN_UNWIRED,
@@ -26,6 +33,7 @@ import {
   OPS_TEAM_LIST_LIMIT_UNSET,
   OPS_WAREHOUSE_UNWIRED,
   OpsError,
+  OPS_COST_STORAGE_UNCONFIGURED,
 } from './codes.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import type { OpsService } from './ops-service.js';
@@ -50,6 +58,8 @@ import { createAlertRulesRouter } from './alerts/router.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
+import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
+import { composeVenueEconomics, parseCostEntry, parseCostPeriod, readRevenue } from './venue-economics.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -138,6 +148,16 @@ const custodyApprovalSchema = z.object({
   status: z.literal('pending'),
 });
 
+function requireVenueCosts(store: VenueCostStore | undefined): VenueCostStore {
+  if (!store) {
+    throw new OpsError(
+      OPS_COST_STORAGE_UNCONFIGURED,
+      'No durable storage is configured for venue cost entries. Nothing was read or saved.',
+    );
+  }
+  return store;
+}
+
 function mapError(err: unknown): never {
   if (err instanceof OpsError) {
     throw new TRPCError({
@@ -158,6 +178,8 @@ export interface OperatorDeskConfig {
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
+  /** Durable venue cost entries. Absent means the venue economics calls refuse `ops.cost_storage_unconfigured`. */
+  readonly venueCosts?: VenueCostStore;
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
@@ -600,6 +622,49 @@ export function createOpsRouter(
           }
         }),
     }),
+
+    venueEconomics: scopedProcedure('ops:read', guards)
+      .input(z.object({ period: z.string() }))
+      .output(opsVenueEconomicsSchema)
+      .query(async ({ input }) => {
+        try {
+          const store = requireVenueCosts(desks.venueCosts);
+          const period = parseCostPeriod(input.period);
+          const [revenue, entries] = await Promise.all([readRevenue(() => ops.revenue()), store.list(period)]);
+          return composeVenueEconomics(now(), period, revenue, entries);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+    recordVenueCost: scopedProcedure('ops:write', guards)
+      .input(opsCostEntryInputSchema)
+      .output(opsCostEntrySchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const fields = parseCostEntry(input);
+          const store = requireVenueCosts(desks.venueCosts);
+          const key = assertIdempotencyKey(input.idempotencyKey);
+          const fingerprint = costFingerprint({ ...fields, approvalId: input.approvalId, operationId: input.operationId });
+          const stored = await store.find(key, fingerprint);
+          if (stored) return stored;
+          const consumed = await consumeFounderApproval(desks.approvals, {
+            approvalId: input.approvalId,
+            operationId: input.operationId,
+            actionType: 'ops.venue_cost.record',
+            targetService: 'svc-ops',
+            targetId: `venue-cost:${fields.period}:${fields.category}`,
+            fields: { ...fields },
+            requesterId: ctx.principal.userId,
+          });
+          return await store.append(key, fingerprint, fields, {
+            enteredBy: consumed.requesterId,
+            approverId: consumed.approverId ?? '',
+            enteredAt: now(),
+          });
+        } catch (err) {
+          return deskError(err);
+        }
+      }),
 
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 
