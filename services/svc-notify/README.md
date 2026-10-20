@@ -604,7 +604,8 @@ a row. A redelivery reuses the same key and cannot double-send.
   often). Only a crossing condition can repeat (`alert.frequency_needs_crossing`). Which repeating frequencies exist is
   `NOTIFY_ALERT_FREQUENCIES`; no default: blank leaves every alert one-shot and refuses a repeating one
   `notify.alert_frequency_unset`. Each trigger has its own inbox key (`<alertId>:n<fire number>`) and trigger-log row, and the count is
-  taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Close-based
+  taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Known limit: a crash between the inbox write and the count, followed by the mark reversing before the retry, loses the
+  announcement of the next crossing (it reuses the same number); never a double send. Close-based
   timing (once per candle close) needs the candle-close flag from svc-ws and is not built. Migration 0022.
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused

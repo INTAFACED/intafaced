@@ -796,6 +796,10 @@ export class AlertService {
         if (this.limits.triggerLogDays !== null) {
           await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId, seq));
         }
+        // Known limit: a crash between the inbox write above and this count leaves the count and the remembered side as they
+        // were. The retry sends nothing new (same key). If the mark has fallen back across the level before that retry, the
+        // next crossing reuses this number and its inbox key, so that one crossing goes unannounced. It takes a crash inside
+        // this window and a reversal inside one sweep; the trigger log and the count still agree.
         if (repeating) await this.store.recordRepeat(alert.userId, alert.id, alert.fireCount, at, outcome.side ?? null);
         else await this.store.markFired(alert.userId, alert.id, at);
       }
