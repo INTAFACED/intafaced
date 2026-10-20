@@ -67,6 +67,18 @@ describe('orders by clientOrderId', () => {
     expect(cancelled).toEqual([aliceOrder.id]);
   });
 
+  it('answers on the shorter by-client path too, and never shows another caller the order', async () => {
+    const { app, cancelled, aliceOrder } = await build();
+    const read = await app.inject({ method: 'GET', url: '/api/v1/orders/by-client/mine-1?symbol=BTC%2FUSDT', headers: signed(ALICE) });
+    expect(read.statusCode, read.body).toBe(200);
+    expect(read.json()).toMatchObject({ id: aliceOrder.id, clientOrderId: 'mine-1' });
+    const other = await app.inject({ method: 'GET', url: '/api/v1/orders/by-client/mine-1?symbol=BTC%2FUSDT', headers: signed(BOB) });
+    expect(other.statusCode).toBe(404);
+    const cancel = await app.inject({ method: 'DELETE', url: '/api/v1/orders/by-client/mine-1?symbol=BTC%2FUSDT', headers: signed(ALICE) });
+    expect(cancel.statusCode, cancel.body).toBe(200);
+    expect(cancelled).toEqual([aliceOrder.id]);
+  });
+
   it('answers not found for an unknown client id and for someone else’s, and cancels nothing', async () => {
     const { app, cancelled } = await build();
     const unknown = await app.inject({

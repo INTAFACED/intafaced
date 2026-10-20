@@ -444,6 +444,8 @@ export interface PlaceOrderInput {
    */
   clientOrderId?: string;
   subAccountId?: string;
+  /** A label for the caller's own books, 1 to 16 characters. Stored on the row, never part of the key. */
+  tag?: string;
   /**
    * Optional ceiling on the market-buy protection/funding price (convert M-03).
    * When set, the engine limit is `min(slippageCap, maxProtectionPrice)` so a
@@ -1926,7 +1928,7 @@ export class TradeService {
       INSERT INTO trade.orders (
         id, user_id, sub_account_id, market_id, client_order_id, side, type,
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id
+        replacement_of, replacement_request_hash, session_id, api_key_id, tag
       ) VALUES (
         ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
         ${input.side}, ${orderType},
@@ -1936,7 +1938,7 @@ export class TradeService {
         ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
         ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}
+        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -2036,7 +2038,7 @@ export class TradeService {
       INSERT INTO trade.orders (
         id, user_id, sub_account_id, market_id, client_order_id, side, type,
         price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id
+        replacement_of, replacement_request_hash, session_id, api_key_id, tag
       ) VALUES (
         ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId as string},
         ${input.side}, ${orderType},
@@ -2046,7 +2048,7 @@ export class TradeService {
         null,
         false, ${JSON.stringify(lifecycleProof)}::text::jsonb,
         ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}
+        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
