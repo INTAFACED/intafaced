@@ -10,6 +10,7 @@
  * 6. RED: enforced env resolves to `detect`.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
 
 const SECRET = 's'.repeat(32);
 const BASE_ENV = {
@@ -37,23 +38,23 @@ afterEach(() => {
 });
 
 describe('svc-ledger idempotency conflict mode by environment', () => {
-  it.each(['prod', 'staging'])('APP_ENV=%s with the mode unset resolves to refuse', async (appEnv) => {
-    expect(await resolveWith({ APP_ENV: appEnv })).toBe('refuse');
+  it.each(['prod', 'staging'])('APP_ENV=%s resolves to refuse for the default and for an explicit detect', (appEnv) => {
+    expect(resolveIdempotencyConflictMode('detect', { APP_ENV: appEnv })).toBe('refuse');
+    expect(resolveIdempotencyConflictMode('refuse', { APP_ENV: appEnv })).toBe('refuse');
   });
 
-  it('APP_ENV=prod with an explicit detect still resolves to refuse', async () => {
-    expect(await resolveWith({ APP_ENV: 'prod', LEDGER_IDEMPOTENCY_CONFLICT_MODE: 'detect' })).toBe('refuse');
+  it('NODE_ENV=production without APP_ENV is enforced too', () => {
+    expect(resolveIdempotencyConflictMode('detect', { NODE_ENV: 'production' })).toBe('refuse');
   });
 
-  it('NODE_ENV=production without APP_ENV is enforced too', async () => {
-    expect(await resolveWith({ NODE_ENV: 'production' })).toBe('refuse');
+  it.each(['dev', 'test'])('APP_ENV=%s keeps the configured value', (appEnv) => {
+    expect(resolveIdempotencyConflictMode('detect', { APP_ENV: appEnv })).toBe('detect');
+    expect(resolveIdempotencyConflictMode('refuse', { APP_ENV: appEnv })).toBe('refuse');
   });
 
-  it.each(['dev', 'test'])('APP_ENV=%s keeps the detect default', async (appEnv) => {
-    expect(await resolveWith({ APP_ENV: appEnv })).toBe('detect');
-  });
-
-  it('APP_ENV=dev honours an explicit refuse', async () => {
+  it('the real env.ts in dev/test keeps the detect default and passes the resolver the process env', async () => {
+    expect(await resolveWith({ APP_ENV: 'dev' })).toBe('detect');
+    expect(await resolveWith({ APP_ENV: 'test' })).toBe('detect');
     expect(await resolveWith({ APP_ENV: 'dev', LEDGER_IDEMPOTENCY_CONFLICT_MODE: 'refuse' })).toBe('refuse');
   });
 });
