@@ -60,6 +60,8 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('bank.destination_label_taken')).toMatchObject({ title: 'That name is taken' });
     expect(refusalCopy('bank.address_book_full')).toMatchObject({ title: 'Your address book is full' });
     expect(refusalCopy('bank.activity_sort_bounded')).toMatchObject({ title: 'Too many lines to sort oldest first' });
+    expect(refusalCopy('portfolio.entries_do_not_sum')).toMatchObject({ title: 'The entries do not add up to your balance' });
+    expect(refusalCopy('bank.activity_lookup_bounded')).toMatchObject({ title: 'Too many entries to check at once' });
     expect(refusalCopy('bank.activity_account_unknown')).toMatchObject({ title: "We couldn't find that" });
     for (const code of [
       'bank.fx_rate_unset',
