@@ -1,6 +1,6 @@
 # docs/
 
-Current rules for agents and people: [`../AGENTS.md`](../AGENTS.md). How the code is laid out: [`ARCHITECTURE.md`](ARCHITECTURE.md). Services, ports and required env (generated): [`SERVICES.md`](SERVICES.md).
+Current rules for agents and people: [`../AGENTS.md`](../AGENTS.md). How the code is laid out: [`ARCHITECTURE.md`](ARCHITECTURE.md). Services, ports and required env (generated): [`SERVICES.md`](SERVICES.md). Values blank until the owner publishes them, and the TEST profile (generated): [`OWNER-SETTINGS.md`](OWNER-SETTINGS.md).
 
 Old history docs were deleted. Git history keeps them (`git log --diff-filter=D -- docs/`). What stays here is current truth, or a file that code, tests or CI read by path. A kept file can still be dated: when it disagrees with AGENTS.md or the code, AGENTS.md and the code win.
 
