@@ -1,10 +1,9 @@
-import {
-  COMPLIANCE_REVIEW_LEVELS,
-  type ComplianceCase,
-  type ComplianceCaseStatus,
-  type ComplianceInboxFilter,
-  type ComplianceReviewLevel,
-} from '@intafaced/contracts';
+import type { ComplianceCase, ComplianceCaseStatus, ComplianceInboxFilter, ComplianceReviewLevel } from '@intafaced/contracts';
+
+// Client components reach this file, and the contracts entry point pulls in Node-only code, so only types are imported above and
+// the two closed lists are repeated here. model.test.ts pins them to the contracts lists.
+export const REVIEW_LEVELS = ['green', 'yellow', 'red'] as const;
+export const ENTITY_TYPES = ['user', 'business', 'account', 'transfer'] as const;
 
 /**
  * Pure model of the case room (OPS-cases-01). Query parameters in, the filter svc-ops understands out. Nothing here counts rows or
@@ -29,7 +28,8 @@ export const TYPE_LABEL: Readonly<Record<ComplianceCase['type'], string>> = { al
 
 /** What each typed refusal means to an operator. No raw code is shown without a sentence. */
 export const REFUSAL_WORDS: Readonly<Record<string, string>> = {
-  'compliance.inbox_forbidden': 'You are not a member of this inbox. Ask its owner for access.',
+  'compliance.inbox_forbidden':
+    'Not allowed: you are not a member of this inbox (ask its owner for access), or this session has no second factor for a change.',
   'compliance.inbox_not_found': 'No inbox has this id.',
   'compliance.case_not_found': 'No case has this id.',
   'compliance.case_already_open': 'A case with this id is already open in another inbox.',
@@ -79,7 +79,7 @@ export function parseRoomQuery(q: Query): RoomQuery {
     ...(one(q, 'closed') === '1' ? { closedOnly: true } : {}),
     ...(one(q, 'unassigned') === '1' ? { unassignedOnly: true } : {}),
     ...(one(q, 'snoozed') === '1' ? { includeSnoozed: true } : {}),
-    ...(level && (COMPLIANCE_REVIEW_LEVELS as readonly string[]).includes(level) ? { reviewLevels: [level as ComplianceReviewLevel] } : {}),
+    ...(level && (REVIEW_LEVELS as readonly string[]).includes(level) ? { reviewLevels: [level as ComplianceReviewLevel] } : {}),
     ...(tags && tags.length ? { tags } : {}),
     ...(from ? { createdFrom: from } : {}),
     ...(to ? { createdTo: to } : {}),

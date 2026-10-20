@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { COMPLIANCE_ENTITY_TYPES } from '@intafaced/contracts';
-import { refusalWords } from '@/lib/compliance-cases/model';
+import { ENTITY_TYPES, refusalWords } from '@/lib/compliance-cases/model';
 import '../desk.css';
 
 interface ApiAnswer {
@@ -68,7 +67,7 @@ export function DefineQueue() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [version, setVersion] = useState('1');
-  const [entityType, setEntityType] = useState<string>(COMPLIANCE_ENTITY_TYPES[0]);
+  const [entityType, setEntityType] = useState<string>(ENTITY_TYPES[0]);
   const [workflow, setWorkflow] = useState('standard');
   const [members, setMembers] = useState('');
   const [busy, setBusy] = useState(false);
@@ -92,7 +91,7 @@ export function DefineQueue() {
         <div className="adm-field">
           <label htmlFor="dq-entity">Subject type</label>
           <select id="dq-entity" className="adm-input" value={entityType} onChange={(e) => setEntityType(e.target.value)}>
-            {COMPLIANCE_ENTITY_TYPES.map((t) => (
+            {ENTITY_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

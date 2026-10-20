@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { COMPLIANCE_ENTITY_TYPES, COMPLIANCE_REVIEW_LEVELS } from '@intafaced/contracts';
 import { moduleForPage } from '@/lib/modules';
-import { parseRoomQuery, refusalWords, roomHref } from './model';
+import { ENTITY_TYPES, REVIEW_LEVELS, parseRoomQuery, refusalWords, roomHref } from './model';
 
 describe('case room query', () => {
   it('builds the filter svc-ops understands from the address', () => {
@@ -54,6 +55,11 @@ describe('case room query', () => {
     }
     expect(refusalWords('something.else')).toBeNull();
     expect(refusalWords(null)).toBeNull();
+  });
+
+  it('repeats the contracts lists exactly', () => {
+    expect([...REVIEW_LEVELS]).toEqual([...COMPLIANCE_REVIEW_LEVELS]);
+    expect([...ENTITY_TYPES]).toEqual([...COMPLIANCE_ENTITY_TYPES]);
   });
 
   it('sits under the jurisdiction module gate', () => {
