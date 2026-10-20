@@ -10,6 +10,8 @@ export interface PlacementOptions {
   readonly tag?: string;
   readonly requestDeadline?: string;
   readonly triggerBy?: string;
+  readonly timeInForce?: string;
+  readonly expireAt?: string;
 }
 
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
@@ -21,6 +23,9 @@ const ENGINE_STP_MODE = 'cancel_maker';
  * is always replayed).
  */
 export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now: Date, replay = false): void {
+  if (!replay && hasSpentExpiry(options, now)) {
+    throw new TradeError('the order expiry is not in the future; nothing was placed', 'trade.invalid_expiry');
+  }
   if (!replay && options.requestDeadline !== undefined && Date.parse(options.requestDeadline) <= now.getTime()) {
     throw new TradeError('the request deadline has passed; nothing was placed', 'trade.request_expired');
   }
@@ -34,6 +39,15 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
     throw new TradeError('order tags are not stored yet; resend without a tag', 'trade.tag_unsupported');
   }
   refuseUnsetTriggerSource(options);
+}
+
+/** A GTD or GTT order whose own expiry is already past or exactly now could never rest. */
+export function hasSpentExpiry(options: Pick<PlacementOptions, 'timeInForce' | 'expireAt'>, now: Date): boolean {
+  return (
+    (options.timeInForce === 'GTD' || options.timeInForce === 'GTT') &&
+    options.expireAt !== undefined &&
+    Date.parse(options.expireAt) <= now.getTime()
+  );
 }
 
 /** A stop is released by the last trade only. The mark and index prices have no owner-published source yet. */

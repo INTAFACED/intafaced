@@ -168,6 +168,37 @@ describe('the create door and the options spot does not act on', () => {
     await app.close();
   });
 
+  it('refuses a past GTD expiry on create before any hold, and replays a booked order', async () => {
+    const { app, placed } = await build(new Set(['p-booked']));
+    const past = { timeInForce: 'GTD', expireAt: '2026-10-20T11:59:00.000Z' };
+    const refused = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: { ...BASE, ...past } });
+    expect(refused.statusCode, refused.body).toBe(400);
+    expect(refused.body).toContain('trade.invalid_expiry');
+    expect(placed).toHaveLength(0);
+    const replayed = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'p-booked', ...past },
+    });
+    expect(replayed.statusCode, replayed.body).toBe(201);
+    await app.close();
+  });
+
+  it('the replace door refuses a past GTD expiry and cancels nothing', async () => {
+    const { app, replaced } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/33333333-3333-4333-8333-333333333333/replace',
+      headers: signed(),
+      payload: { ...BASE, clientOrderId: 'r-3', timeInForce: 'GTD', expireAt: '2026-10-20T11:59:00.000Z' },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('trade.invalid_expiry');
+    expect(replaced).toHaveLength(0);
+    await app.close();
+  });
+
   it('refuses the same options per item on the batch door, and places the rest', async () => {
     const { app, placed } = await build();
     const res = await app.inject({
