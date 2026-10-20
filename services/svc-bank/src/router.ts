@@ -92,6 +92,19 @@ const portfolioSummaryOutput = z.object({
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
   asOf: z.number().int(),
   windowStart: z.number().int().nullable(),
+  /** Only when `valueIn` is `btc`. Both fields are null, with a reason, while no BTC price is published. */
+  btc: z
+    .object({
+      total: z.string().nullable(),
+      priceUsd: z.string().nullable(),
+      reason: z.enum(['no_price_published', 'nothing_priced']).nullable(),
+    })
+    .optional(),
+});
+
+const balanceAccountsOutput = z.object({
+  /** Every account the caller can read balances for: `main`, then each named Space. */
+  accounts: z.array(z.object({ accountId: z.string(), walletType: z.enum(['main', 'space']), name: z.string().nullable() })),
 });
 
 const balanceBreakdownOutput = z.object({
@@ -1580,12 +1593,22 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    */
   const portfolio = router({
     summary: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          // Not strict: a smuggled owner id is stripped here, as it always was (portfolio.router.test.ts).
+          .object({ assetId: z.string().min(1).max(16).optional(), valueIn: z.enum(['usd', 'btc']).optional() })
+          .optional(),
+      )
       .output(portfolioSummaryOutput)
-      .query(async ({ ctx }) => guard(async () => bank.portfolio.summary(ctx.principal.userId))),
+      .query(async ({ ctx, input }) => guard(async () => bank.portfolio.summary(ctx.principal.userId, input ?? {}))),
     /** The priced holdings by asset class and by available / locked (PF-balances-02). Same prices and refusals as `summary`. */
     allocation: scopedProcedure('bank:read', { module: 'bank' })
       .output(allocationOutput)
       .query(async ({ ctx }) => guard(async () => bank.portfolio.allocation(ctx.principal.userId))),
+    /** The wallet selector: `main` and each named Space the caller can narrow `balanceBreakdown` to. */
+    balanceAccounts: scopedProcedure('bank:read', { module: 'bank' })
+      .output(balanceAccountsOutput)
+      .query(async ({ ctx }) => guard(async () => bank.portfolio.accounts(ctx.principal.userId))),
     /**
      * Each asset split into spendable and every lock kind with the claim behind it (PF-balances-01). Read-only, self-only,
      * ledger reads only; the parts add up to the total exactly.
@@ -1593,12 +1616,24 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     balanceBreakdown: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z
-          .object({ scope: z.enum(['all', 'main']).optional() })
+          .object({
+            scope: z.enum(['all', 'main']).optional(),
+            /** `main` or the id of one named Space. Wins over `scope`. */
+            accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+            assetId: z.string().min(1).max(16).optional(),
+          })
           .strict()
           .optional(),
       )
       .output(balanceBreakdownOutput)
-      .query(async ({ ctx, input }) => guard(async () => bank.portfolio.balanceBreakdown(ctx.principal.userId, input?.scope ?? 'all'))),
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.portfolio.balanceBreakdown(ctx.principal.userId, input?.scope ?? 'all', {
+            ...(input?.accountId === undefined ? {} : { accountId: input.accountId }),
+            ...(input?.assetId === undefined ? {} : { assetId: input.assetId }),
+          }),
+        ),
+      ),
   });
 
   /**
