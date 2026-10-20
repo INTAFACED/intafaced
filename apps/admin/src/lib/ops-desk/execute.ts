@@ -2,8 +2,9 @@ import 'server-only';
 import type { DeskRequest } from '@/lib/desk/approval-packet';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type DeskModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import { normaliseCostAmount } from '@/lib/venue-economics/model';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -72,6 +73,28 @@ export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
   return { listingId: raw.listingId, status: raw.status };
 }
 
+interface VenueCostAnswer {
+  readonly key: string;
+  readonly period: string;
+  readonly category: string;
+  readonly amount: string;
+  readonly asset: string;
+  readonly version: number;
+}
+
+export function readVenueCostAnswer(raw: unknown): VenueCostAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { key, period, category, amount, asset, version } = raw;
+  return typeof key === 'string' &&
+    typeof period === 'string' &&
+    typeof category === 'string' &&
+    typeof amount === 'string' &&
+    typeof asset === 'string' &&
+    typeof version === 'number'
+    ? { key, period, category, amount, asset, version }
+    : null;
+}
+
 const WRONG_STATE: ExecuteReply = {
   ok: false,
   refusal: explainRefusal('admin.ops_invalid_response', 502, true),
@@ -82,6 +105,7 @@ const NEEDS: Readonly<Record<string, string>> = {
   academy: 'the Academy operator permission (admin:write) and a verified second factor',
   bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
   p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
+  ops: 'the operator write permission (admin:write) and a verified second factor',
 };
 
 /** The permission, as the founder reads it in the refusal's headline. */
@@ -90,10 +114,11 @@ const PERMISSION_NAME: Readonly<Record<string, string>> = {
   academy: 'Academy operator',
   bank: 'bank treasury',
   p2p: 'P2P moderator',
+  ops: 'operations',
 };
 
 /** A failed call as a desk refusal. A typed approval code is a definite "nothing changed"; a dropped connection is unknown. */
-export function failureRefusal(service: string, module: DeskModule, failure: FounderCallFailure<unknown>): ExecuteReply {
+export function failureRefusal(service: string, module: CallModule, failure: FounderCallFailure<unknown>): ExecuteReply {
   switch (failure.kind) {
     case 'forbidden': {
       const base = explainRefusal(failure.refusal.code ?? codeInText(failure.refusal.message), failure.refusal.status, false);
@@ -229,6 +254,34 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
+    }
+    if (request.kind === 'ops.venue_cost.record') {
+      const amount = normaliseCostAmount(request.amount);
+      const result = await founderCall(
+        ctx,
+        'ops',
+        'recordVenueCost',
+        'POST',
+        {
+          period: request.period,
+          category: request.category,
+          amount,
+          asset: request.asset,
+          sourceNote: request.reason,
+          // One approval is one entry: running the same approved request twice returns the first entry.
+          idempotencyKey: `venue-cost-approval:${ids.approvalId}`,
+          ...ids,
+        },
+        readVenueCostAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.period !== request.period || a.category !== request.category || a.amount !== amount || a.asset !== request.asset)
+        return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-ops answered and stored version ${a.version} of ${request.category.replace(/_/g, ' ')} for ${a.period}.`,
+      };
     }
     return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
   };

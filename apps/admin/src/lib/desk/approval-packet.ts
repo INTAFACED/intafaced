@@ -1,4 +1,5 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
+import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 
 /**
  * The request a founder hands to the other founder.
@@ -34,7 +35,16 @@ export type DeskRequest =
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
-  | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string };
+  | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
+  | {
+      readonly kind: 'ops.venue_cost.record';
+      readonly period: string;
+      readonly category: CostCategory;
+      readonly amount: string;
+      readonly asset: string;
+      readonly reason: string;
+    };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -143,6 +153,22 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       return null;
     return { kind: 'identity.auth_key.remove_old', keyIds: raw.keyIds };
   }
+  // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
+  if (raw.kind === 'ops.venue_cost.record') {
+    if (keys !== 'amount,asset,category,kind,period,reason') return null;
+    if (typeof raw.period !== 'string' || !PERIOD.test(raw.period)) return null;
+    if (!isCategory(raw.category)) return null;
+    if (typeof raw.amount !== 'string' || !COST_AMOUNT.test(raw.amount)) return null;
+    if (typeof raw.asset !== 'string' || !COST_ASSET.test(raw.asset) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'ops.venue_cost.record',
+      period: raw.period,
+      category: raw.category,
+      amount: raw.amount,
+      asset: raw.asset,
+      reason: raw.reason,
+    };
+  }
   return null;
 }
 
@@ -236,6 +262,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'ops.venue_cost.record':
+      return `RECORD COST ${request.category} ${request.period}`;
   }
 }
 
@@ -276,6 +304,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'ops.venue_cost.record':
+      return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
   }
 }
 
