@@ -60,7 +60,7 @@ const sendView = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'sent', 'on_the_way', 'arrived', 'failed']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -73,6 +73,25 @@ const sendView = z.object({
   ledgerTxId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+const holdState = z.enum(['requested', 'under_review', 'released']);
+const operatorHoldView = z.object({
+  id: z.string(),
+  sendId: z.string(),
+  state: holdState,
+  reason: z.string(),
+  heldBy: z.string(),
+  infoRequest: z.string().nullable(),
+  proof: z.object({ name: z.string(), type: z.string(), size: z.number(), sha256: z.string(), uploadedAt: z.string() }).nullable(),
+  releasedBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+const customerHoldView = z.object({
+  state: holdState,
+  infoRequest: z.string().nullable(),
+  proofUploaded: z.boolean(),
+  proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number() }).nullable(),
 });
 
 function guard<T>(fn: () => Promise<T>): Promise<T> {
@@ -273,7 +292,7 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
   });
 }
 
-export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'spaces'>, stepUp: StepUpGate) {
+export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'globalHolds' | 'spaces'>, stepUp: StepUpGate) {
   return router({
     corridors: router({
       list: scopedProcedure('bank:read', { module: 'bank' })
@@ -418,13 +437,92 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'spac
       .input(z.object({ id: z.string().uuid() }).strict())
       .output(sendView)
       .query(({ ctx, input }) => guard(() => bank.globalSend.get(ctx.principal.userId, input.id))),
+    hold: router({
+      get: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ id: z.string().uuid() }).strict())
+        .output(customerHoldView)
+        .query(({ ctx, input }) => guard(() => bank.globalHolds.forCustomer(ctx.principal.userId, input.id))),
+      uploadProof: scopedProcedure('bank:write', { module: 'bank' })
+        .input(
+          z
+            .object({
+              id: z.string().uuid(),
+              name: z.string().min(1).max(200),
+              type: z.string().min(3).max(100),
+              contentBase64: z.string().min(4).max(40_000_000),
+            })
+            .strict(),
+        )
+        .output(customerHoldView)
+        .mutation(({ ctx, input }) =>
+          guard(() =>
+            bank.globalHolds.uploadProof({
+              userId: ctx.principal.userId,
+              sendId: input.id,
+              name: input.name,
+              type: input.type,
+              contentBase64: input.contentBase64,
+            }),
+          ),
+        ),
+    }),
     ops: router({
+      holds: scopedProcedure('admin:read', { module: 'bank' })
+        .input(z.object({ limit: limitField }).strict())
+        .output(z.array(operatorHoldView.extend({ send: sendView.extend({ userId: z.string() }) })))
+        .query(({ input }) => guard(() => bank.globalHolds.queue(input))),
+      hold: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(
+          z
+            .object({
+              sendId: z.string().uuid(),
+              holdKey: idString,
+              reason: z.string().min(1).max(500),
+              infoRequest: z.string().min(1).max(1000).optional(),
+            })
+            .strict(),
+        )
+        .output(operatorHoldView)
+        .mutation(({ ctx, input }) => guard(() => bank.globalHolds.hold({ ...input, operatorId: ctx.principal.userId }))),
+      requestInfo: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid(), infoRequest: z.string().min(1).max(1000) }).strict())
+        .output(operatorHoldView)
+        .mutation(({ input }) => guard(() => bank.globalHolds.requestInfo(input))),
+      release: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .output(sendView)
+        .mutation(({ ctx, input }) => guard(() => bank.globalHolds.release({ sendId: input.sendId, operatorId: ctx.principal.userId }))),
+      linkReference: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid(), reference: z.string().min(6).max(64) }).strict())
+        .output(z.object({ linked: z.literal(true), send: sendView }))
+        .mutation(({ ctx, input }) =>
+          guard(() =>
+            bank.globalHolds.linkReference({ sendId: input.sendId, reference: input.reference, operatorId: ctx.principal.userId }),
+          ),
+        ),
+      proof: scopedProcedure('admin:compliance', { module: 'bank' })
+        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .output(z.object({ name: z.string(), type: z.string(), contentBase64: z.string() }))
+        .query(({ input }) => guard(() => bank.globalHolds.proofFor(input.sendId))),
+      controls: scopedProcedure('admin:read', { module: 'bank' })
+        .output(
+          z.object({
+            payeeControls: z.object({ state: z.enum(['unset', 'published']), blockedCount: z.number() }),
+            proofLimits: z.object({
+              state: z.enum(['unset', 'published']),
+              allowedTypes: z.array(z.string()),
+              maxBytes: z.number().nullable(),
+            }),
+          }),
+        )
+        .query(() => ({ payeeControls: bank.globalSend.payeeControlsStatus(), proofLimits: bank.globalHolds.proofLimitsStatus() })),
       summary: scopedProcedure('admin:read', { module: 'bank' })
         .output(
           z.object({
             asOf: z.string(),
             counts: z.object({
               submitted: z.number(),
+              held: z.number(),
               sent: z.number(),
               on_the_way: z.number(),
               arrived: z.number(),

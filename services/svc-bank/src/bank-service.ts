@@ -24,6 +24,7 @@ import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
+import { GlobalHoldService } from './personal-pay/holds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -59,6 +60,7 @@ export interface BankServices {
   readonly business: BusinessService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
+  readonly globalHolds: GlobalHoldService;
   /**
    * Operator transfer reads. The same connection the services use.
    * The procedures only SELECT. They do not post.
@@ -161,6 +163,10 @@ export interface BankServiceOptions {
   global?: GlobalPorts;
   /** Owner-published purpose, source-of-funds and reference rules for a global send (JSON). Blank refuses. */
   sendFieldRules?: string | undefined;
+  /** Owner-published payee controls (JSON). Blank refuses every global send. */
+  payeeControls?: string | undefined;
+  /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
+  proofLimits?: string | undefined;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -209,7 +215,15 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   );
 
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
-  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts(), options.sendFieldRules);
+  const globalSend = new GlobalSendService(
+    sql,
+    ledger,
+    spaces,
+    options.global ?? emptyGlobalPorts(),
+    options.sendFieldRules,
+    options.payeeControls,
+  );
+  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
 
   return {
     spaces,
@@ -230,6 +244,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     business,
     bills,
     globalSend,
+    globalHolds,
     transferOps: { sql, handles: options.handles },
   };
 }

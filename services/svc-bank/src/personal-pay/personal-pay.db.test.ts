@@ -190,6 +190,12 @@ const RULES = JSON.stringify({
   sourceOfFunds: [{ asset: 'USDT', threshold: '50' }],
 });
 
+const PAYEE_OK = JSON.stringify({ blockedAccounts: [] });
+const PROOF_LIMITS = JSON.stringify({ allowedTypes: ['application/pdf'], maxBytes: 64 });
+const OP_A = '33333333-3333-4333-8333-333333333333';
+const OP_B = '44444444-4444-4444-8444-444444444444';
+const compliance = ['admin:read', 'admin:compliance'];
+
 describe('personal bill pay and global send', () => {
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];
@@ -210,12 +216,15 @@ describe('personal bill pay and global send', () => {
   beforeEach(async () => {
     await sql`
       TRUNCATE bank.bill_recurring_firings, bank.bill_payments, bank.bill_recurring,
+               bank.global_incoming_links, bank.global_send_holds,
                bank.global_sends, bank.global_recipients, bank.spaces
       RESTART IDENTITY CASCADE
     `;
   });
 
-  function mount(options: { bills?: BillPorts; global?: GlobalPorts; sendFieldRules?: string } = {}) {
+  function mount(
+    options: { bills?: BillPorts; global?: GlobalPorts; sendFieldRules?: string; payeeControls?: string | null; proofLimits?: string } = {},
+  ) {
     const ledger = new MemoryLedger();
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
@@ -223,6 +232,8 @@ describe('personal bill pay and global send', () => {
       bills: options.bills,
       global: options.global,
       sendFieldRules: options.sendFieldRules,
+      payeeControls: options.payeeControls === null ? undefined : (options.payeeControls ?? PAYEE_OK),
+      proofLimits: options.proofLimits,
     });
     return { ledger, bank };
   }
@@ -666,5 +677,246 @@ describe('personal bill pay and global send', () => {
       result: 'sent',
       posted: 1,
     });
+  });
+
+  const sendBody = { toCurrency: 'EUR', country: 'DE', deliveryMethod: 'bank', compliance: { originatorName: 'Ada' } };
+
+  it('refuses every send while the payee controls are unset, and a blocked payee without naming the list', async () => {
+    const unset = mount({ sendFieldRules: RULES, global: liveGlobal(), payeeControls: null });
+    const space = await funded(unset.bank, unset.ledger);
+    const me = caller(unset.bank, USER, write);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-pc-01', name: 'Ada', account: '123456789', country: 'DE' });
+    await expect(
+      me.global.send({ ...sendBody, idempotencyKey: 'send-pc-01', amount: '10', fromSpaceId: space.id, recipientId: saved.id }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.payee_controls_unset' } });
+    expect(transfers(unset.ledger)).toHaveLength(0);
+    const desk = await caller(unset.bank, OP_A, compliance).global.ops.controls();
+    expect(desk.payeeControls).toEqual({ state: 'unset', blockedCount: 0 });
+
+    const blocked = mount({
+      sendFieldRules: RULES,
+      global: liveGlobal(),
+      payeeControls: JSON.stringify({ blockedAccounts: ['1234 56789'] }),
+    });
+    const space2 = await funded(blocked.bank, blocked.ledger);
+    const me2 = caller(blocked.bank, USER, write);
+    const saved2 = await me2.global.recipients.add({ idempotencyKey: 'recip-pc-02', name: 'Ada', account: '123456789', country: 'DE' });
+    const refused: { message: string; cause: { code: string } } = await me2.global
+      .send({ ...sendBody, idempotencyKey: 'send-pc-02', amount: '10', fromSpaceId: space2.id, recipientId: saved2.id })
+      .then(
+        () => {
+          throw new Error('the send should have been refused');
+        },
+        (err: { message: string; cause: { code: string } }) => err,
+      );
+    expect(refused).toMatchObject({ cause: { code: 'bank.payee_blocked' } });
+    expect(refused.message).not.toMatch(/123456789|1234 56789|blockedAccounts/);
+    expect(transfers(blocked.ledger)).toHaveLength(0);
+    const desk2 = await caller(blocked.bank, OP_A, compliance).global.ops.controls();
+    expect(desk2.payeeControls).toEqual({ state: 'published', blockedCount: 1 });
+
+    // A published empty list blocks nothing.
+    const open = mount({ sendFieldRules: RULES, global: liveGlobal(), payeeControls: JSON.stringify({ blockedAccounts: [] }) });
+    const space3 = await funded(open.bank, open.ledger);
+    const me3 = caller(open.bank, USER, write);
+    const saved3 = await me3.global.recipients.add({ idempotencyKey: 'recip-pc-03', name: 'Ada', account: '123456789', country: 'DE' });
+    await expect(
+      me3.global.send({ ...sendBody, idempotencyKey: 'send-pc-03', amount: '10', fromSpaceId: space3.id, recipientId: saved3.id }),
+    ).resolves.toMatchObject({ status: 'sent' });
+  });
+
+  async function seeded(options: Parameters<typeof mount>[0] = {}) {
+    const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal(), ...options });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const saved = await me.global.recipients.add({
+      idempotencyKey: `recip-${randomUUID()}`,
+      name: 'Ada',
+      account: '123456789',
+      country: 'DE',
+    });
+    const id = randomUUID();
+    // A send that has been taken in but has not left: the only kind a hold can catch.
+    await sql`
+      INSERT INTO bank.global_sends (id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
+                                     country, delivery_method, compliance, status)
+      VALUES (${id}, ${USER}, ${`seed-${id}`}, ${space.id}, 'USDT', '10', 'EUR', ${saved.id}, 'DE', 'bank',
+              '{"originatorName":"Ada"}', 'submitted')
+    `;
+    return { ledger, bank, me, id, ops: caller(bank, OP_A, compliance), other: caller(bank, OP_B, compliance) };
+  }
+
+  it('holds a send that has not left, shows the customer only the request, and moves it to review once on upload', async () => {
+    const { ledger, me, id, ops } = await seeded({ proofLimits: PROOF_LIMITS });
+    const held = await ops.global.ops.hold({
+      sendId: id,
+      holdKey: 'hold-key-01',
+      reason: 'screening hit 7',
+      infoRequest: 'Please send your payslip.',
+    });
+    expect(held).toMatchObject({ state: 'requested', heldBy: OP_A, reason: 'screening hit 7' });
+    expect(
+      await ops.global.ops.hold({
+        sendId: id,
+        holdKey: 'hold-key-01',
+        reason: 'screening hit 7',
+        infoRequest: 'Please send your payslip.',
+      }),
+    ).toMatchObject({
+      id: held.id,
+    });
+    await expect(ops.global.ops.hold({ sendId: id, holdKey: 'hold-key-01', reason: 'another' })).rejects.toMatchObject({
+      cause: { code: 'bank.hold_conflict' },
+    });
+    expect((await me.global.get({ id })).status).toBe('held');
+    expect((await ops.global.ops.holds({ limit: 10 })).map((row) => row.sendId)).toEqual([id]);
+
+    const mine = await me.global.hold.get({ id });
+    expect(mine).toEqual({
+      state: 'requested',
+      infoRequest: 'Please send your payslip.',
+      proofUploaded: false,
+      proofLimits: { allowedTypes: ['application/pdf'], maxBytes: 64 },
+    });
+    expect(JSON.stringify(mine)).not.toMatch(/screening|heldBy|reason/);
+    await expect(caller(await seededOther(), OTHER, write).global.hold.get({ id })).rejects.toBeTruthy();
+
+    const file = Buffer.from('%PDF-1.4 payslip').toString('base64');
+    await expect(me.global.hold.uploadProof({ id, name: 'p.png', type: 'image/png', contentBase64: file })).rejects.toMatchObject({
+      cause: { code: 'bank.proof_type_not_allowed' },
+    });
+    await expect(
+      me.global.hold.uploadProof({ id, name: 'p.pdf', type: 'application/pdf', contentBase64: Buffer.alloc(65, 1).toString('base64') }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.proof_too_large' } });
+    const up = await me.global.hold.uploadProof({ id, name: 'p.pdf', type: 'application/pdf', contentBase64: file });
+    expect(up).toMatchObject({ state: 'under_review', proofUploaded: true });
+    // The same file again is the same answer; a different one is refused.
+    expect(await me.global.hold.uploadProof({ id, name: 'p.pdf', type: 'application/pdf', contentBase64: file })).toMatchObject({
+      state: 'under_review',
+    });
+    await expect(
+      me.global.hold.uploadProof({
+        id,
+        name: 'q.pdf',
+        type: 'application/pdf',
+        contentBase64: Buffer.from('%PDF other').toString('base64'),
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.proof_already_uploaded' } });
+    const stored = await ops.global.ops.proof({ sendId: id });
+    expect(Buffer.from(stored.contentBase64, 'base64').toString()).toBe('%PDF-1.4 payslip');
+    expect(transfers(ledger)).toHaveLength(0);
+  });
+
+  async function seededOther() {
+    return mount({ sendFieldRules: RULES, global: liveGlobal() }).bank;
+  }
+
+  it('refuses an upload while no limits are published, and while nothing was asked for', async () => {
+    const { me, id, ops } = await seeded();
+    await ops.global.ops.hold({ sendId: id, holdKey: 'hold-key-02', reason: 'review' });
+    await expect(me.global.hold.uploadProof({ id, name: 'p.pdf', type: 'application/pdf', contentBase64: 'AAAA' })).rejects.toMatchObject({
+      cause: { code: 'bank.proof_limits_unset' },
+    });
+    const withLimits = await seeded({ proofLimits: PROOF_LIMITS });
+    await withLimits.ops.global.ops.hold({ sendId: withLimits.id, holdKey: 'hold-key-03', reason: 'review' });
+    await expect(
+      withLimits.me.global.hold.uploadProof({ id: withLimits.id, name: 'p.pdf', type: 'application/pdf', contentBase64: 'AAAA' }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.proof_not_requested' } });
+    await withLimits.ops.global.ops.requestInfo({ sendId: withLimits.id, infoRequest: 'Source of funds, please.' });
+    await expect(
+      withLimits.me.global.hold.uploadProof({ id: withLimits.id, name: 'p.pdf', type: 'application/pdf', contentBase64: 'AAAA' }),
+    ).resolves.toMatchObject({ state: 'under_review' });
+  });
+
+  it('releases only by a different person, then sends once; a settled send cannot be held', async () => {
+    const { ledger, me, id, ops, other } = await seeded();
+    await ops.global.ops.hold({ sendId: id, holdKey: 'hold-key-04', reason: 'review' });
+    await expect(ops.global.ops.release({ sendId: id })).rejects.toMatchObject({ cause: { code: 'bank.release_same_operator' } });
+    expect((await me.global.get({ id })).status).toBe('held');
+    expect(transfers(ledger)).toHaveLength(0);
+    const released = await other.global.ops.release({ sendId: id });
+    expect(released).toMatchObject({ id, status: 'sent', providerRef: 'payout-1' });
+    expect(transfers(ledger)).toHaveLength(1);
+    await expect(other.global.ops.release({ sendId: id })).rejects.toMatchObject({ cause: { code: 'bank.hold_not_found' } });
+    expect(transfers(ledger)).toHaveLength(1);
+    await expect(ops.global.ops.hold({ sendId: id, holdKey: 'hold-key-05', reason: 'late' })).rejects.toMatchObject({
+      cause: { code: 'bank.transfer_settled' },
+    });
+    expect((await me.global.hold.get({ id })).state).toBe('released');
+  });
+
+  it('links an incoming reference to a held send, resumes it, and logs the link once', async () => {
+    const { ledger, id, ops, other } = await seeded();
+    await ops.global.ops.hold({ sendId: id, holdKey: 'hold-key-06', reason: 'unreferenced credit' });
+    await expect(ops.global.ops.linkReference({ sendId: id, reference: 'PAY-12345' })).rejects.toMatchObject({
+      cause: { code: 'bank.release_same_operator' },
+    });
+    const linked = await other.global.ops.linkReference({ sendId: id, reference: 'pay-12345' });
+    expect(linked).toMatchObject({ linked: true, send: { id, status: 'sent' } });
+    expect(transfers(ledger)).toHaveLength(1);
+    const rows = await sql<{ reference: string; linked_by: string }[]>`SELECT reference, linked_by FROM bank.global_incoming_links`;
+    expect(rows).toEqual([{ reference: 'PAY-12345', linked_by: OP_B }]);
+    expect(await other.global.ops.linkReference({ sendId: id, reference: 'PAY-12345' })).toMatchObject({ linked: true });
+    expect(transfers(ledger)).toHaveLength(1);
+    // The same reference cannot be tied to a second send, and that send stays held.
+    const second = await seeded();
+    await second.ops.global.ops.hold({ sendId: second.id, holdKey: 'hold-key-08', reason: 'unreferenced credit' });
+    await expect(second.other.global.ops.linkReference({ sendId: second.id, reference: 'PAY-12345' })).rejects.toMatchObject({
+      cause: { code: 'bank.link_reference_conflict' },
+    });
+    expect((await second.me.global.get({ id: second.id })).status).toBe('held');
+    expect(transfers(second.ledger)).toHaveLength(0);
+  });
+
+  it('keeps hold and release to the compliance scope', async () => {
+    const { me, id } = await seeded();
+    await expect(me.global.ops.hold({ sendId: id, holdKey: 'hold-key-07', reason: 'x' })).rejects.toBeTruthy();
+    await expect(me.global.ops.holds({ limit: 5 })).rejects.toBeTruthy();
+  });
+
+  it('a hold that lands while the forward entry is posted stops the payout, and release pays out once without posting again', async () => {
+    let submits = 0;
+    const { ledger, bank } = mount({
+      sendFieldRules: RULES,
+      global: liveGlobal({
+        payout: {
+          status: () => 'live',
+          railId: () => 'test-payout-rail',
+          async submit() {
+            submits += 1;
+            return { ok: true, providerRef: 'payout-9', status: 'sent' };
+          },
+        },
+      }),
+    });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const ops = caller(bank, OP_A, compliance);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-race-01', name: 'Ada', account: '123456789', country: 'DE' });
+    const post = ledger.post.bind(ledger);
+    let placed = false;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      const result = await post(...args);
+      if (!placed) {
+        placed = true;
+        const rows = await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`;
+        await ops.global.ops.hold({ sendId: rows[0]!.id, holdKey: 'hold-race-01', reason: 'late screening' });
+      }
+      return result;
+    }) as typeof ledger.post;
+    const view = await me.global.send({
+      ...sendBody,
+      idempotencyKey: 'send-race-01',
+      amount: '10',
+      fromSpaceId: space.id,
+      recipientId: saved.id,
+    });
+    expect(view.status).toBe('held');
+    expect(submits).toBe(0);
+    expect(transfers(ledger)).toHaveLength(1);
+    const released = await caller(bank, OP_B, compliance).global.ops.release({ sendId: view.id });
+    expect(released).toMatchObject({ status: 'sent', providerRef: 'payout-9' });
+    expect(submits).toBe(1);
+    expect(transfers(ledger)).toHaveLength(1);
   });
 });
