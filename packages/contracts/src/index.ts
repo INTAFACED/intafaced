@@ -56,3 +56,4 @@ export * from './kyb-entity-types.js';
 export * from './kyb-application.js';
 export * from './kyb-documents.js';
 export * from './quant-disclosure.js';
+export * from './support-contact.js';
