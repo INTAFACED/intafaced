@@ -38,7 +38,11 @@ export function PartnerPage() {
               <span lang="zxx">{to}</span>
             </p>
           </>
-        ) : contact.status === 'loading' ? null : (
+        ) : contact.status === 'loading' ? null : contact.status === 'unread' ? (
+          <p role="status" data-testid="support-contact-unread">
+            {copy.t('partnerEmailUnread')}
+          </p>
+        ) : (
           <p role="status" data-testid="support-email-unset">
             {copy.t('partnerEmailNotSet')}
           </p>

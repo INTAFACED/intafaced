@@ -64,4 +64,12 @@ describe('the contact card reads the owner-set details', () => {
     expect(page).toContain('could not be read just now');
     expect(page).toContain('href="mailto:build@example.test?');
   });
+
+  it('a failed read with no build address never claims the email is not set', () => {
+    hook.value = contact({ status: 'unread', email: null });
+    const page = html();
+    expect(page).toContain('could not be read just now');
+    expect(page).not.toContain('is not set');
+    expect(page).not.toContain('mailto:');
+  });
 });

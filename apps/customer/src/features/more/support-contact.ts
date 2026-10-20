@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supportContactChannelsSchema } from '@intafaced/contracts/support-contact';
+import { supportContactChannelsSchema, supportContactProblem } from '@intafaced/contracts/support-contact';
 import { contractProcedure, readContract } from '../../shared/contract-call';
 import { useApi } from '../session/session';
 import { supportEmail } from './support-desk';
@@ -31,7 +31,9 @@ export function mergeSupportContact(
   build: string | null,
 ): SupportContact {
   if (!read.ok) return { status: 'unread', email: build, phone: null, chatHours: null };
-  return { status: 'ready', email: supportEmail(read.email ?? undefined) ?? build, phone: read.phone, chatHours: read.chatHours };
+  // The contract's own check, stricter than the build address check: nothing that could carry a mailto parameter gets through.
+  const owner = read.email !== null && supportContactProblem('email', read.email) === null ? supportEmail(read.email) : null;
+  return { status: 'ready', email: owner ?? build, phone: read.phone, chatHours: read.chatHours };
 }
 
 /** Reads `support.contactChannels` (public: a signed-out visitor reads it too) and merges it with the build address. */

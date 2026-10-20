@@ -54,6 +54,10 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
         <p className="muted" role="status">
           {copy.t('loadingContact')}
         </p>
+      ) : contact.status === 'unread' ? (
+        <p role="status" data-testid="support-contact-unread">
+          {copy.t('contactUnread')}
+        </p>
       ) : (
         <p role="status" data-testid="support-email-unset">
           <strong>{copy.t('addressNotSet')}</strong> {copy.t('addressNotSetNote')}
@@ -69,7 +73,7 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
           {copy.t('hoursLabel')} <span lang="und">{contact.chatHours}</span>
         </p>
       )}
-      {contact.status === 'unread' && (
+      {contact.status === 'unread' && to && (
         <p className="muted contact-card__small" role="status">
           {copy.t('contactUnread')}
         </p>

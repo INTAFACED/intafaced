@@ -25,6 +25,10 @@ describe('mergeSupportContact', () => {
   it('a stored value that is not an address is "not set", never a mailto', () => {
     expect(mergeSupportContact(set({ email: 'a b@c' }), null).email).toBeNull();
   });
+  it('an address that could carry a mailto parameter is refused even though it looks like an address', () => {
+    for (const bad of ['a@b.co?bcc=x@y.co', 'a@b.co#frag', 'a@b.co&x=1'])
+      expect(mergeSupportContact(set({ email: bad }), null).email).toBeNull();
+  });
   it('carries the phone and the chat hours as stored', () => {
     const merged = mergeSupportContact(set({ phone: '+1 555 010 0199', chatHours: 'Weekdays' }), null);
     expect(merged).toMatchObject({ phone: '+1 555 010 0199', chatHours: 'Weekdays' });
