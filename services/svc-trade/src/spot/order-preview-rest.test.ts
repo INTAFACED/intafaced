@@ -248,6 +248,76 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 
+  describe('good-till-date', () => {
+    const FUTURE = '2026-08-25T16:00:00.000Z'; // the clock reads 2026-08-24T16:00Z
+    const post = async (payload: Record<string, unknown>) => {
+      const { app, ledgerPost } = appWith({});
+      const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload });
+      await app.close();
+      return { response, ledgerPost };
+    };
+    const refusalsOf = (r: { json: () => { refusals: Array<{ code: string; field: string }> } }) => r.json().refusals;
+
+    it('previews a limit buy good till a future date, held like a resting order', async () => {
+      const gtc = await post({ ...limitBuy, timeInForce: 'GTC' });
+      const { response, ledgerPost } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt: FUTURE });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(response.json()).toMatchObject({ timeInForce: 'GTD', orderable: true, refusals: [] });
+      expect(response.json().holdAmount).toBe(gtc.response.json().holdAmount);
+      expect(ledgerPost).not.toHaveBeenCalled();
+    });
+
+    it('refuses a good-till-date order with no expiry, naming the field', async () => {
+      const { response } = await post({ ...limitBuy, timeInForce: 'GTD' });
+      expect(response.json().orderable).toBe(false);
+      expect(refusalsOf(response)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'trade.missing_expire_at', field: 'expireAt' })]),
+      );
+    });
+
+    it.each([
+      ['an expiry in the past', '2026-08-24T15:59:59.000Z'],
+      ['an expiry equal to now', '2026-08-24T16:00:00.000Z'],
+      ['an expiry that is not a date', 'tomorrow'],
+    ])('refuses %s', async (_name, expireAt) => {
+      const { response } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt });
+      expect(response.json().orderable).toBe(false);
+      expect(refusalsOf(response)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'expireAt' })]),
+      );
+    });
+
+    it('refuses an expiry on an order that is not good till date, rather than ignoring it', async () => {
+      const { response } = await post({ ...limitBuy, timeInForce: 'GTC', expireAt: FUTURE });
+      expect(response.json().orderable).toBe(false);
+      expect(refusalsOf(response)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'expireAt' })]),
+      );
+    });
+
+    it('refuses post-only with good-till-date outright, as the place door does', async () => {
+      const { response } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt: FUTURE, postOnly: true });
+      expect(response.statusCode, response.body).toBe(400);
+      const bare = await post({ ...limitBuy, timeInForce: 'GTD', postOnly: true });
+      expect(bare.response.statusCode, bare.response.body).toBe(400);
+    });
+
+    it('refuses good-till-date on a market order, which has no price to rest at', async () => {
+      const { response } = await post({
+        symbol: MARKET.symbol,
+        side: 'buy',
+        type: 'market',
+        amount: '2',
+        timeInForce: 'GTD',
+        expireAt: FUTURE,
+      });
+      expect(response.json().orderable).toBe(false);
+      expect(refusalsOf(response)).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'timeInForce' })]),
+      );
+    });
+  });
+
   it('given a taker fee of 100 bps and a rank discount of 5000, a limit buy preview fee bps is 50', async () => {
     const schedule = parseFeeScheduleJson(JSON.stringify({ published: true, version: 'rank-50', makerBps: '100', takerBps: '100' }));
     const { app, ledgerPost } = appWith({ feeSchedule: schedule, feeDiscountBps: async () => 5000 });

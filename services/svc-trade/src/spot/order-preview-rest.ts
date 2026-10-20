@@ -34,6 +34,7 @@ export interface SpotOrderPreviewRefusal {
     | 'amount'
     | 'price'
     | 'timeInForce'
+    | 'expireAt'
     | 'holdAmount'
     | 'fee'
     | 'protectionPrice'
@@ -132,6 +133,7 @@ const ALLOWED_FIELDS = new Set([
   'exit',
   'maxSlippageBps',
   'timeInForce',
+  'expireAt',
   'postOnly',
   'reduceOnly',
   'clientOrderId',
@@ -249,6 +251,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       body.timeInForce === 'FOK' ||
       body.timeInForce === 'PO' ||
       body.timeInForce === 'MOC' ||
+      body.timeInForce === 'GTD' ||
       body.timeInForce === 'GTC'
         ? body.timeInForce
         : 'GTC';
@@ -266,6 +269,21 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
         field: 'timeInForce',
         message: 'maker-or-cancel is not yet accepted by the trade service',
       });
+    }
+    // Good-till-date rests at a limit price until the caller's instant; the service never invents one.
+    const expireWire = body.expireAt === undefined ? null : typeof body.expireAt === 'string' ? body.expireAt.trim() : '';
+    if (tif === 'GTD') {
+      const expiresAt = expireWire === null || expireWire === '' ? null : Date.parse(expireWire);
+      if (expireWire === null || expireWire === '') {
+        refusals.push({ code: 'trade.missing_expire_at', field: 'expireAt', message: 'a good-till-date order needs an expiry' });
+      } else if (expiresAt === null || Number.isNaN(expiresAt) || expiresAt <= deps.now().getTime()) {
+        refusals.push({ code: 'trade.invalid_tif', field: 'expireAt', message: 'the expiry must be a date and time in the future' });
+      }
+      if (typeWire !== 'limit') {
+        refusals.push({ code: 'trade.invalid_tif', field: 'timeInForce', message: 'good-till-date needs a limit price to rest at' });
+      }
+    } else if (expireWire !== null) {
+      refusals.push({ code: 'trade.invalid_tif', field: 'expireAt', message: 'an expiry only applies to a good-till-date order' });
     }
     const isStopLimit = typeWire === 'stop_limit' && deps.stopLimitEnabled === true;
     let orderType: OrderType | null = null;
@@ -395,7 +413,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     let protectionPrice: Amount | null = null;
     let fundingPrice: Amount | null = limitPrice;
     const needsBestAsk =
-      (orderType === 'market' && side === 'buy') || (orderType === 'limit' && side === 'buy' && tif === 'GTC' && limitPrice !== null);
+      (orderType === 'market' && side === 'buy') ||
+      (orderType === 'limit' && side === 'buy' && (tif === 'GTC' || tif === 'GTD') && limitPrice !== null);
     const bestAsk = needsBestAsk && deps.bestAsk ? await deps.bestAsk(market.id) : null;
     if (orderType === 'market' && side === 'buy') {
       try {
@@ -466,7 +485,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           orderType === 'limit' &&
           (tif === 'PO' ||
             tif === 'MOC' ||
-            (tif === 'GTC' && side === 'buy' && limitPrice !== null && bestAsk !== null && limitPrice < bestAsk))
+            ((tif === 'GTC' || tif === 'GTD') && side === 'buy' && limitPrice !== null && bestAsk !== null && limitPrice < bestAsk))
         ));
     const rests = orderType === 'limit' && !takes;
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
