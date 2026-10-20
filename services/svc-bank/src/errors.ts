@@ -625,7 +625,9 @@ export type BankErrorCode =
   /** More posted lines than a statement file will carry. Narrow the dates. */
   | 'bank.statement_too_large'
   /** No service secret, or activity could not be read, so no file was built. */
-  | 'bank.statement_unavailable';
+  | 'bank.statement_unavailable'
+  /** A desk read of a customer's balances could not be recorded, so it was not made. */
+  | 'bank.ops_audit_unavailable';
 
 export class BankError extends Error {
   constructor(

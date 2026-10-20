@@ -23,6 +23,7 @@ import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-progr
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
+import { customerBalanceEntriesProcedure, customerBalancesProcedure } from './ops/customer-balances.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
@@ -563,6 +564,7 @@ function toTrpcError(err: unknown): TRPCError {
       // caller sent nothing wrong.
       case 'bank.prices_unavailable':
       case 'bank.statement_unavailable':
+      case 'bank.ops_audit_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -3279,6 +3281,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
+    customerBalances: customerBalancesProcedure(bank, guard),
+    customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 
