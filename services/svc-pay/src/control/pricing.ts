@@ -1,4 +1,5 @@
 import { formatAmount, mulBps, parseAmount, type Amount, type Rounding } from '@intafaced/ledger-client';
+import { MAX_FEE_BPS } from '../fee-bps-bound.js';
 
 /**
  * PRICING ENGINE — pure functions over scaled bigint amounts.
@@ -82,8 +83,8 @@ export function assertValidRule(rule: Pick<PricingRule, 'bands' | 'spreadBps' | 
   if (rule.bands[0]!.fromAmount !== 0n) throw new PricingConfigError('the first band must start at 0 so every volume has a band');
   for (let i = 0; i < rule.bands.length; i += 1) {
     const band = rule.bands[i]!;
-    if (!Number.isInteger(band.feeBps) || band.feeBps < 0 || band.feeBps > 10_000)
-      throw new PricingConfigError('band feeBps must be 0..10000');
+    if (!Number.isInteger(band.feeBps) || band.feeBps < 0 || band.feeBps > MAX_FEE_BPS)
+      throw new PricingConfigError(`band feeBps must be 0..${MAX_FEE_BPS}`);
     if (band.flatFee !== null && band.flatFee < 0n) throw new PricingConfigError('band flatFee must not be negative');
     if (i > 0 && band.fromAmount <= rule.bands[i - 1]!.fromAmount) throw new PricingConfigError('bands must be strictly ascending');
   }
