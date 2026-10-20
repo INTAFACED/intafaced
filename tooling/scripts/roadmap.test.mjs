@@ -61,7 +61,7 @@ test('slices that need nothing come first; slices in a loop are found, not guess
   assert.equal(queue(slices, analysis)[0].id, 'A-x-01');
 });
 
-test('progress counts a slice once a merged title names it, and forecasts from the last 7 days', () => {
+test('progress counts PRs per slice, excludes reverts, and gives 3-hour and 7-day rates', () => {
   const slices = [
     { id: 'SP-x-01', lane: 'svc-trade spot' },
     { id: 'SP-x-02', lane: 'svc-trade spot' },
@@ -71,17 +71,21 @@ test('progress counts a slice once a merged title names it, and forecasts from t
   const page = progress(
     slices,
     [
-      { day: '2026-10-20', subject: 'svc-trade: SP-x-02 limit order (#2)' },
-      { day: '2026-10-19', subject: 'svc-trade: SP-x-01 market order (#1)' },
-      { day: '2026-10-01', subject: 'svc-bank: BK-y-01 accounts (#0)' },
-      { day: '2026-10-20', subject: 'svc-bank: tidy, mentions NOPE-z-01' },
+      { at: '2026-10-20T11:00:00Z', subject: 'svc-trade: SP-x-02 limit order, part 2 (#4)' },
+      { at: '2026-10-20T10:30:00Z', subject: 'Revert "svc-bank: BK-y-02 statements (#3)"' },
+      { at: '2026-10-20T07:00:00Z', subject: 'svc-trade: SP-x-02 limit order, part 1 (#2)' },
+      { at: '2026-10-19T12:00:00Z', subject: 'svc-trade: SP-x-01 market order (#1)' },
+      { at: '2026-10-01T12:00:00Z', subject: 'svc-bank: BK-y-01 accounts (#0)' },
+      { at: '2026-10-20T11:30:00Z', subject: 'svc-bank: tidy, mentions NOPE-z-01' },
     ],
-    '2026-10-20',
+    '2026-10-20T12:00:00Z',
   );
-  assert.match(page, /Named in a merged PR: 3 of 4 slices\. Left: 1\./);
-  assert.match(page, /Last 7 days: 2 slices, 0\.3 a day\./);
-  assert.match(page, /Forecast at that rate: 4 days/);
-  assert.match(page, /\| svc-trade spot \| 2 \| 2 \|/);
+  assert.match(page, /Started \(named in at least one merged PR\): 3 of 4 slices\. Not started: 1\./);
+  assert.match(page, /PRs per started slice: 1\.3 on average; 2 have one PR, 1 two, 0 three or more\./);
+  assert.match(page, /Last 3 hours: 1 PRs, 0 slices started \(8\.0 PRs a day\)\./);
+  assert.match(page, /Last 7 days: 3 PRs, 2 slices started \(0\.4 PRs a day\)\./);
+  assert.match(page, /Forecast at the 3-hour pace: about 1 days for the 1 unstarted slices at 2\.0 PRs each/);
+  assert.match(page, /\| svc-trade spot \| 2 \| 2 \| 3 \|/);
 });
 
 test('a lane override beats the computed lane', () => {
