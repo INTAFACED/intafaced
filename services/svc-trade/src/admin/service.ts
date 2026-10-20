@@ -41,6 +41,7 @@ import {
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
 import { readMarketStatusHistory } from './status-history.js';
+import { FundingDesk } from './funding-desk.js';
 
 export interface TradeOpsDeps {
   readonly sql: Sql;
@@ -97,6 +98,11 @@ export class TradeOpsAdmin {
       ...(deps.listMarket ? { listMarket: deps.listMarket } : {}),
       now: () => nowOf(deps),
     });
+  }
+
+  /** Funding parameters, index sources and computed periods (D-instruments-01). */
+  get funding(): FundingDesk {
+    return new FundingDesk({ sql: this.deps.sql, approvals: this.deps.approvals, ...(this.deps.now ? { now: this.deps.now } : {}) });
   }
 
   async massCancel(

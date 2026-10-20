@@ -435,6 +435,18 @@ change to that service's contract and therefore its own PR.
 
 ---
 
+## Funding rate engine (D-instruments-01)
+
+No money moves here; the funding tick still posts every leg. The computer only decides the period rate and hands it to the existing rate source.
+
+- **Formula** (`futures/funding-rate-computer.ts`): rate = tail-trimmed mean of `(mark - index) / index` samples + owner base component, clamped to `[-cap, +cap]`. Scaled bigint in memory, decimal strings at rest. A missing sample is a gap: left out of the mean, counted against the minimum.
+- **Owner numbers** (`trade.funding_params`, versioned per market, `admin.fundingParams.get/set`): base component, cap, cadence, trim ratio, minimum samples; `periodSeconds` and `periodAnchor` place the window for the scheduled job. All blank by default. A blank one refuses the period with `trade.funding_rate_unset`, the refusal is stored (`trade.funding_rate_periods`) and nothing is published.
+- **Outcomes per period:** `published` (closed, immutable, replay returns the stored rate), `refused` (`trade.funding_rate_unset`, `trade.funding_samples_insufficient`, `trade.index_params_unset`, `feed.market`, or the existing bound codes), `paused` (`trade.funding_index_stale`: a red index waits, then is retried).
+- **Index** (`futures/index-construction.ts`, `trade.funding_index_sources`, `admin.indexSources.get/set`): weighted multi-source with outlier rejection, owner floor (`minSources`), band (`outlierBandBps`) and age (`maxAgeSeconds`). The feed is a port; with none configured it answers NotConnected `feed.market`.
+- **Mark** (`futures/mark-construction.ts`): `index_plus_basis` and `median_of_three` as pure functions behind `markSourceWithConstruction`; a blank selection returns the existing source unchanged.
+- **Desk read:** `admin.fundingPeriods.recent` returns recent computed, paused and refused periods with their samples.
+- **Wiring:** `TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS` (blank = off). When set, each funding market gets a `futures.funding_rate.<market>` job that samples and computes its latest closed period; the funding tick asks the computed-rate book first and the S2S-fed book second.
+
 ## Kill-switch
 
 `trade.spot` in the admin console, or `TRADE_SPOT_ENABLED=false`.
