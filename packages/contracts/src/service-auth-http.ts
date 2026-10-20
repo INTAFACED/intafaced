@@ -164,6 +164,18 @@ export interface ServiceCallSignerOptions {
 }
 
 /**
+ * What a signed call is about. `forwarded` is the edge-signed principal a service passes on while acting for a user
+ * (`ctx.forwardedPrincipal`): the key signature then covers it, and the caller sends the same bytes with
+ * `forwardedPrincipalHeaders`. Without it the call runs as the service itself.
+ */
+export interface ServiceCallRequest {
+  method: string;
+  url: URL;
+  contentType: string;
+  forwarded?: { raw: string; signature: string; region: string } | undefined;
+}
+
+/**
  * The `sign` callback for an HTTP client that posts JSON to one service. It reads what is being sent (the
  * ledger client passes method, URL and content type) and returns the headers for that exact call. Without a
  * signing key the call is signed as it always was; with one, `dual` sends both forms and `keypair` sends the key
@@ -171,7 +183,7 @@ export interface ServiceCallSignerOptions {
  */
 export function serviceCallSigner(
   options: ServiceCallSignerOptions,
-): (payload: string, request: { method: string; url: URL; contentType: string }) => Record<string, string> {
+): (payload: string, request: ServiceCallRequest) => Record<string, string> {
   return (payload, request) => {
     if (!options.s2s) return serviceAuthHeadersForBody(options.service, options.legacySecret, payload);
     return s2sRequestHeaders(
@@ -181,7 +193,12 @@ export function serviceCallSigner(
         method: request.method,
         url: request.url,
         body: payload,
-        context: { contentType: request.contentType },
+        context: {
+          contentType: request.contentType,
+          ...(request.forwarded
+            ? { principal: request.forwarded.raw, principalSignature: request.forwarded.signature, region: request.forwarded.region }
+            : {}),
+        },
       },
       { legacySecret: options.s2s.mode === 'keypair' ? undefined : options.legacySecret },
     );

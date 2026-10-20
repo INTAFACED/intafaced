@@ -31,6 +31,7 @@ export const OPS_CUSTODY_LEDGER_UNWIRED = 'ops.custody_ledger_unwired' as const;
 export const OPS_CUSTODY_KEYS_UNPUBLISHED = 'ops.custody_keys_unpublished' as const;
 export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigured' as const;
 export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
+export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
 export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
 export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
@@ -74,6 +75,7 @@ export type OpsRefuseCode =
   | typeof OPS_CUSTODY_KEYS_UNPUBLISHED
   | typeof OPS_RESTORE_ARCHIVE_UNCONFIGURED
   | typeof OPS_RESTORE_ARCHIVE_UNPROBED
+  | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
   | typeof OPS_ALERT_SOURCE_UNCONFIGURED
   | typeof OPS_ALERT_PROBE_UNCONFIGURED

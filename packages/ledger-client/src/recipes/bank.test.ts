@@ -3,6 +3,7 @@ import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
 import { earnPoolReserve, earnStakeAccount, houseFees, userAvailable } from '../accounts.js';
 import { InvalidEntryError } from '../types.js';
+import { bankTransferKey, legacyBankTransferKey } from './bank.js';
 import { recipes } from './index.js';
 
 /**
@@ -370,5 +371,74 @@ describe('earn — stake stays user-owned; interest is not minted', () => {
       expect(request.idempotencyKey).toBe(`bank.interest:${POOL}:${date}`);
       expect(request.entries.every((entry) => typeof entry.amount === 'bigint')).toBe(true);
     }
+  });
+});
+
+describe('bankTransfer key spaces (F-2.1)', () => {
+  const own = (transferId: string, to = USER_B) => ({
+    transferId,
+    from: userAvailable(USER, 'USDT'),
+    to: userAvailable(to, 'USDT'),
+    amount: amt('10'),
+    kind: 'manual' as const,
+    occurrence: 0,
+  });
+
+  it('puts each operation in its own key space', () => {
+    expect(bankTransferKey('own', 'T-1', 0)).toBe('bank.transfer.own:T-1:0');
+    expect(bankTransferKey('p2p', 'T-1', 0)).toBe('bank.transfer.p2p:T-1:0');
+    expect(bankTransferKey('sched', 'T-1', 3)).toBe('bank.transfer.sched:T-1:3');
+    expect(bankTransferKey('rail', 'T-1', 1)).toBe('bank.transfer.rail:T-1:1');
+    expect(new Set(['own', 'p2p', 'sched', 'rail'].map((s) => bankTransferKey(s as 'own', 'T-1', 0))).size).toBe(4);
+  });
+
+  it('posts under the key the builder names, so a lookup after a lost reply finds it', () => {
+    const request = recipes.bankTransfer({ ...own('transfer-0001'), keySpace: 'p2p' });
+    expect(request.idempotencyKey).toBe(bankTransferKey('p2p', 'transfer-0001', 0));
+  });
+
+  it('keeps the legacy key for a caller that names no key space', () => {
+    const request = recipes.bankTransfer(own('transfer-0001'));
+    expect(request.idempotencyKey).toBe(legacyBankTransferKey('transfer-0001', 0));
+    expect(request.idempotencyKey).toBe('bank.transfer:transfer-0001:0');
+  });
+
+  it('refuses a scheduled firing outside sched, and sched for anything else', () => {
+    expect(() => recipes.bankTransfer({ ...own('x'), kind: 'scheduled', keySpace: 'own' })).toThrow(/does not go with/);
+    expect(() => recipes.bankTransfer({ ...own('x'), keySpace: 'sched' })).toThrow(/does not go with/);
+    expect(recipes.bankTransfer({ ...own('x'), kind: 'scheduled', keySpace: 'sched' }).idempotencyKey).toBe('bank.transfer.sched:x:0');
+  });
+
+  it('refuses a blank transfer id, an unknown space and a bad occurrence in a keyed call', () => {
+    expect(() => bankTransferKey('own', '  ', 0)).toThrow(InvalidEntryError);
+    expect(() => bankTransferKey('nope' as 'own', 'x', 0)).toThrow(/Unknown bank transfer key space/);
+    expect(() => bankTransferKey('own', 'x', -1)).toThrow(/non-negative integer/);
+    expect(() => bankTransferKey('own', 'x', 1.5)).toThrow(/non-negative integer/);
+  });
+
+  const seed = (book: MemoryLedger) =>
+    book.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: 'dep-seed' }));
+
+  for (const mode of ['refuse', 'detect'] as const) {
+    it(`two operations handed the same id book two transfers and neither is told the other's (${mode} mode)`, async () => {
+      const book = new MemoryLedger({ idempotencyConflict: mode });
+      await seed(book);
+      // An own-space move and a person-to-person payment that reuse one `transferId`.
+      const first = await book.post(recipes.bankTransfer({ ...own('shared-id-01'), amount: amt('5'), keySpace: 'own' }));
+      const second = await book.post(recipes.bankTransfer({ ...own('shared-id-01'), amount: amt('7'), keySpace: 'p2p' }));
+      expect(second.id).not.toBe(first.id);
+      expect(first.idempotencyKey).toBe('bank.transfer.own:shared-id-01:0');
+      expect(second.idempotencyKey).toBe('bank.transfer.p2p:shared-id-01:0');
+      expect(formatAmount((await book.balance(userAvailable(USER_B, 'USDT'))).amount)).toBe('12');
+      expect(book.reconcile()).toEqual({ ok: true });
+    });
+  }
+
+  it('the legacy shared key is the collision: in detect mode the second operation gets the first one back', async () => {
+    const book = new MemoryLedger({ idempotencyConflict: 'detect' });
+    await seed(book);
+    const first = await book.post(recipes.bankTransfer({ ...own('shared-id-01'), amount: amt('5') }));
+    const second = await book.post(recipes.bankTransfer({ ...own('shared-id-01'), amount: amt('7') }));
+    expect(second.id).toBe(first.id);
   });
 });

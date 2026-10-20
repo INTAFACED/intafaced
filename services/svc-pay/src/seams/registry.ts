@@ -4,6 +4,7 @@ import { createConversionInventory } from '../conversion/inventory.js';
 import type { MerchantControlsMode } from '../control/mode.js';
 import { composeGuards, type PayGuards } from './guards.js';
 import { createWithdrawalLimitGuards, type KycTierOf } from '../limits/guards.js';
+import type { LimitSource } from '../limits/source.js';
 import { createW1ControlGuards } from './slots/w1-control.js';
 import { createW5HaltsGuards } from './slots/w5-halts.js';
 import { createW6ConversionGuards } from './slots/w6-conversion.js';
@@ -27,6 +28,8 @@ export function buildPayGuards(deps: {
   ledger?: LedgerClient;
   merchantControls?: MerchantControlsMode;
   kycTierOf?: KycTierOf;
+  /** Where the owner-set withdrawal figures live. Omitted: the retired environment source (tests). */
+  limitSource?: LimitSource;
 }): PayGuards {
   return composeGuards(
     createW5HaltsGuards({
@@ -35,7 +38,7 @@ export function buildPayGuards(deps: {
       conversionInventory: createConversionInventory(deps.sql, deps.ledger),
     }),
     createW9ScreeningGuards(deps),
-    createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf }),
+    createWithdrawalLimitGuards({ sql: deps.sql, tierOf: deps.kycTierOf, source: deps.limitSource }),
     createW1ControlGuards(deps),
     createW6ConversionGuards(deps),
     createW10B2bRampGuards(deps),
