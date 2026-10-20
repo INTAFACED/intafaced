@@ -13,6 +13,7 @@ import {
   loadTicketExtras,
   loadGroups,
   loadStaff,
+  loadTicketLifecycle,
   loadTicketProperties,
   runSupportAction,
 } from '@/lib/support/server';
@@ -58,6 +59,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'lifecycle') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketLifecycle(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
   return Response.json(await loadQueue(session), { headers: NO_STORE });
