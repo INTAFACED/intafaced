@@ -1358,6 +1358,67 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       await assertPotIdentity(mark);
     });
 
+    it('desk B3 re-review: a growing bid whose submit the engine never answered (submit_unknown) is still pulled, so two rungs never wait on each other', async () => {
+      const { alice } = await aliceLongBobShort();
+      await place(CAROL, 'buy', A('2'), A('100'));
+      await place(DAVE, 'sell', A('2'), A('100'));
+      const [carol] = await openOf(CAROL);
+      for (const u of [BOB, DAVE]) await acks.recordAck(u, ADL_DISCLOSURE_VERSION, NOW);
+      mark = A('92');
+      const aliceBid = await place(ALICE, 'buy', A('1'), A('90.5'));
+      const carolBid = await place(CAROL, 'buy', A('1'), A('90.5'));
+      // The engine took both bids, but neither reply came back: our rows say submit_unknown while they rest in the book.
+      await sql`UPDATE trade.futures_orders SET status = 'submit_unknown' WHERE id IN ${sql([aliceBid.orderId, carolBid.orderId])}`;
+      expect(engine.book.map((r) => r.orderId).sort()).toEqual([aliceBid.orderId, carolBid.orderId].sort());
+      mark = A('89');
+      let dead = true;
+      const svc = build({
+        lifecycleProof: async () => {
+          if (dead) throw new Error('process died before the submit');
+          return PROOF;
+        },
+      });
+      const adl = adlDeps();
+      await tick({ svc, adl, preRungPull: false });
+      expect(engine.cancels).toEqual(expect.arrayContaining([aliceBid.orderId, carolBid.orderId]));
+      expect(engine.book).toHaveLength(0);
+      for (const bid of [aliceBid, carolBid]) {
+        expect(await sql`SELECT status, refusal_code FROM trade.futures_orders WHERE id = ${bid.orderId}`).toMatchObject([
+          { status: 'cancelled', refusal_code: 'trade.liquidation_in_progress' },
+        ]);
+      }
+
+      dead = false;
+      const second = await tick({ svc, adl, preRungPull: false });
+      for (const id of [alice.id, carol!.id])
+        expect(second.items.find((i) => i.positionId === id)).toMatchObject({ outcome: 'liquidated' });
+      expect(await sql`SELECT 1 FROM trade.futures_fill_waits`).toHaveLength(0);
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('a growing order held but not yet sent is cancelled before any submit can claim it, and its hold comes back', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('92');
+      const bid = await place(ALICE, 'buy', A('1'), A('90.5'));
+      // As if the placement stopped after the hold and before the submit: held, its margin locked, not in the book.
+      await engine.cancel(MARKET, bid.orderId);
+      await sql`UPDATE trade.futures_orders SET status = 'held' WHERE id = ${bid.orderId}`;
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, bid.orderId))).toBeGreaterThan(0n);
+      const asked = engine.cancels.length;
+      mark = A('89');
+      await carolBids(A('2'), A('91'));
+      expect((await tick({ preRungPull: false })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+      // Not asked of the engine (it was never sent); cancelled here, its hold released, and a retry never sends it.
+      expect(engine.cancels.slice(asked)).not.toContain(bid.orderId);
+      expect(await sql`SELECT status, refusal_code FROM trade.futures_orders WHERE id = ${bid.orderId}`).toMatchObject([
+        { status: 'cancelled', refusal_code: 'trade.liquidation_in_progress' },
+      ]);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, bid.orderId))).toBe(0n);
+      expect(engine.submits.filter((x) => x.orderId === bid.orderId)).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
     it('a growing order whose cancel the engine does not confirm holds the IOC back: nothing is stored or sent', async () => {
       const { alice } = await aliceLongBobShort();
       mark = A('92');

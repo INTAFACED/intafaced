@@ -1898,7 +1898,8 @@ export class MatchedFuturesOrders {
 
   /**
    * The resting-order book the liquidation tick pulls a position's increasing orders from before any rung
-   * (`LiquidationTickDeps.increasingOrders`): the account's open orders on the market, cancelled through the engine,
+   * (`LiquidationTickDeps.increasingOrders`): the account's orders on the market that may be live at the engine
+   * (`LIVE_OR_UNKNOWN`), cancelled through the engine (a `held` one before it is sent),
    * their unused hold released once every printed fill has settled. An engine that does not answer is a timeout: the
    * rung is not planned this tick.
    */
@@ -1908,7 +1909,8 @@ export class MatchedFuturesOrders {
         if (!this.deps.matching) return [];
         const rows = await this.deps.sql<{ id: string; side: OrderSide; reduce_only: boolean }[]>`
           SELECT id, side, reduce_only FROM trade.futures_orders
-           WHERE market_id = ${marketId} AND user_id = ${accountId} AND status = 'open' AND NOT reduce_only
+           WHERE market_id = ${marketId} AND user_id = ${accountId} AND NOT reduce_only
+             AND status IN ('held', 'submitting', 'open', 'submit_unknown')
            ORDER BY created_at, id
         `;
         return rows.map((r) => ({ orderId: r.id, side: r.side, reduceOnly: r.reduce_only }));
@@ -1920,8 +1922,26 @@ export class MatchedFuturesOrders {
     };
   }
 
-  /** Take one of the trader's orders off the book for a liquidation. `timeout` when the engine did not answer. */
+  /**
+   * Take one of the trader's orders off the book for a liquidation. `timeout` when the engine did not answer.
+   *
+   * Every state that may be live at the engine is asked (`LIVE_OR_UNKNOWN`), not only `open`: a `submitting` or
+   * `submit_unknown` order may rest in the book. A `held` order has not been sent: it is cancelled here, before any
+   * submit can claim it (the submit claims `held` only), so it never reaches the book. An order the engine says is not
+   * resting is left as it is; a later tick sees it again if it arrives.
+   */
   private async cancelForLiquidation(orderId: string): Promise<'cancelled' | 'not_resting' | 'timeout'> {
+    const unsent = await this.deps.sql<{ reduce_only: boolean }[]>`
+      UPDATE trade.futures_orders
+         SET status = 'cancelled', engine_filled_qty = 0, refusal_code = COALESCE(refusal_code, 'trade.liquidation_in_progress'),
+             updated_at = now()
+       WHERE id = ${orderId} AND status = 'held'
+       RETURNING reduce_only
+    `;
+    if (unsent[0]) {
+      if (!unsent[0].reduce_only) await this.releaseWhenDone(orderId);
+      return 'cancelled';
+    }
     const matching = this.deps.matching;
     if (!matching) return 'not_resting';
     const order = await this.loadOrder(orderId);
@@ -1950,7 +1970,7 @@ export class MatchedFuturesOrders {
     const growing: OrderSide = position.side === 'long' ? 'buy' : 'sell';
     const resting = await this.deps.sql<{ id: string }[]>`
       SELECT id FROM trade.futures_orders
-       WHERE status = 'open' AND liquidation_rung_id IS NULL
+       WHERE status IN ('held', 'submitting', 'open', 'submit_unknown') AND liquidation_rung_id IS NULL
          AND ((reduce_only AND position_id = ${position.id})
               OR (NOT reduce_only AND user_id = ${position.user_id} AND market_id = ${position.market_id} AND side = ${growing}))
        ORDER BY created_at, id
