@@ -12,7 +12,6 @@ import { z } from 'zod';
 import { classOf, useDataEnv, useSource, type Decimal, type Holding, type Loadable, type PortfolioSummary } from '../../data';
 import { dec, decOrNull, ratio, str, sub, sumOf, type Scaled } from '../../data/decimal';
 import { portfolioSource, type DataEnv } from '../../data/queries';
-import { usePreferences } from '../../shared/preferences';
 import { balancesFetcher } from '../../data/fetchers';
 import type { BalanceEntry } from '../../data/derive';
 import { constantSource, type Source } from '../../data/source';
@@ -224,10 +223,9 @@ const WAITING: Loadable<PortfolioSummary> = { status: 'loading' };
  * The Money screen's portfolio. Both hooks are cheap: the fallback only starts reading (and polling) once the server
  * summary has failed, and stops again if the server recovers.
  */
-export function useMoneyPortfolio(scope: MoneyScope = 'combined'): Loadable<MoneyView> {
+export function useMoneyPortfolio(scope: MoneyScope = 'combined', unit: MoneyUnit = 'USD'): Loadable<MoneyView> {
   const env = useDataEnv();
-  const { displayCurrency } = usePreferences();
-  const server = useSource(useMemo(() => serverSource(env, scope, displayCurrency), [env, scope, displayCurrency]));
+  const server = useSource(useMemo(() => serverSource(env, scope, unit), [env, scope, unit]));
   // The client derivation only knows the combined view in USD; for one account it would show the wrong money, so it is not used there.
   const fallback =
     scope === 'combined' && (server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING));

@@ -482,10 +482,11 @@ function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden
 export default function Portfolio() {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, layoutMode } = usePreferences();
+  const { hideBalances, layoutMode, displayCurrency } = usePreferences();
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const [scope, setScope] = useState('combined');
-  const portfolio = useMoneyPortfolio(scope);
+  // Only this screen shows BTC; Home and P&L ask for USD, so a missing BTC price never takes their dollar total away.
+  const portfolio = useMoneyPortfolio(scope, displayCurrency === 'BTC' ? 'BTC' : 'USD');
   const scoped = scope !== 'combined';
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
@@ -666,6 +667,9 @@ export default function Portfolio() {
           <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
             <option value="combined">{t('All accounts')}</option>
             <option value="main">{t('Main account')}</option>
+            {scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope)) ? (
+              <option value={scope}>{t('This account')}</option>
+            ) : null}
             {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}

@@ -68,6 +68,7 @@ const messages = {
   'Accounts shown': 'Accounts shown',
   'All accounts': 'All accounts',
   'Main account': 'Main account',
+  'This account': 'This account',
   'Your accounts': 'Your spaces',
   'Your accounts note': 'Money you have set aside in named spaces. It is already counted in your total.',
   'Nothing held': 'You don’t hold anything yet.',
