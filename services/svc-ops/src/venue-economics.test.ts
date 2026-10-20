@@ -22,7 +22,7 @@ import {
   trimDecimal,
   type VenueCostStore,
 } from './venue-cost-store.js';
-import { composeVenueEconomics } from './venue-economics.js';
+import { addDecimalStrings, composeVenueEconomics } from './venue-economics.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -349,5 +349,16 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('durable venue costs on r
     } finally {
       await close();
     }
+  });
+});
+
+describe('addDecimalStrings', () => {
+  it('adds exactly, with carries and uneven fractions', () => {
+    expect(addDecimalStrings('0', '0')).toBe('0');
+    expect(addDecimalStrings('0.1', '0.2')).toBe('0.3');
+    expect(addDecimalStrings('999.99', '0.01')).toBe('1000');
+    expect(addDecimalStrings('1250.5', '0.000000000000000001')).toBe('1250.500000000000000001');
+    expect(addDecimalStrings('12345678901234567890123456789', '1')).toBe('12345678901234567890123456790');
+    expect(addDecimalStrings('007', '3')).toBe('10');
   });
 });

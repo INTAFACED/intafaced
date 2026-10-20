@@ -11,18 +11,29 @@ import { OPS_COST_AMOUNT_INVALID, OPS_COST_CATEGORY_INVALID, OPS_COST_PERIOD_INV
 import type { RevenueResult } from './ops-service.js';
 import { trimDecimal, type VenueCostFields } from './venue-cost-store.js';
 
-const SCALE = 18;
-
-const toScaled = (value: string): bigint => {
-  const [whole = '0', frac = ''] = value.split('.');
-  return BigInt(whole) * 10n ** BigInt(SCALE) + BigInt(frac.padEnd(SCALE, '0'));
-};
-
-const fromScaled = (scaled: bigint): string => {
-  const whole = scaled / 10n ** BigInt(SCALE);
-  const frac = (scaled % 10n ** BigInt(SCALE)).toString().padStart(SCALE, '0');
-  return trimDecimal(`${whole}.${frac}`);
-};
+/**
+ * Exact sum of two non-negative decimal strings, digit by digit, so no cost passes through a JS number. svc-ops does not
+ * depend on ledger-client, whose money.ts is the canonical decimal arithmetic; swap this for it when it may.
+ */
+export function addDecimalStrings(a: string, b: string): string {
+  const [aWhole = '0', aFrac = ''] = a.split('.');
+  const [bWhole = '0', bFrac = ''] = b.split('.');
+  const fracLen = Math.max(aFrac.length, bFrac.length);
+  const wholeLen = Math.max(aWhole.length, bWhole.length);
+  const left = aWhole.padStart(wholeLen, '0') + aFrac + '0'.repeat(fracLen - aFrac.length);
+  const right = bWhole.padStart(wholeLen, '0') + bFrac + '0'.repeat(fracLen - bFrac.length);
+  let carry = 0;
+  let digits = '';
+  for (let i = left.length - 1; i >= 0; i--) {
+    const d = Number(left[i]) + Number(right[i]) + carry;
+    digits = String(d % 10) + digits;
+    carry = d >= 10 ? 1 : 0;
+  }
+  if (carry) digits = '1' + digits;
+  const split = digits.length - fracLen;
+  const whole = digits.slice(0, split).replace(/^0+(?=\d)/, '') || '0';
+  return trimDecimal(fracLen === 0 ? whole : `${whole}.${digits.slice(split)}`);
+}
 
 export function parseCostPeriod(period: string): string {
   if (!opsCostPeriodSchema.safeParse(period).success) {
@@ -81,9 +92,10 @@ export function composeVenueEconomics(
     return current ? { status: 'entered' as const, category, current, history } : { status: 'not_entered' as const, category };
   });
   const missing = costs.filter((c) => c.status === 'not_entered').map((c) => c.category);
-  const sums = new Map<string, bigint>();
+  const sums = new Map<string, string>();
   for (const line of costs) {
-    if (line.status === 'entered') sums.set(line.current.asset, (sums.get(line.current.asset) ?? 0n) + toScaled(line.current.amount));
+    if (line.status === 'entered')
+      sums.set(line.current.asset, addDecimalStrings(sums.get(line.current.asset) ?? '0', line.current.amount));
   }
   return {
     asOf,
@@ -100,7 +112,7 @@ export function composeVenueEconomics(
     completeness: missing.length === 0 ? { status: 'complete' } : { status: 'incomplete', missing },
     costTotals: {
       partial: missing.length > 0,
-      byAsset: [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([asset, amount]) => ({ asset, amount: fromScaled(amount) })),
+      byAsset: [...sums.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([asset, amount]) => ({ asset, amount })),
     },
     net: { status: 'unavailable', reason: 'revenue_asset_unknown' },
   };
