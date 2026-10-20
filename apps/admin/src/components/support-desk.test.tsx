@@ -94,6 +94,16 @@ const base: DeskViewProps = {
 const render = (over: Partial<DeskViewProps> = {}) => renderToStaticMarkup(<SupportDeskView {...base} {...over} />);
 
 describe('the queue', () => {
+  it('offers a tick box on every row and the bulk bar only when the page wires one', () => {
+    expect(render()).not.toContain('Tick every request shown');
+    const html = render({
+      bulk: { selected: new Set([T1]), onToggle: () => undefined, onToggleAll: () => undefined, bar: <p data-testid="bar-here">bar</p> },
+    });
+    expect(html).toContain('Tick every request shown');
+    expect(html).toMatch(/aria-label="Tick Cannot sign in[^"]*"[^>]*checked=""|checked=""[^>]*aria-label="Tick Cannot sign in/);
+    expect(html).toContain('data-testid="bar-here"');
+  });
+
   it('lists tickets with their wait, escaped, and says when it was read', () => {
     const html = render();
     expect(html).toContain('Cannot sign in &lt;script&gt;x&lt;/script&gt;');
