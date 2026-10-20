@@ -21,6 +21,7 @@ export * from './ops-analytics.js';
 export * from './ops-analytics-cube.js';
 export * from './ops-analytics-consume.js';
 export * from './ops-analytics-warehouse.js';
+export * from './ops-alert-rules.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';
 export * from './action-approval-client.js';

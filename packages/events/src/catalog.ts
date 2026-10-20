@@ -816,6 +816,60 @@ export const personalRequestSettled = defineEvent(
   'A personal request was paid by transfers.toUser. svc-notify writes pay.request_paid for the payee.',
 );
 
+// ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
+
+const alertRuleIdSchema = z.string().uuid();
+/** Stable identity of one alert instance: the rule's id and the hash of its label set. */
+const alertInstanceSchema = z.string().regex(/^[a-f0-9]{64}$/, 'instance is a sha-256 of the label set');
+
+export const coreOpsAlertRuleUpdated = defineEvent(
+  'core-ops',
+  'alert_rule',
+  'updated',
+  1,
+  z.object({
+    ruleId: alertRuleIdSchema,
+    /** The rule's version after this change. Every save keeps a version; a retired rule is restored, never destroyed. */
+    version: z.number().int().min(1),
+    change: z.enum(['created', 'updated', 'paused', 'resumed', 'retired', 'restored']),
+    /** The signed individual operator. Never a shared credential. */
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A platform alert rule was created, edited, paused, resumed, retired or restored. A new version row exists for it.',
+);
+
+export const coreOpsAlertOpened = defineEvent(
+  'core-ops',
+  'alert',
+  'opened',
+  1,
+  z.object({
+    ruleId: alertRuleIdSchema,
+    instance: alertInstanceSchema,
+    /** The stored evaluation counter of this instance, not a clock, so a restarted evaluator re-derives the same key. */
+    epoch: z.number().int().min(0),
+    /** `firing` once the pending period has passed; `error` and `no_data` raise an alert about the rule itself. */
+    state: z.enum(['firing', 'error', 'no_data']),
+    openedAt: z.string().datetime({ offset: true }),
+  }),
+  'A platform alert instance started firing. Business key ops:alert:<ruleId>:<instance>:<epoch>; consumers are idempotent on it.',
+);
+
+export const coreOpsAlertResolved = defineEvent(
+  'core-ops',
+  'alert',
+  'resolved',
+  1,
+  z.object({
+    ruleId: alertRuleIdSchema,
+    instance: alertInstanceSchema,
+    epoch: z.number().int().min(0),
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'A platform alert instance returned to normal. Same business key as the opened event it closes.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -827,6 +881,9 @@ export const EVENT_CATALOG = {
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
   ledgerFreezeUpdated,
+  coreOpsAlertRuleUpdated,
+  coreOpsAlertOpened,
+  coreOpsAlertResolved,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1048,6 +1105,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Freeze state is DURABLE, not a process signal: every replica reads the same row, which is precisely why nothing has to subscribe to stay correct. The event exists so an operator console can react without polling. apps/admin does not yet make a network call of any kind (see tracker ops.admin-console), so there is no consumer to attach.',
+  },
+  {
+    event: 'coreOpsAlertRuleUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it once the alert rule store lands (OPS-alerts-01, next PR). Rule state is a durable versioned row, so nothing has to subscribe to stay correct; the audit trail and the admin list read the rows.',
+  },
+  {
+    event: 'coreOpsAlertOpened',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it from the alert evaluator (OPS-alerts-01, next PR). The state is a durable row; the routing consumer that notifies staff is OPS-alerts-02, so there is no subscriber yet.',
+  },
+  {
+    event: 'coreOpsAlertResolved',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it from the alert evaluator (OPS-alerts-01, next PR), closing the opened event with the same business key. Its routing consumer is OPS-alerts-02.',
+  },
+  {
+    event: 'coreOpsAlertRuleUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Nothing needs to react to a rule change: the rule store is a durable versioned row and the admin list reads it. The subject exists so the audit trail and a later routing consumer (OPS-alerts-02) can follow without polling.',
+  },
+  {
+    event: 'coreOpsAlertOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The routing consumer that tells staff is OPS-alerts-02 and does not exist yet. The alert is a durable row that /alerts lists, so nothing is promised to anyone by this event today.',
+  },
+  {
+    event: 'coreOpsAlertResolved',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
   },
   {
     event: 'projectionUpdated',
