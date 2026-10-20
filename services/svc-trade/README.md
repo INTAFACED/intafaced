@@ -169,6 +169,16 @@ Job stays **OFF** until an operator deliberately enables it. Missing market list
 5. Watch logs for `candle materialize ok` with `written > 0` only when closed buckets have real fill volume.
 6. Kill: set enabled false or clear market ids — REST path keeps working from fills.
 
+### Trailing-stop mark pump
+
+Default **OFF**. A trailing stop walks with a mark, and the mark never comes from a customer. When enabled, each tick reads a labelled mark from the market's own book (stale, one-sided or thin books give none) and posts it to svc-matching `POST /markets/:marketId/mark`. A market with no usable mark is skipped; nothing is posted in its place.
+
+| Env                                    | Default | Meaning                                                                                                                      |
+| -------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `TRADE_TRAILING_MARK_JOBS_ENABLED`     | `false` | Master kill. Only `1` / `true` / `on` / `yes` turns on.                                                                      |
+| `TRADE_TRAILING_MARK_JOBS_INTERVAL_MS` | `""`    | Tick interval in ms. Blank → refuse when enabled + markets (`trade.trailing_mark_jobs_interval_unset`). Never invent a rate. |
+| `TRADE_TRAILING_MARK_JOBS_MARKET_IDS`  | `""`    | Comma-separated **market UUIDs**. Empty → no job even if enabled.                                                            |
+
 **Honesty bans:** invent candles, invent markets, zero-fill gaps, include seed volume in public ohlcv (seeded fills excluded — SD-3).
 
 ### Venue fabric mark (A-TRADE-VENUE-1 + A-TRADE-VENUE-OPS)

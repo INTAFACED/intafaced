@@ -435,6 +435,14 @@ export class StubMatching implements MatchingClient {
     return { checked: 0, agreed: 0, findings: [], refusals: 0, ok: true };
   }
 
+  /** Every mark the engine was asked to walk trailing stops with. */
+  readonly marked: Array<{ marketId: string; mark: string }> = [];
+
+  async markTrailingStops(marketId: string, mark: string): Promise<import('./matching-client.js').EngineMarkResult> {
+    this.marked.push({ marketId, mark });
+    return { accepted: true, applied: false, rejected: null };
+  }
+
   /**
    * CX-7 F6 — simulate matching **process** death + cold start before journal replay.
    *
@@ -552,6 +560,10 @@ export class UnreachableMatching implements MatchingClient {
   }
 
   async reconcile(): Promise<import('./matching-client.js').ReconcileReport> {
+    throw new Error('svc-matching is unreachable');
+  }
+
+  async markTrailingStops(): Promise<import('./matching-client.js').EngineMarkResult> {
     throw new Error('svc-matching is unreachable');
   }
 }
