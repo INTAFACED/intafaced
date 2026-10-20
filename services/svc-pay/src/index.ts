@@ -496,6 +496,11 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 /** Blank, zero, or a partial triple leaves email invites unconfigured. */
 const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 
+/** W-custody-ops-12: the custody desk reverses a dropped, held withdrawal through the withdrawal service's own posting. */
+const custodyDroppedReverser = {
+  reverseDropped: ({ withdrawalId }: { withdrawalId: string }) => userMoney.reverseDroppedWithdrawal({ withdrawalId }),
+};
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
@@ -532,7 +537,7 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     limits: { sql, approvals: actionApprovals },
-    custody: { sql },
+    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
