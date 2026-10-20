@@ -522,6 +522,9 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
           if (rungRow.state === 'applied') return { status: 'already_applied' };
           if (rungRow.state === 'abandoned' || rungRow.state === 'resolved') return { status: 'not_live' };
           const rung = rungFromRow(rungRow);
+          if (rung.kind === 'matched') {
+            throw new Error(`rung ${rungId} is worked in the book: finish it with finishMatched, never apply`);
+          }
 
           const abandon = async (reason: 'row_changed' | 'row_missing' | 'reduction_no_op'): Promise<ApplyRungResult> => {
             await tx`
@@ -590,6 +593,31 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
              WHERE rung_id = ${rungId}
           `;
           return alert ? { status: 'applied', alert } : { status: 'applied' };
+        },
+        { isolation: 'read committed' },
+      );
+    },
+
+    async finishMatched(positionId, rungId) {
+      return transaction(
+        sql,
+        async (tx): Promise<'applied' | 'already_applied' | 'not_live'> => {
+          // The position row first, the order every writer takes; the row itself is not moved.
+          await tx`SELECT id FROM trade.positions WHERE id = ${positionId} FOR UPDATE`;
+          const [found] = await tx<{ kind: string; state: string }[]>`
+            SELECT kind, state FROM trade.liquidation_rungs WHERE rung_id = ${rungId} AND position_id = ${positionId}
+          `;
+          if (!found) return 'not_live';
+          if (found.kind !== 'matched') {
+            throw new Error(`rung ${rungId} is ${found.kind}: only a matched rung is finished without moving the row`);
+          }
+          if (found.state === 'applied') return 'already_applied';
+          if (found.state !== 'planned' && found.state !== 'posted') return 'not_live';
+          await tx`
+            UPDATE trade.liquidation_rungs SET state = 'applied', updated_at = now()
+             WHERE rung_id = ${rungId} AND state IN ('planned', 'posted')
+          `;
+          return 'applied';
         },
         { isolation: 'read committed' },
       );

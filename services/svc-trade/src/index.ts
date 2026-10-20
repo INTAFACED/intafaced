@@ -90,6 +90,7 @@ import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
 import { parseFundingMarketIds, startFuturesJobs } from './futures/futures-jobs.js';
+import type { MatchedLiquidationPort } from './futures/matched-liquidation.js';
 import { presentMarginCallWire } from './futures/margin-call-transport.js';
 import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVenueMarkSymbols } from './futures/mark-from-venue.js';
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
@@ -443,6 +444,8 @@ if (fundingMaxAbsRate) {
     'TRADE_FUTURES_FUNDING_MAX_ABS_RATE unset — funding markets empty; publish/settle still refuse rates until a max is set (no invented ceiling)',
   );
 }
+// Liquidation through the book (futures ADR slice 7): bound once the position service exists, below.
+const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
 const futuresJobs = startFuturesJobs({
   sql,
   ledger,
@@ -459,6 +462,7 @@ const futuresJobs = startFuturesJobs({
     settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
+  matchedLiquidation,
 });
 const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
 const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
@@ -508,6 +512,8 @@ const positions = new PositionService(sql, ledger, {
 });
 // Matched futures fills settle into the position book this service owns (futures ADR slice 6).
 matchedFuturesFills.current = positions.matchedFills;
+// While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
+matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
 // orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
 // around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.

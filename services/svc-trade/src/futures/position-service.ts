@@ -923,6 +923,11 @@ export class PositionService {
     return this.matched.retryWaitingFills(limit);
   }
 
+  /** The port the liquidation tick works a liquidation through the book with (futures ADR slice 7). */
+  get matchedLiquidation() {
+    return this.matched.liquidationPort;
+  }
+
   /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
   async cancelMatchedOrdersOutsideBand() {
     return this.matched.cancelOutsideBand();

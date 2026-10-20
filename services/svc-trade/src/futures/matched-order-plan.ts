@@ -237,6 +237,14 @@ export function planReduceFill(input: {
   price: Amount;
   /** Units of rounding past the whole margin left unbooked: the number of earlier reduce fills on the position. */
   roundingAllowance?: bigint;
+  /**
+   * A LIQUIDATION fill (futures ADR slice 7): a fill that does not close the position returns no margin. Its loss comes
+   * out of the position's whole margin and the rest stays with the remainder, exactly as an at-mark partial rung leaves
+   * it (`planLadderLiquidation`: only a closing rung hands margin back). Without this a liquidation filled in several
+   * pieces could hand the trader part of the margin on an early, better fill and then draw the insurance fund for a
+   * later, worse one: the fund would be paying for margin the trader had just been given back.
+   */
+  holdRelease?: boolean;
 }): ReduceFillPlan {
   if (input.qty <= 0n || input.qty > input.size) throw new Error('a reduce fill must take a slice of its position');
   if (input.price <= 0n) throw new Error('a reduce fill needs a positive price');
@@ -261,7 +269,22 @@ export function planReduceFill(input: {
   let unbooked = 0n;
   let release = slice;
   let remainMargin = remainShare;
-  if (pnl > 0n) {
+  if (input.holdRelease === true && remainQty > 0n) {
+    // Nothing leaves the pot but the loss; the remainder keeps every other unit of margin.
+    release = 0n;
+    remainMargin = input.margin;
+    if (pnl > 0n) {
+      profit = pnl;
+    } else if (pnl < 0n) {
+      const loss = -pnl;
+      fromMargin = loss < input.margin ? loss : input.margin;
+      const excess = loss - fromMargin;
+      const allowance = input.roundingAllowance ?? 0n;
+      if (excess <= allowance) unbooked = excess;
+      else fromInsurance = excess;
+      remainMargin = input.margin - fromMargin;
+    }
+  } else if (pnl > 0n) {
     profit = pnl;
   } else if (pnl < 0n) {
     const loss = -pnl;
@@ -341,4 +364,49 @@ export function reduceFillRecipes(input: {
 /** The payout row's id for a reduce fill's profit: the ledger key is `futures.profit:<this>`. */
 export function reduceFillProfitId(fillKey: string): string {
   return `${reduceFillRoot(fillKey)}:profit`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LIQUIDATION ORDERS (futures ADR slice 7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The limit of a liquidation's reduce-only IOC (ADR section 5): the position's bankruptcy price, widened by what the
+ * insurance fund can pay right now, then pulled in to the price band around the mark exactly as a market reduce is
+ * (`marketReduceLimit`). Null when no price inside the band is inside the widened bound: the book cannot take any of
+ * it, and the whole tranche goes to ADL.
+ *
+ * WIDENED ONLY FOR A TRANCHE THAT CLOSES THE POSITION. A liquidation fill that leaves part of the position open takes
+ * its loss from the position's whole margin (`planReduceFill`, `holdRelease`), so the fund pays only once the margin
+ * is gone. On a partial tranche that never happens inside the bankruptcy price, and a limit past it would make the
+ * remainder's margin, not the fund, pay for the worse fill. So the fund widens nothing there.
+ *
+ * THE WIDENING NEVER PROMISES MORE THAN THE FUND HOLDS. Filling `size` at `bankruptcy ∓ w` loses at most the margin
+ * plus `size × w`, and `w` is chosen so that is at most `insurance − slack`. Each fill's realised loss is charged up by
+ * under one unit (10^-18), so `slack` is the most fills the tranche can be split into (`fillsBound`, one per lot);
+ * the fund's live balance is checked again on every fill that draws on it, and a fill it cannot cover waits.
+ * Zero, unreadable or unset insurance widens nothing: the limit is the bankruptcy price itself.
+ */
+export function liquidationLimit(input: {
+  side: PositionSide;
+  /** The position's size: the tranche when it closes the position. */
+  size: Amount;
+  closesPosition: boolean;
+  bankruptcy: Amount;
+  /** The insurance fund's live balance, or 0 when it could not be read. */
+  insurance: Amount;
+  /** The most fills the tranche can be split into. */
+  fillsBound: Amount;
+  band: PriceBand;
+}): { limit: Amount | null; widened: Amount; widening: Amount } {
+  if (input.size <= 0n) throw new Error('a liquidation order needs a positive size');
+  const budget = input.closesPosition && input.insurance > input.fillsBound ? input.insurance - input.fillsBound : 0n;
+  const widening = (budget * SCALE) / input.size;
+  const widened = input.side === 'long' ? (input.bankruptcy > widening ? input.bankruptcy - widening : 0n) : input.bankruptcy + widening;
+  return { limit: marketReduceLimit(input.side, input.band, widened), widened, widening };
+}
+
+/** The client order id of a liquidation's IOC: a business key, the lifecycle id and the rung id. */
+export function liquidationClientOrderId(liquidationId: string, rungId: string): string {
+  return `${liquidationId}:rung:${rungId}`;
 }

@@ -74,15 +74,17 @@ import { checkOpenAdmission, PRETRADE_LIMIT_HTTP_STATUS } from './pretrade-limit
 import { assertDatedFuturesTradable } from './dated-futures.js';
 import { CLEARING_POT_SHORT, isInsufficientFunds, payOrOweProfit } from './futures-payouts.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
-import { checkInsuranceBound, INSURANCE_UNDERFUNDED } from './insurance-bound.js';
+import { checkInsuranceBound, INSURANCE_UNDERFUNDED, recipeInsuranceAccount } from './insurance-bound.js';
 import { matchedOrderIdFor, matchedSlotPositionIdFor } from './ids.js';
 import { defaultLiquidationId } from './liquidation-tick.js';
+import type { LiquidationBookInput, LiquidationBookResult, MatchedLiquidationPort } from './matched-liquidation.js';
 import {
   FUTURES_PRICE_BAND_UNSET,
   bankruptcyPrice,
   fillMargin,
   fillWithinLimit,
   limitWithinBand,
+  liquidationLimit,
   marketReduceLimit,
   orderHoldAmount,
   planReduceFill,
@@ -90,9 +92,11 @@ import {
   protectiveLimit,
   reduceFillProfitId,
   reduceFillRecipes,
+  reducingSide,
   weightedEntry,
   withinBankruptcy,
   type OrderSide,
+  liquidationClientOrderId,
   type PositionSide,
   type PriceBand,
 } from './matched-order-plan.js';
@@ -259,6 +263,8 @@ interface OrderRow {
   reduce_only: boolean;
   position_id: string | null;
   bankruptcy_price: string | null;
+  /** The matched liquidation rung this order works for (slice 7); null for every trader's order. */
+  liquidation_rung_id: string | null;
 }
 
 interface FillRow {
@@ -433,14 +439,19 @@ function refuse(code: string, message: string, status = 400): never {
  * A fill may not grow a position that a liquidation rung, a planned ADL pair or a review hold is working on. The
  * refusal is a 409: the event is redelivered, and once the rung or pair has finished the fill lands (on the same row,
  * or on a new one if the row was closed). The codes are the ones the position service uses for the same states.
+ *
+ * `ownRungId` is the liquidation rung the filling order works for (slice 7). That rung's live state does not hold its
+ * own fill back: the rung exists to get exactly that fill into the row. Every other fill on the position still waits,
+ * and since a position has at most one live rung, nothing else is let through.
  */
-async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string): Promise<void> {
+async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string, ownRungId: string | null = null): Promise<void> {
   const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean; adjusting: boolean }[]>`
     SELECT
       EXISTS (SELECT 1 FROM trade.positions p
                WHERE p.id = ${positionId} AND p.margin_adjust_request IS NOT NULL) AS adjusting,
       EXISTS (SELECT 1 FROM trade.liquidation_rungs r
-               WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted')) AS live_rung,
+               WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted')
+                 AND r.rung_id IS DISTINCT FROM ${ownRungId}::uuid) AS live_rung,
       EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
                WHERE q.state = 'planned' AND (q.bankrupt_position_id = ${positionId} OR q.candidate_position_id = ${positionId})) AS adl_planned,
       (COALESCE((SELECT r.state FROM trade.liquidation_rungs r WHERE r.position_id = ${positionId}
@@ -498,6 +509,15 @@ async function reservedReduceQty(tx: TransactionSql, positionId: string): Promis
 
 function oppositeSide(side: PositionSide): PositionSide {
   return side === 'long' ? 'short' : 'long';
+}
+
+interface WaitRow {
+  market_id: string;
+  engine_sequence: string;
+  maker_order_id: string;
+  taker_order_id: string;
+  price: string;
+  qty: string;
 }
 
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
@@ -1037,15 +1057,30 @@ export class MatchedFuturesOrders {
    * for another reason stays waiting and is reported, never dropped.
    */
   async retryWaitingFills(limit: number): Promise<{ settled: number; waiting: number; failed: { sequence: number; message: string }[] }> {
-    const rows = await this.deps.sql<
-      { market_id: string; engine_sequence: string; maker_order_id: string; taker_order_id: string; price: string; qty: string }[]
-    >`
+    const rows = await this.deps.sql<WaitRow[]>`
       SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
         FROM trade.futures_fill_waits
        WHERE settled_at IS NULL
        ORDER BY retried_at NULLS FIRST, created_at, engine_sequence
        LIMIT ${limit}
     `;
+    return this.retryWaitRows(rows);
+  }
+
+  /** Retry the waiting fills of one order (a liquidation's IOC), oldest first. Same rules as `retryWaitingFills`. */
+  private async retryWaitingFillsOf(orderId: string) {
+    const rows = await this.deps.sql<WaitRow[]>`
+      SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
+        FROM trade.futures_fill_waits
+       WHERE settled_at IS NULL AND (maker_order_id = ${orderId} OR taker_order_id = ${orderId})
+       ORDER BY engine_sequence
+    `;
+    return this.retryWaitRows(rows);
+  }
+
+  private async retryWaitRows(
+    rows: readonly WaitRow[],
+  ): Promise<{ settled: number; waiting: number; failed: { sequence: number; message: string }[] }> {
     let settled = 0;
     let waiting = 0;
     const failed: { sequence: number; message: string }[] = [];
@@ -1103,7 +1138,7 @@ export class MatchedFuturesOrders {
           SELECT id, status, size FROM trade.positions WHERE id = ${order.position_id}
         `;
         assertReduceFillFits(order, position, fill.sequence, qty);
-        await refuseIfPositionBusy(this.deps.sql, position.id);
+        await refuseIfPositionBusy(this.deps.sql, position.id, order.liquidation_rung_id);
         await refuseIfPositionHasPendingFill(this.deps.sql, position.id, 'any');
         continue;
       }
@@ -1422,8 +1457,9 @@ export class MatchedFuturesOrders {
         FROM trade.positions WHERE id = ${order.position_id} FOR UPDATE
     `;
     assertReduceFillFits(order, position, input.sequence, input.qty);
-    // The same holds an opening fill waits for, under the same lock a rung or an ADL pair takes.
-    await refuseIfPositionBusy(tx, position.id);
+    // The same holds an opening fill waits for, under the same lock a rung or an ADL pair takes. A liquidation order's
+    // own rung does not hold it back (slice 7).
+    await refuseIfPositionBusy(tx, position.id, order.liquidation_rung_id);
     await refuseIfPositionHasPendingFill(tx, position.id, 'any');
 
     const [earlier] = await tx<{ n: string }[]>`
@@ -1439,6 +1475,8 @@ export class MatchedFuturesOrders {
       qty: input.qty,
       price: input.price,
       roundingAllowance: BigInt(earlier?.n ?? '0'),
+      // A liquidation fill hands no margin back until the fill that closes the position (`planReduceFill`).
+      holdRelease: order.liquidation_rung_id != null,
     });
     if (plan.fromInsurance > 0n) {
       // Past the bankruptcy price the position has now (its margin fell after the order was placed): the same law
@@ -1501,10 +1539,11 @@ export class MatchedFuturesOrders {
     // which the operator reconciles from the intent row.
     const moved = fill.closes_position
       ? // A full close keeps the row's last size and margins and only closes it, as every close does
-        // (`positions_size_positive_ck`); the collateral pot is empty once the posts above have run.
+        // (`positions_size_positive_ck`); the collateral pot is empty once the posts above have run. A liquidation
+        // order's close is a liquidation, as a closing rung's is.
         await tx`
           UPDATE trade.positions
-             SET status = 'closed', closed_at = now(), updated_at = now()
+             SET status = ${order.liquidation_rung_id != null ? 'liquidated' : 'closed'}, closed_at = now(), updated_at = now()
            WHERE id = ${fill.position_id} AND status = 'open' AND size = ${qty}::numeric
              AND margin_current = ${fill.pot_out}::numeric
         `
@@ -1523,6 +1562,22 @@ export class MatchedFuturesOrders {
         `reduce fill ${fillKey} posted but position ${fill.position_id} no longer matches its intent — this needs an operator`,
         500,
       );
+    }
+    if (fill.closes_position && order.liquidation_rung_id != null) {
+      // The liquidation's closing fill finishes its rung in the same transaction. The fill may arrive through the
+      // engine's events after a crash, when the closed position is no longer in the liquidation scan: without this
+      // the rung would stay live on a closed row for good. The tick's own finish is then a no-op.
+      const [rung] = await tx<{ liquidation_id: string }[]>`
+        UPDATE trade.liquidation_rungs SET state = 'applied', updated_at = now()
+         WHERE rung_id = ${order.liquidation_rung_id} AND kind = 'matched' AND state IN ('planned', 'posted')
+        RETURNING liquidation_id
+      `;
+      if (rung) {
+        await tx`
+          INSERT INTO trade.liquidation_attempts (liquidation_id) VALUES (${rung.liquidation_id})
+          ON CONFLICT (liquidation_id) DO NOTHING
+        `;
+      }
     }
     const filledNow = parseAmount(fill.new_filled);
     const orderStatus = filledNow === parseAmount(order.qty) ? 'filled' : 'open';
@@ -1595,6 +1650,239 @@ export class MatchedFuturesOrders {
       cancelled.push(order.id);
     }
     return cancelled;
+  }
+
+  // ── liquidation through the book (slice 7) ───────────────────────────────
+
+  /** The port the liquidation tick works a `matched` rung through (`matched-liquidation.ts`). */
+  get liquidationPort(): MatchedLiquidationPort {
+    return {
+      enabled: this.deps.enabled,
+      readiness: () => this.liquidationReadiness(),
+      trancheFor: (input) => this.liquidationTranche(input),
+      driveBook: (input) => this.driveLiquidationBook(input),
+      openSize: async (positionId) => {
+        const [row] = await this.deps.sql<{ status: string; size: string }[]>`
+          SELECT status, size FROM trade.positions WHERE id = ${positionId}
+        `;
+        return row && row.status === 'open' ? parseAmount(row.size) : null;
+      },
+    };
+  }
+
+  private liquidationReadiness(): string | null {
+    if (this.deps.priceBand === null) return FUTURES_PRICE_BAND_UNSET;
+    if (!this.deps.matching) return 'trade.futures_matching_unconfigured';
+    if (!this.deps.lifecycleProof) return 'trade.lifecycle_authority_unavailable';
+    return null;
+  }
+
+  /**
+   * The ladder sizes a tranche to the attounit; the book trades whole lots. Rounded UP, so the tranche is never smaller
+   * than what restores the position, and capped at the position, so it never asks for more than there is.
+   */
+  private async liquidationTranche(input: { marketId: string; positionSize: Amount; sizeClosed: Amount }): Promise<Amount> {
+    const [market] = await this.deps.sql<{ lot_size: string | null }[]>`
+      SELECT lot_size FROM trade.markets WHERE id = ${input.marketId}
+    `;
+    const lot = market?.lot_size == null ? 0n : parseAmount(market.lot_size);
+    let size = input.sizeClosed;
+    if (lot > 0n && size % lot !== 0n) size = (size / lot + 1n) * lot;
+    return size > input.positionSize ? input.positionSize : size;
+  }
+
+  /**
+   * Store, send and settle the IOC of a matched liquidation rung (see `matched-liquidation.ts`).
+   *
+   * The order's id and client id are derived from the liquidation id and the rung id, so every call for the rung
+   * finds the same row. The limit, the band and the mark are decided once, when the row is stored, and never again:
+   * a crash after the row is stored sends the stored order; a crash after the engine took it leaves it `submitting`,
+   * which is never sent again; each fill settles through its own intent.
+   *
+   *   pending ─send─▶ submitting ─reply─▶ open / filled / cancelled / rejected
+   *   refused   (no price in the band is inside the bound: nothing is sent, the book takes none of it)
+   */
+  private async driveLiquidationBook(input: LiquidationBookInput): Promise<LiquidationBookResult> {
+    const [position] = await this.deps.sql<PositionRowLite[]>`
+      SELECT id, user_id, market_id, side, status, size, entry_price, leverage, margin_initial, margin_current,
+             margin_asset, margin_adjust_request
+        FROM trade.positions WHERE id = ${input.positionId}
+    `;
+    if (!position) refuse('trade.futures_position_not_found', `position ${input.positionId} is not known`, 404);
+    const clientOrderId = liquidationClientOrderId(input.liquidationId, input.rungId);
+    const orderId = matchedOrderIdFor(position.user_id, position.market_id, clientOrderId);
+
+    let [order] = await this.deps.sql<OrderRow[]>`SELECT * FROM trade.futures_orders WHERE id = ${orderId}`;
+    if (position.margin_adjust_request != null && (!order || order.status === 'pending' || order.status === 'held')) {
+      // A leverage change or margin add or release is between its ledger post and its row write. Its fills would only
+      // wait behind it (refuseIfPositionBusy), so nothing is stored or sent until it has finished: the rung waits and
+      // the next tick tries again. Never a failure, and never a new rung.
+      return {
+        status: 'waiting',
+        orderId,
+        code: 'trade.margin_adjustment_in_progress',
+        reason: `a margin adjustment (${position.margin_adjust_request}) is finishing on the position — the order is sent once it has`,
+      };
+    }
+    if (!order) {
+      if (position.status !== 'open') {
+        refuse(
+          FUTURES_REDUCE_FILL_UNMATCHED,
+          `position ${position.id} is ${position.status} under a live liquidation rung ${input.rungId} — this needs an operator`,
+          500,
+        );
+      }
+      // The trader's resting reduce orders come off first: with the tranche they could claim more than the position
+      // holds, and a fill of theirs would only wait behind the rung and then meet a smaller (or closed) position.
+      await this.cancelTraderReduceOrders(position.id);
+      order = await this.storeLiquidationOrder(position, input, clientOrderId, orderId);
+    }
+    if (order.liquidation_rung_id !== input.rungId || !order.reduce_only || order.position_id !== position.id) {
+      // A trader's client id cannot reach this id (it is longer than any client id `place` accepts), so this is a bug.
+      refuse('trade.liquidation_order_conflict', `order ${orderId} is not the IOC of liquidation rung ${input.rungId}`, 500);
+    }
+
+    if (order.status === 'pending' || order.status === 'held') {
+      const market = await this.loadMarketById(order.market_id);
+      if (!this.deps.lifecycleProof) refuse('trade.lifecycle_authority_unavailable', 'market lifecycle authority is not configured', 503);
+      const proof = await this.deps.lifecycleProof(market.id);
+      try {
+        await this.continueOrder(order, market, proof);
+      } catch (err) {
+        // Never sent again; the state below says the rung waits for the engine's events.
+        if (!(err instanceof MatchedOrderError && err.code === 'trade.futures_submit_unknown')) throw err;
+      }
+    } else if (order.status === 'open' && order.engine_filled_qty == null && this.deps.matching) {
+      // An IOC never rests. If the engine says it does, take it off rather than let it work past its tick.
+      const result = await this.deps.matching.cancel(order.market_id, order.id);
+      if (result.cancelled) await this.markLeftBook(order.id, result.cancellation ? parseAmount(result.cancellation.remainingQty) : null);
+    }
+    // Fills of the IOC that met a busy counterparty and wait: settle what can settle now.
+    await this.retryWaitingFillsOf(order.id);
+    return this.liquidationBookState(order.id);
+  }
+
+  /** Take the trader's resting reduce-only orders on a position off the book. Nothing to release: they hold no margin. */
+  private async cancelTraderReduceOrders(positionId: string): Promise<void> {
+    const matching = this.deps.matching;
+    if (!matching) return;
+    const resting = await this.deps.sql<OrderRow[]>`
+      SELECT * FROM trade.futures_orders
+       WHERE position_id = ${positionId} AND reduce_only AND status = 'open'
+       ORDER BY created_at, id
+    `;
+    for (const order of resting) {
+      const result = await matching.cancel(order.market_id, order.id);
+      if (!result.cancelled) continue;
+      await this.deps.sql`
+        UPDATE trade.futures_orders SET refusal_code = 'trade.liquidation_in_progress', updated_at = now()
+         WHERE id = ${order.id} AND refusal_code IS NULL
+      `;
+      await this.markLeftBook(order.id, result.cancellation ? parseAmount(result.cancellation.remainingQty) : null);
+    }
+  }
+
+  /**
+   * Decide the IOC once and store it. The bankruptcy price is the row's (the rung holds the row, so it is the one every
+   * fill will be planned against); the widening is read from the insurance fund's live balance now.
+   */
+  private async storeLiquidationOrder(
+    position: PositionRowLite,
+    input: LiquidationBookInput,
+    clientOrderId: string,
+    orderId: string,
+  ): Promise<OrderRow> {
+    const band = this.deps.priceBand;
+    if (band === null)
+      refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
+    const market = await this.loadMarketById(position.market_id);
+    const size = parseAmount(position.size);
+    if (input.sizeClosed <= 0n || input.sizeClosed > size) {
+      refuse(
+        'trade.liquidation_tranche_invalid',
+        `the tranche ${formatAmount(input.sizeClosed)} does not fit position ${position.id}`,
+        500,
+      );
+    }
+    const bankruptcy = bankruptcyPrice({
+      side: position.side,
+      size,
+      entryPrice: parseAmount(position.entry_price),
+      margin: parseAmount(position.margin_current),
+    });
+    const bandAt = priceBandAround(input.mark, band);
+    const closes = input.closesPosition && input.sizeClosed === size;
+    const insurance = closes ? await this.insuranceAvailable(position.margin_asset) : 0n;
+    const lot = market.lot_size == null ? 0n : parseAmount(market.lot_size);
+    const { limit, widened } = liquidationLimit({
+      side: position.side,
+      size,
+      closesPosition: closes,
+      bankruptcy,
+      insurance,
+      // One fill per lot at most; with no lot grid, one per attounit of size (the most conservative bound).
+      fillsBound: lot > 0n ? (size + lot - 1n) / lot : size,
+      band: bandAt,
+    });
+    await this.deps.sql`
+      INSERT INTO trade.futures_orders (
+        id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
+        band_low, band_high, leverage, hold_asset, status, refusal_code, engine_filled_qty,
+        reduce_only, position_id, bankruptcy_price, liquidation_rung_id
+      ) VALUES (
+        ${orderId}, ${position.user_id}, ${position.market_id}, ${clientOrderId}, ${reducingSide(position.side)}, 'market',
+        ${formatAmount(input.sizeClosed)}, ${formatAmount(limit ?? widened)}, ${formatAmount(input.mark)},
+        ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
+        ${position.margin_asset}, ${limit === null ? 'refused' : 'pending'},
+        ${limit === null ? FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND : null}, ${limit === null ? '0' : null},
+        true, ${position.id}, ${formatAmount(bankruptcy)}, ${input.rungId}
+      )
+      ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
+    `;
+    return this.loadOrder(orderId);
+  }
+
+  /** The insurance fund's live balance, from the account the loss recipe draws. Unreadable is 0: no widening, never a guess. */
+  private async insuranceAvailable(assetId: string): Promise<Amount> {
+    try {
+      const { amount } = await this.deps.ledger.balance(recipeInsuranceAccount(assetId));
+      return amount > 0n ? amount : 0n;
+    } catch {
+      return 0n;
+    }
+  }
+
+  /** Where the rung's IOC stands, from its row and its fill intents only. */
+  private async liquidationBookState(orderId: string): Promise<LiquidationBookResult> {
+    const order = await this.loadOrder(orderId);
+    const filled = parseAmount(order.filled_qty);
+    if (order.status === 'refused') return { status: 'done', orderId, filled, code: order.refusal_code };
+    if (order.status === 'pending' || order.status === 'held') {
+      return { status: 'waiting', orderId, code: 'trade.liquidation_order_not_sent', reason: 'the IOC has not reached the engine yet' };
+    }
+    const final = engineFilled(order);
+    if (final == null) {
+      if (order.status === 'submitting' || order.status === 'submit_unknown') {
+        return {
+          status: 'waiting',
+          orderId,
+          code: 'trade.futures_submit_unknown',
+          reason: 'the engine did not answer for the IOC; it is not sent again, and the rung waits for its fill and cancellation events',
+        };
+      }
+      return { status: 'waiting', orderId, code: 'trade.liquidation_order_resting', reason: 'the IOC has not left the book' };
+    }
+    // `filled_qty` moves only when a fill's intent applies, so a fill still pending, or waiting on a busy
+    // counterparty, keeps it below what the engine filled.
+    if (filled !== final) {
+      return {
+        status: 'waiting',
+        orderId,
+        code: 'trade.futures_fill_in_progress',
+        reason: `${formatAmount(filled)} of the ${formatAmount(final)} the engine filled has settled`,
+      };
+    }
+    return { status: 'done', orderId, filled, code: order.refusal_code };
   }
 
   // ── cancel, release ───────────────────────────────────────────────────────
