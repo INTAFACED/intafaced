@@ -12,17 +12,25 @@ import { listSessions, ListSessionsError, SessionsListLimitUnsetError } from './
 export function createListSessionsRouter(sql: Sql) {
   return router({
     listSessions: scopedProcedure('identity:read')
-      .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(200) }))
+      .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(200), cursor: z.string().max(200).optional() }))
       .output(
         z.object({
           userId: z.string().uuid(),
           sessions: z.array(
             z.object({
               id: z.string().uuid(),
+              familyId: z.string().uuid(),
               createdAt: z.string(),
+              lastUsedAt: z.string(),
+              device: z.string().nullable(),
+              userAgent: z.string().nullable(),
+              ip: z.string().nullable(),
+              country: z.string().nullable(),
+              isCurrent: z.boolean(),
               revoked: z.literal(false),
             }),
           ),
+          nextCursor: z.string().nullable(),
         }),
       )
       .query(async ({ ctx, input }) => {
@@ -30,14 +38,15 @@ export function createListSessionsRouter(sql: Sql) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'You can list only your own sessions' });
         }
         try {
-          const out = await listSessions(sql, input.userId, input.limit);
+          const out = await listSessions(sql, input.userId, input.limit, { cursor: input.cursor, currentSessionId: ctx.principal.sid });
           return {
             userId: out.userId,
             sessions: out.sessions.map((s) => ({
-              id: s.id,
+              ...s,
               createdAt: s.createdAt.toISOString(),
-              revoked: false as const,
+              lastUsedAt: s.lastUsedAt.toISOString(),
             })),
+            nextCursor: out.nextCursor,
           };
         } catch (err) {
           if (err instanceof SessionsListLimitUnsetError) {

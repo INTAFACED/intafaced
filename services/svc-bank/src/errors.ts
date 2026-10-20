@@ -149,6 +149,11 @@ export type BankErrorCode =
    */
   | 'bank.prices_unavailable'
   /**
+   * `portfolio.summary` was asked to show values in a currency other than USD or BTC. The platform has no FX rate source
+   * (the rate source is an owner value and stays blank), so the call refuses by name and keeps no guess.
+   */
+  | 'bank.fx_rate_unset'
+  /**
    * Loan health has no price. The health slot stays empty.
    * The missing piece is price. A stored last mark is not a substitute.
    */

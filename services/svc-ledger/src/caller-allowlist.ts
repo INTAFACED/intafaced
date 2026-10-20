@@ -12,7 +12,7 @@ import type { RecipeName } from '@intafaced/ledger-client';
  *   · `subAccountTransfer` — `RECIPE_MATRIX` cites svc-identity `router.ts`,
  *     which only mentions the recipe in a comment. Nothing posts it.
  *   · `orderHoldAmend` — svc-trade `qty-up-amend.ts` no longer calls it.
- *   · `marketMakerSeedFund`, insurance top-up, listing fee, premium placement
+ *   · `marketMakerSeedFund`, listing fee, premium placement
  *     — tests or parked sockets.
  *
  * `feeCharge` is the exception to the recipe's own module. The registry sample
@@ -108,6 +108,7 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-trade': {
     futuresFundingPay: g('trade', 'services/svc-trade/src/futures/funding-settlement.ts'),
+    futuresInsuranceTopup: g('trade', 'services/svc-trade/src/admin/insurance-topup.ts'),
     futuresMarginAdd: g('trade', 'services/svc-trade/src/futures/position-service.ts'),
     futuresMarginLock: g('trade', 'services/svc-trade/src/futures/position-service.ts'),
     futuresMarginRelease: g('trade', 'services/svc-trade/src/futures/liquidation-planner.ts'),
