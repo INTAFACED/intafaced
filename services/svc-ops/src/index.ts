@@ -11,6 +11,7 @@ import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
 import { createPgAlertRuleStore } from './alerts/rule-store.js';
+import { createPgComplianceStore } from './compliance/store.js';
 import { AlertRules } from './alerts/rules.js';
 import { AlertEvaluator } from './alerts/runner.js';
 import { warehouseSignalReader } from './alerts/signals.js';
@@ -119,6 +120,7 @@ const appRouter = createOpsRouter(
     }),
     alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
     alertState: alertState ?? undefined,
+    compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals:
       env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET

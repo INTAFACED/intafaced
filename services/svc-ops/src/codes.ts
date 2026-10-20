@@ -1,4 +1,9 @@
 import {
+  COMPLIANCE_CASE_NOT_FOUND,
+  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
+  COMPLIANCE_INBOX_FORBIDDEN,
+  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
+  COMPLIANCE_QUEUE_NAME_TAKEN,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_INTERVAL_UNSET,
@@ -12,6 +17,11 @@ import {
 } from '@intafaced/contracts';
 
 export {
+  COMPLIANCE_CASE_NOT_FOUND,
+  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
+  COMPLIANCE_INBOX_FORBIDDEN,
+  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
+  COMPLIANCE_QUEUE_NAME_TAKEN,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_INTERVAL_UNSET,
@@ -23,6 +33,10 @@ export {
   OPS_COST_PERIOD_INVALID,
   OPS_COST_STORAGE_UNCONFIGURED,
 };
+
+/** Not in the spec's list: the case store has no database, or the inbox a case names does not exist. */
+export const OPS_COMPLIANCE_STORAGE_UNCONFIGURED = 'ops.compliance_storage_unconfigured' as const;
+export const COMPLIANCE_INBOX_NOT_FOUND = 'compliance.inbox_not_found' as const;
 
 /** The ledger's fee revenue read for the venue report could not be asked or did not answer cleanly. */
 export const OPS_FEE_REVENUE_UNCONFIGURED = 'ops.fee_revenue_unconfigured' as const;
@@ -131,6 +145,13 @@ export type OpsRefuseCode =
   | typeof OPS_COST_CATEGORY_INVALID
   | typeof OPS_COST_PERIOD_INVALID
   | typeof OPS_COST_STORAGE_UNCONFIGURED
+  | typeof COMPLIANCE_CASE_NOT_FOUND
+  | typeof COMPLIANCE_CASES_LIST_LIMIT_UNSET
+  | typeof COMPLIANCE_INBOX_FORBIDDEN
+  | typeof COMPLIANCE_INBOX_NOT_FOUND
+  | typeof COMPLIANCE_QUEUE_ENTITY_UNKNOWN
+  | typeof COMPLIANCE_QUEUE_NAME_TAKEN
+  | typeof OPS_COMPLIANCE_STORAGE_UNCONFIGURED
   | typeof OPS_IDEMPOTENCY_KEY_INVALID
   | typeof OPS_IDEMPOTENCY_CONFLICT
   | typeof OPS_APPROVAL_UNWIRED
