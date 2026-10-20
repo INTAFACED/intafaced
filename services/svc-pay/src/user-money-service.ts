@@ -14,7 +14,16 @@ import {
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
-import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
+import {
+  FRESH,
+  NOOP_GUARDS,
+  composeGuards,
+  PayGuardRefusal,
+  settleGuardRefusal,
+  type GuardReplay,
+  type PartialPayGuards,
+  type PayGuards,
+} from './seams/guards.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
 import {
   assertStoredTransition,
@@ -169,6 +178,9 @@ export interface UserMoneyOptions {
    */
   readonly guards?: PayGuards;
 
+  /** Extra `beforeUserMoneyWithdrawal` guards run after `guards`, in the claim's transaction (the approval gate, W-withdraw-11). */
+  readonly claimGuards?: PartialPayGuards;
+
   /**
    * Auto-trip streak writer. A confirmed withdrawal rail acceptance or refusal
    * is recorded against every merchant this user owns, on that rail. Omitted,
@@ -236,7 +248,7 @@ export class UserMoneyService {
   ) {
     this.creditableRails = new Set(options.operatorCreditRails);
     this.valueMovement = options.valueMovement ?? 'allow-sandbox';
-    this.guards = options.guards ?? NOOP_GUARDS;
+    this.guards = options.claimGuards ? composeGuards(options.guards ?? NOOP_GUARDS, options.claimGuards) : (options.guards ?? NOOP_GUARDS);
     this.haltStore = options.haltStore;
     this.wallet = options.wallet;
     this.chainReader = options.chainReader ?? { confirm: async () => 'down' };

@@ -11,7 +11,6 @@ import { CardSandboxAdapter } from '../../rails/card-sandbox.js';
 import { RailRegistry } from '../../rails/registry.js';
 import { UserMoneyService } from '../../user-money-service.js';
 import { WithdrawalApprovalError } from './errors.js';
-import { composeGuards } from '../../seams/guards.js';
 import { createWithdrawalApprovalGuards } from './guard.js';
 import { WithdrawalApprovalService, approvalMoneyOf, type WithdrawalApprovalMoney } from './service.js';
 import type { SetPolicyInput } from './schemas.js';
@@ -87,7 +86,7 @@ describe('multi-approval withdrawals (real Postgres)', () => {
     const rails = new RailRegistry([new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 })]);
     money = new UserMoneyService(db.sql, ledger, rails, {
       operatorCreditRails: ['card-sandbox'],
-      guards: composeGuards(createWithdrawalApprovalGuards({ now: () => clock })),
+      claimGuards: createWithdrawalApprovalGuards({ now: () => clock }),
     });
     await money.credit({
       userId: USER,
