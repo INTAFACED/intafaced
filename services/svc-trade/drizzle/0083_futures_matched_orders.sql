@@ -83,3 +83,25 @@ CREATE INDEX IF NOT EXISTS "futures_order_fills_position_pending_idx"
   ON "trade"."futures_order_fills" ("position_id") WHERE "state" = 'pending';
 CREATE INDEX IF NOT EXISTS "futures_order_fills_order_pending_idx"
   ON "trade"."futures_order_fills" ("order_id") WHERE "state" = 'pending';
+
+-- A fill that arrived while one of its positions was busy (a live liquidation rung, a planned ADL pair or a review
+-- hold). It is kept here and retried on the liquidation cadence until it settles, so it never depends on the matching
+-- event being delivered again. A row is an intent to settle one engine fill, never a figure anyone can spend.
+CREATE TABLE IF NOT EXISTS "trade"."futures_fill_waits" (
+  "market_id"       uuid            NOT NULL REFERENCES "trade"."markets" ("id"),
+  "engine_sequence" bigint          NOT NULL,
+  "maker_order_id"  uuid            NOT NULL,
+  "taker_order_id"  uuid            NOT NULL,
+  "price"           numeric(38, 18) NOT NULL,
+  "qty"             numeric(38, 18) NOT NULL,
+  "reason"          text            NOT NULL,
+  "attempts"        integer         NOT NULL DEFAULT 1,
+  "created_at"      timestamptz     NOT NULL DEFAULT now(),
+  "retried_at"      timestamptz,
+  "settled_at"      timestamptz,
+  PRIMARY KEY ("market_id", "engine_sequence", "maker_order_id", "taker_order_id"),
+  CONSTRAINT "futures_fill_waits_qty_ck" CHECK ("qty" > 0),
+  CONSTRAINT "futures_fill_waits_price_ck" CHECK ("price" > 0)
+);
+CREATE INDEX IF NOT EXISTS "futures_fill_waits_open_idx"
+  ON "trade"."futures_fill_waits" ("created_at") WHERE "settled_at" IS NULL;

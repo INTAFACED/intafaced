@@ -21,6 +21,7 @@ import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { parsePriceBand } from './futures/matched-order-plan.js';
+import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
@@ -507,18 +508,24 @@ const positions = new PositionService(sql, ledger, {
 });
 // Matched futures fills settle into the position book this service owns (futures ADR slice 6).
 matchedFuturesFills.current = positions.matchedFills;
-// Resting matched orders whose limit has left the band around the mark come off the book on the liquidation cadence.
-if (env.TRADE_FUTURES_JOBS_ENABLED) {
-  futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
-    const sweep = await positions.cancelMatchedOrdersOutsideBand();
-    for (const item of sweep.skipped) {
-      app.log.error(
-        { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
-        'resting futures orders not checked against the band',
-      );
-    }
-  });
-}
+// Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
+// orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
+// around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
+futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const sweep = await positions.cancelMatchedOrdersOutsideBand();
+  for (const item of sweep.skipped) {
+    app.log.error(
+      { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
+      'resting futures orders not checked against the band',
+    );
+  }
+});
+futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const retry = await positions.retryWaitingMatchedFills(MATCHED_FILL_RETRY_BATCH);
+  for (const item of retry.failed) {
+    app.log.error({ job: 'futures.fill_waits', sequence: item.sequence, err: item.message }, 'a waiting futures fill failed to settle');
+  }
+});
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
   intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,

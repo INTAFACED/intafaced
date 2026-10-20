@@ -942,6 +942,96 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect((await orderRow(a2.orderId)).status).toBe('filled');
     });
 
+    it('a fill refused because its position is busy waits durably, past any redelivery, and settles exactly once', async () => {
+      const { svc, positionId, a2, c1 } = await aliceLongWithAnotherBuy();
+      await rung(positionId, 'planned');
+      const fill = { marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 8 };
+
+      // The event is acknowledged: the fill is kept, nothing is posted, both holds stay.
+      expect(await svc.settleFillOrWait(fill)).toBe('waiting');
+      expect(await svc.settleFillOrWait(fill)).toBe('waiting');
+      const [waitRow] = await sql<{ attempts: number; reason: string; settled_at: Date | null }[]>`
+        SELECT attempts, reason, settled_at FROM trade.futures_fill_waits WHERE engine_sequence = 8
+      `;
+      expect(waitRow).toMatchObject({ attempts: 2, reason: 'trade.liquidation_in_progress', settled_at: null });
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 8`).toHaveLength(0);
+
+      // However many ticks pass while the rung runs, the fill keeps waiting.
+      for (let tick = 0; tick < 3; tick += 1) {
+        expect(await svc.retryWaitingFills(50)).toEqual({ settled: 0, waiting: 1, failed: [] });
+      }
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, a2.orderId))).toBe(A('10'));
+
+      // The rung closes the row; the next tick settles the fill on a fresh position.
+      await sql`UPDATE trade.liquidation_rungs SET state = 'applied' WHERE position_id = ${positionId}`;
+      await sql`UPDATE trade.positions SET status = 'liquidated' WHERE id = ${positionId}`;
+      expect(await svc.retryWaitingFills(50)).toEqual({ settled: 1, waiting: 0, failed: [] });
+      const carolPot = (await positionsOf(CAROL))[0]!;
+      expect(parseAmount(carolPot.size)).toBe(A('1'));
+      expect((await orderRow(a2.orderId)).status).toBe('filled');
+      expect((await orderRow(c1.orderId)).status).toBe('filled');
+      const alicePosition = (await positionsOf(ALICE)).find((p) => p.status === 'open')!;
+      const aliceMargin = await bal(positionCollateralAccount(ALICE, USDT, alicePosition.id));
+
+      // Nothing settles twice: not another tick, not a late redelivery of the same event.
+      expect(await svc.retryWaitingFills(50)).toEqual({ settled: 0, waiting: 0, failed: [] });
+      expect(await svc.settleFillOrWait(fill)).toBe('settled');
+      expect(await bal(positionCollateralAccount(ALICE, USDT, alicePosition.id))).toBe(aliceMargin);
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 8`).toHaveLength(2);
+    });
+
+    it('a fill the engine prints while placing a taker into a busy position waits, and the placement still answers', async () => {
+      const { positionId, a2 } = await aliceLongWithAnotherBuy();
+      await rung(positionId, 'planned');
+      const takerId = matchedOrderIdFor(CAROL, MARKET, 'busy-taker');
+      engine.script.push({
+        accepted: true,
+        sequence: 3001,
+        fills: [
+          {
+            sequence: 3001,
+            makerOrderId: a2.orderId,
+            makerAccountId: ALICE,
+            takerOrderId: takerId,
+            takerAccountId: CAROL,
+            takerSide: 'sell',
+            price: '100',
+            qty: '1',
+          },
+        ],
+        resting: null,
+        rejected: null,
+        cancellations: [],
+        triggered: [],
+      });
+      const svc = build();
+      const view = await svc.place(principal(CAROL), order({ userId: CAROL, side: 'sell', qty: A('1'), clientOrderId: 'busy-taker' }));
+      expect(view.orderId).toBe(takerId);
+      expect(await sql`SELECT 1 FROM trade.futures_fill_waits WHERE engine_sequence = 3001 AND settled_at IS NULL`).toHaveLength(1);
+      expect(await bal(futuresOrderMarginAccount(CAROL, USDT, takerId))).toBe(A('10'));
+
+      await sql`UPDATE trade.liquidation_rungs SET state = 'applied' WHERE position_id = ${positionId}`;
+      await sql`UPDATE trade.positions SET status = 'liquidated' WHERE id = ${positionId}`;
+      expect(await svc.retryWaitingFills(50)).toEqual({ settled: 1, waiting: 0, failed: [] });
+      expect((await orderRow(takerId)).status).toBe('filled');
+      expect(await bal(futuresOrderMarginAccount(CAROL, USDT, takerId))).toBe(0n);
+    });
+
+    it('a refusal that is not about a busy position is still thrown, and nothing is kept', async () => {
+      const svc = build();
+      await expect(
+        svc.settleFillOrWait({
+          marketId: MARKET,
+          makerOrderId: randomUUID(),
+          takerOrderId: randomUUID(),
+          price: '100',
+          qty: '1',
+          sequence: 9,
+        }),
+      ).rejects.toMatchObject({ code: 'trade.futures_order_not_found' });
+      expect(await sql`SELECT 1 FROM trade.futures_fill_waits`).toHaveLength(0);
+    });
+
     it('the check also runs under the position lock when the intent is recorded', async () => {
       const { svc, positionId, a2, c1 } = await aliceLongWithAnotherBuy();
       // The rung starts after the whole-fill check and before the intent: Carol's side records first, Alice's refuses.

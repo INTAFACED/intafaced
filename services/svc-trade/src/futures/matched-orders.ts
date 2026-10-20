@@ -82,6 +82,23 @@ export class MatchedOrderError extends Error {
   }
 }
 
+/**
+ * The refusals that mean "not yet": a position is being liquidated, deleveraged or reviewed, or an earlier fill of the
+ * same order is still being recorded. A fill refused with one of these waits in `trade.futures_fill_waits`.
+ */
+const FILL_WAIT_CODES: readonly string[] = [
+  'trade.liquidation_in_progress',
+  'trade.position_under_review',
+  'trade.futures_fill_in_progress',
+];
+
+function fillMustWait(err: unknown): err is MatchedOrderError {
+  return err instanceof MatchedOrderError && FILL_WAIT_CODES.includes(err.code);
+}
+
+/** How many waiting fills one retry tick takes. A batch size, not a limit on anyone: the rest go on the next tick. */
+export const MATCHED_FILL_RETRY_BATCH = 200;
+
 /** A fill that pairs a matched futures order with an order from the spot path. Neither path can settle it. */
 export const FUTURES_FILL_CROSSES_ORDER_PATHS = 'trade.futures_fill_crosses_order_paths';
 
@@ -590,7 +607,7 @@ export class MatchedFuturesOrders {
     }
 
     for (const fill of result.fills) {
-      await this.settleFill({
+      await this.settleFillOrWait({
         marketId: market.id,
         makerOrderId: fill.makerOrderId,
         takerOrderId: fill.takerOrderId,
@@ -609,9 +626,22 @@ export class MatchedFuturesOrders {
         `;
       } else {
         // A remainder that is not resting is an IOC or market remainder: the engine has taken it off the book.
-        // Every fill of a taker that does not rest is in this reply, so what it filled is what is settled now.
+        // Every fill of a taker that does not rest is in this reply, so the reply says what the engine filled in
+        // all, even when some of those fills are still waiting to settle (`settleFillOrWait`).
+        const printed = result.fills
+          .filter((f) => f.takerOrderId === current.id || f.makerOrderId === current.id)
+          .reduce((sum, f) => sum + parseAmount(f.qty), 0n);
         const left = result.cancellations.find((c) => c.orderId === current.id);
-        await this.markLeftBook(current.id, left ? parseAmount(left.remainingQty) : null);
+        if (!left && printed === parseAmount(current.qty)) {
+          // Filled in full in the engine; the order turns `filled` as its waiting fills settle.
+          await this.deps.sql`
+            UPDATE trade.futures_orders
+               SET status = 'open', engine_filled_qty = COALESCE(engine_filled_qty, qty), updated_at = now()
+             WHERE id = ${current.id} AND status IN ('submitting', 'open')
+          `;
+        } else {
+          await this.markLeftBook(current.id, left ? parseAmount(left.remainingQty) : parseAmount(current.qty) - printed);
+        }
       }
     }
     await this.releaseWhenDone(current.id);
@@ -638,6 +668,76 @@ export class MatchedFuturesOrders {
     await this.assertFillSettles(fill, price, qty);
     await this.applyFill({ marketId: fill.marketId, orderId: fill.takerOrderId, sequence: fill.sequence, price, qty });
     await this.applyFill({ marketId: fill.marketId, orderId: fill.makerOrderId, sequence: fill.sequence, price, qty });
+  }
+
+  /**
+   * Settle a fill, or keep it to settle later. A fill refused only because one of its positions is busy (see
+   * `refuseIfPositionBusy`) is stored in `trade.futures_fill_waits` and the call returns, so the matching event is
+   * acknowledged and nothing depends on it being delivered again. `retryWaitingFills` settles it once the position is
+   * free. Any other refusal or failure is thrown as before.
+   */
+  async settleFillOrWait(fill: MatchedFillEvent): Promise<'settled' | 'waiting'> {
+    try {
+      await this.settleFill(fill);
+      return 'settled';
+    } catch (err) {
+      if (!fillMustWait(err)) throw err;
+      await this.deps.sql`
+        INSERT INTO trade.futures_fill_waits (market_id, engine_sequence, maker_order_id, taker_order_id, price, qty, reason)
+        VALUES (${fill.marketId}, ${fill.sequence}, ${fill.makerOrderId}, ${fill.takerOrderId},
+                ${formatAmount(parseAmount(fill.price))}, ${formatAmount(parseAmount(fill.qty))}, ${err.code})
+        ON CONFLICT (market_id, engine_sequence, maker_order_id, taker_order_id) DO UPDATE
+           SET attempts = trade.futures_fill_waits.attempts + 1, reason = EXCLUDED.reason, retried_at = now()
+         WHERE trade.futures_fill_waits.settled_at IS NULL
+      `;
+      return 'waiting';
+    }
+  }
+
+  /**
+   * Retry the fills that are waiting, oldest first. Settling is idempotent per side, so a fill that meanwhile settled
+   * through a redelivered event is only marked settled here. A fill that fails for another reason stays waiting and
+   * is reported, never dropped.
+   */
+  async retryWaitingFills(limit: number): Promise<{ settled: number; waiting: number; failed: { sequence: number; message: string }[] }> {
+    const rows = await this.deps.sql<
+      { market_id: string; engine_sequence: string; maker_order_id: string; taker_order_id: string; price: string; qty: string }[]
+    >`
+      SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
+        FROM trade.futures_fill_waits
+       WHERE settled_at IS NULL
+       ORDER BY created_at, engine_sequence
+       LIMIT ${limit}
+    `;
+    let settled = 0;
+    let waiting = 0;
+    const failed: { sequence: number; message: string }[] = [];
+    for (const row of rows) {
+      const where = this.deps.sql`
+        market_id = ${row.market_id} AND engine_sequence = ${row.engine_sequence}
+        AND maker_order_id = ${row.maker_order_id} AND taker_order_id = ${row.taker_order_id}
+      `;
+      try {
+        await this.settleFill({
+          marketId: row.market_id,
+          makerOrderId: row.maker_order_id,
+          takerOrderId: row.taker_order_id,
+          price: formatAmount(parseAmount(row.price)),
+          qty: formatAmount(parseAmount(row.qty)),
+          sequence: Number(row.engine_sequence),
+        });
+        await this.deps.sql`UPDATE trade.futures_fill_waits SET settled_at = now(), retried_at = now() WHERE ${where}`;
+        settled += 1;
+      } catch (err) {
+        const reason = err instanceof MatchedOrderError ? err.code : 'trade.futures_fill_retry_failed';
+        await this.deps.sql`
+          UPDATE trade.futures_fill_waits SET attempts = attempts + 1, reason = ${reason}, retried_at = now() WHERE ${where}
+        `;
+        if (fillMustWait(err)) waiting += 1;
+        else failed.push({ sequence: Number(row.engine_sequence), message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { settled, waiting, failed };
   }
 
   /**

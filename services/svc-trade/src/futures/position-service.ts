@@ -897,6 +897,11 @@ export class PositionService {
     return this.matched.cancel(principal, orderId);
   }
 
+  /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */
+  async retryWaitingMatchedFills(limit: number) {
+    return this.matched.retryWaitingFills(limit);
+  }
+
   /** Cancel resting matched orders whose limit has left the price band around the current mark (futures ADR section 1). */
   async cancelMatchedOrdersOutsideBand() {
     return this.matched.cancelOutsideBand();
@@ -909,7 +914,9 @@ export class PositionService {
     ownsFill(fill: { makerOrderId: string; takerOrderId: string }): Promise<boolean>;
   } {
     return {
-      settle: (fill) => this.matched.settleFill(fill),
+      settle: async (fill) => {
+        await this.matched.settleFillOrWait(fill);
+      },
       releaseCancelled: (orderId, remainingQty) => this.matched.releaseEngineCancellation(orderId, remainingQty),
       ownsFill: (fill) => this.matched.ownsFill(fill),
     };
