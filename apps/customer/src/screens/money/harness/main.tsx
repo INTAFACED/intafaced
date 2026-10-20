@@ -31,7 +31,7 @@ function SignedIn({ children }: { children: ReactNode }) {
 function Page() {
   const { hideBalances } = usePreferences();
   const here = useLocation();
-  const [path, query = ''] = here.split('?');
+  const [path = '', query = ''] = here.split('?');
   const activity = path === '/money/activity';
   const detail = path.startsWith('/money/activity/') ? path.slice('/money/activity/'.length) : null;
   return (
