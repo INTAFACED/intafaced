@@ -62,6 +62,9 @@ export type RefusalKind =
   | 'activitySortBounded'
   | 'entriesDoNotSum'
   | 'entriesTooLong'
+  | 'noBankPartner'
+  | 'detailsCurrenciesUnset'
+  | 'eligibilityUnset'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -181,6 +184,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.activity_sort_bounded': 'activitySortBounded',
   'portfolio.entries_do_not_sum': 'entriesDoNotSum',
   'bank.activity_lookup_bounded': 'entriesTooLong',
+  'rail.bank': 'noBankPartner',
+  'bank.account_details_currencies_unset': 'detailsCurrenciesUnset',
+  'bank.account_details_unavailable': 'tryAgain',
+  'bank.eligibility_unset': 'eligibilityUnset',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
 

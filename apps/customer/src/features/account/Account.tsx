@@ -22,6 +22,7 @@ import {
 } from './subaccount-guards';
 import './subaccount.css';
 import { RankPerks } from './RankPerks';
+import { EligibilityStatement } from '../money/Eligibility';
 import { CopyButton } from '../../screens/account/CopyButton';
 import { useIdentity } from '../../screens/pay/identity-state';
 import { featureById } from '../../app/feature-registry';
@@ -331,6 +332,7 @@ export function Account() {
           {userId && <CopyButton value={userId} label={t('copyId')} />}
         </section>
         <RankPerks />
+        <EligibilityStatement />
         {showSubaccounts && (
           <>
             <div className="subaccounts__columns">

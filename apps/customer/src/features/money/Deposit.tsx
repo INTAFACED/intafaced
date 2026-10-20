@@ -1,3 +1,4 @@
+import { AccountDetailsPanel } from './AccountDetails';
 import { useMemo, useState } from 'react';
 import { Button, EmptyState, Page } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -63,6 +64,7 @@ export function Deposit() {
               <Fact label={t('arrival')}>{t('notPublished')}</Fact>
             </dl>
           </DepthPanel>
+          <AccountDetailsPanel />
           <DepthPanel title={t('warningTitle')}>
             <ul className="bd-list">
               <li>{t('warning1')}</li>
