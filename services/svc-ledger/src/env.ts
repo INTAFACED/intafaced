@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import {
   DEFAULT_RECONCILE_MAX_CONSECUTIVE_INCOMPLETE,
@@ -119,3 +120,8 @@ const schema = serviceEnvSchema
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
+
+export const idempotencyConflictMode: 'detect' | 'refuse' = resolveIdempotencyConflictMode(
+  env.LEDGER_IDEMPOTENCY_CONFLICT_MODE,
+  process.env,
+);
