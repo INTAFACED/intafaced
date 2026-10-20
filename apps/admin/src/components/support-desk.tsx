@@ -11,6 +11,7 @@ import { Failed } from './support-action-parts';
 import { TicketActions } from './support-ticket-actions';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
+import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
 import { TicketProperties } from './support-ticket-properties';
 import './desk.css';
@@ -226,6 +227,7 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
+      <TicketFiles key={t.id} ticketId={t.id} />
       <TicketLifecycle key={t.id} ticket={t} />
       <TicketProperties key={t.id} ticket={t} />
       <TicketActions ticket={t} onDone={p.onActionDone} />

@@ -13,6 +13,16 @@ const BY_CODE: Readonly<Record<string, Omit<RefusalView, 'code' | 'changed'>>> =
     body: 'A size and a count are whole numbers from 1, and the file types are plain media types such as image/png, each once, with no wildcard.',
     next: 'Fix the value and try again. Nothing was changed.',
   },
+  'support.attachment_scan_unknown': {
+    title: 'The scan has not finished',
+    body: 'This file is still being scanned, so svc-support will not serve it yet.',
+    next: 'Nothing was changed. Try again later.',
+  },
+  'support.attachment_scan_refused': {
+    title: 'The scan refused this file',
+    body: 'svc-support blocked this file, so it is never served.',
+    next: 'Nothing was changed. The customer can send a different file.',
+  },
 };
 
 /** A refusal on the file limits: its own codes first, then the support desk's (not a lead, not staff), then the general answers. */
@@ -30,4 +40,18 @@ export function explainAttachmentFailure(result: FounderCallFailure<unknown>): R
     return explainRefusal(named ?? result.refusal.code, result.refusal.status, false);
   }
   return explainSupportFailure(result);
+}
+
+/** A refusal on a file download. A file the operator may not open reads as not found: svc-support does not say which. */
+export function explainDownloadFailure(result: FounderCallFailure<unknown>): RefusalView {
+  if (result.kind === 'refused' && result.refusal.status === 404) {
+    return {
+      title: 'No such file for you',
+      body: 'svc-support has no such file, or it is on a ticket that is not assigned to you.',
+      next: 'Claim the ticket first, then try again. Nothing was changed.',
+      code: 'support.not_found',
+      changed: 'no',
+    };
+  }
+  return explainAttachmentFailure(result);
 }
