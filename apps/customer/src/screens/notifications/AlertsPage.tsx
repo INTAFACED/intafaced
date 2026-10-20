@@ -3,7 +3,7 @@ import './notifications.css';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
-import { submitActive, submitCancel, submitCreate, submitDelete, submitEdit } from './alerts-actions';
+import { submitActive, submitCancel, submitCreate, submitDelete, submitEdit, submitWatchlist } from './alerts-actions';
 import { alertsCopy } from './alerts-copy';
 import {
   canEdit,
@@ -25,6 +25,7 @@ import {
 } from './alerts-model';
 import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
+import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
 import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
@@ -36,6 +37,7 @@ import {
   type AlertExtra,
   type AlertIntent,
   type PriceAlert,
+  type WatchlistIntent,
 } from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
@@ -45,10 +47,11 @@ type Notice =
   | { kind: 'cancelled'; words: CancelWords }
   | { kind: 'active'; words: ActiveWords }
   | { kind: 'edited' }
+  | { kind: 'watchlistSaved' }
   | { kind: 'deleted'; gone: boolean }
   | { kind: 'refused'; refusal: Refusal }
   | { kind: 'cancelUnsure' }
-  | { kind: 'changeUnsure'; what: 'active' | 'edit' | 'delete' };
+  | { kind: 'changeUnsure'; what: 'active' | 'edit' | 'delete' | 'watchlist' };
 type Unsure = {
   intent: AlertIntent;
   before: ReadonlySet<string>;
@@ -92,6 +95,7 @@ const UNSURE = {
   active: ['activeUnsureTitle', 'activeUnsureBody'],
   edit: ['editUnsureTitle', 'editUnsureBody'],
   delete: ['deleteUnsureTitle', 'deleteUnsureBody'],
+  watchlist: ['watchUnsureTitle', 'watchUnsureBody'],
 } as const;
 const STATUS = {
   active: 'statusActive',
@@ -161,7 +165,7 @@ export default function AlertsPage() {
           ? 'full'
           : 'room';
 
-  const blockedReason: Parameters<typeof copy.t>[0] | null =
+  const blockedReason: BlockedReason | null =
     busy !== null
       ? 'reasonBusy'
       : unsure
@@ -290,6 +294,28 @@ export default function AlertsPage() {
     }
   }
 
+  /** Save one alert on each chosen market, all or none. Sent at most once: the service takes no request id. */
+  async function saveWatchlist(intent: WatchlistIntent) {
+    if (!userId || busy !== null || unsure) return;
+    if (!gate.current.enter()) return;
+    setBusy('watchlist');
+    setNotice(null);
+    try {
+      const outcome = await submitWatchlist(api, intent, userId);
+      if (outcome.kind === 'saved') setNotice({ kind: 'watchlistSaved' });
+      else if (outcome.kind === 'refused') setNotice({ kind: 'refused', refusal: outcome.refusal });
+      else setNotice({ kind: 'changeUnsure', what: 'watchlist' });
+      if (outcome.kind !== 'refused') {
+        reload();
+        triggers.reload();
+      }
+    } finally {
+      gate.current.leave();
+      setBusy(null);
+      quota.reload();
+    }
+  }
+
   /** One change to an existing alert. The list is read again after anything that may have changed it. */
   async function change<T extends { kind: string }>(
     alert: PriceAlert,
@@ -368,6 +394,10 @@ export default function AlertsPage() {
         ) : notice?.kind === 'active' ? (
           <p className="nf-banner nf-banner--ok" role="status">
             {copy.t(ACTIVE[notice.words])}
+          </p>
+        ) : notice?.kind === 'watchlistSaved' ? (
+          <p className="nf-banner nf-banner--ok" role="status">
+            {copy.t('watchSaved')}
           </p>
         ) : notice?.kind === 'edited' ? (
           <p className="nf-banner nf-banner--ok" role="status">
@@ -652,6 +682,19 @@ export default function AlertsPage() {
           ) : null}
         </form>
       )}
+
+      <WatchlistAlert
+        markets={marketList}
+        userId={userId}
+        room={
+          quota.state.status === 'ready' && quota.state.quota.max !== null
+            ? Math.max(0, quota.state.quota.max - quota.state.quota.used)
+            : null
+        }
+        blockedReason={blockedReason}
+        busy={busy === 'watchlist'}
+        onSave={(intent) => void saveWatchlist(intent)}
+      />
 
       <section className="nf-card" aria-label={copy.t('listLabel')} aria-busy={state.status === 'loading' || undefined}>
         <div className="nf-listhead">

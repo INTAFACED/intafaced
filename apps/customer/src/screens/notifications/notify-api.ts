@@ -425,3 +425,54 @@ export type AlertQuota = z.infer<typeof alertQuotaSchema>;
 /** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
 export const readAlertQuota = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertQuota>> =>
   api.query('notify', 'notify.alertQuota', undefined, alertQuotaSchema, { signal });
+
+// ── A watchlist alert (C-alerts-scan-03c) ───────────────────────────────────────────────────────────────────────
+
+export interface WatchlistIntent {
+  marketIds: string[];
+  direction: AlertDirection;
+  condition: AlertCondition;
+  /** A positive decimal string, exactly as the person typed it (trimmed). One price for every market. */
+  targetPrice: string;
+}
+
+/**
+ * Save one alert per market, all or none. The answer must be this person's active alerts, one for each market asked and no
+ * others, each at the price asked, or it is not believed. No request id exists, so a lost answer is never retried here.
+ */
+export function createPriceAlerts(
+  api: ApiClient,
+  intent: WatchlistIntent,
+  userId: string,
+): Promise<ApiResult<{ alerts: PriceAlert[]; evaluation: AlertEvaluation }>> {
+  const wanted = [...new Set(intent.marketIds)].sort();
+  return api.mutate(
+    'notify',
+    'notify.createAlerts',
+    {
+      marketIds: intent.marketIds,
+      direction: intent.direction,
+      condition: intent.condition,
+      targetPrice: intent.targetPrice,
+    },
+    z.object({
+      alerts: z
+        .array(priceAlertSchema)
+        .min(1)
+        .refine(
+          (rows) =>
+            rows.every(
+              (row) =>
+                row.userId === userId &&
+                row.kind === 'price' &&
+                row.status === 'active' &&
+                row.firedAt === null &&
+                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+                (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+            ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+          'Returned alerts do not match',
+        ),
+      evaluation: alertEvaluationSchema,
+    }),
+  );
+}
