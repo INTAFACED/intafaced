@@ -26,6 +26,7 @@ import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from '.
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
+import { SupportTradeSummaryReader } from './support/trade-summary.js';
 import { registerPublicRest } from './public-rest.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
@@ -399,6 +400,7 @@ export const appRouter = createTradeRouter(
     approvals: tradeOpsApprovals,
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
+  new SupportTradeSummaryReader({ sql }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
