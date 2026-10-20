@@ -217,6 +217,8 @@ services:
       # Wrong ports here were latent until dex starts calling them (audit L5-1/2).
       INDEXER_URL: http://svc-indexer:4013
       MATCHING_URL: http://svc-matching:4005
+      # Where the hide list is read (svc-ops protocolListing.hidden). Read-only; no credential.
+      OPS_URL: http://svc-ops:4022
       # Quote freshness + per-venue fetch timeout — pass-through, no compose default.
       # Host must set QUOTE_MAX_AGE_MS (explicit 2000 allowed). Never invent 2000.
       QUOTE_MAX_AGE_MS: ${QUOTE_MAX_AGE_MS:-}
