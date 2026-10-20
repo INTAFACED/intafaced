@@ -253,6 +253,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-market has already seen this request key for a different listing.',
     next: 'Start a new request. Nothing was changed.',
   },
+  'notify.release_reason_required': {
+    title: 'A reason is needed to release this address',
+    body: 'svc-notify records why an address was released and refuses a blank or too short reason.',
+    next: 'Nothing was changed. Write why this address is safe to send to again.',
+  },
+  'notify.recipient_unknown': {
+    title: 'No such address',
+    body: 'svc-notify has no record of that person on that channel.',
+    next: 'Read the list again. Nothing was changed.',
+  },
+  'notify.recipient_not_quarantined': {
+    title: 'This address is not quarantined',
+    body: 'Someone released it first, or it never was quarantined, so there is nothing to lift.',
+    next: 'Read the list again. Nothing was changed.',
+  },
   'admin.session_required': {
     title: 'You are signed out',
     body: 'Your founder session ended.',

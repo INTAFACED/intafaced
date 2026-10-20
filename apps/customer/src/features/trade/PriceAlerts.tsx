@@ -24,9 +24,12 @@ const alertSchema = z
     kind: z.enum(['price', 'funding', 'liquidation_proximity', 'whale']),
     direction: z.enum(['above', 'below']),
     targetPrice: positive,
-    status: z.enum(['active', 'fired', 'cancelled']),
+    status: z.enum(['active', 'fired', 'cancelled', 'expired']),
     firedAt: date.nullable(),
     createdAt: date,
+    // Added by C-alerts-scan-01. This panel only manages level alerts (no condition, or above/below a level); a crossing alert
+    // is kept on the alerts page, because its evaluation depends on the side the price was last seen on.
+    condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']).optional(),
   })
   .refine((row) => row.status !== 'fired' || row.firedAt !== null);
 const evaluation = z
@@ -170,7 +173,14 @@ function OwnerAlerts({ userId, market, onClose }: { userId: string; market: List
     };
   }, [key]);
   const rows =
-    read.resource.status === 'ready' ? read.resource.data.items.filter((row) => row.marketId === market.id && row.kind === 'price') : [];
+    read.resource.status === 'ready'
+      ? read.resource.data.items.filter(
+          (row) =>
+            row.marketId === market.id &&
+            row.kind === 'price' &&
+            (row.condition === undefined || row.condition === 'greater_than' || row.condition === 'less_than'),
+        )
+      : [];
   const selected = rows.find((row) => row.id === selectedId);
   const currentEvaluation = read.resource.status === 'ready' ? read.resource.data.evaluation : null;
   const blocked = busy || stored.failed || stored.marker !== null;

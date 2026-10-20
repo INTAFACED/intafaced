@@ -19,6 +19,8 @@ export const REFUSAL_SPEC_NOTES = {
   'trade.options_fixing_unconfigured': 'D7 TRADE_OPTIONS_SETTLEMENT_FIXING',
   'trade.unsettled_asset_class_listing': 'D26-P0-05 socket.forex-settlement fiat settle rails',
   'trade.fee_schedule_blank': 'PTX-M21 fee/rebate schedule',
+  'trade.rebate_recipe_unavailable': 'SP-fees-vip-01 / ENGINE DEC-7 signed-fee ledger recipe',
+  'trade.min_fee_recipe_unavailable': 'SP-fees-vip-01 amount-level fee recipe',
   'trade.leverage_too_high': 'DIRECTION §1 sealed 10× cap',
   'trade.adl_disclosure_required': 'DIRECTION:34 D26-P1-T1g ADL disclosure',
   'trade.insurance_fund_empty': 'DIRECTION:33 empty insurance fund blocks real-money futures list',

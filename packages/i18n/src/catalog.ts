@@ -208,6 +208,9 @@ export const en = {
   // v22.alerts — fire path uses these keys; missing catalog fell back to the key string.
   'notify.alert.price.crossed.title': 'Price alert',
   'notify.alert.price.crossed.body': '{marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
+  // An alert the person named or wrote a message for shows their own words; the service renders placeholders before it sends.
+  'notify.alert.price.crossed.named.title': '{name}',
+  'notify.alert.price.crossed.message.body': '{message}',
   'notify.alert.funding.crossed.title': 'Funding watch',
   'notify.alert.funding.crossed.body': 'Funding watch on {marketId} crossed {direction} {targetPrice} (mark {markPrice}).',
   'notify.alert.liquidation_proximity.crossed.title': 'Liquidation-proximity watch',
