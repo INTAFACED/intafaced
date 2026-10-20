@@ -1,9 +1,12 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { Principal } from '@intafaced/auth';
 import {
   createTicketInputSchema,
   escalateTicketInputSchema,
   getKbArticleInputSchema,
+  setKbAudienceInputSchema,
+  type SupportKbViewer,
   publicProcedure,
   router,
   scopedProcedure,
@@ -122,6 +125,14 @@ const deskGroupSchema = z.object({
 
 /** Desk scope for the doors that page the whole queue. Left out, every operator sees the queue. */
 export type DeskScopeReader = Pick<SupportService, 'deskIsRestricted' | 'listAllTicketsInScope'>;
+
+/**
+ * The reader of a help door, from the signed principal and nothing else. A visitor has no principal;
+ * the desk is a `support:ops` principal. Never read from the request body.
+ */
+function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
+  return { signedIn: Boolean(principal), staff: Boolean(principal?.scopes.includes('support:ops')) };
+}
 
 export function createSupportRouter(
   support: SupportService,
@@ -436,9 +447,9 @@ export function createSupportRouter(
           .optional(),
       )
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await support.listKb({ limit: input?.limit });
+          return await support.listKb({ limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }
@@ -461,9 +472,9 @@ export function createSupportRouter(
           .optional(),
       )
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          const found = await support.searchKb(input?.q ?? '', { limit: input?.limit });
+          const found = await support.searchKb(input?.q ?? '', { limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
           if (found.length > 0) loop?.markKbSearchSuccess();
           return found;
         } catch (err) {
@@ -475,9 +486,9 @@ export function createSupportRouter(
     getKb: publicProcedure
       .input(getKbArticleInputSchema)
       .output(supportKbArticleSchema.nullable())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          const article = await support.getKbArticle({ id: input.id, version: input.version });
+          const article = await support.getKbArticle({ id: input.id, version: input.version }, { viewer: kbViewerOf(ctx.principal) });
           if (article) loop?.markKbGetSuccess();
           return article;
         } catch (err) {
@@ -503,6 +514,22 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.publishKb(input);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Operator change of who may read an article (public, signed_in or staff). Stale `baseRevision` is a CONFLICT;
+     * the same audience again is a no-op that writes no audit row.
+     */
+    setKbAudience: scopedProcedure('support:ops')
+      .input(setKbAudienceInputSchema)
+      .output(supportKbArticleSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.setKbAudience({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }
@@ -807,7 +834,7 @@ export function createSupportRouter(
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await support.kbFeedback({ userId: ctx.principal!.userId, ...input });
+          return await support.kbFeedback({ userId: ctx.principal!.userId, ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }
@@ -817,9 +844,9 @@ export function createSupportRouter(
     kbRelated: publicProcedure
       .input(z.object({ id: z.string().min(1).max(200) }))
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await support.kbRelated(input);
+          return await support.kbRelated({ ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }

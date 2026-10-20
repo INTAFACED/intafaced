@@ -128,6 +128,8 @@ export const kbArticleVersions = schema.table(
     /** Topic of this generation. Null until a publish supplies one. */
     category: text('category'),
     tags: jsonb('tags').$type<string[] | null>(),
+    /** Who may read this generation: public, signed_in or staff. */
+    audience: text('audience').notNull().default('public'),
   },
   (t) => [primaryKey({ columns: [t.id, t.version] })],
 );

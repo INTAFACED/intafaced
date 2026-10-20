@@ -63,6 +63,10 @@ await sql`SELECT 1 FROM support.contact_channels LIMIT 1`.catch(() => {
   throw new Error('support.contact_channels is missing — apply migration 0020 before starting svc-support');
 });
 
+await sql`SELECT audience FROM support.kb_article_versions LIMIT 1`.catch(() => {
+  throw new Error('support.kb_article_versions.audience is missing — apply migration 0022 before starting svc-support');
+});
+
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
 });

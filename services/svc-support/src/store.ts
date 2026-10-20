@@ -6,6 +6,7 @@ import type {
   SupportCitation,
   SupportComment,
   SupportKbArticle,
+  SupportKbAudience,
   SupportTicket,
   SupportTicketEvent,
   SupportTicketEventKind,
@@ -169,7 +170,8 @@ export interface SupportStore {
   /** The most recent case file for a ticket, or null if never escalated. */
   latestCaseFile(ticketId: string): Promise<SupportCaseFile | null>;
   /** Published articles only, never drafts. Omit `limit` for the full catalog (search / tests). */
-  listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]>;
+  /** `audiences` keeps only articles of those audiences, before the page; left out, all audiences. */
+  listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]>;
   /** One published article, or null when missing / unpublished. */
   getPublishedKb(id: string): Promise<SupportKbArticle | null>;
   /** Every stored version for an id (including after unpublish). Empty when the id never existed. */
@@ -180,6 +182,13 @@ export interface SupportStore {
    * unpublished. Stale baseRevision refuses.
    */
   putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult>;
+  /**
+   * Change who may read an article. A new generation (revision + 1) that keeps the keys, the topic and the
+   * published flag; the same audience again changes nothing and writes no audit row.
+   */
+  setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult>;
+  /** Audience changes for one article, oldest first. */
+  listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]>;
   /**
    * Owner close. Replay of the same client request returns the stored ticket
    * and writes nothing. A transition the lifecycle table refuses writes nothing.
@@ -279,6 +288,22 @@ export type ReadAttachmentResult =
 
 export type RecordFeedbackResult =
   { readonly status: 'ok'; readonly vote: KbFeedbackVote } | { readonly status: 'refuse'; readonly reason: 'not_published' };
+
+export type SetKbAudienceStoreInput = { id: string; baseRevision: number; audience: SupportKbAudience; actorId: string };
+
+export type KbAudienceChange = {
+  articleId: string;
+  fromAudience: SupportKbAudience;
+  toAudience: SupportKbAudience;
+  fromRevision: number;
+  toRevision: number;
+  actorId: string;
+  createdAt: string;
+};
+
+export type SetKbAudienceResult =
+  | { readonly status: 'ok'; readonly article: SupportKbArticle; readonly changed: boolean }
+  | { readonly status: 'refuse'; readonly reason: 'revision_stale' | 'invalid' };
 
 export type PutKbRevisionResult =
   | { readonly status: 'ok'; readonly article: SupportKbArticle }
@@ -439,6 +464,7 @@ type PgKb = {
   updated_at: Date;
   category?: string | null;
   tags?: string[] | null;
+  audience?: SupportKbAudience | null;
 };
 
 function topicOn(article: { category?: string | null; tags?: readonly string[] | null }): { category?: string; tags?: string[] } {
@@ -460,6 +486,7 @@ function kbFromPg(row: PgKb): SupportKbArticle {
     revision,
     published: row.published,
     ...topicOn(row),
+    ...(row.audience ? { audience: row.audience } : {}),
   });
 }
 
@@ -470,6 +497,7 @@ type PgKbVersion = {
   version: number;
   category?: string | null;
   tags?: string[] | null;
+  audience?: SupportKbAudience | null;
 };
 
 function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
@@ -481,6 +509,7 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
     version,
     revision: version,
     ...topicOn(row),
+    ...(row.audience ? { audience: row.audience } : {}),
   });
 }
 
@@ -551,6 +580,7 @@ export class MemorySupportStore implements SupportStore {
   private readonly cases = new Map<string, SupportCaseFile[]>();
   private readonly kb = new Map<string, SupportKbArticle>();
   private readonly kbVersions = new Map<string, SupportKbArticle[]>();
+  private readonly kbAudienceChanges: KbAudienceChange[] = [];
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
   private readonly attachments = new Map<string, AttachmentMeta & { clientRequestId: string }>();
@@ -884,8 +914,10 @@ export class MemorySupportStore implements SupportStore {
     return list.length === 0 ? null : list[list.length - 1]!;
   }
 
-  async listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]> {
-    const rows = [...this.kb.values()].filter((a) => a.published === true).map((a) => ({ ...a }));
+  async listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]> {
+    const rows = [...this.kb.values()]
+      .filter((a) => a.published === true && (!options?.audiences || options.audiences.includes(a.audience ?? 'public')))
+      .map((a) => ({ ...a }));
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
   }
 
@@ -919,6 +951,7 @@ export class MemorySupportStore implements SupportStore {
           revision: 1,
           published: true,
           ...topicOn(input),
+          audience: 'public',
         });
         this.kb.set(input.id, created);
         this.rememberVersion(created);
@@ -934,6 +967,7 @@ export class MemorySupportStore implements SupportStore {
         revision: nextVersion,
         published: true,
         ...topicOn(input),
+        audience: current.audience ?? 'public',
       });
       this.kb.set(input.id, next);
       this.rememberVersion(next);
@@ -952,10 +986,37 @@ export class MemorySupportStore implements SupportStore {
       revision: nextRevision,
       published: false,
       ...topicOn(current),
+      audience: current.audience ?? 'public',
     });
     this.kb.set(input.id, hidden);
     this.rememberVersion(hidden);
     return { status: 'ok', article: { ...hidden } };
+  }
+
+  async setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult> {
+    const current = this.kb.get(input.id);
+    if (!current) return { status: 'refuse', reason: 'invalid' };
+    const revision = kbVersionOf(current);
+    if (revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
+    const from = current.audience ?? 'public';
+    if (from === input.audience) return { status: 'ok', article: { ...current }, changed: false };
+    const next = toPublicKb({ ...current, version: revision + 1, revision: revision + 1, audience: input.audience });
+    this.kb.set(input.id, next);
+    this.rememberVersion(next);
+    this.kbAudienceChanges.push({
+      articleId: input.id,
+      fromAudience: from,
+      toAudience: input.audience,
+      fromRevision: revision,
+      toRevision: revision + 1,
+      actorId: input.actorId,
+      createdAt: new Date().toISOString(),
+    });
+    return { status: 'ok', article: { ...next }, changed: true };
+  }
+
+  async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
+    return this.kbAudienceChanges.filter((c) => c.articleId === articleId).map((c) => ({ ...c }));
   }
 
   private receiptKey(procedure: string, actorId: string, clientRequestId: string): string {
@@ -1614,30 +1675,24 @@ export class PostgresSupportStore implements SupportStore {
     return rows[0] ? caseFileFromPg(rows[0]) : null;
   }
 
-  async listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]> {
-    const rows =
-      options?.limit === undefined
-        ? await this.sql<PgKb[]>`
-            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
-            FROM support.kb_articles AS a
-            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
-            WHERE a.published = true
-            ORDER BY a.id
-          `
-        : await this.sql<PgKb[]>`
-            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
-            FROM support.kb_articles AS a
-            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
-            WHERE a.published = true
-            ORDER BY a.id
-            LIMIT ${options.limit}
-          `;
+  async listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]> {
+    // The audience filter and the page are one query, so a hidden article takes no place in a page.
+    const audiences = options?.audiences ? [...options.audiences] : null;
+    const rows = await this.sql<PgKb[]>`
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
+      FROM support.kb_articles AS a
+      LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
+      WHERE a.published = true
+        AND (${audiences}::text[] IS NULL OR COALESCE(v.audience, 'public') = ANY(${audiences}::text[]))
+      ORDER BY a.id
+      ${options?.limit === undefined ? this.sql`` : this.sql`LIMIT ${options.limit}`}
+    `;
     return rows.map(kbFromPg);
   }
 
   async getPublishedKb(id: string): Promise<SupportKbArticle | null> {
     const rows = await this.sql<PgKb[]>`
-      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
       FROM support.kb_articles AS a
       LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
       WHERE a.id = ${id} AND a.published = true
@@ -1648,7 +1703,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listKbVersions(id: string): Promise<SupportKbArticle[]> {
     const rows = await this.sql<PgKbVersion[]>`
-      SELECT id, title_key, body_key, version, category, tags
+      SELECT id, title_key, body_key, version, category, tags, audience
       FROM support.kb_article_versions
       WHERE id = ${id}
       ORDER BY version
@@ -1680,8 +1735,8 @@ export class PostgresSupportStore implements SupportStore {
             RETURNING id, title_key, body_key, revision, published, updated_at
           `;
           await tx`
-            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
-            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
+            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public')
           `;
           return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic }) };
         }
@@ -1698,17 +1753,22 @@ export class PostgresSupportStore implements SupportStore {
         `;
         if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
         const bumped = kbFromPg(rows[0]);
-        await tx`
-          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
-          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
+        // A new body keeps who may read it; only setKbAudience changes that.
+        const heldAudience = await tx<{ audience: SupportKbAudience }[]>`
+          SELECT audience FROM support.kb_article_versions WHERE id = ${input.id} AND version = ${input.baseRevision}
         `;
-        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic }) };
+        const audience = heldAudience[0]?.audience ?? 'public';
+        await tx`
+          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, ${audience})
+        `;
+        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic, audience }) };
       }
 
       if (!current) return { status: 'refuse', reason: 'invalid' };
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<{ category: string | null; tags: string[] | null }[]>`
-        SELECT category, tags
+      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
+        SELECT category, tags, audience
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
       `;
@@ -1726,18 +1786,94 @@ export class PostgresSupportStore implements SupportStore {
       // 0008 refuses a revision change that has no matching version row.
       // Copy the stored keys and the stored topic; do not write a new title or body.
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
         VALUES (
           ${input.id},
           ${kbVersionOf(hidden)},
           ${hidden.titleKey},
           ${hidden.bodyKey},
           ${carried.category ?? null},
-          ${carried.tags ? tx.json(carried.tags) : null}
+          ${carried.tags ? tx.json(carried.tags) : null},
+          ${prev[0]?.audience ?? 'public'}
         )
       `;
-      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried }) };
+      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried, audience: prev[0]?.audience ?? 'public' }) };
     });
+  }
+
+  async setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult> {
+    return this.sql.begin(async (tx): Promise<SetKbAudienceResult> => {
+      const locked = await tx<PgKb[]>`
+        SELECT id, title_key, body_key, revision, published, updated_at
+        FROM support.kb_articles
+        WHERE id = ${input.id}
+        FOR UPDATE
+      `;
+      if (!locked[0]) return { status: 'refuse', reason: 'invalid' };
+      const current = kbFromPg(locked[0]);
+      if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
+      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
+        SELECT category, tags, audience
+        FROM support.kb_article_versions
+        WHERE id = ${input.id} AND version = ${current.revision}
+      `;
+      const from = prev[0]?.audience ?? 'public';
+      const carried = topicOn(prev[0] ?? {});
+      if (from === input.audience) return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from }), changed: false };
+      const rows = await tx<PgKb[]>`
+        UPDATE support.kb_articles
+        SET revision = revision + 1,
+            updated_at = now()
+        WHERE id = ${input.id} AND revision = ${input.baseRevision}
+        RETURNING id, title_key, body_key, revision, published, updated_at
+      `;
+      if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
+      const bumped = kbFromPg(rows[0]);
+      // 0008 refuses a revision change that has no matching version row; the keys and topic are copied unchanged.
+      await tx`
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+        VALUES (
+          ${input.id},
+          ${kbVersionOf(bumped)},
+          ${bumped.titleKey},
+          ${bumped.bodyKey},
+          ${carried.category ?? null},
+          ${carried.tags ? tx.json(carried.tags) : null},
+          ${input.audience}
+        )
+      `;
+      await tx`
+        INSERT INTO support.kb_audience_changes (article_id, from_audience, to_audience, from_revision, to_revision, actor_id)
+        VALUES (${input.id}, ${from}, ${input.audience}, ${current.revision ?? 0}, ${kbVersionOf(bumped)}, ${input.actorId})
+      `;
+      return { status: 'ok', article: toPublicKb({ ...bumped, ...carried, audience: input.audience }), changed: true };
+    });
+  }
+
+  async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
+    const rows = await this.sql<
+      {
+        article_id: string;
+        from_audience: SupportKbAudience;
+        to_audience: SupportKbAudience;
+        from_revision: number;
+        to_revision: number;
+        actor_id: string;
+        created_at: Date;
+      }[]
+    >`
+      SELECT article_id, from_audience, to_audience, from_revision, to_revision, actor_id, created_at
+      FROM support.kb_audience_changes WHERE article_id = ${articleId} ORDER BY to_revision
+    `;
+    return rows.map((r) => ({
+      articleId: r.article_id,
+      fromAudience: r.from_audience,
+      toAudience: r.to_audience,
+      fromRevision: Number(r.from_revision),
+      toRevision: Number(r.to_revision),
+      actorId: r.actor_id,
+      createdAt: toIso(r.created_at),
+    }));
   }
 
   async readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null> {

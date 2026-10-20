@@ -22,6 +22,7 @@ const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_au
 const MIGRATION_0009 = readFileSync(join(here, '..', 'drizzle', '0009_support_ratings.sql'), 'utf8');
 const MIGRATION_0010 = readFileSync(join(here, '..', 'drizzle', '0010_support_attachments.sql'), 'utf8');
 const MIGRATION_0011 = readFileSync(join(here, '..', 'drizzle', '0011_kb_topic_and_feedback.sql'), 'utf8');
+const MIGRATION_0022 = readFileSync(join(here, '..', 'drizzle', '0022_kb_article_audience.sql'), 'utf8');
 const MIGRATION_0014 = readFileSync(join(here, '..', 'drizzle', '0014_ticket_phishing_report.sql'), 'utf8');
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -49,6 +50,7 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0010);
   await sql.unsafe(MIGRATION_0011);
   await sql.unsafe(MIGRATION_0014);
+  await sql.unsafe(MIGRATION_0022);
 }
 
 afterAll(async () => {
