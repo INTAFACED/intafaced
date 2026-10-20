@@ -104,7 +104,10 @@ describe('authorise page', () => {
   });
 
   it('allows once, however often it is pressed, and follows the returned https address', async () => {
-    const decide = vi.fn(async () => ({ ok: true, data: { redirectTo: 'https://app.example.test/cb?code=ifcc_x&state=s1' } }));
+    const decide = vi.fn(async (_request: unknown, _decision: string) => ({
+      ok: true,
+      data: { redirectTo: 'https://app.example.test/cb?code=ifcc_x&state=s1' },
+    }));
     world.decide = decide;
     await show();
     await act(async () => {
@@ -118,7 +121,10 @@ describe('authorise page', () => {
   });
 
   it('denies through the service too', async () => {
-    const decide = vi.fn(async () => ({ ok: true, data: { redirectTo: 'https://app.example.test/cb?error=access_denied&state=s1' } }));
+    const decide = vi.fn(async (_request: unknown, _decision: string) => ({
+      ok: true,
+      data: { redirectTo: 'https://app.example.test/cb?error=access_denied&state=s1' },
+    }));
     world.decide = decide;
     await show();
     await click('Deny');
