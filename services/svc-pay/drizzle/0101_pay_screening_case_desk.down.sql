@@ -8,6 +8,7 @@ DROP TRIGGER IF EXISTS "screening_case_events_append_only_trg" ON "pay"."screeni
 DROP FUNCTION IF EXISTS "pay"."screening_case_events_append_only"();
 DROP INDEX IF EXISTS "pay"."screening_case_events_case_idx";
 DROP TABLE IF EXISTS "pay"."screening_case_events";
+DROP INDEX IF EXISTS "pay"."screening_cases_spent_for_uq";
 DROP INDEX IF EXISTS "pay"."screening_cases_grant_idx";
 DROP INDEX IF EXISTS "pay"."screening_cases_desk_idx";
 ALTER TABLE "pay"."screening_cases" DROP CONSTRAINT IF EXISTS "screening_cases_upheld_no_grant_ck";
@@ -15,6 +16,7 @@ ALTER TABLE "pay"."screening_cases" DROP CONSTRAINT IF EXISTS "screening_cases_r
 ALTER TABLE "pay"."screening_cases" DROP CONSTRAINT IF EXISTS "screening_cases_decision_ck";
 ALTER TABLE "pay"."screening_cases" DROP CONSTRAINT IF EXISTS "screening_cases_amount_ck";
 ALTER TABLE "pay"."screening_cases"
+  DROP COLUMN IF EXISTS "release_spent_for",
   DROP COLUMN IF EXISTS "release_consumed_at",
   DROP COLUMN IF EXISTS "release_expires_at",
   DROP COLUMN IF EXISTS "decided_at",

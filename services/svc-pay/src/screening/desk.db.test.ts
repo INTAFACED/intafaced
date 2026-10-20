@@ -343,7 +343,6 @@ describe('screening desk (real Postgres)', () => {
       const spent = (await desk().get('withdrawal', keyOf('s1'))).case;
       expect(spent.releaseSpentAt).not.toBeNull();
       expect(spent.status).toBe('review');
-      expect((await desk().get('withdrawal', keyOf('s2'))).case).toMatchObject({ status: 'clear', factors: ['compliance_release'] });
       // ...and not twice.
       expect(await send('s3', { amount: 1n * 10n ** 18n })).toBe('pay.guard_screening_review');
       expect((await desk().get('withdrawal', keyOf('s1'))).events.map((e) => e.action)).toEqual(['release_spent', 'release']);
@@ -352,7 +351,7 @@ describe('screening desk (real Postgres)', () => {
     it('a send that spent its release keeps it on a retry: recovery or fresh, with the screener dark, and a rolled-back claim leaves nothing', async () => {
       await send('k1');
       await release('k1');
-      // A claim that rolls back after the spend gives the release back and leaves no clear case behind.
+      // A claim that rolls back after the spend gives the release back.
       await db.sql
         .begin(async (tx) => {
           expect(await send('k2', { amount: 1n * 10n ** 18n, tx })).toBe('passed');
@@ -360,7 +359,6 @@ describe('screening desk (real Postgres)', () => {
         })
         .catch(() => undefined);
       expect((await desk().get('withdrawal', keyOf('k1'))).case.releaseSpentAt).toBeNull();
-      expect(await createSqlScreeningCaseStore(db.sql).read('withdrawal', keyOf('k2'))).toBeNull();
       // The claim commits: the release is spent for k2.
       expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
       expect((await desk().get('withdrawal', keyOf('k1'))).case.releaseSpentAt).not.toBeNull();
@@ -369,11 +367,46 @@ describe('screening desk (real Postgres)', () => {
       expect(await send('k2', { amount: 1n * 10n ** 18n, replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe('passed');
       // Or the claim committed before the hold: the retry is still fresh. It spends no second release.
       expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
+      // A retry above the released amount is not covered.
+      expect(await send('k2', { amount: 6n * 10n ** 18n })).toBe('pay.guard_screening_unavailable');
       answer = 'review';
       await send('k4');
       await release('k4');
       expect(await send('k2', { amount: 1n * 10n ** 18n })).toBe('passed');
       expect((await desk().get('withdrawal', keyOf('k4'))).case.releaseSpentAt).toBeNull();
+      // A recovery with no release of its own draws none.
+      expect(await send('k5', { replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe('pay.guard_screening_review');
+      expect((await desk().get('withdrawal', keyOf('k4'))).case.releaseSpentAt).toBeNull();
+      // Once the release has expired, the same send is not honoured again.
+      await db.sql`UPDATE pay.screening_cases SET release_expires_at = now() - interval '1 second' WHERE subject_key = ${keyOf('k1')}`;
+      expect(await send('k2', { amount: 1n * 10n ** 18n, replay: { kind: 'recovery', reason: 'withdrawal_hold_booked' } })).toBe(
+        'pay.guard_screening_review',
+      );
+    });
+
+    it('a send whose own case was refused or upheld is not covered by another send’s release', async () => {
+      answer = 'refuse';
+      await send('m1', { amount: 1n * 10n ** 18n });
+      answer = 'review';
+      await send('m2');
+      await release('m2');
+      answer = 'refuse';
+      expect(await send('m1', { amount: 1n * 10n ** 18n })).toBe('pay.guard_screening_refuse');
+      expect((await desk().get('withdrawal', keyOf('m2'))).case.releaseSpentAt).toBeNull();
+      answer = 'review';
+      await send('m3', { userId: OTHER });
+      await send('m4', { userId: OTHER });
+      const key = (ref: string) => keyOf(ref, OTHER);
+      await desk().decide(OFFICER, { subjectKind: 'withdrawal', caseId: key('m4'), decision: 'uphold', reason: 'confirmed match' });
+      await desk().decide(OFFICER, {
+        subjectKind: 'withdrawal',
+        caseId: key('m3'),
+        decision: 'release',
+        reason: 'documents checked',
+        ...approval,
+      });
+      expect(await send('m4', { userId: OTHER })).toBe('pay.guard_screening_review');
+      expect((await desk().get('withdrawal', key('m3'))).case.releaseSpentAt).toBeNull();
     });
 
     it('two sends racing for one release: exactly one spends it', async () => {

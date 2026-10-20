@@ -23,7 +23,8 @@ ALTER TABLE "pay"."screening_cases"
   ADD COLUMN IF NOT EXISTS "decision_reason"       text,
   ADD COLUMN IF NOT EXISTS "decided_at"            timestamptz,
   ADD COLUMN IF NOT EXISTS "release_expires_at"    timestamptz,
-  ADD COLUMN IF NOT EXISTS "release_consumed_at"   timestamptz;
+  ADD COLUMN IF NOT EXISTS "release_consumed_at"   timestamptz,
+  ADD COLUMN IF NOT EXISTS "release_spent_for"     text;
 
 ALTER TABLE "pay"."screening_cases" DROP CONSTRAINT IF EXISTS "screening_cases_amount_ck";
 ALTER TABLE "pay"."screening_cases" ADD CONSTRAINT "screening_cases_amount_ck"
@@ -51,6 +52,11 @@ ALTER TABLE "pay"."screening_cases" ADD CONSTRAINT "screening_cases_upheld_no_gr
 CREATE INDEX IF NOT EXISTS "screening_cases_desk_idx" ON "pay"."screening_cases" ("updated_at" DESC, "subject_key");
 CREATE INDEX IF NOT EXISTS "screening_cases_grant_idx" ON "pay"."screening_cases" ("subject_kind", "party_ref", "asset_id")
   WHERE "decision" = 'released' AND "release_consumed_at" IS NULL;
+
+-- A release is spent for exactly one send key, and that key is written with the spend (in the claim transaction), so a
+-- retry of the same send after a crash finds its own grant and never draws a second one.
+CREATE UNIQUE INDEX IF NOT EXISTS "screening_cases_spent_for_uq" ON "pay"."screening_cases" ("release_spent_for")
+  WHERE "release_spent_for" IS NOT NULL;
 
 -- Append-only history of what a person did to a case: decide or rescreen.
 CREATE TABLE IF NOT EXISTS "pay"."screening_case_events" (

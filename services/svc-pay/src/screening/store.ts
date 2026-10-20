@@ -30,11 +30,11 @@ export interface ScreeningCaseStore {
    * and asset that covers `amount`, of a case other than `exceptKey`. Returns the key of the case it came from, or null.
    * Optional: a store without it never honours a release.
    */
-  spendRelease?(q: Sql, want: { partyRef: string; assetId: string; amount: string; exceptKey: string }): Promise<string | null>;
+  spendRelease?(
+    q: Sql,
+    want: { partyRef: string; assetId: string; amount: string; exceptKey: string; draw: boolean },
+  ): Promise<string | null>;
 }
-
-/** The factor on the clear case of a send that spent a compliance release. */
-export const RELEASE_FACTOR = 'compliance_release';
 
 /** Subject key is a hash. The case row does not store names, addresses, or client text. */
 export function screeningSubjectKey(kind: ScreeningSubjectKind, parts: readonly string[]): string {
@@ -101,8 +101,21 @@ export function createSqlScreeningCaseStore(sql: Sql): ScreeningCaseStore {
       `;
     },
     async spendRelease(q, want) {
+      // A send that already spent a release (its claim committed, then the process died) is given the same one again
+      // while it is still in force and still covers the amount: a retry never draws a second release.
+      const again = await q<Array<{ subject_key: string }>>`
+        SELECT subject_key FROM pay.screening_cases
+         WHERE subject_kind = 'withdrawal' AND release_spent_for = ${want.exceptKey}
+           AND release_expires_at > now() AND amount::numeric >= ${want.amount}::numeric`;
+      if (again[0]) return again[0].subject_key;
+      if (!want.draw) return null;
+      // A send whose own case was refused or upheld cannot be covered by someone else's release.
+      const own = await q<Array<{ status: string; decision: string | null }>>`
+        SELECT status, decision FROM pay.screening_cases
+         WHERE subject_kind = 'withdrawal' AND subject_key = ${want.exceptKey} FOR UPDATE`;
+      if (own[0] && (own[0].status === 'refuse' || own[0].decision === 'upheld')) return null;
       const rows = await q<Array<{ subject_key: string; status: string }>>`
-        UPDATE pay.screening_cases SET release_consumed_at = now()
+        UPDATE pay.screening_cases SET release_consumed_at = now(), release_spent_for = ${want.exceptKey}
          WHERE (subject_kind, subject_key) = (
                  SELECT subject_kind, subject_key FROM pay.screening_cases
                   WHERE subject_kind = 'withdrawal' AND decision = 'released' AND release_consumed_at IS NULL
@@ -118,13 +131,6 @@ export function createSqlScreeningCaseStore(sql: Sql): ScreeningCaseStore {
         await q`
           INSERT INTO pay.screening_case_events (subject_kind, subject_key, action, actor_id, from_status, to_status, decision, reason)
           VALUES ('withdrawal', ${spent}, 'release_spent', 'guard', ${rows[0]?.status ?? 'review'}, ${rows[0]?.status ?? 'review'}, 'released', ${`spent by a new withdrawal ${want.exceptKey}`})`;
-        // The spending send's own clear case, written in the caller's transaction so it commits or rolls back with the
-        // claim and the spend. A retry of the same send (a crash after the claim, before the rail answered) finds it and
-        // is honoured; it never spends a second release and never re-asks a screener that may say review.
-        await q`
-          INSERT INTO pay.screening_cases (subject_kind, subject_key, status, factors, party_ref, amount, asset_id, provider)
-          VALUES ('withdrawal', ${want.exceptKey}, 'clear', ${q.json([{ code: RELEASE_FACTOR }])}, ${want.partyRef}, ${want.amount}, ${want.assetId}, 'release')
-          ON CONFLICT (subject_kind, subject_key) DO NOTHING`;
       }
       return spent;
     },

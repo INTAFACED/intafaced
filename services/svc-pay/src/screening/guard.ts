@@ -6,7 +6,6 @@ import { PayGuardRefusal, type PartialPayGuards, type PayoutExecuteContext, type
 import { applyListPosture, screeningCaseFromAnswer, type ScreeningAnswer, type ScreeningDecision } from './decision.js';
 import {
   createSqlScreeningCaseStore,
-  RELEASE_FACTOR,
   screeningSubjectKey,
   type ScreeningCaseRecord,
   type ScreeningCaseStore,
@@ -102,20 +101,14 @@ export function createScreeningGuards(deps: ScreeningGuardDeps): PartialPayGuard
     if (replayKind === 'replay') return;
     const subjectKey = screeningSubjectKey(kind, parts);
     const context = { partyRef: party.merchantId, amount: formatAmount(party.amount), assetId: party.assetId };
-    // A fresh send may spend a compliance release (a person decided a held send of this party was fine). Never on a blank
+    // A send may spend a compliance release (a person decided a held send of this party was fine). Never on a blank
     // list: the list is the thing that cannot be argued with, and a release never touches the case it came from.
+    // A fresh send draws one; a recovery or a retry of a send that already spent one is given the same again, never a
+    // second. The spend is its own record (on the release, inside `tx`), so there is no pool write here that would wait
+    // on a row `tx` holds.
     if (tx && posture === 'named' && store.spendRelease) {
-      // A send that already spent its release (the claim committed, then the process died) keeps it: a retry, whether
-      // it classifies as recovery or still as fresh, is honoured from its own case and never spends a second one.
-      const own = await store.read(kind, subjectKey);
-      if (own?.status === 'clear' && own.factors.some((item) => item.code === RELEASE_FACTOR)) return;
-      if (replayKind === 'fresh') {
-        const from = await store.spendRelease(tx, { ...context, exceptKey: subjectKey });
-        if (from !== null) {
-          // The spend wrote this send's own clear case inside `tx`; a pool write here would wait on that uncommitted row.
-          return;
-        }
-      }
+      const from = await store.spendRelease(tx, { ...context, exceptKey: subjectKey, draw: replayKind === 'fresh' });
+      if (from !== null) return;
     }
     const decision: ScreeningDecision = applyListPosture(
       screeningCaseFromAnswer(await answerFrom(screener, timeoutMs, { kind, ...context })),
