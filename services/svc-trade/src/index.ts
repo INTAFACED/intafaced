@@ -19,7 +19,8 @@ import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { subscribeMatchingEvents } from './events.js';
+import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { parsePriceBand } from './futures/matched-order-plan.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
@@ -244,7 +245,10 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
-const subscriptions = await subscribeMatchingEvents(bus, trade);
+// Holds the futures fill sink until PositionService exists below. Fills arriving before it is set settle as spot,
+// which is correct: no futures order can have been placed before the process that places them is running.
+const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: null };
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
 const venueMarkSymbols = parseVenueMarkSymbols(env.TRADE_VENUE_MARK_SYMBOLS);
 const otcVenueSymbols = parseVenueMarkSymbols(env.TRADE_OTC_VENUE_SYMBOLS);
@@ -472,6 +476,14 @@ const positions = new PositionService(sql, ledger, {
   // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
   // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
   ladder: futuresJobs.ladderGate,
+  // Futures orders through svc-matching (slice 6). Off unless TRADE_FUTURES_MATCHING_ENABLED is set; the band is parsed here,
+  // so a malformed value stops boot rather than being read as a default.
+  matchedOrders: {
+    matching,
+    enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+    priceBand: parsePriceBand(env.TRADE_FUTURES_PRICE_BAND),
+    lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
+  },
   assertAdlDisclosureAcked: async (userId) => {
     try {
       await assertAdlDisclosureAcked(adlDisclosureAcks, userId);
@@ -483,6 +495,8 @@ const positions = new PositionService(sql, ledger, {
     }
   },
 });
+// Matched futures fills settle into the position book this service owns (futures ADR slice 6).
+matchedFuturesFills.current = positions.matchedFills;
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
   intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,

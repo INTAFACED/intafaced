@@ -440,6 +440,14 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
           ) AS planned
         `;
         if (adl?.planned) return { status: 'changed' as const };
+        // A matched fill still being recorded has posted into the pot ahead of the row (matched-orders.ts). A rung
+        // sized from the row would leave that margin behind and the fill with no open row to land on.
+        const [fill] = await tx<{ pending: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id::text = ${input.positionId} AND f.state = 'pending'
+          ) AS pending
+        `;
+        if (fill?.pending) return { status: 'changed' as const };
 
         const inserted = await tx<RungRow[]>`
           INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)

@@ -46,16 +46,47 @@ import { bindCloseSpotTrade } from './spot/close-position.js';
  * `intafaced.identity.xp.earned`, which the catalog already declares and which
  * §5.2 asks for per filled order.
  */
+/**
+ * The futures side of the same two subjects (futures ADR slice 6). A matched futures fill or release goes here, and a
+ * spot fill never does: the route is the market's kind. `current` is null until PositionService is built.
+ */
+export interface MatchedFillsSink {
+  handlesMarket(marketId: string): Promise<boolean>;
+  settle(fill: {
+    marketId: string;
+    makerOrderId: string;
+    takerOrderId: string;
+    price: string;
+    qty: string;
+    sequence: number;
+  }): Promise<void>;
+  /** `remainingQty` is what left the book unfilled; fills the engine printed before it may still be on their way. */
+  releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+}
+
 export async function subscribeMatchingEvents(
   bus: EventBus,
   trade: TradeService,
   store: SeenStore = new MemorySeenStore(),
+  futures: { current: MatchedFillsSink | null } = { current: null },
 ): Promise<Subscription[]> {
   bindCloseSpotTrade(trade);
   const filled = await bus.subscribe(
     'orderFilled',
     idempotent(
       async (payload) => {
+        const sink = futures.current;
+        if (sink && (await sink.handlesMarket(payload.marketId))) {
+          await sink.settle({
+            marketId: payload.marketId,
+            makerOrderId: payload.makerOrderId,
+            takerOrderId: payload.takerOrderId,
+            price: payload.price,
+            qty: payload.qty,
+            sequence: payload.sequence,
+          });
+          return;
+        }
         await trade.settleFillEvent({
           marketId: payload.marketId,
           makerOrderId: payload.makerOrderId,
@@ -77,6 +108,7 @@ export async function subscribeMatchingEvents(
     'orderCancelled',
     idempotent(
       async (payload) => {
+        if (futures.current && (await futures.current.releaseCancelled(payload.orderId, payload.remainingQty))) return;
         await trade.releaseOnCancelEvent(payload.orderId);
       },
       store,

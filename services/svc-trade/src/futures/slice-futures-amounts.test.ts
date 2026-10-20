@@ -319,6 +319,8 @@ function creditBook(options?: { balanceThrows?: boolean }) {
       const id = String(values[0]);
       return positions.filter((row) => row.id === id);
     }
+    // No matched futures fills exist in this fixture, so the pending-fill guard finds none.
+    if (text.includes('FROM trade.futures_order_fills') && text.includes("state = 'pending'")) return [];
     throw new Error(`unexpected sql: ${text}`);
   };
 

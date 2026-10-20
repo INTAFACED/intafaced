@@ -933,6 +933,16 @@ export class TradeService {
     return (await this.marketLifecycle?.snapshot(market)) ?? null;
   }
 
+  /**
+   * The PLACE lifecycle proof for a market, for matched futures orders (futures ADR slice 6). It is the same gate
+   * spot placement passes, so a halt or a suspension refuses a futures order the same way.
+   */
+  async placeLifecycleProofForMarket(marketId: string): Promise<LifecycleAdmissionProof> {
+    const market = await this.marketById(marketId);
+    if (!market) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
+    return this.assertLifecycleAction(market, 'PLACE');
+  }
+
   private async assertLifecycleAction(market: Market, action: 'PLACE' | 'PLACE_POST_ONLY' | 'AMEND'): Promise<LifecycleAdmissionProof> {
     if (!this.marketLifecycle) {
       throw new TradeError('market lifecycle authority is not configured', 'trade.lifecycle_authority_unavailable');

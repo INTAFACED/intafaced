@@ -686,6 +686,8 @@ services:
       # Maximum leverage on a futures open. Empty = DIRECTION §1 10× in code.
       # Set only to tighten (≤ 10). Compose does not pin a raise.
       TRADE_FUTURES_MAX_LEVERAGE: ${TRADE_FUTURES_MAX_LEVERAGE:-}
+      TRADE_FUTURES_MATCHING_ENABLED: ${TRADE_FUTURES_MATCHING_ENABLED:-false}
+      TRADE_FUTURES_PRICE_BAND: ${TRADE_FUTURES_PRICE_BAND:-}
       # Dated futures settlement fixing (trade.futures / PTX-M10-R03). Empty =
       # refuse style=dated listing (`trade.dated_futures_fixing_unconfigured`).
       # Opaque stamp only — never invent last trade / mark as settlement.
