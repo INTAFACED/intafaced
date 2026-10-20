@@ -37,9 +37,10 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0091      | FRAUDQUEUE fraud review cases                         | used                                            |
 | 0092      | S38WALLETPAY wallet inbounds and withdrawals          | void (S38 withdrew, number not reused)          |
 | 0093      | CHAINWATCH chain watcher dead letters                 | used                                            |
-| 0094-0099 | unassigned                                            | free; ask W0 before using                       |
-| 0100-0119 | wallet lane (W-withdraw, W-deposit, W-custody slices) | 0100 used (owner-set withdrawal limits)         |
-| 0120+     | unassigned                                            | free; ask W0 before using                       |
+| 0094-0099 | never used                                            | void                                            |
+| 0100      | wallet lane (owner-set withdrawal limits)             | used                                            |
+| 0101      | KYB entity types (I-kyc-compliance-20)                | used                                            |
+| 0102+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 

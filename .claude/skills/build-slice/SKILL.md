@@ -9,10 +9,11 @@ A slice is one row of `docs/roadmap/slices.json`: a spec in the shared Operation
 
 ## Pick
 
-1. Your lane's queue: `node tooling/scripts/roadmap.mjs --lane "<lane>"` (or `--journey trader`). Take the first slice whose dependencies are merged. Trader-journey slices go first.
+1. Your lane's queue: `node tooling/scripts/roadmap.mjs --lane "<lane>"` (or `--journey trader`). Take the first slice whose dependencies are merged. Trader-journey slices go first. A slice's `later` list names slices its spec also mentions that come after it (a two-way pair, untangled by the script): where your slice reaches one, refuse with a typed code.
 2. Read the slice's spec: `/mnt/project-files/operation-zero/<spec field>`, the section headed with its id. When that folder is not mounted, the brief carries the spec text.
 3. Re-check every `file:line` the spec cites against today's main. The specs were written against main of 2026-10-18. Drop what is already built and say so in the PR.
-4. Read your service's leftover review findings, `/mnt/project-files/status/review-leftovers/<service>.md`, money and key items first. An item that is still real in code this slice touches (a fresh failing test on main proves it) gets fixed in the same PR; otherwise mark it gone there with a one-line reason.
+4. If a build pack exists for the slice (`/mnt/project-files/grok-week/packs/<lane>/<slice-id>.md`), read it first and verify its claims as you go. Note in your status file whether it was wrong anywhere or saved exploring.
+5. Read your service's leftover review findings, `/mnt/project-files/status/review-leftovers/<service>.md`, money and key items first. An item that is still real in code this slice touches (a fresh failing test on main proves it) gets fixed in the same PR; otherwise mark it gone there with a one-line reason.
 
 ## Build: the bar
 
@@ -33,7 +34,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 - One service (or one app area) per PR. Title: `<service>: <slice id> <what a user gets>`, for example `svc-trade: SP-order-entry-02 market order by value`. Two slices of the same lane may share a PR when they touch the same files.
 - Prefer new files over edits to shared ones, and register them through the area's own routes or router file, so a shared root file changes by one import line. Lanes that share a service then rarely conflict.
 - Before push: affected tests, typecheck, `pnpm exec prettier --check` on changed files.
-- Open as ready, turn auto-merge on, subscribe to the PR, start the independent review (below), end the turn. No check-ins, no polling.
+- Open as ready, turn auto-merge on (AGENTS.md item 8: in-repo, listed author, never a gate-file PR), subscribe to the PR, start the independent review (below), end the turn. No check-ins, no polling.
 - The slice counts as built when its rows are met on main, not when the PR merges. A slice you could only part-build stays open: say which rows are left in the PR body.
 
 ## Independent review

@@ -126,6 +126,12 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       snapshot: operator
         .input(z.object({ market: id }).strict())
         .query(({ ctx, input }) => ready().futuresSnapshot(ctx.principal, input.market).catch(fail)),
+      liquidations: operator
+        .input(z.object({ market: id.nullish(), limit }).strict())
+        .query(({ ctx, input }) => ready().futuresLiquidations(ctx.principal, input).catch(fail)),
+      insuranceHistory: operator
+        .input(z.object({ asset: z.string().trim().min(1).max(32), limit }).strict())
+        .query(({ ctx, input }) => ready().futuresInsuranceHistory(ctx.principal, input).catch(fail)),
     }),
     exports: router({
       create: operator

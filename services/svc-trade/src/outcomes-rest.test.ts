@@ -45,6 +45,40 @@ describe('outcome markets REST', () => {
     await app.close();
   });
 
+  it.each([
+    ['a deadline', { requestDeadline: '2026-08-24T11:30:00.000Z' }],
+    ['a self-trade mode', { stpMode: 'cancel_maker' }],
+    ['a tag', { tag: 'x' }],
+  ])('refuses %s rather than dropping it', async (_name, extra) => {
+    const market = createOutcomeMarket({
+      id: 'fixture-outcome',
+      question: 'Will the fixture condition be met?',
+      closeAt: '2026-08-24T12:00:00.000Z',
+      settlementAssetId: 'fixture-settlement-asset',
+      settlementSource: 'fixture-owner-source',
+    });
+    const placeOutcomeOrder = vi.fn();
+    const app = Fastify();
+    registerOutcomesRest(app, {
+      edgeSecret: EDGE_SECRET,
+      serviceName: 'svc-trade',
+      internalSecret: INTERNAL_SECRET,
+      catalogue: memoryOutcomeCatalogue([market]),
+      placeOutcomeOrder,
+      now: () => Date.parse('2026-08-24T11:00:00.000Z'),
+    });
+    await app.ready();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/outcomes/orders',
+      headers: { ...signedHeaders(), 'content-type': 'application/json' },
+      payload: { symbol: 'fixture-outcome:YES', side: 'buy', type: 'limit', amount: '2.5', price: '0.4', clientOrderId: 'k-1', ...extra },
+    });
+    expect(response.statusCode, response.body).toBe(400);
+    expect(placeOutcomeOrder).not.toHaveBeenCalled();
+    await app.close();
+  });
+
   it('places through the injected canonical order path with decimal strings', async () => {
     const market = createOutcomeMarket({
       id: 'fixture-outcome',

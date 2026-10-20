@@ -144,7 +144,7 @@ export const scheduledTransfers = bank.table(
     cadence: transferCadenceEnum('cadence').notNull(),
     /**
      * The anchor. Occurrence N is N periods after this instant, which is what
-     * makes the idempotency key `bank.transfer:<id>:<occurrence>` derivable
+     * makes the idempotency key `bank.transfer.<space>:<id>:<occurrence>` derivable
      * from the schedule alone rather than from a counter that can be lost or
      * double-incremented.
      */

@@ -15,6 +15,7 @@ import { MemoryLedger, formatAmount, parseAmount, recipes } from '@intafaced/led
 import { registerPrivateRest, type PrivateRestDeps } from '../private-rest.js';
 import { registerFuturesTickerRest } from './futures-ticker-rest.js';
 import { encodeRungPlan } from './liquidation-rungs.js';
+import { listPayoutsForUser } from './futures-payouts.js';
 import {
   encodeFundingCursor,
   listCallerLiquidations,
@@ -119,7 +120,7 @@ describe('futures reads money', () => {
     await sql`
       TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets,
         trade.position_funding_applied, trade.funding_period_rates, trade.liquidation_rungs,
-        trade.futures_mark_samples
+        trade.futures_mark_samples, trade.futures_payouts
       RESTART IDENTITY CASCADE
     `;
   });
@@ -333,6 +334,37 @@ describe('futures reads money', () => {
     await app.close();
   });
 
+  it("lists only the caller's futures payouts, owed and paid, and answers 503 when unwired", async () => {
+    const owed = randomUUID();
+    const paid = randomUUID();
+    const foreign = randomUUID();
+    await sql`
+      INSERT INTO trade.futures_payouts (profit_id, position_id, user_id, asset_id, amount, state, refusal_code, attempts, created_at, paid_at)
+      VALUES
+        ('p-owed', ${owed}, ${ALICE}, 'USDT', '1000', 'pending', 'trade.clearing_pot_short', 1, ${new Date('2026-10-03T02:00:00.000Z')}, NULL),
+        ('p-paid', ${paid}, ${ALICE}, 'USDT', '250.5', 'paid', NULL, 1, ${new Date('2026-10-03T01:00:00.000Z')}, ${new Date('2026-10-03T01:00:00.000Z')}),
+        ('p-bob', ${foreign}, ${BOB}, 'USDT', '9', 'pending', 'trade.clearing_pot_short', 1, ${new Date('2026-10-03T03:00:00.000Z')}, NULL)
+    `;
+    const app = Fastify();
+    registerPrivateRest(app, restDeps());
+    const response = await app.inject({ method: 'GET', url: '/api/v1/futures/payouts', headers: signed(ALICE) });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { payouts: { profitId: string; amount: string; state: string; refusalCode: string | null }[] };
+    expect(body.payouts.map((p) => [p.profitId, p.amount, p.state, p.refusalCode])).toEqual([
+      ['p-owed', '1000', 'pending', 'trade.clearing_pot_short'],
+      ['p-paid', '250.5', 'paid', null],
+    ]);
+    expect(JSON.stringify(body)).not.toContain(foreign);
+    await app.close();
+
+    const bare = Fastify();
+    registerPrivateRest(bare, { ...restDeps(), listFuturesPayouts: undefined });
+    const unwired = await bare.inject({ method: 'GET', url: '/api/v1/futures/payouts', headers: signed(ALICE) });
+    expect(unwired.statusCode).toBe(503);
+    expect(unwired.json()).toMatchObject({ error: 'trade.futures_payouts_unwired' });
+    await bare.close();
+  });
+
   it('sums open interest and taker volume, and leaves change null until mark history covers 24 hours', async () => {
     await market(MARKET, 'BTC/USDT:USDT');
     const alice = randomUUID();
@@ -445,6 +477,7 @@ describe('futures reads money', () => {
       listAdlDisclosureEvents: async () => [],
       listFundingPayments: (p, id, cursor) => listFundingPayments(sql, p.userId, id, cursor),
       listLiquidations: (p) => listCallerLiquidations(sql, p.userId),
+      listFuturesPayouts: async (p) => ({ payouts: await listPayoutsForUser(sql, p.userId) }),
     };
   }
 });

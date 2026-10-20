@@ -138,6 +138,24 @@ describe('same-person approvals', () => {
     expect(samePersonTargetService('identity.step_up.email_change')).toBe('svc-identity');
     expect(samePersonTargetService('identity.step_up.phone_remove')).toBe('svc-identity');
     expect(samePersonTargetService('identity.step_up.close_account')).toBe('svc-identity');
+    for (const action of [
+      'passkey_add',
+      'passkey_remove',
+      'passkey_rename',
+      'totp_replace',
+      'totp_disable',
+      'recovery_codes_regenerate',
+      'password_change_with_second_factor',
+      'fund_password_set',
+      'limits_loosen',
+      'self_freeze_lift',
+      'trusted_device_remove',
+      'link_method',
+      'unlink_method',
+    ]) {
+      expect(isSamePersonActionType(`identity.step_up.${action}`)).toBe(true);
+      expect(samePersonTargetService(`identity.step_up.${action}`)).toBe('svc-identity');
+    }
     expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
     expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
     expect(

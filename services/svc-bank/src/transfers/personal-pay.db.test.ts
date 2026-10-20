@@ -22,6 +22,7 @@ import {
 } from '@intafaced/ledger-client';
 import { createBankRouter } from '../router.js';
 import { createBankServices, memoryLedgerHistory, memoryRecipientState, type BankServices } from '../bank-service.js';
+import { accountForSpace } from '../spaces/space-service.js';
 import { PersonalPayService } from './personal-pay.js';
 import type { LedgerHistoryPages } from '../activity/activity-service.js';
 import { memoryPartyHandles } from './party-handles.js';
@@ -358,7 +359,7 @@ describe('personal send and request (Postgres)', () => {
         requestId: opened.requestId,
       }),
     ).rejects.toMatchObject({ code: 'CONFLICT' });
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:pay-request-'))).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:pay-request-'))).toHaveLength(1);
   });
 
   async function bobPots(namedId: string) {
@@ -427,7 +428,7 @@ describe('personal send and request (Postgres)', () => {
     const afterSelf = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(afterSelf.status).toBe('open');
     expect(afterSelf.ledgerTxId).toBeNull();
-    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${selfId}:0`)).toBe(false);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer.p2p:${selfId}:0`)).toBe(false);
     expect(await bobPots(named.id)).toEqual(before);
 
     await bank.spaces.ensurePrimary(CY, 'USDT');
@@ -448,12 +449,12 @@ describe('personal send and request (Postgres)', () => {
     const afterThird = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(afterThird.status).toBe('open');
     expect(afterThird.ledgerTxId).toBeNull();
-    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer:${thirdId}:0`)).toBe(false);
+    expect(ledger.journal().some((tx) => tx.idempotencyKey === `bank.transfer.p2p:${thirdId}:0`)).toBe(false);
     expect(await bobPots(named.id)).toEqual(before);
     expect(formatAmount((await ledger.balance(userAvailable(CY, 'USDT'))).amount)).toBe('0');
   });
 
-  it('does not adopt an own-space ledger transaction as payment of a request', async () => {
+  it('an own-space transfer that reuses the id of a request payment books separately and pays the request itself', async () => {
     await ready();
     const ada = await caller(ADA, ['bank:read', 'bank:write']);
     const bob = await caller(BOB, ['bank:read', 'bank:write']);
@@ -476,9 +477,58 @@ describe('personal send and request (Postgres)', () => {
       amount: parseAmount('12.5'),
     });
 
+    // Same id, different operation: before key spaces this was handed the own-space transaction and the request was
+    // marked paid while nothing reached the requester.
+    const paid = await bob.transfers.toUser({
+      transferId: 'own-space-key',
+      fromSpaceId: primary.id,
+      toUserId: ADA,
+      amount: '12.5',
+      requestId: opened.requestId,
+    });
+    expect(paid.ledgerTxId).not.toBe(own.ledgerTxId);
+
+    const request = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(request.status).toBe('paid');
+    expect(request.ledgerTxId).toBe(paid.ledgerTxId);
+    const keys = ledger.journal().map((tx) => tx.idempotencyKey);
+    expect(keys).toContain('bank.transfer.own:own-space-key:0');
+    expect(keys).toContain('bank.transfer.p2p:own-space-key:0');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('refuses to mark a request paid when its key already holds a different movement', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '12.5',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-key-foreign',
+    });
+    await ledger.post(
+      recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('40'), rail: 'test', railRef: `bob-foreign-${Math.random()}` }),
+    );
+    const primary = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    const named = await bob.spaces.create({ assetId: 'USDT', name: 'Spending' });
+    // Something else is booked under the very key this payment will use: an own-space move, in the p2p key space.
+    const foreign = await ledger.post(
+      recipes.bankTransfer({
+        transferId: 'foreign-key-01',
+        occurrence: 0,
+        from: accountForSpace(await bank.spaces.get(primary.id)),
+        to: accountForSpace(await bank.spaces.get(named.id)),
+        amount: parseAmount('12.5'),
+        kind: 'manual',
+        keySpace: 'p2p',
+      }),
+    );
+
     const refused = await bob.transfers
       .toUser({
-        transferId: 'own-space-key',
+        transferId: 'foreign-key-01',
         fromSpaceId: primary.id,
         toUserId: ADA,
         amount: '12.5',
@@ -496,10 +546,16 @@ describe('personal send and request (Postgres)', () => {
     expect(request.status).toBe('open');
     expect(request.ledgerTxId).toBeNull();
     const posted = await db.sql<Array<{ status: string }>>`
-      SELECT status FROM bank.personal_transfers WHERE transfer_id = 'own-space-key' AND status = 'posted'
+      SELECT status FROM bank.personal_transfers WHERE transfer_id = 'foreign-key-01' AND status = 'posted'
     `;
     expect(posted).toHaveLength(0);
-    await expect(ada.transfers.get({ ledgerTxId: own.ledgerTxId })).rejects.toMatchObject({
+    // The key holds a movement that is not this send, so this send's outcome is unknown: the reservation stays, it is
+    // never released as if the ledger had refused.
+    const reserved = await db.sql<Array<{ status: string }>>`
+      SELECT status FROM bank.personal_transfers WHERE transfer_id = 'foreign-key-01' AND status = 'reserved'
+    `;
+    expect(reserved).toHaveLength(1);
+    await expect(ada.transfers.get({ ledgerTxId: foreign.id })).rejects.toMatchObject({
       code: 'NOT_FOUND',
       message: expect.stringContaining('bank.personal_transfer_not_found'),
     });
@@ -578,13 +634,13 @@ describe('personal send and request (Postgres)', () => {
       message: expect.stringContaining('bank.personal_request_claim_held'),
     });
 
-    const booked = ledger.journal().find((tx) => tx.idempotencyKey === `bank.transfer:${transferId}:0`);
+    const booked = ledger.journal().find((tx) => tx.idempotencyKey === `bank.transfer.p2p:${transferId}:0`);
     const again = await personal.send(sendInput);
     expect(again.ledgerTxId).toBe(booked?.id);
     const paid = await ada.personalRequest.get({ requestId: opened.requestId });
     expect(paid.status).toBe('paid');
     expect(paid.ledgerTxId).toBe(booked?.id);
-    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer:'))).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:'))).toHaveLength(1);
   });
 
   it('refuses a session that lacks the procedure scope', async () => {

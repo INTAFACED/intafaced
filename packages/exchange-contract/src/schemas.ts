@@ -378,6 +378,8 @@ export const createOrderRequestSchema = z
     tag: z.string().min(1).max(16).optional(),
     /** The instant after which the caller no longer wants this order created. Past it, the service refuses the create before any hold. */
     requestDeadline: isoDatetime.optional(),
+    /** Which price releases a stop. Only `last` is read today; the service refuses `mark` and `index` with a typed code. */
+    triggerBy: z.enum(['last', 'mark', 'index']).optional(),
   })
   .superRefine((order, ctx) => {
     // A limit order without a price is the single most common integration bug.

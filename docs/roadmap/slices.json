@@ -7,11 +7,12 @@
     "spec": "modules/academy/specs/academy-access-grants.md",
     "lane": "svc-academy",
     "touches": ["svc-academy", "customer: more"],
-    "depends": ["AC-commerce-01", "AC-course-structure-01", "AC-enrolment-01"],
+    "depends": ["AC-course-structure-01", "AC-enrolment-01"],
     "journeys": [],
     "outside": "`vendor.email` for the expiry notice only.",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["AC-commerce-01"]
   },
   {
     "id": "AC-access-grants-02",
@@ -49,11 +50,12 @@
     "spec": "modules/academy/specs/academy-analytics.md",
     "lane": "svc-academy",
     "touches": ["svc-academy", "admin: ops-desk"],
-    "depends": ["AC-assignments-04", "AC-enrolment-03", "AC-roles-01"],
+    "depends": ["AC-enrolment-03", "AC-roles-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["AC-assignments-04"]
   },
   {
     "id": "AC-articles-01",
@@ -707,11 +709,12 @@
     "spec": "modules/agents/specs/agents-audit.md",
     "lane": "svc-agents",
     "touches": ["svc-agents", "packages/contracts", "customer: more"],
-    "depends": ["AG-analytics-01", "AG-governance-01"],
+    "depends": ["AG-analytics-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AG-governance-01"]
   },
   {
     "id": "AG-audit-02",
@@ -953,11 +956,12 @@
     "spec": "modules/agents/specs/agents-sessions.md",
     "lane": "svc-agents",
     "touches": ["svc-agents", "packages/contracts", "customer: more"],
-    "depends": ["AG-spend-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AG-spend-01"]
   },
   {
     "id": "AG-sessions-02",
@@ -1149,11 +1153,12 @@
     "spec": "modules/agents/specs/agents-usage.md",
     "lane": "svc-agents",
     "touches": ["svc-agents", "packages/auth", "packages/ledger-client"],
-    "depends": ["AG-governance-01", "AG-spend-01"],
+    "depends": ["AG-spend-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["AG-governance-01"]
   },
   {
     "id": "AL-alerts-01",
@@ -1191,11 +1196,12 @@
     "spec": "modules/algo-dev/specs/algo-backtest.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-trade", "packages/connect-data-lake", "packages/contracts", "customer: more"],
-    "depends": ["AL-backtest-02", "AL-editor-01", "AL-limits-02", "AL-orders-01", "AL-orders-03"],
+    "depends": ["AL-limits-02", "AL-orders-03"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["AL-backtest-02", "AL-editor-01", "AL-orders-01"]
   },
   {
     "id": "AL-backtest-02",
@@ -1247,11 +1253,12 @@
     "spec": "modules/algo-dev/specs/algo-editor.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "customer: more", "customer: trade"],
-    "depends": ["AL-backtest-01", "AL-editor-02", "AL-library-01", "AL-lifecycle-01", "AL-order-01"],
+    "depends": ["AL-backtest-01", "AL-library-01", "AL-lifecycle-01", "AL-order-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AL-editor-02"]
   },
   {
     "id": "AL-editor-02",
@@ -1289,11 +1296,12 @@
     "spec": "modules/algo-dev/specs/algo-editor.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "customer: more"],
-    "depends": ["AL-order-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["AL-order-01"]
   },
   {
     "id": "AL-library-01",
@@ -1373,11 +1381,12 @@
     "spec": "modules/algo-dev/specs/algo-limits.md",
     "lane": "svc-quant",
     "touches": ["svc-quant"],
-    "depends": ["AL-backtest-01", "AL-editor-01", "AL-orders-01"],
+    "depends": ["AL-editor-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["AL-backtest-01", "AL-orders-01"]
   },
   {
     "id": "AL-live-01",
@@ -1387,11 +1396,12 @@
     "spec": "modules/algo-dev/specs/algo-live.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-trade", "packages/events", "customer: trade"],
-    "depends": ["AL-backtest-01", "AL-orders-01"],
+    "depends": ["AL-backtest-01"],
     "journeys": [],
     "outside": "`feed.market` (an outside market feed chosen for a run); our own venue data, run storage and the paper engine are built, never labelled not connected.",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AL-orders-01"]
   },
   {
     "id": "AL-live-02",
@@ -1480,11 +1490,12 @@
     "spec": "modules/algo-dev/specs/algo-optimise.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "packages/quant-honesty", "customer: more"],
-    "depends": ["AL-order-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["AL-order-01"]
   },
   {
     "id": "AL-optimise-02",
@@ -1494,11 +1505,12 @@
     "spec": "modules/algo-dev/specs/algo-optimise.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "packages/quant-honesty", "packages/connect-data-lake"],
-    "depends": ["AL-optimise-01", "AL-order-01"],
+    "depends": ["AL-optimise-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["AL-order-01"]
   },
   {
     "id": "AL-order-01",
@@ -1522,11 +1534,12 @@
     "spec": "modules/algo-dev/specs/algo-orders.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-matching", "svc-trade", "customer: trade"],
-    "depends": ["AL-backtest-01", "AL-editor-01", "AL-limits-02", "AL-live-01", "AL-orders-02", "AL-orders-03"],
+    "depends": ["AL-backtest-01", "AL-editor-01", "AL-limits-02", "AL-live-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AL-orders-02", "AL-orders-03"]
   },
   {
     "id": "AL-orders-02",
@@ -1536,11 +1549,12 @@
     "spec": "modules/algo-dev/specs/algo-orders.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-matching", "svc-trade"],
-    "depends": ["AL-editor-02", "AL-live-02", "AL-orders-01"],
+    "depends": ["AL-live-02", "AL-orders-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["AL-editor-02"]
   },
   {
     "id": "AL-orders-03",
@@ -1550,11 +1564,12 @@
     "spec": "modules/algo-dev/specs/algo-orders.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-trade", "packages/contracts", "customer: more"],
-    "depends": ["AL-backtest-01", "AL-live-02", "AL-orders-01", "AL-risk-01"],
+    "depends": ["AL-orders-01", "AL-risk-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AL-backtest-01", "AL-live-02"]
   },
   {
     "id": "AL-report-01",
@@ -1578,11 +1593,12 @@
     "spec": "modules/algo-dev/specs/algo-report.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "customer: more"],
-    "depends": ["AL-backtest-03", "AL-report-01"],
+    "depends": ["AL-report-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["AL-backtest-03"]
   },
   {
     "id": "AL-report-03",
@@ -1606,11 +1622,12 @@
     "spec": "modules/algo-dev/specs/algo-risk.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "svc-edge", "packages/config", "packages/contracts", "customer: more"],
-    "depends": ["AL-lifecycle-01", "AL-live-02", "AL-orders-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["AL-lifecycle-01", "AL-live-02", "AL-orders-03"]
   },
   {
     "id": "AL-risk-02",
@@ -1620,11 +1637,12 @@
     "spec": "modules/algo-dev/specs/algo-risk.md",
     "lane": "customer: more",
     "touches": ["packages/quant-honesty", "packages/contracts", "customer: more"],
-    "depends": ["AL-library-01", "AL-live-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["AL-library-01", "AL-live-02"]
   },
   {
     "id": "AL-team-01",
@@ -1648,11 +1666,12 @@
     "spec": "modules/algo-dev/specs/algo-tester.md",
     "lane": "svc-quant",
     "touches": ["svc-quant", "packages/connect-data-lake", "customer: more"],
-    "depends": ["AL-order-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["AL-order-01"]
   },
   {
     "id": "LOAN-01",
@@ -1744,7 +1763,7 @@
     "module": "bank",
     "group": "LOAN-SLICES",
     "spec": "modules/bank/specs/LOAN-SLICES.md",
-    "lane": "unplaced",
+    "lane": "svc-bank",
     "touches": [],
     "depends": [],
     "journeys": [],
@@ -2012,11 +2031,12 @@
     "spec": "modules/bank/specs/bank-business-expenses.md",
     "lane": "svc-bank",
     "touches": ["svc-bank"],
-    "depends": ["BK-bexp-04"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["BK-bexp-04"]
   },
   {
     "id": "BK-bexp-04",
@@ -2082,11 +2102,12 @@
     "spec": "modules/bank/specs/bank-business-team.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["BK-biz-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["BK-biz-03"]
   },
   {
     "id": "BK-biz-02",
@@ -2138,11 +2159,12 @@
     "spec": "modules/bank/specs/bank-cards-controls.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["BK-cctl-02", "BK-cops-03"],
+    "depends": ["BK-cops-03"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["BK-cctl-02"]
   },
   {
     "id": "BK-cctl-02",
@@ -2180,11 +2202,12 @@
     "spec": "modules/bank/specs/bank-cards-controls.md",
     "lane": "svc-bank",
     "touches": ["svc-bank"],
-    "depends": ["BK-cissue-04", "BK-cops-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["BK-cissue-04", "BK-cops-02"]
   },
   {
     "id": "BK-cdisp-01",
@@ -2194,11 +2217,12 @@
     "spec": "modules/bank/specs/bank-cards-disputes.md",
     "lane": "svc-bank",
     "touches": ["svc-bank"],
-    "depends": ["BK-cdisp-02", "BK-cdisp-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["BK-cdisp-02", "BK-cdisp-03"]
   },
   {
     "id": "BK-cdisp-02",
@@ -2208,11 +2232,12 @@
     "spec": "modules/bank/specs/bank-cards-disputes.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": ["BK-cdisp-01", "BK-cdisp-03", "BK-cops-06"],
+    "depends": ["BK-cdisp-01", "BK-cops-06"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["BK-cdisp-03"]
   },
   {
     "id": "BK-cdisp-03",
@@ -2292,11 +2317,12 @@
     "spec": "modules/bank/specs/bank-cards-ops.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money", "admin: ops-actions", "admin: ops-desk"],
-    "depends": ["BK-cops-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["BK-cops-02"]
   },
   {
     "id": "BK-cops-02",
@@ -2306,11 +2332,12 @@
     "spec": "modules/bank/specs/bank-cards-ops.md",
     "lane": "svc-bank",
     "touches": ["svc-bank"],
-    "depends": ["BK-cctl-04", "BK-cops-01", "BK-cpay-01"],
+    "depends": ["BK-cctl-04", "BK-cops-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["BK-cpay-01"]
   },
   {
     "id": "BK-cops-03",
@@ -2334,11 +2361,12 @@
     "spec": "modules/bank/specs/bank-cards-ops.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client"],
-    "depends": ["BK-cops-05"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["BK-cops-05"]
   },
   {
     "id": "BK-cops-05",
@@ -2446,11 +2474,12 @@
     "spec": "modules/bank/specs/bank-earn.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-edge", "packages/contracts", "customer: money"],
-    "depends": ["BK-earn-04"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["BK-earn-04"]
   },
   {
     "id": "BK-earn-02",
@@ -2460,11 +2489,12 @@
     "spec": "modules/bank/specs/bank-earn.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": ["BK-earn-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["BK-earn-03"]
   },
   {
     "id": "BK-earn-03",
@@ -2782,11 +2812,12 @@
     "spec": "modules/bank/specs/bank-transfers.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-identity", "customer: money", "customer: pay"],
-    "depends": ["BK-xfer-02", "BK-xfer-08"],
+    "depends": [],
     "journeys": ["bank-fund-trade-withdraw", "merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["BK-xfer-02", "BK-xfer-08"]
   },
   {
     "id": "BK-xfer-02",
@@ -3118,11 +3149,12 @@
     "spec": "modules/campaigns/specs/campaigns-eligibility-rules.md",
     "lane": "customer shell",
     "touches": [],
-    "depends": ["CM-eligibility-rules-03", "CM-payouts-ledger-02", "CM-vouchers-coupons-01"],
+    "depends": ["CM-eligibility-rules-03", "CM-payouts-ledger-02"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["CM-vouchers-coupons-01"]
   },
   {
     "id": "CM-payouts-ledger-01",
@@ -3510,11 +3542,12 @@
     "spec": "modules/cex-spot/specs/spot-convert-buy.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-trade", "packages/contracts", "customer: trade"],
-    "depends": ["SP-convert-buy-01", "SP-fees-vip-04", "SP-order-entry-01"],
+    "depends": ["SP-convert-buy-01", "SP-order-entry-01"],
     "journeys": ["trader"],
     "outside": "`rail.card` (card method), `rail.bank` (bank leg, only where the bank rail is not configured)",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["SP-fees-vip-04"]
   },
   {
     "id": "SP-desk-account-01",
@@ -3552,11 +3585,12 @@
     "spec": "modules/cex-spot/specs/spot-developer-status.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "svc-notify", "customer: public", "customer: trade", "admin: trade-ops"],
-    "depends": ["SP-developer-status-02", "SP-ops-01"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["SP-developer-status-02", "SP-ops-01"]
   },
   {
     "id": "SP-developer-status-02",
@@ -3594,11 +3628,12 @@
     "spec": "modules/cex-spot/specs/spot-fees-vip.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "packages/ledger-client", "admin: trade-ops"],
-    "depends": ["SP-fees-vip-03", "SP-ops-02"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["SP-fees-vip-03", "SP-ops-02"]
   },
   {
     "id": "SP-fees-vip-02",
@@ -3706,11 +3741,12 @@
     "spec": "modules/cex-spot/specs/spot-markets-data.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "svc-matching", "svc-notify", "admin: trade-ops", "customer: more", "customer: trade"],
-    "depends": ["SP-developer-status-01", "SP-ops-01"],
+    "depends": ["SP-developer-status-01"],
     "journeys": ["trader"],
     "outside": "`owner.decision` for the listing approval where the owner has not yet decided a listing, named on the record. No outside vendor.",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["SP-ops-01"]
   },
   {
     "id": "SP-markets-data-03",
@@ -3748,11 +3784,12 @@
     "spec": "modules/cex-spot/specs/spot-ops.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "admin: trade-ops"],
-    "depends": ["SP-developer-status-01", "SP-markets-data-02", "SP-ops-03"],
+    "depends": ["SP-developer-status-01", "SP-markets-data-02"],
     "journeys": ["trader"],
     "outside": "`owner.decision` only where an owner rule (for example the mass cancel scope) is not yet published; the blocker names it. No outside vendor.",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["SP-ops-03"]
   },
   {
     "id": "SP-ops-02",
@@ -3900,7 +3937,7 @@
     "module": "cex-spot",
     "group": "spot-order",
     "spec": "modules/cex-spot/specs/spot-order.md",
-    "lane": "unplaced",
+    "lane": "acceptance (Polish)",
     "touches": [],
     "depends": [],
     "journeys": ["trader"],
@@ -3916,11 +3953,12 @@
     "spec": "modules/charts-desk/specs/charts-alerts-scan.md",
     "lane": "svc-notify",
     "touches": ["svc-notify", "svc-ws", "customer: notifications", "customer: trade"],
-    "depends": ["C-alerts-scan-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["C-alerts-scan-02"]
   },
   {
     "id": "C-alerts-scan-02",
@@ -3944,11 +3982,12 @@
     "spec": "modules/charts-desk/specs/charts-alerts-scan.md",
     "lane": "svc-notify",
     "touches": ["svc-notify"],
-    "depends": ["C-alerts-scan-01", "C-ops-01"],
+    "depends": ["C-alerts-scan-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 4
+    "families": 4,
+    "later": ["C-ops-01"]
   },
   {
     "id": "C-alerts-scan-04",
@@ -4028,11 +4067,12 @@
     "spec": "modules/charts-desk/specs/charts-chart-core.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "svc-ws", "customer: trade", "customer: charts"],
-    "depends": ["C-chart-core-03", "C-chart-core-05"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["C-chart-core-03", "C-chart-core-05"]
   },
   {
     "id": "C-chart-core-02",
@@ -4098,11 +4138,12 @@
     "spec": "modules/charts-desk/specs/charts-drawings-indicators.md",
     "lane": "customer: trade",
     "touches": ["customer: trade"],
-    "depends": ["C-chart-core-01", "C-drawings-indicators-02"],
+    "depends": ["C-chart-core-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["C-drawings-indicators-02"]
   },
   {
     "id": "C-drawings-indicators-02",
@@ -4196,11 +4237,12 @@
     "spec": "modules/charts-desk/specs/charts-drawings-indicators.md",
     "lane": "svc-support",
     "touches": ["svc-support", "customer: trade"],
-    "depends": ["C-drawings-indicators-05", "C-drawings-indicators-09"],
+    "depends": ["C-drawings-indicators-05"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["C-drawings-indicators-09"]
   },
   {
     "id": "C-drawings-indicators-09",
@@ -4238,11 +4280,12 @@
     "spec": "modules/charts-desk/specs/charts-embed-feed-ops.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "svc-ws", "customer: trade"],
-    "depends": ["C-chart-core-01", "C-ops-02"],
+    "depends": ["C-chart-core-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 4
+    "families": 4,
+    "later": ["C-ops-02"]
   },
   {
     "id": "C-embed-feed-ops-03",
@@ -4336,11 +4379,12 @@
     "spec": "modules/charts-desk/specs/charts-trade-dom.md",
     "lane": "svc-matching",
     "touches": ["svc-matching", "svc-trade", "packages/exchange-contract", "packages/contracts", "customer: trade"],
-    "depends": ["C-trade-dom-01", "C-trade-dom-03", "C-trade-dom-05"],
+    "depends": ["C-trade-dom-01", "C-trade-dom-05"],
     "journeys": ["trader"],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["C-trade-dom-03"]
   },
   {
     "id": "C-trade-dom-03",
@@ -4392,11 +4436,12 @@
     "spec": "modules/charts-desk/specs/charts-workspace.md",
     "lane": "customer: trade",
     "touches": ["customer: trade"],
-    "depends": ["C-chart-core-01", "C-workspace-02"],
+    "depends": ["C-chart-core-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["C-workspace-02"]
   },
   {
     "id": "C-workspace-02",
@@ -4434,11 +4479,12 @@
     "spec": "modules/charts-desk/specs/charts-workspace.md",
     "lane": "customer: trade",
     "touches": ["customer: trade"],
-    "depends": ["C-chart-core-01", "C-drawings-indicators-05", "C-workspace-05"],
+    "depends": ["C-chart-core-01", "C-drawings-indicators-05"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["C-workspace-05"]
   },
   {
     "id": "C-workspace-05",
@@ -4460,7 +4506,7 @@
     "module": "copy-bots-otc",
     "group": "copy-bots-api-signal",
     "spec": "modules/copy-bots-otc/specs/copy-bots-api-signal.md",
-    "lane": "svc-edge",
+    "lane": "svc-trade spot",
     "touches": ["svc-edge", "svc-trade", "customer: trade"],
     "depends": [],
     "journeys": [],
@@ -4644,11 +4690,12 @@
     "spec": "modules/copy-bots-otc/specs/copy-bots.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "customer: trade"],
-    "depends": ["CB-bots-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["CB-bots-03"]
   },
   {
     "id": "CB-bots-03",
@@ -5134,11 +5181,12 @@
     "spec": "modules/copy-bots-otc/specs/copy-copy.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "svc-agents", "customer: trade"],
-    "depends": ["CB-copy-01", "CB-copy-17"],
+    "depends": ["CB-copy-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["CB-copy-17"]
   },
   {
     "id": "CB-copy-03",
@@ -6240,11 +6288,12 @@
     "spec": "modules/derivatives/specs/deriv-instruments.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade"],
-    "depends": ["D-ops-05", "D-orders-11"],
+    "depends": [],
     "journeys": [],
     "outside": "`owner.decision` (named: the futures payout model, which account pays winners, PR #5016)",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["D-ops-05", "D-orders-11"]
   },
   {
     "id": "D-instruments-05",
@@ -6268,11 +6317,12 @@
     "spec": "modules/derivatives/specs/deriv-instruments.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade", "svc-matching", "customer: trade"],
-    "depends": ["D-instruments-07", "D-orders-11"],
+    "depends": ["D-orders-11"],
     "journeys": [],
     "outside": "`feed.market` (named: the options quote feed)",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["D-instruments-07"]
   },
   {
     "id": "D-instruments-07",
@@ -6338,11 +6388,12 @@
     "spec": "modules/derivatives/specs/deriv-margin.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade", "customer: trade"],
-    "depends": ["D-instruments-01", "D-orders-09"],
+    "depends": ["D-instruments-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["D-orders-09"]
   },
   {
     "id": "D-margin-04",
@@ -6394,11 +6445,12 @@
     "spec": "modules/derivatives/specs/deriv-margin.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade", "packages/ledger-client"],
-    "depends": ["D-margin-08"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["D-margin-08"]
   },
   {
     "id": "D-margin-08",
@@ -6422,11 +6474,12 @@
     "spec": "modules/derivatives/specs/deriv-margin.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-ledger", "svc-trade", "packages/ledger-client", "packages/contracts", "customer: trade"],
-    "depends": ["D-margin-10", "D-margin-11"],
+    "depends": [],
     "journeys": [],
     "outside": "`owner.decision` (the margin lending source and rate table)",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["D-margin-10", "D-margin-11"]
   },
   {
     "id": "D-margin-10",
@@ -6590,11 +6643,12 @@
     "spec": "modules/derivatives/specs/deriv-orders.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade", "customer: trade"],
-    "depends": ["D-orders-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 5
+    "families": 5,
+    "later": ["D-orders-02"]
   },
   {
     "id": "D-orders-02",
@@ -6604,11 +6658,12 @@
     "spec": "modules/derivatives/specs/deriv-orders.md",
     "lane": "svc-trade futures",
     "touches": ["svc-trade", "svc-ws", "svc-matching", "customer: trade"],
-    "depends": ["D-orders-01", "D-orders-03"],
+    "depends": ["D-orders-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["D-orders-03"]
   },
   {
     "id": "D-orders-03",
@@ -6968,11 +7023,12 @@
     "spec": "modules/developer/specs/developer-oauth.md",
     "lane": "customer shell",
     "touches": ["packages/auth"],
-    "depends": ["DV-oauth-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["DV-oauth-02"]
   },
   {
     "id": "DV-oauth-02",
@@ -7573,11 +7629,12 @@
     "spec": "modules/dex-protocol/specs/dex-launch-listing.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "packages/contracts", "customer: protocol", "admin: protocol-desk"],
-    "depends": ["D-developer-compliance-01", "D-launch-listing-03", "D-portfolio-wallet-01"],
+    "depends": ["D-developer-compliance-01", "D-portfolio-wallet-01"],
     "journeys": [],
     "outside": "`owner.decision` (review terms), `audit.external` (mainnet only)",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["D-launch-listing-03"]
   },
   {
     "id": "D-launch-listing-02",
@@ -7699,11 +7756,12 @@
     "spec": "modules/dex-protocol/specs/dex-lend-earn.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "customer: protocol"],
-    "depends": ["D-lend-earn-02", "D-portfolio-wallet-01"],
+    "depends": ["D-portfolio-wallet-01"],
     "journeys": [],
     "outside": "`rail.crypto`",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["D-lend-earn-02"]
   },
   {
     "id": "D-lend-earn-02",
@@ -7811,11 +7869,12 @@
     "spec": "modules/dex-protocol/specs/dex-limit-dca.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "svc-dex", "packages/contracts"],
-    "depends": ["D-portfolio-wallet-01", "D-swap-intents-01"],
+    "depends": ["D-swap-intents-01"],
     "journeys": [],
     "outside": "`rail.crypto` (node env absent)",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["D-portfolio-wallet-01"]
   },
   {
     "id": "D-limit-dca-02",
@@ -7965,11 +8024,12 @@
     "spec": "modules/dex-protocol/specs/dex-liquidity.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "customer: protocol"],
-    "depends": ["D-liquidity-01", "D-liquidity-02", "D-swap-intents-02"],
+    "depends": ["D-liquidity-01", "D-liquidity-02"],
     "journeys": [],
     "outside": "`owner.decision` (pool design), `rail.crypto`",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["D-swap-intents-02"]
   },
   {
     "id": "D-liquidity-06",
@@ -8077,11 +8137,12 @@
     "spec": "modules/dex-protocol/specs/dex-order-controls.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "packages/contracts", "admin: ops-desk", "admin: protocol-blockers", "admin: protocol-desk"],
-    "depends": ["D-liquidity-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["D-liquidity-03"]
   },
   {
     "id": "D-perps-01",
@@ -8329,11 +8390,12 @@
     "spec": "modules/dex-protocol/specs/dex-swap-intents.md",
     "lane": "svc-matching",
     "touches": ["svc-matching", "svc-dex", "packages/contracts", "packages/events", "admin: ops-desk", "admin: protocol-desk"],
-    "depends": ["D-order-controls-04", "D-swap-08", "D-swap-intents-04"],
+    "depends": ["D-order-controls-04", "D-swap-08"],
     "journeys": [],
     "outside": "`vendor.email` (notice rail), `owner.decision` (rules unpublished)",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["D-swap-intents-04"]
   },
   {
     "id": "D-swap-intents-04",
@@ -8469,11 +8531,12 @@
     "spec": "modules/dex-protocol/specs/dex-swap.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "svc-matching", "svc-dex", "packages/contracts", "customer: trade"],
-    "depends": ["D-swap-09", "D-swap-intents-03"],
+    "depends": ["D-swap-09"],
     "journeys": [],
     "outside": "`rail.crypto`",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["D-swap-intents-03"]
   },
   {
     "id": "D-swap-09",
@@ -8483,11 +8546,12 @@
     "spec": "modules/dex-protocol/specs/dex-swap.md",
     "lane": "svc-protocol",
     "touches": ["svc-protocol", "svc-dex", "packages/contracts", "packages/events"],
-    "depends": ["D-portfolio-wallet-01", "D-swap-intents-01", "D-swap-intents-04"],
+    "depends": ["D-portfolio-wallet-01", "D-swap-intents-01"],
     "journeys": [],
     "outside": "`rail.crypto`",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["D-swap-intents-04"]
   },
   {
     "id": "D-swap-10",
@@ -8511,11 +8575,12 @@
     "spec": "modules/dex-protocol/specs/dex-swap.md",
     "lane": "svc-indexer",
     "touches": ["svc-indexer", "svc-protocol", "packages/market-data"],
-    "depends": ["D-explorer-05"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["D-explorer-05"]
   },
   {
     "id": "D-swap-12",
@@ -8539,11 +8604,12 @@
     "spec": "modules/home-ia/specs/home-dashboard.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/contracts", "packages/ledger-client", "customer: home", "customer: money"],
-    "depends": ["HM-navigation-05"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["HM-navigation-05"]
   },
   {
     "id": "HM-dashboard-02",
@@ -8645,11 +8711,12 @@
       "customer: trade",
       "customer: notifications"
     ],
-    "depends": ["HM-navigation-05"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["HM-navigation-05"]
   },
   {
     "id": "HM-navigation-02",
@@ -8659,11 +8726,12 @@
     "spec": "modules/home-ia/specs/home-navigation.md",
     "lane": "customer shell",
     "touches": [],
-    "depends": ["HM-navigation-03"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["HM-navigation-03"]
   },
   {
     "id": "HM-navigation-03",
@@ -8673,11 +8741,12 @@
     "spec": "modules/home-ia/specs/home-navigation.md",
     "lane": "customer: more",
     "touches": ["customer: more", "customer: protocol"],
-    "depends": ["HM-navigation-02", "HM-shell-01"],
+    "depends": ["HM-navigation-02"],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["HM-shell-01"]
   },
   {
     "id": "HM-navigation-04",
@@ -8757,11 +8826,12 @@
     "spec": "modules/home-ia/specs/home-shell.md",
     "lane": "customer: account",
     "touches": ["packages/ui", "customer: account"],
-    "depends": ["HM-navigation-05"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["HM-navigation-05"]
   },
   {
     "id": "HM-shell-03",
@@ -8785,11 +8855,12 @@
     "spec": "modules/home-ia/specs/home-widgets.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "customer: home"],
-    "depends": ["HM-dashboard-01", "HM-navigation-05"],
+    "depends": ["HM-dashboard-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["HM-navigation-05"]
   },
   {
     "id": "HM-widgets-02",
@@ -8953,11 +9024,12 @@
     "spec": "modules/identity/specs/identity-account-lifecycle.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "admin: account-controls"],
-    "depends": ["I-account-lifecycle-01", "I-account-lifecycle-11"],
+    "depends": ["I-account-lifecycle-01"],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["I-account-lifecycle-11"]
   },
   {
     "id": "I-account-lifecycle-11",
@@ -9471,11 +9543,12 @@
     "spec": "modules/identity/specs/identity-signin-sessions.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "admin: account-controls"],
-    "depends": ["I-signin-sessions-05", "I-signin-sessions-08"],
+    "depends": ["I-signin-sessions-05"],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["I-signin-sessions-08"]
   },
   {
     "id": "I-signin-sessions-07",
@@ -9541,11 +9614,12 @@
     "spec": "modules/identity/specs/identity-signin-sessions.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "customer: account"],
-    "depends": ["I-signin-sessions-01", "I-signin-sessions-14"],
+    "depends": ["I-signin-sessions-01"],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
-    "families": 3
+    "families": 3,
+    "later": ["I-signin-sessions-14"]
   },
   {
     "id": "I-signin-sessions-12",
@@ -9555,11 +9629,12 @@
     "spec": "modules/identity/specs/identity-signin-sessions.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "customer: account"],
-    "depends": ["I-signin-sessions-01", "I-signin-sessions-03", "I-signin-sessions-08", "I-signin-sessions-16"],
+    "depends": ["I-signin-sessions-01", "I-signin-sessions-03", "I-signin-sessions-08"],
     "journeys": ["trader"],
     "outside": "`vendor.email` (code delivery)",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["I-signin-sessions-16"]
   },
   {
     "id": "I-signin-sessions-13",
@@ -11011,11 +11086,12 @@
     "spec": "modules/merchant/specs/merchant-adv-payments-core.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "customer: pay"],
-    "depends": ["M-adv-disputes-risk-07"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-adv-disputes-risk-07"]
   },
   {
     "id": "M-adv-payments-core-19",
@@ -11067,11 +11143,12 @@
     "spec": "modules/merchant/specs/merchant-adv-phantom-order.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "customer: pay"],
-    "depends": ["M-adv-phantom-order-05", "M-plat-org-01", "M-plat-org-03"],
+    "depends": ["M-plat-org-01", "M-plat-org-03"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-adv-phantom-order-05"]
   },
   {
     "id": "M-adv-phantom-order-02",
@@ -11523,11 +11600,12 @@
     "spec": "modules/more-catalogue/specs/catalogue-market.md",
     "lane": "svc-market",
     "touches": ["svc-market", "packages/contracts", "customer: more"],
-    "depends": ["MC-market-02", "MC-order-01"],
+    "depends": ["MC-order-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["MC-market-02"]
   },
   {
     "id": "MC-market-02",
@@ -11663,11 +11741,12 @@
     "spec": "modules/more-catalogue/specs/catalogue-predict.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "packages/contracts", "customer: more"],
-    "depends": ["MC-order-01", "MC-predict-02"],
+    "depends": ["MC-order-01"],
     "journeys": [],
     "outside": "`chain.go` (shown as the room blocker until a GO is recorded) and `owner.decision` (publish with no recorded rule)",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["MC-predict-02"]
   },
   {
     "id": "MC-predict-02",
@@ -11691,11 +11770,12 @@
     "spec": "modules/more-catalogue/specs/catalogue-predict.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "packages/ledger-client", "packages/events", "customer: more"],
-    "depends": ["MC-order-01", "MC-predict-01", "MC-predict-02", "MC-predict-07"],
+    "depends": ["MC-order-01", "MC-predict-01", "MC-predict-02"],
     "journeys": [],
     "outside": "`chain.go` (Review while no GO is recorded) and `owner.decision` (an undecided outcome rule)",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["MC-predict-07"]
   },
   {
     "id": "MC-predict-04",
@@ -11761,11 +11841,12 @@
     "spec": "modules/more-catalogue/specs/catalogue-token.md",
     "lane": "svc-token",
     "touches": ["svc-token", "packages/contracts", "customer: more", "admin: ops-desk"],
-    "depends": ["MC-order-01", "MC-token-02", "MC-token-03"],
+    "depends": ["MC-order-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["MC-token-02", "MC-token-03"]
   },
   {
     "id": "MC-token-02",
@@ -11845,11 +11926,12 @@
     "spec": "modules/ops-console/specs/ops-accounts-desk.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client"],
-    "depends": ["OPS-accounts-desk-02", "OPS-payments-desk-03"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "`rail.bank` for a mailed cheque; `owner.decision` for the loss-cover account.",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["OPS-accounts-desk-02", "OPS-payments-desk-03"]
   },
   {
     "id": "OPS-accounts-desk-02",
@@ -11899,7 +11981,7 @@
     "module": "ops-console",
     "group": "ops-admin-access",
     "spec": "modules/ops-console/specs/ops-admin-access.md",
-    "lane": "unplaced",
+    "lane": "svc-ops",
     "touches": ["packages/config"],
     "depends": ["OPS-admin-access-03"],
     "journeys": [],
@@ -11923,11 +12005,12 @@
       "admin: ops-actions",
       "admin: modules"
     ],
-    "depends": ["OPS-admin-access-04", "OPS-change-control-01"],
+    "depends": ["OPS-change-control-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 5
+    "families": 5,
+    "later": ["OPS-admin-access-04"]
   },
   {
     "id": "OPS-admin-access-04",
@@ -12056,7 +12139,7 @@
     "module": "ops-console",
     "group": "ops-cases",
     "spec": "modules/ops-console/specs/ops-cases.md",
-    "lane": "svc-edge",
+    "lane": "svc-ops",
     "touches": ["svc-edge", "packages/config", "admin: compliance-live", "admin: compliance"],
     "depends": [],
     "journeys": [],
@@ -12254,11 +12337,12 @@
     "spec": "modules/ops-console/specs/ops-dashboards.md",
     "lane": "admin: merchants",
     "touches": ["admin: merchants", "admin: founder-ops", "admin: trade-ops"],
-    "depends": ["OPS-dashboards-02"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["OPS-dashboards-02"]
   },
   {
     "id": "OPS-dashboards-02",
@@ -12350,7 +12434,7 @@
     "module": "ops-console",
     "group": "ops-launch-flags",
     "spec": "modules/ops-console/specs/ops-launch-flags.md",
-    "lane": "unplaced",
+    "lane": "svc-ops",
     "touches": ["packages/config"],
     "depends": ["OPS-launch-flags-01"],
     "journeys": [],
@@ -12408,11 +12492,12 @@
     "spec": "modules/ops-console/specs/ops-ledger-desk.md",
     "lane": "ledger",
     "touches": ["svc-ledger", "admin: ledger-ops"],
-    "depends": ["OPS-ledger-desk-02"],
+    "depends": [],
     "journeys": ["trader"],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["OPS-ledger-desk-02"]
   },
   {
     "id": "OPS-ledger-desk-02",
@@ -12436,11 +12521,12 @@
     "spec": "modules/ops-console/specs/ops-ledger-desk.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "svc-bank", "packages/ledger-client", "admin: operator-tools-catalog", "admin: ops-desk"],
-    "depends": ["OPS-accounts-desk-01", "OPS-ledger-desk-02", "OPS-payments-desk-03"],
+    "depends": ["OPS-accounts-desk-01", "OPS-ledger-desk-02"],
     "journeys": ["trader"],
     "outside": "`rail.bank` and `rail.crypto` are the only codes: a deposit arrives only from a configured rail; with no rail the queue is empty and says so. The queue and attr",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["OPS-payments-desk-03"]
   },
   {
     "id": "OPS-ledger-desk-04",
@@ -12576,11 +12662,12 @@
     "spec": "modules/ops-console/specs/ops-payments-desk.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "admin: ops-desk"],
-    "depends": ["OPS-payments-desk-03", "OPS-reconciliation-01"],
+    "depends": ["OPS-payments-desk-03"],
     "journeys": [],
     "outside": "`rail.bank`: provider balance pulls and the capability probe refuse with this code until a partner is connected. The desk, pools and settings are built.",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["OPS-reconciliation-01"]
   },
   {
     "id": "OPS-payments-desk-03",
@@ -12627,11 +12714,12 @@
     "spec": "modules/ops-console/specs/ops-reconciliation.md",
     "lane": "ledger",
     "touches": ["svc-ledger", "admin: ledger-ops"],
-    "depends": ["OPS-payments-desk-02", "OPS-reconciliation-02"],
+    "depends": ["OPS-payments-desk-02"],
     "journeys": [],
     "outside": "`rail.bank` only for the outside-balance template when no partner snapshot exists; the control can still be defined and run, and the outside side shows 'unset'.",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["OPS-reconciliation-02"]
   },
   {
     "id": "OPS-reconciliation-02",
@@ -12655,11 +12743,12 @@
     "spec": "modules/ops-console/specs/ops-reconciliation.md",
     "lane": "svc-ops",
     "touches": ["svc-ledger", "svc-ops"],
-    "depends": ["OPS-reconciliation-01", "OPS-reconciliation-04"],
+    "depends": ["OPS-reconciliation-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["OPS-reconciliation-04"]
   },
   {
     "id": "OPS-reconciliation-04",
@@ -12793,7 +12882,7 @@
     "module": "ops-console",
     "group": "ops-rules-monitoring",
     "spec": "modules/ops-console/specs/ops-rules-monitoring.md",
-    "lane": "unplaced",
+    "lane": "svc-ops",
     "touches": ["packages/config"],
     "depends": ["OPS-cases-08", "OPS-rules-monitoring-05"],
     "journeys": [],
@@ -12905,7 +12994,7 @@
     "module": "ops-console",
     "group": "ops-screening",
     "spec": "modules/ops-console/specs/ops-screening.md",
-    "lane": "unplaced",
+    "lane": "svc-ops",
     "touches": ["packages/config"],
     "depends": ["OPS-cases-01", "OPS-screening-02"],
     "journeys": ["trader"],
@@ -12921,11 +13010,12 @@
     "spec": "modules/ops-console/specs/ops-service-health.md",
     "lane": "admin: module-state-inspector",
     "touches": ["admin: module-state-inspector", "admin: ops-desk", "admin: trade-ops"],
-    "depends": ["OPS-dashboards-01", "OPS-service-health-02"],
+    "depends": ["OPS-dashboards-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["OPS-service-health-02"]
   },
   {
     "id": "OPS-service-health-02",
@@ -13005,11 +13095,12 @@
     "spec": "modules/p2p/specs/p2p-ads-merchant.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "customer: pay"],
-    "depends": ["P-ads-merchant-04", "P-ads-merchant-19", "P-order-03"],
+    "depends": ["P-ads-merchant-19", "P-order-03"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["P-ads-merchant-04"]
   },
   {
     "id": "P-ads-merchant-02",
@@ -13187,11 +13278,12 @@
     "spec": "modules/p2p/specs/p2p-ads-merchant.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "customer: pay"],
-    "depends": ["P-ads-merchant-12", "P-disputes-security-04"],
+    "depends": ["P-ads-merchant-12"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["P-disputes-security-04"]
   },
   {
     "id": "P-ads-merchant-15",
@@ -13243,11 +13335,12 @@
     "spec": "modules/p2p/specs/p2p-ads-merchant.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "customer: pay"],
-    "depends": ["P-order-03", "P-trade-orders-07"],
+    "depends": ["P-trade-orders-07"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["P-order-03"]
   },
   {
     "id": "P-ads-merchant-19",
@@ -13495,11 +13588,12 @@
     "spec": "modules/p2p/specs/p2p-disputes-security.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p"],
-    "depends": ["P-ads-merchant-17"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["P-ads-merchant-17"]
   },
   {
     "id": "P-disputes-security-14",
@@ -13579,11 +13673,12 @@
     "spec": "modules/p2p/specs/p2p-order.md",
     "lane": "admin: ops-desk",
     "touches": ["admin: ops-desk"],
-    "depends": ["P-disputes-security-06", "P-order-02", "P-trade-orders-12"],
+    "depends": ["P-disputes-security-06", "P-trade-orders-12"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["P-order-02"]
   },
   {
     "id": "P-order-02",
@@ -13607,11 +13702,12 @@
     "spec": "modules/p2p/specs/p2p-order.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "customer: pay"],
-    "depends": ["P-ads-merchant-01", "P-ads-merchant-18"],
+    "depends": ["P-ads-merchant-18"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["P-ads-merchant-01"]
   },
   {
     "id": "P-trade-orders-01",
@@ -13775,11 +13871,12 @@
     "spec": "modules/p2p/specs/p2p-trade-orders.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "packages/ledger-client", "customer: pay"],
-    "depends": ["P-order-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["P-order-01"]
   },
   {
     "id": "P-trade-orders-13",
@@ -13845,11 +13942,12 @@
     "spec": "modules/p2p/specs/p2p-trade-orders.md",
     "lane": "svc-p2p",
     "touches": ["svc-p2p", "customer: pay"],
-    "depends": ["P-disputes-security-04"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["P-disputes-security-04"]
   },
   {
     "id": "P-trade-orders-18",
@@ -13943,11 +14041,12 @@
     "spec": "modules/pay/specs/pay-disputes-safety.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["PP-disputes-safety-03", "PP-send-request-02"],
+    "depends": ["PP-send-request-02"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-disputes-safety-03"]
   },
   {
     "id": "PP-disputes-safety-02",
@@ -14027,11 +14126,12 @@
     "spec": "modules/pay/specs/pay-disputes-safety.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": ["PP-disputes-safety-08", "PP-money-balance-02"],
+    "depends": ["PP-disputes-safety-08"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-money-balance-02"]
   },
   {
     "id": "PP-disputes-safety-08",
@@ -14041,11 +14141,12 @@
     "spec": "modules/pay/specs/pay-disputes-safety.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": ["PP-disputes-safety-01", "PP-order-01"],
+    "depends": ["PP-disputes-safety-01"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-order-01"]
   },
   {
     "id": "PP-disputes-safety-09",
@@ -14055,11 +14156,12 @@
     "spec": "modules/pay/specs/pay-disputes-safety.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: pay"],
-    "depends": ["PP-disputes-safety-01", "PP-send-request-02"],
+    "depends": ["PP-disputes-safety-01"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["PP-send-request-02"]
   },
   {
     "id": "PP-disputes-safety-10",
@@ -14069,11 +14171,12 @@
     "spec": "modules/pay/specs/pay-disputes-safety.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client", "customer: money"],
-    "depends": ["PP-send-request-01", "PP-send-request-05"],
+    "depends": ["PP-send-request-01"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-send-request-05"]
   },
   {
     "id": "PP-disputes-safety-11",
@@ -14167,11 +14270,12 @@
     "spec": "modules/pay/specs/pay-money-balance.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/contracts", "customer: money"],
-    "depends": ["PP-send-request-07"],
+    "depends": [],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["PP-send-request-07"]
   },
   {
     "id": "PP-money-balance-05",
@@ -14181,11 +14285,12 @@
     "spec": "modules/pay/specs/pay-money-balance.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client", "customer: money"],
-    "depends": ["PP-order-01"],
+    "depends": [],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["PP-order-01"]
   },
   {
     "id": "PP-order-01",
@@ -14237,11 +14342,12 @@
     "spec": "modules/pay/specs/pay-send-request.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-identity", "customer: pay"],
-    "depends": ["PP-send-request-07", "PP-send-request-08"],
+    "depends": ["PP-send-request-07"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-send-request-08"]
   },
   {
     "id": "PP-send-request-02",
@@ -14447,11 +14553,12 @@
     "spec": "modules/pay/specs/pay-send-request.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: pay"],
-    "depends": ["PP-send-request-04", "PP-send-request-17"],
+    "depends": ["PP-send-request-04"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["PP-send-request-17"]
   },
   {
     "id": "PP-send-request-17",
@@ -14629,11 +14736,12 @@
     "spec": "modules/portfolio/specs/portfolio-balances.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client", "customer: money", "admin: ledger-ops"],
-    "depends": ["PF-ops-01"],
+    "depends": [],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["PF-ops-01"]
   },
   {
     "id": "PF-balances-02",
@@ -14643,11 +14751,12 @@
     "spec": "modules/portfolio/specs/portfolio-balances.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["PF-overview-02"],
+    "depends": [],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["PF-overview-02"]
   },
   {
     "id": "PF-balances-03",
@@ -14671,11 +14780,12 @@
     "spec": "modules/portfolio/specs/portfolio-cost-basis.md",
     "lane": "svc-tax",
     "touches": ["svc-tax", "svc-ledger", "packages/ledger-client"],
-    "depends": ["PF-overview-01"],
+    "depends": [],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["PF-overview-01"]
   },
   {
     "id": "PF-cost-basis-02",
@@ -14685,11 +14795,12 @@
     "spec": "modules/portfolio/specs/portfolio-cost-basis.md",
     "lane": "svc-tax",
     "touches": ["svc-tax", "svc-bank", "svc-trade"],
-    "depends": ["PF-cost-basis-01", "PF-overview-02"],
+    "depends": ["PF-cost-basis-01"],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["PF-overview-02"]
   },
   {
     "id": "PF-cost-basis-03",
@@ -14769,11 +14880,12 @@
     "spec": "modules/portfolio/specs/portfolio-overview.md",
     "lane": "svc-bank",
     "touches": ["svc-ledger", "svc-bank", "svc-trade", "packages/ledger-client", "customer: money", "customer: coin"],
-    "depends": ["PF-balances-02", "PF-cost-basis-02", "PF-performance-03", "PF-statements-01"],
+    "depends": ["PF-balances-02", "PF-cost-basis-02", "PF-statements-01"],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["PF-performance-03"]
   },
   {
     "id": "PF-overview-03",
@@ -14853,11 +14965,12 @@
     "spec": "modules/portfolio/specs/portfolio-recurring-buy.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-trade", "customer: money"],
-    "depends": ["PF-recurring-buy-02", "PF-recurring-buy-03"],
+    "depends": [],
     "journeys": ["one-portfolio"],
     "outside": "`rail.card` for a card funding choice and `rail.crypto` for an own-wallet funding choice (built front end, only the external call refuses); the spend from the c",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["PF-recurring-buy-02", "PF-recurring-buy-03"]
   },
   {
     "id": "PF-recurring-buy-02",
@@ -14895,11 +15008,12 @@
     "spec": "modules/portfolio/specs/portfolio-statements.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-ledger", "customer: money"],
-    "depends": ["PF-cost-basis-01", "PF-overview-02"],
+    "depends": ["PF-cost-basis-01"],
     "journeys": ["trader", "one-portfolio"],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["PF-overview-02"]
   },
   {
     "id": "PF-statements-02",
@@ -14951,11 +15065,12 @@
     "spec": "modules/support-public/specs/support-agents.md",
     "lane": "svc-support",
     "touches": ["svc-support"],
-    "depends": ["SP-desk-04"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-desk-04"]
   },
   {
     "id": "SP-api-01",
@@ -15035,11 +15150,12 @@
     "spec": "modules/support-public/specs/support-contacts.md",
     "lane": "svc-ops",
     "touches": ["svc-ops", "admin: crm-workspace", "customer: public"],
-    "depends": ["SP-chat-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 2
+    "families": 2,
+    "later": ["SP-chat-01"]
   },
   {
     "id": "SP-contacts-02",
@@ -15063,11 +15179,12 @@
     "spec": "modules/support-public/specs/support-csat.md",
     "lane": "svc-support",
     "touches": ["svc-support", "customer: more", "admin: support-ticket-extras"],
-    "depends": ["SP-email-01"],
+    "depends": [],
     "journeys": [],
     "outside": "`vendor.email` for the emailed rating request only; the rating itself is ours.",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-email-01"]
   },
   {
     "id": "SP-csat-02",
@@ -15119,11 +15236,12 @@
     "spec": "modules/support-public/specs/support-desk.md",
     "lane": "svc-notify",
     "touches": ["svc-notify", "svc-support", "packages/events"],
-    "depends": ["SP-tickets-05"],
+    "depends": [],
     "journeys": [],
     "outside": "`vendor.email` and `vendor.push` for alert delivery that leaves our inbox. In-app and audio alerts are our own and built.",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-tickets-05"]
   },
   {
     "id": "SP-desk-04",
@@ -15133,11 +15251,12 @@
     "spec": "modules/support-public/specs/support-desk.md",
     "lane": "svc-support",
     "touches": ["svc-support"],
-    "depends": ["SP-agents-01", "SP-routing-01"],
+    "depends": ["SP-agents-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-routing-01"]
   },
   {
     "id": "SP-email-01",
@@ -15147,11 +15266,12 @@
     "spec": "modules/support-public/specs/support-email.md",
     "lane": "svc-notify",
     "touches": ["svc-notify"],
-    "depends": ["SP-csat-01", "SP-sla-02", "SP-tickets-01"],
+    "depends": ["SP-csat-01", "SP-sla-02"],
     "journeys": [],
     "outside": "`vendor.email` for every outbound request mail.",
     "size": "L",
-    "families": 1
+    "families": 1,
+    "later": ["SP-tickets-01"]
   },
   {
     "id": "SP-email-02",
@@ -15175,11 +15295,12 @@
     "spec": "modules/support-public/specs/support-email.md",
     "lane": "svc-notify",
     "touches": ["svc-notify", "admin: notify-desk", "admin: modules"],
-    "depends": ["SP-status-04"],
+    "depends": [],
     "journeys": [],
     "outside": "`vendor.email`, `vendor.sms` and `vendor.push` named as the reason a channel has no sender.",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-status-04"]
   },
   {
     "id": "SP-help-centre-01",
@@ -15189,11 +15310,12 @@
     "spec": "modules/support-public/specs/support-help-centre.md",
     "lane": "customer: public",
     "touches": ["packages/contracts", "customer: public", "customer: more"],
-    "depends": ["SP-help-centre-03", "SP-tickets-04"],
+    "depends": ["SP-tickets-04"],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-help-centre-03"]
   },
   {
     "id": "SP-help-centre-02",
@@ -15203,11 +15325,12 @@
     "spec": "modules/support-public/specs/support-help-centre.md",
     "lane": "svc-support",
     "touches": ["svc-support"],
-    "depends": ["SP-kb-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 1
+    "families": 1,
+    "later": ["SP-kb-01"]
   },
   {
     "id": "SP-help-centre-03",
@@ -15231,11 +15354,12 @@
     "spec": "modules/support-public/specs/support-kb.md",
     "lane": "svc-support",
     "touches": ["svc-support", "customer: public", "customer: more", "admin: support-kb-panel"],
-    "depends": ["SP-help-centre-02", "SP-kb-02"],
+    "depends": ["SP-help-centre-02"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["SP-kb-02"]
   },
   {
     "id": "SP-kb-02",
@@ -15357,11 +15481,12 @@
     "spec": "modules/support-public/specs/support-status.md",
     "lane": "svc-notify",
     "touches": ["svc-notify", "customer: public"],
-    "depends": ["SP-status-01", "SP-status-04"],
+    "depends": ["SP-status-01"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["SP-status-04"]
   },
   {
     "id": "SP-status-03",
@@ -15455,11 +15580,12 @@
     "spec": "modules/support-public/specs/support-tickets.md",
     "lane": "svc-support",
     "touches": ["svc-support", "admin: support-desk", "customer: more"],
-    "depends": ["SP-sla-01"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 2
+    "families": 2,
+    "later": ["SP-sla-01"]
   },
   {
     "id": "SP-tickets-05",
@@ -15537,7 +15663,7 @@
     "module": "wallet",
     "group": "wallet-balances",
     "spec": "modules/wallet/specs/wallet-balances.md",
-    "lane": "unplaced",
+    "lane": "svc-bank",
     "touches": [],
     "depends": ["W-deposit-05"],
     "journeys": ["trader"],
@@ -15579,7 +15705,7 @@
     "module": "wallet",
     "group": "wallet-balances",
     "spec": "modules/wallet/specs/wallet-balances.md",
-    "lane": "unplaced",
+    "lane": "svc-identity",
     "touches": [],
     "depends": [],
     "journeys": ["trader"],
@@ -15621,7 +15747,7 @@
     "module": "wallet",
     "group": "wallet-balances",
     "spec": "modules/wallet/specs/wallet-balances.md",
-    "lane": "svc-edge",
+    "lane": "ledger",
     "touches": ["svc-edge", "admin: ledger-ops-copy"],
     "depends": [],
     "journeys": ["trader"],
@@ -15649,7 +15775,7 @@
     "module": "wallet",
     "group": "wallet-balances",
     "spec": "modules/wallet/specs/wallet-balances.md",
-    "lane": "unplaced",
+    "lane": "svc-ops",
     "touches": [],
     "depends": ["W-balances-08"],
     "journeys": ["trader"],
@@ -15663,7 +15789,7 @@
     "module": "wallet",
     "group": "wallet-balances",
     "spec": "modules/wallet/specs/wallet-balances.md",
-    "lane": "unplaced",
+    "lane": "svc-bank",
     "touches": [],
     "depends": ["W-withdraw-17"],
     "journeys": ["trader"],
@@ -15679,11 +15805,12 @@
     "spec": "modules/wallet/specs/wallet-compliance-notices.md",
     "lane": "svc-notify",
     "touches": ["svc-notify"],
-    "depends": ["W-deposit-04"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["W-deposit-04"]
   },
   {
     "id": "W-compliance-notices-02",
@@ -15705,7 +15832,7 @@
     "module": "wallet",
     "group": "wallet-compliance-notices",
     "spec": "modules/wallet/specs/wallet-compliance-notices.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-deposit-06"],
     "journeys": [],
@@ -15719,13 +15846,14 @@
     "module": "wallet",
     "group": "wallet-compliance-notices",
     "spec": "modules/wallet/specs/wallet-compliance-notices.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
-    "depends": ["W-withdraw-16"],
+    "depends": [],
     "journeys": [],
     "outside": "vendor.travelrule",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["W-withdraw-16"]
   },
   {
     "id": "W-compliance-notices-05",
@@ -15733,7 +15861,7 @@
     "module": "wallet",
     "group": "wallet-compliance-notices",
     "spec": "modules/wallet/specs/wallet-compliance-notices.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-deposit-07"],
     "journeys": [],
@@ -15761,7 +15889,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-bank",
     "touches": [],
     "depends": ["W-deposit-05"],
     "journeys": [],
@@ -15803,7 +15931,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-deposit-05"],
     "journeys": [],
@@ -15817,7 +15945,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-security-accounts-04"],
     "journeys": [],
@@ -15831,7 +15959,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-withdraw-05", "W-withdraw-10"],
     "journeys": [],
@@ -15845,7 +15973,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-custody-ops-07"],
     "journeys": [],
@@ -15875,11 +16003,12 @@
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
     "lane": "svc-pay wallet",
     "touches": ["svc-pay"],
-    "depends": ["W-withdraw-04"],
+    "depends": [],
     "journeys": [],
     "outside": "rail.crypto",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["W-withdraw-04"]
   },
   {
     "id": "W-custody-ops-11",
@@ -15915,7 +16044,7 @@
     "module": "wallet",
     "group": "wallet-custody-ops",
     "spec": "modules/wallet/specs/wallet-custody-ops.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": [],
     "journeys": [],
@@ -15931,11 +16060,12 @@
     "spec": "modules/wallet/specs/wallet-deposit.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-pay", "customer: money"],
-    "depends": ["W-deposit-11"],
+    "depends": [],
     "journeys": ["trader", "bank-fund-trade-withdraw"],
     "outside": "rail.crypto",
     "size": "L",
-    "families": 3
+    "families": 3,
+    "later": ["W-deposit-11"]
   },
   {
     "id": "W-deposit-02",
@@ -15987,11 +16117,12 @@
     "spec": "modules/wallet/specs/wallet-deposit.md",
     "lane": "svc-pay wallet",
     "touches": ["svc-pay", "svc-bank", "packages/ledger-client"],
-    "depends": ["W-deposit-01", "W-deposit-06"],
+    "depends": ["W-deposit-01"],
     "journeys": ["trader", "bank-fund-trade-withdraw"],
     "outside": "rail.crypto",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["W-deposit-06"]
   },
   {
     "id": "W-deposit-06",
@@ -16097,7 +16228,7 @@
     "module": "wallet",
     "group": "wallet-security-accounts",
     "spec": "modules/wallet/specs/wallet-security-accounts.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": ["W-balances-05"],
     "journeys": ["trader"],
@@ -16125,7 +16256,7 @@
     "module": "wallet",
     "group": "wallet-security-accounts",
     "spec": "modules/wallet/specs/wallet-security-accounts.md",
-    "lane": "unplaced",
+    "lane": "svc-bank",
     "touches": [],
     "depends": [],
     "journeys": ["trader"],
@@ -16153,7 +16284,7 @@
     "module": "wallet",
     "group": "wallet-security-accounts",
     "spec": "modules/wallet/specs/wallet-security-accounts.md",
-    "lane": "unplaced",
+    "lane": "svc-identity",
     "touches": [],
     "depends": [],
     "journeys": ["trader"],
@@ -16253,11 +16384,12 @@
     "spec": "modules/wallet/specs/wallet-withdraw.md",
     "lane": "svc-pay wallet",
     "touches": ["svc-pay", "admin: operator-queues"],
-    "depends": ["W-withdraw-07"],
+    "depends": [],
     "journeys": ["trader", "bank-fund-trade-withdraw"],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["W-withdraw-07"]
   },
   {
     "id": "W-withdraw-07",
@@ -16281,11 +16413,12 @@
     "spec": "modules/wallet/specs/wallet-withdraw.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["W-withdraw-09"],
+    "depends": [],
     "journeys": ["trader", "bank-fund-trade-withdraw"],
     "outside": "",
     "size": "M",
-    "families": 4
+    "families": 4,
+    "later": ["W-withdraw-09"]
   },
   {
     "id": "W-withdraw-09",
@@ -16349,7 +16482,7 @@
     "module": "wallet",
     "group": "wallet-withdraw",
     "spec": "modules/wallet/specs/wallet-withdraw.md",
-    "lane": "unplaced",
+    "lane": "svc-pay wallet",
     "touches": [],
     "depends": [],
     "journeys": ["trader", "bank-fund-trade-withdraw"],
@@ -16489,7 +16622,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-disp-01"],
     "journeys": [],
@@ -16575,11 +16708,12 @@
     "spec": "specs/merchant-disp-bill-rep.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay"],
-    "depends": ["M-bill-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-bill-03"]
   },
   {
     "id": "M-bill-02",
@@ -16615,7 +16749,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-bill-01"],
     "journeys": [],
@@ -16659,11 +16793,12 @@
     "spec": "specs/merchant-disp-bill-rep.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay"],
-    "depends": ["M-bill-11", "M-catalogue-03"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-bill-11", "M-catalogue-03"]
   },
   {
     "id": "M-bill-08",
@@ -16685,7 +16820,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-bill-07"],
     "journeys": [],
@@ -16699,7 +16834,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-bill-07"],
     "journeys": [],
@@ -16713,13 +16848,14 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
-    "depends": ["M-bill-07", "M-catalogue-02", "M-catalogue-03"],
+    "depends": ["M-bill-07", "M-catalogue-02"],
     "journeys": [],
     "outside": "",
     "size": "L",
-    "families": 0
+    "families": 0,
+    "later": ["M-catalogue-03"]
   },
   {
     "id": "M-rep-01",
@@ -16727,7 +16863,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": [],
     "journeys": [],
@@ -16741,7 +16877,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-rep-01"],
     "journeys": [],
@@ -16769,7 +16905,7 @@
     "module": "merchant",
     "group": "merchant-disp-bill-rep",
     "spec": "specs/merchant-disp-bill-rep.md",
-    "lane": "unplaced",
+    "lane": "svc-pay merchant",
     "touches": [],
     "depends": ["M-rep-01", "M-rep-03"],
     "journeys": [],
@@ -16813,11 +16949,12 @@
     "spec": "specs/merchant-pay-dev-out.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "customer: pay"],
-    "depends": ["M-developer-04", "M-developer-06"],
+    "depends": ["M-developer-04"],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "M",
-    "families": 4
+    "families": 4,
+    "later": ["M-developer-06"]
   },
   {
     "id": "M-developer-03",
@@ -17065,11 +17202,12 @@
     "spec": "specs/merchant-pay-dev-out.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "customer: pay"],
-    "depends": ["M-payments-core-06"],
+    "depends": [],
     "journeys": ["merchant-payout-to-bank"],
     "outside": "",
     "size": "L",
-    "families": 4
+    "families": 4,
+    "later": ["M-payments-core-06"]
   },
   {
     "id": "M-payments-core-06",
@@ -17205,11 +17343,12 @@
     "spec": "specs/merchant-plat-org.md",
     "lane": "svc-identity",
     "touches": ["svc-identity", "customer: account"],
-    "depends": ["M-plat-org-07"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-plat-org-07"]
   },
   {
     "id": "M-plat-org-07",
@@ -17303,11 +17442,12 @@
     "spec": "specs/merchant-plat-org.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay"],
-    "depends": ["M-plat-org-14"],
+    "depends": [],
     "journeys": [],
     "outside": "",
     "size": "M",
-    "families": 0
+    "families": 0,
+    "later": ["M-plat-org-14"]
   },
   {
     "id": "M-plat-org-14",

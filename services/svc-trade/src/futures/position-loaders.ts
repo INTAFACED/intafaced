@@ -65,6 +65,11 @@ export function sqlFundingPositionLoader(sql: Sql): FundingPositionLoader {
         FROM trade.positions p
         JOIN trade.markets m ON m.id = p.market_id
         WHERE p.status = 'open' AND p.market_id = ${marketId}
+          -- no planned ADL pair: its loss leg is fixed at plan time, and a charge meanwhile would leave the
+          -- position short of it (adl-pairing.ts). The pair closes or shrinks the row before the next interval.
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_adl_pairs q
+             WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
         -- p.id is the tiebreak, not decoration: opened_at is not unique, so two
         -- positions opened in the same tick had no stable order between two
         -- queries. Funding legs are built by iterating this list, and under the
@@ -87,7 +92,7 @@ export function sqlFundingPositionLoader(sql: Sql): FundingPositionLoader {
  * liquidation tick kept rating it, a rung could begin between settlement's read and its posts, settlement
  * would drain the pot, the rung would amend to the insurance leg and the fund would pay for money
  * settlement had already released. So the two never share a position: expired dated positions are not
- * listed here — except one with a rung already live, which is finished first. (A position parked on an expired dated contract
+ * listed here — except one with a rung or ADL pair already live, which is finished first. (A position parked on an expired dated contract
  * waits for an operator — runbook section 2.)
  */
 export function sqlLiquidationPositionLoader(sql: Sql): LiquidationPositionLoader {
@@ -104,6 +109,9 @@ export function sqlLiquidationPositionLoader(sql: Sql): LiquidationPositionLoade
             -- ...unless a rung is already live: it is finished first (the tick replays a live rung before anything
             -- else), and settlement skips the position until it has. Dropping it here would strand the rung.
             OR EXISTS (SELECT 1 FROM trade.liquidation_rungs r WHERE r.position_id = p.id::text AND r.state IN ('planned', 'posted'))
+            -- ...or a planned ADL pair: the tick replays it first, and settlement skips it until it is applied.
+            OR EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
+                        WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
           )
         ORDER BY p.opened_at ASC
       `;
@@ -188,6 +196,10 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
              WHERE r.position_id = p.id::text ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') <> 'abandoned'
           AND NOT EXISTS (
             SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = 'liq:' || p.id::text)
+          -- no planned ADL pair: its legs may have posted and the row has not caught up (adl-pairing.ts)
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_adl_pairs q
+             WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

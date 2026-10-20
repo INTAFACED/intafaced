@@ -58,6 +58,7 @@ import {
 import { breakerBasis, type AcceptedMarkStore } from './accepted-mark.js';
 import { INSURANCE_UNDERFUNDED, checkInsuranceBound } from './insurance-bound.js';
 import { parkUnderfundedWithAdl, type LiquidationAdlDeps } from './liquidation-adl-gate.js';
+import { ADL_PAIR_REPLAYED } from './adl-pairing.js';
 export type { LiquidationAdlDeps } from './liquidation-adl-gate.js';
 import type { LiquidationRungStore, RungIdFactory, RungPlan, RungRecord } from './liquidation-rungs.js';
 
@@ -398,6 +399,8 @@ export interface LiquidationTickItemResult {
     | 'skipped_healthy'
     | 'skipped_already'
     | 'skipped_insurance_underfunded'
+    /** A planned ADL pair touching this position was driven to applied; nothing else was decided for it this tick. */
+    | 'adl_paired'
     /** The row moved (or closed) between the read that decided and the lock that would write. Nothing was posted. */
     | 'skipped_changed'
     | 'margin_call'
@@ -502,6 +505,15 @@ export async function runLiquidationTick(deps: LiquidationTickDeps): Promise<Liq
        */
       if (await deps.attempts.isDone(liquidationId)) {
         items.push({ positionId: row.positionId, outcome: 'skipped_already', reason: 'already_done' });
+        continue;
+      }
+
+      /**
+       * A PLANNED ADL PAIR IS FINISHED FIRST, for the same reason as a live rung:
+       * its legs may have posted and the rows not caught up (adl-pairing.ts).
+       */
+      if (deps.adl?.replayPlanned && (await deps.adl.replayPlanned(row.positionId))) {
+        items.push({ positionId: row.positionId, outcome: 'adl_paired', reason: ADL_PAIR_REPLAYED });
         continue;
       }
 

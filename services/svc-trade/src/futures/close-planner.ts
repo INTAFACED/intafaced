@@ -5,7 +5,7 @@
  * PnL + full margin release. Does NOT invent marks, does NOT post, does NOT
  * mutate position rows. Job/REST supplies exit price + posts recipes + closes.
  *
- * Profit → futuresRealizeProfit (house fees pot pays user available)
+ * Profit → futuresRealizeProfit (the clearing pot pays user available; owed while short)
  * Loss   → futuresRealizeLoss (margin first, optional insurance shortfall)
  * Flat   → margin release only
  */

@@ -279,6 +279,9 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
 
   // ── The order itself is malformed: fix it, then resubmit ──────────────────
   'trade.order_type_unsupported': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.request_expired': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.stp_mode_unsupported': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.tag_unsupported': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_qty': { ccxt: 'InvalidOrder', status: 400 },
   'trade.invalid_price': { ccxt: 'InvalidOrder', status: 400 },
   /** JSON number on an OCO/bracket leg — decimal string required. */

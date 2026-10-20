@@ -200,6 +200,9 @@ describe('migration 0075 over a lagging counter (Postgres)', () => {
       const [pend] = await s<{ margin_adjust_seq: number }[]>`SELECT margin_adjust_seq FROM trade.positions WHERE id = ${q!.id}`;
       expect(pend!.margin_adjust_seq).toBe(1); // a pending claim does not move the counter
 
+      // The service below is today's code: bring the schema up to date past 0075 first.
+      for (const later of names.slice(idx + 1)) await s.unsafe(readFileSync(join(drizzle, later), 'utf8'));
+
       const ledger = new MemoryLedger();
       await ledger.post(
         recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100000'), rail: 'test', railRef: `fund-${randomUUID()}` }),

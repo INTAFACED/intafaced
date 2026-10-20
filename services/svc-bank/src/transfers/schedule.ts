@@ -2,7 +2,7 @@
  * SCHEDULE ARITHMETIC — pure, no I/O, no clock of its own.
  *
  * These functions decide which firing of a standing order is due, and they are
- * the reason the idempotency key `bank.transfer:<scheduleId>:<occurrence>` is a
+ * the reason the idempotency key `bank.transfer.sched:<scheduleId>:<occurrence>` is a
  * BUSINESS key rather than a timestamp. Occurrence N is defined entirely by
  * `(startsAt, cadence, N)`, so two workers, a retry, and a catch-up run after an
  * outage all compute the same N for the same intended transfer — and the ledger

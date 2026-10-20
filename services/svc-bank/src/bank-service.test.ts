@@ -707,7 +707,7 @@ describe('svc-bank money PG-hard', () => {
 
       // ORDER BY next_run_at ASC, then id implicitly by insert — poison A so
       // if isolation is missing B never settles when A throws first.
-      const poisonPrefix = `bank.transfer:${scheduleA.id}:`;
+      const poisonPrefix = `bank.transfer.sched:${scheduleA.id}:`;
       const real = ledger;
       const isolating: LedgerClient = {
         post: async (request) => {
@@ -770,7 +770,7 @@ describe('svc-bank money PG-hard', () => {
         startsAt: new Date('2026-01-01T09:00:00Z'),
       });
 
-      const poisonPrefix = `bank.transfer:${poison.id}:`;
+      const poisonPrefix = `bank.transfer.sched:${poison.id}:`;
       const real = ledger;
       const isolating: LedgerClient = {
         post: async (request) => {
@@ -946,6 +946,7 @@ describe('svc-bank money PG-hard', () => {
           to: accountForSpace(to),
           amount: amt('50'),
           kind: 'scheduled',
+          keySpace: 'sched',
         }),
       );
       expect(formatAmount(await bank.spaces.balanceOf(rent))).toBe('50');
