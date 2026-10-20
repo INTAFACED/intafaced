@@ -6,8 +6,9 @@ import { isTerminalOrder, type Order } from '../../../features/trade/trade-api';
 import { usePreferences } from '../../../shared/preferences';
 import { deskCopy } from './copy';
 import { useDeskApi } from './data';
-import { Button, fmtAmount, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusTag, type Loadable } from './deps';
+import { Button, fmtAmount, fmtPct, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusTag, type Loadable } from './deps';
 import type { DeskMarket } from './market';
+import { fillFeeRate, fillRole } from './fill-detail';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
 import { canEdit } from './EditOrder';
@@ -282,6 +283,9 @@ export function OrdersTable({
   );
 }
 
+const roleWord = (role: 'maker' | 'taker' | null, t: (key: 'Maker' | 'Taker') => string): string =>
+  role === 'maker' ? t('Maker') : role === 'taker' ? t('Taker') : '—';
+
 /**
  * Trade history from fills. `desk` keeps the strip's columns; `activity` leads with a plain sentence per trade
  * ("Bought 0.00015 BTC") and drops the columns that sentence already says.
@@ -306,6 +310,7 @@ export function FillsTable({ rows, precision, layout = 'desk' }: { rows: Trade[]
           <th className="dk-num">{t('Price')}</th>
           {activity ? null : <th className="dk-num">{t('Amount')}</th>}
           <th className="dk-num">{t('Total')}</th>
+          {activity ? null : <th>{t('Role')}</th>}
           <th className="dk-num">{t('Fee')}</th>
         </tr>
       </thead>
@@ -337,7 +342,11 @@ export function FillsTable({ rows, precision, layout = 'desk' }: { rows: Trade[]
               <td className="dk-num if-num">
                 {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
               </td>
-              <td className="dk-num if-num">{fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}</td>
+              {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
+              <td className="dk-num if-num">
+                {fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
+                {!activity && fillFeeRate(fill) ? <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span> : null}
+              </td>
             </tr>
           );
         })}

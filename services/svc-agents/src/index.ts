@@ -113,7 +113,7 @@ const bus = await JetStreamEventBus.connect({
 // Metered usage moves value, and value moves through svc-ledger — never
 // through this service's own tables (Doctrine §0.6). LEDGER_URL is required
 // with no localhost default — unset refuses boot rather than guessing a book.
-// Per-service keys (S2S v3): with no S2S_AUTH_MODE the ledger and academy calls stay on the shared secret alone.
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the ledger, academy, identity, pay and trade calls stay on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-agents');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
@@ -121,8 +121,8 @@ const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s
 const meter = new UsageMeter(sql, ledger, {
   assetId: env.AGENTS_FEE_ASSET_ID,
   windowMinutes: env.AGENTS_USAGE_WINDOW_MINUTES,
-  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
-  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
 });
 
 const runtime = new AgentRuntime(sql, gateway, meter, bus, {
@@ -144,23 +144,32 @@ const supportDesk = env.SUPPORT_URL
       supportUrl: env.SUPPORT_URL,
       ...(env.IDENTITY_URL ? { identityUrl: env.IDENTITY_URL } : {}),
       internalSecret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
     })
   : undefined;
 
 const spotTickersPort = env.TRADE_URL ? createHttpSpotTickersPort({ tradeUrl: env.TRADE_URL }) : undefined;
 
 const payMetricsPort = env.PAY_URL
-  ? createHttpPayMetricsPort({ payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+  ? createHttpPayMetricsPort({ payUrl: env.PAY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) })
   : undefined;
 
 const copyLeaderFixturesPort = env.TRADE_URL
-  ? createHttpCopyLeaderFixturesPort({ tradeUrl: env.TRADE_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+  ? createHttpCopyLeaderFixturesPort({
+      tradeUrl: env.TRADE_URL,
+      internalSecret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
+    })
   : undefined;
 
 const navigatorTradeDataPort = env.TRADE_URL ? createHttpNavigatorTradeDataPort({ tradeUrl: env.TRADE_URL }) : undefined;
 
 const navigatorIdentitySessionPort = env.IDENTITY_URL
-  ? createHttpNavigatorIdentitySessionPort({ identityUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+  ? createHttpNavigatorIdentitySessionPort({
+      identityUrl: env.IDENTITY_URL,
+      internalSecret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
+    })
   : undefined; // blank / unset IDENTITY_URL → live identity.session.read refuses, never a caller fixture
 
 const portfolioPrices =

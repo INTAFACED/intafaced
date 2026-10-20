@@ -14,7 +14,6 @@ import type { RecipeName } from '@intafaced/ledger-client';
  *   · `orderHoldAmend` — svc-trade `qty-up-amend.ts` no longer calls it.
  *   · `marketMakerSeedFund`, insurance top-up, listing fee, premium placement
  *     — tests or parked sockets.
- *   · svc-mining-pool — it can build a client; no production `recipes.` call.
  *
  * `feeCharge` is the exception to the recipe's own module. The registry sample
  * uses a caller-chosen module; the live meter defaults that module to `agents`
@@ -67,6 +66,9 @@ export const LEDGER_POST_ALLOWLIST = {
   },
   'svc-market': {
     marketPurchase: g('market', 'services/svc-market/src/commerce/commerce-service.ts'),
+  },
+  'svc-mining-pool': {
+    rewardPay: g('token', 'services/svc-mining-pool/src/ledger.ts'),
   },
   'svc-p2p': {
     escrowLock: g('p2p', 'services/svc-p2p/src/p2p-service.ts'),

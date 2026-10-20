@@ -5,8 +5,10 @@
 import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
-  serviceAuthHeadersForBody,
+  serviceCallSigner,
   type ActionApproval,
+  type ServiceAuthMode,
+  type ServiceSigner,
 } from '@intafaced/contracts';
 import type { ApprovalBook, ApprovalConsumeInput, ApprovalConsumeResult } from './common.js';
 
@@ -16,8 +18,13 @@ function unwrap(body: unknown): unknown {
   return data && typeof data === 'object' && 'json' in (data as object) ? (data as { json: unknown }).json : data;
 }
 
-export function identityApprovalBook(identityUrl: string | undefined, internalSecret: string): ApprovalBook {
+export function identityApprovalBook(
+  identityUrl: string | undefined,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ApprovalBook {
   const url = identityUrl?.trim() ?? '';
+  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   if (!url) {
     return {
       async consume(): Promise<ApprovalConsumeResult> {
@@ -39,11 +46,12 @@ export function identityApprovalBook(identityUrl: string | undefined, internalSe
       const payload = JSON.stringify(body);
       let row: ActionApproval;
       try {
-        const res = await fetch(`${url.replace(/\/$/, '')}/trpc/actionApproval.consume`, {
+        const target = `${url.replace(/\/$/, '')}/trpc/actionApproval.consume`;
+        const res = await fetch(target, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
-            ...serviceAuthHeadersForBody('svc-trade', internalSecret, payload),
+            ...authHeaders(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
           },
           body: payload,
           signal: AbortSignal.timeout(2_000),

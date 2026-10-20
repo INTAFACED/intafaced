@@ -6,7 +6,7 @@
  * never an invented session row and never a caller fixture as live truth.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { SessionFixture } from './data-tools.js';
 import type { NavigatorIdentitySessionPort } from './identity-session-port.js';
 
@@ -15,6 +15,8 @@ export const IDENTITY_NAVIGATOR_SESSION_PATH = '/internal/agents/navigator-sessi
 export type HttpNavigatorIdentitySessionOptions = {
   readonly identityUrl: string;
   readonly internalSecret: string;
+  /** svc-agents' own key. With it the call is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  readonly s2s?: { readonly signer: ServiceSigner; readonly mode: ServiceAuthMode };
   readonly fetchImpl?: typeof fetch;
 };
 
@@ -38,16 +40,23 @@ function parseSession(raw: unknown): SessionFixture | null {
 export function createHttpNavigatorIdentitySessionPort(options: HttpNavigatorIdentitySessionOptions): NavigatorIdentitySessionPort {
   const identityUrl = options.identityUrl.replace(/\/$/, '');
   const fetchImpl = options.fetchImpl ?? fetch;
+  const sign = serviceCallSigner({
+    service: 'svc-agents',
+    audience: 'svc-identity',
+    legacySecret: options.internalSecret,
+    s2s: options.s2s,
+  });
 
   return {
     async read(sessionId) {
       let response: Response;
       try {
-        response = await fetchImpl(`${identityUrl}${IDENTITY_NAVIGATOR_SESSION_PATH}/${encodeURIComponent(sessionId)}`, {
+        const target = `${identityUrl}${IDENTITY_NAVIGATOR_SESSION_PATH}/${encodeURIComponent(sessionId)}`;
+        response = await fetchImpl(target, {
           method: 'GET',
           headers: {
             accept: 'application/json',
-            ...serviceAuthHeadersForBody('svc-agents', options.internalSecret, ''),
+            ...sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           },
         });
       } catch {
