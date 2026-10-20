@@ -147,9 +147,8 @@ function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
 
 /** The wire form of a stored file: the scan state is public, the store key is not. */
 function attachmentWire(meta: AttachmentMeta): SupportAttachment {
-  const { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt } = meta;
-  // No operator uploads yet: every file is its owner's. The service PR that adds agent upload stores and reads the real value.
-  return { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy: null, createdAt };
+  const { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt } = meta;
+  return { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt };
 }
 
 export function createSupportRouter(
@@ -772,6 +771,29 @@ export function createSupportRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           return attachmentWire(await support.attach({ userId: ctx.principal!.userId, ...input }));
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Operator attach, for the operator the ticket is assigned to. The file is the ticket owner's and names the operator
+     * in `uploadedBy`. Limits, scanner and store are the owner attach's; another operator's ticket answers like none.
+     */
+    attachOps: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          clientRequestId: z.string().min(1).max(200),
+          contentType: z.string().min(1).max(200),
+          bodyBase64: z.string(),
+        }),
+      )
+      .output(supportAttachmentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal!.userId, ...input }));
         } catch (err) {
           mapError(err);
         }

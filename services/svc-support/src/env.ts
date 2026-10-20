@@ -59,6 +59,12 @@ const schema = serviceEnvSchema
        */
       SUPPORT_ATTACHMENT_RESCAN_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       SUPPORT_ATTACHMENT_RESCAN_BATCH: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * LOCAL-TEST attachment adapters (`local-test-memory`, `local-test-eicar`). Blank installs none and attach refuses
+       * with the missing piece named. Refused at boot unless APP_ENV is exactly dev or test. Never set in production.
+       */
+      SUPPORT_ATTACHMENT_STORE: z.string().optional(),
+      SUPPORT_MALWARE_SCANNER: z.string().optional(),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
