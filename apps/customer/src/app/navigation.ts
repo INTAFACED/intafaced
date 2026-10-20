@@ -35,6 +35,7 @@ export const rooms: readonly Room[] = [
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
@@ -715,7 +716,7 @@ export function roomPath(room: Room, locale: UiLocale = currentPreferences().lan
 export function doorLabel(door: Door | 'Money', locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner', '/developers', '/developers/hosts']);
+const publicSearchable = new Set(['/help', '/status', '/notice', '/lab', '/app', '/partner', '/developers', '/developers/hosts']);
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
  * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
