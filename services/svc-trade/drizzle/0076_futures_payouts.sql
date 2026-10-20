@@ -1,5 +1,5 @@
 -- trade.futures_payouts · one row per realised futures profit: paid, or owed until the clearing pot holds it
--- Reversal: 0075_futures_payouts.down.sql
+-- Reversal: 0076_futures_payouts.down.sql
 --
 -- docs/adr/2026-10-20-futures-matched-traders.md section 4. A winner is paid from the futures clearing pot
 -- (`futuresLossSink`). When the pot cannot cover the profit, the position still closes and the profit is kept here
