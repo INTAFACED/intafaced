@@ -156,3 +156,59 @@ describe('migration 0075 over existing duplicates (Postgres)', () => {
     }
   }, 120_000);
 });
+
+describe('migration 0075 over a lagging counter (Postgres)', () => {
+  it('moves the counter up, so the next real adjustment succeeds', async () => {
+    let url = process.env.TEST_DATABASE_URL?.trim();
+    let stopC: () => Promise<void> = async () => undefined;
+    if (!url) {
+      const c = await new PostgreSqlContainer('postgres:16-alpine').start();
+      url = c.getConnectionUri();
+      stopC = async () => {
+        await c.stop();
+      };
+    }
+    const names = readdirSync(drizzle)
+      .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
+      .sort();
+    const idx = names.findIndex((f) => f.startsWith('0075_'));
+    const before = names.slice(0, idx).map((f) => readFileSync(join(drizzle, f), 'utf8'));
+    const db3 = await createTestDatabase({ service: 'trade', url, migrations: before });
+    try {
+      const s = db3.sql;
+      await s`INSERT INTO trade.markets (id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at)
+        VALUES (${MARKET}, ${SYMBOL}, 'BTC', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC perpetual', now())`;
+      const [p] = await s<{ id: string }[]>`
+        INSERT INTO trade.positions (user_id, market_id, side, status, margin_mode, size, entry_price, leverage,
+          margin_initial, margin_current, margin_asset, funding_paid)
+        VALUES (${ALICE}, ${MARKET}, 'long', 'open', 'isolated', '1', '50000', '10', '5000', '5000', 'USDT', '0') RETURNING id`;
+      // A no-op leverage request completed at sequence 2 under the old code; the counter stayed at 1.
+      await s`INSERT INTO trade.position_margin_adjustments (position_id, client_adjustment_id, request_fingerprint, sequence, status, result, completed_at)
+        VALUES (${p!.id}, 'noop', 'leverage:10', 2, 'completed', '{}'::jsonb, now())`;
+      await s.unsafe(readFileSync(join(drizzle, names[idx]!), 'utf8'));
+      const [pos] = await s<{ margin_adjust_seq: number }[]>`SELECT margin_adjust_seq FROM trade.positions WHERE id = ${p!.id}`;
+      expect(pos!.margin_adjust_seq).toBe(2);
+
+      const ledger = new MemoryLedger();
+      await ledger.post(
+        recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100000'), rail: 'test', railRef: `fund-${randomUUID()}` }),
+      );
+      const svc = new PositionService(s, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: profitSourceFromConfig(PROFIT_SOURCE),
+        maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+        bus: null,
+        now: () => NOW,
+      });
+      const real = await svc.setLeverage({ userId: ALICE, symbol: SYMBOL, positionId: p!.id, leverage: amt('5') });
+      expect(real.leverage).toBe('5');
+      const seqs = await s<{ sequence: number }[]>`
+        SELECT sequence FROM trade.position_margin_adjustments WHERE position_id = ${p!.id} ORDER BY sequence`;
+      expect(seqs.map((r) => r.sequence)).toEqual([2, 3]);
+    } finally {
+      await db3.drop();
+      await stopC();
+    }
+  }, 120_000);
+});

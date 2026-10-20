@@ -16,5 +16,15 @@ BEGIN
 END
 $$;
 
+-- A position whose counter lags its highest stored sequence (an old no-op leverage request completed a row without
+-- moving the counter) would hand the next adjustment a sequence a completed row already holds. Move the counter up first.
+UPDATE "trade"."positions" p
+   SET "margin_adjust_seq" = a."max_seq"
+  FROM (
+    SELECT "position_id", max("sequence") AS "max_seq"
+      FROM "trade"."position_margin_adjustments" GROUP BY "position_id"
+  ) a
+ WHERE a."position_id" = p."id" AND p."margin_adjust_seq" < a."max_seq";
+
 CREATE UNIQUE INDEX IF NOT EXISTS "position_margin_adjustments_position_sequence_idx"
   ON "trade"."position_margin_adjustments" ("position_id", "sequence");
