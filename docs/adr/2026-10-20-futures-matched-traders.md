@@ -33,7 +33,9 @@ A futures market is a market in `svc-matching`, exactly like spot. `svc-trade` s
 **The fill price moves money between two traders, so it is bounded.** The risk ADR's rule (a price that moves money is never supplied by the party it pays) is kept this way:
 
 - **Price band.** `svc-trade` refuses a futures order whose limit price is outside a band around the mark, and gives a market order a protective limit at the band edge. The band width is an owner number; blank refuses `trade.futures_price_band_unset` (the TEST profile sets a TEST value). Two colluding accounts can then only trade near the mark.
-- **No fill past bankruptcy.** A reducing or closing order may not have a limit beyond the position's bankruptcy price, and a market reduce gets that price as its limit. So a voluntary trade can never create loss beyond margin. Only a liquidation order may go past it, and only by what the insurance fund covers (section 5).
+- **No fill past bankruptcy.** A reducing or closing order may not have a limit beyond the position's bankruptcy price, and a market reduce gets that price as its limit. So a voluntary reduce or close can never create loss beyond margin. Only a liquidation order may go past it, and only by what the insurance fund covers (section 5).
+- **No opening fill underwater past its margin.** An order that opens or grows a position locks initial margin at the mark plus the adverse distance between its limit and the mark (`size × (limit − mark)` for a buy above the mark, mirror for a sell). So right after any fill inside the band, equity at the mark is at least initial margin, whatever leverage the market allows and however wide the band is. A fill at a better price releases the unused part.
+- **Resting reduce orders follow the margin.** When margin changes (funding, add, release), resting reduce orders whose limit is now past the new bankruptcy price are re-priced to it or cancelled.
 - The mark stays the only price for margin, liquidation triggers and payout grade, exactly as the risk ADR says. The fill price only splits realised PnL between the two traders who agreed it, inside those two bounds.
 
 Liquidation orders go through the same book (rule 5). ADL is not an order book: it is a forced transfer of position between two named accounts at one stated price, recorded in the margin book and posted to the ledger (rule 6).
@@ -98,7 +100,7 @@ Unchanged in shape. Because long size now equals short size, the imbalance case 
 
 ### 8. Order margin
 
-An order that opens or grows a position locks initial margin before it rests, so a fill never needs money the trader no longer has. This needs an order margin hold recipe in `packages/ledger-client` (engine spec J-6), and its own PR before the order path.
+An order that opens or grows a position locks initial margin, plus the adverse distance to the mark from section 1, before it rests, so a fill never needs money the trader no longer has. This needs an order margin hold recipe in `packages/ledger-client` (engine spec J-6), and its own PR before the order path.
 
 ## Fit with the Money rules (AGENTS.md)
 
@@ -111,7 +113,7 @@ An order that opens or grows a position locks initial margin before it rests, so
 | 5. Protocol Plane never imports write recipes                                         | Not touched.                                                                                                                                                                                                                                                                                  |
 | 6. Freezes                                                                            | Account freeze stays with `svc-identity`; the posting freeze stays with `svc-ledger`.                                                                                                                                                                                                         |
 
-**No gate-file rule change is needed.** B fits the rules as written. Two places come closest, and both stay inside: a `payout_pending` row is an intent to post one recipe with one key (section 2, kind 3), never spendable, and its total is shown beside the pot (section 4). In phase 2 the margin book computes each account's net result between posts; that is unrealised PnL, which the margin book already computes today, and nothing is paid or withdrawn until the ledger has posted it.
+**No gate-file rule change is needed.** B fits the rules as written. Two places come closest, and both stay inside: a `payout_pending` row is an intent to post one recipe with one key (section 2, kind 3), never spendable, and its total is shown beside the pot (section 4). In phase 2 the margin book computes each account's net result between posts. That includes PnL realised by fills inside the window, so phase 2 must hold it as intents (kind 3) keyed per account and window, with the same total shown beside the pot, and nothing is paid or withdrawn until the ledger has posted it. Phase 2 is built only after its own review against this rule.
 
 ## Phases
 
