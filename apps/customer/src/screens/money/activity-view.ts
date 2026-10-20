@@ -2,18 +2,21 @@ import { dec, str, type ActivityItem, type ActivityKind } from './deps';
 
 /**
  * The tabs of Activity (UI-SPEC 5.4): All first (every money movement on the ledger, which is what a person opening
- * Activity wants to see), then Trades (fills), Orders (open orders and order history), Deposits and Transfers. Trades and
+ * Activity wants to see), then Trades (fills), Orders (open orders and order history), Deposits, Transfers, Fees and Ledger (the
+ * same lines one by one, nothing grouped). Trades and
  * Orders read the trade service; the rest read `bank.activity.list`.
  */
-export const TABS = ['all', 'trades', 'orders', 'deposits', 'transfers'] as const;
+export const TABS = ['all', 'trades', 'orders', 'deposits', 'transfers', 'fees', 'ledger'] as const;
 export type Tab = (typeof TABS)[number];
-export type LedgerTab = 'all' | 'deposits' | 'transfers';
+export type LedgerTab = 'all' | 'deposits' | 'transfers' | 'fees' | 'ledger';
 
-export const isLedgerTab = (tab: Tab): tab is LedgerTab => tab === 'all' || tab === 'deposits' || tab === 'transfers';
+export const isLedgerTab = (tab: Tab): tab is LedgerTab =>
+  tab === 'all' || tab === 'deposits' || tab === 'transfers' || tab === 'fees' || tab === 'ledger';
 
-const KINDS: Readonly<Record<Exclude<LedgerTab, 'all'>, ReadonlySet<ActivityKind>>> = {
+const KINDS: Readonly<Record<Exclude<LedgerTab, 'all' | 'ledger'>, ReadonlySet<ActivityKind>>> = {
   deposits: new Set<ActivityKind>(['deposit', 'welcome_funds']),
   transfers: new Set<ActivityKind>(['transfer_in', 'transfer_out', 'space_move']),
+  fees: new Set<ActivityKind>(['fee']),
 };
 
 /** The tab Activity opens on when the address names none, or names one that does not exist. */
@@ -64,7 +67,18 @@ export function symbolHasAsset(symbol: string, asset: string): boolean {
 }
 
 export function inTab(item: ActivityItem, tab: LedgerTab): boolean {
-  return tab === 'all' || KINDS[tab].has(item.kind);
+  return tab === 'all' || tab === 'ledger' || KINDS[tab].has(item.kind);
+}
+
+/**
+ * The tabs that list ledger lines one by one: Fees (every fee line, including the ones a trade row folds into itself) and Ledger
+ * (every line, nothing grouped). Every other tab shows the grouped rows from `groupActivity`.
+ */
+export const isLineTab = (tab: LedgerTab): tab is 'fees' | 'ledger' => tab === 'fees' || tab === 'ledger';
+
+/** One row per ledger line of the tab, in the order the bank sent them. */
+export function lineGroups(items: ActivityItem[], tab: 'fees' | 'ledger'): ActivityGroup[] {
+  return items.filter((item) => inTab(item, tab)).map(single);
 }
 
 // ── grouping ─────────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import {
   groupInAsset,
   inTab,
   isLedgerTab,
+  lineGroups,
   ledgerEmpty,
   tradesEmpty,
   FILLS_PAGE,
@@ -73,8 +74,8 @@ describe('tabs', () => {
   });
 
   it('puts the ledger tabs and only them on the ledger', () => {
-    expect(TABS).toEqual(['all', 'trades', 'orders', 'deposits', 'transfers']);
-    expect(TABS.filter(isLedgerTab)).toEqual(['all', 'deposits', 'transfers']);
+    expect(TABS).toEqual(['all', 'trades', 'orders', 'deposits', 'transfers', 'fees', 'ledger']);
+    expect(TABS.filter(isLedgerTab)).toEqual(['all', 'deposits', 'transfers', 'fees', 'ledger']);
   });
 
   it('sorts every kind into a ledger tab', () => {
@@ -406,5 +407,22 @@ describe('empty states never claim there is nothing while older history may matc
     expect(tradesEmpty('BTC', FILLS_PAGE - 1)).toBe('asset');
     expect(tradesEmpty('BTC', 0)).toBe('none');
     expect(tradesEmpty(null, 0)).toBe('none');
+  });
+});
+
+describe('Fees and Ledger tabs', () => {
+  const lines = [
+    item({ id: 'a', kind: 'deposit' }),
+    item({ id: 'b', kind: 'fee', direction: 'out', amount: '0.1', orderId: 'o1' }),
+    item({ id: 'c', kind: 'trade', orderId: 'o1' }),
+    item({ id: 'd', kind: 'trade', direction: 'out', asset: 'BTC', orderId: 'o1' }),
+  ];
+  it('Fees lists every fee line, even one a trade row folds into itself', () => {
+    expect(groupActivity(lines).groups.some((group) => group.main.id === 'b')).toBe(false);
+    expect(lineGroups(lines, 'fees').map((group) => group.main.id)).toEqual(['b']);
+  });
+  it('Ledger lists every line once, ungrouped, in the order sent', () => {
+    expect(lineGroups(lines, 'ledger').map((group) => group.main.id)).toEqual(['a', 'b', 'c', 'd']);
+    expect(lineGroups([], 'ledger')).toEqual([]);
   });
 });

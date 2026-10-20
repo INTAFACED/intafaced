@@ -24,6 +24,8 @@ import {
   groupInAsset,
   inTab,
   isLedgerTab,
+  isLineTab,
+  lineGroups,
   ledgerEmpty,
   tabFromSearch,
   tabHref,
@@ -96,16 +98,32 @@ const WANT_ROWS = 10;
 /** ...and looks back at most this many extra pages by itself; after that the person presses "Load more". */
 const AUTO_PAGES = 4;
 
-const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders'> = {
+const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Ledger'> = {
   trades: 'Trades',
   orders: 'Orders',
   all: 'All',
   deposits: 'Deposits',
   transfers: 'Transfers',
+  fees: 'Fees',
+  ledger: 'Ledger',
 };
-const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet'> = {
+const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No ledger lines yet'> = {
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
+  fees: 'No fees yet',
+  ledger: 'No ledger lines yet',
+};
+const TAB_LATEST: Record<
+  Exclude<LedgerTab, 'all'>,
+  | 'No deposits in the latest items'
+  | 'No transfers in the latest items'
+  | 'No fees in the latest items'
+  | 'No ledger lines in the latest items'
+> = {
+  deposits: 'No deposits in the latest items',
+  transfers: 'No transfers in the latest items',
+  fees: 'No fees in the latest items',
+  ledger: 'No ledger lines in the latest items',
 };
 
 /** The words a row shows as its title, so a search finds what the person reads. */
@@ -424,7 +442,7 @@ function Body({
 }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
-  const { groups } = useMemo(() => groupActivity(feed.items), [feed.items]);
+  const groups = useMemo(() => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items).groups), [feed.items, tab]);
   const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
   const rows = groups.filter(
     (group) =>
@@ -433,20 +451,22 @@ function Body({
       (!filtered || groupMatches(group, filters, timeZone, groupTitle(group, copy))),
   );
   const pages = useRef(0);
+  // All and Ledger keep every line, so they only look further back when a filter or a coin narrows them.
+  const everyLine = tab === 'all' || tab === 'ledger';
 
   // The server has no kind filter, so a narrow tab may be thin: look further back a few pages, then ask.
   useEffect(() => {
     pages.current = 0;
   }, [tab, asset, filters]);
   useEffect(() => {
-    if ((tab === 'all' && !asset && !filtered) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
+    if ((everyLine && !asset && !filtered) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
     if (rows.length >= WANT_ROWS || pages.current >= AUTO_PAGES) return;
     pages.current += 1;
     feed.loadMore();
-  }, [tab, asset, filtered, rows.length, feed]);
+  }, [tab, everyLine, asset, filtered, rows.length, feed]);
 
   const searching =
-    (tab !== 'all' || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
+    (!everyLine || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
   const more = feed.hasMore ? (
     <div className="money-more">
       {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
@@ -476,11 +496,7 @@ function Body({
         <StateBlock
           kind="empty"
           className="money-state"
-          title={
-            asset
-              ? t('No {asset} activity in the latest items', { asset })
-              : t(tab === 'deposits' ? 'No deposits in the latest items' : 'No transfers in the latest items')
-          }
+          title={asset ? t('No {asset} activity in the latest items', { asset }) : t(TAB_LATEST[tab as Exclude<LedgerTab, 'all'>])}
           body={t('Load more to look further back')}
         />
       ) : why === 'asset' && asset ? (
