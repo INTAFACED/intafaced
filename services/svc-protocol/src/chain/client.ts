@@ -13,6 +13,7 @@ import {
 } from './availability.js';
 import type { TokenParams } from '../launch/params.js';
 import { withSpan } from '../tracing.js';
+import { isExecutionRevert } from './revert.js';
 
 /**
  * Chain access — read-only, by construction.
@@ -395,20 +396,17 @@ export class ProtocolChain {
   async directApproveReverts(token: Address, owner: Address, spender: Address, amount: bigint): Promise<boolean> {
     return this.#read('directApproveReverts', 'chain.directApproveReverts', async () => {
       try {
-        await this.client.simulateContract({
+        const { result } = await this.client.simulateContract({
           address: token,
           abi: erc20ApprovalAbi,
           functionName: 'approve',
           args: [spender, amount],
           account: owner,
         });
-        return false;
+        // A token that answers `false` instead of reverting refuses the direct change just the same.
+        return result === false;
       } catch (err) {
-        for (let link: unknown = err, depth = 0; link && typeof link === 'object' && depth < 8; depth += 1) {
-          const name = (link as { name?: unknown }).name;
-          if (name === 'ContractFunctionRevertedError' || name === 'ExecutionRevertedError') return true;
-          link = (link as { cause?: unknown }).cause;
-        }
+        if (isExecutionRevert(err)) return true;
         throw err;
       }
     });
