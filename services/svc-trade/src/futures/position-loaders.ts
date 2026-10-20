@@ -188,6 +188,10 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
              WHERE r.position_id = p.id::text ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1), '') <> 'abandoned'
           AND NOT EXISTS (
             SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = 'liq:' || p.id::text)
+          -- no planned ADL pair: its legs may have posted and the row has not caught up (adl-pairing.ts)
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_adl_pairs q
+             WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

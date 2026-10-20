@@ -607,15 +607,25 @@ export class PositionService {
     positionId: string,
     operation: 'close' | 'reduce_margin' | 'set_leverage' | 'add_margin',
   ): Promise<void> {
-    const [hold] = await tx<{ live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean }[]>`
+    const [hold] = await tx<
+      { live_kind: 'partial' | 'closing' | null; latest_state: string | null; claimed: boolean; adl_planned: boolean }[]
+    >`
       SELECT
         (SELECT r.kind FROM trade.liquidation_rungs r
           WHERE r.position_id = ${positionId} AND r.state IN ('planned', 'posted') LIMIT 1) AS live_kind,
+        EXISTS (SELECT 1 FROM trade.futures_adl_pairs q
+          WHERE q.state = 'planned' AND (q.bankrupt_position_id = ${positionId} OR q.candidate_position_id = ${positionId})) AS adl_planned,
         (SELECT r.state FROM trade.liquidation_rungs r
           WHERE r.position_id = ${positionId} ORDER BY r.created_at DESC, r.rung_id DESC LIMIT 1) AS latest_state,
         EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)}) AS claimed
     `;
     if (!hold) return;
+    // A planned ADL pair moves both rows by a delta, like a partial rung: margin added meanwhile survives it.
+    if (hold.adl_planned && operation !== 'add_margin') {
+      throw new FuturesError('an ADL reduction of this position is in progress — retry in a moment', LIQUIDATION_IN_PROGRESS, 409, {
+        addMarginAllowed: true,
+      });
+    }
     if (hold.live_kind !== null && !(operation === 'add_margin' && hold.live_kind === 'partial')) {
       throw new FuturesError(
         `a liquidation of this position is in progress (${hold.live_kind} rung) — retry in a moment`,
