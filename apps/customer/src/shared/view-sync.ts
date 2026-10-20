@@ -16,17 +16,18 @@ const storedSchema = uiViewPreferenceSchema.extend({ outcome: z.literal('stored'
 
 export type ViewSyncStatus = 'idle' | 'synced' | 'not-saved';
 
-type SyncedFields = 'layoutMode' | 'hideBalances' | 'displayCurrency' | 'theme';
-const SYNCED: readonly SyncedFields[] = ['layoutMode', 'hideBalances', 'displayCurrency', 'theme'];
+type SyncedFields = 'layoutMode' | 'hideBalances' | 'displayCurrency' | 'theme' | 'activeProfile';
+const SYNCED: readonly SyncedFields[] = ['layoutMode', 'hideBalances', 'displayCurrency', 'theme', 'activeProfile'];
 type Fields = Pick<Preferences, SyncedFields>;
 
-/** The four fields of the device copy that live on the account. */
+/** The fields of the device copy that live on the account. */
 export function accountFields(preferences: Preferences): Fields {
   return {
     layoutMode: preferences.layoutMode,
     hideBalances: preferences.hideBalances,
     displayCurrency: preferences.displayCurrency,
     theme: preferences.theme,
+    activeProfile: preferences.activeProfile,
   };
 }
 
