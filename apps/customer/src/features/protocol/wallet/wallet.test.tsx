@@ -1,0 +1,168 @@
+// @vitest-environment happy-dom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { DiscoveredWallet, SignResult } from './eip1193';
+import { useWallet, WalletProvider, type WalletApi } from './WalletProvider';
+
+const ADDR = '0x1111111111111111111111111111111111111111';
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let host: HTMLDivElement, root: Root, api: WalletApi;
+let chain = '0x14a34';
+const calls: string[] = [];
+const listeners = new Map<string, (value: unknown) => void>();
+const wallet = (accounts: string[] = [ADDR]): DiscoveredWallet => ({
+  info: { uuid: 'u1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' },
+  provider: {
+    request: async ({ method }) => {
+      calls.push(method);
+      if (method === 'eth_requestAccounts' || method === 'eth_accounts') return accounts;
+      if (method === 'eth_chainId') return chain;
+      if (method === 'wallet_switchEthereumChain') {
+        chain = '0x14a34';
+        return null;
+      }
+      if (method === 'eth_signTypedData_v4') return '0xsigned';
+      throw new Error(`unexpected ${method}`);
+    },
+    on: (event, listener) => void listeners.set(event, listener as never),
+    removeListener: (event) => void listeners.delete(event),
+  },
+});
+function Probe() {
+  api = useWallet();
+  return <span data-status={api.status} />;
+}
+const mount = async (discovered?: DiscoveredWallet) => {
+  await act(async () => {
+    root.render(
+      <WalletProvider discovery={false}>
+        <Probe />
+      </WalletProvider>,
+    );
+  });
+  if (discovered) {
+    // discovery is switched off in the provider; announce through the DOM instead
+    await act(async () => {
+      root.render(
+        <WalletProvider discovery>
+          <Probe />
+        </WalletProvider>,
+      );
+      window.addEventListener('eip6963:requestProvider', () =>
+        window.dispatchEvent(
+          new CustomEvent('eip6963:announceProvider', { detail: { info: discovered.info, provider: discovered.provider } }),
+        ),
+      );
+    });
+  }
+};
+
+beforeEach(() => {
+  host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  chain = '0x14a34';
+  calls.length = 0;
+  listeners.clear();
+  sessionStorage.clear();
+});
+afterEach(() => {
+  act(() => root.unmount());
+  host.remove();
+});
+
+async function connected() {
+  const found = wallet();
+  await act(async () => {
+    root.render(
+      <WalletProvider discovery={false}>
+        <Probe />
+      </WalletProvider>,
+    );
+  });
+  await act(async () => api.connect(found));
+  return found;
+}
+
+describe('wallet provider', () => {
+  it('is not connected outside a provider and says so when asked to sign', async () => {
+    await act(async () => {
+      root.render(<Probe />);
+    });
+    expect(api.status).toBe('disconnected');
+    expect(await api.sign({ kind: 'message', message: 'x' })).toMatchObject({ status: 'failed', reason: 'not_connected' });
+  });
+
+  it('connects, reads the address and chain, and disconnects', async () => {
+    await connected();
+    expect(api).toMatchObject({ status: 'connected', address: ADDR, chainId: 84532, guard: { ok: true } });
+    await act(async () => api.disconnect());
+    expect(api).toMatchObject({ status: 'disconnected', address: null });
+  });
+
+  it('shows chain_mismatch on another chain, refuses to sign there, and recovers after the switch request', async () => {
+    chain = '0x1';
+    await connected();
+    expect(api.guard).toMatchObject({ ok: false, code: 'chain_mismatch', observed: 1 });
+    expect(await api.sign({ kind: 'message', message: 'x' })).toMatchObject({ status: 'failed', reason: 'chain_mismatch' });
+    expect(calls).not.toContain('personal_sign');
+    await act(async () => api.switchNetwork());
+    expect(api.guard).toEqual({ ok: true });
+  });
+
+  it('follows account and chain changes made in the wallet', async () => {
+    await connected();
+    await act(async () => listeners.get('chainChanged')?.('0x1'));
+    expect(api.guard).toMatchObject({ ok: false });
+    await act(async () => listeners.get('accountsChanged')?.([]));
+    expect(api.status).toBe('disconnected');
+  });
+
+  it('shows the sheet first; cancelling it is a rejection and the wallet is never asked', async () => {
+    await connected();
+    let result: SignResult | undefined;
+    await act(async () => {
+      void api
+        .sign({ kind: 'typedData', typedData: { types: {}, primaryType: 'Permit', domain: {}, message: { spender: ADDR } } })
+        .then((r) => (result = r));
+    });
+    expect(document.body.textContent).toContain('Check before you sign');
+    expect(document.body.textContent).toContain(ADDR);
+    const cancel = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Cancel')!;
+    await act(async () => cancel.click());
+    expect(result).toEqual({ status: 'rejected' });
+    expect(calls).not.toContain('eth_signTypedData_v4');
+  });
+
+  it('asks the wallet only after Continue and returns the signature', async () => {
+    await connected();
+    let result: SignResult | undefined;
+    await act(async () => {
+      void api
+        .sign({ kind: 'typedData', typedData: { types: {}, primaryType: 'Permit', domain: {}, message: {} } })
+        .then((r) => (result = r));
+    });
+    const go = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Continue in wallet')!;
+    await act(async () => go.click());
+    expect(result).toEqual({ status: 'signed', signature: '0xsigned' });
+  });
+
+  it('restores a wallet that is still authorised without a prompt', async () => {
+    sessionStorage.setItem('if.web3.wallet', 'test.wallet');
+    await mount(wallet());
+    await act(async () => undefined);
+    expect(api.status).toBe('connected');
+    expect(calls).toContain('eth_accounts');
+    expect(calls).not.toContain('eth_requestAccounts');
+  });
+
+  it('works when storage is blocked', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    await connected();
+    expect(api.status).toBe('connected');
+    spy.mockRestore();
+  });
+});

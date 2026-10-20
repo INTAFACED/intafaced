@@ -31,7 +31,7 @@ export function isProtocolSlug(value: string | undefined): value is Slug {
   return slugs.includes(value as Slug);
 }
 
-function toSource<T>(value: Resource<T>): Source<T> {
+export function toSource<T>(value: Resource<T>): Source<T> {
   const { resource } = value;
   return resource.status === 'loading'
     ? { status: 'loading' }
@@ -152,7 +152,7 @@ const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
 
-function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
+export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
   if (actions.length === 0) return null;
   return (
     <Panel title={t('actionsTitle')}>
