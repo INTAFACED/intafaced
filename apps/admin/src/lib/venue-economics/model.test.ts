@@ -44,6 +44,9 @@ describe('venue economics model', () => {
     expect(entryProblem({ ...ok, amount: '' })).toMatch(/Enter the amount/);
     expect(entryProblem({ ...ok, amount: '-5' })).toMatch(/no minus sign/);
     expect(entryProblem({ ...ok, amount: '1,000' })).toMatch(/plain number/);
+    expect(entryProblem({ ...ok, amount: '007' })).toMatch(/leading zeros/);
+    expect(entryProblem({ ...ok, amount: '123456789012345678901' })).toMatch(/20 digits/);
+    expect(entryProblem({ ...ok, amount: '12345678901234567890.5' })).toBeNull();
     expect(entryProblem({ ...ok, asset: 'usd' })).toMatch(/capitals/);
     expect(entryProblem({ ...ok, period: '2026-13' })).toMatch(/month/);
   });

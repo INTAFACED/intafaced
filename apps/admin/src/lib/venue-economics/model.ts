@@ -28,7 +28,8 @@ export const CATEGORY_LABEL: Readonly<Record<CostCategory, string>> = {
 };
 
 export const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
-export const COST_AMOUNT = /^\d+(\.\d{1,18})?$/;
+/** Same limits svc-ops enforces before spending an approval: no leading zeros, at most 20 whole digits, 18 decimals. */
+export const COST_AMOUNT = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 export const COST_ASSET = /^[A-Z0-9]{2,12}$/;
 
 /** The wire form svc-ops stores and hashes: trailing zeros after the point are dropped (`12.50` is `12.5`, `0.0` is `0`). */
@@ -65,7 +66,7 @@ export function entryProblem(draft: EntryDraft): string | null {
   if (!isCategory(draft.category)) return 'Choose one of the seven cost lines.';
   if (draft.amount.trim() === '') return 'Enter the amount as a number, for example 1250.50.';
   if (!COST_AMOUNT.test(draft.amount.trim()))
-    return 'The amount is a plain number with up to 18 decimals and no minus sign, comma or currency symbol.';
+    return 'The amount is a plain number with no leading zeros, at most 20 digits before the point and 18 after, and no minus sign, comma or currency symbol.';
   if (!COST_ASSET.test(draft.asset.trim())) return 'Enter the currency or asset code in capitals, for example USD.';
   return null;
 }

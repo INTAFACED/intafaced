@@ -105,7 +105,7 @@ const NEEDS: Readonly<Record<string, string>> = {
   academy: 'the Academy operator permission (admin:write) and a verified second factor',
   bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
   p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
-  ops: 'the operations permission (ops:write) and a verified second factor',
+  ops: 'the operator write permission (admin:write) and a verified second factor',
 };
 
 /** The permission, as the founder reads it in the refusal's headline. */

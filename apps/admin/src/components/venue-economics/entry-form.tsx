@@ -73,7 +73,7 @@ export function VenueCostEntry({ period, userId }: { period: string; userId: str
         blockedReason={null}
         formHold={problem}
         action={action}
-        consequence="The figure becomes the one the report uses for this line and month. An earlier figure stays in the history. No money moves. Two different founders must agree, and svc-ops needs the operations permission (ops:write) and a verified second factor on your session; it refuses in words if either is missing."
+        consequence="The figure becomes the one the report uses for this line and month. An earlier figure stays in the history. No money moves. Two different founders must agree, and svc-ops needs the operator write permission (admin:write) and a verified second factor on your session; it refuses in words if either is missing."
         blockedButtonLabel="Entry unavailable"
         onChanged={() => router.refresh()}
       />

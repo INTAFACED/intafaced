@@ -23,7 +23,7 @@ export async function readVenueEconomics(ctx: FounderCallContext, period: string
     part: partFrom(result, (d) => d, {
       service: 'svc-ops',
       forbiddenMessage:
-        'svc-ops did not accept this founder session for the venue report. It needs the operations read permission (ops:read).',
+        'svc-ops did not accept this founder session for the venue report. It needs the operator read permission (admin:read).',
       refusedMessage: (code) => (code !== null && Object.hasOwn(REFUSAL_WORDS, code) ? REFUSAL_WORDS[code]! : null),
     }),
   };
