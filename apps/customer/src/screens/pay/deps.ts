@@ -65,3 +65,4 @@ export { encodeQr, qrPath } from '../../features/pay/personal/qr';
 
 export { PersonalRoom } from '../../features/pay/personal/rooms/PersonalRoom';
 export { personalRoomFor, requestRoomHref } from '../../features/pay/personal/rooms/rooms';
+export { confirmWithStepUp } from '../../features/account/security-step-up';
