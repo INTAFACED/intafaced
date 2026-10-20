@@ -19,7 +19,7 @@ function keys() {
   const keyring: Keyring = [{ kid: 'svc-p2p.a', svc: 'svc-p2p', use: 's2s', x }];
   return {
     signer: createServiceSigner({ service: 'svc-p2p', kid: 'svc-p2p.a', privateKey: pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring, bootSecond: 0 }),
   };
 }
 

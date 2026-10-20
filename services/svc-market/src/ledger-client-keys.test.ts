@@ -19,7 +19,7 @@ function keys() {
   const keyring: Keyring = [{ kid: 'svc-market.a', svc: 'svc-market', use: 's2s', x }];
   return {
     signer: createServiceSigner({ service: 'svc-market', kid: 'svc-market.a', privateKey: pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-ledger', keyring, bootSecond: 0 }),
   };
 }
 

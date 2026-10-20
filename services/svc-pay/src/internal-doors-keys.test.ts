@@ -32,7 +32,7 @@ function fleet() {
   const keyring: Keyring = [scheduler.entry];
   return {
     signer: createServiceSigner({ service: 'svc-ops', kid: scheduler.entry.kid, privateKey: scheduler.pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-pay', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-pay', keyring, bootSecond: 0 }),
   };
 }
 
