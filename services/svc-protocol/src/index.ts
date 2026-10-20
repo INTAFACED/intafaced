@@ -9,6 +9,9 @@ import { env } from './env.js';
 import { protocolGasPosture, venueVaultFromKek } from './chain/policy-surface.js';
 import * as schema from './db/schema.js';
 import { PostgresAccountStore } from './db/postgres-store.js';
+import { unwiredApprovalConsumer } from './ops/approvals.js';
+import { ProtocolOpsDesk } from './ops/desk.js';
+import { PostgresListingStore } from './ops/postgres-listing-store.js';
 import { AccountRegistry } from './accounts/registry.js';
 import { ProtocolChain } from './chain/client.js';
 import { CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
@@ -93,7 +96,16 @@ const relay = new SessionRelay(chain);
 
 let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
+const listingStore = new PostgresListingStore(db.drizzle);
+const opsDesk = new ProtocolOpsDesk({
+  store: listingStore,
+  // No service-to-service role to reach identity yet: every hide, restore and delist refuses and changes nothing.
+  approvals: unwiredApprovalConsumer,
+  reasonCodes: () => env.PROTOCOL_OPS_REASON_CODES ?? null,
+});
+
 export const appRouter = createProtocolRouter({
+  ops: { desk: opsDesk, store: listingStore, windowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS },
   chain,
   registry,
   relay,
