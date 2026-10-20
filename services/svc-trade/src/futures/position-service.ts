@@ -34,7 +34,16 @@ import type { Principal } from '@intafaced/auth';
 import { TradingControlError, canonicalPayload, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
 import { positionIdFor } from './ids.js';
-import { div, formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  div,
+  formatAmount,
+  parseAmount,
+  positionCollateralAccount,
+  recipes,
+  userAvailable,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import type { Position } from '@intafaced/exchange-contract';
 import type { EventBus } from '@intafaced/events';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
@@ -400,8 +409,9 @@ export class PositionService {
   }
 
   /**
-   * credit(available + Σ margin_current) must cover Σ margin_initial + the new
-   * requirement. One read of each. A shortfall or a failed read refuses and
+   * credit(available + Σ position collateral pots) must cover Σ margin_initial + the new
+   * requirement. The pots are read from the ledger, never from `margin_current`: that column is a mirror and can drift
+   * from what the ledger holds, and no service-held figure may decide how much credit a customer has. A shortfall or a failed read refuses and
    * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
    * delta when setLeverage is raising margin.
    */
@@ -419,10 +429,10 @@ export class PositionService {
       throw new FuturesError(message, HAIRCUT_UNSET, 400);
     }
 
-    let rows: ReadonlyArray<{ margin_initial: string; margin_current: string | null }>;
+    let rows: ReadonlyArray<{ id: string; margin_initial: string }>;
     try {
-      rows = await this.sql<{ margin_initial: string; margin_current: string | null }[]>`
-        SELECT margin_initial, margin_current
+      rows = await this.sql<{ id: string; margin_initial: string }[]>`
+        SELECT id, margin_initial
         FROM trade.positions
         WHERE user_id = ${input.userId}
           AND margin_asset = ${input.asset}
@@ -447,10 +457,9 @@ export class PositionService {
     let sumInitial = 0n;
     try {
       for (const row of rows) {
-        const initial = parseAmount(String(row.margin_initial));
-        const current = parseAmount(String(row.margin_current ?? row.margin_initial));
-        sumInitial += initial;
-        if (current > 0n) sumCurrent += current;
+        sumInitial += parseAmount(String(row.margin_initial));
+        const pot = (await this.ledger.balance(positionCollateralAccount(input.userId, input.asset, row.id))).amount;
+        if (pot > 0n) sumCurrent += pot;
       }
     } catch (err) {
       if (err instanceof FuturesError) throw err;

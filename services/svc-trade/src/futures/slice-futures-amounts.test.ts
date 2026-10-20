@@ -194,7 +194,7 @@ function creditBook(options?: { balanceThrows?: boolean }) {
       const symbol = String(values[0]);
       return markets.filter((market) => market.symbol === symbol);
     }
-    if (text.includes('SELECT margin_initial, margin_current') && text.includes('trade.positions')) {
+    if (text.includes('SELECT id, margin_initial') && text.includes('trade.positions')) {
       const userId = String(values[0]);
       const asset = String(values[1]);
       return positions.filter(
