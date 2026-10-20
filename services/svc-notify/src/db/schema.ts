@@ -250,6 +250,18 @@ export const priceAlerts = schema.table('price_alerts', {
     .default([]),
 });
 
+/** One row each time an alert fired (C-alerts-scan-02). See drizzle/0021_notify_alert_triggers.sql. */
+export const alertTriggers = schema.table('alert_triggers', {
+  alertId: uuid('alert_id').primaryKey(),
+  userId: text('user_id').notNull(),
+  marketId: text('market_id').notNull(),
+  condition: text('condition').notNull(),
+  targetPrice: text('target_price').notNull(),
+  markPrice: text('mark_price').notNull(),
+  firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }).notNull(),
+  notificationId: text('notification_id'),
+});
+
 export type NotificationRow = typeof notifications.$inferSelect;
 export type ChannelTargetRow = typeof channelTargets.$inferSelect;
 export type DeliveryRow = typeof deliveries.$inferSelect;

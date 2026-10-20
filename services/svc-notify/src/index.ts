@@ -35,6 +35,7 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
 import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from './alerts/types.js';
@@ -268,11 +269,19 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
-const alerts = new AlertService(new PostgresAlertStore(sql), alertMarks, notify, whaleMarks, {
-  maxExpiryDays: env.NOTIFY_ALERT_MAX_EXPIRY_DAYS ?? null,
-  textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
-  maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
-});
+const alerts = new AlertService(
+  new PostgresAlertStore(sql),
+  alertMarks,
+  notify,
+  whaleMarks,
+  {
+    maxExpiryDays: env.NOTIFY_ALERT_MAX_EXPIRY_DAYS ?? null,
+    textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
+    maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
+    triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+  },
+  new PostgresAlertTriggerLog(sql),
+);
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;

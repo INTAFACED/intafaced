@@ -12,7 +12,7 @@ import { MemoryAlertStore } from './store.js';
 import type { AlertExtra, MarkSource, PriceAlert } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3 };
+const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3, triggerLogDays: null };
 
 const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): PriceAlert => ({
   id: '00000000-0000-4000-8000-000000000001',
