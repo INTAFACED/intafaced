@@ -25,6 +25,7 @@ import {
   NotifyPriceUnsetError,
   type AlertService,
 } from './alerts/service.js';
+import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
 import {
   ALERT_CONDITIONS,
   AlertKindUnpublishedError,
@@ -1611,6 +1612,52 @@ export function createNotifyRouter(
             const row = await alerts.setActive(ctx.principal.userId, input.id, input.active);
             if (!row || !before) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
             return { changed: row.status !== before.status, alert: priceAlertToWire(row) };
+          } catch (err) {
+            throw alertManagerError(err);
+          }
+        }),
+
+      /**
+       * The person's trigger log: each time an alert fired and the mark that fired it, newest first. The owner sets how long
+       * rows are kept; blank refuses `notify.alert_trigger_log_retention_unset` rather than answering an empty list.
+       */
+      alertTriggers: scopedProcedure('notify:read', { module: 'notify' })
+        .input(z.object({ alertId: z.string().uuid().optional(), limit: z.number().int().min(1).max(200) }))
+        .output(
+          z.object({
+            retentionDays: z.number().int(),
+            items: z.array(
+              z.object({
+                alertId: z.string().uuid(),
+                marketId: z.string(),
+                condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']),
+                targetPrice: z.string(),
+                markPrice: z.string(),
+                firedAt: z.string(),
+                notificationId: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET });
+          try {
+            const log = await alerts.triggers(ctx.principal.userId, {
+              ...(input.alertId ? { alertId: input.alertId } : {}),
+              limit: input.limit,
+            });
+            return {
+              retentionDays: log.retentionDays,
+              items: log.triggers.map((t) => ({
+                alertId: t.alertId,
+                marketId: t.marketId,
+                condition: t.condition,
+                targetPrice: t.targetPrice,
+                markPrice: t.markPrice,
+                firedAt: t.firedAt.toISOString(),
+                notificationId: t.notificationId,
+              })),
+            };
           } catch (err) {
             throw alertManagerError(err);
           }

@@ -6,6 +6,7 @@ import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PostgresAlertStore } from './store.js';
+import { PostgresAlertTriggerLog } from './trigger-log.js';
 
 /** The Postgres engine of alert conditions, expiry and the 0018 backfill, against a real database with fresh user ids. */
 
@@ -196,5 +197,38 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
     expect((await store().get(userId, open.id))?.status).toBe('active');
     expect((await store().cancel(userId, due.id))?.status).toBe('expired');
     expect((await store().listActiveByMarket('ETH-USD')).some((r) => r.id === due.id)).toBe(false);
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertTriggerLog and migration 0021', () => {
+  it('runs twice, records a fire once, lists newest first for the owner only, and prunes', async () => {
+    await sql!.unsafe(migration('0021_notify_alert_triggers.sql'));
+    await sql!.unsafe(migration('0021_notify_alert_triggers.sql'));
+    const log = new PostgresAlertTriggerLog(sql!);
+    const userId = fresh();
+    const other = fresh();
+    const a = randomUUID();
+    const b = randomUUID();
+    const row = (alertId: string, uid: string, at: Date, markPrice: string) => ({
+      alertId,
+      userId: uid,
+      marketId: 'BTC-USD',
+      condition: 'greater_than' as const,
+      targetPrice: '100',
+      markPrice,
+      firedAt: at,
+      notificationId: null,
+    });
+    await log.record(row(a, userId, NOW, '101.5'));
+    await log.record(row(a, userId, NOW, '999'));
+    await log.record(row(b, userId, new Date(NOW.getTime() + 1000), '102'));
+    await log.record(row(randomUUID(), other, NOW, '103'));
+    const mineRows = await log.list(userId, { since: new Date(0), limit: 10 });
+    expect(mineRows.map((r) => r.markPrice)).toEqual(['102', '101.5']);
+    expect(await log.list(userId, { alertId: a, since: new Date(0), limit: 10 })).toHaveLength(1);
+    expect(await log.list(userId, { since: new Date(NOW.getTime() + 500), limit: 10 })).toHaveLength(1);
+    expect(await log.prune(new Date(NOW.getTime() + 500))).toBeGreaterThanOrEqual(2);
+    expect(await log.list(userId, { since: new Date(0), limit: 10 })).toHaveLength(1);
+    await sql!`DELETE FROM notify.alert_triggers WHERE user_id IN (${userId}, ${other})`;
   });
 });

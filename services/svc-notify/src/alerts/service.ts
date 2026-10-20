@@ -22,6 +22,13 @@ import {
 } from './evaluate.js';
 import { AlertValidationError, type AlertStore } from './store.js';
 import {
+  MemoryAlertTriggerLog,
+  NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET,
+  triggerOf,
+  type AlertTrigger,
+  type AlertTriggerLog,
+} from './trigger-log.js';
+import {
   ALERT_CONDITIONS,
   directionOfCondition,
   EXTRA_CONDITIONS,
@@ -107,14 +114,22 @@ export type AlertLimits = {
   readonly textMaxLength: number | null;
   /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). */
   readonly maxConditions: number | null;
+  /** Days the trigger log keeps a row (`NOTIFY_ALERT_TRIGGER_LOG_DAYS`). Blank: no log is written and reading it refuses. */
+  readonly triggerLogDays: number | null;
 };
 
-export const NO_ALERT_LIMITS: AlertLimits = { maxExpiryDays: null, textMaxLength: null, maxConditions: null };
+export const NO_ALERT_LIMITS: AlertLimits = {
+  maxExpiryDays: null,
+  textMaxLength: null,
+  maxConditions: null,
+  triggerLogDays: null,
+};
 
 export type AlertLimitCode =
   | typeof NOTIFY_ALERT_EXPIRY_MAX_UNSET
   | typeof NOTIFY_ALERT_TEXT_LIMIT_UNSET
   | typeof NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET
+  | typeof NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET
   | 'alert.too_many_conditions'
   | 'alert.extra_condition_invalid'
   | 'alert.expiry_in_past'
@@ -312,7 +327,23 @@ export class AlertService {
     private readonly notify: NotifyService,
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
     private readonly limits: AlertLimits = NO_ALERT_LIMITS,
+    private readonly triggerLog: AlertTriggerLog = new MemoryAlertTriggerLog(),
   ) {}
+
+  /** The person's trigger log, newest first. Refuses while the owner has not set how long it is kept. */
+  async triggers(
+    userId: string,
+    opts: { alertId?: string; limit: number },
+    now: Date = new Date(),
+  ): Promise<{ retentionDays: number; triggers: readonly AlertTrigger[] }> {
+    const days = this.limits.triggerLogDays;
+    if (days === null) {
+      throw new AlertLimitError(NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET, 'the owner has not set how long the trigger log is kept');
+    }
+    const since = new Date(now.getTime() - days * 86_400_000);
+    const triggers = await this.triggerLog.list(userId, { ...opts, since });
+    return { retentionDays: days, triggers };
+  }
 
   async create(
     input: Omit<CreatePriceAlertInput, 'targetPrice'> & { readonly targetPrice?: string | null },
@@ -488,6 +519,9 @@ export class AlertService {
    */
   async evaluateDueAlerts(at: Date = new Date()): Promise<AlertSweepReport> {
     await this.store.expireDue(at);
+    if (this.limits.triggerLogDays !== null) {
+      await this.triggerLog.prune(new Date(at.getTime() - this.limits.triggerLogDays * 86_400_000));
+    }
     const markets = await this.store.activeMarkets();
     let fired = 0;
     let held = 0;
@@ -615,8 +649,13 @@ export class AlertService {
       const created = await this.fireNotification(alert, outcome.markPrice, at);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
-        await this.store.markFired(alert.userId, alert.id, at);
         notificationId = created.notification?.id ?? null;
+        // Logged after the inbox has it and before the watch is marked fired: a crash between the two retries and the
+        // alert-id key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
+        if (this.limits.triggerLogDays !== null) {
+          await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId));
+        }
+        await this.store.markFired(alert.userId, alert.id, at);
       }
     }
 

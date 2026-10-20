@@ -592,8 +592,12 @@ a row. A redelivery reuses the same key and cannot double-send.
   setting still refuses, and an alert that has triggered, expired or been cancelled is `alert.not_editable`. An edit forgets the
   side a crossing was last seen on. `notify.setAlertActive` pauses an active alert (`stopped`: never fires, keeps its place) or
   resumes it; repeating either is harmless, and a stopped alert past its expiry becomes `expired`. `notify.deleteAlert` removes an
-  alert in any state, once, for its owner only. `updatedAt` is when the person last changed it. Migration 0020. The trigger log
-  (`notify.alertTriggers`) and its owner-set retention are the next PR.
+  alert in any state, once, for its owner only. `updatedAt` is when the person last changed it. Migration 0020.
+- Trigger log (C-alerts-scan-02): each fire writes one row (alert, market, the condition and level it asked for, the mark that
+  fired it, when, the inbox item) after the inbox has it and before the alert is marked fired, keyed by the alert so a retry
+  after a crash writes it once. `notify.alertTriggers` reads the person's own rows, newest first, for all alerts or one. How long
+  rows are kept is `NOTIFY_ALERT_TRIGGER_LOG_DAYS`; blank writes no log, the read refuses `notify.alert_trigger_log_retention_unset`,
+  and alerts still fire. The sweep prunes rows past the retention. Migration 0021.
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

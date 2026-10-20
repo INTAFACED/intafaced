@@ -233,6 +233,12 @@ const schema = serviceEnvSchema
        */
       NOTIFY_ALERT_MAX_CONDITIONS: blankAsAbsent(z.coerce.number().int().min(2).max(20).optional()),
 
+      /**
+       * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
+       * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
+       */
+      NOTIFY_ALERT_TRIGGER_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 
