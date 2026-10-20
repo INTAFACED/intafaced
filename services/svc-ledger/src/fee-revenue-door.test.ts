@@ -138,7 +138,10 @@ describe('feeRevenue door', () => {
     const m = await mount(asked);
     const inverted = await m.send('svc-ops', '/trpc/feeRevenue', { from: WINDOW.to, to: WINDOW.from });
     expect(inverted.statusCode).toBe(400);
-    expect(inverted.json().code).toBe('ledger.history_range_invalid');
+    expect(inverted.json().code).toBe('ledger.fee_revenue_window_invalid');
+    const empty = await m.send('svc-ops', '/trpc/feeRevenue', { from: WINDOW.from, to: WINDOW.from });
+    expect(empty.statusCode).toBe(400);
+    expect(empty.json().code).toBe('ledger.fee_revenue_window_invalid');
     const dateOnly = await m.send('svc-ops', '/trpc/feeRevenue', { from: '2026-10-01', to: '2026-11-01' });
     expect(dateOnly.statusCode).toBe(400);
     expect(asked.feeRevenue).toEqual([]);

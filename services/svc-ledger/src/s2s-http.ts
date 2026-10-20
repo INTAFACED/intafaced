@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
+  LEDGER_FEE_REVENUE_WINDOW_INVALID,
   DEFAULT_SERVICE_BODY_BIND_MODE,
   retainRawBody,
   verifyServiceRequest,
@@ -108,6 +109,7 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === LEDGER_FEE_REVENUE_WINDOW_INVALID ||
       err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {

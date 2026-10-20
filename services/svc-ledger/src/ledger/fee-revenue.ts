@@ -1,6 +1,7 @@
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
-import { ledgerFeeRevenueInputSchema, type LedgerFeeRevenue } from '@intafaced/contracts';
-import { parseHistoryRange, type HistoryRange } from './history.js';
+import { LEDGER_FEE_REVENUE_WINDOW_INVALID, ledgerFeeRevenueInputSchema, type LedgerFeeRevenue } from '@intafaced/contracts';
+import { LedgerError } from '@intafaced/ledger-client';
+import type { HistoryRange } from './history.js';
 
 /**
  * FEE REVENUE: what the house fee accounts took in over one window.
@@ -24,7 +25,15 @@ export interface FeeRevenueRow {
 
 export function parseFeeRevenueInput(body: unknown): HistoryRange {
   const input = ledgerFeeRevenueInputSchema.parse(body);
-  return parseHistoryRange(input.from, input.to);
+  const range = { from: new Date(input.from), to: new Date(input.to) };
+  // An empty or inverted window is a question that cannot be asked, not a zero.
+  if (!(range.from < range.to)) {
+    throw new LedgerError(
+      'Fee revenue window must start before it ends: `from` is inclusive, `to` is exclusive',
+      LEDGER_FEE_REVENUE_WINDOW_INVALID,
+    );
+  }
+  return range;
 }
 
 export function serializeFeeRevenue(range: HistoryRange, rows: readonly FeeRevenueRow[]): LedgerFeeRevenue {
