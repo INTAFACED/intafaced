@@ -221,24 +221,26 @@ refuses `guest.delivery_in_progress`; settle it or let its bounded lease expire
 before retrying. Erased submissions cannot enqueue further messages. Erasure covers
 notify's owned records; ops owns submission/contact erasure and authorization.
 
-| Procedure               | Scope          | Input                                  | Output                                                                                                         |
-| ----------------------- | -------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `health`                | public         | —                                      | `{ ok, service, fanoutEnabled, venueIncident }` — `ok` is liveness; `venueIncident.allFine` is the venue claim |
-| `notify.list`           | `notify:read`  | `{ cursor?, limit?, unreadOnly? }`     | `{ items, nextCursor }`                                                                                        |
-| `notify.unreadCount`    | `notify:read`  | —                                      | `{ count }`                                                                                                    |
-| `notify.markRead`       | `notify:write` | `{ ids: uuid[] }`                      | `{ marked }`                                                                                                   |
-| `notify.markAllRead`    | `notify:write` | —                                      | `{ marked }`                                                                                                   |
-| `notify.channels`       | `notify:read`  | —                                      | per-channel availability + missing env + §13 `socket` id (null for in-app)                                     |
-| `notify.targets`        | `notify:read`  | —                                      | the caller's registered addresses                                                                              |
-| `notify.registerTarget` | `notify:write` | `{ channel, address, locale? }`        | `{ status, channel, code, expiresAt }` — rate-limited (`channel.register_rate_limited`)                        |
-| `notify.verifyTarget`   | `notify:write` | `{ channel, code }`                    | `{ verified, code }` — rate-limited (`channel.verify_rate_limited`)                                            |
-| `notify.removeTarget`   | `notify:write` | `{ channel }`                          | `{ removed }`                                                                                                  |
-| `notify.deliveries`     | `notify:read`  | `{ notificationId }`                   | per-channel attempt + outcome                                                                                  |
-| `notify.mutePrefs`      | `notify:read`  | —                                      | per-channel mute flags (email/push/sms)                                                                        |
-| `notify.setMute`        | `notify:write` | `{ channel, muted }`                   | updated mute flags                                                                                             |
-| `notify.alerts`         | `notify:read`  | —                                      | caller's price watches (v22.alerts MVP)                                                                        |
-| `notify.createAlert`    | `notify:write` | `{ marketId, direction, targetPrice }` | active watch; price is a decimal string                                                                        |
-| `notify.cancelAlert`    | `notify:write` | `{ id }`                               | cancel an active watch                                                                                         |
+| Procedure                | Scope          | Input                                             | Output                                                                                                                                                 |
+| ------------------------ | -------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `health`                 | public         | —                                                 | `{ ok, service, fanoutEnabled, venueIncident }` — `ok` is liveness; `venueIncident.allFine` is the venue claim                                         |
+| `notify.list`            | `notify:read`  | `{ cursor?, limit?, unreadOnly? }`                | `{ items, nextCursor }`                                                                                                                                |
+| `notify.unreadCount`     | `notify:read`  | —                                                 | `{ count }`                                                                                                                                            |
+| `notify.markRead`        | `notify:write` | `{ ids: uuid[] }`                                 | `{ marked }`                                                                                                                                           |
+| `notify.markAllRead`     | `notify:write` | —                                                 | `{ marked }`                                                                                                                                           |
+| `notify.channels`        | `notify:read`  | —                                                 | per-channel availability + missing env + §13 `socket` id (null for in-app)                                                                             |
+| `notify.targets`         | `notify:read`  | —                                                 | the caller's registered addresses                                                                                                                      |
+| `notify.registerTarget`  | `notify:write` | `{ channel, address, locale? }`                   | `{ status, channel, code, expiresAt }` — rate-limited (`channel.register_rate_limited`)                                                                |
+| `notify.verifyTarget`    | `notify:write` | `{ channel, code }`                               | `{ verified, code }` — rate-limited (`channel.verify_rate_limited`)                                                                                    |
+| `notify.removeTarget`    | `notify:write` | `{ channel }`                                     | `{ removed }`                                                                                                                                          |
+| `notify.deliveries`      | `notify:read`  | `{ notificationId }`                              | per-channel attempt + outcome                                                                                                                          |
+| `notify.mutePrefs`       | `notify:read`  | —                                                 | per-channel mute flags (email/push/sms)                                                                                                                |
+| `notify.setMute`         | `notify:write` | `{ channel, muted }`                              | updated mute flags                                                                                                                                     |
+| `notify.categoryPrefs`   | `notify:read`  | —                                                 | category-by-channel grid; `security` and the inbox are `locked`; `notConnected` names the missing vendor (`vendor.email`, `vendor.push`, `vendor.sms`) |
+| `notify.setCategoryPref` | `notify:write` | `{ category, channel, enabled, clientRequestId }` | `{ rows, locked }`; a locked cell stores nothing; each change is kept in `notify.category_pref_history`                                                |
+| `notify.alerts`          | `notify:read`  | —                                                 | caller's price watches (v22.alerts MVP)                                                                                                                |
+| `notify.createAlert`     | `notify:write` | `{ marketId, direction, targetPrice }`            | active watch; price is a decimal string                                                                                                                |
+| `notify.cancelAlert`     | `notify:write` | `{ id }`                                          | cancel an active watch                                                                                                                                 |
 
 **Mounted, and proven mounted.** `router.mount.test.ts` proves authorisation
 through `createCaller`, which is the right tool for that job and blind to a
@@ -373,6 +375,19 @@ the hash, target and version the second person's approval has to carry.
   flight. A render with a missing field refuses `notify.template_variable_missing`.
   Preview and test-send use TEST values; test-send takes no address, only goes to
   the caller's own confirmed address, and replays by client request id.
+
+### Notification targets and `notify.inboxPolicy`
+
+Every `href` an emitter writes is an internal path the customer app can open or
+fall back from; `event-href-targets.test.ts` pins the full list, so a new
+emitter with an unknown target fails. P2P events open `/p2p/orders/:tradeId`,
+verification `/verification`, rank `/uc/account`, stakes `/token`, futures
+positions `/trade/futures`. Bank loans, trade orders, payment requests and agent
+sessions keep the detail paths IA-SPEC gives their owning modules. Stored rows
+are not rewritten.
+
+`notify.inboxPolicy` (public) serves the owner values for page size, the bell's
+unread cap and retention. Blank values come back `null` with their typed code.
 
 ### Refusal codes (the wire vocabulary)
 
@@ -568,6 +583,9 @@ is actually open.
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |
 | `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                   |
+| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
+| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
+| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail

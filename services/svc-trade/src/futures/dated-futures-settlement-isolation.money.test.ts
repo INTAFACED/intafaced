@@ -1,7 +1,7 @@
 /**
  * Dated futures expiry: one position that cannot be paid must not stop the rest.
  *
- * A winner is paid from `houseFees('trade')`. When that pot cannot cover one winner,
+ * A winner is paid from the clearing pot (`futuresLossSink`, the account losers pay into). When that pot cannot cover one winner,
  * the post throws. Before this suite's fix the throw escaped the position loop, so every
  * later position in the market (and every later market in the scan) stayed unsettled,
  * and nothing in the market was marked closed. Each position settles on its own now;
@@ -10,11 +10,12 @@
 import {
   MemoryLedger,
   formatAmount,
-  houseFees,
+  futuresLossSink,
   parseAmount as amt,
   positionCollateralAccount,
   recipes,
   userAvailable,
+  type LedgerClient,
 } from '@intafaced/ledger-client';
 import { reportDatedSettlement } from './futures-jobs.js';
 import { describe, expect, it } from 'vitest';
@@ -26,6 +27,7 @@ import {
 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const CAROL = '33333333-3333-4333-8333-333333333333';
+const DAVE = '44444444-4444-4444-8444-444444444444';
 const POS_WIN = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const POS_LOSS = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -36,12 +38,36 @@ function position(positionId: string, userId: string, side: 'long' | 'short'): D
   return { positionId, userId, side, size: amt('1'), entryPrice: amt('100'), margin: amt('20'), marginAsset: 'USDT' };
 }
 
-/** Alice (long, wins at 110) is listed first; Carol (short, loses) second. The fee pot is empty. */
+/** Alice (long, wins at 110) is listed first; Carol (short, loses) second. The clearing pot is empty. */
 async function seed(ledger: MemoryLedger) {
   await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: 'alice' }));
   await ledger.post(recipes.futuresMarginLock({ positionId: POS_WIN, userId: ALICE, assetId: 'USDT', amount: amt('20') }));
   await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: 'carol' }));
   await ledger.post(recipes.futuresMarginLock({ positionId: POS_LOSS, userId: CAROL, assetId: 'USDT', amount: amt('20') }));
+}
+
+/**
+ * Fund the clearing pot the way it fills in production: a loser's deposit, margin
+ * lock and realised loss. `futuresRealizeProfit` pays winners from that pot.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
 }
 
 const positions = [position(POS_WIN, ALICE, 'long'), position(POS_LOSS, CAROL, 'short')];
@@ -102,14 +128,11 @@ describe('dated futures settlement isolates an unpayable winner', () => {
     const run = () =>
       runDatedFuturesSettlementJob({ style: 'dated', expiryAt: EXPIRY, now: AFTER, ownerSettlementPrice: '110', positions, ledger });
     await run();
-    await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: amt('50'), rail: 'test', railRef: 'pot-seed' }));
-    await ledger.post(
-      recipes.feeCharge({ chargeId: 'pot', userId: CAROL, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('50') }),
-    );
+    await fundClearingPot(ledger, { loserUserId: DAVE, assetId: 'USDT', amount: amt('50'), seedId: 'pot-seed' });
     const second = await run();
     expect(second).toMatchObject({ status: 'settled', unsettled: [] });
     expect(formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount)).toBe('1010');
-    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('40');
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('50');
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 

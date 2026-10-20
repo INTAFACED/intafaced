@@ -19,6 +19,8 @@ import {
   positionCollateralAccount,
   recipes,
   userAvailable,
+  futuresLossSink,
+  type LedgerClient,
 } from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
 import { FuturesError } from './position-service.js';
@@ -91,6 +93,34 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 /** Someone else entirely — used only to route seed value into the house pot. */
 const BOB = '22222222-2222-4222-8222-222222222222';
 
+/** A trader who is not asserted on anywhere: the loser whose realised loss fills the clearing pot. */
+const POT_LOSER = '99999999-9999-4999-8999-999999999999';
+
+/**
+ * Fund the clearing pot (`futuresLossSink`, the account losers pay into and
+ * winners are paid from) the way it fills in production: a loser's deposit,
+ * margin lock and realised loss.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
+}
+
 describe('H8a money suite is not skip-green', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
     const src = readFileSync(fileURLToPath(import.meta.url), 'utf8');
@@ -152,26 +182,15 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   }
 
   /**
-   * Fund the profit pot the way it fills after #5016: a posted trade fee into
-   * `houseFees('trade')`. A realised loss debits `futuresLossSink` and leaves
-   * that fee pot at 0, so it cannot capitalise a payout.
+   * Fund the clearing pot (the account losers pay into and winners are paid
+   * from) the way it fills: a loser's deposit, margin lock and realised loss.
    */
   async function fundProfitSource(amount: string) {
     const seedId = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
-    await ledger.post(
-      recipes.feeCharge({
-        chargeId: seedId,
-        userId: BOB,
-        module: 'trade',
-        mode: 'asset',
-        assetId: 'USDT',
-        amount: amt(amount),
-      }),
-    );
+    await fundClearingPot(ledger, { loserUserId: POT_LOSER, assetId: 'USDT', amount: amt(amount), seedId: seedId });
   }
 
-  const profitPot = () => houseFees('trade', 'USDT');
+  const profitPot = () => futuresLossSink('USDT');
 
   beforeEach(async () => {
     await sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;

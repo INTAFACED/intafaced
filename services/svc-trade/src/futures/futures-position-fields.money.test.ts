@@ -11,7 +11,16 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { MemoryLedger, formatAmount, parseAmount as amt, recipes, userAvailable, type Amount } from '@intafaced/ledger-client';
+import {
+  MemoryLedger,
+  formatAmount,
+  parseAmount as amt,
+  recipes,
+  userAvailable,
+  type Amount,
+  futuresLossSink,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { MemoryEventBus } from '@intafaced/events';
 import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
@@ -51,6 +60,34 @@ const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const NOW = new Date('2026-08-06T12:00:00.000Z');
 const DEPTH = amt('1000000');
 
+/** A trader who is not asserted on anywhere: the loser whose realised loss fills the clearing pot. */
+const POT_LOSER = '99999999-9999-4999-8999-999999999999';
+
+/**
+ * Fund the clearing pot (`futuresLossSink`, the account losers pay into and
+ * winners are paid from) the way it fills in production: a loser's deposit,
+ * margin lock and realised loss.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
+}
+
 describe('futures position fields', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
@@ -71,17 +108,7 @@ describe('futures position fields', () => {
 
   async function fundProfitSource(amount: string) {
     const seedId = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
-    await ledger.post(
-      recipes.feeCharge({
-        chargeId: seedId,
-        userId: BOB,
-        module: 'trade',
-        mode: 'asset',
-        assetId: 'USDT',
-        amount: amt(amount),
-      }),
-    );
+    await fundClearingPot(ledger, { loserUserId: POT_LOSER, assetId: 'USDT', amount: amt(amount), seedId: seedId });
   }
 
   beforeAll(async () => {

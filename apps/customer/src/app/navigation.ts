@@ -514,10 +514,16 @@ export const rooms: readonly Room[] = [
   { path: '/uc/trade', title: 'Trading settings', description: 'Personal trade settings', area: 'person', alias: '/view' },
   { path: '/ops', title: 'Team desk', description: 'Separate operator console', area: 'team', hidden: true },
   { path: '/platform', title: 'Team inspection', description: 'Operator module inspection', area: 'team', hidden: true },
-  ...(['chain', 'dex', 'protocol'] as const).flatMap((slug) => [
-    { path: `/${slug}`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const },
+  ...(
+    [
+      ['chain', 'Blocks, validators and chain status'],
+      ['dex', 'Swap and liquidity'],
+      ['protocol', 'Contracts, rails and audit'],
+    ] as const
+  ).flatMap(([slug, description]) => [
+    { path: `/${slug}`, title: slug, description, area: 'parked' as const },
     // Tab deep links (`/chain/validators`); the room picks the tab from the rest of the path.
-    { path: `/${slug}/*`, title: slug, description: 'Parked: not activated by the owners' as const, area: 'parked' as const, hidden: true },
+    { path: `/${slug}/*`, title: slug, description, area: 'parked' as const, hidden: true },
   ]),
 ];
 

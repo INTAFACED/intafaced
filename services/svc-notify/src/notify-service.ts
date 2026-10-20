@@ -8,6 +8,7 @@ import { normaliseLocale, renderVerification } from './channels/render.js';
 import { withNotifySpan } from './tracing.js';
 import type { ChannelMutePrefs, MuteStore, MuteableChannel } from './preferences/mute.js';
 import type { AccountPrefs, HoldStore } from './preferences/account.js';
+import type { CategoryPrefs } from './preferences/categories.js';
 import {
   RecentDeliveriesError,
   clampRecentDeliveriesLimit,
@@ -188,6 +189,7 @@ export interface NotifyServiceDeps {
   /** Mute prefs store — Postgres in prod, memory in unit harnesses. */
   readonly muteStore?: MuteStore;
   readonly account?: AccountPrefs;
+  readonly categories?: CategoryPrefs;
   readonly holds?: HoldStore;
   readonly notices?: NoticeBoard;
   readonly channelSettings?: ChannelSettings;
@@ -490,6 +492,10 @@ export class NotifyService {
 
   get account(): AccountPrefs | null {
     return this.deps?.account ?? null;
+  }
+
+  get categories(): CategoryPrefs | null {
+    return this.deps?.categories ?? null;
   }
 
   get holds(): HoldStore | null {

@@ -12,8 +12,14 @@ import { accountStateSchema } from './identity.js';
 export const supportTicketStatusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
-export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'other']);
+export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);
 export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
+
+/**
+ * Pasted message headers on a phishing report (I-signin-sessions-27). The same
+ * bound as `body`: a schema limit on text, not a product magnitude.
+ */
+export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
 
 export const supportTicketSchema = z.object({
   id: z.string().uuid(),
@@ -21,6 +27,8 @@ export const supportTicketSchema = z.object({
   category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
+  /** Pasted headers of a reported message. Null or absent on any other ticket. */
+  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).nullable().optional(),
   status: supportTicketStatusSchema,
   assigneeId: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
@@ -43,6 +51,13 @@ export const createTicketInputSchema = z.object({
   category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
+  /** Only for a `phishing` ticket; any other category refuses it. */
+  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).optional(),
+  /**
+   * One key per submission. A replay by the same caller returns the stored
+   * ticket and creates no second one. Optional so older callers still parse.
+   */
+  clientRequestId: z.string().min(1).max(200).optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
 
