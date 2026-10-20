@@ -34,6 +34,8 @@
     "W-security-accounts-02": "svc-pay wallet",
     "W-security-accounts-04": "svc-bank",
     "W-security-accounts-06": "svc-identity",
-    "W-withdraw-13": "svc-pay wallet"
+    "W-withdraw-13": "svc-pay wallet",
+    "RC-home-ia-02": "customer shell",
+    "RC-home-ia-04": "customer shell"
   }
 }
