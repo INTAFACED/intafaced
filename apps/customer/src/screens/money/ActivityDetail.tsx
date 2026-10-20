@@ -50,7 +50,7 @@ const titleFor = (item: ActivityItem, copy: Copy) => titleOf(item, copy.t, (key,
 export default function ActivityDetail({ rawId }: { rawId: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, timeZone, layoutMode } = usePreferences();
+  const { hideBalances, timeZone } = usePreferences();
   const { userId } = useSession();
   const id = idFromPath(rawId);
   const activity = useActivity({ pageSize: 100 });
@@ -168,12 +168,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
               {t('Report a problem')}
             </Button>
             {bought && (
-              <Button
-                variant="secondary"
-                size={40}
-                nativeButton={false}
-                render={<a href={coinHref(bought, layoutMode === 'pro' ? 'pro' : 'simple')} />}
-              >
+              <Button variant="secondary" size={40} nativeButton={false} render={<a href={coinHref(bought, 'simple')} />}>
                 {t('See {asset} history', { asset: bought })}
               </Button>
             )}
