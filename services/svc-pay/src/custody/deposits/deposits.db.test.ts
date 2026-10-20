@@ -212,6 +212,10 @@ describe('custody deposit addresses (real Postgres)', () => {
           if (fail) throw new Error('database down');
           return svc.address(input);
         },
+        records: async () => {
+          if (fail) throw new Error('database down');
+          return { items: [], total: 0 };
+        },
       });
       await a.ready();
       return a;
@@ -227,6 +231,19 @@ describe('custody deposit addresses (real Postgres)', () => {
       expect(adr.statusCode).toBe(200);
       expect(adr.json().state).toBe('issued');
       await a.close();
+    });
+
+    it('answers records to svc-bank only, refuses a bad page and is 503 when the read fails', async () => {
+      const a = await app();
+      const ok = await a.inject(post('/internal/custody-deposits/records', { userId: ALICE }));
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toEqual({ items: [], total: 0 });
+      expect((await a.inject(post('/internal/custody-deposits/records', { userId: ALICE, limit: 5000 }))).statusCode).toBe(400);
+      expect((await a.inject(post('/internal/custody-deposits/records', { userId: ALICE }, 'svc-identity'))).statusCode).toBe(403);
+      await a.close();
+      const down = await app(true);
+      expect((await down.inject(post('/internal/custody-deposits/records', { userId: ALICE }))).statusCode).toBe(503);
+      await down.close();
     });
 
     it('is 503, never an empty catalogue or an address, when a read fails', async () => {
