@@ -3,12 +3,15 @@ import {
   PAY_CUSTODY_DEPOSIT_ADDRESS_PATH,
   PAY_CUSTODY_DEPOSIT_CALLERS,
   PAY_CUSTODY_DEPOSIT_CATALOGUE_PATH,
+  PAY_CUSTODY_DEPOSIT_RECORDS_PATH,
   payCustodyDepositAddressInputSchema,
+  payCustodyDepositRecordsInputSchema,
   retainRawBody,
   verifyServiceRequest,
   type PayCustodyDepositAddressInput,
   type PayCustodyDepositAddressReply,
   type PayCustodyDepositCatalogue,
+  type PayCustodyDepositRecordsReply,
   type ServiceAuthMode,
   type ServiceVerifier,
 } from '@intafaced/contracts';
@@ -20,6 +23,7 @@ export interface CustodyDepositRouteDeps {
   readonly installRawBody?: boolean;
   readonly catalogue: () => Promise<PayCustodyDepositCatalogue>;
   readonly address: (input: PayCustodyDepositAddressInput) => Promise<PayCustodyDepositAddressReply>;
+  readonly records: (input: ReturnType<typeof payCustodyDepositRecordsInputSchema.parse>) => Promise<PayCustodyDepositRecordsReply>;
 }
 
 /**
@@ -63,6 +67,19 @@ export function registerCustodyDepositRoutes(app: FastifyInstance, deps: Custody
     if (!input.success) return reply.code(400).send({ code: 'pay.custody_deposit_input' });
     try {
       return await deps.address(input.data);
+    } catch {
+      return reply.code(503).send({ code: 'pay.custody_deposit_unavailable' });
+    }
+  });
+
+  app.post(PAY_CUSTODY_DEPOSIT_RECORDS_PATH, async (req, reply) => {
+    const who = caller(req);
+    if (who === 'unauthenticated') return reply.code(401).send({ code: 'pay.unauthenticated' });
+    if (who === 'forbidden') return reply.code(403).send({ code: 'pay.custody_deposit_forbidden' });
+    const input = payCustodyDepositRecordsInputSchema.safeParse(req.body);
+    if (!input.success) return reply.code(400).send({ code: 'pay.custody_deposit_input' });
+    try {
+      return await deps.records(input.data);
     } catch {
       return reply.code(503).send({ code: 'pay.custody_deposit_unavailable' });
     }

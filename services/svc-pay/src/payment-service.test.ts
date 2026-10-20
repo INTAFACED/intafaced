@@ -1848,6 +1848,58 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
+    describe('a chain delivery to a customer deposit address (W-deposit-05)', () => {
+      const chainEvent = {
+        id: 'chain:0xabc:0xcustomer:2',
+        type: 'captured',
+        ref: '0xcustomer',
+        amount: '25',
+        assetId: 'USDT',
+        txHash: '0xabc',
+        logIndex: 2,
+        confirmations: 12,
+      };
+
+      it('goes to the deposit record with its chain position, and creates no payment', async () => {
+        const seen: unknown[] = [];
+        const routed = new PayService(sql, ledger, rails, {
+          custodyDeposits: {
+            receive: async (input) => {
+              seen.push(input);
+              return { state: 'recorded' };
+            },
+          },
+        });
+        const outcome = await routed.handleWebhook('crypto-native', signed('crypto-native', chainEvent));
+        expect(outcome).toMatchObject({ applied: true, duplicate: false, paymentId: null });
+        expect(seen).toEqual([
+          { address: '0xcustomer', txHash: '0xabc', outputIndex: 2, assetId: 'USDT', amount: amt('25'), confirmations: 12 },
+        ]);
+        expect(ledger.journal()).toHaveLength(0);
+      });
+
+      it('stays unmatched when the address is no customer address, or no deposit record is wired, or the position is missing', async () => {
+        const none = new PayService(sql, ledger, rails, { custodyDeposits: { receive: async () => ({ state: 'unmatched' }) } });
+        await expect(none.handleWebhook('crypto-native', signed('crypto-native', chainEvent))).rejects.toMatchObject({
+          code: 'pay.webhook_unmatched',
+        });
+        await expect(pay.handleWebhook('crypto-native', signed('crypto-native', chainEvent))).rejects.toMatchObject({
+          code: 'pay.webhook_unmatched',
+        });
+        const { txHash: _t, ...noPosition } = chainEvent;
+        const wired = new PayService(sql, ledger, rails, {
+          custodyDeposits: {
+            receive: async () => {
+              throw new Error('must not be asked');
+            },
+          },
+        });
+        await expect(wired.handleWebhook('crypto-native', signed('crypto-native', noPosition))).rejects.toMatchObject({
+          code: 'pay.webhook_unmatched',
+        });
+      });
+    });
+
     it('records a refund webhook without acting on it', async () => {
       const m = await merchant();
       const payment = await cardPayment(m.id, '100');

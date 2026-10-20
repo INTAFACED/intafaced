@@ -125,7 +125,7 @@ describe('read-only desks have no way to change anything', () => {
 });
 
 describe('GET protocol desk and the token section', () => {
-  it('protocol: reads the chain, audit, indexer and DEX procedures through the edge as the founder, and has no POST', async () => {
+  it('protocol: reads the chain, audit, indexer and DEX procedures through the edge as the founder, and can only POST the listing steps', async () => {
     const urls: string[] = [];
     vi.stubGlobal(
       'fetch',
@@ -150,7 +150,8 @@ describe('GET protocol desk and the token section', () => {
       expect(json.reads[id].part, id).toMatchObject({ kind: 'failed', forbidden: false });
       expect(Number.isFinite(Date.parse(json.reads[id].asOf)), id).toBe(true);
     }
-    expect(Object.keys(protocol).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual([]);
+    // The one write is the two-founder listing step (hide, restore, delist, relist); nothing else can change.
+    expect(Object.keys(protocol).filter((k) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(k))).toEqual(['POST']);
   });
   it('protocol: an audit answer that claims an outside audit is an unreadable read, not a badge', async () => {
     vi.stubGlobal(

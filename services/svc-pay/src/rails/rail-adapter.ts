@@ -417,6 +417,9 @@ export interface RailEvent {
 
   /** The mandate this delivery is about, on `mandate.*`. */
   readonly mandateRef?: string;
+
+  /** Where the chain saw the transfer, on a `captured` delivery from a chain watcher. Absent from every other rail. */
+  readonly chain?: { readonly txHash: string; readonly logIndex: number; readonly confirmations: number };
 }
 
 /**

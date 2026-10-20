@@ -7,7 +7,13 @@ import { classifyAccount, classifyBic, type AccountKind } from './account-format
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
-import { normalizeAccount, parsePayeeControls, type PayeeControls } from './payee-controls.js';
+import {
+  normalizeAccount,
+  parseExchangeAllowance,
+  parsePayeeControls,
+  type ExchangeAllowance,
+  type PayeeControls,
+} from './payee-controls.js';
 import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './send-fields.js';
 
 /**
@@ -116,6 +122,8 @@ const DEFINITE = new Set([
   'bank.global_insufficient_funds',
   'bank.payee_controls_unset',
   'bank.payee_blocked',
+  'bank.exchange_allowance_unset',
+  'bank.exchange_allowance_exceeded',
 ]);
 
 export function canonicalCompliance(fields: Readonly<Record<string, string>> | undefined): string {
@@ -254,13 +262,24 @@ export class GlobalSendService {
     fieldRulesJson?: string,
     /** Owner-published payee controls (`BANK_PAYEE_CONTROLS_JSON`). Blank refuses every send. */
     payeeControlsJson?: string,
+    /** Owner-published exchange payment allowance (`BANK_EXCHANGE_ALLOWANCE_JSON`). Blank refuses every send. */
+    exchangeAllowanceJson?: string,
   ) {
     this.fieldRules = parseSendFieldRules(fieldRulesJson);
     this.payeeControls = parsePayeeControls(payeeControlsJson);
+    this.exchangeAllowance = parseExchangeAllowance(exchangeAllowanceJson);
   }
 
   private readonly fieldRules: SendFieldRules | null;
   private readonly payeeControls: PayeeControls | null;
+  private readonly exchangeAllowance: ExchangeAllowance | null;
+
+  /** Whether the owner has published the exchange allowance, and its window; never the accounts or the limits. */
+  exchangeAllowanceStatus(): { state: 'unset' | 'published'; windowDays: number | null; exchangeCount: number } {
+    return this.exchangeAllowance
+      ? { state: 'published', windowDays: this.exchangeAllowance.windowDays, exchangeCount: this.exchangeAllowance.accounts.size }
+      : { state: 'unset', windowDays: null, exchangeCount: 0 };
+  }
 
   /** Whether the owner has published the payee controls, and how many accounts they name (never which). */
   payeeControlsStatus(): { state: 'unset' | 'published'; blockedCount: number } {
@@ -568,6 +587,26 @@ export class GlobalSendService {
     if (!this.payeeControls) return this.definite(row, 'bank.payee_controls_unset');
     const payee = await this.recipientById(row.recipient_id);
     if (this.payeeControls.blocked.has(normalizeAccount(payee.account))) return this.definite(row, 'bank.payee_blocked');
+
+    if (!this.exchangeAllowance) return this.definite(row, 'bank.exchange_allowance_unset');
+    if (this.exchangeAllowance.accounts.has(normalizeAccount(payee.account))) {
+      const limit = this.exchangeAllowance.limits.get(row.asset_id.toUpperCase());
+      if (limit === undefined) return this.definite(row, 'bank.exchange_allowance_unset');
+      // Every send to an exchange since the window opened counts, in the order they were taken in, this one included: two
+      // sends made at the same moment cannot both fit a room that holds only one.
+      const accounts = [...this.exchangeAllowance.accounts];
+      const total = await this.sql<{ total: string | null }[]>`
+        SELECT sum(s.amount::numeric)::text AS total
+        FROM bank.global_sends me
+        JOIN bank.global_sends s ON s.user_id = me.user_id AND s.asset_id = me.asset_id
+        JOIN bank.global_recipients r ON r.id = s.recipient_id
+        WHERE me.id = ${row.id} AND s.status <> 'failed'
+          AND s.created_at > me.created_at - make_interval(days => ${this.exchangeAllowance.windowDays})
+          AND (s.created_at, s.id) <= (me.created_at, me.id)
+          AND upper(replace(r.account, ' ', '')) = ANY(${accounts})
+      `;
+      if (parseAmount(total[0]?.total ?? '0') > parseAmount(limit)) return this.definite(row, 'bank.exchange_allowance_exceeded');
+    }
 
     const refusal = checkSendFields(this.fieldRules, {
       assetId: row.asset_id,

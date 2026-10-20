@@ -4,6 +4,7 @@ import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
 import { founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 
 /**
@@ -93,6 +94,70 @@ export function readVenueCostAnswer(raw: unknown): VenueCostAnswer | null {
     typeof version === 'number'
     ? { key, period, category, amount, asset, version }
     : null;
+}
+
+interface ListingAnswer {
+  readonly action: string;
+  readonly targetId: string;
+  readonly state: string;
+  readonly outcome: string;
+  readonly note: string | null;
+}
+
+export function readListingAnswer(raw: unknown): ListingAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { action, targetId, state, outcome, note } = raw;
+  return typeof action === 'string' &&
+    typeof targetId === 'string' &&
+    typeof state === 'string' &&
+    typeof outcome === 'string' &&
+    (note === null || typeof note === 'string')
+    ? { action, targetId, state, outcome, note }
+    : null;
+}
+
+type ListingRequest = Extract<
+  DeskRequest,
+  { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
+>;
+
+/** The svc-ops procedure, its input (before the approval ids) and the state the answer must show for one listing request. */
+function listingCall(request: ListingRequest): {
+  procedure: string;
+  input: Record<string, unknown>;
+  targetId: string;
+  state: 'hidden' | 'visible';
+} {
+  switch (request.kind) {
+    case 'protocol.pool.hide':
+      return {
+        procedure: 'protocolListing.pools.hide',
+        input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        state: 'hidden',
+      };
+    case 'protocol.pool.restore':
+      return {
+        procedure: 'protocolListing.pools.restore',
+        input: { chainId: request.chainId, poolAddress: request.poolAddress },
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        state: 'visible',
+      };
+    case 'protocol.market.delist':
+      return {
+        procedure: 'protocolListing.markets.delist',
+        input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
+        targetId: marketTargetId(request.symbol),
+        state: 'hidden',
+      };
+    case 'protocol.market.restore':
+      return {
+        procedure: 'protocolListing.markets.restore',
+        input: { symbol: request.symbol },
+        targetId: marketTargetId(request.symbol),
+        state: 'visible',
+      };
+  }
 }
 
 const WRONG_STATE: ExecuteReply = {
@@ -281,6 +346,22 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       return {
         ok: true,
         detail: `svc-ops answered and stored version ${a.version} of ${request.category.replace(/_/g, ' ')} for ${a.period}.`,
+      };
+    }
+    if (
+      request.kind === 'protocol.pool.hide' ||
+      request.kind === 'protocol.pool.restore' ||
+      request.kind === 'protocol.market.delist' ||
+      request.kind === 'protocol.market.restore'
+    ) {
+      const call = listingCall(request);
+      const result = await founderCall(ctx, 'ops', call.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-ops answered and ${a.targetId} is ${a.state}${a.outcome === 'noop' ? ' (it already was, so nothing changed)' : ''}.`,
       };
     }
     return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
