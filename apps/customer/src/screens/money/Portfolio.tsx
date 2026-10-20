@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { AllocationBar } from './allocation-chart';
 import { assetName, moneyCopy } from './copy';
@@ -107,9 +107,17 @@ function cents(value: string | null): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
 }
 
+function satoshis(value: string | null): string | null {
+  const parsed = dec(value);
+  return parsed === null ? null : toFixedString(roundScaled(parsed, 8), 8);
+}
+
 function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
   const { t } = copy;
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
+  // The bank sends the BTC total when asked for it; with no BTC price it says why and the dollar total stays on screen.
+  const inBtc = displayCurrency === 'BTC' && view.btc !== null && view.btc.total !== null;
+  const btcMissing = displayCurrency === 'BTC' && view.source === 'server' && !inBtc;
   const since = view.windowStart;
   const changeLabel =
     since !== null
@@ -123,8 +131,14 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
   return (
     <>
       <div className="money-total">
-        <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        {inBtc ? (
+          <HeroNumber value={satoshis(view.btc!.total)} decimals={8} prefix="₿" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        ) : (
+          <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        )}
       </div>
+      {inBtc ? <p className="money-note">{t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}</p> : null}
+      {btcMissing ? <p className="money-note">{t('BTC price missing')}</p> : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
           <ChangeText value={fmtChangeLine(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -173,7 +187,10 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
   const buy = symbol ? buyHref(row.asset, symbol, false, layout) : null;
   const sell = symbol ? buyHref(row.asset, symbol, true, layout) : null;
   const send = isHiddenPath('/pay/send') ? null : `/pay/send?asset=${encodeURIComponent(row.asset)}`;
+  // A cash row opens the convert page with this coin as the one to give; nothing is posted until the quote is accepted there.
+  const convert = row.class === 'cash' && !isHiddenPath('/trade/convert') ? `/trade/convert?from=${encodeURIComponent(row.asset)}` : null;
   const items = [
+    { id: 'Convert', href: convert, label: t('Convert {asset}', { asset: row.asset }) },
     { id: 'Buy', href: buy, label: t('Buy {asset}', { asset: row.asset }) },
     { id: 'Sell', href: sell, label: t('Sell {asset}', { asset: row.asset }) },
     { id: 'Send', href: send, label: t('Send {asset}', { asset: row.asset }) },
@@ -462,7 +479,8 @@ export default function Portfolio() {
   const { t } = copy;
   const { hideBalances, layoutMode } = usePreferences();
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
-  const portfolio = useMoneyPortfolio();
+  const [scope, setScope] = useState('combined');
+  const portfolio = useMoneyPortfolio(scope);
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
@@ -632,6 +650,20 @@ export default function Portfolio() {
         </div>
         <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
       </div>
+      {accounts.status === 'ready' && accounts.data.length > 0 ? (
+        <label className="money-scope">
+          <span>{t('Accounts shown')}</span>
+          <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
+            <option value="combined">{t('All accounts')}</option>
+            <option value="main">{t('Main account')}</option>
+            {accounts.data.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {body}
     </div>
   );
