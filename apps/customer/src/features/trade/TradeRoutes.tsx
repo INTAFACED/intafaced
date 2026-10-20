@@ -10,6 +10,7 @@ import { createTradeApi } from './trade-api';
 import { TradingTools } from './TradingTools';
 import { BotsRoom } from '../../screens/trade/copybots/BotsRoom';
 import { CopyRoom } from '../../screens/trade/copybots/CopyRoom';
+import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import './trade.css';
 
 const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
@@ -32,6 +33,12 @@ let catalogueIdentity = 0;
  * `/exchange` and `/trade` reach them through the room table, never through here.
  */
 export function TradeRoutes({ path }: { path: string }) {
+  const pathname = new URL(path, location.origin).pathname.replace(/\/+$/, '');
+  if (pathname === '/trade/news') return <NewsRoom />;
+  if (pathname === '/trade/calendar') return <CalendarRoom />;
+  return <TradeModeRoutes path={path} />;
+}
+function TradeModeRoutes({ path }: { path: string }) {
   const route = new URL(path, location.origin),
     pathname = route.pathname;
   const preferences = usePreferences();
