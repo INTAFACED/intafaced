@@ -165,6 +165,8 @@ export interface BankServiceOptions {
   sendFieldRules?: string | undefined;
   /** Owner-published payee controls (JSON). Blank refuses every global send. */
   payeeControls?: string | undefined;
+  /** Owner-published exchange payment allowance (JSON). Blank refuses every global send. */
+  exchangeAllowance?: string | undefined;
   /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
   proofLimits?: string | undefined;
 }
@@ -222,6 +224,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.global ?? emptyGlobalPorts(),
     options.sendFieldRules,
     options.payeeControls,
+    options.exchangeAllowance,
   );
   const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
 

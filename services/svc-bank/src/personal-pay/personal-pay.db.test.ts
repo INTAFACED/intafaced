@@ -191,6 +191,7 @@ const RULES = JSON.stringify({
 });
 
 const PAYEE_OK = JSON.stringify({ blockedAccounts: [] });
+const ALLOWANCE_NONE = JSON.stringify({ exchangeAccounts: [], windowDays: 30, limits: [] });
 const PROOF_LIMITS = JSON.stringify({ allowedTypes: ['application/pdf'], maxBytes: 64 });
 const OP_A = '33333333-3333-4333-8333-333333333333';
 const OP_B = '44444444-4444-4444-8444-444444444444';
@@ -223,7 +224,14 @@ describe('personal bill pay and global send', () => {
   });
 
   function mount(
-    options: { bills?: BillPorts; global?: GlobalPorts; sendFieldRules?: string; payeeControls?: string | null; proofLimits?: string } = {},
+    options: {
+      bills?: BillPorts;
+      global?: GlobalPorts;
+      sendFieldRules?: string;
+      payeeControls?: string | null;
+      exchangeAllowance?: string | null;
+      proofLimits?: string;
+    } = {},
   ) {
     const ledger = new MemoryLedger();
     const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
@@ -233,6 +241,7 @@ describe('personal bill pay and global send', () => {
       global: options.global,
       sendFieldRules: options.sendFieldRules,
       payeeControls: options.payeeControls === null ? undefined : (options.payeeControls ?? PAYEE_OK),
+      exchangeAllowance: options.exchangeAllowance === null ? undefined : (options.exchangeAllowance ?? ALLOWANCE_NONE),
       proofLimits: options.proofLimits,
     });
     return { ledger, bank };
@@ -918,5 +927,64 @@ describe('personal bill pay and global send', () => {
     expect(released).toMatchObject({ status: 'sent', providerRef: 'payout-9' });
     expect(submits).toBe(1);
     expect(transfers(ledger)).toHaveLength(1);
+  });
+
+  it('holds sends to an exchange to the owner allowance in a rolling window, and refuses while it is unset', async () => {
+    const unset = mount({ sendFieldRules: RULES, global: liveGlobal(), exchangeAllowance: null });
+    const space0 = await funded(unset.bank, unset.ledger);
+    const me0 = caller(unset.bank, USER, write);
+    const saved0 = await me0.global.recipients.add({ idempotencyKey: 'recip-ex-00', name: 'Ada', account: '123456789', country: 'DE' });
+    await expect(
+      me0.global.send({ ...sendBody, idempotencyKey: 'send-ex-00', amount: '10', fromSpaceId: space0.id, recipientId: saved0.id }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_unset' } });
+    expect(transfers(unset.ledger)).toHaveLength(0);
+    expect((await caller(unset.bank, OP_A, compliance).global.ops.controls()).exchangeAllowance).toEqual({
+      state: 'unset',
+      windowDays: null,
+      exchangeCount: 0,
+    });
+
+    const allowance = JSON.stringify({ exchangeAccounts: ['9999 99999'], windowDays: 30, limits: [{ asset: 'USDT', maxAmount: '30' }] });
+    const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal(), exchangeAllowance: allowance });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const exchange = await me.global.recipients.add({
+      idempotencyKey: 'recip-ex-01',
+      name: 'Exchange',
+      account: '999999999',
+      country: 'DE',
+    });
+    const friend = await me.global.recipients.add({ idempotencyKey: 'recip-ex-02', name: 'Ada', account: '123456789', country: 'DE' });
+    const to = (recipientId: string, key: string, amount: string) =>
+      me.global.send({ ...sendBody, idempotencyKey: key, amount, fromSpaceId: space.id, recipientId });
+    await expect(to(exchange.id, 'send-ex-01', '20')).resolves.toMatchObject({ status: 'sent' });
+    // 20 already sent in the window: 11 more is over 30; nothing is posted for it.
+    await expect(to(exchange.id, 'send-ex-02', '11')).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_exceeded' } });
+    expect(transfers(ledger)).toHaveLength(1);
+    // A refused send does not use up the room; exactly the rest fits.
+    await expect(to(exchange.id, 'send-ex-03', '10')).resolves.toMatchObject({ status: 'sent' });
+    // A recipient that is not an exchange is not counted.
+    await expect(to(friend.id, 'send-ex-04', '40')).resolves.toMatchObject({ status: 'sent' });
+    // The replay of a refused send is the same refusal.
+    await expect(to(exchange.id, 'send-ex-02', '11')).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_exceeded' } });
+    expect(transfers(ledger)).toHaveLength(3);
+    expect((await caller(bank, OP_A, compliance).global.ops.controls()).exchangeAllowance).toEqual({
+      state: 'published',
+      windowDays: 30,
+      exchangeCount: 1,
+    });
+
+    // An exchange with no limit for the asset is refused as unset, never allowed.
+    const bare = mount({
+      sendFieldRules: RULES,
+      global: liveGlobal(),
+      exchangeAllowance: JSON.stringify({ exchangeAccounts: ['999999999'], windowDays: 30, limits: [] }),
+    });
+    const spaceB = await funded(bare.bank, bare.ledger);
+    const meB = caller(bare.bank, USER, write);
+    const exB = await meB.global.recipients.add({ idempotencyKey: 'recip-ex-03', name: 'Exchange', account: '999999999', country: 'DE' });
+    await expect(
+      meB.global.send({ ...sendBody, idempotencyKey: 'send-ex-05', amount: '1', fromSpaceId: spaceB.id, recipientId: exB.id }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.exchange_allowance_unset' } });
   });
 });
