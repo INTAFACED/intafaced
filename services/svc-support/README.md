@@ -95,6 +95,9 @@ no group (so a new one can reach a group), and a ticket outside the scope answer
 as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
 `agent`, `lead`) is an owner value, blank by default: it marks roles that see every group.
 A lead can add themselves to any group, so group scope limits agents, not leads.
+Agent-set priority, type and labels (`setProperties`, `ticketProperties`) live in `ticket_properties`
+beside the ticket, never on it: the ticket owner reads the ticket and must not see them. Each change
+is logged in `ticket_property_log`; `listQueue` takes a `label` filter.
 
 ## Migrations
 
