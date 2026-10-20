@@ -16,6 +16,8 @@ const clientRequestId = z.string().trim().min(1).max(128);
 const nullableText = z.string().trim().min(1).max(128).nullish();
 const approvalId = z.string().trim().min(1).max(128);
 const decimalText = z.string().trim().min(1).max(64);
+const agreementKind = z.enum(['derivatives_risk', 'margin_terms']);
+const versionText = z.string().regex(/^(?:0|[1-9]\d*)$/);
 const tenorRow = z.object({ tenor: z.enum(['weekly', 'monthly', 'quarterly']), enabled: z.boolean() }).strict();
 
 const limits = z
@@ -236,6 +238,100 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       convert: operatorWrite
         .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
+    }),
+    agreements: router({
+      get: operator
+        .input(z.object({ kind: agreementKind }).strict())
+        .query(({ ctx, input }) => ready().agreements.agreementGet(ctx.principal, input.kind).catch(fail)),
+      publish: operatorWrite
+        .input(
+          z
+            .object({
+              kind: agreementKind,
+              texts: z
+                .array(
+                  z
+                    .object({
+                      region: z.string().trim().min(1).max(16),
+                      title: z.string().trim().min(1).max(200),
+                      body: z.string().trim().min(1).max(200_000),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(64),
+              expectedVersion: versionText,
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.agreementPublish(ctx.principal, input).catch(fail)),
+      list: operator
+        .input(
+          z
+            .object({
+              kind: agreementKind.nullish(),
+              version: z.number().int().min(1).nullish(),
+              region: z.string().trim().min(1).max(16).nullish(),
+              userId: z.string().uuid().nullish(),
+              from: z.string().nullish(),
+              to: z.string().nullish(),
+              cursor: z.string().nullish(),
+              limit,
+            })
+            .strict(),
+        )
+        .query(({ ctx, input }) => ready().agreements.list(ctx.principal, input).catch(fail)),
+      export: operator
+        .input(
+          z
+            .object({
+              kind: agreementKind.nullish(),
+              version: z.number().int().min(1).nullish(),
+              region: z.string().trim().min(1).max(16).nullish(),
+              userId: z.string().uuid().nullish(),
+              from: z.string().nullish(),
+              to: z.string().nullish(),
+              reason,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.export(ctx.principal, input).catch(fail)),
+    }),
+    eligibilityRules: router({
+      get: operator.query(({ ctx }) => ready().agreements.eligibilityRulesGet(ctx.principal).catch(fail)),
+      set: operatorWrite
+        .input(
+          z
+            .object({
+              questions: z
+                .array(
+                  z
+                    .object({
+                      id: z.string().trim().min(1).max(64),
+                      prompt: z.string().trim().min(1).max(2000),
+                      options: z
+                        .array(z.object({ id: z.string().trim().min(1).max(64), text: z.string().trim().min(1).max(1000) }).strict())
+                        .min(2)
+                        .max(10),
+                      correctOptionId: z.string().trim().min(1).max(64),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(100),
+              passMark: z.number().int().min(1).max(100),
+              minKycTier: z.enum(['none', 'basic', 'full', 'institutional']),
+              expectedVersion: versionText,
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.eligibilityRulesSet(ctx.principal, input).catch(fail)),
     }),
     markets: router({
       statusHistory: operator
