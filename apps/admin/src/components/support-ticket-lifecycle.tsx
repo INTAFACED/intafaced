@@ -38,7 +38,11 @@ export function TicketLifecycleView({ ticket, view, loading }: TicketLifecycleVi
         <dl className="dk-kv">
           <dt>Waiting on</dt>
           <dd data-testid="life-waiting-on">
-            {ticket.status === 'on_hold' ? 'On hold by the team' : current.waitingOn ? WAITING[current.waitingOn] : 'Nobody yet'}
+            {(ticket.status as string) === 'on_hold'
+              ? 'On hold by the team'
+              : current.waitingOn
+                ? WAITING[current.waitingOn]
+                : 'Nobody yet'}
           </dd>
           <dt>Since</dt>
           <dd data-testid="life-since">{current.waitingSince ? formatWhen(current.waitingSince) : '—'}</dd>
