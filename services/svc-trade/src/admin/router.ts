@@ -25,6 +25,36 @@ const limits = z
   })
   .strict();
 
+const fundingParamsInput = z
+  .object({
+    baseComponent: z.string().nullable(),
+    cap: z.string().nullable(),
+    cadenceSeconds: z.number().int().nullable(),
+    trimRatioBps: z.number().int().nullable(),
+    minSamples: z.number().int().nullable(),
+    periodSeconds: z.number().int().nullable(),
+    periodAnchor: z.string().nullable(),
+  })
+  .strict();
+
+const indexSourcesConfig = z
+  .object({
+    sources: z
+      .array(z.object({ sourceId: z.string().trim().min(1).max(64), weight: z.number().int(), enabled: z.boolean() }).strict())
+      .max(16),
+    params: z
+      .object({
+        minSources: z.number().int().nullable(),
+        outlierBandBps: z.number().int().nullable(),
+        maxAgeSeconds: z.number().int().nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
+const approvalId = z.string().trim().min(1).max(128);
+
 function fail(error: unknown): never {
   if (error instanceof TRPCError) throw error;
   if (error instanceof AuthError) {
@@ -166,6 +196,27 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
+    }),
+    fundingParams: router({
+      get: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().funding.paramsGet(ctx.principal, input.market).catch(fail)),
+      set: operatorWrite
+        .input(z.object({ market: id, params: fundingParamsInput, expectedVersion, reason, approvalId, clientRequestId }).strict())
+        .mutation(({ ctx, input }) => ready().funding.paramsSet(ctx.principal, input).catch(fail)),
+    }),
+    indexSources: router({
+      get: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().funding.sourcesGet(ctx.principal, input.market).catch(fail)),
+      set: operatorWrite
+        .input(z.object({ market: id, config: indexSourcesConfig, expectedVersion, reason, approvalId, clientRequestId }).strict())
+        .mutation(({ ctx, input }) => ready().funding.sourcesSet(ctx.principal, input).catch(fail)),
+    }),
+    fundingPeriods: router({
+      recent: operator
+        .input(z.object({ market: id.nullish(), limit, sampleLimit: z.number().int().min(1).max(1000) }).strict())
+        .query(({ ctx, input }) => ready().funding.periods(ctx.principal, input).catch(fail)),
     }),
     markets: router({
       statusHistory: operator

@@ -440,6 +440,7 @@ const futuresJobs = startFuturesJobs({
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
+    fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
     fundingMaxAbsRate,
     settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,

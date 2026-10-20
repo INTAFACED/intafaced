@@ -39,6 +39,7 @@ import {
 } from './common.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
 import { readMarketStatusHistory } from './status-history.js';
+import { FundingDesk } from './funding-desk.js';
 
 export interface TradeOpsDeps {
   readonly sql: Sql;
@@ -83,6 +84,11 @@ function sumDecimals(values: readonly string[]): string {
 
 export class TradeOpsAdmin {
   constructor(private readonly deps: TradeOpsDeps) {}
+
+  /** Funding parameters, index sources and computed periods (D-instruments-01). */
+  get funding(): FundingDesk {
+    return new FundingDesk({ sql: this.deps.sql, approvals: this.deps.approvals, ...(this.deps.now ? { now: this.deps.now } : {}) });
+  }
 
   async massCancel(
     principal: Principal,

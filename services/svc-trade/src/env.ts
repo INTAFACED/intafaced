@@ -355,6 +355,30 @@ const schema = serviceEnvSchema
         }),
 
       /**
+       * Poll interval of the funding rate computer (D-instruments-01), in ms.
+       * EMPTY (default) = the computer is not scheduled and the funding tick reads only the rate book the S2S
+       * publish route fills. When set, each funding market is sampled and its latest closed period computed at this
+       * interval; every owner number the formula needs still lives in `admin.fundingParams` and refuses when blank.
+       * A set value must be an integer 1000-86400000.
+       */
+      TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS: z
+        .string()
+        .default('')
+        .transform((raw, ctx) => {
+          const s = raw.trim();
+          if (s === '') return null;
+          const n = Number(s);
+          if (!Number.isInteger(n) || n < 1_000 || n > 86_400_000) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS must be an integer 1000–86400000, or empty (computer not scheduled)',
+            });
+            return z.NEVER;
+          }
+          return n;
+        }),
+
+      /**
        * Comma-separated market UUIDs for funding ticks.
        * Empty (default) = funding jobs not scheduled — never invent market list.
        */
