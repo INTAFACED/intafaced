@@ -119,6 +119,7 @@ export const deskCopy = defineCopy('support-desk', {
   attachedRow: '{type} · {size}',
   scanStateScanning: 'Being checked',
   scanStateClean: 'Checked',
+  attachFromSupport: 'Added by support',
   scanStateBlocked: 'Not accepted',
   attachDownload: 'Download',
   attachDownloadFailed: 'That file could not be downloaded. Try again later.',

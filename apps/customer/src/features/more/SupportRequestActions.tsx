@@ -7,7 +7,15 @@ import { deskCopy } from './support-desk-copy';
 import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, showRatePrompt, ticketReference, type ActionReason } from './support-desk';
 import { fileSizeLabel, readAttachment } from './support-attach';
 import { attachFile, closeRequest, downloadFile, rateRequest, readAttachLimits, readRating, readTicketFiles } from './support-calls';
-import { SCAN_STATE_KEY, attachLimitsView, canDownload, limitsValues, precheckFile, saveBase64 } from './support-attachments';
+import {
+  SCAN_STATE_KEY,
+  attachLimitsView,
+  canDownload,
+  fileOriginKey,
+  limitsValues,
+  precheckFile,
+  saveBase64,
+} from './support-attachments';
 import type { Ticket } from './support-schemas';
 import type { ratingSchema } from './support-calls';
 import type { z } from 'zod';
@@ -320,6 +328,12 @@ function AttachControl({ ticket, action, state, describedBy }: ControlProps) {
                   <li key={row.id}>
                     <span lang="zxx">{copy.t('attachedRow', { type: row.contentType, size: fileSizeLabel(row.byteLength) })}</span> ·{' '}
                     <span data-scan-state={row.scanState}>{copy.t(SCAN_STATE_KEY[row.scanState])}</span>
+                    {fileOriginKey(row.uploadedBy) && (
+                      <>
+                        {' '}
+                        · <span data-testid="attach-from-support">{copy.t('attachFromSupport')}</span>
+                      </>
+                    )}
                     {canDownload(row.scanState) && (
                       <>
                         {' '}

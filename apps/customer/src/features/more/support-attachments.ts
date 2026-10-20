@@ -31,6 +31,10 @@ export function precheckFile(view: AttachLimitsView | null, file: { contentType:
   return null;
 }
 
+/** The copy key that says a file was added by support, or null for one the owner added. */
+export const fileOriginKey = (uploadedBy: string | null | undefined): 'attachFromSupport' | null =>
+  uploadedBy ? 'attachFromSupport' : null;
+
 export const SCAN_STATE_KEY = {
   scanning: 'scanStateScanning',
   clean: 'scanStateClean',
