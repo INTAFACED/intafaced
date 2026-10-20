@@ -4,7 +4,17 @@ import {
   supportAttachmentDownloadSchema,
   supportAttachmentSchema,
 } from '@intafaced/contracts/support-attachments';
-import { SCAN_LABEL, canOpen, readFileDownload, readTicketFiles, sizeLabel } from './files';
+import {
+  SCAN_LABEL,
+  addedByLabel,
+  canOpen,
+  readFileDownload,
+  readTicketFile,
+  readTicketFiles,
+  readUploadParams,
+  sizeLabel,
+  uploadKey,
+} from './files';
 
 const ID = '44444444-4444-4444-8444-444444444444';
 const T = '22222222-2222-4222-8222-222222222222';
@@ -67,5 +77,42 @@ describe('rules', () => {
     expect(sizeLabel(12)).toBe('12 bytes');
     expect(sizeLabel(2048)).toBe('2.0 KB');
     expect(sizeLabel(3 * 1024 * 1024)).toBe('3.0 MB');
+  });
+});
+
+describe('adding a file', () => {
+  const url = (id: string | null, key: string | null) =>
+    `http://admin.example/api/support/attachments/upload?${[id ? `id=${id}` : '', key ? `key=${encodeURIComponent(key)}` : ''].filter(Boolean).join('&')}`;
+  const key = uploadKey(T, 'a'.repeat(64));
+
+  it('keys the same file on the same ticket to the same retry key, and a different file to another', () => {
+    expect(uploadKey(T, 'a'.repeat(64))).toBe(key);
+    expect(uploadKey(T, 'b'.repeat(64))).not.toBe(key);
+    expect(uploadKey(U, 'a'.repeat(64))).not.toBe(key);
+    expect(key.length).toBeLessThanOrEqual(200);
+  });
+  it('reads the ticket and key from the query and the media type from the header, lower-cased and without parameters', () => {
+    expect(readUploadParams(url(T, key), 'Image/PNG; charset=x')).toEqual({ ticketId: T, clientRequestId: key, contentType: 'image/png' });
+  });
+  it('refuses a missing or bad ticket, key or media type', () => {
+    expect(readUploadParams(url(null, key), 'image/png')).toBeNull();
+    expect(readUploadParams(url('not-an-id', key), 'image/png')).toBeNull();
+    expect(readUploadParams(url(T, null), 'image/png')).toBeNull();
+    expect(readUploadParams(url(T, 'has space'), 'image/png')).toBeNull();
+    expect(readUploadParams(url(T, 'x'.repeat(201)), 'image/png')).toBeNull();
+    expect(readUploadParams(url(T, key), null)).toBeNull();
+    expect(readUploadParams(url(T, key), '')).toBeNull();
+    expect(readUploadParams(url(T, key), 'image/*')).toBeNull();
+    expect(readUploadParams(url(T, key), 'application/json, text/html')).toBeNull();
+  });
+  it('reads one file strictly, like a list row', () => {
+    expect(readTicketFile(row({ uploadedBy: U }))?.uploadedBy).toBe(U);
+    expect(readTicketFile(row({ storeKey: 'k' }))).toBeNull();
+    expect(readTicketFile(null)).toBeNull();
+    expect(readTicketFile([row()])).toBeNull();
+  });
+  it('says who added a file', () => {
+    expect(addedByLabel(readTicketFile(row())!)).toBe('Customer');
+    expect(addedByLabel(readTicketFile(row({ uploadedBy: U }))!)).toBe('Support · 11111111');
   });
 });

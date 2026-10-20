@@ -55,3 +55,65 @@ export function explainDownloadFailure(result: FounderCallFailure<unknown>): Ref
   }
   return explainAttachmentFailure(result);
 }
+
+const BY_UPLOAD_CODE: Readonly<Record<string, Omit<RefusalView, 'code' | 'changed'>>> = {
+  'support.attachments_unconfigured': {
+    title: 'The desk cannot take files yet',
+    body: 'A piece that attaching a file needs (the store, the scanner, a size, the file types) is not set.',
+    next: 'Nothing was added. The owner sets the missing piece, then try again.',
+  },
+  'support.attachment_count_unset': {
+    title: 'The number of files is not set',
+    body: 'svc-support has no limit on how many files one request may hold, so it will not take another.',
+    next: 'Nothing was added. A lead sets the count in the support settings.',
+  },
+  'support.attachment_too_large': {
+    title: 'That file is too large',
+    body: 'It is over the largest file size set for the desk.',
+    next: 'Nothing was added. Choose a smaller file.',
+  },
+  'support.attachment_type_refused': {
+    title: 'That type of file is not allowed',
+    body: 'Its type is not on the list of file types the desk accepts.',
+    next: 'Nothing was added. Choose a file of an allowed type.',
+  },
+  'support.attachment_count_reached': {
+    title: 'This request already holds its limit of files',
+    body: 'The number of files one request may hold has been reached.',
+    next: 'Nothing was added.',
+  },
+  'support.attachment_body_invalid': {
+    title: 'The file could not be read',
+    body: 'svc-support did not accept the bytes it was sent.',
+    next: 'Nothing was added. Choose the file again.',
+  },
+  'support.attachment_scan_refused': {
+    title: 'The scan refused this file',
+    body: 'The file did not pass the scan, so it was not kept and the customer cannot see it.',
+    next: 'Choose a different file.',
+  },
+  'support.attachment_scan_unknown': {
+    title: 'The scan has not finished',
+    body: 'The scanner could not judge this file yet. It is held, not shown to the customer, and scanned again.',
+    next: 'Reload the files to see where it stands.',
+  },
+};
+
+/** A refusal on adding a file: the attach codes first (so a blocked scan reads as an upload, not a download), then the shared answers. */
+export function explainUploadFailure(result: FounderCallFailure<unknown>): RefusalView {
+  if (result.kind === 'refused') {
+    const named = supportCodeOf(result.refusal.message, result.refusal.code);
+    const known = named ? BY_UPLOAD_CODE[named] : undefined;
+    if (named && known) return { ...known, code: named, changed: named === 'support.attachment_scan_unknown' ? 'unknown' : 'no' };
+    if (result.refusal.status === 404) {
+      return {
+        title: 'That ticket is not yours to add to',
+        body: 'svc-support has no such ticket for you, or it is not assigned to you.',
+        next: 'Claim the ticket first, then try again. Nothing was added.',
+        code: 'support.not_found',
+        changed: 'no',
+      };
+    }
+  }
+  return explainSupportFailure(result);
+}
