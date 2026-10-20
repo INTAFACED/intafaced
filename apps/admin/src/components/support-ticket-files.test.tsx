@@ -24,7 +24,9 @@ const base = (over: Partial<TicketFilesViewProps> = {}): TicketFilesViewProps =>
   loading: false,
   busyId: null,
   refusal: null,
+  uploading: false,
   onDownload: () => undefined,
+  onUpload: () => undefined,
   onRefresh: () => undefined,
   ...over,
 });
@@ -61,7 +63,24 @@ describe('the files on a ticket', () => {
     );
     const failed = { asOf: '2026-10-20T11:00:00.000Z', files: { kind: 'failed', forbidden: true, message: 'denied', code: null } };
     expect(html(base({ view: failed as TicketFilesView }))).toContain('Files unavailable');
-    expect(html(base())).toContain('The desk cannot attach a file to a ticket.');
     expect(html(base({ view: null }))).toContain('could not be read');
+  });
+  it('offers the assigned operator a file control and says the customer sees what they add', () => {
+    const out = html(base());
+    expect(out).toContain('data-testid="ticket-files-input"');
+    expect(out).toContain('The customer sees a file you add, like a comment.');
+    expect(out).not.toContain('cannot attach a file');
+    expect(out).not.toContain('disabled=""');
+  });
+  it('turns the control off and says so while a file is being added', () => {
+    const out = html(base({ uploading: true }));
+    expect(out).toContain('Adding and scanning the file…');
+    expect(out).toMatch(/data-testid="ticket-files-input"[^>]*disabled/);
+  });
+  it('marks who added each file', () => {
+    const op = '77777777-7777-4777-8777-777777777777';
+    const out = html(base({ view: view([file(), file({ id: '55555555-5555-4555-8555-555555555555', uploadedBy: op })]) }));
+    expect(out).toContain('>Customer<');
+    expect(out).toContain('Support · 77777777');
   });
 });

@@ -81,3 +81,44 @@ export function readFileDownload(raw: unknown): FileDownload | null {
   if (typeof bodyBase64 !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(bodyBase64)) return null;
   return { id, byteLength, bodyBase64 };
 }
+
+/** One file, as `attachOps` answers it. The same strict check as a list row. */
+export function readTicketFile(raw: unknown): TicketFile | null {
+  return readTicketFiles([raw])?.[0] ?? null;
+}
+
+/**
+ * The most bytes the console carries for one upload. This is a transport guard so one request cannot fill memory; it is not
+ * the desk's file size, which is the owner's setting and is enforced by svc-support.
+ */
+export const UPLOAD_TRANSPORT_BYTES = 16 * 1024 * 1024;
+
+const UPLOAD_KEY = /^[A-Za-z0-9:._-]{1,200}$/;
+const UPLOAD_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
+
+/**
+ * The retry key for adding one file to one ticket: the same file to the same ticket is the same business act, so a lost
+ * reply replays instead of adding it twice. `digest` is the file's SHA-256 in lower-case hex.
+ */
+export const uploadKey = (ticketId: string, digest: string): string => `admin-attach:${ticketId}:${digest}`;
+
+export interface UploadParams {
+  readonly ticketId: string;
+  readonly clientRequestId: string;
+  readonly contentType: string;
+}
+
+/** The ticket and retry key from the query and the media type from the header; anything else is not an upload. */
+export function readUploadParams(url: string, contentTypeHeader: string | null): UploadParams | null {
+  const query = new URL(url).searchParams;
+  const ticketId = query.get('id');
+  const clientRequestId = query.get('key');
+  const contentType = contentTypeHeader?.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (!isFileId(ticketId) || clientRequestId === null || !UPLOAD_KEY.test(clientRequestId) || !UPLOAD_TYPE.test(contentType)) return null;
+  return { ticketId, clientRequestId, contentType };
+}
+
+/** Who added a file, in words: the customer, or the operator (short id) who added it for them. */
+export function addedByLabel(file: TicketFile): string {
+  return file.uploadedBy === null ? 'Customer' : `Support · ${file.uploadedBy.slice(0, 8)}`;
+}
