@@ -601,6 +601,17 @@ test('market buy by spend: typing a spend sizes the amount so the hold stays wit
   expect(m.requests('POST', 'orders')).toHaveLength(0);
 });
 
+test('a typed spend is dropped when the buy stops being a market order', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  const spend = buyForm(page).getByRole('textbox', { name: 'Spend' });
+  await expect(spend).toBeEditable();
+  await spend.fill('1000');
+  await page.getByRole('tab', { name: 'Limit', exact: true }).click();
+  await expect(buyForm(page).getByRole('textbox', { name: 'Total' })).not.toHaveValue('1000');
+});
+
 test('market sell has no spend field: its total stays an estimate', async ({ page }) => {
   await mount(page);
   await ready(page);
