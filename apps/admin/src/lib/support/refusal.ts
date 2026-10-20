@@ -72,6 +72,21 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'A ticket escalated as a money request cannot be settled or closed from support. A support channel never moves money.',
     next: 'Nothing was changed. The money team owns this one.',
   },
+  'support.property_invalid': {
+    title: 'svc-support did not accept that priority or type',
+    body: 'Priority is one of low, normal, high or urgent. Type is one of question, problem or incident.',
+    next: 'Pick one of the listed values. Nothing was changed.',
+  },
+  'support.label_invalid': {
+    title: 'svc-support did not accept a label',
+    body: 'A label may hold letters, digits, hyphen and underscore only. A space is not allowed.',
+    next: 'Fix the label and try again. Nothing was changed.',
+  },
+  'support.ticket_closed': {
+    title: 'This ticket is closed',
+    body: 'svc-support does not change the properties of a closed ticket.',
+    next: 'Nothing was changed.',
+  },
   'support.kb.revision_stale': {
     title: 'Someone changed this article first',
     body: 'The revision you used is no longer the latest, so svc-support refused to overwrite.',

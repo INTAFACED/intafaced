@@ -1,4 +1,11 @@
-import type { SupportCaseFile, SupportComment, SupportKbArticle, SupportTicket, SupportTicketEvent } from '@intafaced/contracts';
+import type {
+  SupportTicketProperties,
+  SupportCaseFile,
+  SupportComment,
+  SupportKbArticle,
+  SupportTicket,
+  SupportTicketEvent,
+} from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
 
 export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
@@ -58,4 +65,10 @@ export interface SupportKbView {
   readonly asOf: string;
   /** Published articles only: svc-support has no read for an unpublished one. */
   readonly articles: Part<readonly SupportKbArticle[]>;
+}
+
+/** Priority, type and labels an agent set on one ticket. Null priority or type means nobody set one. */
+export interface SupportPropertiesView {
+  readonly asOf: string;
+  readonly properties: Part<SupportTicketProperties>;
 }

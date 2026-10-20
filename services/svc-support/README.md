@@ -53,25 +53,25 @@ pay/ledger recipe.
 tRPC under `/trpc` (edge mounts `/api/support`). Principal via edge HMAC
 (`EDGE_PRINCIPAL_SECRET`).
 
-| Procedure              | Scope                 | Behaviour                                                                                          |
-| ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
-| `support.create`       | `support:write`       | Create ticket for principal                                                                        |
-| `support.listMine`     | `support:read`        | List caller tickets                                                                                |
-| `support.listAll`      | `support:ops`         | Operator list                                                                                      |
-| `support.get`          | `support:read` / ops  | Self or operator                                                                                   |
-| `support.comment`      | `support:write` / ops | Add comment. User reply on `resolved` reopens (clears assignee). User comment on `closed` refused. |
-| `support.listComments` | `support:read` / ops  | Thread for ticket                                                                                  |
-| `support.setStatus`    | `support:ops`         | Status change + trail row                                                                          |
-| `support.events`       | `support:read` / ops  | Audit trail, oldest first                                                                          |
-| `support.accountState` | `support:ops`         | Grounding read (no userId)                                                                         |
-| `support.escalate`     | `support:ops`         | Case file; refuses if empty                                                                        |
-| `support.caseFile`     | `support:ops`         | Case file or null                                                                                  |
-| `support.listKb`       | public                | Platform i18n-keyed spine                                                                          |
-| `support.searchKb`     | public                | Search spine by fragment                                                                           |
-| `support.getKb`        | public                | One article or null                                                                                |
-| `support.listQueue`    | `support:ops`         | Unassigned open/pending only                                                                       |
-| `support.next`         | `support:ops`         | Peek next free ticket                                                                              |
-| `support.claim`        | `support:ops`         | Exclusive claim (atomic)                                                                           |
+| Procedure              | Scope                 | Behaviour                                                                                                                                                                                                                                                                                                       |
+| ---------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `support.create`       | `support:write`       | Create ticket for principal. `phishing` category may carry pasted `messageHeaders` (refused on any other category); a `clientRequestId` makes a replay return the first ticket, and the same key with different content is `support.idempotency_conflict`. Signed-out reports wait on a rate-limited edge door. |
+| `support.listMine`     | `support:read`        | List caller tickets                                                                                                                                                                                                                                                                                             |
+| `support.listAll`      | `support:ops`         | Operator list                                                                                                                                                                                                                                                                                                   |
+| `support.get`          | `support:read` / ops  | Self or operator                                                                                                                                                                                                                                                                                                |
+| `support.comment`      | `support:write` / ops | Add comment. User reply on `resolved` reopens (clears assignee). User comment on `closed` refused.                                                                                                                                                                                                              |
+| `support.listComments` | `support:read` / ops  | Thread for ticket                                                                                                                                                                                                                                                                                               |
+| `support.setStatus`    | `support:ops`         | Status change + trail row                                                                                                                                                                                                                                                                                       |
+| `support.events`       | `support:read` / ops  | Audit trail, oldest first                                                                                                                                                                                                                                                                                       |
+| `support.accountState` | `support:ops`         | Grounding read (no userId)                                                                                                                                                                                                                                                                                      |
+| `support.escalate`     | `support:ops`         | Case file; refuses if empty                                                                                                                                                                                                                                                                                     |
+| `support.caseFile`     | `support:ops`         | Case file or null                                                                                                                                                                                                                                                                                               |
+| `support.listKb`       | public                | Platform i18n-keyed spine                                                                                                                                                                                                                                                                                       |
+| `support.searchKb`     | public                | Search spine by fragment                                                                                                                                                                                                                                                                                        |
+| `support.getKb`        | public                | One article or null                                                                                                                                                                                                                                                                                             |
+| `support.listQueue`    | `support:ops`         | Unassigned open/pending only                                                                                                                                                                                                                                                                                    |
+| `support.next`         | `support:ops`         | Peek next free ticket                                                                                                                                                                                                                                                                                           |
+| `support.claim`        | `support:ops`         | Exclusive claim (atomic)                                                                                                                                                                                                                                                                                        |
 
 HTTP: `GET /health`, `GET /ready` (`stage: 4-audited-grounded-desk`,
 `store: postgres`, `accountStateSource: svc-identity`, desk vs
@@ -84,6 +84,20 @@ Refusing to boot without it is deliberate: a desk that started anyway would
 report every account as unread, which from an operator's chair is
 indistinguishable from every account genuinely being unreadable.
 `IDENTITY_URL` defaults to `http://localhost:4002` for a dev stack.
+`STAFF_HEARTBEAT_WINDOW_SECONDS` is an owner value and stays blank by default:
+blank means staff availability (online, busy, offline) is manual, the desk says
+automatic offline is not set (`staffAvailabilityPolicy`), and a heartbeat
+refuses `support.heartbeat_window_unset`.
+Desk groups: while no group exists every support:ops caller sees the whole queue
+(`deskScope` says `restricted: false`). Once any group exists an agent sees the
+tickets of their groups plus tickets assigned to them, a lead also sees tickets in
+no group (so a new one can reach a group), and a ticket outside the scope answers
+as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
+`agent`, `lead`) is an owner value, blank by default: it marks roles that see every group.
+A lead can add themselves to any group, so group scope limits agents, not leads.
+Agent-set priority, type and labels (`setProperties`, `ticketProperties`) live in `ticket_properties`
+beside the ticket, never on it: the ticket owner reads the ticket and must not see them. Each change
+is logged in `ticket_property_log`; `listQueue` takes a `label` filter.
 
 ## Migrations
 

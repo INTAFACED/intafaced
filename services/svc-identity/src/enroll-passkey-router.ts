@@ -27,7 +27,12 @@ const registrationResponse = z.object({
  * Top-level enroll (not nested under webauthn) so mergeRouters cannot replace
  * webauthn.registerVerify. identity:write. RP id/origin required. No invented secret.
  */
-export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp, privilegedUserIds: readonly string[] = []) {
+export function createEnrollPasskeyRouter(
+  sql: Sql,
+  rp: PasskeyRp,
+  privilegedUserIds: readonly string[] = [],
+  limits: { readonly maxPerAccount?: number | undefined } = {},
+) {
   const challenges = sqlPasskeyChallenges(sql);
   return router({
     beginEnrollPasskey: scopedProcedure('identity:write').mutation(async ({ ctx }) => {
@@ -55,7 +60,16 @@ export function createEnrollPasskeyRouter(sql: Sql, rp: PasskeyRp, privilegedUse
           // authoritative check re-runs inside enrollPasskey's row-locked transaction.
           const actor = factorActor(ctx.principal, privilegedUserIds);
           await assertMayAddFactor(sql, ctx.principal.userId, actor, false);
-          return await enrollPasskey(sql, ctx.principal.userId, rp, toRegistrationResponseJSON(input), challenges, actor);
+          return await enrollPasskey(
+            sql,
+            ctx.principal.userId,
+            rp,
+            toRegistrationResponseJSON(input),
+            challenges,
+            actor,
+            undefined,
+            limits,
+          );
         } catch (err) {
           const gate = factorGateTrpcError(err);
           if (gate) throw gate;

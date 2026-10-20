@@ -9,6 +9,11 @@ import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
+import { createPgAlertRuleStore } from './alerts/rule-store.js';
+import { AlertRules } from './alerts/rules.js';
+import { AlertEvaluator } from './alerts/runner.js';
+import { warehouseSignalReader } from './alerts/signals.js';
+import { createPgAlertState } from './alerts/state-store.js';
 import { createPgRestoreStore } from './restore-store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -73,6 +78,8 @@ if (process.env.DATABASE_URL && Number.isInteger(poolMax) && poolMax > 0) {
     await candidate.end({ timeout: 1 });
   }
 }
+const alertRuleStore = crmSql ? createPgAlertRuleStore(crmSql) : null;
+const alertState = crmSql ? createPgAlertState(crmSql) : null;
 let outreachConfiguration: unknown = null;
 try {
   outreachConfiguration = JSON.parse(process.env.OPS_OUTREACH_CONFIG ?? 'null');
@@ -102,6 +109,8 @@ const appRouter = createOpsRouter(
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
     restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
+    alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
+    alertState: alertState ?? undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals:
       env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
@@ -123,6 +132,12 @@ app.get('/ready', async () => ({
     storage: crmSql ? 'configured' : 'unavailable',
     notifications: { ingress: notificationPort.configured ? 'configured' : 'unconfigured', gateway: 'unverified' },
     engagement: { status: 'disabled', reason: 'api_access_unavailable' },
+  },
+  alerts: {
+    storage: crmSql ? 'configured' : 'unavailable',
+    evaluator: crmSql ? 'running' : 'unavailable',
+    // Events are kept in the durable outbox; no bus is wired from this process yet.
+    events: 'outbox_only',
   },
 }));
 
@@ -157,6 +172,27 @@ const notificationTimer = setInterval(() => {
 }, 1000);
 notificationTimer.unref();
 
+// Alert evaluation. Each rule runs on its own stored interval; this tick only asks which rules are due. Events wait in the durable
+// outbox: no bus is wired from this process yet, so nothing is published and /ready says so.
+const alertEvaluator =
+  alertRuleStore && alertState
+    ? new AlertEvaluator({ rules: alertRuleStore, state: alertState, signals: warehouseSignalReader(ops) })
+    : null;
+let alertRun: Promise<void> | null = null;
+const alertTimer = setInterval(() => {
+  if (!alertEvaluator || alertRun) return;
+  alertRun = alertEvaluator
+    .tick()
+    .then(() => undefined)
+    .catch(() => {
+      app.log.warn({ code: 'ops.alert_evaluator_unavailable' }, 'Alert evaluation will retry on the next tick');
+    })
+    .finally(() => {
+      alertRun = null;
+    });
+}, 5000);
+alertTimer.unref();
+
 // Explicit approved config enables this owned bounded scheduler; absent config does no work.
 let retentionRun: Promise<void> | null = null;
 const retentionTimer = setInterval(() => {
@@ -179,9 +215,11 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(notificationTimer);
       clearInterval(retentionTimer);
+      clearInterval(alertTimer);
       await app.close();
       await notificationRun;
       await retentionRun;
+      await alertRun;
       await crmSql?.end({ timeout: 5 });
       process.exit(0);
     })();

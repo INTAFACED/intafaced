@@ -45,3 +45,5 @@ export * from './pay-portal-reads.js';
 export * from './pay-payment-links.js';
 export * from './founder-admin.js';
 export * from './kyb-entity-types.js';
+export * from './kyb-application.js';
+export * from './kyb-documents.js';

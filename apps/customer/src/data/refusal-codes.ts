@@ -35,6 +35,8 @@ export type RefusalKind =
   | 'belowMinimum'
   | 'selfTrade'
   | 'orderTypeUnsupported'
+  | 'optionUnsupported'
+  | 'requestExpired'
   | 'exitPriceOrder'
   | 'exitStopLimitMissing'
   | 'exitMissing'
@@ -52,6 +54,9 @@ export type RefusalKind =
   | 'walletCap'
   | 'walletFields'
   | 'walletAddress'
+  | 'addressLabelTaken'
+  | 'addressBookFull'
+  | 'activitySortBounded'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -131,6 +136,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.stp_mode_unsupported': 'optionUnsupported',
+  'trade.tag_unsupported': 'optionUnsupported',
+  'trade.trigger_source_unset': 'optionUnsupported',
+  'trade.request_expired': 'requestExpired',
   'trade.oco_price_order': 'exitPriceOrder',
   'trade.oco_stop_limit_required': 'exitStopLimitMissing',
   'trade.missing_oco_trigger': 'exitMissing',
@@ -155,6 +164,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+  'bank.activity_account_unknown': 'notFound',
+  'bank.activity_sort_bounded': 'activitySortBounded',
+  'bank.destination_label_taken': 'addressLabelTaken',
+  'bank.address_book_full': 'addressBookFull',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',

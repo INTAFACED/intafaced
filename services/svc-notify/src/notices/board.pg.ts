@@ -4,7 +4,17 @@
  */
 
 import type { Sql } from 'postgres';
-import { NOTICE_KINDS, NoticeError, type NoticeKind, type NoticeRow, type NoticeStore } from './board.js';
+import {
+  INCIDENT_IMPACTS,
+  NOTICE_KINDS,
+  NoticeError,
+  STATUS_COMPONENTS,
+  type IncidentImpact,
+  type NoticeKind,
+  type NoticeRow,
+  type NoticeStore,
+  type StatusComponent,
+} from './board.js';
 
 type NoticePg = {
   id: string;
@@ -16,6 +26,10 @@ type NoticePg = {
   starts_at: Date | null;
   ends_at: Date | null;
   version: number;
+  impact: string | null;
+  components: string[];
+  parent_id: string | null;
+  resolves: boolean;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -26,6 +40,18 @@ type NoticePg = {
 function asKind(value: string): NoticeKind {
   if (!(NOTICE_KINDS as readonly string[]).includes(value)) throw new NoticeError('notify.notice_kind_unknown');
   return value as NoticeKind;
+}
+
+function asImpact(value: string | null): IncidentImpact | null {
+  if (value === null) return null;
+  if (!(INCIDENT_IMPACTS as readonly string[]).includes(value)) throw new NoticeError('notify.notice_incident_fields_invalid');
+  return value as IncidentImpact;
+}
+
+function asComponents(values: string[]): StatusComponent[] {
+  if (values.some((value) => !(STATUS_COMPONENTS as readonly string[]).includes(value)))
+    throw new NoticeError('notify.notice_component_unknown');
+  return values as StatusComponent[];
 }
 
 function fromPg(row: NoticePg): NoticeRow {
@@ -39,6 +65,10 @@ function fromPg(row: NoticePg): NoticeRow {
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     version: row.version,
+    impact: asImpact(row.impact),
+    components: asComponents(row.components),
+    parentId: row.parent_id,
+    resolves: row.resolves,
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -49,6 +79,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
+  impact, components, parent_id, resolves,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -59,10 +90,11 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        author_id, client_request_id
+        impact, components, parent_id, resolves, author_id, client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
+        ${row.impact}, ${row.components as string[]}, ${row.parentId}, ${row.resolves},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;
@@ -99,6 +131,16 @@ export class PostgresNoticeStore implements NoticeStore {
              ORDER BY published_at DESC, id ASC
              LIMIT ${limit}
           `;
+    return rows.map(fromPg);
+  }
+
+  async listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published' AND kind IN ('incident', 'maintenance')
+       ORDER BY published_at DESC, id ASC
+       LIMIT ${limit}
+    `;
     return rows.map(fromPg);
   }
 

@@ -277,6 +277,60 @@ const recentDeliveryOutput = z.object({
   refusalCode: z.string().nullable(),
 });
 
+const statusImpact = z.enum(['none', 'minor', 'major', 'critical']);
+const statusComponentId = z.enum(['api', 'webhooks', 'console']);
+
+const statusFeedOutput = z.object({
+  asOf: z.string(),
+  components: z.array(
+    z.object({
+      component: statusComponentId,
+      state: z.enum(['unknown', 'maintenance', 'degraded', 'partial_outage', 'major_outage']),
+      basis: z.enum(['incident', 'maintenance', 'no_measurement']),
+      since: z.string().nullable(),
+    }),
+  ),
+  incidents: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      impact: statusImpact.nullable(),
+      components: z.array(statusComponentId),
+      openedAt: z.string(),
+      resolvedAt: z.string().nullable(),
+      updates: z.array(
+        z.object({
+          id: z.string(),
+          body: z.string(),
+          impact: statusImpact.nullable(),
+          publishedAt: z.string(),
+          resolves: z.boolean(),
+        }),
+      ),
+    }),
+  ),
+  maintenance: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      components: z.array(statusComponentId),
+      startsAt: z.string().nullable(),
+      endsAt: z.string().nullable(),
+    }),
+  ),
+  history: z.object({
+    basis: z.literal('incident_notices_only'),
+    days: z.array(
+      z.object({
+        date: z.string(),
+        components: z.array(
+          z.object({ component: statusComponentId, incidentMinutes: z.number().int().min(0), worstImpact: statusImpact.nullable() }),
+        ),
+      }),
+    ),
+  }),
+});
+
 const noticeWireOutput = z.object({
   id: z.string().uuid(),
   kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
@@ -912,6 +966,19 @@ export function createNotifyRouter(
           return { incidents: [...status.incidents], maintenance: [...status.maintenance] };
         }),
 
+      /**
+       * Machine-readable status. Signed-out. A component nothing measures reads
+       * `unknown`. History is incident minutes per day with no uptime percentage.
+       * `days` above the feed maximum is clamped to it.
+       */
+      statusFeed: publicProcedure
+        .input(z.object({ days: z.number().int().min(1) }))
+        .output(statusFeedOutput)
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          return statusFeedOutput.parse(await notify.notices.statusFeed(input));
+        }),
+
       draftNotice: scopedProcedure('admin:write', { module: 'notify' })
         .input(
           z.object({
@@ -920,6 +987,10 @@ export function createNotifyRouter(
             body: z.string().min(1).max(8000),
             startsAt: z.string().datetime({ offset: true }).nullable().optional(),
             endsAt: z.string().datetime({ offset: true }).nullable().optional(),
+            impact: statusImpact.nullable().optional(),
+            components: z.array(statusComponentId).max(3).nullable().optional(),
+            parentId: z.string().uuid().nullable().optional(),
+            resolves: z.boolean().nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )

@@ -467,3 +467,86 @@ describe('POST desk writes', () => {
     expect(line).not.toContain('secret');
   });
 });
+
+describe('ticket properties', () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    ticketId: T1,
+    priority: 'high',
+    ticketType: null,
+    labels: ['vip'],
+    updatedAt: '2026-10-20T03:00:00.000Z',
+    ...over,
+  });
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse((c[1] as RequestInit).body as string) }));
+
+  it('reads ticketProperties as the founder, on its own', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(props()));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=properties&id=${T1}`)).json();
+    expect(json.properties).toMatchObject({ kind: 'ok', data: { priority: 'high', ticketType: null, labels: ['vip'] } });
+    expect(fn.mock.calls[0]![0]).toBe(
+      `http://edge:4000/api/support/trpc/ticketProperties?input=${encodeURIComponent(JSON.stringify({ ticketId: T1 }))}`,
+    );
+  });
+
+  it('rejects a ticket id that is not a UUID before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get('?view=properties&id=nope')).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('a malformed answer is a failure, not "nothing set"', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ ticketId: T1, priority: 'whenever' })),
+    );
+    const json = await (await get(`?view=properties&id=${T1}`)).json();
+    expect(json.properties.kind).toBe('failed');
+  });
+
+  it('sets only the fields given, with the request id and reason, through support.setProperties', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(props({ priority: null })));
+    vi.stubGlobal('fetch', fn);
+    const res = await post({
+      action: 'properties',
+      ticketId: T1,
+      clientRequestId: 'props:abc',
+      priority: null,
+      labels: ['vip', 'refund'],
+      reason: ' asked twice ',
+    });
+    expect(await res.json()).toMatchObject({ ok: true, action: 'properties' });
+    expect(sent(fn)).toEqual([
+      {
+        url: 'http://edge:4000/api/support/trpc/setProperties',
+        body: { ticketId: T1, clientRequestId: 'props:abc', priority: null, labels: ['vip', 'refund'], reason: 'asked twice' },
+      },
+    ]);
+  });
+
+  it('refuses a malformed properties write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const bad of [
+      { action: 'properties', ticketId: T1, clientRequestId: 'k' },
+      { action: 'properties', ticketId: T1, priority: 'high' },
+      { action: 'properties', ticketId: T1, clientRequestId: 'k', priority: 'whenever' },
+      { action: 'properties', ticketId: T1, clientRequestId: 'k', labels: ['has space'] },
+      { action: 'properties', ticketId: 'x', clientRequestId: 'k', priority: 'low' },
+    ]) {
+      expect((await post(bad)).status).toBe(400);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says a closed ticket was not changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.ticket_closed')),
+    );
+    const json = await (await post({ action: 'properties', ticketId: T1, clientRequestId: 'k', priority: 'low' })).json();
+    expect(json).toMatchObject({ ok: false, refusal: { title: 'This ticket is closed', changed: 'no' } });
+  });
+});

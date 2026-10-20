@@ -153,6 +153,12 @@ Kill-switch: `WEBAUTHN_ENABLED=false`. Relying party: `WEBAUTHN_RP_ID`, `WEBAUTH
 
 ---
 
+## Signed-out recovery (password reset and username)
+
+`auth.requestPasswordReset` and `auth.requestHandleRecovery` do the same work for every address: lock the address identifier (an HMAC of the lower-cased address, `IDENTITY_FLOW_SUBJECT_KEY`), count the recent flows, and write one `auth_flows` row and one `mail_outbox` row. Both answer `{accepted:true}`. Past the request cap nothing is written for any address and the answer is the same. The mail leaves from the outbox: a relay claims each row once (clearing the code or username) and sends it, so a lost reply leaves the flow valid and never sends twice. With no mail transport the row is marked `undeliverable` and `auth.passwordResetChannel` reports `off`. An address with no account is mailed a notice only when `IDENTITY_RESET_NOTIFY_UNKNOWN` is on.
+
+Owner settings, all blank by default and all refusing `auth.reset_unwired` when blank: `IDENTITY_PASSWORD_RESET_TTL_SECONDS`, `IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS`, `IDENTITY_PASSWORD_RESET_REQUEST_MAX`, `IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS`, `IDENTITY_FLOW_SUBJECT_KEY`. A wrong code counts against the newest open flow for the address, with or without an account; at the cap the flow is `locked` and the answer is `auth.too_many_attempts` with `retryAfterSeconds`. A correct code still replaces the hash and ends every session. Reset moved from `password_reset_proofs` to `auth_flows`; the old table stays for old rows and is no longer read.
+
 ## Concurrency
 
 `awardXp` takes `FOR UPDATE` on the user's `rank_state` row **before** any write, then runs at READ COMMITTED. Same reasoning as svc-ledger's chain-tip lock: when a lock already establishes the ordering, SERIALIZABLE only adds aborts.
@@ -324,3 +330,9 @@ The calls to svc-pay (owner pay scopes, pay step-up grant, merchant email invite
 Every internal door names its caller from the caller's own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: the rank, sub-account, session, account and handle reads, API-key ownership, the navigator session routes, the business directory, the affiliate producer accrue and payout, the account-closure job, and the tRPC service procedures. `dual` accepts the key and the shared secret, `keypair` the key only. A key-signed call that fails is refused and never retried against a secret. Unset, every door works on the shared secret exactly as before.
 
 The per-purpose secrets (`IDENTITY_TRADE_ADMISSION_SECRET`, `IDENTITY_PAY_ADMISSION_SECRET`, `IDENTITY_WS_AUTHORITY_SECRET`, `IDENTITY_EDGE_AUTHORITY_SECRET`) stay for shared-secret callers. For a key-signed call the key's own name does their job: `operationAdmission.decide` answers only svc-trade or svc-pay, `accountControls.currentAuthority` only svc-ws or svc-edge, and the signed API-key exchange only svc-edge. Each door still checks who it will serve (the directory answers svc-bank only, the producer routes the fee producers only). Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Signing-key rotation (I-signin-sessions-31)
+
+`authKeys.state`, `authKeys.rotate` and `authKeys.removeOld` (founder only, interactive second factor, plus a four-eyes approval for the two changes; action types `identity.auth_key_rotate` and `identity.auth_key_remove_old`). Key material lives in the host environment (`JWT_ACCESS_SECRET` is the id `legacy`; more keys in `IDENTITY_AUTH_KEYS` as `id:secret,id2:secret2`); the table `auth_signing_keys` holds ids and which one signs. Rotate makes the new id sign and keeps the previous one verify-only, so no one is signed out; remove-old is the second action after the overlap and makes tokens from the removed keys fail. Blank key list: rotate refuses `auth_key.material_missing`.
+
+Left: other services check access tokens with their own secret, so a rotation needs the same ring configured there first (a config and per-service follow-up); the sealed refresh successor still uses the signing secret, so a refresh inside the ten-second grace window across a rotation asks for a new sign-in; the founder-ops panel (`/identity-ops/keys`) is the screen half; TOTP and refresh-hash key rotation with a version prefix is not in this slice.

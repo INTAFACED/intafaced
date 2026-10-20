@@ -56,6 +56,19 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
         body: "This part of INTAFACED isn't switched on. Nothing was changed.",
       });
   });
+  it('the bank activity and address book refusals have their own words, and "not set" codes read as not switched on', () => {
+    expect(refusalCopy('bank.destination_label_taken')).toMatchObject({ title: 'That name is taken' });
+    expect(refusalCopy('bank.address_book_full')).toMatchObject({ title: 'Your address book is full' });
+    expect(refusalCopy('bank.activity_sort_bounded')).toMatchObject({ title: 'Too many lines to sort oldest first' });
+    expect(refusalCopy('bank.activity_account_unknown')).toMatchObject({ title: "We couldn't find that" });
+    for (const code of [
+      'bank.fx_rate_unset',
+      'portfolio.tax_effect_map_unset',
+      'portfolio.tax_year_start_unset',
+      'bank.address_book_cap_unset',
+    ])
+      expect(refusalCopy(code)).toMatchObject({ title: 'Not switched on' });
+  });
   it('market orders paused', () => {
     expect(refusalCopy('trade.slippage_cap_unset')).toEqual({ title: 'Market orders are paused', body: 'Use a limit order instead.' });
   });

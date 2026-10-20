@@ -1,4 +1,5 @@
 import { parseAmount } from '@intafaced/ledger-client';
+import { PAR_ASSETS } from '../portfolio/valuation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
@@ -53,6 +54,8 @@ export interface ActivityItem {
    * order's lines exactly instead of guessing by time.
    */
   readonly orderId?: string;
+  /** Set on the line that brought in the asset the customer bought. Absent on a sale, a refund and every other line. */
+  readonly purchase?: true;
   /**
    * Transfer note, visible to both parties. A personal send takes it from that
    * send's record. A space-to-space transfer takes it from the transfer message.
@@ -63,6 +66,8 @@ export interface ActivityItem {
   readonly reference?: string;
   /** The caller's own note. Not shown to the other party. */
   readonly privateNote?: string;
+  /** The caller's own second note, used in reports and exports. Not shown to the other party. */
+  readonly reportDescription?: string;
   /** An open dispute this caller filed. Status stays open; nothing here is a refund. */
   readonly dispute?: { readonly id: string; readonly status: 'open'; readonly reason: string };
   /**
@@ -183,6 +188,20 @@ export class ActivityTaxYearUnsetError extends Error {
   }
 }
 
+/**
+ * How each kind of line is taxed. The mapping is a tax call only the owner and counsel can make, so it is empty and
+ * no line is ever given an effect.
+ */
+export const TAX_EFFECT_BY_KIND: Readonly<Partial<Record<ActivityKind, string>>> = {};
+
+export class ActivityTaxEffectMapUnsetError extends Error {
+  readonly code = 'portfolio.tax_effect_map_unset' as const;
+  constructor() {
+    super('The tax effect of each kind of line is not set');
+    this.name = 'ActivityTaxEffectMapUnsetError';
+  }
+}
+
 /** Oldest-first needs the whole range in hand; this history is too long to hold. */
 export class ActivitySortBoundedError extends Error {
   readonly code = 'bank.activity_sort_bounded' as const;
@@ -212,6 +231,8 @@ export interface ActivityFilter {
   /** `main` or one named Space id. */
   readonly accountId?: string;
   readonly address?: string;
+  /** Only lines the caller has written a private note on. */
+  readonly hasNote?: boolean;
 }
 
 export interface ActivityQuery {
@@ -235,6 +256,8 @@ export interface ActivityQuery {
   taxYear?: number;
   /** Part of a withdrawal address, matched without regard to case. Lines with no recorded address never match. */
   address?: string;
+  /** True keeps only lines with a private note of the caller's own. */
+  hasNote?: boolean;
 }
 
 /** Oldest-first holds the matching lines in memory: at most this many, then it refuses and asks for a narrower range. */
@@ -256,6 +279,7 @@ export function activityFilterKey(filter: ActivityFilter, order: 'asc' | 'desc' 
     x: filter.maxAmount ?? null,
     ...(filter.accountId ? { a: filter.accountId } : {}),
     ...(filter.address ? { r: filter.address } : {}),
+    ...(filter.hasNote ? { h: 1 } : {}),
     ...(order === 'asc' ? { o: 'asc' } : {}),
   });
 }
@@ -272,7 +296,8 @@ function hasFilter(input: ActivityQuery): boolean {
     input.accountId !== undefined ||
     input.year !== undefined ||
     input.taxYear !== undefined ||
-    input.address !== undefined
+    input.address !== undefined ||
+    input.hasNote !== undefined
   );
 }
 
@@ -294,6 +319,7 @@ function readFilter(input: ActivityQuery): ActivityFilter {
     ...(to ? { to } : {}),
     ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(input.address ? { address: input.address.trim().toLowerCase() } : {}),
+    ...(input.hasNote ? { hasNote: true } : {}),
     ...(input.q ? { q: input.q.trim().toLowerCase() } : {}),
     ...(input.minAmount ? { minAmount: input.minAmount } : {}),
     ...(input.maxAmount ? { maxAmount: input.maxAmount } : {}),
@@ -314,6 +340,19 @@ function accountOf(item: Pick<ActivityItem, 'id' | 'txId'>): string | null {
   return m ? m[1]! : null;
 }
 
+/**
+ * True for the line that brought in the asset the customer bought. The feed shows only the asset a fill paid out, so a
+ * sale looks like "USDT in" as a purchase would: a spot fill counts only when the asset received is not a quote
+ * asset (USDT, USDC, USD), the markets this platform prices against. An escrow release is always a buy of what it
+ * released. Futures margin and profit, and an escrow refund (the seller's own coin coming back), are never purchases.
+ */
+function isPurchase(entry: { module: string; reason: string; assetId: string }, direction: 'in' | 'out'): boolean {
+  if (direction !== 'in') return false;
+  const key = `${entry.module}/${entry.reason}`;
+  if (key === 'p2p/p2p.escrow.release') return true;
+  return (key === 'trade/trade.fill' || key === 'trade/trade.fill.mm_maker') && !PAR_ASSETS.has(entry.assetId.toUpperCase());
+}
+
 function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
   if (filter.accountId && accountOf(item) !== filter.accountId) return false;
   if (filter.kind && !filter.kind.includes(item.kind)) return false;
@@ -321,6 +360,7 @@ function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
   const amount = parseAmount(item.amount);
   if (filter.minAmount && amount < parseAmount(filter.minAmount)) return false;
   if (filter.maxAmount && amount > parseAmount(filter.maxAmount)) return false;
+  if (filter.hasNote && item.privateNote === undefined && item.reportDescription === undefined) return false;
   if (filter.address && !(item.address ?? '').toLowerCase().includes(filter.address)) return false;
   if (!filter.q) return true;
   const haystack = [
@@ -469,6 +509,7 @@ export class ActivityService {
         cursor: positionCursor,
         ...(assetId === null ? {} : { assetId }),
         ...(filter.address === undefined ? {} : { needAddress: true }),
+        ...(filter.hasNote ? { needNotes: true } : {}),
       });
       scanned += window.items.length;
       const kept: ActivityItem[] = [];
@@ -593,7 +634,7 @@ export class ActivityService {
 
   private async listPage(
     userId: string,
-    input: { limit?: number; cursor?: string; assetId?: string; needAddress?: boolean },
+    input: { limit?: number; cursor?: string; assetId?: string; needAddress?: boolean; needNotes?: boolean },
   ): Promise<ActivityPage> {
     const { pages, cursorSecret } = this.options;
     if (!pages || !cursorSecret) throw new ActivityUnavailableError();
@@ -650,7 +691,7 @@ export class ActivityService {
         }
       }
 
-      const items = await this.toItems(userId, taken, input.needAddress === true);
+      const items = await this.toItems(userId, taken, input.needAddress === true, input.needNotes === true);
       const more = Object.values(positions).some((p) => p !== false);
       return { items, nextCursor: more ? encodeCursor(cursorSecret, { userId, assetId, owners: positions }) : null };
     } catch (err) {
@@ -712,7 +753,7 @@ export class ActivityService {
     return out;
   }
 
-  private async toItems(userId: string, taken: Taken[], needAddress = false): Promise<ActivityItem[]> {
+  private async toItems(userId: string, taken: Taken[], needAddress = false, needNotes = false): Promise<ActivityItem[]> {
     // A transfer with both halves among the user's own pots is a Space move, not a payment to anyone.
     const transferHalves = new Map<string, number>();
     for (const { entry } of taken) {
@@ -738,6 +779,7 @@ export class ActivityService {
         counterparty: null,
         spaceName: queue.owner.spaceName,
         ...(typeof entry.orderId === 'string' && entry.orderId !== '' ? { orderId: entry.orderId } : {}),
+        ...(isPurchase(entry, dir) ? { purchase: true as const } : {}),
       };
     });
 
@@ -775,7 +817,7 @@ export class ActivityService {
         // A missing note never hides the money movement.
       }
     }
-    return this.withRecords(userId, withHandles, personalTx, needAddress);
+    return this.withRecords(userId, withHandles, personalTx, needAddress, needNotes);
   }
 
   /**
@@ -818,10 +860,11 @@ export class ActivityService {
     items: ActivityItem[],
     personalTx: ReadonlySet<string>,
     needAddress: boolean,
+    needNotes: boolean,
   ): Promise<ActivityItem[]> {
     const records = this.options.records;
     if (!records) {
-      if (needAddress) throw new ActivityUnavailableError();
+      if (needAddress || needNotes) throw new ActivityUnavailableError();
       return items;
     }
     if (items.length === 0) return items;
@@ -833,6 +876,8 @@ export class ActivityService {
         items.map((item) => ({ id: item.id, txId: item.txId })),
       );
     } catch {
+      // A note is a nicety, except when the caller filters by it: a list that quietly missed a note would look right.
+      if (needNotes) throw new ActivityUnavailableError();
       return items;
     }
     return items.map((item) => {
@@ -844,6 +889,7 @@ export class ActivityService {
         ...(!personal && note.note ? { note: note.note } : {}),
         ...(!personal && note.reference ? { reference: note.reference } : {}),
         ...(note.privateNote ? { privateNote: note.privateNote } : {}),
+        ...(note.reportDescription ? { reportDescription: note.reportDescription } : {}),
         ...(note.dispute ? { dispute: note.dispute } : {}),
       };
     });

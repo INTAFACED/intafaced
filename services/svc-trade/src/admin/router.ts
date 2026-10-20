@@ -14,6 +14,9 @@ const id = z.string().uuid();
 const reason = z.string().trim().min(3).max(500);
 const clientRequestId = z.string().trim().min(1).max(128);
 const nullableText = z.string().trim().min(1).max(128).nullish();
+const approvalId = z.string().trim().min(1).max(128);
+const decimalText = z.string().trim().min(1).max(64);
+const tenorRow = z.object({ tenor: z.enum(['weekly', 'monthly', 'quarterly']), enabled: z.boolean() }).strict();
 
 const limits = z
   .object({
@@ -123,6 +126,12 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       snapshot: operator
         .input(z.object({ market: id }).strict())
         .query(({ ctx, input }) => ready().futuresSnapshot(ctx.principal, input.market).catch(fail)),
+      liquidations: operator
+        .input(z.object({ market: id.nullish(), limit }).strict())
+        .query(({ ctx, input }) => ready().futuresLiquidations(ctx.principal, input).catch(fail)),
+      insuranceHistory: operator
+        .input(z.object({ asset: z.string().trim().min(1).max(32), limit }).strict())
+        .query(({ ctx, input }) => ready().futuresInsuranceHistory(ctx.principal, input).catch(fail)),
     }),
     exports: router({
       create: operator
@@ -160,6 +169,73 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
+    }),
+    futuresListing: router({
+      create: operatorWrite
+        .input(
+          z
+            .object({
+              symbol: z.string().trim().min(1).max(64),
+              baseAsset: z.string().trim().min(1).max(32),
+              quoteAsset: z.string().trim().min(1).max(32),
+              tickSize: decimalText,
+              lotSize: decimalText,
+              minQty: decimalText,
+              maxQty: decimalText.nullable(),
+              minNotional: decimalText,
+              makerBps: z.number().int().min(0),
+              takerBps: z.number().int().min(0),
+              expiryAt: z.string().trim().min(1).max(64),
+              status: z.enum(['pending', 'active']).optional(),
+              family: z.enum(['linear', 'inverse']).nullish(),
+              settleAsset: z.string().trim().min(1).max(32).nullish(),
+              displayName: z.string().trim().min(1).max(128).nullish(),
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().futuresContracts.listingCreate(ctx.principal, input).catch(fail)),
+    }),
+    futuresSchedule: router({
+      get: operator.query(({ ctx }) => ready().futuresContracts.scheduleGet(ctx.principal).catch(fail)),
+      set: operatorWrite
+        .input(
+          z
+            .object({
+              tenors: z.array(tenorRow).min(1).max(3),
+              expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().futuresContracts.scheduleSet(ctx.principal, input).catch(fail)),
+    }),
+    futuresPremarket: router({
+      get: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().futuresContracts.premarketGet(ctx.principal, input.market).catch(fail)),
+      set: operatorWrite
+        .input(
+          z
+            .object({
+              market: id,
+              flatFundingRate: decimalText.nullable(),
+              markClampBps: z.number().int().min(1).max(2_147_483_647).nullable(),
+              expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().futuresContracts.premarketSet(ctx.principal, input).catch(fail)),
+      convert: operatorWrite
+        .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
+        .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
     }),
     markets: router({
       statusHistory: operator

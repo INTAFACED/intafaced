@@ -3,6 +3,9 @@
  * what the person can and cannot do to a request today. No React, no network, so every rule here has a test.
  */
 
+/** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
+export const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
+
 export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
 export type TicketCategory = 'account' | 'trading' | 'deposit_withdraw' | 'other';
 

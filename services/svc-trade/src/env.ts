@@ -283,6 +283,16 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_SETTLEMENT_FIXING: z.string().default(''),
 
       /**
+       * FUTURES SETTLE ASSETS the owner has switched on (D-instruments-03). Comma-separated asset codes.
+       *
+       * EMPTY BY DEFAULT — and empty is a refusal, not a crash. A linear USDT contract settles in its quote
+       * asset and needs nothing here. listMarket for a USDC-settled linear contract throws
+       * `trade.futures_settle_asset_unconfigured` until `USDC` is named. Presence only: this never picks a
+       * settle asset for a listing and never converts between assets.
+       */
+      TRADE_FUTURES_SETTLE_ASSETS: z.string().default(''),
+
+      /**
        * Futures residual jobs (liquidation scan + funding ticks).
        * Default OFF — must be explicitly enabled. Never invents markets/rates.
        */
@@ -375,10 +385,11 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_FUNDING_MAX_ABS_RATE: z.string().default(''),
 
       /**
-       * THE ACCOUNT REALISED FUTURES PROFIT IS PAID FROM, and therefore the
-       * ceiling on what a winning position can be paid.
+       * THE ACCOUNT REALISED FUTURES PROFIT IS PAID FROM: the futures clearing
+       * pot that realised losses fill (docs/adr/2026-10-20-futures-matched-traders.md).
+       * What it cannot cover yet is owed, not refused (`futures/futures-payouts.ts`).
        *
-       * `ownerType:ownerId:kind[:purpose]`, e.g. `house:fees:trade:available`.
+       * `ownerType:ownerId:kind[:purpose]`, i.e. `house:futures-loss:available`.
        *
        * NO DEFAULT, and that is the decision. `futuresRealizeProfit` used to
        * draw on a fee pot with no ceiling — a house account is not an insurance

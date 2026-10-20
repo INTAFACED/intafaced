@@ -40,6 +40,28 @@ describe('activity notes, disputes and transfer messages', () => {
 
   afterAll(() => db?.drop());
 
+  it('stores a report description beside the note, keeps what a write leaves out, and replays one press once', async () => {
+    const records = new ActivityRecordService(db.sql);
+    const line = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb:u:USDT:out';
+    await expect(records.setNote(ALICE, { activityId: line, commandId: 'desc-cmd-0000' })).rejects.toMatchObject({
+      code: 'bank.activity_note_empty',
+    });
+    const first = await records.setNote(ALICE, { activityId: line, reportDescription: 'Office rent', commandId: 'desc-cmd-0001' });
+    expect(first).toMatchObject({ text: null, reportDescription: 'Office rent' });
+    const replay = await records.setNote(ALICE, { activityId: line, reportDescription: 'Office rent', commandId: 'desc-cmd-0001' });
+    expect(replay.updatedAt).toBe(first.updatedAt);
+    await expect(
+      records.setNote(ALICE, { activityId: line, reportDescription: 'Different', commandId: 'desc-cmd-0001' }),
+    ).rejects.toMatchObject({ code: 'bank.activity_note_conflict' });
+    // A later note keeps the description.
+    const both = await records.setNote(ALICE, { activityId: line, text: 'rent', commandId: 'desc-cmd-0002' });
+    expect(both).toMatchObject({ text: 'rent', reportDescription: 'Office rent' });
+    const read = (await records.forItems(ALICE, [{ id: line, txId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])).get(line);
+    expect(read).toMatchObject({ privateNote: 'rent', reportDescription: 'Office rent' });
+    // Another customer sees neither.
+    expect((await records.forItems(BOB, [{ id: line, txId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }])).get(line)).toBeUndefined();
+  });
+
   it('replays a note, keeps one open dispute, and shows a transfer note to both parties', async () => {
     const records = new ActivityRecordService(db.sql);
     const note = await records.setNote(ALICE, { activityId: LINE, text: 'rent', commandId: 'note-cmd-0001' });

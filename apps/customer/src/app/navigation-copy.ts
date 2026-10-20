@@ -2,6 +2,10 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  News: 'News',
+  'Market news by category, language and symbol': 'Market news by category, language and symbol',
+  'Economic calendar': 'Economic calendar',
+  'Scheduled releases and their values': 'Scheduled releases and their values',
   'Invoice detail': 'Invoice detail',
   'One invoice reference': 'One invoice reference',
   'Endpoint detail': 'Endpoint detail',
@@ -195,6 +199,24 @@ const messages = {
   'Academy reader': 'Academy reader',
   'Read a learning path': 'Read a learning path',
   'Strategy listing': 'Strategy listing',
+  'Predict positions': 'Predict positions',
+  'Prediction market': 'Prediction market',
+  'Market purchases': 'Market purchases',
+  'Market listing': 'Market listing',
+  'New launch': 'New launch',
+  'Launch check': 'Launch check',
+  'Launch requirements': 'Launch requirements',
+  'Launch project': 'Launch project',
+  'Token governance': 'Token governance',
+  'Governance proposal': 'Governance proposal',
+  'Token economy': 'Token economy',
+  'Mining workers': 'Mining workers',
+  'Mining worker': 'Mining worker',
+  'Mining shares': 'Mining shares',
+  'Mining rewards': 'Mining rewards',
+  'Mining status': 'Mining status',
+  'Blueprint crew': 'Blueprint crew',
+  'Shared card': 'Shared card',
   'Publish a strategy subscription': 'Publish a strategy subscription',
   'Launch orders': 'Launch orders',
   'Your asset launch orders': 'Your asset launch orders',
@@ -335,6 +357,8 @@ const messages = {
   chain: 'chain',
   dex: 'dex',
   protocol: 'protocol',
+  wallet: 'wallet',
+  'Your wallet and its activity': 'Your wallet and its activity',
 } as const;
 
 export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.navigation', messages, {

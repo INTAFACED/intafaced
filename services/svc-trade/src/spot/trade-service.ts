@@ -67,6 +67,7 @@ import {
 import { slippageToleranceFor } from './slippage-tolerance.js';
 import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
+import { resolveFuturesFamily } from '../futures/contract-family.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
 import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
 import { recordMarketStatusTransition } from '../admin/status-history.js';
@@ -268,6 +269,14 @@ export interface TradeServiceOptions {
    * `trade.dated_futures_fixing_unconfigured`. Perpetual listings ignore it.
    */
   futuresSettlementFixing?: string;
+  /**
+   * Owner-configured futures settle assets (`TRADE_FUTURES_SETTLE_ASSETS`, comma-separated).
+   *
+   * EMPTY BY DEFAULT. A linear USDT contract settles in its quote asset and needs nothing here. A USDC-settled
+   * linear listing refuses `trade.futures_settle_asset_unconfigured` until `USDC` is named. Presence only:
+   * it never changes which asset a listing settles in and never converts between assets.
+   */
+  futuresSettleAssets?: readonly string[];
   /**
    * Seed/mm bot place path (SD-4 kill-switch). OFF refuses `seeded: true` places.
    * Default false — seed must be deliberately enabled.
@@ -587,6 +596,17 @@ export interface ListMarketInput {
   futuresContractStyle?: 'perpetual' | 'dated' | null;
   /** Required when futuresContractStyle=dated. */
   futuresExpiryAt?: Date | null;
+  /**
+   * Contract family on kind=futures. Omitted means `linear`. `inverse` refuses
+   * `trade.inverse_family_unsupported`: no inverse P&L formula is published. Dated vs perpetual is
+   * `futuresContractStyle`, not this field.
+   */
+  futuresFamily?: 'linear' | 'inverse' | null;
+  /**
+   * Settle asset on kind=futures. Omitted means the quote asset and nothing else. A value other than the quote
+   * asset refuses; USDC refuses until TRADE_FUTURES_SETTLE_ASSETS names it.
+   */
+  futuresSettleAsset?: string | null;
 }
 
 /** Blank / non-integer / out of 1..500 public-tape limit refuse. Never invent 100. */
@@ -735,6 +755,8 @@ export class TradeService {
   private readonly optionsSettlementFixing: string;
   /** Opaque dated-futures fixing stamp; empty refuses style=dated listing. */
   private readonly futuresSettlementFixing: string;
+  /** Owner-configured settle assets; empty refuses a USDC-settled linear listing. */
+  private readonly futuresSettleAssets: readonly string[];
   private readonly seedPlaceEnabled: boolean;
   private readonly slippageCapBps: number | null;
   private readonly algoMarkPolicy: AlgoMarkPolicy;
@@ -789,6 +811,7 @@ export class TradeService {
     this.optionsSettlementAssetLaw = options.optionsSettlementAssetLaw ?? '';
     this.optionsSettlementFixing = options.optionsSettlementFixing ?? '';
     this.futuresSettlementFixing = options.futuresSettlementFixing ?? '';
+    this.futuresSettleAssets = options.futuresSettleAssets ?? [];
     this.seedPlaceEnabled = options.seedPlaceEnabled ?? false;
     this.slippageCapBps = options.marketSlippageCapBps ?? null;
     this.algoMarkPolicy = options.algoMarkPolicy ?? DEFAULT_ALGO_MARK_POLICY;
@@ -1018,6 +1041,15 @@ export class TradeService {
     const paper = input.paper === true;
     const status = input.status ?? 'active';
     const kind = input.kind ?? 'spot';
+    // Contract family first: an inverse request is refused before any ledger read.
+    const familyTerms = resolveFuturesFamily({
+      kind,
+      quoteAsset: input.quoteAsset,
+      family: input.futuresFamily,
+      settleAsset: input.futuresSettleAsset,
+      configuredSettleAssets: this.futuresSettleAssets,
+      paper,
+    });
     // D26-P1-T7 / D-S-05: modelling forex/commodities is honest; production
     // active listing without P0-05 + fiat settle rails is the lie (§13 socket.forex-settlement).
     // paper=true (drills) and non-active status remain allowed. Never invent settlement.
@@ -1060,7 +1092,8 @@ export class TradeService {
         min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
         asset_class, schedule, display_name, paper,
         option_type, option_style, option_strike, option_expiry_at, settlement_fixing,
-        futures_contract_style, futures_expiry_at, futures_settlement_fixing
+        futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+        futures_family, futures_settle_asset
       ) VALUES (
         ${input.symbol}, ${input.baseAsset}, ${input.quoteAsset}, ${kind},
         ${formatAmount(input.tickSize)}::numeric, ${formatAmount(input.lotSize)}::numeric,
@@ -1077,13 +1110,16 @@ export class TradeService {
         ${optionTerms?.settlementFixing ?? null},
         ${datedTerms?.style ?? null},
         ${datedTerms?.expiryAt ?? null},
-        ${datedTerms?.settlementFixing ?? null}
+        ${datedTerms?.settlementFixing ?? null},
+        ${familyTerms?.family ?? null},
+        ${familyTerms?.settleAsset ?? null}
       )
       ON CONFLICT (symbol) DO UPDATE SET updated_at = now()
       RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
                 min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
                 asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
+                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+                futures_family, futures_settle_asset, contract_size
     `;
     return toMarket(rows[0] as MarketRow);
   }
@@ -1103,7 +1139,8 @@ export class TradeService {
       SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
              asset_class, schedule, paper,
-             futures_contract_style, futures_expiry_at, futures_settlement_fixing
+             futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+             futures_family, futures_settle_asset, contract_size
         FROM trade.markets WHERE id = ${marketId}
     `;
     const current = existing[0];
@@ -1129,7 +1166,8 @@ export class TradeService {
       RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
                 min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
                 asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
+                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+                futures_family, futures_settle_asset, contract_size
     `;
     const row = rows[0];
     if (!row) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
@@ -4856,7 +4894,8 @@ export class TradeService {
       SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
              min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
                 asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing
+                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
+                futures_family, futures_settle_asset, contract_size
         FROM trade.markets WHERE id = ${marketId}
     `;
     const row = rows[0];

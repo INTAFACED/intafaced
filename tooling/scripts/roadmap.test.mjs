@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { analyse, dependsOn, laneFor, parseSpec, progress, queue } from './roadmap.mjs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { analyse, buildIndex, dependsOn, laneFor, parseSpec, progress, queue, untangle } from './roadmap.mjs';
 
 test('a slice heading and its table rows are read', () => {
   const text = [
@@ -58,7 +61,7 @@ test('slices that need nothing come first; slices in a loop are found, not guess
   assert.equal(queue(slices, analysis)[0].id, 'A-x-01');
 });
 
-test('progress counts a slice once a merged title names it, and forecasts from the last 7 days', () => {
+test('progress counts PRs per slice, excludes reverts, and gives 3-hour and 7-day rates', () => {
   const slices = [
     { id: 'SP-x-01', lane: 'svc-trade spot' },
     { id: 'SP-x-02', lane: 'svc-trade spot' },
@@ -68,15 +71,62 @@ test('progress counts a slice once a merged title names it, and forecasts from t
   const page = progress(
     slices,
     [
-      { day: '2026-10-20', subject: 'svc-trade: SP-x-02 limit order (#2)' },
-      { day: '2026-10-19', subject: 'svc-trade: SP-x-01 market order (#1)' },
-      { day: '2026-10-01', subject: 'svc-bank: BK-y-01 accounts (#0)' },
-      { day: '2026-10-20', subject: 'svc-bank: tidy, mentions NOPE-z-01' },
+      { at: '2026-10-20T11:00:00Z', subject: 'svc-trade: SP-x-02 limit order, part 2 (#4)' },
+      { at: '2026-10-20T10:30:00Z', subject: 'Revert "svc-bank: BK-y-02 statements (#3)"' },
+      { at: '2026-10-20T07:00:00Z', subject: 'svc-trade: SP-x-02 limit order, part 1 (#2)' },
+      { at: '2026-10-19T12:00:00Z', subject: 'svc-trade: SP-x-01 market order (#1)' },
+      { at: '2026-10-01T12:00:00Z', subject: 'svc-bank: BK-y-01 accounts (#0)' },
+      { at: '2026-10-20T11:30:00Z', subject: 'svc-bank: tidy, mentions NOPE-z-01' },
     ],
-    '2026-10-20',
+    '2026-10-20T12:00:00Z',
   );
-  assert.match(page, /Named in a merged PR: 3 of 4 slices\. Left: 1\./);
-  assert.match(page, /Last 7 days: 2 slices, 0\.3 a day\./);
-  assert.match(page, /Forecast at that rate: 4 days/);
-  assert.match(page, /\| svc-trade spot \| 2 \| 2 \|/);
+  assert.match(page, /Started \(named in at least one merged PR\): 3 of 4 slices\. Not started: 1\./);
+  assert.match(page, /PRs per started slice: 1\.3 on average; 2 have one PR, 1 two, 0 three or more\./);
+  assert.match(page, /Last 3 hours: 1 PR, 0 slices started \(8\.0 PRs a day\)\./);
+  assert.match(page, /Last 7 days: 3 PRs, 2 slices started \(0\.4 PRs a day\)\./);
+  assert.match(page, /Forecast at the 3-hour pace: about 1 day for the 1 unstarted slice at 2\.0 PRs each/);
+  assert.match(page, /\| svc-trade spot \| 2 \| 2 \| 3 \|/);
+});
+
+test('progress counts the first named merge when tracking began under 7 days ago', () => {
+  const slices = [
+    { id: 'SP-x-01', lane: 'svc-trade spot' },
+    { id: 'SP-x-02', lane: 'svc-trade spot' },
+  ];
+  const commits = [
+    { at: '2026-10-20T08:00:00Z', subject: 'svc-trade: SP-x-01 market order, part 2 (#2)' },
+    { at: '2026-10-20T07:00:00Z', subject: 'svc-trade: SP-x-01 market order, part 1 (#1)' },
+  ];
+  const page = progress(slices, commits, '2026-10-20T12:00:00Z');
+  assert.match(page, /Last 5 hours \(since the first named merge\): 2 PRs, 1 slice started \(9\.6 PRs a day\)\./);
+  assert.match(page, /Forecast at the 5-hour pace: about 1 day for the 1 unstarted slice/);
+  const fresh = progress(slices, commits, '2026-10-20T09:00:00Z');
+  assert.match(fresh, /Last 3 hours: 2 PRs, 1 slice started/);
+  assert.doesNotMatch(fresh, /since the first named merge/);
+});
+
+test('a lane override beats the computed lane', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  mkdirSync(join(dir, 'modules', 'wallet', 'specs'), { recursive: true });
+  const spec = (id) => [`### ${id}. Something`, '', '| | |', '|---|---|', '| Module | nothing that names a service |', '| Size | S |', ''];
+  writeFileSync(join(dir, 'modules', 'wallet', 'specs', 'w.md'), [...spec('W-x-01'), ...spec('W-x-02')].join('\n'));
+  const lanes = Object.fromEntries(buildIndex(dir, { 'W-x-02': 'svc-bank' }).map((s) => [s.id, s.lane]));
+  assert.equal(lanes['W-x-02'], 'svc-bank');
+  assert.notEqual(lanes['W-x-01'], 'svc-bank');
+});
+
+test('two slices that each need the other: the earlier one goes first, and its edge moves to later', () => {
+  const out = untangle([
+    { id: 'Q-a-01', spec: 's.md', depends: ['Q-a-02'] },
+    { id: 'Q-a-02', spec: 's.md', depends: ['Q-a-01'] },
+    { id: 'T-b-01', spec: 't.md', depends: ['Q-a-01', 'U-c-01'] },
+    { id: 'U-c-01', spec: 'u.md', depends: ['T-b-01'] },
+  ]);
+  const by = Object.fromEntries(out.map((s) => [s.id, s]));
+  assert.deepEqual(by['Q-a-01'].depends, []);
+  assert.deepEqual(by['Q-a-01'].later, ['Q-a-02']);
+  assert.deepEqual(by['Q-a-02'].depends, ['Q-a-01']);
+  assert.deepEqual(by['U-c-01'].depends, [], 'fewer dependencies goes first across specs');
+  assert.deepEqual(by['T-b-01'].depends, ['Q-a-01', 'U-c-01']);
+  assert.equal(analyse(out).tangled.size, 0);
 });

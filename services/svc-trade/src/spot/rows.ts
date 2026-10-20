@@ -37,6 +37,9 @@ export interface MarketRow {
   futures_contract_style?: 'perpetual' | 'dated' | null;
   futures_expiry_at?: Date | null;
   futures_settlement_fixing?: string | null;
+  futures_family?: 'linear' | 'inverse' | null;
+  futures_settle_asset?: string | null;
+  contract_size?: string | null;
 }
 
 function testFixtureOf(raw: unknown): Market['testFixture'] {
@@ -94,6 +97,10 @@ export function toMarket(row: MarketRow): Market {
     futuresContractStyle: style,
     futuresExpiryAt: row.futures_expiry_at ?? null,
     futuresSettlementFixing: row.futures_settlement_fixing ?? null,
+    // Absent when the SELECT did not carry the column; present (maybe null) when it did.
+    ...(row.futures_family !== undefined ? { futuresFamily: row.futures_family } : {}),
+    ...(row.futures_settle_asset !== undefined ? { futuresSettleAsset: row.futures_settle_asset } : {}),
+    ...(row.contract_size !== undefined ? { contractSize: row.contract_size === null ? null : parseAmount(row.contract_size) } : {}),
   };
 }
 

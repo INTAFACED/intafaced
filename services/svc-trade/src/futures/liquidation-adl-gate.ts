@@ -10,6 +10,7 @@
  * call sites rather than a recut of the scan loop.
  */
 import type { Amount } from '@intafaced/ledger-client';
+import type { AdlRanking } from './adl-pairing.js';
 import { memoryAdlDisclosureStore, type AdlDisclosureStore } from './adl-disclosure.js';
 import {
   memoryAdlDisclosureEventStore,
@@ -29,10 +30,21 @@ export interface LiquidationAdlDeps {
    */
   policy: AdlOwnerPolicy | null;
   /**
+   * The owner's ranking formula, applied by the candidate loader. Null / omitted
+   * → refuse-closed like an unset policy (docs/adr/2026-10-20-futures-matched-traders.md
+   * section 6). `TEST_ADL_RANKING` is for the test rig only.
+   */
+  ranking?: AdlRanking | null;
+  /**
    * Opposing-side candidates in owner-chosen order. This gate does not rank
    * (D5). Unused when policy is unset — refuse returns before they matter.
    */
-  candidates?: readonly AdlCandidate[] | (() => Promise<readonly AdlCandidate[]>);
+  candidates?: readonly AdlCandidate[] | ((bankrupt: AdlBankruptPosition) => Promise<readonly AdlCandidate[]>);
+  /**
+   * Drive any planned ADL pair touching a position before anything else is
+   * decided for it (`adl-pairing.ts`). True when one was driven.
+   */
+  replayPlanned?: (positionId: string) => Promise<boolean>;
   disclosureAcks?: AdlDisclosureStore;
   events?: AdlDisclosureEventStore;
   reducer?: AdlReducePort;
@@ -58,12 +70,12 @@ export async function runLastResortAdlAfterInsuranceUnderfunded(input: {
   bankrupt: AdlBankruptPosition;
   at: Date;
 }): Promise<AdlLastResortOutcome> {
-  const policy = input.adl?.policy ?? null;
+  const policy = input.adl?.ranking ? (input.adl.policy ?? null) : null;
   const candidates =
     policy == null || input.adl?.candidates == null
       ? []
       : typeof input.adl.candidates === 'function'
-        ? await input.adl.candidates()
+        ? await input.adl.candidates(input.bankrupt)
         : input.adl.candidates;
 
   return runAdlLastResort({
@@ -97,7 +109,7 @@ export interface ParkedUnderfundedItem {
  */
 export async function parkUnderfundedWithAdl(input: {
   adl: LiquidationAdlDeps | undefined;
-  row: { positionId: string; userId: string; marketId: string; side: 'long' | 'short' };
+  row: { positionId: string; userId: string; marketId: string; side: 'long' | 'short'; size?: Amount };
   fromInsurance: Amount;
   insuranceReason: string;
   at: Date;
@@ -110,6 +122,7 @@ export async function parkUnderfundedWithAdl(input: {
       marketId: input.row.marketId,
       side: input.row.side,
       uncoveredShortfall: input.fromInsurance,
+      ...(input.row.size !== undefined ? { size: input.row.size } : {}),
     },
     at: input.at,
   });

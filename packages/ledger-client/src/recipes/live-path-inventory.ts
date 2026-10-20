@@ -70,15 +70,28 @@ export const RECIPE_MATRIX = {
   futuresMarginLock: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginAdd: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
-  futuresRealizeLoss: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/liquidation-planner.ts' },
-  futuresRealizeProfit: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
-  futuresFundingPay: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/funding-settlement.ts' },
-  futuresInsuranceTopup: {
+  futuresOrderMarginHold: {
     kind: 'socket',
     socket: '§13',
     reason:
-      '§13 — recipe seeds insurance from house trade fees; liquidation draws via futuresRealizeLoss({ fromInsurance }). No admin/ops top-up writer on tip (package + test fund only).',
+      '§13 — futures order margin (ADR 2026-10-20, slice 5): initial margin held per resting order before it rests. Futures orders do not go through svc-matching until ADR slice 6, so no production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  futuresOrderMarginRelease: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — futures order margin (ADR 2026-10-20, slice 5): unused order margin returned on cancel, expiry or a smaller order. No production writer until ADR slice 6 puts futures orders on the book; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  futuresOrderMarginApply: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — futures order margin (ADR 2026-10-20, slice 5): a fill moves order margin into the position pot and returns the unused part in one posting. No production writer until ADR slice 6 settles futures fills; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  futuresRealizeLoss: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/liquidation-planner.ts' },
+  futuresRealizeProfit: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
+  futuresFundingPay: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/funding-settlement.ts' },
+  futuresInsuranceTopup: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/admin/insurance-topup.ts' },
   escrowLock: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
   escrowRelease: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
   escrowRefund: { kind: 'live', module: 'p2p', proof: 'services/svc-p2p/src/p2p-service.ts' },
