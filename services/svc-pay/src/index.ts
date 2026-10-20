@@ -34,6 +34,7 @@ import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
+import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -748,6 +749,17 @@ const holdSweep = setInterval(() => {
 }, CONVERSION_HOLD_SWEEP_MS);
 holdSweep.unref?.();
 
+/**
+ * Dispatched payouts (hold taken, rail answer lost) are finished by asking the rail about the original key.
+ * Off, with the blocker named in the boot log, until the owner publishes the interval and the batch size.
+ */
+const payoutReconciler = startPayoutReconciler(
+  sql,
+  pay,
+  { intervalMs: env.PAY_PAYOUT_RECONCILE_INTERVAL_MS, batchLimit: env.PAY_PAYOUT_RECONCILE_BATCH_LIMIT },
+  app.log,
+);
+
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
   onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
@@ -930,6 +942,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
+      payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the

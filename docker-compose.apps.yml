@@ -919,6 +919,9 @@ services:
       # nothing. `required` finishes payments whose ledger capture key already
       # exists, and does not post again. env.ts default is the same `off`.
       PAY_CAPTURE_RECONCILE: ${PAY_CAPTURE_RECONCILE:-off}
+      # Owner-published; blank leaves the payout reconciler off (boot log names the blocker). Never a default.
+      PAY_PAYOUT_RECONCILE_INTERVAL_MS: ${PAY_PAYOUT_RECONCILE_INTERVAL_MS:-}
+      PAY_PAYOUT_RECONCILE_BATCH_LIMIT: ${PAY_PAYOUT_RECONCILE_BATCH_LIMIT:-}
       # Merchant controls. No default: blank or `off` refuses boot unless APP_ENV is
       # exactly dev or test. `required` for every real deployment.
       PAY_MERCHANT_CONTROLS: ${PAY_MERCHANT_CONTROLS:-}
