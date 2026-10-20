@@ -17,6 +17,7 @@ export * from './instruments.js';
 export * from './blueprint.js';
 export * from './example-router.js';
 export * from './support.js';
+export * from './support-awaiting.js';
 export * from './support-trade-summary.js';
 export * from './bank-approver-eligibility.js';
 export * from './bank-approver-eligibility-client.js';
