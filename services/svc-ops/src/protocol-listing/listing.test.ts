@@ -91,7 +91,13 @@ function identity(over: Partial<ActionApproval> = {}) {
       if (input.targetId !== a.targetId || input.expectedVersion !== a.expectedVersion || input.operationId !== a.operationId) {
         reject('action_approval.target_mismatch');
       }
+      const replay = row!.consumedBy !== null;
       row!.consumedBy = input.requestId ?? '(none)';
+      // Identity's replay of a spent approval returns the row without the founder attestation.
+      if (replay) {
+        const { approverIsFounder: _a, requesterIsFounder: _r, ...bare } = a;
+        return bare as ActionApproval;
+      }
       return a;
     },
   };
@@ -184,7 +190,7 @@ describe('protocol listing desk', () => {
     expect(ids.consumed()).toBe(1);
   });
 
-  it('survives a crash between spending the approval and writing the decision: the retry is not refused as consumed', async () => {
+  it('after a crash between spending the approval and writing the decision, the retry is refused and nothing is half hidden', async () => {
     const real = createMemoryListingStore();
     let crashes = 1;
     const store: ListingStore = {
@@ -199,7 +205,11 @@ describe('protocol listing desk', () => {
     const input = hideInput(ids);
     await expect(caller.protocolListing.pools.hide(input)).rejects.toThrow('process died after consume');
     expect(ids.consumed()).toBe(1);
-    await expect(caller.protocolListing.pools.hide(input)).resolves.toMatchObject({ outcome: 'applied', state: 'hidden' });
+    // Identity answers the replay without the founder attestation, so the desk refuses; the pool stays visible.
+    await expect(caller.protocolListing.pools.hide(input)).rejects.toMatchObject(refuses('action_approval.not_founders'));
+    expect(await real.list('pool')).toEqual([]);
+    // A fresh approval for the same decision goes through.
+    await expect(caller.protocolListing.pools.hide(hideInput(ids))).resolves.toMatchObject({ outcome: 'applied', state: 'hidden' });
     expect(await real.list('pool')).toHaveLength(1);
   });
 

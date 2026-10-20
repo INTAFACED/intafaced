@@ -35,10 +35,12 @@ const MOVES: Record<ProtocolOpsAction, Move> = {
 /**
  * Hide, restore, delist: each needs a second founder's approval, consumed once, and each is idempotent on
  * `<action>:<targetId>:<approvalId>`. The approval is spent with the operation id identity issued when it was proposed
- * (carried on the input) and with a request id derived from the idempotency key. A crash after the consume and before the
- * write is replayed with the same input: identity answers the same request id as already consumed by this request, so the
- * decision is written once. Without the request id the replay would be refused `action_approval.consumed` and the
- * approval would be burned.
+ * (carried on the input). A repeat of a call whose decision was written returns the stored result and spends nothing.
+ *
+ * A crash between the spend and the write is NOT recoverable by a retry today. The request id sent on consume is the key
+ * identity would use to replay the spend, but identity's replay (`consumedAgain`) returns the row without the founder
+ * attestation, so the retry is refused `action_approval.not_founders`: nothing is hidden and the founders issue a fresh
+ * approval. The pool stays visible, never half hidden. Making the replay carry the attestation is a svc-identity change.
  *
  * Applying the same move under a different approval is a no-op with a note: the state does not change and the second
  * decision is still logged. The store decides that under its lock.
