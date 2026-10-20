@@ -43,6 +43,8 @@ Rules are rows in `ops.alert_rules`; every save appends a snapshot to `ops.alert
 
 **Events.** State (`ops.alert_instances`), its history (`ops.alert_state_history`, append-only) and the announcing events commit in one transaction with an outbox row (`ops.alert_outbox`). Keys are business keys: `ops:alert_rule:<rule>:<version>` and `ops:alert:<opened|resolved>:<rule>:<instance>:<epoch>`; the epoch counts episodes, so a re-open after a resolve is a new event. `AlertOutboxPublisher` sends rows in order to an injected bus and stops at the first failure. The bus is not wired in this service yet (`/ready` reports `alerts.events: outbox_only`), so rows wait in the outbox, and nothing is announced that was not stored. `alerts.list` is still the stub.
 
+**Event subjects.** Declared in `packages/events/src/catalog.ts` and written to the outbox, not yet published: `coreOpsAlertRuleUpdated` (a rule version was created, edited, paused, resumed, retired or restored), `coreOpsAlertOpened` and `coreOpsAlertResolved`. Consumers: none yet.
+
 ## Ledger
 
 None. Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics). No recipes. No `post`.
