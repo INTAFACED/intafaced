@@ -14,10 +14,17 @@ import { canReply, replyReopens, ticketReference, type TicketStatus } from './su
 import { SupportRequestActions } from './SupportRequestActions';
 import { commentSchema, ticketSchema } from './support-schemas';
 
-const STATUS_KEY = { open: 'statusOpen', pending: 'statusPending', resolved: 'statusResolved', closed: 'statusClosed' } as const;
+const STATUS_KEY = {
+  open: 'statusOpen',
+  pending: 'statusPending',
+  on_hold: 'statusOnHold',
+  resolved: 'statusResolved',
+  closed: 'statusClosed',
+} as const;
 const STATUS_HELP_KEY = {
   open: 'statusOpenHelp',
   pending: 'statusPendingHelp',
+  on_hold: 'statusOnHoldHelp',
   resolved: 'statusResolvedHelp',
   closed: 'statusClosedHelp',
 } as const;

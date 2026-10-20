@@ -6,7 +6,7 @@
 /** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
 export const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
 
-export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
+export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 export type TicketCategory = 'account' | 'trading' | 'deposit_withdraw' | 'other';
 
 export interface TicketLike {
@@ -22,10 +22,10 @@ export interface TicketLike {
 export const STATUS_FILTERS = ['all', 'active', 'resolved', 'closed'] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-/** "Active" is everything the team can still act on: not yet resolved, not closed. */
+/** "Active" is everything the team can still act on: not yet resolved, not closed (a request on hold is still active). */
 export function matchesFilter(status: TicketStatus, filter: StatusFilter): boolean {
   if (filter === 'all') return true;
-  if (filter === 'active') return status === 'open' || status === 'pending';
+  if (filter === 'active') return status === 'open' || status === 'pending' || status === 'on_hold';
   return status === filter;
 }
 
