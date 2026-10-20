@@ -7,9 +7,9 @@
  * A basket whose children all post is not killed.
  * Kill: unknown matching cancel is killed false — never invent canceled.
  */
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { readMatchingUrl } from './oms-matching-venue-halt.js';
+import { matchingCallSigner, type OmsMatchingS2s } from './oms-kill-parent-matching.js';
 import type { OmsBasketNamedLeg, OmsBasketStartOk } from './oms-basket-start.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -113,6 +113,12 @@ export function readInternalServiceSecret(raw: string | undefined): { ok: true; 
     );
   }
   return { ok: true, secret };
+}
+
+/** A keypair-only service sends no shared secret, so a blank one is not a refusal there. */
+function readCallSecret(raw: string | undefined, s2s?: OmsMatchingS2s): { ok: true; secret: string } | OmsBasketMatchingRefusal {
+  if (s2s?.mode === 'keypair') return { ok: true, secret: raw ?? '' };
+  return readInternalServiceSecret(raw);
 }
 
 function isAbort(err: unknown): boolean {
@@ -328,16 +334,18 @@ async function postOne(
   fetchFn: typeof fetch,
   timeoutMs: number,
   secret: string,
+  s2s?: OmsMatchingS2s,
 ): Promise<{ ok: true; ack: OmsBasketMatchingChildAck } | OmsBasketMatchingRefusal> {
   const payload = JSON.stringify(toMatchingSubmitBody(child));
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchFn(`${base}${matchingSubmitPath(child.marketId)}`, {
+    const target = `${base}${matchingSubmitPath(child.marketId)}`;
+    const response = await fetchFn(target, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody(MATCHING_SERVICE_NAME, secret, payload),
+        ...matchingCallSigner(secret, s2s)(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
       },
       body: payload,
       signal: controller.signal,
@@ -392,6 +400,8 @@ export async function postBasketChildrenToMatching(input: {
   timeoutMs?: number;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned POST. */
   internalServiceSecret?: string;
+  /** svc-execution's own key. Absent leaves the calls on the shared secret. */
+  s2s?: OmsMatchingS2s;
   /** Fired only after matching accepts a child, before a later leg can refuse. */
   onChildAccepted?: (child: OmsBasketMatchingChildAck) => void;
 }): Promise<OmsBasketMatchingResult> {
@@ -422,14 +432,14 @@ export async function postBasketChildrenToMatching(input: {
     resolved.push(child.child);
   }
 
-  const secret = readInternalServiceSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV]);
+  const secret = readCallSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV], input.s2s);
   if (!secret.ok) return secret;
 
   const fetchFn = input.fetch ?? globalThis.fetch;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const children: OmsBasketMatchingChildAck[] = [];
   for (const child of resolved) {
-    const posted = await postOne(base, child, fetchFn, timeoutMs, secret.secret);
+    const posted = await postOne(base, child, fetchFn, timeoutMs, secret.secret, input.s2s);
     if (!posted.ok) {
       const reason =
         posted.reason === 'matching_unknown' ||
@@ -446,6 +456,7 @@ export async function postBasketChildrenToMatching(input: {
         fetch: fetchFn,
         timeoutMs,
         internalServiceSecret: secret.secret,
+        s2s: input.s2s,
       });
       return { ...refuse(reason, detail), children, kill };
     }
@@ -470,14 +481,16 @@ async function deleteOne(
   fetchFn: typeof fetch,
   timeoutMs: number,
   secret: string,
+  s2s?: OmsMatchingS2s,
 ): Promise<OmsBasketMatchingKillOutcome> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchFn(`${base}${matchingCancelPath(marketId, orderId)}`, {
+    const target = `${base}${matchingCancelPath(marketId, orderId)}`;
+    const response = await fetchFn(target, {
       method: 'DELETE',
       headers: {
-        ...serviceAuthHeadersForBody(MATCHING_SERVICE_NAME, secret, ''),
+        ...matchingCallSigner(secret, s2s)('', { method: 'DELETE', url: new URL(target), contentType: '' }),
       },
       signal: controller.signal,
     });
@@ -509,6 +522,8 @@ export async function killBasketMatchingChildren(input: {
   timeoutMs?: number;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned DELETE. */
   internalServiceSecret?: string;
+  /** svc-execution's own key. Absent leaves the cancel on the shared secret. */
+  s2s?: OmsMatchingS2s;
 }): Promise<OmsBasketMatchingKillResult> {
   const base = readMatchingUrl(input.matchingUrl);
   if (!base) {
@@ -530,7 +545,7 @@ export async function killBasketMatchingChildren(input: {
     }
     pending.push({ marketId, orderId });
   }
-  const secret = readInternalServiceSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV]);
+  const secret = readCallSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV], input.s2s);
   if (!secret.ok) {
     return refuse(
       'matching_service_auth_unconfigured',
@@ -541,7 +556,7 @@ export async function killBasketMatchingChildren(input: {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const children: OmsBasketMatchingKillOutcome[] = [];
   for (const row of pending) {
-    children.push(await deleteOne(base, row.marketId, row.orderId, fetchFn, timeoutMs, secret.secret));
+    children.push(await deleteOne(base, row.marketId, row.orderId, fetchFn, timeoutMs, secret.secret, input.s2s));
   }
   return {
     ok: true,

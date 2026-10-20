@@ -26,6 +26,7 @@ import {
   cancelKillParentMatching,
   type OmsKillParentMatchingChild,
   type OmsKillParentMatchingRefusal,
+  type OmsMatchingS2s,
 } from './oms-kill-parent-matching.js';
 
 export type OmsKillParentResidual = {
@@ -100,6 +101,8 @@ export async function killLiveAlgoParent(input: {
   matchingChildren?: readonly OmsKillParentMatchingChild[] | null;
   fetch?: typeof fetch;
   internalServiceSecret?: string;
+  /** svc-execution's own key for the matching cancels. */
+  matchingS2s?: OmsMatchingS2s;
 }): Promise<OmsKillParentResult> {
   const executionGroupId = input.executionGroupId?.trim() ?? '';
   if (executionGroupId) {
@@ -150,6 +153,7 @@ export async function killLiveAlgoParent(input: {
       matchingUrl: input.matchingUrl,
       fetch: input.fetch,
       internalServiceSecret: input.internalServiceSecret,
+      s2s: input.matchingS2s,
     });
     if (!matching.ok) {
       matchingRefusal = matching;

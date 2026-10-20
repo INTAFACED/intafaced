@@ -23,6 +23,7 @@ import {
   type OmsBasketMatchingKillResult,
   type OmsBasketMatchingResult,
 } from './oms-basket-matching.js';
+import type { OmsMatchingS2s } from './oms-kill-parent-matching.js';
 import { resolveMatchingVenueHalt, type MatchingVenueHaltPort } from './oms-matching-venue-halt.js';
 import { refuseLiveOmsPaper, type OmsPaperUnsupportedRefuse } from './oms-paper-refuse.js';
 import type { AlgoJobsGate } from './oms-start.js';
@@ -56,6 +57,8 @@ export type StartBasketDoorDeps = {
   readonly fetch?: typeof fetch;
   readonly internalSecret?: string | null;
   readonly s2s?: OmsWriteS2s;
+  /** svc-execution's own key for the calls to matching; the `s2s` above is for the calls coming in. */
+  readonly matchingS2s?: OmsMatchingS2s;
   readonly edgeContext: (req: { headers: FastifyRequest['headers']; id: string }) => {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
@@ -76,7 +79,7 @@ export type StartBasketDoorResult =
 export async function handleStartBasketDoor(
   body: StartBasketDoorBody,
   operatorId: string | undefined,
-  deps: Pick<StartBasketDoorDeps, 'jobs' | 'matchingVenueHalt' | 'matchingUrl' | 'fetch'>,
+  deps: Pick<StartBasketDoorDeps, 'jobs' | 'matchingVenueHalt' | 'matchingUrl' | 'fetch' | 'matchingS2s'>,
 ): Promise<StartBasketDoorResult> {
   const paper = refuseLiveOmsPaper({ kind: body.kind, paper: body.paper === true });
   if (paper) return paper;
@@ -104,6 +107,7 @@ export async function handleStartBasketDoor(
     lifecycleProof: body.lifecycleProof,
     matchingUrl: deps.matchingUrl,
     fetch: deps.fetch,
+    s2s: deps.matchingS2s,
     onChildAccepted: (child) => {
       accepted.push({ marketId: child.marketId, orderId: child.orderId });
     },
@@ -115,6 +119,7 @@ export async function handleStartBasketDoor(
         children: accepted,
         matchingUrl: deps.matchingUrl,
         fetch: deps.fetch,
+        s2s: deps.matchingS2s,
       }));
     const everyAcceptedChildStopped =
       killed.ok &&
@@ -144,12 +149,13 @@ export async function handleStartBasketDoor(
 /** Pure door — unknown matching cancel is killed false. */
 export async function handleKillBasketDoor(
   body: KillBasketDoorBody,
-  deps: Pick<StartBasketDoorDeps, 'matchingUrl' | 'fetch'>,
+  deps: Pick<StartBasketDoorDeps, 'matchingUrl' | 'fetch' | 'matchingS2s'>,
 ): Promise<OmsBasketMatchingKillResult> {
   return killBasketMatchingChildren({
     children: body.children,
     matchingUrl: deps.matchingUrl,
     fetch: deps.fetch,
+    s2s: deps.matchingS2s,
   });
 }
 

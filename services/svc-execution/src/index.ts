@@ -91,6 +91,9 @@ const pauseStore = new FileAlgoPauseStore(algoPauseJournalPath(emsStorePath));
 const fillConfirmStore = new FileFillConfirmStore(fillConfirmJournalPath(emsStorePath));
 const manualFillStore = new FileManualFillStore(manualFillJournalPath(emsStorePath));
 const fillAssignStore = new FileFillAssignStore(fillAssignJournalPath(emsStorePath));
+// Per-service keys (S2S v3): with no S2S_AUTH_MODE the calls to matching and identity stay on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-execution');
+const outgoingS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const appRouter = createExecutionRouter(
   registry,
   venueTradeMaps.submitByVenue,
@@ -117,13 +120,13 @@ const appRouter = createExecutionRouter(
   matchingVenueHalt,
   env.MATCHING_URL,
   undefined,
-  env.IDENTITY_URL && process.env.INTERNAL_SERVICE_SECRET && process.env.INTERNAL_SERVICE_SECRET.length >= 32
-    ? createExecutionApprovalClient(env.IDENTITY_URL, process.env.INTERNAL_SERVICE_SECRET)
+  env.IDENTITY_URL && (outgoingS2s?.mode === 'keypair' || (process.env.INTERNAL_SERVICE_SECRET?.length ?? 0) >= 32)
+    ? createExecutionApprovalClient(env.IDENTITY_URL, process.env.INTERNAL_SERVICE_SECRET ?? '', outgoingS2s)
     : undefined,
+  outgoingS2s,
 );
 const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
-// Per-service keys (S2S v3): with no S2S_AUTH_MODE the doors stay on the shared secret alone.
-const s2s = s2sFromEnv(env, 'svc-execution');
+// Inbound doors: with no S2S_AUTH_MODE they stay on the shared secret alone.
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
@@ -167,6 +170,7 @@ registerStartBasketDoor(app, {
   matchingUrl: env.MATCHING_URL,
   internalSecret,
   s2s: doorS2s,
+  matchingS2s: outgoingS2s,
 });
 
 registerOmsDisplayQtyDoor(app, {
@@ -194,6 +198,7 @@ registerKillParentDoor(app, {
   matchingUrl: env.MATCHING_URL,
   internalSecret,
   s2s: doorS2s,
+  matchingS2s: outgoingS2s,
 });
 registerOmsTcaDoor(app, { edgeContext, emsStore, captureLake: captureLakeRuntime.lake, internalSecret, s2s: doorS2s });
 registerOmsPaperDoor(app, { edgeContext, internalSecret, s2s: doorS2s });

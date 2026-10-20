@@ -3,7 +3,7 @@
  * Matching never-saw (404) or ack without sequence is unknown — never killed
  * from silence. Does not invent a canceled order or a sequence. Does not ledger.
  */
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { readMatchingUrl } from './oms-matching-venue-halt.js';
 import type { OmsDrainChild } from './oms-drain.js';
 
@@ -12,6 +12,28 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const MIN_SERVICE_SECRET_LENGTH = 32;
 export const SERVICE_SECRET_ENV = 'INTERNAL_SERVICE_SECRET';
 export const MATCHING_SERVICE_NAME = 'svc-execution';
+
+/** This service's own key and the mode it runs in. Absent leaves the matching calls on the shared secret alone. */
+export type OmsMatchingS2s = { readonly signer: ServiceSigner; readonly mode: ServiceAuthMode };
+
+/** Signs a call to svc-matching: with the shared secret as ever, or (once S2S is on) with svc-execution's own key. */
+export function matchingCallSigner(secret: string, s2s?: OmsMatchingS2s) {
+  return serviceCallSigner({
+    service: MATCHING_SERVICE_NAME,
+    audience: 'svc-matching',
+    legacySecret: secret,
+    s2s: s2s ? { signer: s2s.signer, mode: s2s.mode } : undefined,
+  });
+}
+
+/** The secret a matching call needs. A keypair-only service sends no shared secret, so a blank one is not a refusal. */
+export function readMatchingCallSecret(
+  raw: string | undefined,
+  s2s?: OmsMatchingS2s,
+): { ok: true; secret: string } | OmsKillParentMatchingRefusal {
+  if (s2s?.mode === 'keypair') return { ok: true, secret: raw ?? '' };
+  return readInternalServiceSecret(raw);
+}
 
 export type OmsKillParentMatchingChild = {
   readonly marketId?: string | null;
@@ -74,14 +96,16 @@ async function deleteOne(
   fetchFn: typeof fetch,
   timeoutMs: number,
   secret: string,
+  s2s?: OmsMatchingS2s,
 ): Promise<OmsDrainChild> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchFn(`${base}${matchingCancelPath(marketId, orderId)}`, {
+    const target = `${base}${matchingCancelPath(marketId, orderId)}`;
+    const response = await fetchFn(target, {
       method: 'DELETE',
       headers: {
-        ...serviceAuthHeadersForBody(MATCHING_SERVICE_NAME, secret, ''),
+        ...matchingCallSigner(secret, s2s)('', { method: 'DELETE', url: new URL(target), contentType: '' }),
       },
       signal: controller.signal,
     });
@@ -121,6 +145,8 @@ export async function cancelKillParentMatching(input: {
   timeoutMs?: number;
   /** INTERNAL_SERVICE_SECRET. Blank / short refuses before unsigned DELETE. */
   internalServiceSecret?: string;
+  /** svc-execution's own key. Absent leaves the cancel on the shared secret. */
+  s2s?: OmsMatchingS2s;
 }): Promise<OmsKillParentMatchingResult> {
   const base = readMatchingUrl(input.matchingUrl);
   if (!base) {
@@ -143,13 +169,13 @@ export async function cancelKillParentMatching(input: {
     }
     pending.push({ marketId, orderId });
   }
-  const secret = readInternalServiceSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV]);
+  const secret = readMatchingCallSecret(input.internalServiceSecret ?? process.env[SERVICE_SECRET_ENV], input.s2s);
   if (!secret.ok) return secret;
   const fetchFn = input.fetch ?? globalThis.fetch;
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const children: OmsDrainChild[] = [];
   for (const row of pending) {
-    children.push(await deleteOne(base, row.marketId, row.orderId, fetchFn, timeoutMs, secret.secret));
+    children.push(await deleteOne(base, row.marketId, row.orderId, fetchFn, timeoutMs, secret.secret, input.s2s));
   }
   return {
     ok: true,
