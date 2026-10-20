@@ -9,6 +9,7 @@ import { IdentitySessions } from './IdentitySessions';
 import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
+import { PasskeyNames } from './PasskeyNames';
 import { securityCopy as copy } from './security-copy';
 import {
   credentialId,
@@ -685,6 +686,7 @@ export function Security() {
               <Copy k="memory" />
             </p>
           </section>
+          <PasskeyNames />
           <Authenticator />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <section className="security__sessions security__card">
