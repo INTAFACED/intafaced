@@ -4,6 +4,7 @@ import { GET as killSwitchGet, POST as killSwitchPost } from './kill-switch/rout
 import { GET as ledgerFreezeGet, POST as ledgerFreezePost } from './ledger-freeze/route.js';
 import { GET as operatorToolsGet, POST as operatorToolsPost } from './operator-tools/route.js';
 import { GET as bankOpsGet } from './bank-ops/route.js';
+import { GET as bankOpsCustomerGet } from './bank-ops/customer/route.js';
 import { GET as payOpsGet } from './pay-ops/route.js';
 import { GET as payOpsTransferGet } from './pay-ops/transfer/route.js';
 import { GET as payOpsPageGet } from './pay-ops/page/route.js';
@@ -32,6 +33,7 @@ const routes = [
   ['GET /api/operator-tools', operatorToolsGet, 'GET'],
   ['POST /api/operator-tools', operatorToolsPost, 'POST'],
   ['GET /api/bank-ops', bankOpsGet, 'GET'],
+  ['GET /api/bank-ops/customer', bankOpsCustomerGet, 'GET'],
   ['GET /api/pay-ops', payOpsGet, 'GET'],
   ['GET /api/pay-ops/transfer', payOpsTransferGet, 'GET'],
   ['GET /api/pay-ops/page', payOpsPageGet, 'GET'],

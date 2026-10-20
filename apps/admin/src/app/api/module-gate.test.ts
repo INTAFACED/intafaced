@@ -8,6 +8,7 @@ import * as killSwitch from './kill-switch/route';
 import * as ledgerFreeze from './ledger-freeze/route';
 import * as operatorTools from './operator-tools/route';
 import * as bankOps from './bank-ops/route';
+import * as bankOpsCustomer from './bank-ops/customer/route';
 import * as payOps from './pay-ops/route';
 import * as payOpsTransfer from './pay-ops/transfer/route';
 import * as payOpsPage from './pay-ops/page/route';
@@ -38,6 +39,7 @@ const nonCrm = [
 
 const readOnly = [
   ['bank-ops', bankOps, '/api/bank-ops'],
+  ['bank-ops customer', bankOpsCustomer, '/api/bank-ops/customer?user=11111111-1111-4111-8111-111111111111'],
   ['pay-ops', payOps, '/api/pay-ops'],
   ['pay-ops transfer', payOpsTransfer, '/api/pay-ops/transfer?id=abcdefgh'],
   ['pay-ops page', payOpsPage, '/api/pay-ops/page?read=pay.failed-standing&cursor=abc'],
