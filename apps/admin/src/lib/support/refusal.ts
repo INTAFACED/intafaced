@@ -34,8 +34,13 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
   },
   'support.transition_illegal': {
     title: 'svc-support does not allow that status change',
-    body: 'Open and pending tickets can move to any other status except themselves. A resolved ticket can reopen or close. A closed ticket stays closed.',
+    body: 'Open, pending and on-hold tickets can move to any other status except themselves. A resolved ticket can reopen or close. A closed ticket stays closed.',
     next: 'Pick a status the page offers, or read the ticket to see where it is now.',
+  },
+  'support.hold_reason_required': {
+    title: 'Say why the request is on hold',
+    body: 'A request is only put on hold with a reason. The customer sees it in their history.',
+    next: 'Write the reason and send again. Nothing was changed.',
   },
   'support.comment.terminal': {
     title: 'This ticket is closed',

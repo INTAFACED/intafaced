@@ -12,7 +12,7 @@ import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types
 
 export const QUEUE_PAGE = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUSES: readonly string[] = ['open', 'pending', 'resolved', 'closed'];
+const STATUSES: readonly string[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 export const isTicketId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
 
@@ -101,12 +101,13 @@ export function claimGate(ticket: { status: string; assigneeId: string | null },
  * Desk actions: what a founder can send, checked before the network
  * ------------------------------------------------------------------ */
 
-export const STATUS_CHOICES: readonly TicketStatus[] = ['open', 'pending', 'resolved', 'closed'];
+export const STATUS_CHOICES: readonly TicketStatus[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 /** svc-support's lifecycle table, copied so the page can say "not from here" before the click. The service stays the judge. */
 const TRANSITIONS: Readonly<Record<TicketStatus, readonly TicketStatus[]>> = {
-  open: ['pending', 'resolved', 'closed'],
-  pending: ['open', 'resolved', 'closed'],
+  open: ['pending', 'on_hold', 'resolved', 'closed'],
+  pending: ['open', 'on_hold', 'resolved', 'closed'],
+  on_hold: ['open', 'pending', 'resolved', 'closed'],
   resolved: ['open', 'closed'],
   closed: [],
 };
@@ -146,6 +147,8 @@ export function statusGate(ticket: { status: string }, next: string, note: strin
   if (!allowedNextStatuses(ticket.status).includes(next as TicketStatus))
     return { ok: false, why: `svc-support does not move a ticket from ${ticket.status} to ${next}.` };
   if (note.length > NOTE_MAX) return { ok: false, why: `The reason can be at most ${NOTE_MAX} characters.` };
+  if (next === 'on_hold' && note.trim() === '')
+    return { ok: false, why: 'Say why the request is on hold. The customer sees the reason in their history.' };
   return GO;
 }
 
