@@ -127,14 +127,6 @@
     "services/svc-trade/src/router.ts": {
       "sign": 0,
       "caller": 2
-    },
-    "services/svc-ws/src/private/authority.ts": {
-      "sign": 2,
-      "caller": 0
-    },
-    "services/svc-ws/src/private/session-passkey.ts": {
-      "sign": 1,
-      "caller": 0
     }
   }
 }

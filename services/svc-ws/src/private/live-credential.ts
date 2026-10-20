@@ -9,7 +9,13 @@
  * non-OK identity response (including 401) as live.
  */
 
-import { accountStateSchema, apiKeyOwnershipSchema, sessionOwnershipSchema } from '@intafaced/contracts';
+import {
+  accountStateSchema,
+  apiKeyOwnershipSchema,
+  sessionOwnershipSchema,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 import { apiKeyIpAllowed } from './caller-ip.js';
 import { apiKeyOriginAllowed } from './key-origin.js';
 import { apiKeyProductAllowed, STREAM_PRODUCT } from './key-product.js';
@@ -93,6 +99,7 @@ export interface LiveCredentialPort {
     readonly identityUrl: string;
     readonly identityOwnershipSecret: string;
     readonly fetch?: typeof globalThis.fetch;
+    readonly s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
   };
 }
 
@@ -220,6 +227,7 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
           userId: input.userId,
           identityOwnershipSecret,
           fetch: passkey?.fetch,
+          s2s: passkey?.s2s,
         });
       } catch (err) {
         if (err instanceof SessionPasskeyError) {
@@ -250,7 +258,8 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
 
 export interface IdentityOwnershipClientOptions {
   readonly baseUrl: string;
-  readonly headers: Record<string, string>;
+  /** Fixed headers, or a function that signs each read for its own URL (per-service keys bind the path). */
+  readonly headers: Record<string, string> | ((url: URL) => Record<string, string>);
   readonly fetch?: typeof globalThis.fetch;
 }
 
@@ -314,7 +323,10 @@ export function createIdentityOwnershipClient(
   async function get<T>(path: string, parse: (body: unknown) => T): Promise<T | null> {
     let response: Response;
     try {
-      response = await fetchImpl(`${baseUrl}${path}`, { headers: options.headers });
+      const target = `${baseUrl}${path}`;
+      response = await fetchImpl(target, {
+        headers: typeof options.headers === 'function' ? options.headers(new URL(target)) : options.headers,
+      });
     } catch (err) {
       throw unavailable(err);
     }
