@@ -7,8 +7,9 @@
  *
  * Cancel/reseed lifecycle (A-TRADE-MM-2):
  * - Tracks last seed run per market.
- * - On empty book: cancel prior run (engine cancel + release remaining holds),
- *   then seed with a NEW runId (hold keys are per-order and idempotent).
+ * - On empty book: cancel the prior run, then seed with a NEW runId (hold keys
+ *   are per-order and idempotent). A true engine cancel releases the remaining
+ *   hold. A not-cancelled answer leaves a positive hold for the fill.
  * - Prior cancel indeterminate → skip reseed this tick (no free book risk).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

@@ -482,7 +482,55 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
       expect(await sql`SELECT status::text FROM trade.orders WHERE id = ${rows[0]!.id}`).toEqual([{ status: 'recovery_required' }]);
     });
 
-    it('deletes the pending close row when the hold post is a ledger.insufficient_funds LedgerError', async () => {
+    it('a refused hold after the engine flattened keeps the close row for recovery and never repeats the flatten', async () => {
+      // Bob rests a bid; Alice holds no BTC, so the sell-side flatten hold is a definite shortfall.
+      await fund(BOB, 'USDT', '100');
+      const maker = await trade.placeOrder(principalFor(BOB), {
+        marketId: btcusdt.id,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('100'),
+        clientOrderId: 'bob-bid-l17',
+      });
+      matching.closeScript = (_marketId, request) => ({
+        accepted: true,
+        sequence: 2,
+        fills: [
+          {
+            sequence: 3,
+            makerOrderId: maker.id,
+            makerAccountId: BOB,
+            takerOrderId: request.orderId,
+            takerAccountId: ALICE,
+            takerSide: 'sell',
+            price: '100',
+            qty: '1',
+          },
+        ],
+        resting: null,
+        rejected: null,
+        cancellations: [],
+        triggered: [],
+      });
+
+      await expect(
+        closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-l17' }),
+      ).rejects.toBeInstanceOf(LedgerError);
+
+      // The engine already printed the fill against Bob's order. The row stays, so that fill can be settled or unwound.
+      expect(matching.closed).toHaveLength(1);
+      const rows = await sql<Array<{ id: string; status: string; recovery_reason: string | null }>>`
+        SELECT id, status::text, recovery_reason FROM trade.orders WHERE client_order_id = 'close-l17'`;
+      expect(rows).toEqual([{ id: rows[0]!.id, status: 'recovery_required', recovery_reason: 'SUBMIT_UNKNOWN' }]);
+
+      // A retry with the same business key returns that row. It does not flatten a second time.
+      const again = await closeSpotPosition(trade, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-l17' });
+      expect(again.id).toBe(rows[0]!.id);
+      expect(matching.closed).toHaveLength(1);
+    });
+
+    it('keeps the close row for recovery when the hold post is a ledger.insufficient_funds LedgerError', async () => {
       const inner = new MemoryLedger();
       let armed = false;
       const client: LedgerClient = {
@@ -555,7 +603,10 @@ describe('svc-trade close-position (H8a PG-hard)', () => {
         closeSpotPosition(local, principalFor(ALICE), { marketId: btcusdt.id, clientOrderId: 'close-refused' }),
       ).rejects.toMatchObject({ code: 'ledger.insufficient_funds' });
 
-      expect(await sql`SELECT id FROM trade.orders WHERE client_order_id = 'close-refused'`).toHaveLength(0);
+      // The engine printed the flatten before the hold, so the row stays recoverable instead of vanishing (it used to be deleted).
+      expect(await sql`SELECT status::text FROM trade.orders WHERE client_order_id = 'close-refused'`).toEqual([
+        { status: 'recovery_required' },
+      ]);
       expect(inner.journal().filter((tx) => tx.reason === 'order.hold')).toHaveLength(1);
       expect(inner.journal().filter((tx) => tx.reason === 'order.hold.released')).toHaveLength(0);
     });

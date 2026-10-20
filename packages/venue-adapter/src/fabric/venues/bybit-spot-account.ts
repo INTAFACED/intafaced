@@ -46,10 +46,10 @@ export function mapBybitSpotCoins(coin: unknown, now: Date): VenueBalance[] {
     const rec = row as Record<string, unknown>;
     const total = readDecimal(rec.walletBalance, VENUE.id, 'walletBalance');
     const used = readDecimal(rec.locked ?? '0', VENUE.id, 'locked');
-    // A blank field is absent: fall through to the next field, then to total - locked.
-    const present = (v: unknown): boolean => v !== undefined && v !== null && String(v).trim() !== '';
-    const freeRaw = [rec.availableToWithdraw, rec.free, rec.availableToTrade].find(present);
-    const free = freeRaw === undefined ? total - used : readDecimal(freeRaw, VENUE.id, 'availableToWithdraw');
+    // UNIFIED wallet-balance deprecates `availableToWithdraw` (from 2025-01-09) and `free`;
+    // they are blank or 0 and must not be read. Spot free is walletBalance minus the
+    // amount locked by open spot orders.
+    const free = total - used;
     const asset = String(rec.coin ?? '')
       .trim()
       .toUpperCase();

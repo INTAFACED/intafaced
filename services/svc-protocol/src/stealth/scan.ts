@@ -12,7 +12,7 @@
  * `presentationAddress` (keccak of spending-key-id || ephemeral) is a separate
  * P0 unlinkable-presentation helper. It is not an ECDH match. Do not mix the two.
  */
-import { secp256k1 } from '@noble/curves/secp256k1';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes, keccak256, type Address, type Hex } from 'viem';
 import { publicKeyToAddress } from 'viem/accounts';
 import { STEALTH_SCHEME_ID } from './presentation.js';
@@ -42,7 +42,7 @@ export type StealthScanHit = {
   viewTag: number;
 };
 
-const CURVE_N = secp256k1.CURVE.n;
+const CURVE_N = secp256k1.Point.Fn.ORDER;
 const COMPRESSED_PUB_LEN = 33;
 const UNCOMPRESSED_PUB_LEN = 65;
 
@@ -59,11 +59,11 @@ function pointFromPub(pub: Hex) {
   if (bytes.length !== COMPRESSED_PUB_LEN && bytes.length !== UNCOMPRESSED_PUB_LEN) {
     throw new Error('stealth.bad_public_key');
   }
-  return secp256k1.ProjectivePoint.fromHex(bytes);
+  return secp256k1.Point.fromBytes(bytes);
 }
 
 function compressPub(pub: Hex): Hex {
-  return bytesToHex(pointFromPub(pub).toRawBytes(true));
+  return bytesToHex(pointFromPub(pub).toBytes(true));
 }
 
 function hashSharedPoint(uncompressed: Uint8Array): { scalar: bigint; viewTag: number } {
@@ -82,8 +82,8 @@ function sharedFromPrivAndPub(priv: Uint8Array, pub: Hex): Uint8Array {
 }
 
 function stealthFromSpendAndScalar(spendingPub: Hex, scalar: bigint): Address {
-  const stealth = pointFromPub(spendingPub).add(secp256k1.ProjectivePoint.BASE.multiply(scalar));
-  return publicKeyToAddress(bytesToHex(stealth.toRawBytes(false)));
+  const stealth = pointFromPub(spendingPub).add(secp256k1.Point.BASE.multiply(scalar));
+  return publicKeyToAddress(bytesToHex(stealth.toBytes(false)));
 }
 
 function viewTagFromMetadata(metadata: Hex): number | null {
@@ -122,7 +122,7 @@ export function publicKeyFromPrivate(privateKey: Hex, compressed = true): Hex {
 
 export function generateStealthAddress(meta: StealthMetaAddress, ephemeralPrivateKey?: Hex): GeneratedStealthAddress {
   const { spendingPub, viewingPub } = parseStealthMetaAddress(meta);
-  const ephPriv = ephemeralPrivateKey ? requirePriv(ephemeralPrivateKey) : secp256k1.utils.randomPrivateKey();
+  const ephPriv = ephemeralPrivateKey ? requirePriv(ephemeralPrivateKey) : secp256k1.utils.randomSecretKey();
   const ephemeralPubKey = bytesToHex(secp256k1.getPublicKey(ephPriv, true));
   const { scalar, viewTag } = hashSharedPoint(sharedFromPrivAndPub(ephPriv, viewingPub));
   const stealthAddress = stealthFromSpendAndScalar(spendingPub, scalar);

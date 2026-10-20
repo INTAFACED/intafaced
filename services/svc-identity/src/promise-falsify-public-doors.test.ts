@@ -39,6 +39,7 @@ import { AuthError, publishedSubAccountsListLimit, type AuthService } from './au
 import type { RankService } from './rank/rank-service.js';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
+import type { FreezeService } from './affiliates/freeze-service.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { createIdentityRouter } from './router.js';
 import { stubActionApprovals } from './auth/privileged-dual-control.js';
@@ -259,7 +260,11 @@ type MoneyMountOpts = {
   accruals?: MemoryAccrualStore;
   accrualTierLaw?: typeof publishedLaw | undefined;
   ledger?: MemoryLedger;
+  freeze?: FreezeService;
 };
+
+/** A wired freeze service that reports nobody frozen (the set is KNOWN-empty). */
+const noOneFrozen = { frozenIds: async () => new Set<string>() } as unknown as FreezeService;
 
 async function mountDoors(auth: MemorySubAccountAuth, money: MoneyMountOpts = {}): Promise<FastifyInstance> {
   const router = createIdentityRouter(auth as unknown as AuthService, {} as RankService, {
@@ -583,7 +588,7 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
     ledger = await fundedPayoutLedger();
     store = new MemoryAccrualStore();
     await store.saveRows([accrualRow()]);
-    moneyApp = await mountDoors(books, { accruals: store, accrualTierLaw: publishedLaw, ledger });
+    moneyApp = await mountDoors(books, { accruals: store, accrualTierLaw: publishedLaw, ledger, freeze: noOneFrozen });
   });
 
   afterEach(async () => {
@@ -631,7 +636,7 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
   });
 
   it('refuses ledger_unwired over the wire when rates are published — no silent payment', async () => {
-    const noLedger = await mountDoors(books, { accruals: store, accrualTierLaw: publishedLaw });
+    const noLedger = await mountDoors(books, { accruals: store, accrualTierLaw: publishedLaw, freeze: noOneFrozen });
     try {
       const { statusCode, body } = await post(noLedger, 'affiliates.payout', { feeEventId: FEE_EVT }, adminHeaders());
       expect(statusCode).toBe(412);
@@ -639,6 +644,25 @@ describe('D26-P2-12 spine reprove — affiliates.payout money routing over wire'
       expect(body.error?.message).toContain('no ledger client');
     } finally {
       await noLedger.close();
+    }
+  });
+
+  it('refuses freeze_unwired over the wire when the freeze service is unset — no payment, no plan', async () => {
+    const noFreeze = await mountDoors(books, { accruals: store, accrualTierLaw: publishedLaw, ledger });
+    try {
+      for (const input of [
+        { feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' },
+        { feeEventId: FEE_EVT, dryRun: true },
+      ]) {
+        const { statusCode, body } = await post(noFreeze, 'affiliates.payout', input, adminHeaders());
+        expect(statusCode).toBe(412);
+        expect(body.error?.data?.code).toBe('PRECONDITION_FAILED');
+        expect(body.error?.message).toContain('no freeze service');
+      }
+      expect(await bal(ledger, userAvailable(BENE, ASSET))).toBe('0');
+      expect(await bal(ledger, houseFees('identity', ASSET))).toBe('100');
+    } finally {
+      await noFreeze.close();
     }
   });
 

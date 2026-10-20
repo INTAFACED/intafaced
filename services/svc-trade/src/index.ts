@@ -101,6 +101,8 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
+import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
 import type { CancelAllAfterHost } from './spot/cancel-all-after.js';
@@ -493,6 +495,25 @@ const candleJobs = startCandleJobs({
         'candle materialize ok',
       );
     }
+  },
+});
+// Matching's depth read carries no timestamp, so the read time is the observation time: the book was read from the
+// live engine at this moment. A stale, one-sided or thin book still gives no mark.
+const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
+  ...(await matching.depth(marketId, 1)),
+  observedAt: new Date(),
+}));
+const trailingMarkJobs = startTrailingMarkJobs({
+  config: {
+    enabled: env.TRADE_TRAILING_MARK_JOBS_ENABLED,
+    intervalMs: env.TRADE_TRAILING_MARK_JOBS_INTERVAL_MS,
+    marketIds: parseCandleMarketIds(env.TRADE_TRAILING_MARK_JOBS_MARKET_IDS),
+  },
+  source: trailingMarkSource,
+  postMark: (marketId, mark) => matching.markTrailingStops(marketId, mark),
+  onError: (name, err) => app.log.error({ err, job: name }, 'trailing mark tick failed'),
+  onResult: (r) => {
+    if (r.applied) app.log.info({ marketId: r.marketId }, 'trailing stops walked with the mark');
   },
 });
 const mmMidSource = createMmMidSourceFromConfig({
@@ -957,6 +978,8 @@ app.log.info(
     venueMark: venueMarkConfigured ? { configured: true, symbolCount: venueMarkConfigured.symbolCount } : null,
     candleJobsEnabled: env.TRADE_CANDLE_JOBS_ENABLED,
     candleJobs: candleJobs.host.list(),
+    trailingMarkJobsEnabled: env.TRADE_TRAILING_MARK_JOBS_ENABLED,
+    trailingMarkJobs: trailingMarkJobs.host.list(),
     mmSeedEnabled: env.TRADE_MM_SEED_ENABLED,
     mmSeedJobs: mmSeedJobs.host.list(),
     algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
@@ -977,6 +1000,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       futuresJobs.stop();
       conditionalJobs.stop();
       candleJobs.stop();
+      trailingMarkJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();
       optionsExerciseJobs.stop();

@@ -1848,8 +1848,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/telemetry
       '@noble/curves':
-        specifier: 1.9.7
-        version: 1.9.7
+        specifier: 2.4.0
+        version: 2.4.0
       '@opentelemetry/api':
         specifier: ^1.9.0
         version: 1.9.1
@@ -3214,9 +3214,17 @@ packages:
     resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
     engines: {node: ^14.21.3 || >=16}
 
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@1.8.0':
     resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
     engines: {node: ^14.21.3 || >=16}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@node-rs/argon2-android-arm-eabi@2.2.2':
     resolution: {integrity: sha512-c11BOrPLBWNC1cDyzGB+Bil+flmxfZbB2hv8EhcobmAsFKMyqkHPNhUY4qhcjv1U+4+Vmw4G8H+l224iO2g/Dw==}
@@ -6497,7 +6505,13 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
   '@noble/hashes@1.8.0': {}
+
+  '@noble/hashes@2.4.0': {}
 
   '@node-rs/argon2-android-arm-eabi@2.2.2':
     optional: true
