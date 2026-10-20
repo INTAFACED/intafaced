@@ -245,7 +245,15 @@ const messages = {
   'Money out direction': 'Money out',
   'Set aside note': 'This money is set aside for an open order. It comes back if the order is cancelled.',
   'Add a note': 'Add a note',
-  'Add a note reason': 'Notes on transactions are not supported by the activity service.',
+  'Your note': 'Your note',
+  'Your note hint': 'Only you can see this. One line, up to 500 characters.',
+  'Save note': 'Save note',
+  'Note saved': 'Note saved.',
+  'Note empty': 'Write something first.',
+  'Note too long': 'That is over 500 characters.',
+  'Note one line': 'A note is one line, with no line breaks.',
+  'Note unchanged': 'That is already saved.',
+  'Note unsure': 'We could not confirm the save. Press Save note again to check; it will not be written twice.',
   'Dispute reason': 'There is no way to dispute a transaction online. Contact support with the reference.',
 } as const;
 

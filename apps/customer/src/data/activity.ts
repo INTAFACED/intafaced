@@ -51,6 +51,8 @@ export interface ActivityItem {
    * line, and on every line from a server that does not send it yet (those lines then simply never group).
    */
   orderId?: string;
+  /** The signed-in person's own note on this line, when they wrote one. Never shown to anyone else. */
+  privateNote?: string;
 }
 
 const itemSchema = z.object({
@@ -70,6 +72,10 @@ const itemSchema = z.object({
     .nullish()
     .transform((value) => value ?? null),
   orderId: z
+    .string()
+    .nullish()
+    .transform((value) => (value ? value : undefined)),
+  privateNote: z
     .string()
     .nullish()
     .transform((value) => (value ? value : undefined)),

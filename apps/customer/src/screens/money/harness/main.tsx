@@ -31,8 +31,9 @@ function SignedIn({ children }: { children: ReactNode }) {
 function Page() {
   const { hideBalances } = usePreferences();
   const here = useLocation();
-  const [path, query = ''] = here.split('?');
+  const [path = '', query = ''] = here.split('?');
   const activity = path === '/money/activity';
+  const detail = path.startsWith('/money/activity/') ? path.slice('/money/activity/'.length) : null;
   return (
     <HideBalancesProvider hidden={hideBalances}>
       <TooltipProvider>
@@ -49,7 +50,11 @@ function Page() {
             <span>harness stand-in for the top bar</span>
           </nav>
           <main id="main">
-            <Money path={activity ? '/money/activity' : '/money'} search={query ? `?${query}` : ''} params={{}} />
+            <Money
+              path={detail ? path : activity ? '/money/activity' : '/money'}
+              search={query ? `?${query}` : ''}
+              params={detail ? { id: detail } : {}}
+            />
           </main>
         </div>
       </TooltipProvider>
