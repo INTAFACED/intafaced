@@ -64,9 +64,13 @@ describe('Web3 shell', () => {
     expect(html).toContain('data-code="protocol.not_found"');
     expect(html).not.toContain('data-blocker');
   });
-  it('keeps the wallet room visible and blocked by the wallet connection', () => {
+  it('keeps the wallet room visible with its connect panel, its six sections and the owner-decision QR path', () => {
     answers.chain = chain(84532);
-    expect(page('/wallet')).toContain('data-blocker="wallet"');
+    const html = page('/wallet');
+    expect(html).toContain('Connect a wallet');
+    expect(html).toContain('data-code="owner.decision"');
+    for (const section of ['Overview', 'Activity', 'Approvals', 'Session keys', 'Accounts', 'Safety'])
+      expect(html).toContain(`>${section}</button>`);
   });
   it('never renders an empty page for a path no route claims', () => {
     answers.chain = chain(84532);
