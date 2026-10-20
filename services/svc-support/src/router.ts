@@ -167,6 +167,17 @@ export function createSupportRouter(
         }
       }),
 
+    /** Ids of the caller's own tickets that carry a rating. */
+    ratedMine: scopedProcedure('support:read')
+      .output(z.array(z.string().uuid()))
+      .query(async ({ ctx }) => {
+        try {
+          return await support.ratedTicketIds(ctx.principal!.userId);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Operator list — Stage-1 desk spine (no UI required). */
     listAll: scopedProcedure('support:ops')
       .input(

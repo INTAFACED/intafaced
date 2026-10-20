@@ -912,6 +912,11 @@ export class SupportService implements SupportContract {
     return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
   }
 
+  /** The caller's own tickets that already carry a rating. Only the caller's ids: a list uses it to offer "rate this" on the rest. */
+  async ratedTicketIds(userId: string): Promise<string[]> {
+    return this.store.listRatedTicketIdsFor(userId);
+  }
+
   /**
    * Founder view of satisfaction ratings for the requests solved in a stated
    * window: solved means resolved or closed now with the last change inside

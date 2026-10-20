@@ -194,6 +194,8 @@ export interface SupportStore {
   readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult>;
   /** Every stored rating, for the founder summary. */
   listRatings(): Promise<TicketRating[]>;
+  /** Ids of the caller's own tickets that carry a rating, so a list can tell rated from not yet rated. */
+  listRatedTicketIdsFor(userId: string): Promise<string[]>;
   readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null>;
   recordAttachment(input: {
     id: string;
@@ -1033,6 +1035,10 @@ export class MemorySupportStore implements SupportStore {
     return ok;
   }
 
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    return [...this.ratings.values()].filter((rating) => rating.userId === userId).map((rating) => rating.ticketId);
+  }
+
   async listRatings(): Promise<TicketRating[]> {
     return [...this.ratings.values()].map(({ clientRequestId: _clientRequestId, ...rating }) => rating);
   }
@@ -1840,6 +1846,13 @@ export class PostgresSupportStore implements SupportStore {
       `;
       return ok;
     });
+  }
+
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    const rows = await this.sql<{ ticket_id: string }[]>`
+      SELECT ticket_id FROM support.ticket_ratings WHERE user_id = ${userId}
+    `;
+    return rows.map((row) => row.ticket_id);
   }
 
   async listRatings(): Promise<TicketRating[]> {
