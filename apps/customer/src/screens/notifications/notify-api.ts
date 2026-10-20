@@ -221,18 +221,42 @@ export const listAlerts = (api: ApiClient, signal?: AbortSignal): Promise<ApiRes
 
 export interface AlertIntent {
   marketId: string;
+  /** What the condition means as a side. A level (`greater_than`, `less_than`) is exactly this; `crossing` has none, and `above` is sent. */
   direction: AlertDirection;
   /** A positive decimal string, exactly as the person typed it (trimmed). */
   targetPrice: string;
+  /** Left out, the service stores the level the direction names (what every alert meant before conditions existed). */
+  condition?: AlertCondition;
+  name?: string;
+  message?: string;
+  /** An ISO time. Left out, the alert is open-ended. */
+  expiresAt?: string;
 }
 
-/** True when a stored watch is the one an intent asked for: same market, side and price (100.50 equals 100.5). */
-export function isIntent(row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'>, intent: AlertIntent): boolean {
+/** The side a condition looks at. `crossing` looks at both, so it sends `above`, which the service ignores for it. */
+export const directionOfCondition = (condition: AlertCondition): AlertDirection =>
+  condition === 'less_than' || condition === 'crossing_down' ? 'below' : 'above';
+const levelOfDirection = (direction: AlertDirection): AlertCondition => (direction === 'above' ? 'greater_than' : 'less_than');
+
+/**
+ * True when a stored watch is the one an intent asked for: same market, condition and price (100.50 equals 100.5), and the same
+ * name, message and expiry when the intent has them. A service that sends no condition is read as the level the direction names.
+ */
+export function isIntent(
+  row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt'>>,
+  intent: AlertIntent,
+): boolean {
+  const wanted = intent.condition ?? levelOfDirection(intent.direction);
+  const stored = row.condition ?? levelOfDirection(row.direction);
   return (
     row.kind === 'price' &&
     row.marketId === intent.marketId &&
-    row.direction === intent.direction &&
-    canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice)
+    stored === wanted &&
+    canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+    (intent.name === undefined || (row.name ?? '') === intent.name) &&
+    (intent.message === undefined || (row.message ?? '') === intent.message) &&
+    (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt)))
   );
 }
 
@@ -253,7 +277,16 @@ export function createPriceAlert(
   return api.mutate(
     'notify',
     'notify.createAlert',
-    { kind: 'price', marketId: intent.marketId, direction: intent.direction, targetPrice: intent.targetPrice },
+    {
+      kind: 'price',
+      marketId: intent.marketId,
+      direction: intent.direction,
+      targetPrice: intent.targetPrice,
+      ...(intent.condition ? { condition: intent.condition } : {}),
+      ...(intent.name ? { name: intent.name } : {}),
+      ...(intent.message ? { message: intent.message } : {}),
+      ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
+    },
     z.object({
       alert: priceAlertSchema.refine(
         (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),

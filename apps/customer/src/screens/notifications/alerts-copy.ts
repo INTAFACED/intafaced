@@ -2,6 +2,23 @@ import { defineCopy } from '../../shared/i18n';
 
 // Price alerts in the Notifications centre. Plain words: no service names, no codes. Every switched-off control has its reason beside it.
 const en = {
+  crossingUp: 'Crossing up through',
+  crossingDown: 'Crossing down through',
+  crossing: 'Crossing, either way,',
+  nameLabel: 'Name (optional)',
+  nameHint: 'Shown on the alert and in the notification.',
+  messageLabel: 'Message (optional)',
+  messageHint: 'Replaces the default notification text. You can use {market}, {price}, {condition} and {time}.',
+  expiresLabel: 'Stop watching at (optional)',
+  expiresHint: 'Your local time. Leave blank to watch until it triggers or you cancel.',
+  expiresInvalid: 'Enter a real date and time.',
+  reviewName: 'Name',
+  reviewMessage: 'Message',
+  reviewExpires: 'Stops watching',
+  refusedTextRejected: 'The name or message was not accepted: it is too long or uses a placeholder we do not know. Nothing was changed.',
+  refusedExpiryRejected: 'That stop time was not accepted: it must be in the future and within the allowed range. Nothing was changed.',
+  refusedOptionNotOn:
+    'A name, message or stop time is not switched on for this platform yet. Remove it or try again later. Nothing was changed.',
   navAlerts: 'Price alerts',
   title: 'Price alerts',
   intro: 'Get a notification when a market reaches a price you choose. Each alert triggers once. It never places an order.',
@@ -105,6 +122,23 @@ const en = {
 } as const;
 
 const es = {
+  crossingUp: 'Cruzando hacia arriba',
+  crossingDown: 'Cruzando hacia abajo',
+  crossing: 'Cruzando, en cualquier sentido,',
+  nameLabel: 'Nombre (opcional)',
+  nameHint: 'Se muestra en la alerta y en la notificación.',
+  messageLabel: 'Mensaje (opcional)',
+  messageHint: 'Sustituye el texto predeterminado. Puedes usar {market}, {price}, {condition} y {time}.',
+  expiresLabel: 'Dejar de vigilar el (opcional)',
+  expiresHint: 'Tu hora local. Déjalo vacío para vigilar hasta que se active o la canceles.',
+  expiresInvalid: 'Introduce una fecha y hora reales.',
+  reviewName: 'Nombre',
+  reviewMessage: 'Mensaje',
+  reviewExpires: 'Deja de vigilar',
+  refusedTextRejected: 'No se aceptó el nombre o el mensaje: es demasiado largo o usa un marcador desconocido. No se cambió nada.',
+  refusedExpiryRejected: 'No se aceptó esa hora de fin: debe ser futura y estar dentro del rango permitido. No se cambió nada.',
+  refusedOptionNotOn:
+    'Un nombre, mensaje u hora de fin aún no está activado en esta plataforma. Quítalo o inténtalo más tarde. No se cambió nada.',
   navAlerts: 'Alertas de precio',
   title: 'Alertas de precio',
   intro: 'Recibe una notificación cuando un mercado llegue al precio que elijas. Cada alerta se activa una sola vez. Nunca crea una orden.',
@@ -202,6 +236,24 @@ const es = {
 } as const;
 
 const fr = {
+  crossingUp: 'Franchit à la hausse',
+  crossingDown: 'Franchit à la baisse',
+  crossing: 'Franchit, dans un sens ou l’autre,',
+  nameLabel: 'Nom (facultatif)',
+  nameHint: 'Affiché sur l’alerte et dans la notification.',
+  messageLabel: 'Message (facultatif)',
+  messageHint: 'Remplace le texte par défaut. Vous pouvez utiliser {market}, {price}, {condition} et {time}.',
+  expiresLabel: 'Cesser la surveillance le (facultatif)',
+  expiresHint: 'Votre heure locale. Laissez vide pour surveiller jusqu’au déclenchement ou à l’annulation.',
+  expiresInvalid: 'Saisissez une vraie date et heure.',
+  reviewName: 'Nom',
+  reviewMessage: 'Message',
+  reviewExpires: 'Fin de surveillance',
+  refusedTextRejected: 'Le nom ou le message n’a pas été accepté : trop long ou avec un marqueur inconnu. Rien n’a été modifié.',
+  refusedExpiryRejected:
+    'Cette heure de fin n’a pas été acceptée : elle doit être dans le futur et dans la plage autorisée. Rien n’a été modifié.',
+  refusedOptionNotOn:
+    'Un nom, un message ou une heure de fin n’est pas encore activé sur cette plateforme. Retirez-le ou réessayez plus tard. Rien n’a été modifié.',
   navAlerts: 'Alertes de prix',
   title: 'Alertes de prix',
   intro:

@@ -9,13 +9,15 @@ import {
   createGate,
   evaluationNote,
   findDuplicate,
+  expiryIso,
+  expiryProblem,
   priceProblem,
   settleUnknownCreate,
   type CancelWords,
   type Refusal,
 } from './alerts-model';
 import { Button, StateBlock } from './deps';
-import { listAlerts, type AlertDirection, type AlertIntent, type PriceAlert } from './notify-api';
+import { ALERT_CONDITIONS, directionOfCondition, listAlerts, type AlertCondition, type AlertIntent, type PriceAlert } from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
 
@@ -36,6 +38,9 @@ const REFUSAL = {
   notOn: 'refusedNotOn',
   priceMissing: 'refusedPriceMissing',
   badRequest: 'refusedBadRequest',
+  textRejected: 'refusedTextRejected',
+  expiryRejected: 'refusedExpiryRejected',
+  optionNotOn: 'refusedOptionNotOn',
   tooMany: 'refusedTooMany',
   accountChanged: 'refusedAccountChanged',
   unpublished: 'refusedUnpublished',
@@ -48,9 +53,16 @@ const CANCEL = {
   notFound: 'cancelNotFound',
 } as const satisfies Record<CancelWords, string>;
 const STATUS = { active: 'statusActive', fired: 'statusFired', cancelled: 'statusCancelled', expired: 'statusExpired' } as const;
+const CONDITION_KEY = {
+  greater_than: 'above',
+  less_than: 'below',
+  crossing_up: 'crossingUp',
+  crossing_down: 'crossingDown',
+  crossing: 'crossing',
+} as const satisfies Record<AlertCondition, string>;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
-const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest']);
+const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest', 'textRejected', 'expiryRejected']);
 
 /**
  * Price alerts (`/notifications?view=alerts`): the person's alerts with their status, a form to add one that is reviewed
@@ -65,7 +77,10 @@ export default function AlertsPage() {
   const { state, reload } = useAlerts();
   const markets = useAlertMarkets();
   const [marketId, setMarketId] = useState('');
-  const [side, setSide] = useState<AlertDirection>('above');
+  const [condition, setCondition] = useState<AlertCondition>('greater_than');
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState('');
+  const [expires, setExpires] = useState('');
   const [price, setPrice] = useState('');
   const [touched, setTouched] = useState(false);
   const [review, setReview] = useState<{ intent: AlertIntent; duplicate: boolean } | null>(null);
@@ -117,8 +132,17 @@ export default function AlertsPage() {
   function toReview() {
     setTouched(true);
     setNotice(null);
-    if (blockedReason || !marketId || priceProblem(price) !== null || !list) return;
-    const intent: AlertIntent = { marketId, direction: side, targetPrice: price.trim() };
+    if (blockedReason || !marketId || priceProblem(price) !== null || expiryProblem(expires) !== null || !list) return;
+    const expiresAt = expiryIso(expires);
+    const intent: AlertIntent = {
+      marketId,
+      direction: directionOfCondition(condition),
+      condition,
+      targetPrice: price.trim(),
+      ...(name.trim() ? { name: name.trim() } : {}),
+      ...(message.trim() ? { message: message.trim() } : {}),
+      ...(expiresAt ? { expiresAt } : {}),
+    };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
   }
@@ -149,6 +173,9 @@ export default function AlertsPage() {
         setNotice({ kind: 'saved', found: false });
         setReview(null);
         setPrice('');
+        setName('');
+        setMessage('');
+        setExpires('');
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -182,7 +209,7 @@ export default function AlertsPage() {
     }
   }
 
-  const sideWords = (value: AlertDirection) => copy.t(value);
+  const conditionWords = (value: AlertCondition) => copy.t(CONDITION_KEY[value]);
   const evaluation = list?.evaluation ?? null;
   const priceId = `${id}-price`;
 
@@ -266,8 +293,26 @@ export default function AlertsPage() {
             </div>
             <div>
               <dt>{copy.t('reviewWhen')}</dt>
-              <dd>{sideWords(review.intent.direction)}</dd>
+              <dd>{conditionWords(review.intent.condition ?? (review.intent.direction === 'below' ? 'less_than' : 'greater_than'))}</dd>
             </div>
+            {review.intent.name ? (
+              <div>
+                <dt>{copy.t('reviewName')}</dt>
+                <dd>{review.intent.name}</dd>
+              </div>
+            ) : null}
+            {review.intent.message ? (
+              <div>
+                <dt>{copy.t('reviewMessage')}</dt>
+                <dd>{review.intent.message}</dd>
+              </div>
+            ) : null}
+            {review.intent.expiresAt ? (
+              <div>
+                <dt>{copy.t('reviewExpires')}</dt>
+                <dd>{stamp(review.intent.expiresAt, timeZone)}</dd>
+              </div>
+            ) : null}
             <div>
               <dt>{copy.t('reviewPrice')}</dt>
               <dd lang="zxx" className="nf-num">
@@ -330,12 +375,15 @@ export default function AlertsPage() {
           <label className="nf-field">
             <span>{copy.t('conditionLabel')}</span>
             <select
-              value={side}
+              value={condition}
               disabled={blockedReason !== null}
-              onChange={(event) => setSide(event.target.value === 'below' ? 'below' : 'above')}
+              onChange={(event) => setCondition(ALERT_CONDITIONS.find((c) => c === event.target.value) ?? 'greater_than')}
             >
-              <option value="above">{copy.t('above')}</option>
-              <option value="below">{copy.t('below')}</option>
+              {ALERT_CONDITIONS.map((value) => (
+                <option key={value} value={value}>
+                  {conditionWords(value)}
+                </option>
+              ))}
             </select>
           </label>
           <label className="nf-field" htmlFor={priceId}>
@@ -356,6 +404,36 @@ export default function AlertsPage() {
             />
             <small id={`${priceId}-help`} className={problem ? 'nf-error' : 'nf-muted'}>
               {problem === 'empty' ? copy.t('priceEmpty') : problem === 'invalid' ? copy.t('priceInvalid') : copy.t('priceHint')}
+            </small>
+          </label>
+          <label className="nf-field">
+            <span>{copy.t('nameLabel')}</span>
+            <input autoComplete="off" value={name} disabled={blockedReason !== null} onChange={(event) => setName(event.target.value)} />
+            <small className="nf-muted">{copy.t('nameHint')}</small>
+          </label>
+          <label className="nf-field">
+            <span>{copy.t('messageLabel')}</span>
+            <input
+              autoComplete="off"
+              value={message}
+              disabled={blockedReason !== null}
+              onChange={(event) => setMessage(event.target.value)}
+            />
+            <small className="nf-muted">
+              {copy.t('messageHint', { market: '{market}', price: '{price}', condition: '{condition}', time: '{time}' })}
+            </small>
+          </label>
+          <label className="nf-field">
+            <span>{copy.t('expiresLabel')}</span>
+            <input
+              type="datetime-local"
+              value={expires}
+              disabled={blockedReason !== null}
+              aria-invalid={expiryProblem(expires) !== null}
+              onChange={(event) => setExpires(event.target.value)}
+            />
+            <small className={expiryProblem(expires) ? 'nf-error' : 'nf-muted'}>
+              {expiryProblem(expires) ? copy.t('expiresInvalid') : copy.t('expiresHint')}
             </small>
           </label>
           <div className="nf-address__actions">
@@ -395,8 +473,10 @@ export default function AlertsPage() {
                   <div className="nf-text">
                     <span className="nf-title">{alert.name ? alert.name : kind ? `${name} · ${kind}` : name}</span>
                     <span className="nf-body nf-body--wrap">
-                      {copy.t('condition', { side: sideWords(alert.direction), price: alert.targetPrice }) +
-                        (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
+                      {copy.t('condition', {
+                        side: conditionWords(alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than')),
+                        price: alert.targetPrice,
+                      }) + (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                     </span>
                     {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
                     <span className="nf-muted">

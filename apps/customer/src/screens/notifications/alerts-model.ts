@@ -16,6 +16,14 @@ export function validPrice(raw: string): boolean {
 export type PriceProblem = 'empty' | 'invalid';
 export const priceProblem = (raw: string): PriceProblem | null => (raw.trim() === '' ? 'empty' : validPrice(raw) ? null : 'invalid');
 
+/** The optional expiry as a date-time field gives it (local time, no zone). Blank is fine; a value that is not a real moment is not. */
+export function expiryProblem(raw: string): 'invalid' | null {
+  return raw.trim() === '' || Number.isFinite(new Date(raw).getTime()) ? null : 'invalid';
+}
+/** The exact instant the person's local date-time means, as the service wants it. `undefined` when none was given. */
+export const expiryIso = (raw: string): string | undefined =>
+  raw.trim() === '' || expiryProblem(raw) ? undefined : new Date(raw).toISOString();
+
 /** Why no alert can trigger right now, as a copy key. `null` when one can. */
 export type EvaluationNote = 'evalReady' | 'evalDark' | 'evalNoDelivery';
 export function evaluationNote(evaluation: AlertEvaluation): EvaluationNote {
@@ -30,7 +38,18 @@ export const findDuplicate = (rows: readonly PriceAlert[], intent: AlertIntent):
 // ── Refusals ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type Refusal =
-  'signedOut' | 'notAllowed' | 'notOn' | 'priceMissing' | 'badRequest' | 'tooMany' | 'accountChanged' | 'unpublished' | 'other';
+  | 'signedOut'
+  | 'notAllowed'
+  | 'notOn'
+  | 'priceMissing'
+  | 'badRequest'
+  | 'textRejected'
+  | 'expiryRejected'
+  | 'optionNotOn'
+  | 'tooMany'
+  | 'accountChanged'
+  | 'unpublished'
+  | 'other';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
@@ -51,6 +70,9 @@ export function settleFailure(failure: Failure): Settled {
   if (failure.status === 429) return { kind: 'refused', refusal: 'tooMany' };
   if (/alert\.price_unavailable/.test(said)) return { kind: 'refused', refusal: 'notOn' };
   if (/notify\.price_unset/.test(said)) return { kind: 'refused', refusal: 'priceMissing' };
+  if (/notify\.alert_(text_limit|expiry_max)_unset/.test(said)) return { kind: 'refused', refusal: 'optionNotOn' };
+  if (/alert\.(text_too_long|message_placeholder_unknown)/.test(said)) return { kind: 'refused', refusal: 'textRejected' };
+  if (/alert\.expiry_(in_past|too_far)/.test(said)) return { kind: 'refused', refusal: 'expiryRejected' };
   if (/alert\.(kind_unpublished|portfolio_view_unpublished)/.test(said)) return { kind: 'refused', refusal: 'unpublished' };
   if (failure.status === 400 || /BAD_REQUEST/.test(said)) return { kind: 'refused', refusal: 'badRequest' };
   if (failure.reason === 'unreachable' || failure.reason === 'invalid_response') return { kind: 'unknown' };
