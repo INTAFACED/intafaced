@@ -59,6 +59,8 @@ export type Refusal =
   | 'accountChanged'
   | 'unpublished'
   | 'notEditable'
+  | 'quotaOff'
+  | 'quotaReached'
   | 'notFound'
   | 'logOff'
   | 'other';
@@ -88,6 +90,8 @@ export function settleFailure(failure: Failure): Settled {
   if (/notify\.alert_(text_limit|expiry_max|conditions_limit)_unset/.test(said)) return { kind: 'refused', refusal: 'optionNotOn' };
   if (/alert\.(text_too_long|message_placeholder_unknown)/.test(said)) return { kind: 'refused', refusal: 'textRejected' };
   if (/alert\.expiry_(in_past|too_far)/.test(said)) return { kind: 'refused', refusal: 'expiryRejected' };
+  if (/notify\.alert_quota_unset/.test(said)) return { kind: 'refused', refusal: 'quotaOff' };
+  if (/alert\.quota_reached/.test(said)) return { kind: 'refused', refusal: 'quotaReached' };
   if (/alert\.not_editable/.test(said)) return { kind: 'refused', refusal: 'notEditable' };
   if (/notify\.alert_trigger_log_retention_unset/.test(said)) return { kind: 'refused', refusal: 'logOff' };
   if (/alert\.(kind_unpublished|portfolio_view_unpublished)/.test(said)) return { kind: 'refused', refusal: 'unpublished' };

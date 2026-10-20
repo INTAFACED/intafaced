@@ -186,6 +186,14 @@ const en = {
   logRow: '{side} {price}. Price when it triggered: {mark}',
   logWhen: 'Triggered {when}',
   logKept: 'Kept for {days} days.',
+  quotaUsed: '{used} of {max} price alerts in use.',
+  quotaFull: '{used} of {max} price alerts in use. You are at the limit. Cancel or delete an alert to make room.',
+  quotaOff: 'The number of price alerts you can hold has not been set on this platform, so new alerts cannot be saved.',
+  reasonQuotaOff: 'Switched off: the number of price alerts you can hold has not been set on this platform.',
+  reasonQuotaFull: 'Switched off: you are at your limit of price alerts. Cancel or delete one to make room.',
+  refusedQuotaOff:
+    'The number of price alerts you can hold has not been set on this platform, so this alert was not saved. Nothing was changed.',
+  refusedQuotaReached: 'You are at your limit of price alerts. Cancel or delete one, then try again. Nothing was changed.',
 } as const;
 
 const es = {
@@ -367,6 +375,14 @@ const es = {
   logRow: '{side} {price}. Precio al activarse: {mark}',
   logWhen: 'Activada {when}',
   logKept: 'Se conserva {days} días.',
+  quotaUsed: '{used} de {max} alertas de precio en uso.',
+  quotaFull: '{used} de {max} alertas de precio en uso. Has llegado al límite. Cancela o elimina una alerta para hacer sitio.',
+  quotaOff: 'En esta plataforma no se ha fijado cuántas alertas de precio puedes tener, así que no se pueden guardar alertas nuevas.',
+  reasonQuotaOff: 'Desactivado: en esta plataforma no se ha fijado cuántas alertas de precio puedes tener.',
+  reasonQuotaFull: 'Desactivado: has llegado a tu límite de alertas de precio. Cancela o elimina una para hacer sitio.',
+  refusedQuotaOff:
+    'En esta plataforma no se ha fijado cuántas alertas de precio puedes tener, así que esta alerta no se guardó. No se cambió nada.',
+  refusedQuotaReached: 'Has llegado a tu límite de alertas de precio. Cancela o elimina una y vuelve a intentarlo. No se cambió nada.',
 } as const;
 
 const fr = {
@@ -553,6 +569,17 @@ const fr = {
   logRow: '{side} {price}. Prix au déclenchement : {mark}',
   logWhen: 'Déclenchée {when}',
   logKept: 'Conservé {days} jours.',
+  quotaUsed: '{used} alertes de prix sur {max} utilisées.',
+  quotaFull:
+    '{used} alertes de prix sur {max} utilisées. Vous avez atteint la limite. Annulez ou supprimez une alerte pour faire de la place.',
+  quotaOff:
+    'Le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme, les nouvelles alertes ne peuvent donc pas être enregistrées.',
+  reasonQuotaOff: 'Désactivé : le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme.',
+  reasonQuotaFull: 'Désactivé : vous avez atteint votre limite d’alertes de prix. Annulez ou supprimez-en une pour faire de la place.',
+  refusedQuotaOff:
+    'Le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme, cette alerte n’a donc pas été enregistrée. Rien n’a été modifié.',
+  refusedQuotaReached:
+    'Vous avez atteint votre limite d’alertes de prix. Annulez ou supprimez-en une, puis réessayez. Rien n’a été modifié.',
 } as const;
 
 export const alertsCopy = defineCopy('notifications.alerts', en, { es, fr });

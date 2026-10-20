@@ -416,3 +416,12 @@ export const listAlertTriggers = (
       signal,
     },
   );
+
+// ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
+
+const alertQuotaSchema = z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() });
+export type AlertQuota = z.infer<typeof alertQuotaSchema>;
+
+/** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
+export const readAlertQuota = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertQuota>> =>
+  api.query('notify', 'notify.alertQuota', undefined, alertQuotaSchema, { signal });
