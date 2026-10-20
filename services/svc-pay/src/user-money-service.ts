@@ -357,6 +357,33 @@ export class UserMoneyService {
   }
 
   /**
+   * Post the ledger credit for a customer crypto deposit (W-deposit-05). THE ONE DEPOSIT ENGINE (D-128): the deposit record
+   * (`custody/deposits/book.ts`) decides WHEN a transfer may credit (published depth, owner minimum) and owns the claim row,
+   * so this posts nothing else and writes no `pay.deposits` row. The key is `deposit:crypto-native:<network>:<tx>:<index>`; a
+   * repeat returns the first transaction. Operator credits stay refused for this rail.
+   */
+  async postCustodyDeposit(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }): Promise<{ id: string }> {
+    if (input.amount <= 0n) throw new PayError('Deposit amount must be positive', 'pay.invalid_amount');
+    const rail = 'crypto-native';
+    if (!this.rails.has(rail)) throw new PayError(`No rail adapter "${rail}"`, 'pay.rail_unknown');
+    const railRef = `${input.networkId}:${input.txHash}:${input.outputIndex}`;
+    return withMoneySpan('pay.deposit', { operation: 'deposit', rail, railRef, amount: formatAmount(input.amount) }, async () => {
+      const tx = await postPayLedger(
+        this.ledger,
+        recipes.deposit({ userId: input.userId, assetId: input.assetId, amount: input.amount, rail, railRef }),
+      );
+      return { id: tx.id };
+    });
+  }
+
+  /**
    * Claim `(rail, railRef)`, or return the existing claim.
    *
    * A REPEAT THAT SAYS SOMETHING DIFFERENT IS REFUSED, and this is the branch
