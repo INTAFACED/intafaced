@@ -11,11 +11,13 @@ import { founderCall, parseWith, type FounderCallContext, type FounderCallResult
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
   SupportPropertiesView,
   SupportQueueView,
+  SupportGroupsView,
   SupportStaffView,
   SupportTicketView,
   TicketExtrasView,
@@ -122,6 +124,22 @@ export async function loadStaff(ctx: FounderCallContext, now: Date = new Date())
   };
 }
 
+/** Desk groups, this person's own scope and the roster. Three reads, each its own part. */
+export async function loadGroups(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportGroupsView> {
+  const [groups, scope, roster] = await Promise.all([
+    founderCall(ctx, 'support', 'groupsList', 'GET', {}, readGroups),
+    founderCall(ctx, 'support', 'deskScope', 'GET', {}, readDeskScope),
+    founderCall(ctx, 'support', 'staffList', 'GET', {}, readStaffRoster),
+  ]);
+  return {
+    asOf: now.toISOString(),
+    meId: ctx.session.userId,
+    groups: partFrom(groups, (g) => g, LABELS),
+    scope: partFrom(scope, (x) => x, LABELS),
+    roster: partFrom(roster, (r) => r, LABELS),
+  };
+}
+
 /** Published help articles, with the revision a publish or unpublish must quote. svc-support lists no unpublished ones. */
 export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportKbView> {
   const result = await founderCall(ctx, 'support', 'listKb', 'GET', { limit: 100 }, arrayOf(supportKbArticleSchema));
@@ -165,6 +183,24 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.citedArticleIds ? { citedArticleIds: request.citedArticleIds } : {}),
         },
         parseWith(supportCaseFileSchema),
+      );
+    case 'group_save':
+      return founderCall(
+        ctx,
+        'support',
+        'groupsSave',
+        'POST',
+        { name: request.name, idempotencyKey: request.idempotencyKey, ...(request.groupId ? { groupId: request.groupId } : {}) },
+        readGroup,
+      );
+    case 'group_member':
+      return founderCall(
+        ctx,
+        'support',
+        request.op === 'add' ? 'groupsAddMember' : 'groupsRemoveMember',
+        'POST',
+        { groupId: request.groupId, userId: request.userId },
+        readGroup,
       );
     case 'staff_availability':
       return founderCall(

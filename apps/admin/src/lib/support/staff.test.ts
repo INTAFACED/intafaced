@@ -88,7 +88,7 @@ describe('a 403 about staff is not a missing permission', () => {
     explainSupportFailure({ kind: 'forbidden', refusal: { code: null, message, status: 403 } } as never);
   it('not_staff and not_lead get their own sentences and change nothing', () => {
     expect(forbidden('support.not_staff')).toMatchObject({ title: 'You are not on the support staff list', changed: 'no' });
-    expect(forbidden('support.not_lead').title).toContain('Only a lead');
+    expect(forbidden('support.not_lead').title).toBe('Only a lead can do that');
   });
   it('a plain 403 is still the missing permission', () => {
     expect(forbidden('scope').title).toContain('does not have support operations permission');

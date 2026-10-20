@@ -617,3 +617,110 @@ describe('staff roster and availability', () => {
     expect(json.refusal).toMatchObject({ title: 'You are not on the support staff list', changed: 'no' });
   });
 });
+
+describe('desk groups', () => {
+  const GID = '55555555-5555-4555-8555-555555555555';
+  const group = (over: Record<string, unknown> = {}) => ({
+    id: GID,
+    name: 'Payments',
+    createdBy: FOUNDER,
+    createdAt: '2026-10-20T01:00:00.000Z',
+    memberIds: [FOUNDER],
+    ...over,
+  });
+  const scope = { restricted: true, groups: [{ id: GID, name: 'Payments' }], seesAllGroups: false };
+  const roster = [
+    {
+      userId: FOUNDER,
+      role: 'lead',
+      appointedBy: U,
+      appointedAt: '2026-10-20T01:00:00.000Z',
+      availability: 'online',
+      availabilitySetAt: null,
+      lastHeartbeatAt: null,
+    },
+  ];
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads groups, the scope and the roster as the founder, each on its own', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => (url.includes('/groupsList') ? ok([group()]) : url.includes('/deskScope') ? ok(scope) : ok(roster))),
+    );
+    const json = await (await get('?view=groups')).json();
+    expect(json.meId).toBe(FOUNDER);
+    expect(json.groups).toMatchObject({ kind: 'ok', data: [{ name: 'Payments' }] });
+    expect(json.scope).toMatchObject({ kind: 'ok', data: { restricted: true } });
+    expect(json.roster.kind).toBe('ok');
+  });
+
+  it('a group it cannot read is a failure, not a shorter list', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('/groupsList') ? ok([group(), { id: GID }]) : url.includes('/deskScope') ? ok(scope) : ok(roster),
+      ),
+    );
+    const json = await (await get('?view=groups')).json();
+    expect(json.groups.kind).toBe('failed');
+    expect(json.scope.kind).toBe('ok');
+  });
+
+  it('makes a group with the key, and renames with the group id', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(group()));
+    vi.stubGlobal('fetch', fn);
+    expect(await (await post({ action: 'group_save', name: ' Payments ', idempotencyKey: 'group:abcdef12' })).json()).toMatchObject({
+      ok: true,
+    });
+    await post({ action: 'group_save', name: 'Billing', idempotencyKey: 'group:abcdef13', groupId: GID });
+    expect(sent(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/groupsSave', body: { name: 'Payments', idempotencyKey: 'group:abcdef12' } },
+      { url: 'http://edge:4000/api/support/trpc/groupsSave', body: { name: 'Billing', idempotencyKey: 'group:abcdef13', groupId: GID } },
+    ]);
+  });
+
+  it('adds and removes a member through the matching procedure', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(group()));
+    vi.stubGlobal('fetch', fn);
+    await post({ action: 'group_member', op: 'add', groupId: GID, userId: U });
+    await post({ action: 'group_member', op: 'remove', groupId: GID, userId: U });
+    expect(sent(fn).map((c) => c.url)).toEqual([
+      'http://edge:4000/api/support/trpc/groupsAddMember',
+      'http://edge:4000/api/support/trpc/groupsRemoveMember',
+    ]);
+    expect(sent(fn)[0]!.body).toEqual({ groupId: GID, userId: U });
+  });
+
+  it('refuses a malformed group write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const bad of [
+      { action: 'group_save', name: '', idempotencyKey: 'group:abcdef12' },
+      { action: 'group_save', name: 'x', idempotencyKey: 'k' },
+      { action: 'group_member', op: 'add', groupId: 'x', userId: U },
+    ])
+      expect((await post(bad)).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says plainly when the name is taken, and that a non-lead cannot', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'support.group_name_taken')),
+    );
+    expect((await (await post({ action: 'group_save', name: 'Payments', idempotencyKey: 'group:abcdef12' })).json()).refusal).toMatchObject(
+      {
+        title: 'A group with that name exists',
+        changed: 'no',
+      },
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'support.not_lead')),
+    );
+    const res = await post({ action: 'group_member', op: 'add', groupId: GID, userId: U });
+    expect(res.status).toBe(403);
+    expect((await res.json()).refusal.title).toBe('Only a lead can do that');
+  });
+});
