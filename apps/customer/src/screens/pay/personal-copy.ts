@@ -67,6 +67,7 @@ const en = {
   reqAnyAmount: 'Any amount',
   reqShowCode: 'Show QR code',
   reqHideCode: 'Hide QR code',
+  reqDetails: 'Details',
   reqRemove: 'Remove from list',
   reqCancel: 'Cancel request',
   reqCancelReason:
@@ -199,6 +200,7 @@ const es = {
   reqAnyAmount: 'Cualquier importe',
   reqShowCode: 'Mostrar código QR',
   reqHideCode: 'Ocultar código QR',
+  reqDetails: 'Detalles',
   reqRemove: 'Quitar de la lista',
   reqCancel: 'Cancelar solicitud',
   reqCancelReason:
@@ -329,6 +331,7 @@ const fr = {
   reqAnyAmount: 'Montant libre',
   reqShowCode: 'Afficher le code QR',
   reqHideCode: 'Masquer le code QR',
+  reqDetails: 'Détails',
   reqRemove: 'Retirer de la liste',
   reqCancel: 'Annuler la demande',
   reqCancelReason:

@@ -14,6 +14,7 @@ import {
   readRequests,
   removeRequest,
   requestPath,
+  requestRoomHref,
   Select,
   SelectContent,
   SelectItem,
@@ -255,6 +256,9 @@ function CreateRequest({ userId, payeeId, assets }: { userId: string; payeeId: s
                 {entry.note ? <div className="pay-list__sub">{entry.note}</div> : null}
                 {shownCode === entry.id ? <QrCode value={absoluteLink(entry.path)} /> : null}
                 <div className="pay-row-actions">
+                  <Button variant="secondary" size={32} nativeButton={false} render={<a href={requestRoomHref(entry.id)} />}>
+                    {t('reqDetails')}
+                  </Button>
                   <Button variant="secondary" size={32} onClick={() => void copy(entry)}>
                     {t('copyLink')}
                   </Button>
