@@ -18,6 +18,10 @@
       "types": "./dist/academy-cert-perks.d.ts",
       "default": "./dist/academy-cert-perks.js"
     },
+    "./protocol-blockers": {
+      "types": "./dist/protocol-blockers.d.ts",
+      "default": "./dist/protocol-blockers.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"

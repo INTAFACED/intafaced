@@ -23,7 +23,7 @@ export const KNOWN_NETWORKS: Readonly<Record<number, { name: string; note: strin
 };
 export function networkLabel(chainId: number | null | undefined): { name: string; note: string; known: boolean } {
   if (chainId === null || chainId === undefined) return { name: 'No chain reported', note: 'Not confirmed as INTACHAIN.', known: false };
-  const known = KNOWN_NETWORKS[chainId];
+  const known = Object.hasOwn(KNOWN_NETWORKS, chainId) ? KNOWN_NETWORKS[chainId] : undefined;
   return known ? { ...known, known: true } : { name: 'Unrecognised network', note: 'Not confirmed as INTACHAIN.', known: false };
 }
 
@@ -284,18 +284,39 @@ export const protocolBlockersInputSchema = z
       .optional(),
   })
   .strict();
-export const blockerSchema = z.object({
-  code: z.enum(BLOCKER_CODES),
-  key: z.string(),
-  params: z.record(z.string(), z.string()),
-});
-export const protocolBlockersOutputSchema = z.object({
-  asOf: z.string(),
-  p1Go: z.boolean(),
-  /** How each source answered, so a client sees why a list is what it is. */
-  sources: z.record(z.enum(PROTOCOL_SOURCES), z.enum(['ok', 'checking', 'no_reply', 'not_connected', 'down'])),
-  actions: z.record(protocolActionSchema, z.array(blockerSchema).min(1)),
-});
+export const blockerSchema = z
+  .object({
+    code: z.enum(BLOCKER_CODES),
+    key: z.string(),
+    params: z.record(z.string(), z.string()),
+  })
+  .strict()
+  .refine((found) => found.key === `blk_${found.code}`, { message: 'key must be blk_<code>', path: ['key'] });
+const sourceAnswerSchema = z.enum(['ok', 'checking', 'no_reply', 'not_connected', 'down']);
+export const protocolBlockersOutputSchema = z
+  .object({
+    asOf: z.string(),
+    p1Go: z.boolean(),
+    /** How each source answered, so a client sees why a list is what it is. Every source is present. */
+    sources: z
+      .object(
+        Object.fromEntries(PROTOCOL_SOURCES.map((key) => [key, sourceAnswerSchema])) as Record<
+          ProtocolSourceKey,
+          typeof sourceAnswerSchema
+        >,
+      )
+      .strict(),
+    /** Every action is present and none is ever empty. */
+    actions: z
+      .object(
+        Object.fromEntries(PROTOCOL_ACTIONS.map((action) => [action, z.array(blockerSchema).min(1)])) as Record<
+          ProtocolAction,
+          z.ZodArray<typeof blockerSchema>
+        >,
+      )
+      .strict(),
+  })
+  .strict();
 export type ProtocolBlockersOutput = z.infer<typeof protocolBlockersOutputSchema>;
 
 /** Runs the engine over a snapshot for every action: the body of `protocol.blockers`. */
