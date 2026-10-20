@@ -52,7 +52,7 @@ export function createWithdrawalLimitReader(deps: WithdrawalLimitReaderDeps): Wi
       const tier = await deps.tierOf(userId).catch(() => {
         throw new PayGuardRefusal('pay.guard_unavailable', 'unavailable');
       });
-      const limit = await deps.source.get(tier, assetId);
+      const limit = await deps.source.get(tier, assetId, deps.sql);
       if (!limit) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMIT_UNSET, 'refused');
       const a = allowanceOf(limit, await usedInWindow(deps.sql, { userId, assetId }));
       return {

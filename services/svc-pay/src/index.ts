@@ -260,7 +260,7 @@ if (process.env[PAY_WITHDRAWAL_LIMITS_ENV]?.trim()) {
 const kycTierSource = env.IDENTITY_URL
   ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
   : undefined;
-const limitSource = createSqlLimitSource(sql);
+const limitSource = createSqlLimitSource();
 const payGuards = buildPayGuards({ sql, ledger, kycTierOf: kycTierSource, limitSource });
 const conversion = new ConversionService({
   sql,

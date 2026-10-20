@@ -8,14 +8,15 @@ import type { WithdrawalLimit, WithdrawalLimits } from './config.js';
  * unlimited.
  */
 export interface LimitSource {
-  get(tier: string, assetId: string): Promise<WithdrawalLimit | undefined>;
+  /** `q` is the connection to read on. The guard passes its own transaction, so it never waits for a second pool connection. */
+  get(tier: string, assetId: string, q: Sql): Promise<WithdrawalLimit | undefined>;
 }
 
 /** The figures a founder set through `founderAdmin.limits.change` (table `pay.withdrawal_limits`). */
-export function createSqlLimitSource(sql: Sql): LimitSource {
+export function createSqlLimitSource(): LimitSource {
   return {
-    async get(tier, assetId) {
-      const rows = await sql<Array<{ per_tx: string | null; rolling_24h: string | null }>>`
+    async get(tier, assetId, q) {
+      const rows = await q<Array<{ per_tx: string | null; rolling_24h: string | null }>>`
         SELECT per_tx, rolling_24h FROM pay.withdrawal_limits WHERE tier = ${tier} AND asset_id = ${assetId}
       `;
       const row = rows[0];
@@ -27,5 +28,5 @@ export function createSqlLimitSource(sql: Sql): LimitSource {
 
 /** A fixed, already-parsed set of figures. Tests and the retired environment source use this. */
 export function staticLimitSource(limits: WithdrawalLimits): LimitSource {
-  return { get: async (tier, assetId) => limits.byTier.get(tier)?.get(assetId) };
+  return { get: async (tier, assetId, _q) => limits.byTier.get(tier)?.get(assetId) };
 }

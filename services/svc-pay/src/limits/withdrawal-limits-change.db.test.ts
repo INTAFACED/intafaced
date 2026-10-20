@@ -276,7 +276,7 @@ describe('owner-set withdrawal limits (real Postgres)', () => {
 
   describe('the guard and the allowance read use the stored figures', () => {
     const basic: KycTierOf = async () => 'basic';
-    const source = () => createSqlLimitSource(db.sql);
+    const source = () => createSqlLimitSource();
     const money = (tierOf?: KycTierOf, mode: 'off' | 'required' = 'required') =>
       new UserMoneyService(db.sql, ledger, rails, {
         operatorCreditRails: ['card-sandbox'],

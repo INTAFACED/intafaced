@@ -49,10 +49,10 @@ export function createWithdrawalLimitGuards(deps: WithdrawalLimitGuardDeps): Par
       if (ctx.replay.kind !== 'fresh') return;
       if (!deps.tierOf) throw new PayGuardRefusal(GUARD_WITHDRAWAL_TIER_UNWIRED, 'unavailable');
       const tier = await deps.tierOf(ctx.userId);
-      const limit = await source.get(tier, ctx.assetId);
-      if (!limit) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMIT_UNSET, 'refused');
-
       await ctx.tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.withdrawal_limit:${ctx.userId}`}))`;
+      // Read on the claim's own transaction, after the lock: no second pool connection, and the figure is the one in force for this claim.
+      const limit = await source.get(tier, ctx.assetId, ctx.tx);
+      if (!limit) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMIT_UNSET, 'refused');
       const used = await usedInWindow(ctx.tx, { userId: ctx.userId, assetId: ctx.assetId, exceptClientRef: ctx.clientRef });
       const allowance = allowanceOf(limit, used);
       if (compare(ctx.amount, limit.perTx) > 0 || compare(ctx.amount, allowance.left24h) > 0) {
