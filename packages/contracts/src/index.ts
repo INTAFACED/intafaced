@@ -43,6 +43,7 @@ export * from './conversion.js';
 export * from './pay-halts.js';
 export * from './protocol-blockers.js';
 export * from './ui-view-preferences.js';
+export * from './oauth.js';
 export * from './protocol-networks.js';
 export * from './pay-merchant-reads.js';
 export * from './merchant-portal.js';
