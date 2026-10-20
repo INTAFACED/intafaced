@@ -37,7 +37,7 @@ describe('listSessions limit unset refuse (no invented page)', () => {
   it('list-sessions-router.ts requires limit 1..200 and passes input.limit', () => {
     const src = readFileSync(join(HERE, '../list-sessions-router.ts'), 'utf8');
     expect(src).not.toMatch(/listSessions\(sql, input\.userId\)\s*;/);
-    expect(src).toMatch(/listSessions\(sql, input\.userId, input\.limit\)/);
+    expect(src).toMatch(/listSessions\(sql, input\.userId, input\.limit,/);
     expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.optional\(\)/);
     expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)\.default\(/);
     expect(src).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
@@ -48,7 +48,7 @@ describe('listSessions limit unset refuse (no invented page)', () => {
     const src = readFileSync(join(HERE, 'list-sessions.ts'), 'utf8');
     expect(src).not.toMatch(/limit = 50|limit = 100/);
     expect(src).toMatch(/publishedSessionsListLimit\(limit\)/);
-    expect(src).toMatch(/LIMIT \$\{published\}/);
+    expect(src).toMatch(/LIMIT \$\{published \+ 1\}/);
   });
 
   it('blank / non-integer / out of 1..200 throws identity.sessions_list_limit_unset', () => {

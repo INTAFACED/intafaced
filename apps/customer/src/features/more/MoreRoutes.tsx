@@ -14,6 +14,8 @@ import { Token } from './Token';
 import { launchCopy } from './launch-copy';
 import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
+import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
+import { moreRoomRoutesCopy } from './more-room-routes-copy';
 import type { ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
@@ -107,6 +109,27 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.support');
     description = copyText('moreroutes.help.requests.and.your.conversation.with.the');
     content = <Support />;
+  } else {
+    // A section or a record of one of the six rooms: /mining/workers, /market/:listingId and so on.
+    const hit = matchMoreRoute(p);
+    if (hit) {
+      const room = ROOM_PAGES[hit.route.room];
+      title = moreRoomRoutesCopy.t(hit.route.title);
+      description = room.description();
+      content =
+        hit.route.kind === 'part' ? (
+          room.content(path, paper)
+        ) : (
+          <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
+            <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
+              {moreRoomRoutesCopy.t(hit.invalid ? 'badIdBody' : 'detailBody')}
+            </EmptyState>
+            <a className="text-link" href={room.href}>
+              {moreRoomRoutesCopy.t('open')}
+            </a>
+          </Panel>
+        );
+    }
   }
   return (
     <div className="more-feature">
@@ -121,3 +144,26 @@ function MoreRooms({ path }: { path: string }) {
     </div>
   );
 }
+
+/** The room each section opens inside, and the line under its title; a section shows its room until the slice that owns it fills it. */
+const ROOM_PAGES: Record<MoreRoomId, { href: string; description: () => ReactNode; content: (path: string, paper: boolean) => ReactNode }> =
+  {
+    predict: { href: '/predict', description: () => <predictionCatalogueCopy.Copy k="scope" />, content: () => <Prediction /> },
+    market: {
+      href: '/market',
+      description: () => copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace'),
+      content: () => <Market key="purchases" mine={false} strategy={false} />,
+    },
+    launch: { href: '/launch', description: () => <launchCopy.Copy k="scope" />, content: () => <Launch orders={false} /> },
+    token: {
+      href: '/token',
+      description: () => copyText('moreroutes.exact.stake.records.access.and.governance'),
+      content: () => <Token />,
+    },
+    mining: { href: '/mining', description: () => <miningCopy.Copy k="scope" />, content: () => <Mining /> },
+    blueprint: {
+      href: '/blueprint',
+      description: () => copyText('moreroutes.a.profile.you.can.keep.private.share'),
+      content: (path) => <Blueprint path={path} />,
+    },
+  };

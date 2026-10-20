@@ -6,6 +6,7 @@ import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client
 import { presentAlgoCapabilityNote } from './algo/algo-capability.js';
 import { presentFuturesJobsCapabilityNote } from './futures/futures-jobs-capability.js';
 import { readTradePlanes } from './futures/plane-capabilities.js';
+import { isPremarket } from './futures/premarket.js';
 import { visibleOnPublicBoard } from './futures/futures-reads.js';
 import { badRequest, badSymbol, notSupported, toCcxtError, type CcxtErrorResponse } from './ccxt-errors.js';
 import type { EngineDepth } from './spot/matching-client.js';
@@ -353,13 +354,18 @@ export function presentCcxtMarket(
         ? ('option' as const)
         : ('spot' as const);
   const session = sessionStateForMarket(market, nowMs);
+  // Contract terms come only from the stored listing. A row that never recorded them stays null: nothing is
+  // inferred from the symbol or the quote asset.
+  const isFutures = market.kind === 'futures';
+  const family = isFutures ? (market.futuresFamily ?? null) : null;
+  const settleAsset = isFutures ? (market.futuresSettleAsset ?? null) : null;
 
   return {
     id: market.id,
     symbol: market.symbol,
     base: market.baseAsset,
     quote: market.quoteAsset,
-    settle: null as string | null,
+    settle: settleAsset,
     baseId: market.baseAsset,
     quoteId: market.quoteAsset,
     type,
@@ -369,12 +375,17 @@ export function presentCcxtMarket(
     option: market.kind === 'options',
     contract: !isSpot,
     /**
-     * Linear/inverse are a function of settle (quote vs base). Settle is
-     * unpublished on this listing (`null`), so these stay null too — claiming
-     * `linear: true` while `settle` is null is an invented USDT-margined book.
+     * Linear/inverse are the stored listing family. A row that never recorded one stays null — claiming
+     * `linear: true` for it would be an invented USDT-margined book. Inverse never lists today.
      */
-    linear: null as boolean | null,
-    inverse: null as boolean | null,
+    linear: family === null ? (null as boolean | null) : family === 'linear',
+    inverse: family === null ? (null as boolean | null) : family === 'inverse',
+    /** Stored contract family (`linear`|`inverse`); null on spot, options and futures rows that recorded none. */
+    family: family as 'linear' | 'inverse' | null,
+    /** Asset this futures market settles in, as stored; null where none is recorded. */
+    settleAsset: settleAsset as string | null,
+    /** TRUE = a futures market still in prelaunch (`pending`): shown to customers as "Pre-market"; orders refuse. */
+    premarket: isPremarket(market),
     active: market.status === 'active',
     /**
      * TRUE = the order path will accept a new order/open here (subject to
@@ -426,7 +437,7 @@ export function presentCcxtMarket(
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),
-    contractSize: null as string | null,
+    contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
     expiry: listedExpiry ? listedExpiry.getTime() : (null as number | null),
     expiryDatetime: listedExpiry ? listedExpiry.toISOString() : (null as string | null),
     strike: null as string | null,

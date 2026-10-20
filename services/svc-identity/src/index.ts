@@ -34,6 +34,7 @@ import { createApiKeyAccountRouter } from './api-key-account-router.js';
 import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
+import { createSessionFamiliesRouter } from './session-families-router.js';
 import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
@@ -45,6 +46,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
@@ -62,6 +64,7 @@ import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
+import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
@@ -446,6 +449,8 @@ export const appRouter = mergeRouters(
     registrationOpen: env.REGISTRATION_OPEN,
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
+    // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
+    social: new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS }),
     referral,
     share,
     freeze,
@@ -473,6 +478,7 @@ export const appRouter = mergeRouters(
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
+  createSessionFamiliesRouter(sql),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),
@@ -556,8 +562,10 @@ app.addHook('onRequest', (req, _reply, done) => {
   const rawProduct = req.headers['x-product'];
   const productHeader = Array.isArray(rawProduct) ? rawProduct[0] : rawProduct;
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
+  const rawAgent = req.headers['user-agent'];
+  const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => done());
+    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
   });
 });
 

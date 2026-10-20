@@ -191,6 +191,8 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  { path: '/trade/news', title: 'News', description: 'Market news by category, language and symbol', door: 'Trade', area: 'trade' },
+  { path: '/trade/calendar', title: 'Economic calendar', description: 'Scheduled releases and their values', door: 'Trade', area: 'trade' },
   {
     path: '/trade/convert',
     title: 'Convert',
@@ -505,6 +507,88 @@ export const rooms: readonly Room[] = [
     door: 'More' as const,
     area: 'more' as const,
   })),
+  // Sections and records of the six More rooms (MC-order-01). Never offered in search; `features/more/more-room-routes.ts` is the matching table.
+  {
+    path: '/predict/positions',
+    title: 'Predict positions',
+    description: 'Browse and trade predictions',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/predict/:marketId',
+    title: 'Prediction market',
+    description: 'Browse and trade predictions',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/market/purchases',
+    title: 'Market purchases',
+    description: 'Browse available listings',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/market/:listingId',
+    title: 'Market listing',
+    description: 'Browse available listings',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/launch/new', title: 'New launch', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  { path: '/launch/check', title: 'Launch check', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/launch/requirements',
+    title: 'Launch requirements',
+    description: 'Issue and list an asset',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/launch/:projectId', title: 'Launch project', description: 'Issue and list an asset', door: 'More', area: 'more', hidden: true },
+  { path: '/token/governance', title: 'Token governance', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  { path: '/token/economy', title: 'Token economy', description: 'Access and staking', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/token/governance/:proposalId',
+    title: 'Governance proposal',
+    description: 'Access and staking',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  { path: '/mining/workers', title: 'Mining workers', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/shares', title: 'Mining shares', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/rewards', title: 'Mining rewards', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  { path: '/mining/status', title: 'Mining status', description: 'Pool activity and payouts', door: 'More', area: 'more', hidden: true },
+  {
+    path: '/mining/workers/:workerId',
+    title: 'Mining worker',
+    description: 'Pool activity and payouts',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/blueprint/crew',
+    title: 'Blueprint crew',
+    description: 'Your profile and connected intelligence',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/blueprint/shared/:cardId',
+    title: 'Shared card',
+    description: 'Your profile and connected intelligence',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
@@ -606,7 +690,7 @@ export function roomDescription(room: Room, locale: UiLocale = currentPreference
 }
 /** Where a room lives, as search shows it: "Bank > Earn". Parked Web3 rooms sit under More; rooms outside every door have no path. */
 export function roomPath(room: Room, locale: UiLocale = currentPreferences().language): string | undefined {
-  const door = room.door ?? (room.area === 'parked' ? 'More' : undefined);
+  const door = room.door ?? (room.area === 'web3' ? 'More' : undefined);
   return door ? `${doorLabel(door, locale)} > ${roomTitle(room, locale)}` : undefined;
 }
 
