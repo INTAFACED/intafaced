@@ -14,7 +14,8 @@ import {
 } from '@intafaced/ledger-client';
 import { PayError, assertWithdrawalListLimit } from './payment-service.js';
 import { liveAccountsIn } from './sandbox-ledger-guard.js';
-import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { FRESH, NOOP_GUARDS, PayGuardRefusal, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
 import { noteAutoTripAccountError } from './halts/autotrip-log.js';
 import { isRailHealthFailureCode } from './halts/rail-health.js';
 import { payoutRailSourceKey, userHaltKey, type PayHaltStore } from './halts/store.js';
@@ -174,6 +175,9 @@ export interface UserMoneyOptions {
 
   /** Used when a support read falls through to `pay.withdrawal_rail_attempts`. Down leaves the label unknown. */
   readonly chainReader?: ChainReader;
+
+  /** Reads a customer's remaining withdrawal allowance (D-148). Omitted: the read refuses, it never guesses a figure. */
+  readonly withdrawalLimits?: WithdrawalLimitReader;
 }
 
 /**
@@ -197,6 +201,7 @@ export class UserMoneyService {
   private readonly haltStore: PayHaltStore | undefined;
   private readonly wallet: WalletPay | undefined;
   private readonly chainReader: ChainReader;
+  private readonly withdrawalLimits: WithdrawalLimitReader | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -210,6 +215,7 @@ export class UserMoneyService {
     this.haltStore = options.haltStore;
     this.wallet = options.wallet;
     this.chainReader = options.chainReader ?? { confirm: async () => 'down' };
+    this.withdrawalLimits = options.withdrawalLimits;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -1009,6 +1015,15 @@ export class UserMoneyService {
    */
   async availableBalance(userId: string, assetId: string): Promise<Amount> {
     return (await this.ledger.balance(userAvailable(userId, assetId))).amount;
+  }
+
+  /**
+   * What the caller may still withdraw of one asset under the owner-set limit for their KYC tier. Refuses with the
+   * guard's own typed codes where the guard would; an unwired reader is `pay.guard_withdrawal_limits_unwired`.
+   */
+  async withdrawalAllowance(userId: string, assetId: string): Promise<WithdrawalAllowanceView> {
+    if (!this.withdrawalLimits) throw new PayGuardRefusal(GUARD_WITHDRAWAL_LIMITS_UNWIRED, 'unavailable');
+    return this.withdrawalLimits.allowance(userId, assetId);
   }
 
   /** What is currently immobilised for one in-flight withdrawal. An operator question, answered from the book. */

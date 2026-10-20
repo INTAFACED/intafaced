@@ -2183,6 +2183,27 @@ export function createPayRouter(
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.supportReadWithdrawal(input.withdrawalId, ctx.principal.userId))),
 
+      /**
+       * What the caller may still withdraw of one asset (D-148): the owner-set per-transaction and rolling 24 hour
+       * figures for their KYC tier, what the window has used, and what is left. `trade:read` like the other
+       * withdrawal reads. Refuses with the guard's own codes (`pay.guard_withdrawal_limit_unset`, ...): a blank limit
+       * is never shown as room. The guard still decides at submit, under its lock.
+       */
+      limits: scopedProcedure('trade:read')
+        .input(z.object({ assetId: assetIdSchema }))
+        .output(
+          z.object({
+            tier: z.string(),
+            assetId: assetIdSchema,
+            perTx: amountSchema,
+            rolling24h: amountSchema,
+            used24h: amountSchema,
+            remaining: z.object({ perTx: amountSchema, rolling24h: amountSchema }),
+            maxNow: amountSchema,
+          }),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
+
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
