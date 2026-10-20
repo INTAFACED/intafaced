@@ -19,8 +19,6 @@ const nextConfig = {
   // pnpm workspace: trace from the repo root so the symlinked @intafaced/*
   // packages are resolved from packages/ rather than guessed at.
   outputFileTracingRoot: join(here, '..', '..'),
-  // Lint is a repo-level turbo task, not a Next build step.
-  eslint: { ignoreDuringBuilds: true },
   // Browser security headers on every path. The Content-Security-Policy is per request (it carries a nonce), and
   // Strict-Transport-Security is per deployment (read from the runtime env), so `src/middleware.ts` sets both; this list is
   // baked into the build, which is why neither is here. See `src/lib/security-headers.mjs`.
