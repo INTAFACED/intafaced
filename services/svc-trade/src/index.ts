@@ -206,12 +206,13 @@ const trailingMarkSource = markSourceFromDepth(async (marketId) => ({
 // Trailing stops are placed only on the markets the pump walks, and only while it runs: a stop on any other market
 // would never move. Anything else has no mark, and placing refuses `trade.missing_mark`.
 const trailingMarketIds = new Set(parseCandleMarketIds(env.TRADE_TRAILING_MARK_JOBS_MARKET_IDS));
-const trailingPlacementMarkSource: QuotedMarkSource | undefined = env.TRADE_TRAILING_MARK_JOBS_ENABLED
-  ? {
-      ...trailingMarkSource,
-      quote: async (input) => (trailingMarketIds.has(input.marketId) ? trailingMarkSource.quote(input) : null),
-    }
-  : undefined;
+const trailingPlacementMarkSource: QuotedMarkSource | undefined =
+  env.TRADE_TRAILING_MARK_JOBS_ENABLED && env.TRADE_TRAILING_MARK_JOBS_INTERVAL_MS
+    ? {
+        ...trailingMarkSource,
+        quote: async (input) => (trailingMarketIds.has(input.marketId) ? trailingMarkSource.quote(input) : null),
+      }
+    : undefined;
 const trade = new TradeService(sql, ledger, matching, perks, bus, {
   trailingMarkSource: trailingPlacementMarkSource,
   accountAdmission: tradingControls,

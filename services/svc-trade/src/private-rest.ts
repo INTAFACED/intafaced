@@ -2666,6 +2666,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       if (hasRawStopPx(req.body)) {
         throw new TradeError('a stop cannot be set on an order replacement', TRADE_STOP_TRIGGER_INVALID);
       }
+      // The original is cancelled before the replacement is placed; a trailing stop that could then be refused for want
+      // of a mark would leave the customer with neither order.
+      if (req.body !== null && typeof req.body === 'object' && Object.hasOwn(req.body, 'trail')) {
+        throw new TradeError('a trailing stop cannot be set on an order replacement', 'trade.order_type_unsupported');
+      }
       input = carryPlacement(mapCreateOrderBody(parsed.data), req.body);
     } catch (err) {
       const sent = sendDomainError(reply, err);

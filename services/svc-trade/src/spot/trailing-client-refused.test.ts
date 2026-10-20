@@ -99,6 +99,35 @@ describe('the create door refuses a trailing stop whose mark the caller supplied
     await app.close();
   });
 
+  it('the replace door refuses a trail before the original is touched', async () => {
+    const cancelled: string[] = [];
+    const placed: PlaceOrderInput[] = [];
+    const app = Fastify();
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      marketBySymbol: async (s: string) => (s === 'BTC/USDT' ? market : null),
+      marketById: async (id: string) => (id === market.id ? market : null),
+      replaceOrder: async (_p: Principal, id: string, input: PlaceOrderInput) => {
+        cancelled.push(id);
+        placed.push(input);
+        throw new Error('unreachable');
+      },
+    } as unknown as PrivateRestDeps);
+    await app.ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/33333333-3333-4333-8333-333333333333/replace',
+      headers: signed(),
+      payload: { ...BASE, side: 'sell', clientOrderId: 'r-1', trail: '5' },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('cannot be set on an order replacement');
+    expect(cancelled).toHaveLength(0);
+    expect(placed).toHaveLength(0);
+    await app.close();
+  });
+
   it('an ordinary limit order is still accepted', async () => {
     const { app, placed } = await build();
     const res = await app.inject({ method: 'POST', url: '/api/v1/orders', headers: signed(), payload: BASE });
