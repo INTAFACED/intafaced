@@ -1077,18 +1077,6 @@ export interface WiringSocket {
 export const WIRING_SOCKETS = [
   {
     event: 'spreadFilled',
-    missing: 'publisher',
-    /**
-     * CLASS A. svc-matching's spread book (CB-otc-16) emits it once this subject
-     * exists; until then it refuses every spread order (spread_fill_event_unwired),
-     * and only svc-trade can submit one, through a spread door it does not have yet.
-     */
-    class: 'A',
-    reason:
-      'Declared ahead of its producer: svc-matching wires its SpreadFillPublisher to this subject in the PR after this one. No spread order can reach a book before then, so no fill goes unannounced.',
-  },
-  {
-    event: 'spreadFilled',
     missing: 'subscriber',
     /**
      * CLASS A. svc-trade consumes it with its spread place door and spread holds
