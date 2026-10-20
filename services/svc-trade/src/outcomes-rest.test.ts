@@ -49,6 +49,7 @@ describe('outcome markets REST', () => {
     ['a deadline', { requestDeadline: '2026-08-24T11:30:00.000Z' }],
     ['a self-trade mode', { stpMode: 'cancel_maker' }],
     ['a tag', { tag: 'x' }],
+    ['a trigger source', { triggerBy: 'mark' }],
   ])('refuses %s rather than dropping it', async (_name, extra) => {
     const market = createOutcomeMarket({
       id: 'fixture-outcome',
