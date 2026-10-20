@@ -3,6 +3,11 @@ import { getAddress as toChecksum, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 import {
   protocolBlockersInputSchema,
+  protocolCapabilitiesInputSchema,
+  protocolCapabilitiesOutputSchema,
+  protocolDeploymentsInputSchema,
+  protocolDeploymentsOutputSchema,
+  protocolNetworksListOutputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
   publicJurisdictionProcedure,
@@ -49,6 +54,7 @@ import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
+import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
 
 /**
  * svc-protocol's API.
@@ -298,6 +304,10 @@ export interface ProtocolRouterDeps {
   swapSlippageBps: () => number | null;
   /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
   peers?: Peers;
+  /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
+  probeTimeoutMs?: () => number | undefined;
+  /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
+  loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -486,6 +496,69 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           },
           new Date().toISOString(),
         );
+      }),
+
+    /** The owner-published network registry. A field the owner has not published is null, never filled in. */
+    networks: router({
+      list: publicProcedure.output(protocolNetworksListOutputSchema).query(() => {
+        try {
+          return { networks: (deps.loadNetworks ?? loadNetworkRegistry)() };
+        } catch (err) {
+          throw new TRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message:
+              err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'protocol.network_registry_unavailable',
+            cause: err,
+          });
+        }
+      }),
+    }),
+
+    /** The deployed-contract registry and router versions for a chain. A chain with no recorded deployment is NOT_FOUND. */
+    deployments: router({
+      list: publicProcedure
+        .input(protocolDeploymentsInputSchema)
+        .output(protocolDeploymentsOutputSchema)
+        .query(({ input }) => {
+          let found;
+          try {
+            found = deploymentsFor(input.chainId);
+          } catch (err) {
+            throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'protocol.deployments_unavailable', cause: err });
+          }
+          if (!found) {
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `protocol.deployments_unknown_chain: no deployment is recorded for chain ${input.chainId}.`,
+            });
+          }
+          return found;
+        }),
+    }),
+
+    /** What the node and bundler can do, measured. Only the configured chain is probed; any other chain id reports nothing probed. */
+    capabilities: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolCapabilitiesInputSchema)
+      .output(protocolCapabilitiesOutputSchema)
+      .query(async ({ input }) => {
+        if (input.chainId !== chain.config.chainId) {
+          return {
+            chainId: input.chainId,
+            probed: false,
+            pendingTag: null,
+            bundlerReachable: null,
+            paymasterFunded: null,
+            preconfirmations: 'unknown' as const,
+          };
+        }
+        const probe = await chain.probeCapabilities(deps.probeTimeoutMs?.());
+        return {
+          chainId: input.chainId,
+          probed: true,
+          ...probe,
+          // A plain node offers no preconfirmation feed to find; the room says "not offered on this network".
+          preconfirmations: probe.pendingTag === null ? ('unknown' as const) : ('not_offered' as const),
+        };
       }),
 
     /**

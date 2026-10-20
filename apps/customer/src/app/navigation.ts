@@ -35,6 +35,7 @@ export const rooms: readonly Room[] = [
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
@@ -45,6 +46,14 @@ export const rooms: readonly Room[] = [
   { path: '/partner', title: 'Partners', description: 'Work with Intafaced', area: 'public' },
   { path: '/developers', title: 'Developers', description: 'Connect to Intafaced from your own code', area: 'public' },
   { path: '/developers/hosts', title: 'Base addresses', description: 'Hosts per protocol, environment and region', area: 'public' },
+  { path: '/developers/status', title: 'Service status', description: 'Components, incidents and maintenance', area: 'public' },
+  { path: '/developers/changelog', title: 'Changelog', description: 'What changed in the developer interfaces', area: 'public' },
+  {
+    path: '/developers/changelog/upcoming',
+    title: 'Upcoming breaking changes',
+    description: 'Breaking changes and retired endpoints',
+    area: 'public',
+  },
   {
     path: '/developers/:section',
     title: 'Developer section',
@@ -209,6 +218,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/trade/copy', title: 'Copy', description: 'Follow a trading strategy', door: 'Trade', area: 'trade' },
   { path: '/trade/bots', title: 'Trading bots', description: 'Automated strategies', door: 'Trade', area: 'trade' },
+  {
+    path: '/trade/risk',
+    title: 'Risk control',
+    description: 'Cancel every open order, close positions and see platform incidents',
+    door: 'Trade',
+    area: 'trade',
+  },
   { path: '/trade/news', title: 'News', description: 'Market news by category, language and symbol', door: 'Trade', area: 'trade' },
   { path: '/trade/calendar', title: 'Economic calendar', description: 'Scheduled releases and their values', door: 'Trade', area: 'trade' },
   {
@@ -715,7 +731,7 @@ export function roomPath(room: Room, locale: UiLocale = currentPreferences().lan
 export function doorLabel(door: Door | 'Money', locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner', '/developers', '/developers/hosts']);
+const publicSearchable = new Set(['/help', '/status', '/notice', '/lab', '/app', '/partner', '/developers', '/developers/hosts']);
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
  * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business

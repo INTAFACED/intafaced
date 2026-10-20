@@ -43,9 +43,9 @@ describe('/findPwd', () => {
 });
 
 describe('other public pages', () => {
-  it('says plainly that no public notices are published, and points at the inbox and help', () => {
+  it('points at the inbox and help; the feed itself is read live and covered in notice-feed.render.test.tsx', () => {
     const page = html(<NoticePage />);
-    expect(page).toContain('No public notices are published');
+    expect(page).toContain('Notices');
     expect(page).toContain('/help');
   });
 

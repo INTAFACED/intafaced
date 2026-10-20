@@ -104,3 +104,18 @@ describe('rating summary (SP-csat-01)', () => {
     await expect((await mine()).ratingSummary(WINDOW)).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 });
+
+describe('own rated tickets (SP-csat-01)', () => {
+  it("lists only the ids of the caller's own rated tickets", async () => {
+    const { support, mine, ticket } = desk();
+    const a = await ticket();
+    const b = await ticket();
+    const other = await ticket(OTHER);
+    for (const t of [a, b, other]) await support.setStatus({ operatorId: AGENT, ticketId: t.id, status: 'resolved' });
+    expect(await (await mine()).ratedMine()).toEqual([]);
+    await (await mine()).rate({ ticketId: a.id, score: 5, clientRequestId: 'r-a' });
+    await (await mine(OTHER)).rate({ ticketId: other.id, score: 2, clientRequestId: 'r-o' });
+    expect(await (await mine()).ratedMine()).toEqual([a.id]);
+    expect(await (await mine(OTHER)).ratedMine()).toEqual([other.id]);
+  });
+});

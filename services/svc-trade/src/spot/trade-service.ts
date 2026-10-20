@@ -934,13 +934,21 @@ export class TradeService {
     return (await this.marketLifecycle?.snapshot(market)) ?? null;
   }
 
-  private async assertLifecycleAction(market: Market, action: 'PLACE' | 'PLACE_POST_ONLY' | 'AMEND'): Promise<LifecycleAdmissionProof> {
+  private async assertLifecycleAction(
+    market: Market,
+    action: 'PLACE' | 'PLACE_POST_ONLY' | 'AMEND',
+    orderType?: string,
+  ): Promise<LifecycleAdmissionProof> {
     if (!this.marketLifecycle) {
       throw new TradeError('market lifecycle authority is not configured', 'trade.lifecycle_authority_unavailable');
     }
     const snapshot = await this.marketLifecycle.snapshot(market, { now: this.now().toISOString() });
     const decision = this.marketLifecycle.admit(snapshot, action);
     if (decision.decision === 'ELIGIBLE') {
+      // Limit-only mode keeps placement open for limit orders and refuses a market order here, before any hold.
+      if (snapshot.state === 'LIMIT_ONLY' && orderType === 'market') {
+        throw new TradeError(`market ${market.symbol} is limit-only: market orders are refused`, 'trade.mode_limit_only');
+      }
       try {
         return createLifecycleAdmissionProof(snapshot, decision, action);
       } catch {
@@ -1649,7 +1657,7 @@ export class TradeService {
     // cannot create new value and remains recoverable during an authority
     // outage. A fresh PLACE/PLACE_POST_ONLY must have explicit authority,
     // dossier, session, risk, and matching readiness evidence.
-    const lifecycleProof = await this.assertLifecycleAction(market, tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE');
+    const lifecycleProof = await this.assertLifecycleAction(market, tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
 
     // The per-kind half of the kill-switch. `TRADE_SPOT_ENABLED` is the spot
     // plane's switch and stays exactly that — it does not halt futures, and
@@ -2623,7 +2631,7 @@ export class TradeService {
         // Authority is required before cancel, so an unavailable PX-S01 source
         // cannot strand the caller by cancelling an order it cannot replace.
         try {
-          await this.assertLifecycleAction(market, input.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE');
+          await this.assertLifecycleAction(market, input.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
         } catch (err) {
           if (err instanceof TradeError && err.code.startsWith('trade.lifecycle_')) {
             return this.replaceOutcome(original, null, 'LIFECYCLE_REFUSED', err.code, false, requestAlreadyExists);
@@ -3932,7 +3940,7 @@ export class TradeService {
   private async holdUnknownSubmitRefusal(order: OrderRecord, market: Market): Promise<string | null> {
     if (market.kind === 'spot' && !this.spotEnabled) return 'spot trading is disabled';
     try {
-      await this.assertLifecycleAction(market, order.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE');
+      await this.assertLifecycleAction(market, order.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', order.type);
     } catch (err) {
       return err instanceof Error ? err.message : 'lifecycle gate refused';
     }

@@ -163,6 +163,8 @@ describe('support desk owner procedures', () => {
     const otherRead = await refuse(service.rating({ userId: OTHER, ticketId: ticket.id }));
     expect(otherRead.code).toBe('support.not_found');
     expect(await service.rating({ userId: OP, ticketId: ticket.id, asOperator: true })).toEqual(rating);
+    expect(await service.ratedTicketIds(OWNER)).toContain(ticket.id);
+    expect(await service.ratedTicketIds(OTHER)).not.toContain(ticket.id);
   });
 
   it('stores one clean attachment, and refuses size, type, scanner, another account, and a blank store', async () => {
