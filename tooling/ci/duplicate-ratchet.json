@@ -125,10 +125,6 @@
     "services/svc-notify/src/notices/approval.ts": {
       "unwrap": 1
     },
-    "services/svc-ops/src/operator-desks.ts": {
-      "unwrap": 1,
-      "fetch": 1
-    },
     "services/svc-ops/src/outreach/authority.ts": {
       "unwrap": 1
     },
