@@ -10,6 +10,7 @@ import { maskIp } from './request-meta.js';
 export type LiveSession = {
   id: string;
   familyId: string;
+  /** When the person signed in on this device: the family's first row, not the latest refresh. */
   createdAt: Date;
   lastUsedAt: Date;
   device: string | null;
@@ -92,6 +93,7 @@ export async function listSessions(
       id: string;
       family_id: string;
       created_at: Date;
+      signed_in_at: Date;
       last_used_at: Date;
       device: string | null;
       user_agent: string | null;
@@ -99,12 +101,13 @@ export async function listSessions(
       country: string | null;
     }>
   >`
-    SELECT id, family_id, created_at, last_used_at, device, user_agent, ip, country
+    SELECT id, family_id, created_at, signed_in_at, last_used_at, device, user_agent, ip, country
     FROM (
-      SELECT DISTINCT ON (family_id) id, family_id, created_at, last_used_at, device, user_agent, ip, country
-      FROM sessions
-      WHERE user_id = ${named} AND revoked = false AND expires_at > now()
-      ORDER BY family_id, created_at DESC, id DESC
+      SELECT DISTINCT ON (s.family_id) s.id, s.family_id, s.created_at, s.last_used_at, s.device, s.user_agent, s.ip, s.country,
+        (SELECT min(f.created_at) FROM sessions f WHERE f.user_id = s.user_id AND f.family_id = s.family_id) AS signed_in_at
+      FROM sessions s
+      WHERE s.user_id = ${named} AND s.revoked = false AND s.expires_at > now()
+      ORDER BY s.family_id, s.created_at DESC, s.id DESC
     ) live
     WHERE ${after ? sql`(created_at, id) < (${after.createdAt}, ${after.id})` : sql`true`}
     ORDER BY created_at DESC, id DESC
@@ -117,8 +120,8 @@ export async function listSessions(
     sessions: page.map((row) => ({
       id: row.id,
       familyId: row.family_id,
-      createdAt: row.created_at,
-      lastUsedAt: row.last_used_at,
+      createdAt: row.signed_in_at,
+      lastUsedAt: row.created_at,
       device: row.device,
       userAgent: row.user_agent,
       ip: maskIp(row.ip),

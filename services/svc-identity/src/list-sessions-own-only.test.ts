@@ -16,6 +16,7 @@ const sql = (async () => [
     id: SID,
     family_id: SID,
     created_at: new Date(),
+    signed_in_at: new Date(),
     last_used_at: new Date(),
     device: null,
     user_agent: null,

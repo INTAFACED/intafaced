@@ -82,6 +82,9 @@ if (!(await postgresAvailable(URL))) {
       const onPhone = devices.find((row) => row.device === 'Phone')!;
       expect(onPhone).toMatchObject({ id: phoneSession, userAgent: 'Mobile/1.0', ip: '203.0.113.x', isCurrent: false, country: null });
       expect(onPhone.familyId).toBe(await familyOf(phone.sessionId));
+      const [firstRow] = await db.sql<Array<{ created_at: Date }>>`SELECT created_at FROM sessions WHERE id = ${phone.sessionId}`;
+      expect(new Date(onPhone.createdAt).getTime()).toBe(firstRow!.created_at.getTime());
+      expect(new Date(onPhone.lastUsedAt).getTime()).toBeGreaterThanOrEqual(new Date(onPhone.createdAt).getTime());
       expect(devices.find((row) => row.device === 'Laptop')).toMatchObject({ isCurrent: true, ip: '198.51.100.x' });
     });
 

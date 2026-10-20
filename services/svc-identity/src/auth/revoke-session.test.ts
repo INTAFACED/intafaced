@@ -24,6 +24,7 @@ function sessionStore(sessions: SessionRow[], keys: KeyRow[] = []) {
           id: s.id,
           family_id: s.id,
           created_at: s.created_at,
+          signed_in_at: s.created_at,
           last_used_at: s.created_at,
           device: null,
           user_agent: null,

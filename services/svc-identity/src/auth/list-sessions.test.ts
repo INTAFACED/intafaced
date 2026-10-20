@@ -30,6 +30,7 @@ function sessionStore(sessions: SessionRow[]) {
           id: s.id,
           family_id: s.id,
           created_at: s.created_at,
+          signed_in_at: s.created_at,
           last_used_at: s.created_at,
           device: null,
           user_agent: null,
@@ -155,7 +156,7 @@ describe('listSessions', () => {
   });
 
   it('never selects refresh_hash or other secrets', () => {
-    expect(src).toMatch(/SELECT id, family_id, created_at, last_used_at, device, user_agent, ip, country/);
+    expect(src).toMatch(/SELECT id, family_id, created_at, signed_in_at, last_used_at, device, user_agent, ip, country/);
     expect(src).toMatch(/LIMIT \$\{published \+ 1\}/);
     expect(src).not.toMatch(/refresh_hash/);
     expect(src).not.toMatch(/SELECT \*/);
