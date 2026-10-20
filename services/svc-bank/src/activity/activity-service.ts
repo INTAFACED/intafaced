@@ -65,6 +65,11 @@ export interface ActivityItem {
   readonly privateNote?: string;
   /** An open dispute this caller filed. Status stays open; nothing here is a refund. */
   readonly dispute?: { readonly id: string; readonly status: 'open'; readonly reason: string };
+  /**
+   * The crypto address a withdrawal went to, when this service recorded one. Absent on every other line: a line with
+   * no address says so by having none, and the address filter never matches it.
+   */
+  readonly address?: string;
 }
 
 export interface ActivityPage {
@@ -139,7 +144,7 @@ export interface ActivityServiceOptions {
   /** Note, reference and the other party's handle for personal sends. */
   transferFacts?: ActivityTransferFacts;
   /** Space-transfer words, private notes and disputes. Unset = those fields stay absent. A failure never hides a line. */
-  records?: Pick<ActivityRecordService, 'forItems'>;
+  records?: Pick<ActivityRecordService, 'forItems'> & Partial<Pick<ActivityRecordService, 'addressesFor'>>;
 }
 
 /** The date range is backwards. */
@@ -169,6 +174,33 @@ export class ActivityLookupBoundedError extends Error {
   }
 }
 
+/** The tax year starts on a date only the owner and counsel can set, and none is set. */
+export class ActivityTaxYearUnsetError extends Error {
+  readonly code = 'portfolio.tax_year_start_unset' as const;
+  constructor() {
+    super('The tax year start is not set. Filter by calendar year instead');
+    this.name = 'ActivityTaxYearUnsetError';
+  }
+}
+
+/** Oldest-first needs the whole range in hand; this history is too long to hold. */
+export class ActivitySortBoundedError extends Error {
+  readonly code = 'bank.activity_sort_bounded' as const;
+  constructor() {
+    super('Oldest first is limited to a shorter history. Narrow the dates or the account');
+    this.name = 'ActivitySortBoundedError';
+  }
+}
+
+/** The account is not one of this customer's. */
+export class ActivityAccountUnknownError extends Error {
+  readonly code = 'bank.activity_account_unknown' as const;
+  constructor() {
+    super('That account is not yours');
+    this.name = 'ActivityAccountUnknownError';
+  }
+}
+
 export interface ActivityFilter {
   readonly kind?: readonly ActivityKind[];
   readonly direction?: 'in' | 'out';
@@ -177,6 +209,9 @@ export interface ActivityFilter {
   readonly q?: string;
   readonly minAmount?: string;
   readonly maxAmount?: string;
+  /** `main` or one named Space id. */
+  readonly accountId?: string;
+  readonly address?: string;
 }
 
 export interface ActivityQuery {
@@ -190,14 +225,27 @@ export interface ActivityQuery {
   q?: string;
   minAmount?: string;
   maxAmount?: string;
+  /** `main` (the account itself) or the id of one named Space. */
+  accountId?: string;
+  /** Newest first unless `asc`. */
+  sort?: 'asc' | 'desc';
+  /** A UTC calendar year. Narrows `from` and `to`. */
+  year?: number;
+  /** A tax year. Its start is an owner value that is not set, so this always refuses. */
+  taxYear?: number;
+  /** Part of a withdrawal address, matched without regard to case. Lines with no recorded address never match. */
+  address?: string;
 }
 
+/** Oldest-first holds the matching lines in memory: at most this many, then it refuses and asks for a narrower range. */
+const ASC_MAX_ITEMS = 2_000;
+const ASC_MAX_CALLS = 10;
 const FILTER_WINDOW = 100;
 const FILTER_SCAN_MAX = 2_000;
 const GET_PAGE = 100;
 const GET_MAX_PAGES = 100;
 
-export function activityFilterKey(filter: ActivityFilter): string {
+export function activityFilterKey(filter: ActivityFilter, order: 'asc' | 'desc' = 'desc'): string {
   return JSON.stringify({
     k: filter.kind ? [...filter.kind].sort() : null,
     d: filter.direction ?? null,
@@ -206,6 +254,9 @@ export function activityFilterKey(filter: ActivityFilter): string {
     q: filter.q ?? null,
     n: filter.minAmount ?? null,
     x: filter.maxAmount ?? null,
+    ...(filter.accountId ? { a: filter.accountId } : {}),
+    ...(filter.address ? { r: filter.address } : {}),
+    ...(order === 'asc' ? { o: 'asc' } : {}),
   });
 }
 
@@ -217,16 +268,32 @@ function hasFilter(input: ActivityQuery): boolean {
     input.to !== undefined ||
     input.q !== undefined ||
     input.minAmount !== undefined ||
-    input.maxAmount !== undefined
+    input.maxAmount !== undefined ||
+    input.accountId !== undefined ||
+    input.year !== undefined ||
+    input.taxYear !== undefined ||
+    input.address !== undefined
   );
 }
 
 function readFilter(input: ActivityQuery): ActivityFilter {
+  if (input.taxYear !== undefined) throw new ActivityTaxYearUnsetError();
+  // A calendar year is the UTC year, first millisecond to last, narrowed by any range the caller also gave.
+  let from = input.from;
+  let to = input.to;
+  if (input.year !== undefined) {
+    const yearFrom = Date.UTC(input.year, 0, 1);
+    const yearTo = Date.UTC(input.year + 1, 0, 1) - 1;
+    if (from === undefined || Date.parse(from) < yearFrom) from = new Date(yearFrom).toISOString();
+    if (to === undefined || Date.parse(to) > yearTo) to = new Date(yearTo).toISOString();
+  }
   const filter: ActivityFilter = {
     ...(input.kind ? { kind: input.kind } : {}),
     ...(input.direction ? { direction: input.direction } : {}),
-    ...(input.from ? { from: input.from } : {}),
-    ...(input.to ? { to: input.to } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(input.accountId ? { accountId: input.accountId } : {}),
+    ...(input.address ? { address: input.address.trim().toLowerCase() } : {}),
     ...(input.q ? { q: input.q.trim().toLowerCase() } : {}),
     ...(input.minAmount ? { minAmount: input.minAmount } : {}),
     ...(input.maxAmount ? { maxAmount: input.maxAmount } : {}),
@@ -244,6 +311,7 @@ function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
   const amount = parseAmount(item.amount);
   if (filter.minAmount && amount < parseAmount(filter.minAmount)) return false;
   if (filter.maxAmount && amount > parseAmount(filter.maxAmount)) return false;
+  if (filter.address && !(item.address ?? '').toLowerCase().includes(filter.address)) return false;
   if (!filter.q) return true;
   const haystack = [
     item.kind,
@@ -258,6 +326,7 @@ function itemMatches(item: ActivityItem, filter: ActivityFilter): boolean {
     item.reference ?? '',
     item.privateNote ?? '',
     item.orderId ?? '',
+    item.address ?? '',
   ]
     .join('\n')
     .toLowerCase();
@@ -328,6 +397,7 @@ export class ActivityService {
 
   /** `userId` is the verified principal, never input. */
   async list(userId: string, input: ActivityQuery = {}): Promise<ActivityPage> {
+    if (input.sort === 'asc') return this.listOldestFirst(userId, input);
     if (!hasFilter(input)) return this.listPage(userId, input);
     return this.listFiltered(userId, input);
   }
@@ -388,6 +458,8 @@ export class ActivityService {
         limit: FILTER_WINDOW,
         cursor: positionCursor,
         ...(assetId === null ? {} : { assetId }),
+        ...(filter.accountId === undefined ? {} : { accountId: filter.accountId }),
+        ...(filter.address === undefined ? {} : { needAddress: true }),
       });
       scanned += window.items.length;
       const kept: ActivityItem[] = [];
@@ -406,7 +478,7 @@ export class ActivityService {
       const rest = kept.slice(skip);
       const take = rest.slice(0, limit - matches.length);
       matches.push(...take);
-      const windowStart = await this.positionBody(userId, assetId, positionCursor);
+      const windowStart = await this.positionBody(userId, assetId, positionCursor, filter.accountId);
       if (take.length < rest.length) {
         return {
           items: matches,
@@ -432,12 +504,13 @@ export class ActivityService {
     userId: string,
     assetId: string | null,
     cursor: string | undefined,
+    accountId?: string,
   ): Promise<{ userId: string; assetId: string | null; owners: Record<string, OwnerPosition> }> {
     if (cursor !== undefined) {
       const body = decodeCursor(this.options.cursorSecret ?? '', cursor, { userId, assetId });
       return { userId, assetId, owners: { ...body.owners } };
     }
-    const owners = await this.ownersOf(userId, assetId);
+    const owners = await this.ownersOf(userId, assetId, accountId);
     const map: Record<string, OwnerPosition> = {};
     for (const owner of owners) map[owner.key] = null;
     return { userId, assetId, owners: map };
@@ -476,7 +549,44 @@ export class ActivityService {
     return { item, lines, complete };
   }
 
-  private async listPage(userId: string, input: { limit?: number; cursor?: string; assetId?: string }): Promise<ActivityPage> {
+  /**
+   * Every matching line, oldest first. The ledger pages newest first only, so the matching lines are collected
+   * newest first (bounded), reversed, and paged by how many have been shown. New postings are the newest, so they land
+   * at the end of this order and never move a page boundary. Past the bound it refuses rather than show a short list.
+   */
+  private async listOldestFirst(userId: string, input: ActivityQuery): Promise<ActivityPage> {
+    const { cursorSecret } = this.options;
+    if (!this.options.pages || !cursorSecret) throw new ActivityUnavailableError();
+    const base: ActivityQuery = { ...input, sort: undefined, cursor: undefined, limit: ACTIVITY_MAX_LIMIT };
+    const filter = readFilter(base);
+    const assetId = input.assetId ?? null;
+    const filterKey = activityFilterKey(filter, 'asc');
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
+    const skip = input.cursor === undefined ? 0 : (decodeCursor(cursorSecret, input.cursor, { userId, assetId, filterKey }).skip ?? 0);
+
+    const newestFirst: ActivityItem[] = [];
+    let cursor: string | undefined;
+    for (let call = 0; ; call += 1) {
+      if (call >= ASC_MAX_CALLS) throw new ActivitySortBoundedError();
+      const page = await this.listFiltered(userId, { ...base, ...(cursor === undefined ? {} : { cursor }) });
+      newestFirst.push(...page.items);
+      if (newestFirst.length > ASC_MAX_ITEMS) throw new ActivitySortBoundedError();
+      if (page.nextCursor === null) break;
+      cursor = page.nextCursor;
+    }
+    const oldestFirst = newestFirst.reverse();
+    const items = oldestFirst.slice(skip, skip + limit);
+    const shown = skip + items.length;
+    return {
+      items,
+      nextCursor: shown < oldestFirst.length ? encodeCursor(cursorSecret, { userId, assetId, owners: {}, filterKey, skip: shown }) : null,
+    };
+  }
+
+  private async listPage(
+    userId: string,
+    input: { limit?: number; cursor?: string; assetId?: string; accountId?: string; needAddress?: boolean },
+  ): Promise<ActivityPage> {
     const { pages, cursorSecret } = this.options;
     if (!pages || !cursorSecret) throw new ActivityUnavailableError();
 
@@ -486,7 +596,7 @@ export class ActivityService {
     // Cursor first: a bad one is refused before anything is read.
     const resume = input.cursor === undefined ? null : decodeCursor(cursorSecret, input.cursor, { userId, assetId });
 
-    const owners = await this.ownersOf(userId, assetId);
+    const owners = await this.ownersOf(userId, assetId, input.accountId);
     const live = owners.filter((o) => (resume === null ? true : resume.owners[o.key] !== undefined && resume.owners[o.key] !== false));
     const start = (o: Owner): string | null => (resume === null ? null : (resume.owners[o.key] as string | null));
 
@@ -532,7 +642,7 @@ export class ActivityService {
         }
       }
 
-      const items = await this.toItems(userId, taken);
+      const items = await this.toItems(userId, taken, input.needAddress === true);
       const more = Object.values(positions).some((p) => p !== false);
       return { items, nextCursor: more ? encodeCursor(cursorSecret, { userId, assetId, owners: positions }) : null };
     } catch (err) {
@@ -542,13 +652,18 @@ export class ActivityService {
   }
 
   /** The caller's own account plus their named Spaces. Space ids come from svc-bank's table filtered by `user_id`. */
-  private async ownersOf(userId: string, assetId: string | null): Promise<Owner[]> {
+  private async ownersOf(userId: string, assetId: string | null, accountId?: string): Promise<Owner[]> {
+    const main: Owner = { key: 'u', ownerType: 'user', ownerId: userId, spaceName: null };
+    if (accountId === 'main') return [main];
     const named = (await this.spaces.allNamedSpaces(userId, assetId ?? undefined)).filter((s) => s.kind === 'named' && s.userId === userId);
+    if (accountId !== undefined) {
+      // One Space, and only if it is this customer's: an id that is not theirs is refused, never read.
+      const space = named.find((s) => s.id === accountId);
+      if (!space) throw new ActivityAccountUnknownError();
+      return [{ key: `s:${space.id}`, ownerType: 'subaccount', ownerId: space.id, spaceName: space.name }];
+    }
     if (named.length + 1 > ACTIVITY_MAX_OWNERS) throw new ActivityUnavailableError('Too many Spaces to merge into one feed');
-    return [
-      { key: 'u', ownerType: 'user', ownerId: userId, spaceName: null },
-      ...named.map((s): Owner => ({ key: `s:${s.id}`, ownerType: 'subaccount', ownerId: s.id, spaceName: s.name })),
-    ];
+    return [main, ...named.map((s): Owner => ({ key: `s:${s.id}`, ownerType: 'subaccount', ownerId: s.id, spaceName: s.name }))];
   }
 
   /** k-way merge of the owners' newest-first queues. Each owner's own order is kept. */
@@ -583,7 +698,7 @@ export class ActivityService {
     return out;
   }
 
-  private async toItems(userId: string, taken: Taken[]): Promise<ActivityItem[]> {
+  private async toItems(userId: string, taken: Taken[], needAddress = false): Promise<ActivityItem[]> {
     // A transfer with both halves among the user's own pots is a Space move, not a payment to anyone.
     const transferHalves = new Map<string, number>();
     for (const { entry } of taken) {
@@ -646,7 +761,37 @@ export class ActivityService {
         // A missing note never hides the money movement.
       }
     }
-    return this.withRecords(userId, withHandles, personalTx);
+    return this.withRecords(userId, withHandles, personalTx, needAddress);
+  }
+
+  /**
+   * A withdrawal's recorded address. Only withdrawal lines can have one. A failed lookup never hides a line, except
+   * when the caller is filtering by address: then it fails the read, because a filter that quietly missed a line would
+   * be a plausible list with money missing from it.
+   */
+  private async withAddresses(
+    userId: string,
+    items: ActivityItem[],
+    records: NonNullable<ActivityServiceOptions['records']>,
+    needAddress: boolean,
+  ): Promise<ActivityItem[]> {
+    const lookup = records.addressesFor;
+    if (!lookup) {
+      if (needAddress) throw new ActivityUnavailableError();
+      return items;
+    }
+    const txIds = [...new Set(items.filter((item) => item.kind === 'withdrawal').map((item) => item.txId))];
+    if (txIds.length === 0) return items;
+    try {
+      const found = await lookup.call(records, userId, txIds);
+      return items.map((item) => {
+        const address = item.kind === 'withdrawal' ? found.get(item.txId) : undefined;
+        return address === undefined ? item : { ...item, address };
+      });
+    } catch {
+      if (needAddress) throw new ActivityUnavailableError();
+      return items;
+    }
   }
 
   /**
@@ -654,9 +799,19 @@ export class ActivityService {
    * A space-to-space transfer takes those two fields from `transfer_messages`.
    * Private notes and disputes are the caller's own, on either kind of line.
    */
-  private async withRecords(userId: string, items: ActivityItem[], personalTx: ReadonlySet<string>): Promise<ActivityItem[]> {
+  private async withRecords(
+    userId: string,
+    items: ActivityItem[],
+    personalTx: ReadonlySet<string>,
+    needAddress: boolean,
+  ): Promise<ActivityItem[]> {
     const records = this.options.records;
-    if (!records || items.length === 0) return items;
+    if (!records) {
+      if (needAddress) throw new ActivityUnavailableError();
+      return items;
+    }
+    if (items.length === 0) return items;
+    items = await this.withAddresses(userId, items, records, needAddress);
     let notes: ReadonlyMap<string, ActivityAnnotation>;
     try {
       notes = await records.forItems(
