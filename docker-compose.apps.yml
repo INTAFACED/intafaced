@@ -388,6 +388,10 @@ services:
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
+      # Where identity asks bank and trade what is still open before a sub-account is revoked or deleted, and before an account closes.
+      # Unset, those doors refuse (check unavailable); they never read as "nothing open".
+      IDENTITY_CLOSURE_BANK_URL: http://svc-bank:4009
+      IDENTITY_CLOSURE_TRADE_URL: http://svc-trade:4004
       # ops.affiliates: payout posts sweepFeesToRewards + rewardPay. Without this,
       # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
       # and undefaulted — unset is still a legible refuse, not a localhost invent).
