@@ -54,6 +54,16 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
           subAccountDeleteToTrpc(err);
         }
       }),
+    assets: protectedProcedure
+      .input(z.object({ subAccountId: z.string().uuid() }).strict())
+      .output(z.object({ balances: z.array(balance) }))
+      .query(async ({ ctx, input }) => {
+        try {
+          return await required().assets({ ...actor(ctx.principal), subAccountId: input.subAccountId });
+        } catch (err) {
+          subAccountDeleteToTrpc(err);
+        }
+      }),
     delete: protectedProcedure
       .input(
         z
