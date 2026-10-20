@@ -235,4 +235,16 @@ describe('read the alerts', () => {
     const result = await listAlerts(client(async () => trpc({ items: [{ id: 'not-a-uuid' }], evaluation: dark })));
     expect(result.ok).toBe(false);
   });
+
+  it('sends added conditions only when there are some', async () => {
+    const extras = [{ condition: 'less_than' as const, targetPrice: '70000' }];
+    const fetch = vi.fn(async () => trpc({ alert: row({ extras }), evaluation: dark }));
+    const outcome = await submitCreate(client(fetch), { ...intent, extras }, USER);
+    expect(outcome.kind).toBe('saved');
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ extras });
+    const none = vi.fn(async () => trpc({ alert: row(), evaluation: dark }));
+    await submitCreate(client(none), { ...intent, extras: [] }, USER);
+    expect(JSON.parse(String((none.mock.calls[0] as unknown as [string, RequestInit])[1].body))).not.toHaveProperty('extras');
+  });
 });
