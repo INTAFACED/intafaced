@@ -1426,6 +1426,14 @@ export class AuthService {
         throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
       }
       await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+      // Sessions opened before the second factor existed carry `mfa: false` and
+      // refresh copies that onto every rotation, so one stolen before enrolment
+      // would outlive it. The enrolling door names its own session; every other
+      // open session of the account is revoked. A caller with no session context
+      // (internal tooling, fixtures) names none and revokes nothing.
+      if (actor.sessionId) {
+        await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${actor.sessionId}`;
+      }
     });
     await this.rank.awardXp({
       userId,
@@ -2040,12 +2048,6 @@ export class AuthService {
       >`UPDATE kyc_records SET status = 'rejected', reviewed_at = now(), reviewed_by = ${input.reviewerId} WHERE id = ${row.id} RETURNING id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at`;
       return toKycRecord(updated[0]!);
     });
-  }
-
-  async approveKyc(input: { userId: string; tier: SubmittableKycTier; jurisdiction: string; providerRef?: string }): Promise<void> {
-    await this
-      .sql`INSERT INTO kyc_records (user_id, tier, jurisdiction, provider_ref, status, reviewed_at) VALUES (${input.userId}, ${input.tier}, ${input.jurisdiction}, ${input.providerRef ?? null}, 'approved', now())`;
-    await this.announceKycApproval({ userId: input.userId, tier: input.tier, jurisdiction: input.jurisdiction });
   }
 
   private async announceKycApproval(record: { userId: string; tier: KycTier; jurisdiction: string }): Promise<void> {
