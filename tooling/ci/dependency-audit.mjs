@@ -102,56 +102,6 @@ const KNOWN = {
   },
   // Advisory DB moved on 2026-10-01. None of these packages were added by the
   // recovery-enum change. A version bump is its own supply-chain PR.
-  'GHSA-3wwx-pv8p-q78v': {
-    severity: 'moderate',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-pmjh-fq2x-6v4x': {
-    severity: 'moderate',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-r53p-7pc4-xj5r': {
-    severity: 'low',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-rfgv-xxqx-mfg5': {
-    severity: 'high',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-3xpg-4rpp-hhhm': {
-    severity: 'moderate',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-2jfj-6hjv-fm6j': {
-    severity: 'moderate',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-2gqq-gqf2-x968': {
-    severity: 'low',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-w293-vg96-wgc3': {
-    severity: 'high',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-8436-99hf-9mmv': {
-    severity: 'low',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
-  'GHSA-rx4f-c7p8-82vq': {
-    severity: 'moderate',
-    module: 'undici',
-    note: 'testcontainers > undici. Test-only Docker client. Not a service request path.',
-  },
   'GHSA-q2hr-2g5m-vwhr': {
     severity: 'moderate',
     module: 'brace-expansion',
