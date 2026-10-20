@@ -8,7 +8,8 @@
  * counted per file in tooling/ci/s2s-ratchet.json. The counts may only SHRINK:
  *
  *   - a count above its baseline, or a file that is not in the baseline, fails (new hand-signing or a new name check);
- *   - a count below its baseline also fails, with the number to lower it to, so the baseline cannot drift loose.
+ *   - a count below its baseline passes. Lowering the baseline is optional housekeeping, so a service PR that removes
+ *     hand-signing does not have to edit this gate file (owner decision 2026-10-20).
  *
  * Counts are of code lines: comment lines and test files are not counted. A fully migrated tree has an empty baseline.
  *
@@ -79,10 +80,6 @@ export function compare(found, baseline) {
             (kind === 'sign'
               ? 'Sign with the service key (s2sFetch / s2sRequestHeaders) instead of adding shared-secret signing.'
               : 'Declare the allowed callers with serviceProcedureFor instead of comparing a name.'),
-        );
-      } else if (have[kind] < allowed[kind]) {
-        problems.push(
-          `${file}: ${label} is down to ${have[kind]} (baseline ${allowed[kind]}). Lower the baseline in s2s-ratchet.json to ${have[kind]}.`,
         );
       }
     }
