@@ -541,6 +541,8 @@ open a leg's other side refuses at placement, as an outright order does.
 - **Keys.** Hold `futures.order.margin.hold:<orderId>`; release `futures.order.margin.release:<orderId>:0`; leg fill
   `futures.fill:spread:<spreadId>:<sequence>:<leg>:<positionId>`. The spread book has its own sequence, and the `spread:`
   prefix keeps a leg's key from ever equalling an outright `futures.fill:<marketUuid>:<sequence>:<positionUuid>`.
+  The ledger caps a key at 200 characters, so a spread id whose longest fill key would exceed that refuses at placement
+  (`trade.spread_id_too_long`) before anything is held.
 - **Settlement.** The `spreadFilled` consumer (and the engine's own reply) settles each account side as two leg fills: both
   intents are committed together, the positions are held against a close, a liquidation or funding until both are
   `applied`, a busy position makes the fill wait durably (`futures.spread_fill_waits` job), and a replay posts nothing twice.

@@ -39,8 +39,21 @@ import type {
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MatchedFuturesOrders } from './matched-orders.js';
-import { SpreadFuturesOrders, type PlaceSpreadOrderInput, type SpreadFillInput, type SpreadOrderView } from './spread-orders.js';
-import { spreadOrderIdFor } from './ids.js';
+import {
+  LEDGER_IDEMPOTENCY_KEY_MAX,
+  MAX_SPREAD_ID_LENGTH,
+  SpreadFuturesOrders,
+  type PlaceSpreadOrderInput,
+  type SpreadFillInput,
+  type SpreadOrderView,
+} from './spread-orders.js';
+import { spreadLegFillKey, spreadOrderIdFor } from './ids.js';
+import { PositionService } from './position-service.js';
+import { memoryMarkBook } from './mark-source.js';
+import { sqlLiquidationRungStore } from './tick-stores.js';
+import { TEST_ADL_RANKING, sqlAdlCandidates, sqlAdlPairReducer } from './adl-pairing.js';
+import { ADL_DISCLOSURE_BEFORE_ACTION } from './adl-last-resort.js';
+import { sqlDatedSettlementPositionLoader, sqlFundingPositionLoader } from './position-loaders.js';
 import { engineLegPrices, orderLegSides, spreadHoldAmount, type OrderSide, type SpreadOrderTerms } from './spread-order-plan.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -1298,6 +1311,566 @@ describe('svc-trade futures spread orders (CB-otc-16, PG-backed)', () => {
       };
       expect(await svc.liquidationPort.cancelForLiquidation(alice.orderId)).toBe('timeout');
       expect(await bal(futuresOrderMarginAccount(ALICE, USDT, alice.orderId))).toBe(await holdOfRow(alice.orderId));
+    });
+  });
+
+  // ── the guards inside settlement ────────────────────────────────────────────
+
+  function recordIntentsDirect(svc: SpreadFuturesOrders, orderId: string, fill: SpreadFillInput, isTaker: boolean): Promise<unknown> {
+    const s = svc as unknown as {
+      deps: { sql: typeof sql };
+      recordIntents(tx: unknown, orderId: string, fill: unknown, isTaker: boolean): Promise<unknown>;
+    };
+    const parsed = {
+      spreadId: fill.spreadId,
+      makerOrderId: fill.makerOrderId,
+      takerOrderId: fill.takerOrderId,
+      takerSide: fill.takerSide,
+      sequence: fill.sequence,
+      price: A(fill.price),
+      qty: A(fill.qty),
+      legs: fill.legs.map((l) => ({ symbol: l.symbol, takerSide: l.takerSide, qty: A(l.qty), price: A(l.price) })),
+    };
+    return s.deps.sql.begin(async (tx) => s.recordIntents(tx, orderId, parsed, isTaker));
+  }
+
+  // ── a pending spread leg holds its position (review of PR 5614) ─────────────
+
+  describe('a spread leg that has posted and not yet written its row', () => {
+    interface Fixture {
+      svc: SpreadFuturesOrders;
+      fill: SpreadFillInput;
+      bobFar: string;
+      bobNear: string;
+      aliceFar: string;
+      reduce?: { orderId: string };
+      carol?: { orderId: string };
+    }
+
+    /**
+     * Alice long / Bob short a calendar spread of 1 (settled). Then a second fill is recorded and CRASHES after its first leg
+     * posted: Bob's two leg intents are `pending` on his existing positions, his FAR pot already holds the first leg's margin
+     * and the rows have not caught up. Alice's side of that fill has not been recorded yet.
+     */
+    async function pendingLeg(options: { withReduce?: boolean } = {}): Promise<Fixture> {
+      const svc = build();
+      await place(svc, ALICE, 'buy', '1', 'pg-a1');
+      await place(svc, BOB, 'sell', '1', 'pg-b1');
+      const bobFar = (await positionsOf(BOB, FAR))[0]!.id;
+      const bobNear = (await positionsOf(BOB, NEAR))[0]!.id;
+      const aliceFar = (await positionsOf(ALICE, FAR))[0]!.id;
+      let reduce: { orderId: string } | undefined;
+      let carol: { orderId: string } | undefined;
+      if (options.withReduce) {
+        const outright = (userId: string, side: 'buy' | 'sell', clientOrderId: string, reduceOnly = false) => ({
+          userId,
+          symbol: FAR_SYMBOL,
+          side,
+          type: 'limit' as const,
+          qty: A('1'),
+          limitPrice: A('105'),
+          leverage: A('10'),
+          reduceOnly,
+          clientOrderId,
+        });
+        reduce = await matchedService.place(principal(BOB), outright(BOB, 'buy', 'pg-reduce', true));
+        carol = await matchedService.place(principal(CAROL), outright(CAROL, 'sell', 'pg-carol'));
+      }
+      await place(svc, ALICE, 'buy', '1', 'pg-a2');
+      let crashed = false;
+      const crashing = recording(ledger, undefined, (request) => {
+        if (request.reason === 'futures.order.margin.applied' && !crashed) {
+          crashed = true;
+          throw new Error('simulated crash after the post');
+        }
+      });
+      await expect(place(build({}, crashing), BOB, 'sell', '1', 'pg-b2')).rejects.toThrow('simulated crash after the post');
+      expect(
+        await sql`SELECT 1 FROM trade.futures_spread_fills WHERE state = 'pending' AND position_id IN (${bobFar}, ${bobNear})`,
+      ).toHaveLength(2);
+      const fill = asInput(engine.fills[1]!);
+      return { svc: build(), fill, bobFar, bobNear, aliceFar, reduce, carol };
+    }
+
+    const recover = async (f: Fixture) => {
+      await f.svc.settleFill(f.fill);
+      expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE state = 'pending'`).toHaveLength(0);
+    };
+
+    // The blocker: an outright reduce fill must wait for a pending spread leg on the same position.
+    it('an outright reduce fill waits for it: the position is not closed from under the leg that has posted into its pot', async () => {
+      const f = await pendingLeg({ withReduce: true });
+      const reduceFill = {
+        marketId: FAR,
+        makerOrderId: f.reduce!.orderId,
+        takerOrderId: f.carol!.orderId,
+        price: '105',
+        qty: '1',
+        sequence: 77,
+      };
+      const potBefore = await bal(positionCollateralAccount(BOB, USDT, f.bobFar));
+      expect(potBefore).toBeGreaterThan(parseAmount((await positionsOf(BOB, FAR))[0]!.margin_current));
+
+      // Refused whole and kept to retry: nothing is recorded, nothing posts, the position stays open.
+      await expect(matchedService.settleFill(reduceFill)).rejects.toMatchObject({ code: 'trade.futures_fill_in_progress', status: 409 });
+      expect(await matchedService.settleFillOrWait(reduceFill)).toBe('waiting');
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 77`).toHaveLength(0);
+      expect((await positionsOf(BOB, FAR))[0]).toMatchObject({ status: 'open' });
+      expect(await bal(positionCollateralAccount(BOB, USDT, f.bobFar))).toBe(potBefore);
+
+      // The spread's own second transaction lands, and then the reduce fill settles against the grown row.
+      await recover(f);
+      const grown = (await positionsOf(BOB, FAR))[0]!;
+      expect(grown.status).toBe('open');
+      expect(parseAmount(grown.size)).toBe(A('2'));
+      expect(await bal(positionCollateralAccount(BOB, USDT, f.bobFar))).toBe(parseAmount(grown.margin_current));
+      expect(await matchedService.retryWaitingFills(50)).toEqual({ settled: 1, waiting: 0, failed: [] });
+      const reduced = (await positionsOf(BOB, FAR))[0]!;
+      expect(reduced.status).toBe('open');
+      expect(parseAmount(reduced.size)).toBe(A('1'));
+      expect(await bal(positionCollateralAccount(BOB, USDT, f.bobFar))).toBe(parseAmount(reduced.margin_current));
+      // Nothing is left pending or stranded: the spread's orders ended with their holds returned.
+      expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE state = 'pending'`).toHaveLength(0);
+      expect(await bal(futuresOrderMarginAccount(BOB, USDT, spreadOrderIdFor(BOB, SPREAD, 'pg-b2')))).toBe(0n);
+    });
+
+    it('the same guard runs under the position lock, where the reduce intent is recorded', async () => {
+      const f = await pendingLeg({ withReduce: true });
+      const m = matchedService as unknown as {
+        deps: { sql: typeof sql };
+        recordReduceIntent(
+          tx: unknown,
+          input: { marketId: string; orderId: string; sequence: number; price: bigint; qty: bigint },
+        ): Promise<unknown>;
+      };
+      await expect(
+        m.deps.sql.begin(async (tx) =>
+          m.recordReduceIntent(tx, { marketId: FAR, orderId: f.reduce!.orderId, sequence: 78, price: A('105'), qty: A('1') }),
+        ),
+      ).rejects.toMatchObject({ code: 'trade.futures_fill_in_progress' });
+      expect(await sql`SELECT 1 FROM trade.futures_order_fills`).toHaveLength(0);
+      await recover(f);
+    });
+
+    it('a leg that only grows the position does not hold back an outright fill that also only grows it', async () => {
+      const f = await pendingLeg();
+      const outright = (userId: string, side: 'buy' | 'sell', clientOrderId: string) => ({
+        userId,
+        symbol: FAR_SYMBOL,
+        side,
+        type: 'limit' as const,
+        qty: A('1'),
+        limitPrice: A('105'),
+        leverage: A('10'),
+        clientOrderId,
+      });
+      const bobSell = await matchedService.place(principal(BOB), outright(BOB, 'sell', 'pg-bob-open'));
+      const dave = await matchedService.place(principal(DAVE), outright(DAVE, 'buy', 'pg-dave'));
+      await matchedService.settleFill({
+        marketId: FAR,
+        makerOrderId: bobSell.orderId,
+        takerOrderId: dave.orderId,
+        price: '105',
+        qty: '1',
+        sequence: 79,
+      });
+      // Bob's short grew by the outright fill while his spread leg was still pending; the leg then lands on top of it.
+      expect(parseAmount((await positionsOf(BOB, FAR))[0]!.size)).toBe(A('2'));
+      await recover(f);
+      expect(parseAmount((await positionsOf(BOB, FAR))[0]!.size)).toBe(A('3'));
+      expect(await bal(positionCollateralAccount(BOB, USDT, f.bobFar))).toBe(parseAmount((await positionsOf(BOB, FAR))[0]!.margin_current));
+    });
+
+    // The other direction: the spread waits for a pending outright reduce intent on its leg positions.
+    describe('and the spread settlement waits for a pending outright reduce intent', () => {
+      async function pendingOutrightReduce(positionId: string, userId: string) {
+        const orderId = randomUUID();
+        await sql`
+          INSERT INTO trade.futures_orders (
+            id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price, band_low, band_high,
+            leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price
+          ) VALUES (${orderId}, ${userId}, ${FAR}, ${`pending-${orderId}`}, 'sell', 'limit', '1', '105', '105', '99.75', '110.25', '10', 'USDT', 'open', true, ${positionId}, '0')
+        `;
+        await sql`
+          INSERT INTO trade.futures_order_fills (
+            fill_key, order_id, market_id, engine_sequence, position_id, qty, price, amount, new_filled, new_adverse, new_applied, state,
+            kind, realized_pnl, loss_from_margin, loss_from_insurance, loss_unbooked, profit, margin_release, pot_out, initial_out, closes_position
+          ) VALUES (${`${FAR}:5:${positionId}`}, ${orderId}, ${FAR}, 5, ${positionId}, '1', '105', '0', '1', '0', '0', 'pending',
+            'reduce', '0', '0', '0', '0', '0', '5', '5', '5', false)
+        `;
+      }
+
+      async function nextFill(): Promise<{ fill: SpreadFillInput; alice: SpreadOrderView }> {
+        engine.matching = false;
+        const svc = build();
+        const alice = await place(svc, ALICE, 'buy', '1', 'ox-a');
+        const dave = await place(svc, DAVE, 'sell', '1', 'ox-d');
+        return { fill: engine.print(alice.orderId, dave.orderId, '1'), alice };
+      }
+
+      it('refuses the fill whole before either side records, and settles once the reduce intent is applied', async () => {
+        const svc = build();
+        await place(svc, ALICE, 'buy', '1', 'ox-first');
+        await place(svc, BOB, 'sell', '1', 'ox-first-b');
+        const aliceFar = (await positionsOf(ALICE, FAR))[0]!.id;
+        await pendingOutrightReduce(aliceFar, ALICE);
+        const { fill } = await nextFill();
+        const before = posts.length;
+        await expect(svc.settleFill(fill)).rejects.toMatchObject({ code: 'trade.futures_fill_in_progress', status: 409 });
+        // Whole: Dave's side (the taker, checked first) recorded and posted nothing either.
+        expect(posts.length).toBe(before);
+        expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE engine_sequence = ${fill.sequence}`).toHaveLength(0);
+        expect(await svc.settleFillOrWait(fill)).toBe('waiting');
+        await sql`UPDATE trade.futures_order_fills SET state = 'applied', applied_at = now() WHERE position_id = ${aliceFar}`;
+        expect(await svc.retryWaitingFills(50)).toEqual({ settled: 1, waiting: 0, failed: [] });
+        expect(parseAmount((await positionsOf(ALICE, FAR))[0]!.size)).toBe(A('2'));
+      });
+
+      it('and under the lock where the leg intents are recorded', async () => {
+        const svc = build();
+        await place(svc, ALICE, 'buy', '1', 'ox2-first');
+        await place(svc, BOB, 'sell', '1', 'ox2-first-b');
+        const aliceFar = (await positionsOf(ALICE, FAR))[0]!.id;
+        await pendingOutrightReduce(aliceFar, ALICE);
+        const { fill, alice } = await nextFill();
+        await expect(recordIntentsDirect(svc, alice.orderId, fill, false)).rejects.toMatchObject({
+          code: 'trade.futures_fill_in_progress',
+        });
+        expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE engine_sequence = ${fill.sequence}`).toHaveLength(0);
+      });
+
+      it('a live liquidation rung on a leg position refuses the fill whole before either side records, and again under the lock', async () => {
+        const svc = build();
+        await place(svc, ALICE, 'buy', '1', 'rg-first');
+        await place(svc, BOB, 'sell', '1', 'rg-first-b');
+        const aliceFar = (await positionsOf(ALICE, FAR))[0]!.id;
+        const plan = { recipes: [], reason: 'closing', fromInsurance: '0', marginAsset: USDT };
+        await sql`
+          INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state)
+          VALUES (${randomUUID()}, ${aliceFar}, ${`liq:${aliceFar}`}, 'closing', '1', '10', ${sql.json(plan as never)}, 'planned')
+        `;
+        const { fill, alice } = await nextFill();
+        const before = posts.length;
+        await expect(svc.settleFill(fill)).rejects.toMatchObject({ code: 'trade.liquidation_in_progress', status: 409 });
+        expect(posts.length).toBe(before);
+        expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE engine_sequence = ${fill.sequence}`).toHaveLength(0);
+        await expect(recordIntentsDirect(svc, alice.orderId, fill, false)).rejects.toMatchObject({ code: 'trade.liquidation_in_progress' });
+        expect(await sql`SELECT 1 FROM trade.futures_spread_fills WHERE engine_sequence = ${fill.sequence}`).toHaveLength(0);
+      });
+    });
+
+    // Every other operation that must not move a position under a pending leg.
+    it('refuses a close', async () => {
+      const f = await pendingLeg();
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+      await expect(positions.close(BOB, f.bobFar)).rejects.toMatchObject({ code: 'trade.futures_fill_in_progress', status: 409 });
+      await expect(positions.close(BOB, f.bobNear)).rejects.toMatchObject({ code: 'trade.futures_fill_in_progress', status: 409 });
+      expect((await positionsOf(BOB, FAR))[0]!.status).toBe('open');
+    });
+
+    it('keeps a liquidation rung from beginning', async () => {
+      const f = await pendingLeg();
+      const row = (await positionsOf(BOB, FAR))[0]!;
+      const plan = {
+        recipes: [],
+        sizeClosed: parseAmount(row.size),
+        marginRemaining: 0n,
+        marginTaken: parseAmount(row.margin_current),
+        releaseShort: 0n,
+        lossShort: 0n,
+        reason: 'bankrupt_full_close',
+        fromInsurance: 0n,
+        marginAsset: USDT,
+      };
+      const begin = (rungId: string, size: string, margin: string) =>
+        sqlLiquidationRungStore(sql).begin({
+          rungId,
+          positionId: f.bobFar,
+          liquidationId: `liq:${f.bobFar}`,
+          kind: 'closing',
+          fromSize: parseAmount(size),
+          fromMargin: parseAmount(margin),
+          plan,
+        });
+      // The row still shows the settled fill only, so size and margin match: only the pending leg stands in the way.
+      expect(await begin(randomUUID(), row.size, row.margin_current)).toEqual({ status: 'changed' });
+      expect(await sql`SELECT 1 FROM trade.liquidation_rungs`).toHaveLength(0);
+      await recover(f);
+      const grown = (await positionsOf(BOB, FAR))[0]!;
+      expect((await begin(randomUUID(), grown.size, grown.margin_current)).status).toBe('created');
+    });
+
+    it('keeps the position out of an ADL pair, as the candidate', async () => {
+      const f = await pendingLeg();
+      // Carol is bankrupt long on FAR with a bankruptcy price (104) under Bob's short entry (105): Bob would be a candidate.
+      const carol = randomUUID();
+      await sql`
+        INSERT INTO trade.positions (id, user_id, market_id, side, status, size, entry_price, margin_initial, margin_current, margin_asset)
+        VALUES (${carol}, ${CAROL}, ${FAR}, 'long', 'open', '1', '105', '1', '1', 'USDT')
+      `;
+      const candidates = () =>
+        sqlAdlCandidates(sql, TEST_ADL_RANKING)({ positionId: carol, userId: CAROL, marketId: FAR, side: 'long', uncoveredShortfall: 1n });
+      expect((await candidates()).map((c) => c.positionId)).toEqual([]);
+      await recover(f);
+      expect((await candidates()).map((c) => c.positionId)).toEqual([f.bobFar]);
+    });
+
+    it('keeps the position out of an ADL pair, as the bankrupt side', async () => {
+      const f = await pendingLeg();
+      // Bob's FAR short is the bankrupt one (bankruptcy price 115.5); Carol's long, funded and in profit there, is the candidate.
+      const carol = randomUUID();
+      await ledger.post(recipes.futuresMarginLock({ positionId: carol, userId: CAROL, assetId: USDT, amount: A('1') }));
+      await sql`
+        INSERT INTO trade.positions (id, user_id, market_id, side, status, size, entry_price, margin_initial, margin_current, margin_asset)
+        VALUES (${carol}, ${CAROL}, ${FAR}, 'long', 'open', '1', '50', '1', '1', 'USDT')
+      `;
+      const reduce = () =>
+        sqlAdlPairReducer(sql, ledger).reduce({
+          positionId: carol,
+          bankruptPositionId: f.bobFar,
+          sizeClosed: A('1'),
+          reason: ADL_DISCLOSURE_BEFORE_ACTION,
+          disclosureEventId: 'd1',
+        });
+      const refused = await reduce();
+      expect(refused?.sizeClosed ?? 0n).toBe(0n);
+      expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(0);
+      await recover(f);
+      const paired = await reduce();
+      expect(paired?.sizeClosed ?? 0n).toBeGreaterThan(0n);
+      expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(1);
+    });
+
+    it('keeps the position out of funding', async () => {
+      const f = await pendingLeg();
+      const listed = async () => (await sqlFundingPositionLoader(sql).listOpenForMarket(FAR)).map((p) => p.positionId);
+      // Alice's FAR long has no pending leg and is listed; Bob's short is not.
+      expect(await listed()).toEqual([f.aliceFar]);
+      await recover(f);
+      expect((await listed()).sort()).toEqual([f.aliceFar, f.bobFar].sort());
+    });
+
+    it('keeps the position out of dated settlement', async () => {
+      const f = await pendingLeg();
+      const listed = async () => (await sqlDatedSettlementPositionLoader(sql).listOpenForMarket(FAR)).map((p) => p.positionId);
+      expect(await listed()).toEqual([f.aliceFar]);
+      await recover(f);
+      expect((await listed()).sort()).toEqual([f.aliceFar, f.bobFar].sort());
+    });
+  });
+
+  describe('an intent that is already applied', () => {
+    it('is not posted again and not applied again: a replay of a settled fill makes no ledger call at all', async () => {
+      const svc = build();
+      await place(svc, ALICE, 'buy', '2', 'ap-a');
+      await place(svc, BOB, 'sell', '2', 'ap-b');
+      const fill = asInput(engine.fills[0]!);
+      const before = posts.length;
+      const rows = await positionsOf(ALICE, FAR);
+      await svc.settleFill(fill);
+      expect(posts.length).toBe(before);
+      expect(await positionsOf(ALICE, FAR)).toEqual(rows);
+    });
+
+    it('is not applied to the rows again when the second transaction is run twice', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '2', 'ap2-a');
+      await place(svc, BOB, 'sell', '2', 'ap2-b');
+      const fill = asInput(engine.fills[0]!);
+      const rows = await positionsOf(ALICE, FAR);
+      const inner = svc as unknown as {
+        deps: { sql: typeof sql };
+        applyIntents(tx: unknown, orderId: string, sequence: number): Promise<string[]>;
+      };
+      const again = await inner.deps.sql.begin(async (tx) => inner.applyIntents(tx, alice.orderId, fill.sequence));
+      expect(again.sort()).toEqual([rows[0]!.id, (await positionsOf(ALICE, NEAR))[0]!.id].sort());
+      expect(await positionsOf(ALICE, FAR)).toEqual(rows);
+      expect(parseAmount((await orderRow(alice.orderId)).filled_qty)).toBe(A('2'));
+      await assertBooksAgree();
+    });
+
+    it('a fill with no intent has nothing to apply: it refuses rather than guess', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '1', 'ap3-a');
+      const inner = svc as unknown as {
+        deps: { sql: typeof sql };
+        applyIntents(tx: unknown, orderId: string, sequence: number): Promise<string[]>;
+      };
+      await expect(inner.deps.sql.begin(async (tx) => inner.applyIntents(tx, alice.orderId, 99))).rejects.toMatchObject({
+        code: 'trade.futures_fill_missing',
+      });
+    });
+  });
+
+  describe('releasing the unused hold', () => {
+    const releases = () => posts.filter((p) => p.reason === 'futures.order.margin.release');
+    const releaseNow = (svc: SpreadFuturesOrders, orderId: string) =>
+      (svc as unknown as { releaseWhenDone(orderId: string): Promise<void> }).releaseWhenDone(orderId);
+
+    it('waits while the order may still fill: a live order releases nothing', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '2', 'rl-live');
+      await sql`UPDATE trade.futures_spread_orders SET engine_filled_qty = '0' WHERE id = ${alice.orderId}`;
+      await releaseNow(svc, alice.orderId);
+      expect(releases()).toHaveLength(0);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, alice.orderId))).toBe(await holdOfRow(alice.orderId));
+    });
+
+    it('waits for the engine to say how much it filled: a cancelled order with no remainder yet releases nothing', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '2', 'rl-unknown');
+      await sql`UPDATE trade.futures_spread_orders SET status = 'cancelled' WHERE id = ${alice.orderId}`;
+      await releaseNow(svc, alice.orderId);
+      expect(releases()).toHaveLength(0);
+    });
+
+    it('waits until every fill the engine printed has settled', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '2', 'rl-short');
+      await sql`UPDATE trade.futures_spread_orders SET status = 'cancelled', engine_filled_qty = '1' WHERE id = ${alice.orderId}`;
+      await releaseNow(svc, alice.orderId);
+      expect(releases()).toHaveLength(0);
+    });
+
+    it('waits while a fill of the order is still pending, even when the counts already agree', async () => {
+      const svc = build();
+      await place(svc, ALICE, 'buy', '1', 'rl-p-a');
+      const f = await (async () => {
+        await place(svc, BOB, 'sell', '1', 'rl-p-b');
+        return null;
+      })();
+      expect(f).toBeNull();
+      const aliceOrder = spreadOrderIdFor(ALICE, SPREAD, 'rl-p-a');
+      // Put a leg back to pending, as a crash between the post and the row write leaves it.
+      await sql`UPDATE trade.futures_spread_fills SET state = 'pending', applied_at = NULL WHERE order_id = ${aliceOrder} AND leg_index = 1`;
+      await sql`UPDATE trade.futures_spread_orders SET status = 'cancelled', engine_filled_qty = '1', released_amount = 0 WHERE id = ${aliceOrder}`;
+      const before = releases().length;
+      await releaseNow(svc, aliceOrder);
+      expect(releases().length).toBe(before);
+    });
+
+    it('never releases more than the hold less what the fills used', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '1', 'rl-over');
+      await sql`
+        UPDATE trade.futures_spread_orders
+           SET status = 'cancelled', engine_filled_qty = '0', leg0_applied = 1000, applied_amount = 1000 + leg1_applied WHERE id = ${alice.orderId}
+      `;
+      await expect(releaseNow(svc, alice.orderId)).rejects.toMatchObject({ code: 'trade.futures_hold_exceeded' });
+      expect(releases()).toHaveLength(0);
+    });
+
+    it('releases the remainder once, however many times it is asked', async () => {
+      const svc = build();
+      const alice = await place(svc, ALICE, 'buy', '2', 'rl-once');
+      await svc.cancel(principal(ALICE), alice.orderId);
+      expect(releases()).toHaveLength(1);
+      await releaseNow(svc, alice.orderId);
+      await releaseNow(svc, alice.orderId);
+      await svc.cancel(principal(ALICE), alice.orderId);
+      expect(releases()).toHaveLength(1);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, alice.orderId))).toBe(0n);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+    });
+
+    it('a crash after the release posted and before the row was written is finished by the retry, once, on the same key', async () => {
+      let crash = true;
+      const crashing = recording(ledger, undefined, (request) => {
+        if (request.reason === 'futures.order.margin.release' && crash) {
+          crash = false;
+          throw new Error('simulated crash after the release posted');
+        }
+      });
+      const svc = build({}, crashing);
+      const alice = await place(svc, ALICE, 'buy', '2', 'rl-crash');
+      await expect(svc.cancel(principal(ALICE), alice.orderId)).rejects.toThrow('simulated crash after the release posted');
+      // The ledger has the release; the row does not know yet.
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, alice.orderId))).toBe(0n);
+      expect(parseAmount((await orderRow(alice.orderId)).released_amount)).toBe(0n);
+
+      const view = await svc.cancel(principal(ALICE), alice.orderId);
+      expect(view.status).toBe('cancelled');
+      expect(view.releasedAmount).toBe(view.holdAmount);
+      const keys = releases().map((r) => r.idempotencyKey);
+      expect(keys).toHaveLength(2);
+      expect(new Set(keys).size).toBe(1);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      // And nothing more on a third ask.
+      await svc.cancel(principal(ALICE), alice.orderId);
+      expect(releases()).toHaveLength(2);
+      await assertBooksAgree();
+    });
+  });
+
+  describe('the orders a new send must stay clear of', () => {
+    it.each(['submitting', 'open', 'submit_unknown'])(
+      'an order that is %s may rest in the book, so a crossing order cannot be sent past it',
+      async (status) => {
+        engine.matching = false;
+        const svc = build();
+        const alice = await place(svc, ALICE, 'buy', '1', 'cs-a');
+        await sql`UPDATE trade.futures_spread_orders SET status = ${status} WHERE id = ${alice.orderId}`;
+        marks[FAR] = A('125');
+        marks[NEAR] = A('120');
+        await expect(place(svc, BOB, 'sell', '1', 'cs-b')).rejects.toMatchObject({ code: 'trade.spread_anchor_uncovered' });
+        expect(engine.submits).toHaveLength(1);
+        expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000'));
+      },
+    );
+
+    it.each(['pending', 'held', 'filled', 'cancelled', 'rejected', 'refused'])(
+      'an order that is %s is not in the book, so it does not constrain a crossing order',
+      async (status) => {
+        engine.matching = false;
+        const svc = build();
+        const alice = await place(svc, ALICE, 'buy', '1', 'cs2-a');
+        await sql`UPDATE trade.futures_spread_orders SET status = ${status} WHERE id = ${alice.orderId}`;
+        marks[FAR] = A('125');
+        marks[NEAR] = A('120');
+        await place(svc, BOB, 'sell', '1', 'cs2-b');
+        expect(engine.submits).toHaveLength(2);
+      },
+    );
+
+    it('a send waits for the one before it: the window check and the send are one step per spread', async () => {
+      engine.matching = false;
+      engine.delayMs = 30;
+      const svc = build();
+      // Alice and Bob cross; the second to take the lock must see the first, which is `submitting` until it is answered.
+      const results = await Promise.allSettled([place(svc, ALICE, 'buy', '1', 'lk2-a'), place(svc, BOB, 'sell', '1', 'lk2-b')]);
+      expect(results.map((r) => r.status)).toEqual(['fulfilled', 'fulfilled']);
+      expect(engine.maxInFlight).toBe(1);
+      const anchors = await sql<{ anchor_ref: string }[]>`SELECT anchor_ref FROM trade.futures_spread_orders ORDER BY created_at`;
+      expect(anchors).toHaveLength(2);
+    });
+  });
+
+  describe('a long spread id', () => {
+    it('is refused at placement when its fill keys could exceed the ledger key limit, before anything is held', async () => {
+      const long = 'S'.repeat(MAX_SPREAD_ID_LENGTH + 1);
+      engine.listings = [{ ...LISTING, spreadId: long }];
+      await expect(
+        build().place(principal(ALICE), order({ userId: ALICE, spreadId: long, side: 'buy', qty: A('1'), clientOrderId: 'long' })),
+      ).rejects.toMatchObject({ code: 'trade.spread_id_too_long', status: 400 });
+      expect(engine.submits).toHaveLength(0);
+      expect(posts.filter((p) => p.reason === 'futures.order.margin.hold')).toHaveLength(0);
+    });
+
+    it('the longest id that is taken still gives a fill key the ledger accepts', async () => {
+      const longest = 'S'.repeat(MAX_SPREAD_ID_LENGTH);
+      const key = `futures.fill:${spreadLegFillKey(longest, Number.MAX_SAFE_INTEGER, 1, randomUUID())}`;
+      expect(key.length).toBeLessThanOrEqual(LEDGER_IDEMPOTENCY_KEY_MAX);
+      engine.listings = [{ ...LISTING, spreadId: longest }];
+      const view = await build().place(
+        principal(ALICE),
+        order({ userId: ALICE, spreadId: longest, side: 'buy', qty: A('1'), clientOrderId: 'longest' }),
+      );
+      expect(view.status).toBe('open');
     });
   });
 

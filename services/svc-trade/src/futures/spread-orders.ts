@@ -332,6 +332,17 @@ interface PositionRowLite {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** `idempotencyKey` is `min(8).max(200)` in the ledger's post request (`packages/ledger-client/src/types.ts`). */
+export const LEDGER_IDEMPOTENCY_KEY_MAX = 200;
+
+/** The ledger key of a leg fill of this spread at the largest sequence and leg index, on a position id (a uuid). */
+function spreadLegFillKeyLength(spreadId: string): number {
+  return `futures.fill:${spreadLegFillKey(spreadId, Number.MAX_SAFE_INTEGER, 1, '00000000-0000-0000-0000-000000000000')}`.length;
+}
+
+/** The longest spread id whose fill keys fit the ledger's limit. */
+export const MAX_SPREAD_ID_LENGTH = LEDGER_IDEMPOTENCY_KEY_MAX - spreadLegFillKeyLength('');
+
 /** Leverage is stored as numeric(8,2). */
 const LEVERAGE_STEP = 10n ** 16n;
 
@@ -518,6 +529,15 @@ export class SpreadFuturesOrders {
     if (input.qty <= 0n) refuse('trade.size_invalid', `qty must be greater than zero, got ${formatAmount(input.qty)}`);
     const spreadId = input.spreadId?.trim() ?? '';
     if (spreadId.length === 0 || spreadId.length > 128) refuse('trade.spread_id_required', 'a spread order names the spread it trades');
+    // The longest ledger key this spread can ever post must fit the ledger's key limit, or a fill would fail at post time
+    // with a hold already taken and a position already promised. Refuse here, before anything is held.
+    if (spreadLegFillKeyLength(spreadId) > LEDGER_IDEMPOTENCY_KEY_MAX) {
+      refuse(
+        'trade.spread_id_too_long',
+        `the spread id is too long for the ledger keys of its fills (at most ${MAX_SPREAD_ID_LENGTH} characters)`,
+        400,
+      );
+    }
 
     const existing = await this.findByClientId(input.userId, spreadId, clientOrderId);
     if (existing) {

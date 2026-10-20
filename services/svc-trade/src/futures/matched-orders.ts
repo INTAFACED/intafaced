@@ -493,11 +493,21 @@ async function liquidationFillsSoFar(
   return { qty: parseAmount(row!.qty), pnl: parseAmount(row!.pnl), fromMargin: parseAmount(row!.from_margin) };
 }
 
-/** Any fill intent on this position still being recorded. A reduce waits for every one; an opening fill waits for a reduce. */
+/**
+ * Any fill intent on this position still being recorded. A reduce waits for every one; an opening fill waits for a reduce.
+ *
+ * A calendar spread leg intent (`trade.futures_spread_fills`) is always an opening fill: it grows the position. So it
+ * blocks a caller that asks for `any` (a reduce, a close) and never one that asks for `reduce`. It must block the reduce:
+ * the leg has posted its margin into the position's pot and not yet written the row, and a reduce that closes the
+ * position in between would leave that margin in a closed pot and the spread's own apply failing for good.
+ */
 export async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, positionId: string, kind: 'any' | 'reduce'): Promise<void> {
   const [pending] = await tx<{ n: number }[]>`
     SELECT 1 AS n FROM trade.futures_order_fills
      WHERE position_id = ${positionId} AND state = 'pending' AND (${kind} = 'any' OR kind = 'reduce')
+    UNION ALL
+    SELECT 1 AS n FROM trade.futures_spread_fills
+     WHERE position_id = ${positionId} AND state = 'pending' AND ${kind} = 'any'
      LIMIT 1
   `;
   if (pending) {
