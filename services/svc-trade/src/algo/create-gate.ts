@@ -147,7 +147,7 @@ export async function childSliceCover(input: {
   }
   const price = input.limitPrice ?? (input.side === 'buy' ? protectionPriceFor(input.market, input.ask, input.slippageCapBps) : input.bid);
   const hold = holdFor(input.market, input.side, input.side === 'buy' ? price : 0n, input.qty);
-  const rates = ratesForFill(input.feeSchedule, 0, input.takerDiscountBps, 'spot');
+  const rates = ratesForFill(input.feeSchedule, 0, input.takerDiscountBps, 'spot', { symbol: input.market.symbol });
   const feePrice = input.limitPrice ?? price;
   const fee = input.side === 'buy' ? mulBps(input.qty, rates.takerFeeBps) : mulBps(mul(feePrice, input.qty, 'floor'), rates.takerFeeBps);
   return {

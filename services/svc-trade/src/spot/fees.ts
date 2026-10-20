@@ -5,6 +5,7 @@ import {
   publishedProductBps,
   requirePublishedFeeSchedule,
   type FeeProduct,
+  type FeeSelector,
   type OwnerFeeSchedule,
 } from './fee-schedule.js';
 
@@ -102,9 +103,10 @@ export function ratesForFill(
   makerDiscountBps: number,
   takerDiscountBps: number,
   product: FeeProduct = 'spot',
+  selector?: FeeSelector,
 ): FillFeeRates {
   requirePublishedFeeSchedule(schedule);
-  const rates = publishedProductBps(schedule, product);
+  const rates = publishedProductBps(schedule, product, selector);
   if (!rates) {
     throw new FeeScheduleError(`${product} fee schedule is unpublished`, 'trade.fee_product_unpublished');
   }

@@ -625,6 +625,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
+  {
+    path: '/oauth/authorize',
+    title: 'Authorise an app',
+    description: 'Allow or deny an app that asked to use your account',
+    area: 'person',
+    hidden: true,
+  },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
