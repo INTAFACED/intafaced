@@ -3,6 +3,7 @@ import { useSession } from '../session/session';
 import { SUPPORT_EMAIL } from '../more/support-contact';
 import { supportMailto } from '../more/support-desk';
 import { ContactSupport } from './ContactSupport';
+import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
 import { PARTICIPATION_ROOMS, partnerEnquiryHref } from './public-pages';
 import { pagesCopy } from './public-pages-copy';
@@ -58,8 +59,8 @@ export function PartnerPage() {
   );
 }
 
-/** /notice, /announcement and their detail pages. The public notice feed publishes nothing, and the page says so. */
-export function NoticePage({ detail = false }: { detail?: boolean }) {
+/** /notice, /announcement and their detail pages: the published notice feed, read live. */
+export function NoticePage({ detail = false, id = null }: { detail?: boolean; id?: string | null }) {
   const copy = pagesCopy.useCopy();
   const { session } = useSession();
   return (
@@ -67,15 +68,12 @@ export function NoticePage({ detail = false }: { detail?: boolean }) {
       <header className="pub-heading">
         <h1>{copy.t('noticeTitle')}</h1>
       </header>
-      <section className="pub-notice" role="status">
-        <h2>{copy.t(detail ? 'noticeDetailTitle' : 'noticeNoneTitle')}</h2>
-        <p>{copy.t(detail ? 'noticeDetailBody' : 'noticeNoneBody')}</p>
-        {detail && (
-          <a className="text-link" href="/notice">
-            ← {copy.t('noticeBack')}
-          </a>
-        )}
-      </section>
+      {detail ? <NoticeDetail id={id} /> : <NoticeFeed />}
+      {detail && (
+        <a className="text-link" href="/notice">
+          ← {copy.t('noticeBack')}
+        </a>
+      )}
       <section className="pub-card">
         <h2>{copy.t('noticeAccountTitle')}</h2>
         <p>{copy.t('noticeAccountBody')}</p>
