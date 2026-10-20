@@ -2,7 +2,7 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
 import type { SupportActionRequest } from './model';
-import type { SupportKbView, SupportQueueView, SupportTicketView, TicketExtrasView } from './types';
+import type { SupportKbView, SupportPropertiesView, SupportQueueView, SupportTicketView, TicketExtrasView } from './types';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -123,6 +123,21 @@ export async function fetchTicketExtras(id: string, signal?: AbortSignal): Promi
   }
 }
 
+export async function fetchTicketProperties(id: string, signal?: AbortSignal): Promise<SupportPropertiesView | null> {
+  try {
+    const res = await fetch(`/api/support?view=properties&id=${encodeURIComponent(id)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.properties) ? (body as unknown as SupportPropertiesView) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchKb(signal?: AbortSignal): Promise<SupportKbView | null> {
   try {
     const res = await fetch('/api/support?view=kb', { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
@@ -138,7 +153,7 @@ export type ActionReply =
   | { readonly ok: true; readonly action: SupportActionRequest['action']; readonly summary: string }
   | { readonly ok: false; readonly refusal: RefusalView };
 
-const ACTIONS: readonly string[] = ['reply', 'status', 'escalate', 'kb_publish', 'kb_unpublish'];
+const ACTIONS: readonly string[] = ['reply', 'status', 'escalate', 'properties', 'kb_publish', 'kb_unpublish'];
 
 /** Strict reader: anything that is not exactly a known answer is "outcome not known", never a success. */
 export function readActionReply(raw: unknown): ActionReply {

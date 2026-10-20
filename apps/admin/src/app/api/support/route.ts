@@ -5,7 +5,7 @@ import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-sess
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
-import { claimTicket, loadKb, loadQueue, loadTicket, loadTicketExtras, runSupportAction } from '@/lib/support/server';
+import { claimTicket, loadKb, loadQueue, loadTicket, loadTicketExtras, loadTicketProperties, runSupportAction } from '@/lib/support/server';
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
@@ -41,6 +41,11 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'properties') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
   return Response.json(await loadQueue(session), { headers: NO_STORE });
@@ -157,6 +162,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return 'svc-support recorded your reply on the ticket.';
     case 'status':
       return `svc-support says the ticket is now ${String(d.status)}.`;
+    case 'properties':
+      return 'svc-support recorded the new priority, type and labels on the ticket.';
     case 'escalate':
       return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
     case 'kb_publish':
