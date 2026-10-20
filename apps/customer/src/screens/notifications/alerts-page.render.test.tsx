@@ -182,4 +182,14 @@ describe('price alerts page', () => {
     expect(page).toContain('Add a condition');
     expect(page).toContain('and At or below 70000 USDT');
   });
+
+  it('shows a stopped alert as Stopped, with no cancel button, instead of failing the whole list', () => {
+    reads.markets = markets;
+    reads.alerts = ready([alert({ status: 'stopped' }), alert({ id: '22222222-2222-4222-8222-222222222222' })]);
+    const page = render();
+    expect(page.match(/data-testid="alert-row"/g)).toHaveLength(2);
+    expect(page).toContain('Stopped');
+    // Only the active one can be cancelled here.
+    expect(page.match(/Cancel the alert on BTC\/USDT/g)).toHaveLength(1);
+  });
 });

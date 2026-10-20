@@ -194,7 +194,7 @@ export const priceAlertSchema = z.object({
   kind: z.enum(ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string().min(1).max(64),
-  status: z.enum(['active', 'fired', 'cancelled', 'expired']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
   firedAt: date.nullable(),
   createdAt: date,
   // Added by C-alerts-scan-01. A service that does not send them still parses: the page shows only what it was given.
