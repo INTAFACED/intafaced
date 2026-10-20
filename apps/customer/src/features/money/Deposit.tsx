@@ -1,5 +1,7 @@
 import { AccountDetailsPanel } from './AccountDetails';
 import { useMemo, useState } from 'react';
+import { DepositAddressPanel, DepositNetworkPicker } from './DepositFunding';
+import { useDepositCatalogue } from './deposit-reads';
 import { Button, EmptyState, Page } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
 import { useActivity } from '../../data/activity';
@@ -8,7 +10,7 @@ import { str } from '../../data/decimal';
 import { ReportedTime } from './bank-context';
 import { depositAssets, depositHistory, depositTotal } from './deposit-model';
 import { depositCopy } from './deposit-copy';
-import { DepthPanel, DisabledActions, Fact } from './DepthParts';
+import { DepthPanel } from './DepthParts';
 import { useHoldings } from './holdings';
 import './bank-depth.css';
 
@@ -18,11 +20,15 @@ export function Deposit() {
   const held = useHoldings();
   const markets = useMarkets();
   const activity = useActivity({ pageSize: 100 });
+  const catalogue = useDepositCatalogue();
   const [picked, setPicked] = useState('');
+  const [networkId, setNetworkId] = useState('');
   const [onlyAsset, setOnlyAsset] = useState(true);
   const heldIds = held.resource.status === 'ready' ? held.resource.data.assets.map((asset) => asset.assetId) : [];
   const listed = markets.status === 'ready' ? markets.data.map((row) => row.base) : [];
-  const assets = useMemo(() => depositAssets(heldIds, listed), [heldIds.join(','), listed.join(',')]);
+  // Only what custody publishes can be paid in. While the list is unavailable the person still sees the coins they know.
+  const published = catalogue.resource.status === 'ready' ? catalogue.resource.data.assets.map((row) => row.assetId) : null;
+  const assets = useMemo(() => published ?? depositAssets(heldIds, listed), [published?.join(','), heldIds.join(','), listed.join(',')]);
   const asset = picked || assets[0] || '';
   const items = activity.status === 'ready' ? activity.data.items : [];
   const rows = depositHistory(items, onlyAsset && asset ? asset : null);
@@ -34,7 +40,14 @@ export function Deposit() {
           <DepthPanel title={t('asset')}>
             <label className="field">
               <span>{t('asset')}</span>
-              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0}>
+              <select
+                value={asset}
+                onChange={(event) => {
+                  setPicked(event.target.value);
+                  setNetworkId('');
+                }}
+                disabled={assets.length === 0}
+              >
                 {assets.length === 0 && <option value="">—</option>}
                 {assets.map((id) => (
                   <option key={id} value={id}>
@@ -44,26 +57,15 @@ export function Deposit() {
               </select>
               <small>{assets.length === 0 ? t('noAssets') : t('assetHint')}</small>
             </label>
-            <label className="field">
-              <span>{t('network')}</span>
-              <select disabled aria-describedby="deposit-network-why">
-                <option>{t('networkNone')}</option>
-              </select>
-              <small id="deposit-network-why">{t('networkReason')}</small>
-            </label>
+            <DepositNetworkPicker
+              asset={asset}
+              catalogue={catalogue.resource}
+              networkId={networkId}
+              onNetwork={setNetworkId}
+              reload={catalogue.reload}
+            />
           </DepthPanel>
-          <DepthPanel title={t('addressTitle')}>
-            <div className="bd-address" role="status">
-              <strong>{t('addressBlockedTitle')}</strong>
-              <p>{t('addressBlocked')}</p>
-            </div>
-            <DisabledActions labels={[t('copyAddress'), t('showQr')]} reason={t('copyReason')} />
-            <dl className="bd-facts">
-              <Fact label={t('minimum')}>{t('notPublished')}</Fact>
-              <Fact label={t('confirmations')}>{t('notPublished')}</Fact>
-              <Fact label={t('arrival')}>{t('notPublished')}</Fact>
-            </dl>
-          </DepthPanel>
+          <DepositAddressPanel asset={asset} catalogue={catalogue.resource} networkId={networkId} />
           <AccountDetailsPanel />
           <DepthPanel title={t('warningTitle')}>
             <ul className="bd-list">
