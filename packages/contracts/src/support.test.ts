@@ -3,7 +3,11 @@ import {
   getKbArticleInputSchema,
   publicKbArticleOrNull,
   publishedKbArticles,
+  createTicketInputSchema,
   searchKbInputSchema,
+  SUPPORT_MESSAGE_HEADERS_MAX,
+  supportTicketCategorySchema,
+  supportTicketSchema,
   supportKbArticleSchema,
   type SupportContract,
   type SupportKbArticle,
@@ -113,5 +117,44 @@ describe('SupportContract searchKb / getKbArticle — public doors', () => {
     });
     expect(getKbArticleInputSchema.safeParse({ id: '' }).success).toBe(false);
     expect(getKbArticleInputSchema.safeParse({ id: 'kb-account-access', version: 0 }).success).toBe(false);
+  });
+});
+
+describe('phishing report contract (I-signin-sessions-27)', () => {
+  it('accepts phishing as a category and still accepts the four older ones', () => {
+    for (const category of ['account', 'trading', 'deposit_withdraw', 'other', 'phishing']) {
+      expect(supportTicketCategorySchema.safeParse(category).success, category).toBe(true);
+    }
+    expect(supportTicketCategorySchema.safeParse('scam').success).toBe(false);
+  });
+
+  it('create takes pasted headers and a client key, and older bodies still parse', () => {
+    const base = { category: 'phishing', subject: 'Fake sign-in email', body: 'Forwarded below' } as const;
+    expect(createTicketInputSchema.safeParse(base).success).toBe(true);
+    expect(createTicketInputSchema.safeParse({ ...base, messageHeaders: 'Received: from mx', clientRequestId: 'k1' }).success).toBe(true);
+  });
+
+  it('refuses headers over the cap and an empty client key', () => {
+    const base = { category: 'phishing', subject: 's', body: 'b' } as const;
+    expect(createTicketInputSchema.safeParse({ ...base, messageHeaders: 'x'.repeat(SUPPORT_MESSAGE_HEADERS_MAX + 1) }).success).toBe(false);
+    expect(createTicketInputSchema.safeParse({ ...base, messageHeaders: 'x'.repeat(SUPPORT_MESSAGE_HEADERS_MAX) }).success).toBe(true);
+    expect(createTicketInputSchema.safeParse({ ...base, clientRequestId: '' }).success).toBe(false);
+  });
+
+  it('a stored ticket may carry headers or none', () => {
+    const row = {
+      id: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      category: 'phishing',
+      subject: 's',
+      body: 'b',
+      status: 'open',
+      assigneeId: null,
+      createdAt: '2026-10-20T00:00:00.000Z',
+      updatedAt: '2026-10-20T00:00:00.000Z',
+    };
+    expect(supportTicketSchema.safeParse(row).success).toBe(true);
+    expect(supportTicketSchema.safeParse({ ...row, messageHeaders: null }).success).toBe(true);
+    expect(supportTicketSchema.safeParse({ ...row, messageHeaders: 'Received: from mx' }).success).toBe(true);
   });
 });
