@@ -84,6 +84,8 @@ import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
+import { createSubAccountDeleteProcedures } from './sub-accounts/sub-account-delete-router.js';
+import type { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -553,6 +555,8 @@ export function createIdentityRouter(
     account?: AccountChange;
     /** Account closure. Absent → the door refuses `identity.close_disabled`. */
     closure?: AccountClosureService;
+    /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
+    subAccountDelete?: SubAccountDeleteService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -2011,6 +2015,7 @@ export function createIdentityRouter(
     }),
 
     subAccounts: router({
+      ...createSubAccountDeleteProcedures(options.subAccountDelete),
       create: scopedProcedure('identity:write')
         .input(
           z.object({

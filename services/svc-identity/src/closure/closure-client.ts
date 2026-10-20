@@ -82,7 +82,7 @@ export function httpClosureChecker(options: {
   fetchImpl?: ClosureFetch;
   timeoutMs?: number;
 }): {
-  check(input: { userId: string; subAccountIds: readonly string[] }): Promise<ClosureCheckResult>;
+  check(input: { userId: string; subAccountIds: readonly string[]; scope?: 'account' | 'sub_accounts' }): Promise<ClosureCheckResult>;
 } {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
   const timeoutMs = options.timeoutMs ?? TIMEOUT_MS;
@@ -90,7 +90,11 @@ export function httpClosureChecker(options: {
     async check(input) {
       const url = options.url?.trim();
       if (!url || !options.secret) return { ok: false };
-      const body = JSON.stringify({ userId: input.userId, subAccountIds: [...input.subAccountIds] });
+      const body = JSON.stringify({
+        userId: input.userId,
+        subAccountIds: [...input.subAccountIds],
+        ...(input.scope ? { scope: input.scope } : {}),
+      });
       const target = `${url.replace(/\/$/, '')}/internal/closure-check`;
       const sign = serviceCallSigner({
         service: 'svc-identity',
