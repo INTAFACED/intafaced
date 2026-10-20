@@ -345,6 +345,38 @@ across two adjacent windows, not N× per pod.
 `notify.channel.footer` (catalog). Verification messages do not (address is still
 unconfirmed).
 
+### Channel settings and identity message templates
+
+Both are owner configuration that changes what leaves the platform, so each change
+is appended behind a two-person approval (the same identity approval the notice
+board uses; a missing approval consumer refuses `notify.approval_unavailable`, the
+same person refuses `notify.approval_same_operator`, a spent id
+`notify.approval_spent`). `channelSettingProposal` and `templateProposal` return
+the hash, target and version the second person's approval has to carry.
+
+- `notify.channelSettings` (`admin:read`) lists email, push and SMS with
+  `configured` (read from the environment; no credential is ever returned or
+  stored), the owner's switch, the adapter name and `effective`
+  (`sending`, `disabled`, `unconfigured`). An unconfigured channel shows
+  `notConnected: vendor.<channel>` and its sends stay refused
+  `channel.not_configured`. `notify.setChannelSettings` (`admin:write`) switches a
+  channel off or on and names its adapter; the dispatcher reads the switched-off
+  set once per dispatch and refuses `channel.disabled` for those channels. A switch
+  cannot make an unconfigured channel send.
+- `notify.templates`, `templateHistory`, `setTemplate`, `previewTemplate`,
+  `testSendTemplate`: six keys (recovery, verification, login and registration
+  codes, security notices, KYC decisions), plain text with `{{field}}` merge fields.
+  Each key declares its fields; an undeclared field, a stray brace, empty copy or a
+  code message with no `{{code}}` is refused at save (`notify.template_variable_unknown`,
+  `notify.template_syntax_invalid`, `notify.template_copy_empty`,
+  `notify.template_variable_required`). `brand` and `antiPhishingCode` are merge
+  fields. A save is a new version; nothing is seeded, and a key with no version
+  resolves to `notify.template_unset`. A sender calls `MessageTemplates.resolve`
+  once at enqueue and renders that row, so a later edit never changes a message in
+  flight. A render with a missing field refuses `notify.template_variable_missing`.
+  Preview and test-send use TEST values; test-send takes no address, only goes to
+  the caller's own confirmed address, and replays by client request id.
+
 ### Notification targets and `notify.inboxPolicy`
 
 Every `href` an emitter writes is an internal path the customer app can open or
