@@ -72,6 +72,7 @@ describe('support attachment records', () => {
     contentType: 'image/png',
     byteLength: 10,
     scanState: 'clean',
+    uploadedBy: null,
     createdAt: '2026-10-20T10:00:00.000Z',
   };
 
@@ -79,6 +80,14 @@ describe('support attachment records', () => {
     expect(supportAttachmentSchema.parse(file)).toEqual(file);
     expect(supportAttachmentSchema.safeParse({ ...file, storeKey: 'a/b' }).success).toBe(false);
     expect(supportAttachmentSchema.safeParse({ ...file, scanState: 'unknown' }).success).toBe(false);
+  });
+
+  it('names the operator who added a file, or null when its owner did or the service predates the field, and nothing else', () => {
+    const operator = '44444444-4444-4444-8444-444444444444';
+    expect(supportAttachmentSchema.parse({ ...file, uploadedBy: operator }).uploadedBy).toBe(operator);
+    expect(supportAttachmentSchema.safeParse({ ...file, uploadedBy: 'staff' }).success).toBe(false);
+    const { uploadedBy: _omitted, ...without } = file;
+    expect(supportAttachmentSchema.parse(without).uploadedBy).toBeNull();
   });
 
   it('serves only a fixed content type, always as a download', () => {

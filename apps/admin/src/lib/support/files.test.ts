@@ -28,6 +28,13 @@ describe('readTicketFiles', () => {
       expect(SCAN_LABEL[scanState]).toBeTruthy();
     }
   });
+  it('reads who added a file, and a service that predates the field as the owner', () => {
+    const op = '55555555-5555-4555-8555-555555555555';
+    expect(readTicketFiles([row({ uploadedBy: op })])?.[0]?.uploadedBy).toBe(op);
+    expect(readTicketFiles([row({ uploadedBy: null })])?.[0]?.uploadedBy).toBeNull();
+    expect(readTicketFiles([row()])?.[0]?.uploadedBy).toBeNull();
+    expect(readTicketFiles([row({ uploadedBy: 'staff' })])).toBeNull();
+  });
   it('refuses a store key, a missing key, an unknown state, a bad size and a non-list', () => {
     expect(readTicketFiles([row()])).not.toBeNull();
     expect(readTicketFiles([row({ storeKey: 'k' })])).toBeNull();
