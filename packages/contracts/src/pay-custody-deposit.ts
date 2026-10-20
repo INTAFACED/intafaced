@@ -44,7 +44,27 @@ export const payCustodyDepositEntrySchema = z
   .strict();
 export type PayCustodyDepositEntry = z.infer<typeof payCustodyDepositEntrySchema>;
 
-export const payCustodyDepositCatalogueSchema = z.object({ entries: z.array(payCustodyDepositEntrySchema).max(500) }).strict();
+/**
+ * A pair the owner has switched off. It takes no new address and no new catalogue entry; `haltNote` is the owner's line for
+ * customers (null means the standard "switched off" line only). A pair with no row at all is not listed: nothing is implied.
+ */
+export const payCustodyDepositHaltedSchema = z
+  .object({
+    assetId: assetIdSchema,
+    networkId: networkIdSchema,
+    label: z.string().min(1).max(64),
+    haltNote: z.string().min(1).max(280).nullable(),
+  })
+  .strict();
+export type PayCustodyDepositHalted = z.infer<typeof payCustodyDepositHaltedSchema>;
+
+export const payCustodyDepositCatalogueSchema = z
+  .object({
+    entries: z.array(payCustodyDepositEntrySchema).max(500),
+    /** Optional so an older svc-pay reply still parses; absent means none are known to be halted. */
+    halted: z.array(payCustodyDepositHaltedSchema).max(500).optional(),
+  })
+  .strict();
 export type PayCustodyDepositCatalogue = z.infer<typeof payCustodyDepositCatalogueSchema>;
 
 export const payCustodyDepositAddressInputSchema = z
