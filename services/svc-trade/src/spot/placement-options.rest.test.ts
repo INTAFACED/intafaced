@@ -21,7 +21,7 @@ function signed(): Record<string, string> {
     scopes: ['trade:read', 'trade:write'],
     tier: 'basic',
     mfa: false,
-    expiresAt: new Date(NOW.getTime() + 60_000),
+    expiresAt: new Date(Date.now() + 3_600_000), // the principal check reads the real clock, so a fixed date would expire the test
   } as Principal;
   const raw = encodePrincipal(p);
   return {
