@@ -1,13 +1,5 @@
 {
   "files": {
-    "services/svc-academy/src/host-rights.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-academy/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/router.ts": {
       "sign": 0,
       "caller": 1
@@ -23,10 +15,6 @@
     "services/svc-execution/src/router.ts": {
       "sign": 0,
       "caller": 1
-    },
-    "services/svc-fix/src/matching-port.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-identity/src/action-approval-router.ts": {
       "sign": 0,
@@ -56,53 +44,17 @@
       "sign": 0,
       "caller": 3
     },
-    "services/svc-market/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-matching/src/index.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-notify/src/guests/router.ts": {
       "sign": 0,
       "caller": 1
     },
-    "services/svc-notify/src/notices/approval.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-ops/src/outreach/authority.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-ops/src/outreach/notification-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-pay/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-pay/src/affiliate-payout.ts": {
       "sign": 1,
       "caller": 0
     },
     "services/svc-pay/src/founder-authority.ts": {
       "sign": 1,
       "caller": 1
-    },
-    "services/svc-pay/src/limits/identity-tier.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-pay/src/merchant-account-controls.ts": {
       "sign": 0,
@@ -112,14 +64,6 @@
       "sign": 0,
       "caller": 2
     },
-    "services/svc-support/src/account-state.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-support/src/ticket-order.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-token/src/router.ts": {
       "sign": 0,
       "caller": 1
@@ -127,14 +71,6 @@
     "services/svc-trade/src/router.ts": {
       "sign": 0,
       "caller": 2
-    },
-    "services/svc-ws/src/private/authority.ts": {
-      "sign": 2,
-      "caller": 0
-    },
-    "services/svc-ws/src/private/session-passkey.ts": {
-      "sign": 1,
-      "caller": 0
     }
   }
 }

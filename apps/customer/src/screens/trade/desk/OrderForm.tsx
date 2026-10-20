@@ -71,6 +71,7 @@ import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refu
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
+import { reviewIdFor } from './review-id';
 import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
@@ -353,7 +354,9 @@ function SideForm({
     setBusy(true);
     setFailure(null);
     setStatus(null);
-    const fresh = draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: `desk:${crypto.randomUUID()}` });
+    // The number is given once per draft: a repeat review of the same order keeps it, so a send that was lost cannot become a second order.
+    const { clientOrderId: _unnumbered, ...body } = draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: '' });
+    const fresh = { ...body, clientOrderId: reviewIdFor(userId ?? '', body) };
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
     else {

@@ -7,9 +7,9 @@ import { fakeMarket } from '../public-rest.js';
 import type { PlaceOrderInput } from './trade-service.js';
 
 /**
- * A trailing stop walks with a mark that only the server may supply. The create door must not accept a `trail` or a
- * `mark` from a request body: the engine would trigger a stop at a price the caller chose, and a buy would reach the
- * book as a market order funded only at its stated limit.
+ * A trailing stop walks with a mark that only the server may supply. The create door must not accept a `mark` from a
+ * request body: the engine would trigger a stop at a price the caller chose. The `trail` distance is the caller's and
+ * goes through; the service takes the mark from its own source.
  */
 
 const SECRET = 'a-trade-trailing-client-refused-edge-secret-long-x';
@@ -65,10 +65,9 @@ async function build() {
 describe('the create door refuses a trailing stop whose mark the caller supplied', () => {
   it.each([
     ['a trail and a mark', { trail: '5', mark: '100' }],
-    ['a trail alone', { trail: '5' }],
     ['a mark alone', { mark: '100' }],
-    ['a trail of a JSON number', { trail: 5, mark: '100' }],
-    ['a null trail', { trail: null, mark: '100' }],
+    ['a null mark', { trail: '5', mark: null }],
+    ['a trail of a JSON number and a mark', { trail: 5, mark: '100' }],
   ])('refuses %s before any order or hold is made', async (_name, extra) => {
     const { app, placed } = await build();
     for (const side of ['buy', 'sell']) {
@@ -80,8 +79,51 @@ describe('the create door refuses a trailing stop whose mark the caller supplied
       });
       expect(res.statusCode, res.body).toBe(400);
       expect(res.json().code ?? res.json().error).toBe('InvalidOrder'); // ccxt-errors maps trade.order_type_unsupported to InvalidOrder / 400
-      expect(res.body).toContain('trailing stops are not accepted yet');
+      expect(res.body).toContain('the trigger mark is server-side only');
     }
+    expect(placed).toHaveLength(0);
+    await app.close();
+  });
+
+  it('a trail without a mark reaches the service, which supplies the mark itself', async () => {
+    const { app, placed } = await build();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders',
+      headers: signed(),
+      payload: { ...BASE, side: 'sell', clientOrderId: 't-ok', trail: '5' },
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(placed).toHaveLength(1);
+    expect(Object.keys(placed[0] ?? {})).not.toContain('mark');
+    await app.close();
+  });
+
+  it('the replace door refuses a trail before the original is touched', async () => {
+    const cancelled: string[] = [];
+    const placed: PlaceOrderInput[] = [];
+    const app = Fastify();
+    registerPrivateRest(app, {
+      edgeSecret: SECRET,
+      serviceName: 'svc-trade',
+      marketBySymbol: async (s: string) => (s === 'BTC/USDT' ? market : null),
+      marketById: async (id: string) => (id === market.id ? market : null),
+      replaceOrder: async (_p: Principal, id: string, input: PlaceOrderInput) => {
+        cancelled.push(id);
+        placed.push(input);
+        throw new Error('unreachable');
+      },
+    } as unknown as PrivateRestDeps);
+    await app.ready();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/orders/33333333-3333-4333-8333-333333333333/replace',
+      headers: signed(),
+      payload: { ...BASE, side: 'sell', clientOrderId: 'r-1', trail: '5' },
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.body).toContain('cannot be set on an order replacement');
+    expect(cancelled).toHaveLength(0);
     expect(placed).toHaveLength(0);
     await app.close();
   });

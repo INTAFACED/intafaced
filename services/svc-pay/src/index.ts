@@ -34,6 +34,7 @@ import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
 import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
+import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
 import { createLedgerClient } from './ledger-client.js';
@@ -42,6 +43,7 @@ import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
 import { RailRegistry } from './rails/registry.js';
 import { CryptoChainWatcher, PostgresChainWatcherCursorStore } from './rails/chain-watcher.js';
+import { PostgresChainWatcherDeadLetterStore } from './rails/chain-watcher.js';
 import { RailHealthProbeLoop } from './rails/rail-health-probe.js';
 import { EvmLiveChain } from './rails/evm-chain.js';
 import { restoreOpenDepositWatches } from './rails/watch-restore.js';
@@ -136,11 +138,8 @@ await sql`SELECT 1 FROM pay.merchants LIMIT 1`.catch(() => {
 // (Doctrine §0.6). This client is the only path.
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-pay');
-const ledger = createLedgerClient(
-  env.LEDGER_URL,
-  env.INTERNAL_SERVICE_SECRET,
-  s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined,
-);
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
 /**
  * The chain behind `crypto-native`.
@@ -162,6 +161,7 @@ const ledger = createLedgerClient(
  */
 const broadcasts = new PostgresBroadcastStore(sql);
 const watcherCursors = new PostgresChainWatcherCursorStore(sql);
+const watcherDeadLetters = new PostgresChainWatcherDeadLetterStore(sql);
 const chain = defaultChainFor(process.env, broadcasts);
 
 const cryptoRail = new CryptoNativeAdapter({
@@ -253,7 +253,7 @@ const payGuards = buildPayGuards({
   sql,
   ledger,
   kycTierOf: env.IDENTITY_URL
-    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET })
+    ? createIdentityKycTierClient({ baseUrl: env.IDENTITY_URL, internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
     : undefined,
 });
 const conversion = new ConversionService({
@@ -291,8 +291,8 @@ const pay = new PayService(sql, ledger, rails, {
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
   checkoutPublicBasePath: env.PAY_PUBLIC_BASE_PATH,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
-  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
-  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   afterPaymentEvent: async (event) => {
     await merchantWebhooks.enqueue(event);
     // Watch half of invoice-and-watch (SPEC §4): capture settles the execution.
@@ -751,6 +751,17 @@ const holdSweep = setInterval(() => {
 }, CONVERSION_HOLD_SWEEP_MS);
 holdSweep.unref?.();
 
+/**
+ * Dispatched payouts (hold taken, rail answer lost) are finished by asking the rail about the original key.
+ * Off, with the blocker named in the boot log, until the owner publishes the interval and the batch size.
+ */
+const payoutReconciler = startPayoutReconciler(
+  sql,
+  pay,
+  { intervalMs: env.PAY_PAYOUT_RECONCILE_INTERVAL_MS, batchLimit: env.PAY_PAYOUT_RECONCILE_BATCH_LIMIT },
+  app.log,
+);
+
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
   onError: (err) => app.log.warn({ err }, 'metrics refresh failed'),
@@ -874,6 +885,8 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     webhookUrl: `http://127.0.0.1:${env.HTTP_PORT}/webhooks/crypto-native`,
     pollIntervalMs: env.PAY_CRYPTO_WATCHER_INTERVAL_MS,
     cursorStore: watcherCursors,
+    deadLetters: watcherDeadLetters,
+    maxDeliveryAttempts: env.PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
     onAlive: () => cryptoRail.noteAlive(),
   });
@@ -933,6 +946,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
+      payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
       // Draining, not dropping: an in-flight capture finishes before the

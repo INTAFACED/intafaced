@@ -495,6 +495,7 @@ export const positionMarginAdjustments = trade.table(
     uniqueIndex('position_margin_adjustments_one_pending_idx')
       .on(t.positionId)
       .where(sql`${t.status} = 'pending'`),
+    uniqueIndex('position_margin_adjustments_position_sequence_idx').on(t.positionId, t.sequence),
   ],
 );
 

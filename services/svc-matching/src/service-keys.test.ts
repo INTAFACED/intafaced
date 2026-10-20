@@ -36,7 +36,7 @@ function fleet() {
   return {
     trade: signer('svc-trade', trade),
     pay: signer('svc-pay', pay),
-    verifier: () => createServiceVerifier({ self: 'svc-matching', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-matching', keyring, bootSecond: 0 }),
   };
 }
 

@@ -1,4 +1,4 @@
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { MarketError } from './vendor-service.js';
 
 /**
@@ -60,18 +60,25 @@ export interface VendorEntitlement {
   vendorSlots: number;
 }
 
-export function createStakeSource(baseUrl: string, internalSecret: string): SlotEntitlementSource {
+export function createStakeSource(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-market's own key. With it the call is key-signed for svc-token; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): SlotEntitlementSource {
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-market', audience: 'svc-token', legacySecret: internalSecret, s2s });
 
   return {
     async entitlementOf(userId: string): Promise<VendorEntitlement> {
       let response: Response;
       try {
-        response = await fetch(`${url}/internal/stake/${encodeURIComponent(userId)}`, {
+        const target = `${url}/internal/stake/${encodeURIComponent(userId)}`;
+        response = await fetch(target, {
           method: 'GET',
           headers: {
             'content-type': 'application/json',
-            ...serviceAuthHeadersForBody('svc-market', internalSecret, ''),
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
           },
         });
       } catch (err) {

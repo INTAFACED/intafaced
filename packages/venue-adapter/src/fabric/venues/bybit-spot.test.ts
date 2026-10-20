@@ -132,7 +132,7 @@ const orderbook = (u: number, over: { b?: [string, string][]; a?: [string, strin
 });
 
 const depthFrame = (type: 'snapshot' | 'delta', u: number, over: { b?: [string, string][]; a?: [string, string][] } = {}): unknown => ({
-  topic: 'orderbook.50.BTCUSDT',
+  topic: 'orderbook.1000.BTCUSDT',
   type,
   ts: 1,
   data: { s: 'BTCUSDT', b: over.b ?? [], a: over.a ?? [], u, seq: 9_000 + u },
@@ -579,7 +579,7 @@ describe('streamBook — subscribe by message, not by URL', () => {
     const subscription = await adapter(new FakeHttp(), stream).streamBook('BTC/USDT');
 
     expect(stream.opened).toEqual(['wss://ws.test/v5/public/spot']);
-    expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.50.BTCUSDT'] }]);
+    expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.1000.BTCUSDT'] }]);
 
     await subscription.close();
   });
@@ -632,7 +632,7 @@ describe('streamBook — subscribe by message, not by URL', () => {
 
     stream.socket().push({ success: true, ret_msg: '', conn_id: 'c1', req_id: '', op: 'subscribe' });
     stream.socket().push({ success: true, ret_msg: 'pong', conn_id: 'c1', op: 'ping' });
-    stream.socket().push({ topic: 'orderbook.50.ETHUSDT', type: 'delta', data: { u: 5, b: [], a: [] } });
+    stream.socket().push({ topic: 'orderbook.1000.ETHUSDT', type: 'delta', data: { u: 5, b: [], a: [] } });
     stream.socket().push(depthFrame('delta', 101, { a: [['30002.00', '1.00']] }));
     stream.socket().close();
 
@@ -658,12 +658,12 @@ describe('streamBook — subscribe by message, not by URL', () => {
       success: true,
       conn_id: 'c1',
       type: 'COMMAND_RESP',
-      data: { failTopics: ['orderbook.50.BTCUSDT'], successTopics: [] },
+      data: { failTopics: ['orderbook.1000.BTCUSDT'], successTopics: [] },
     });
 
     await expect(async () => {
       for await (const _delta of subscription.deltas) void _delta;
-    }).rejects.toThrow(/refused the subscription to orderbook\.50\.BTCUSDT/);
+    }).rejects.toThrow(/refused the subscription to orderbook\.1000\.BTCUSDT/);
   });
 
   it('FAILS on a flat success: false rejection too', async () => {
@@ -746,16 +746,16 @@ describe('streamTrades — the aggressor, read straight through', () => {
 
 describe('subscribeRefusal / takerSideOf', () => {
   it('reads both refusal shapes, and neither fires on an ordinary data frame', () => {
-    expect(subscribeRefusal({ success: false, ret_msg: 'boom', op: 'subscribe' }, 'orderbook.50.BTCUSDT')).toBe('boom');
-    expect(subscribeRefusal({ success: false }, 'orderbook.50.BTCUSDT')).toBe('subscribe refused with no message');
-    expect(subscribeRefusal({ success: true, data: { failTopics: ['orderbook.50.BTCUSDT'] } }, 'orderbook.50.BTCUSDT')).toContain(
+    expect(subscribeRefusal({ success: false, ret_msg: 'boom', op: 'subscribe' }, 'orderbook.1000.BTCUSDT')).toBe('boom');
+    expect(subscribeRefusal({ success: false }, 'orderbook.1000.BTCUSDT')).toBe('subscribe refused with no message');
+    expect(subscribeRefusal({ success: true, data: { failTopics: ['orderbook.1000.BTCUSDT'] } }, 'orderbook.1000.BTCUSDT')).toContain(
       'failTopics',
     );
     // Somebody else's rejected topic is not ours.
-    expect(subscribeRefusal({ success: true, data: { failTopics: ['orderbook.50.ETHUSDT'] } }, 'orderbook.50.BTCUSDT')).toBeNull();
-    expect(subscribeRefusal({ success: true, ret_msg: 'pong', op: 'ping' }, 'orderbook.50.BTCUSDT')).toBeNull();
+    expect(subscribeRefusal({ success: true, data: { failTopics: ['orderbook.1000.ETHUSDT'] } }, 'orderbook.1000.BTCUSDT')).toBeNull();
+    expect(subscribeRefusal({ success: true, ret_msg: 'pong', op: 'ping' }, 'orderbook.1000.BTCUSDT')).toBeNull();
     expect(
-      subscribeRefusal({ topic: 'orderbook.50.BTCUSDT', type: 'delta', data: { u: 1, b: [], a: [] } }, 'orderbook.50.BTCUSDT'),
+      subscribeRefusal({ topic: 'orderbook.1000.BTCUSDT', type: 'delta', data: { u: 1, b: [], a: [] } }, 'orderbook.1000.BTCUSDT'),
     ).toBeNull();
     // A trade frame's `data` is an array, and an array has no `failTopics`.
     expect(subscribeRefusal({ topic: 'publicTrade.BTCUSDT', data: [{ i: '1' }] }, 'publicTrade.BTCUSDT')).toBeNull();
@@ -795,7 +795,7 @@ describe('MaintainedBook on bybit-spot — subscribe, buffer, snapshot, join', (
     // Socket opened and subscribed first. That ordering is the whole point:
     // updates in this window would otherwise be lost with no discontinuity.
     expect(stream.opened).toHaveLength(1);
-    expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.50.BTCUSDT'] }]);
+    expect(stream.sent()).toEqual([{ op: 'subscribe', args: ['orderbook.1000.BTCUSDT'] }]);
     expect(book.venueId).toBe('bybit-spot');
 
     stream.socket().push(depthFrame('snapshot', 100));
@@ -1043,7 +1043,7 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
     expect(open[0]!.status).toBe('open');
   });
 
-  it('balances maps SPOT wallet-balance coins from signed GET', async () => {
+  it('balances maps UNIFIED wallet-balance coins from signed GET', async () => {
     const http = new FakeHttp().queue({
       retCode: 0,
       retMsg: 'OK',
@@ -1052,8 +1052,8 @@ describe('BybitSpotTrade / BybitSpotAccount — signed trade and SPOT wallet obs
           {
             accountType: 'SPOT',
             coin: [
-              { coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '90' },
-              { coin: 'BTC', walletBalance: '1', locked: '0', availableToWithdraw: '1' },
+              { coin: 'USDT', walletBalance: '100', locked: '10', availableToWithdraw: '' },
+              { coin: 'BTC', walletBalance: '1', locked: '0', availableToWithdraw: '' },
             ],
           },
         ],

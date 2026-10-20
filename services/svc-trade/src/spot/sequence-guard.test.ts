@@ -87,6 +87,10 @@ class RestartProbe implements MatchingClient {
     throw new Error('unused');
   }
 
+  async markTrailingStops(): Promise<never> {
+    throw new Error('unused');
+  }
+
   async listOrders(): Promise<never> {
     throw new Error('unused');
   }

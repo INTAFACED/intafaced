@@ -580,6 +580,13 @@ export interface EngineAmend {
   readonly expiry?: string | null;
 }
 
+/** Outcome of a server-side mark. `applied` is true only when a trailing stop's peak or trigger moved. */
+export interface MarkResult {
+  readonly accepted: boolean;
+  readonly applied: boolean;
+  readonly rejected: { readonly code: string; readonly message: string } | null;
+}
+
 export type AmendPriority = 'retained' | 'lost';
 
 export interface AmendResult {

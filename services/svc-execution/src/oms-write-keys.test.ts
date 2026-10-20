@@ -37,7 +37,7 @@ function fleet() {
   return {
     execution: signer('svc-execution', execution),
     trade: signer('svc-trade', trade),
-    verifier: () => createServiceVerifier({ self: 'svc-execution', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-execution', keyring, bootSecond: 0 }),
   };
 }
 
