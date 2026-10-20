@@ -22,7 +22,11 @@ const INPUT = {
   actionType: 'execution.halt',
   targetHash: 'sha256:abc',
   requesterId: '22222222-2222-4222-8222-222222222222',
-} as never;
+  payloadHash: 'sha256:abc',
+  targetService: 'svc-execution',
+  targetId: 'halt:acct-1',
+  expectedVersion: '1',
+};
 
 function keys() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');

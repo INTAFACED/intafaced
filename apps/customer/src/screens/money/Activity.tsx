@@ -59,6 +59,7 @@ import { buyHref } from './links';
 import { detailHref } from './activity-detail';
 import { groupMatches, hasFilters, NO_FILTERS, rangeProblem, type ActivityFilters } from './activity-filter';
 import { activityCsv, csvFileName } from './activity-csv';
+import { StatementPanel } from './StatementPanel';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 
@@ -438,6 +439,7 @@ function Body({
   return (
     <>
       <ExportButton feed={feed} rows={rows} copy={copy} />
+      <StatementPanel />
       <table className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />

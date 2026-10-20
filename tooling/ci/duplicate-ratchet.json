@@ -95,10 +95,6 @@
     "services/svc-edge/src/session-revoked.ts": {
       "unwrap": 2
     },
-    "services/svc-execution/src/operator-desk.ts": {
-      "unwrap": 1,
-      "fetch": 1
-    },
     "services/svc-identity/src/affiliates/commission.ts": {
       "parse": 2
     },

@@ -1121,6 +1121,47 @@ test('activity detail: a note with only spaces cannot be sent', async ({ page })
   expect(api.calls('activity.note.set')).toHaveLength(0);
 });
 
+test('activity: a signed statement for a finished month downloads and shows its fingerprint', async ({ page }) => {
+  const api = await mock(page, {
+    bank: {
+      'statements.export': (input) => ({
+        format: input.format,
+        filename: `intafaced-statement-${input.from.slice(0, 7)}.pdf`,
+        contentType: 'application/pdf',
+        bodyBase64: Buffer.from('%PDF-test').toString('base64'),
+        sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        signature: 'sig',
+        rowCount: 3,
+        generatedAt: '2026-10-20T02:00:00.000Z',
+        proof: {},
+      }),
+    },
+  });
+  await open(page, '/money/activity');
+  const panel = page.getByRole('form', { name: 'Statement' });
+  await expect(panel).toBeVisible();
+  const download = page.waitForEvent('download');
+  await panel.getByRole('button', { name: 'Download statement' }).click();
+  expect((await download).suggestedFilename()).toMatch(/^intafaced-statement-\d{4}-\d{2}\.pdf$/);
+  await expect(panel.getByRole('status')).toContainText('3 lines');
+  await expect(panel.getByRole('status')).toContainText('abcd ef01 2345');
+  const sent = api.calls('statements.export');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].input.from).toMatch(/^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+  expect(sent[0].input.to).toMatch(/T23:59:59\.999Z$/);
+  expect(sent[0].input.format).toBe('pdf');
+});
+
+test('activity: this month is not offered as a statement', async ({ page }) => {
+  await mock(page, {});
+  await open(page, '/money/activity');
+  const panel = page.getByRole('form', { name: 'Statement' });
+  const now = new Date();
+  await panel.getByLabel('Month').fill(`${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`);
+  await expect(panel.getByRole('button', { name: 'Download statement' })).toBeDisabled();
+  await expect(panel.getByRole('status')).toContainText('over');
+});
+
 test('activity: hide balances masks the amounts; no horizontal scroll at narrow widths', async ({ page }) => {
   await mock(page);
   await open(page, ALL);

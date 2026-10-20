@@ -155,6 +155,22 @@
     color: var(--if-fg-1);
     font: 400 14px/20px var(--if-font-ui);
   }
+  .money-statement {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .money-statement__h {
+    font: 500 14px/20px var(--if-font-ui);
+    color: var(--if-fg-1);
+  }
+  .money-statement__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
+  }
   .money-actions {
     display: flex;
     flex-wrap: wrap;
