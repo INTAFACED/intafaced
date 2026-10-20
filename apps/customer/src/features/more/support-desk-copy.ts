@@ -112,7 +112,7 @@ export const deskCopy = defineCopy('support-desk', {
   attachConfirm: 'Attach file',
   attachDone: 'File attached',
   attachLimitsLine: 'Up to {count} files per request, each up to {size}. Accepted types: {types}.',
-  attachLimitsOff: 'Attaching files is not switched on yet. Describe what you see in your message instead.',
+  attachLimitsOff: 'Attaching files is switched off. Describe what you see in your message instead.',
   attachLimitsUnread: 'We could not read the file limits just now. You can still try: our service checks every file.',
   attachFilesHeading: 'Files on this request',
   attachNoFiles: 'No files on this request yet.',
