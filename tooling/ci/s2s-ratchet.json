@@ -133,7 +133,7 @@
       "caller": 5
     },
     "services/svc-ledger/src/ledger/action-approval-consume.ts": {
-      "sign": 1,
+      "sign": 0,
       "caller": 0
     },
     "services/svc-ledger/src/router.ts": {
