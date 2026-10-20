@@ -8,9 +8,6 @@
  *                      comment from anyone else, or for another sha, does nothing.
  *   pull_request_target on a push, the sign-off of the previous head is carried to the new head when the patch is the
  *                      same (a clean rebase). Any change to the patch needs a new review.
- *   auto-merge         a pull request that is not in this repo, not from a listed author, a draft, or touching a gate
- *                      file has auto-merge switched off (with one comment). Enabling it is left to the author, so the
- *                      merge is made by their account and main's CI runs on it.
  *
  * The status description carries `patch <12 hex>`, a hash of the changed lines (no line numbers, no context), so a
  * rebase onto a newer main keeps it and a real change does not. After a sign-off the failed `CI merge seal` job is
@@ -21,7 +18,6 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { isGateFile } from './ci-affected.mjs';
 import { MARKER, STATUS_CONTEXT } from './review-marker.mjs';
 
 const PATCH_RE = /patch ([0-9a-f]{12})/;
@@ -31,7 +27,6 @@ export function readConfig(path = new URL('./reviewers.json', import.meta.url)) 
   return {
     reviewers: (c.reviewers ?? []).map((l) => String(l).toLowerCase()),
     requireDistinctFromAuthor: c.requireDistinctFromAuthor === true,
-    autoMergeAuthors: (c.autoMergeAuthors ?? []).map((l) => String(l).toLowerCase()),
   };
 }
 
@@ -82,17 +77,6 @@ export function patchId(diff, blobs = {}) {
   return h.digest('hex');
 }
 
-/** May this pull request have auto-merge on? */
-export function autoMergeVerdict({ pr, files }, config) {
-  if (pr.draft) return { allowed: false, why: 'it is a draft' };
-  if (pr.head?.repo?.full_name !== pr.base?.repo?.full_name) return { allowed: false, why: 'it comes from a fork' };
-  if (!config.autoMergeAuthors.includes(String(pr.user?.login).toLowerCase()))
-    return { allowed: false, why: `${pr.user?.login} is not a listed author` };
-  const gate = files.find(isGateFile);
-  if (gate) return { allowed: false, why: `it changes a gate file (${gate}); those merge by hand after review` };
-  return { allowed: true };
-}
-
 /** Is a previous sign-off for the same patch? Returns the carried description or null. */
 export function carryFrom(statuses, newPatch) {
   const prev = statuses.find((s) => s.context === STATUS_CONTEXT && s.state === 'success');
@@ -128,10 +112,6 @@ async function prFileList(repo, n) {
   return files;
 }
 
-async function prFiles(repo, n) {
-  return (await prFileList(repo, n)).flatMap((f) => [f.filename, f.previous_filename].filter(Boolean));
-}
-
 async function currentPatchId(repo, n, sha) {
   const r = await gh('GET', `/repos/${repo}/pulls/${n}`, undefined, 'application/vnd.github.v3.diff');
   if (r.status !== 200 || !r.text) return null; // too large or unavailable: nothing is carried
@@ -163,25 +143,12 @@ async function rerunSeal(repo, sha) {
   return `re-ran the failed jobs of run ${run.id} (HTTP ${r.status})`;
 }
 
-async function enforceAutoMerge(repo, pr) {
-  if (!pr.auto_merge) return 'auto-merge is off';
-  const verdict = autoMergeVerdict({ pr, files: await prFiles(repo, pr.number) }, readConfig());
-  if (verdict.allowed) return 'auto-merge allowed';
-  const q = 'mutation($id:ID!){disablePullRequestAutoMerge(input:{pullRequestId:$id}){clientMutationId}}';
-  const g = await gh('POST', '/graphql', { query: q, variables: { id: pr.node_id } });
-  if (g.status !== 200 || g.json?.errors) throw new Error(`could not switch auto-merge off: ${JSON.stringify(g.json?.errors ?? g.status)}`);
-  await gh('POST', `/repos/${repo}/issues/${pr.number}/comments`, {
-    body: `Auto-merge was switched off: ${verdict.why}. Merge this one by hand once the checks and the review are green.\n\n_Opened by tooling/ci/review-signoff.mjs._`,
-  });
-  return `switched auto-merge off: ${verdict.why}`;
-}
-
 function selfTest() {
   const assert = (cond, msg) => {
     if (!cond) throw new Error(msg);
   };
   const head = 'a'.repeat(40);
-  const cfg = { reviewers: ['nino', 'phantom'], requireDistinctFromAuthor: false, autoMergeAuthors: ['nino'] };
+  const cfg = { reviewers: ['nino', 'phantom'], requireDistinctFromAuthor: false };
   const pr = { state: 'open', head: { sha: head }, user: { login: 'nino' } };
   const body = `Independent review: PASS ${head}`;
   assert(judgeComment({ commenter: 'Nino', body, pr }, cfg).ok, 'a listed reviewer, current head, passes (case-insensitive)');
@@ -229,14 +196,6 @@ function selfTest() {
   assert(carryFrom([{ ...prev, state: 'failure' }], patchId(d2)) === null, 'only a success carries');
   assert(carryFrom([], patchId(d2)) === null, 'nothing to carry');
 
-  const repo = { full_name: 'o/r' };
-  const base = { draft: false, head: { repo }, base: { repo }, user: { login: 'nino' } };
-  assert(autoMergeVerdict({ pr: base, files: ['services/svc-a/x.ts'] }, cfg).allowed, 'in-repo listed author, no gate file');
-  assert(!autoMergeVerdict({ pr: base, files: ['AGENTS.md'] }, cfg).allowed, 'a gate-file PR never auto-merges');
-  assert(!autoMergeVerdict({ pr: base, files: ['.github/workflows/ci.yml'] }, cfg).allowed, 'workflow change never auto-merges');
-  assert(!autoMergeVerdict({ pr: { ...base, head: { repo: { full_name: 'f/r' } } }, files: [] }, cfg).allowed, 'a fork never auto-merges');
-  assert(!autoMergeVerdict({ pr: { ...base, user: { login: 'eve' } }, files: [] }, cfg).allowed, 'an unlisted author never auto-merges');
-  assert(!autoMergeVerdict({ pr: { ...base, draft: true }, files: [] }, cfg).allowed, 'a draft never auto-merges');
   assert(readConfig().reviewers.length > 0, 'reviewers.json lists at least one reviewer');
   console.log('✓ review-signoff --self-test OK');
 }
@@ -276,7 +235,6 @@ async function main() {
         console.log(await rerunSeal(repo, pr.head.sha));
       } else console.log('no sign-off to carry (none, or the patch changed)');
     }
-    console.log(await enforceAutoMerge(repo, pr));
   }
 }
 

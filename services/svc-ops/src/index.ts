@@ -9,6 +9,7 @@ import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
+import { createPgRestoreStore } from './restore-store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -100,6 +101,7 @@ const appRouter = createOpsRouter(
   },
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
+    restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals:
       env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET

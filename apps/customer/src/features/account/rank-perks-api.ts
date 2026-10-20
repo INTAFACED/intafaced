@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { rankPerksSchema, rankStateSchema } from '@intafaced/contracts/identity';
+import { contractProcedure } from '../../shared/contract-call';
 
 const xpCount = z.string().regex(/^(0|[1-9]\d*)$/);
 // The mounted producer emits Date.toISOString(), not an arbitrary display date.
@@ -22,6 +23,9 @@ export const accountPerks = rankPerksSchema.extend({
   copyFollowerCap: rankPerksSchema.shape.copyFollowerCap.safe(),
   launchpadTier: rankPerksSchema.shape.launchpadTier.safe(),
 });
+/** `identity.rank.get` and `identity.rank.perks`: self-only reads whose output schemas are the service's own, narrowed above. */
+export const rankGetFor = (owner: string) => contractProcedure('identity', 'rank.get', { output: rankForOwner(owner) });
+export const rankPerksGet = contractProcedure('identity', 'rank.perks', { output: accountPerks });
 export type AccountRank = z.infer<typeof rank>;
 export type AccountPerks = z.infer<typeof accountPerks>;
 

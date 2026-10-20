@@ -16,7 +16,7 @@ import type { BankServices } from './bank-service.js';
 import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
-import { describeBusinessPolicy } from './business/business-policy.js';
+import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
@@ -3773,11 +3773,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           accountId: z.string().uuid(),
           userId: z.string().min(1),
-          role: z.enum(['admin', 'maker', 'checker']),
+          role: z.enum(BUSINESS_ROLES),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           if (stepUpEnforced) {
@@ -3970,7 +3970,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             z.object({
               accountId: z.string(),
               userId: z.string(),
-              role: z.enum(['admin', 'maker', 'checker']),
+              role: z.enum(BUSINESS_ROLES),
               handle: z.string(),
             }),
           ),
@@ -4039,12 +4039,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           accountId: z.string().uuid(),
           userId: z.string().min(1),
-          role: z.enum(['admin', 'maker', 'checker']),
+          role: z.enum(BUSINESS_ROLES),
           requestId: z.string().uuid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           if (stepUpEnforced) {
@@ -4281,7 +4281,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      */
     myRole: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ accountId: z.string().uuid() }))
-      .output(z.object({ role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ role: z.enum(BUSINESS_ROLES) }))
       .query(async ({ ctx, input }) => guard(async () => ({ role: await bank.business.myRole(input.accountId, ctx.principal.userId) }))),
 
     runPayroll: scopedProcedure('bank:write', { module: 'bank' })

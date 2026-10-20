@@ -1,6 +1,5 @@
 {
   "reviewers": ["ZenYoda3", "Phantom-X-007"],
   "requireDistinctFromAuthor": false,
-  "autoMergeAuthors": ["ZenYoda3", "Phantom-X-007"],
-  "note": "Read from main by .github/workflows/review-signoff.yml, never from a pull request. reviewers: GitHub logins whose 'Independent review: PASS <sha>' comment counts. requireDistinctFromAuthor stays false while every agent posts as the same account that opens the PR; turn it on once reviews come from a second identity. autoMergeAuthors: in-repo authors whose pull requests may have auto-merge on (never a gate-file PR)."
+  "note": "Read from main by .github/workflows/review-signoff.yml, never from a pull request. reviewers: GitHub logins whose 'Independent review: PASS <sha>' comment counts. requireDistinctFromAuthor stays false while every agent posts as the same account that opens the PR; turn it on once reviews come from a second identity."
 }
