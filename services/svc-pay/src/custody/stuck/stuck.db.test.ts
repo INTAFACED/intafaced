@@ -355,9 +355,46 @@ describe('custody queue, stuck transactions and reverse (real Postgres)', () => 
       const again = await svc.executeReverse('op-1', r.id);
       expect(done.executed).toBe(true);
       expect(again.executed).toBe(true);
-      expect(reverseCalls).toEqual([{ withdrawalId: d.id, evidenceRef: r.id }]);
+      expect(reverseCalls).toEqual([{ withdrawalId: d.id, evidenceRef: r.id, expectedAttempt: 0 }]);
       const [n] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.custody_reverse_outcomes`;
       expect(n!.n).toBe('1');
+    });
+
+    it('evidence is about one attempt: after a customer retry opens a new attempt, the old drop cannot reverse it', async () => {
+      const d = await dropped();
+      // attempt 0 ends and the customer retries: the same row, a new attempt, held again with a new send
+      await db.sql`UPDATE pay.withdrawals SET attempts = 1 WHERE id = ${d.id}::uuid`;
+      expect(await code(svc.requestReverse('op-1', { withdrawalId: d.id, actionId: d.actionId, ...evidence }))).toBe('stuck.reverse_stale');
+      // a withdrawal that is no longer held is stale too
+      await db.sql`UPDATE pay.withdrawals SET attempts = 0, status = 'failed' WHERE id = ${d.id}::uuid`;
+      expect(await code(svc.requestReverse('op-1', { withdrawalId: d.id, actionId: d.actionId, ...evidence }))).toBe('stuck.reverse_stale');
+      expect(reverseCalls).toEqual([]);
+    });
+
+    it('a request filed on attempt 0 hands attempt 0 to the ledger, and a link belongs to one attempt', async () => {
+      const d = await dropped();
+      const r = await svc.requestReverse('op-1', { withdrawalId: d.id, actionId: d.actionId, ...evidence });
+      expect(r.attempt).toBe(0);
+      await svc.approveReverse('op-2', r.id);
+      // the customer retries before the desk executes: the port is told which attempt was approved
+      await db.sql`UPDATE pay.withdrawals SET attempts = 1 WHERE id = ${d.id}::uuid`;
+      await svc.executeReverse('op-2', r.id);
+      expect(reverseCalls[0]).toMatchObject({ expectedAttempt: 0 });
+      // the old link does not apply to the new attempt, so it is out of the queue until the new send is linked
+      expect((await svc.queue(walletId)).items.map((i) => i.withdrawalId)).not.toContain(d.id);
+      expect(await code(svc.act('op-1', act(d.id, { actionKey: 'act-new', nonce: 9 })))).toBe('stuck.not_linked');
+      await svc.link('op-1', { withdrawalId: d.id, walletId, nonce: 9 });
+      expect((await svc.act('op-1', act(d.id, { actionKey: 'act-new', nonce: 9 }))).attempt).toBe(1);
+      expect((await svc.queue(walletId)).items.map((i) => [i.withdrawalId, i.nonce])).toEqual([[d.id, 9]]);
+    });
+
+    it('the chain is asked again at execute: a reorg that confirmed the original blocks the reverse', async () => {
+      const d = await dropped();
+      const r = await svc.requestReverse('op-1', { withdrawalId: d.id, actionId: d.actionId, ...evidence });
+      await svc.approveReverse('op-2', r.id);
+      chainState = { state: 'original_mined' };
+      expect(await code(svc.executeReverse('op-2', r.id))).toBe('stuck.reverse_original_mined');
+      expect(reverseCalls).toEqual([]);
     });
 
     it('a failed reverse records nothing and is safe to run again', async () => {

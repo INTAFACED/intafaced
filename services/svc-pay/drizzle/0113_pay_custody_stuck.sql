@@ -5,12 +5,15 @@
 -- are separate rows, so the original transaction counts as replaced or dropped only when an outcome row says the chain
 -- showed it. A reverse needs the evidence of a dropped transaction (hash and nonce), a reason and a second approver.
 CREATE TABLE IF NOT EXISTS "pay"."custody_tx_wallet_links" (
-  "withdrawal_id" uuid PRIMARY KEY REFERENCES "pay"."withdrawals" ("id"),
+  "withdrawal_id" uuid NOT NULL REFERENCES "pay"."withdrawals" ("id"),
+  -- A customer retry opens a new attempt with a new send, so a link belongs to one attempt.
+  "attempt" integer NOT NULL,
   "wallet_id" uuid NOT NULL REFERENCES "pay"."custody_wallets" ("wallet_id"),
   "nonce" bigint,
   "linked_by" text NOT NULL,
   "at" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "custody_tx_wallet_links_nonce_ck" CHECK ("nonce" IS NULL OR "nonce" >= 0),
+  CONSTRAINT "custody_tx_wallet_links_pk" PRIMARY KEY ("withdrawal_id", "attempt"),
+  CONSTRAINT "custody_tx_wallet_links_nonce_ck" CHECK ("attempt" >= 0 AND ("nonce" IS NULL OR "nonce" >= 0)),
   CONSTRAINT "custody_tx_wallet_links_by_ck" CHECK (length(btrim("linked_by")) > 0)
 );
 CREATE INDEX IF NOT EXISTS "custody_tx_wallet_links_wallet_idx" ON "pay"."custody_tx_wallet_links" ("wallet_id", "nonce");
@@ -33,6 +36,8 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_tx_actions" (
   "action_key" text NOT NULL,
   "kind" text NOT NULL,
   "withdrawal_id" uuid NOT NULL REFERENCES "pay"."withdrawals" ("id"),
+  -- The withdrawal's attempt number when the action was taken: a customer retry opens a new attempt with a new hold.
+  "withdrawal_attempt" integer NOT NULL,
   "original_tx_hash" text NOT NULL,
   "nonce" bigint NOT NULL,
   "max_fee" numeric(38,18),
@@ -41,7 +46,7 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_tx_actions" (
   "requested_by" text NOT NULL,
   "at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "custody_tx_actions_kind_ck" CHECK ("kind" IN ('boost', 'replace', 'drop')),
-  CONSTRAINT "custody_tx_actions_nonce_ck" CHECK ("nonce" >= 0),
+  CONSTRAINT "custody_tx_actions_nonce_ck" CHECK ("nonce" >= 0 AND "withdrawal_attempt" >= 0),
   CONSTRAINT "custody_tx_actions_fee_ck" CHECK (("max_fee" IS NULL) = ("max_fee_unit" IS NULL) AND ("max_fee" IS NULL OR "max_fee" > 0)),
   CONSTRAINT "custody_tx_actions_text_ck" CHECK (length(btrim("action_key")) > 0 AND length(btrim("original_tx_hash")) > 0
     AND length(btrim("reason")) > 0 AND length(btrim("requested_by")) > 0)
@@ -68,6 +73,8 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_reverse_requests" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "withdrawal_id" uuid NOT NULL REFERENCES "pay"."withdrawals" ("id"),
   "action_id" uuid NOT NULL REFERENCES "pay"."custody_tx_actions" ("id"),
+  -- The attempt the evidence is about. The ledger reverse refuses any other attempt.
+  "attempt" integer NOT NULL,
   "evidence_tx_hash" text NOT NULL,
   "evidence_nonce" bigint NOT NULL,
   "reason" text NOT NULL,
@@ -76,8 +83,8 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_reverse_requests" (
   CONSTRAINT "custody_reverse_nonce_ck" CHECK ("evidence_nonce" >= 0),
   CONSTRAINT "custody_reverse_text_ck" CHECK (length(btrim("evidence_tx_hash")) > 0 AND length(btrim("reason")) > 0 AND length(btrim("requested_by")) > 0)
 );
--- One reverse request per withdrawal: a second ask is the same ask.
-CREATE UNIQUE INDEX IF NOT EXISTS "custody_reverse_withdrawal_uq" ON "pay"."custody_reverse_requests" ("withdrawal_id");
+-- One reverse request per withdrawal attempt: a second ask for the same attempt is the same ask.
+CREATE UNIQUE INDEX IF NOT EXISTS "custody_reverse_withdrawal_attempt_uq" ON "pay"."custody_reverse_requests" ("withdrawal_id", "attempt");
 
 CREATE TABLE IF NOT EXISTS "pay"."custody_reverse_approvals" (
   "seq" bigserial PRIMARY KEY,

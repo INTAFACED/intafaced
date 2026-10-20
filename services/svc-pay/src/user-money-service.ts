@@ -1074,9 +1074,10 @@ export class UserMoneyService {
    * the same payout lock as `withdraw` and `cancelWithdrawal`, so a send resuming on the same client reference cannot
    * interleave. Only a `held` row whose hold is on the ledger can be reversed. The reverse is keyed on the attempt, the
    * same key a rail refusal uses, so it posts once however often it runs, and the row then reads `failed` with
-   * `WITHDRAWAL_DROPPED_CODE` and a new attempt number. A second call on that row returns it unchanged.
+   * `WITHDRAWAL_DROPPED_CODE` and a new attempt number. A second call on that row returns it unchanged. `expectedAttempt` is the
+   * attempt the evidence was about; a row on any other attempt (a customer retry) is refused.
    */
-  async reverseDroppedWithdrawal(input: { withdrawalId: string }): Promise<WithdrawalRecord> {
+  async reverseDroppedWithdrawal(input: { withdrawalId: string; expectedAttempt: number }): Promise<WithdrawalRecord> {
     const [found] = await this.sql<WithdrawalRow[]>`
       SELECT id, user_id, asset_id, amount, rail, destination, client_ref, rail_ref, attempts, failure_code, status, created_at
         FROM pay.withdrawals WHERE id = ${input.withdrawalId}
@@ -1093,6 +1094,14 @@ export class UserMoneyService {
         throw new PayError('Only a held withdrawal can be reversed after its transaction was dropped', 'pay.withdrawal_not_reversible', {
           withdrawalId: current.id,
           state: customerStatus(current.status, current.failureCode),
+        });
+      }
+      // A customer retry opens a new attempt with a new hold and a new send. Evidence is about one attempt only, so it never
+      // returns the funds of another.
+      if (current.attempts !== input.expectedAttempt) {
+        throw new PayError('The withdrawal is no longer on the attempt this reverse was approved for', 'pay.withdrawal_not_reversible', {
+          withdrawalId: current.id,
+          state: 'held',
         });
       }
       let holdBooked: boolean;

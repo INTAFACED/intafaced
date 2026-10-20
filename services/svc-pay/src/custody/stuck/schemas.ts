@@ -94,6 +94,8 @@ export const actionViewSchema = z.object({
   actionKey: z.string(),
   kind: z.enum(STUCK_KINDS),
   withdrawalId: id,
+  /** The withdrawal's attempt number when the action was taken. */
+  attempt: z.number().int(),
   originalTxHash: z.string(),
   nonce: z.number().int(),
   maxFee: z.string().nullable(),
@@ -120,6 +122,8 @@ export const reverseViewSchema = z.object({
   id,
   withdrawalId: id,
   actionId: id,
+  /** The withdrawal attempt the evidence is about; the ledger reverse refuses any other. */
+  attempt: z.number().int(),
   evidenceTxHash: z.string(),
   evidenceNonce: z.number().int(),
   reason: z.string(),

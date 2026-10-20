@@ -98,8 +98,8 @@ describe('reverse a dropped withdrawal (real Postgres)', () => {
     await hold(id, 2);
     expect(await availableOf()).toBe('60');
 
-    const out = await money.reverseDroppedWithdrawal({ withdrawalId: id });
-    const again = await money.reverseDroppedWithdrawal({ withdrawalId: id });
+    const out = await money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 2 });
+    const again = await money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 2 });
 
     expect(out).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_DROPPED_CODE, attempts: 3 });
     expect(again).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_DROPPED_CODE });
@@ -129,12 +129,14 @@ describe('reverse a dropped withdrawal (real Postgres)', () => {
       },
     }) as LedgerClient;
     const crashing = new UserMoneyService(db.sql, dying, rails, { operatorCreditRails: ['card-sandbox'] });
-    await expect(crashing.reverseDroppedWithdrawal({ withdrawalId: id })).rejects.toMatchObject({ code: 'pay.ledger_outcome_unknown' });
+    await expect(crashing.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 0 })).rejects.toMatchObject({
+      code: 'pay.ledger_outcome_unknown',
+    });
     const [mid] = await db.sql<Array<{ status: string }>>`SELECT status::text FROM pay.withdrawals WHERE id = ${id}`;
     expect(mid!.status).toBe('held');
     expect(await availableOf()).toBe('100');
 
-    const done = await money.reverseDroppedWithdrawal({ withdrawalId: id });
+    const done = await money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 0 });
     expect(done.failureCode).toBe(WITHDRAWAL_DROPPED_CODE);
     expect(await availableOf()).toBe('100');
     expect(await holdOf(id, 0)).toBe('0');
@@ -152,15 +154,34 @@ describe('reverse a dropped withdrawal (real Postgres)', () => {
     for (const status of ['pending', 'sent', 'failed']) {
       const id = await row(status);
       await hold(id); // even with a hold on the ledger, only a held row is reversed
-      await expect(money.reverseDroppedWithdrawal({ withdrawalId: id })).rejects.toMatchObject({ code: 'pay.withdrawal_not_reversible' });
+      await expect(money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 0 })).rejects.toMatchObject({
+        code: 'pay.withdrawal_not_reversible',
+      });
       expect(await reversed(id, 0)).toBe(false);
     }
     const noHold = await row('held');
-    await expect(money.reverseDroppedWithdrawal({ withdrawalId: noHold })).rejects.toMatchObject({ code: 'pay.withdrawal_not_reversible' });
+    await expect(money.reverseDroppedWithdrawal({ withdrawalId: noHold, expectedAttempt: 0 })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_reversible',
+    });
     expect(await reversed(noHold, 0)).toBe(false);
-    await expect(money.reverseDroppedWithdrawal({ withdrawalId: '00000000-0000-4000-8000-000000000000' })).rejects.toMatchObject({
+    await expect(
+      money.reverseDroppedWithdrawal({ withdrawalId: '00000000-0000-4000-8000-000000000000', expectedAttempt: 0 }),
+    ).rejects.toMatchObject({
       code: 'pay.withdrawal_not_found',
     });
+  });
+
+  it('refuses evidence about another attempt: a customer retry opened a new attempt with a new hold, and it is not reversed', async () => {
+    const id = await row('held', 1); // attempt 1 is live, with its own hold
+    await hold(id, 1);
+    await expect(money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 0 })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_reversible',
+    });
+    expect(await reversed(id, 1)).toBe(false);
+    expect(await availableOf()).toBe('60');
+    // the right attempt is reversed
+    expect((await money.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 1 })).failureCode).toBe(WITHDRAWAL_DROPPED_CODE);
+    expect(await availableOf()).toBe('100');
   });
 
   it('an unreadable ledger leaves the row held', async () => {
@@ -174,7 +195,9 @@ describe('reverse a dropped withdrawal (real Postgres)', () => {
       },
     }) as LedgerClient;
     const svc = new UserMoneyService(db.sql, blind, rails, { operatorCreditRails: ['card-sandbox'] });
-    await expect(svc.reverseDroppedWithdrawal({ withdrawalId: id })).rejects.toMatchObject({ code: 'pay.ledger_outcome_unknown' });
+    await expect(svc.reverseDroppedWithdrawal({ withdrawalId: id, expectedAttempt: 0 })).rejects.toMatchObject({
+      code: 'pay.ledger_outcome_unknown',
+    });
     const [r] = await db.sql<Array<{ status: string }>>`SELECT status::text FROM pay.withdrawals WHERE id = ${id}`;
     expect(r!.status).toBe('held');
     expect(await availableOf()).toBe('60');

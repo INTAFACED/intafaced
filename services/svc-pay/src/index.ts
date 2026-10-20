@@ -498,7 +498,8 @@ const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 
 /** W-custody-ops-12: the custody desk reverses a dropped, held withdrawal through the withdrawal service's own posting. */
 const custodyDroppedReverser = {
-  reverseDropped: ({ withdrawalId }: { withdrawalId: string }) => userMoney.reverseDroppedWithdrawal({ withdrawalId }),
+  reverseDropped: ({ withdrawalId, expectedAttempt }: { withdrawalId: string; expectedAttempt: number }) =>
+    userMoney.reverseDroppedWithdrawal({ withdrawalId, expectedAttempt }),
 };
 
 export const appRouter = mergeRouters(

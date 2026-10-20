@@ -19,6 +19,8 @@ export type CustodyStuckErrorCode =
   | 'stuck.reverse_evidence_mismatch'
   | 'stuck.reverse_needs_drop'
   | 'stuck.reverse_exists'
+  | 'stuck.reverse_stale'
+  | 'stuck.reverse_original_mined'
   | 'stuck.reverse_not_found'
   | 'stuck.second_approver_required'
   | 'stuck.reverse_not_approved'
@@ -44,6 +46,8 @@ const KIND: Record<CustodyStuckErrorCode, TRPCError['code']> = {
   'stuck.reverse_evidence_mismatch': 'BAD_REQUEST',
   'stuck.reverse_needs_drop': 'PRECONDITION_FAILED',
   'stuck.reverse_exists': 'CONFLICT',
+  'stuck.reverse_stale': 'PRECONDITION_FAILED',
+  'stuck.reverse_original_mined': 'PRECONDITION_FAILED',
   'stuck.reverse_not_found': 'NOT_FOUND',
   'stuck.second_approver_required': 'FORBIDDEN',
   'stuck.reverse_not_approved': 'PRECONDITION_FAILED',

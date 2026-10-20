@@ -64,9 +64,9 @@ export interface WithdrawalCanceller {
   cancelWithdrawal(input: { userId: string; withdrawalId: string }): Promise<unknown>;
 }
 
-/** Posts the ledger reverse for a held withdrawal whose transaction was dropped. Idempotent per withdrawal. */
+/** Posts the ledger reverse for a held withdrawal whose transaction was dropped. It refuses any attempt but `expectedAttempt`. */
 export interface DroppedReverser {
-  reverseDropped(input: { withdrawalId: string; evidenceRef: string }): Promise<unknown>;
+  reverseDropped(input: { withdrawalId: string; evidenceRef: string; expectedAttempt: number }): Promise<unknown>;
 }
 
 export interface CustodyStuckServiceDeps {
@@ -85,6 +85,7 @@ interface ActionRow {
   action_key: string;
   kind: StuckKind;
   withdrawal_id: string;
+  withdrawal_attempt: number;
   original_tx_hash: string;
   nonce: string;
   max_fee: string | null;
@@ -115,9 +116,10 @@ export class CustodyStuckService {
     if (!w) throw new CustodyStuckError('stuck.withdrawal_not_found', `no withdrawal ${input.withdrawalId}`);
     const [wallet] = await this.sql`SELECT 1 FROM pay.custody_wallets WHERE wallet_id = ${input.walletId}::uuid`;
     if (!wallet) throw new CustodyStuckError('stuck.wallet_not_found', `no custody wallet ${input.walletId}`);
-    await this.sql`INSERT INTO pay.custody_tx_wallet_links (withdrawal_id, wallet_id, nonce, linked_by)
-      VALUES (${input.withdrawalId}::uuid, ${input.walletId}::uuid, ${input.nonce ?? null}, ${actor})
-      ON CONFLICT (withdrawal_id) DO NOTHING`;
+    // The link belongs to the withdrawal's CURRENT attempt, read in the same statement that writes it.
+    await this.sql`INSERT INTO pay.custody_tx_wallet_links (withdrawal_id, attempt, wallet_id, nonce, linked_by)
+      SELECT id, attempts, ${input.walletId}::uuid, ${input.nonce ?? null}, ${actor} FROM pay.withdrawals WHERE id = ${input.withdrawalId}::uuid
+      ON CONFLICT (withdrawal_id, attempt) DO NOTHING`;
     const link = await this.linkOf(input.withdrawalId);
     if (!link || link.walletId !== input.walletId || link.nonce !== (input.nonce ?? null)) {
       throw new CustodyStuckError('stuck.already_linked', 'this withdrawal is already linked to a different wallet or nonce');
@@ -127,8 +129,9 @@ export class CustodyStuckService {
 
   private async linkOf(withdrawalId: string) {
     const [r] = await this.sql<Array<{ withdrawal_id: string; wallet_id: string; nonce: string | null; linked_by: string; at: string }>>`
-      SELECT withdrawal_id, wallet_id, nonce::text AS nonce, linked_by, ${this.sql.unsafe(TS('at'))} AS at
-        FROM pay.custody_tx_wallet_links WHERE withdrawal_id = ${withdrawalId}::uuid`;
+      SELECT l.withdrawal_id, l.wallet_id, l.nonce::text AS nonce, l.linked_by, ${this.sql.unsafe(TS('l.at'))} AS at
+        FROM pay.custody_tx_wallet_links l JOIN pay.withdrawals w ON w.id = l.withdrawal_id AND w.attempts = l.attempt
+       WHERE l.withdrawal_id = ${withdrawalId}::uuid`;
     return r
       ? {
           withdrawalId: r.withdrawal_id,
@@ -162,7 +165,7 @@ export class CustodyStuckService {
     if (!wallet) throw new CustodyStuckError('stuck.wallet_not_found', `no custody wallet ${walletId}`);
     const rows = await this.sql<Array<{ id: string; nonce: string | null; updated_at: string }>>`
       SELECT w.id, l.nonce::text AS nonce, ${this.sql.unsafe(TS('w.updated_at'))} AS updated_at
-        FROM pay.custody_tx_wallet_links l JOIN pay.withdrawals w ON w.id = l.withdrawal_id
+        FROM pay.custody_tx_wallet_links l JOIN pay.withdrawals w ON w.id = l.withdrawal_id AND w.attempts = l.attempt
        WHERE l.wallet_id = ${walletId}::uuid AND w.status::text = 'held'
        ORDER BY l.nonce NULLS LAST, w.created_at, w.id`;
     return { networkId: wallet.network_id, rows };
@@ -222,7 +225,7 @@ export class CustodyStuckService {
 
   private async actionRow(where: { id?: string; key?: string }): Promise<ActionRow | undefined> {
     const [r] = await this.sql<ActionRow[]>`
-      SELECT id, action_key, kind, withdrawal_id, original_tx_hash, nonce::text AS nonce, max_fee::text AS max_fee, max_fee_unit,
+      SELECT id, action_key, kind, withdrawal_id, withdrawal_attempt, original_tx_hash, nonce::text AS nonce, max_fee::text AS max_fee, max_fee_unit,
              reason, requested_by, ${this.sql.unsafe(TS('at'))} AS at
         FROM pay.custody_tx_actions
        WHERE (${where.id ?? null}::uuid IS NOT NULL AND id = ${where.id ?? null}::uuid)
@@ -242,6 +245,7 @@ export class CustodyStuckService {
       actionKey: row.action_key,
       kind: row.kind,
       withdrawalId: row.withdrawal_id,
+      attempt: row.withdrawal_attempt,
       originalTxHash: row.original_tx_hash,
       nonce: Number(row.nonce),
       maxFee: row.max_fee === null ? null : formatAmount(parseAmount(row.max_fee)),
@@ -263,7 +267,7 @@ export class CustodyStuckService {
 
   async listActions(withdrawalId: string): Promise<ActionView[]> {
     const rows = await this.sql<ActionRow[]>`
-      SELECT id, action_key, kind, withdrawal_id, original_tx_hash, nonce::text AS nonce, max_fee::text AS max_fee, max_fee_unit,
+      SELECT id, action_key, kind, withdrawal_id, withdrawal_attempt, original_tx_hash, nonce::text AS nonce, max_fee::text AS max_fee, max_fee_unit,
              reason, requested_by, ${this.sql.unsafe(TS('at'))} AS at
         FROM pay.custody_tx_actions WHERE withdrawal_id = ${withdrawalId}::uuid ORDER BY at, id`;
     return Promise.all(rows.map((r) => this.actionView(r)));
@@ -284,10 +288,10 @@ export class CustodyStuckService {
         row.max_fee_unit === (input.maxFeeUnit ?? null);
       if (!same) throw new CustodyStuckError('stuck.action_differs', `the action key ${input.actionKey} was used for a different request`);
     } else {
-      await this.assertActionable(input);
+      const attempt = await this.assertActionable(input);
       await this.sql`INSERT INTO pay.custody_tx_actions
-          (action_key, kind, withdrawal_id, original_tx_hash, nonce, max_fee, max_fee_unit, reason, requested_by)
-        VALUES (${input.actionKey}, ${input.kind}, ${input.withdrawalId}::uuid, ${input.originalTxHash}, ${input.nonce},
+          (action_key, kind, withdrawal_id, withdrawal_attempt, original_tx_hash, nonce, max_fee, max_fee_unit, reason, requested_by)
+        VALUES (${input.actionKey}, ${input.kind}, ${input.withdrawalId}::uuid, ${attempt}, ${input.originalTxHash}, ${input.nonce},
                 ${maxFee}::numeric, ${input.maxFeeUnit ?? null}, ${input.reason}, ${actor})
         ON CONFLICT (action_key) DO NOTHING`;
       row = (await this.actionRow({ key: input.actionKey }))!;
@@ -319,10 +323,10 @@ export class CustodyStuckService {
     return this.actionView(row);
   }
 
-  private async assertActionable(input: ActionInput): Promise<void> {
+  private async assertActionable(input: ActionInput): Promise<number> {
     const [w] = await this.sql<
-      Array<{ status: string }>
-    >`SELECT status::text AS status FROM pay.withdrawals WHERE id = ${input.withdrawalId}::uuid`;
+      Array<{ status: string; attempts: number }>
+    >`SELECT status::text AS status, attempts FROM pay.withdrawals WHERE id = ${input.withdrawalId}::uuid`;
     if (!w) throw new CustodyStuckError('stuck.withdrawal_not_found', `no withdrawal ${input.withdrawalId}`);
     const link = await this.linkOf(input.withdrawalId);
     if (!link) throw new CustodyStuckError('stuck.not_linked', 'this withdrawal is not linked to a custody wallet');
@@ -330,6 +334,7 @@ export class CustodyStuckService {
     if (link.nonce !== null && link.nonce !== input.nonce) {
       throw new CustodyStuckError('stuck.nonce_mismatch', `the withdrawal was signed with nonce ${link.nonce}, not ${input.nonce}`);
     }
+    return w.attempts;
   }
 
   /**
@@ -398,15 +403,25 @@ export class CustodyStuckService {
     if (action.kind !== 'drop' || view.status !== 'dropped') {
       throw new CustodyStuckError('stuck.reverse_needs_drop', 'a reverse needs a drop action that the chain showed took the nonce');
     }
+    // The evidence is about ONE attempt. A customer retry opens a new attempt with a new hold and a new send, so evidence
+    // from an earlier attempt must never reverse the current one: the withdrawal must still be on the action's attempt.
+    const [w] = await this.sql<Array<{ status: string; attempts: number }>>`
+      SELECT status::text AS status, attempts FROM pay.withdrawals WHERE id = ${input.withdrawalId}::uuid`;
+    if (!w || w.status !== 'held' || w.attempts !== action.withdrawal_attempt) {
+      throw new CustodyStuckError(
+        'stuck.reverse_stale',
+        'the withdrawal is no longer held on the attempt this drop was about; there is nothing to reverse from this evidence',
+      );
+    }
     await this
-      .sql`INSERT INTO pay.custody_reverse_requests (withdrawal_id, action_id, evidence_tx_hash, evidence_nonce, reason, requested_by)
-      VALUES (${input.withdrawalId}::uuid, ${input.actionId}::uuid, ${action.original_tx_hash}, ${input.evidenceNonce}, ${input.reason}, ${actor})
-      ON CONFLICT (withdrawal_id) DO NOTHING`;
-    const [r] = await this.sql<
-      Array<{ id: string; action_id: string }>
-    >`SELECT id, action_id FROM pay.custody_reverse_requests WHERE withdrawal_id = ${input.withdrawalId}::uuid`;
+      .sql`INSERT INTO pay.custody_reverse_requests (withdrawal_id, action_id, attempt, evidence_tx_hash, evidence_nonce, reason, requested_by)
+      VALUES (${input.withdrawalId}::uuid, ${input.actionId}::uuid, ${action.withdrawal_attempt}, ${action.original_tx_hash}, ${input.evidenceNonce}, ${input.reason}, ${actor})
+      ON CONFLICT (withdrawal_id, attempt) DO NOTHING`;
+    const [r] = await this.sql<Array<{ id: string; action_id: string }>>`
+      SELECT id, action_id FROM pay.custody_reverse_requests
+       WHERE withdrawal_id = ${input.withdrawalId}::uuid AND attempt = ${action.withdrawal_attempt}`;
     if (r!.action_id !== input.actionId)
-      throw new CustodyStuckError('stuck.reverse_exists', 'a reverse was already requested for this withdrawal on another action');
+      throw new CustodyStuckError('stuck.reverse_exists', 'a reverse was already requested for this attempt on another action');
     return this.reverseView(r!.id);
   }
 
@@ -430,8 +445,19 @@ export class CustodyStuckService {
     if (!view.approved) throw new CustodyStuckError('stuck.reverse_not_approved', 'a second founder must approve before the reverse runs');
     const reverser = this.deps.reverser;
     if (!reverser) throw new CustodyStuckError('stuck.reverse_unwired', 'the ledger reverse is not connected here');
+    // The stored outcome is the evidence; ask the chain once more so a reorg that confirmed the original blocks the reverse.
+    if (this.deps.chain) {
+      const action = await this.actionRow({ id: view.actionId });
+      const now = await this.deps.chain.status({ originalTxHash: action!.original_tx_hash, nonce: Number(action!.nonce) });
+      if (now.state === 'original_mined') {
+        throw new CustodyStuckError(
+          'stuck.reverse_original_mined',
+          'the chain now shows the original transaction confirmed; nothing is reversed',
+        );
+      }
+    }
     try {
-      await reverser.reverseDropped({ withdrawalId: view.withdrawalId, evidenceRef: requestId });
+      await reverser.reverseDropped({ withdrawalId: view.withdrawalId, evidenceRef: requestId, expectedAttempt: view.attempt });
     } catch (error) {
       throw new CustodyStuckError(
         'stuck.reverse_failed',
@@ -449,13 +475,14 @@ export class CustodyStuckService {
         id: string;
         withdrawal_id: string;
         action_id: string;
+        attempt: number;
         evidence_tx_hash: string;
         evidence_nonce: string;
         reason: string;
         requested_by: string;
         at: string;
       }>
-    >`SELECT id, withdrawal_id, action_id, evidence_tx_hash, evidence_nonce::text AS evidence_nonce, reason, requested_by, ${this.sql.unsafe(TS('at'))} AS at
+    >`SELECT id, withdrawal_id, action_id, attempt, evidence_tx_hash, evidence_nonce::text AS evidence_nonce, reason, requested_by, ${this.sql.unsafe(TS('at'))} AS at
         FROM pay.custody_reverse_requests WHERE id = ${requestId}::uuid`;
     if (!r) throw new CustodyStuckError('stuck.reverse_not_found', `no reverse request ${requestId}`);
     const approvers = await this.sql<
@@ -466,6 +493,7 @@ export class CustodyStuckService {
       id: r.id,
       withdrawalId: r.withdrawal_id,
       actionId: r.action_id,
+      attempt: r.attempt,
       evidenceTxHash: r.evidence_tx_hash,
       evidenceNonce: Number(r.evidence_nonce),
       reason: r.reason,
