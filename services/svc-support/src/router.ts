@@ -12,6 +12,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
@@ -144,6 +145,17 @@ export function createSupportRouter(
           const ticket = await support.createTicket({ userId: ctx.principal!.userId, ...input });
           loop?.markTicketCreateSuccess();
           return ticket;
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** How many of the caller's own requests wait on their reply, and the one that has waited longest. */
+    awaitingMine: scopedProcedure('support:read')
+      .output(supportAwaitingMineSchema)
+      .query(async ({ ctx }) => {
+        try {
+          return await support.awaitingMine({ userId: ctx.principal!.userId });
         } catch (err) {
           mapError(err);
         }

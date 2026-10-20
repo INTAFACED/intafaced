@@ -14,6 +14,8 @@ export interface LifecycleBook {
   markFirstPublicReply(ticketId: string, at: string): Promise<void>;
   /** Link a new request to the closed one it follows. Set once. */
   linkFollowUp(ticketId: string, followsTicketId: string, at: string): Promise<void>;
+  /** Of these tickets, the ones waiting on the customer, with the time each began waiting, longest first. */
+  awaitingCustomer(ticketIds: readonly string[]): Promise<{ ticketId: string; since: string }[]>;
 }
 
 const empty = (ticketId: string): SupportTicketLifecycle => ({
@@ -48,7 +50,18 @@ export class MemoryLifecycleBook implements LifecycleBook {
     if (prior.followsTicketId !== null) return;
     this.rows.set(ticketId, { ...prior, followsTicketId });
   }
+
+  async awaitingCustomer(ticketIds: readonly string[]): Promise<{ ticketId: string; since: string }[]> {
+    const out: { ticketId: string; since: string }[] = [];
+    for (const id of ticketIds) {
+      const row = this.rows.get(id);
+      if (row?.waitingOn === 'customer' && row.waitingSince !== null) out.push({ ticketId: id, since: row.waitingSince });
+    }
+    return out.sort(byWaiting);
+  }
 }
+
+const byWaiting = (a: { since: string }, b: { since: string }) => a.since.localeCompare(b.since);
 
 type Row = {
   ticket_id: string;
@@ -113,5 +126,15 @@ export class SqlLifecycleBook implements LifecycleBook {
         follows_ticket_id = COALESCE(support.ticket_lifecycle.follows_ticket_id, EXCLUDED.follows_ticket_id),
         updated_at = EXCLUDED.updated_at
     `;
+  }
+
+  async awaitingCustomer(ticketIds: readonly string[]): Promise<{ ticketId: string; since: string }[]> {
+    if (ticketIds.length === 0) return [];
+    const rows = await this.sql<{ ticket_id: string; waiting_since: Date | string }[]>`
+      SELECT ticket_id, waiting_since FROM support.ticket_lifecycle
+      WHERE ticket_id = ANY(${ticketIds as string[]}::uuid[]) AND waiting_on = 'customer' AND waiting_since IS NOT NULL
+      ORDER BY waiting_since ASC, ticket_id ASC
+    `;
+    return rows.map((r) => ({ ticketId: r.ticket_id, since: iso(r.waiting_since)! }));
   }
 }

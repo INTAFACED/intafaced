@@ -121,6 +121,10 @@ exists) sets one or more from the revision it read, with a reason; `null` clears
 append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
 first answer and a different change from a stale revision refuses `support.contact_revision_stale`.
 
+Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's own open requests wait on their reply and
+which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries
+`waitingOn`; a resolved or closed request waits on nobody.
+
 ## Migrations
 
 ```bash
