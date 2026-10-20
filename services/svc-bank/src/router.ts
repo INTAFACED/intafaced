@@ -37,6 +37,7 @@ import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
+import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -482,6 +483,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.transfer_health_window_unset':
       case 'bank.failed_transfers_window_unset':
       case 'bank.failed_transfers_limit_unset':
+      case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
@@ -516,6 +518,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
+      case 'rail.bank':
+      case 'bank.account_details_currencies_unset':
+      case 'bank.eligibility_unset':
       case 'bank.fx_rate_unset':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
@@ -574,6 +579,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.prices_unavailable':
       case 'bank.statement_unavailable':
       case 'bank.ops_audit_unavailable':
+      case 'bank.account_details_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -4675,6 +4681,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     portfolio,
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
+    accountDetails: createAccountDetailsRouter(bank, guard),
+    eligibility: createEligibilityRouter(bank, guard),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),

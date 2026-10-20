@@ -204,6 +204,11 @@ const bank = createBankServices(sql, ledger, history, {
         }
       : {}),
   },
+  /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
+  accountDetails: {
+    currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
+    eligibilityJson: env.BANK_ELIGIBILITY_JSON,
+  },
   /**
    * RAMPS — same missing-wiring shape as cards.
    *
