@@ -65,7 +65,7 @@ function NoticeLoaded({ id }: { id: string }) {
   const { read, reload } = useRead((signal) => readNotice(api, id, signal), [api, id]);
   if (read.status === 'loading') return <StateBlock kind="loading" rows={1} rowHeight={96} label={t('loading')} />;
   if (read.status === 'failed') return <StateBlock kind="error" title={t('loadFailed')} onRetry={reload} retryLabel={t('tryAgain')} />;
-  return <NoticeCard notice={read.data} link={false} />;
+  return read.data ? <NoticeCard notice={read.data} link={false} /> : <NoticeMissing />;
 }
 
 /** One notice. A reference that is not a notice id reads as not published without asking the service. */

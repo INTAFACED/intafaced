@@ -1,0 +1,40 @@
+@layer components {
+  .risk-room {
+    display: grid;
+    gap: 24px;
+    max-width: 640px;
+  }
+  .risk-section {
+    display: grid;
+    gap: 8px;
+  }
+  .risk-section h2,
+  .risk-section h3 {
+    margin: 0;
+  }
+  .risk-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .risk-pick {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+  }
+  .risk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+  }
+  .risk-note {
+    margin: 0;
+    padding: 8px 12px;
+    border-radius: var(--if-r-sm, 8px);
+    border: 1px solid var(--if-line, currentColor);
+  }
+}

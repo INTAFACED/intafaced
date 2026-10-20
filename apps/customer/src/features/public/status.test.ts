@@ -8,6 +8,7 @@ describe('knownMode', () => {
   it('describes the modes the lifecycle names and nothing else', () => {
     expect(knownMode('POST_ONLY')).toBe('POST_ONLY');
     expect(knownMode('CANCEL_ONLY')).toBe('CANCEL_ONLY');
+    expect(knownMode('LIMIT_ONLY')).toBe('LIMIT_ONLY');
     expect(knownMode('SETTLING')).toBeNull();
     expect(knownMode(null)).toBeNull();
   });

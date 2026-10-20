@@ -16,5 +16,10 @@ export const feedNotices = (rows: readonly Notice[]): Notice[] => rows.filter((r
 export const readNotices = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
   api.query('notify', 'notify.notices', { limit: NOTICE_LIST_LIMIT }, z.array(entrySchema).max(NOTICE_LIST_LIMIT), { signal });
 
-export const readNotice = (api: ApiClient, id: string, signal?: AbortSignal): Promise<ApiResult<Notice>> =>
-  api.query('notify', 'notify.notice', { id }, entrySchema, { signal });
+export const NOTICE_NOT_FOUND = 'notify.notice_not_found';
+
+/** A notice the feed does not hold (missing, a draft, withdrawn) is an answer, `null`, not a failed read. */
+export const readNotice = async (api: ApiClient, id: string, signal?: AbortSignal): Promise<ApiResult<Notice | null>> => {
+  const result = await api.query('notify', 'notify.notice', { id }, entrySchema, { signal });
+  return !result.ok && result.code === NOTICE_NOT_FOUND ? { ok: true, data: null } : result;
+};
