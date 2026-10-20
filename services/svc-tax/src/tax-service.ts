@@ -8,11 +8,13 @@ import {
   TAX_HISTORY_YEARS_UNSET,
   TAX_INDEXER_UNAVAILABLE,
   TAX_INDEXER_UNPROBED,
+  TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { HistoryRange, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
+import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, type LotBook } from './lot-book.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 
 /**
@@ -171,6 +173,22 @@ export class TaxService {
 
   async exportPack(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPack> {
     return this.build(input).then((built) => built.pack);
+  }
+
+  /**
+   * Profit and loss as an indicator, from the caller's own trade fills (lot-book.ts). Not tied to a jurisdiction map and not a
+   * tax pack. The method defaults to FIFO (a product default, changeable per call); an unknown name is refused, not guessed.
+   */
+  async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
+    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : this.requireMethod(input.method);
+    const readFills = this.reads.tradeFills;
+    if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
+    const [balances, filled] = await Promise.all([this.reads.balances('user', input.userId), readFills.call(this.reads, input.userId)]);
+    const held = new Map<string, Amount>();
+    for (const row of balances) {
+      if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
+    }
+    return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
   }
 
   private requireMethod(raw: string): LotMethod {
