@@ -21,6 +21,10 @@ import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
+import { ChannelSettings } from './ops-config/channel-settings.js';
+import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
+import { MessageTemplates } from './ops-config/templates.js';
+import { PostgresTemplateStore } from './ops-config/templates.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
@@ -159,10 +163,22 @@ const account = new AccountPrefs(topicStore, digestStore, commandLog, () => chan
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(s2sKey), commandLog);
+const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
+const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
+const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprovals, commandLog, {
+  verifiedAddress: async (userId, channel) => {
+    const target = (await targets.verified(userId)).find((row) => row.channel === channel);
+    return target ? { address: target.address, locale: target.locale } : null;
+  },
+  channel: (channel) => channels.get(channel),
+  status: () => channels.status(),
+  disabled: () => channelSettings.disabled(),
+});
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
+  disabledChannels: () => channelSettings.disabled(),
   mutePrefsOf: (userId) => muteStore.get(userId),
   planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date() }),
   loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
@@ -177,7 +193,7 @@ const notify = new NotifyService(
     verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
-  { targets, deliveries, channels, dispatcher, muteStore, account, holds: holdStore, notices },
+  { targets, deliveries, channels, dispatcher, muteStore, account, holds: holdStore, notices, channelSettings, templates },
 );
 
 /**

@@ -16,6 +16,8 @@ import {
   recentDeliveryWire,
 } from './preferences/recent.js';
 import type { NoticeBoard } from './notices/board.js';
+import type { ChannelSettings } from './ops-config/channel-settings.js';
+import type { MessageTemplates } from './ops-config/templates.js';
 import { TargetRateLimiter, type TargetRateLimiterPort } from './target-rate-limit.js';
 
 /** Insert plus delivery scope. `outOfApp: false` is inbox-only (agentActionCompleted). */
@@ -188,6 +190,8 @@ export interface NotifyServiceDeps {
   readonly account?: AccountPrefs;
   readonly holds?: HoldStore;
   readonly notices?: NoticeBoard;
+  readonly channelSettings?: ChannelSettings;
+  readonly templates?: MessageTemplates;
 }
 
 /** Stored as HMAC-SHA256 keyed by the owner pepper. A bare digest of the six-digit code is reversible. */
@@ -494,6 +498,14 @@ export class NotifyService {
 
   get notices(): NoticeBoard | null {
     return this.deps?.notices ?? null;
+  }
+
+  get channelSettings(): ChannelSettings | null {
+    return this.deps?.channelSettings ?? null;
+  }
+
+  get templates(): MessageTemplates | null {
+    return this.deps?.templates ?? null;
   }
 
   /**
