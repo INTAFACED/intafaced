@@ -236,8 +236,11 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     // No stored intent: the name is just a name, so the cap applies.
     await expect(exit(entry.id, alice)).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
     await db.sql`INSERT INTO trade.order_bracket_intent (order_id, user_id, take_profit, stop_loss) VALUES (${entry.id}, ${ALICE}, 60, 40)`;
-    // Another user cannot borrow Alice's intent.
-    await expect(exit(entry.id, bob)).resolves.toBeDefined();
+    // Another user cannot borrow Alice's intent: fill Bob to the cap, then his exit of Alice's entry is refused.
+    await rest(bob, btc, 'br-bob-1');
+    await expect(exit(entry.id, bob)).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
+    // A name that is not a uuid never reaches the stored-intent lookup: it is the typed refusal, not a database error.
+    await expect(exit('-'.repeat(36), alice)).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
     const placed = await exit(entry.id, alice);
     expect(placed.clientOrderId).toBe(`bracket:${entry.id}:exit`);
     await db.sql`UPDATE trade.order_bracket_intent SET exit_order_id = ${placed.id} WHERE order_id = ${entry.id}`;
