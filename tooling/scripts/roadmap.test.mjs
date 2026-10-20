@@ -82,10 +82,27 @@ test('progress counts PRs per slice, excludes reverts, and gives 3-hour and 7-da
   );
   assert.match(page, /Started \(named in at least one merged PR\): 3 of 4 slices\. Not started: 1\./);
   assert.match(page, /PRs per started slice: 1\.3 on average; 2 have one PR, 1 two, 0 three or more\./);
-  assert.match(page, /Last 3 hours: 1 PRs, 0 slices started \(8\.0 PRs a day\)\./);
+  assert.match(page, /Last 3 hours: 1 PR, 0 slices started \(8\.0 PRs a day\)\./);
   assert.match(page, /Last 7 days: 3 PRs, 2 slices started \(0\.4 PRs a day\)\./);
-  assert.match(page, /Forecast at the 3-hour pace: about 1 days for the 1 unstarted slices at 2\.0 PRs each/);
+  assert.match(page, /Forecast at the 3-hour pace: about 1 day for the 1 unstarted slice at 2\.0 PRs each/);
   assert.match(page, /\| svc-trade spot \| 2 \| 2 \| 3 \|/);
+});
+
+test('progress counts the first named merge when tracking began under 7 days ago', () => {
+  const slices = [
+    { id: 'SP-x-01', lane: 'svc-trade spot' },
+    { id: 'SP-x-02', lane: 'svc-trade spot' },
+  ];
+  const commits = [
+    { at: '2026-10-20T08:00:00Z', subject: 'svc-trade: SP-x-01 market order, part 2 (#2)' },
+    { at: '2026-10-20T07:00:00Z', subject: 'svc-trade: SP-x-01 market order, part 1 (#1)' },
+  ];
+  const page = progress(slices, commits, '2026-10-20T12:00:00Z');
+  assert.match(page, /Last 5 hours \(since the first named merge\): 2 PRs, 1 slice started \(9\.6 PRs a day\)\./);
+  assert.match(page, /Forecast at the 5-hour pace: about 1 day for the 1 unstarted slice/);
+  const fresh = progress(slices, commits, '2026-10-20T09:00:00Z');
+  assert.match(fresh, /Last 3 hours: 2 PRs, 1 slice started/);
+  assert.doesNotMatch(fresh, /since the first named merge/);
 });
 
 test('a lane override beats the computed lane', () => {

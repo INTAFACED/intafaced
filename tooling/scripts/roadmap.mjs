@@ -419,26 +419,31 @@ export function progress(slices, commits, now) {
   const HOUR = 3_600_000;
   const DAY = 24 * HOUR;
   const firstSeen = [...prs.values()].map((times) => Math.min(...times));
+  // Inclusive start, so a window that begins at the first named merge counts that merge.
   const window = (ms) => ({
-    prs: sliceCommits.filter((at) => at > t - ms).length,
-    started: firstSeen.filter((at) => at > t - ms).length,
+    prs: sliceCommits.filter((at) => at >= t - ms).length,
+    started: firstSeen.filter((at) => at >= t - ms).length,
     days: ms / DAY,
   });
+  const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
   const counts = [...prs.values()].map((times) => times.length);
   const perSlice = counts.length ? counts.reduce((a, b) => a + b, 0) / counts.length : 0;
   const left = slices.length - prs.size;
-  const rate = ({ prs: n, started, days }) => `${n} PRs, ${started} slices started (${(n / days).toFixed(1)} PRs a day)`;
+  const rate = ({ prs: count, started, days }) =>
+    `${n(count, 'PR')}, ${n(started, 'slice')} started (${(count / days).toFixed(1)} PRs a day)`;
   const forecast = (label, w) => {
     const prsPerDay = w.prs / w.days;
     if (!prsPerDay) return `- Forecast at the ${label} pace: none (no slice PR merged in that window).`;
     const need = left * Math.max(perSlice, 2);
     const days = need / prsPerDay;
-    return `- Forecast at the ${label} pace: about ${Math.ceil(days)} days for the ${left} unstarted slices at ${Math.max(perSlice, 2).toFixed(1)} PRs each, about ${new Date(t + days * DAY).toISOString().slice(0, 10)}.`;
+    return `- Forecast at the ${label} pace: about ${n(Math.ceil(days), 'day')} for the ${n(left, 'unstarted slice')} at ${Math.max(perSlice, 2).toFixed(1)} PRs each, about ${new Date(t + days * DAY).toISOString().slice(0, 10)}.`;
   };
   const h3 = window(3 * HOUR);
   // Before the first named merge nothing was tracked, so a 7-day window that reaches back past it would dilute the pace.
   const tracked = sliceCommits.length ? t - Math.min(...sliceCommits) : 7 * DAY;
   const d7 = window(Math.max(Math.min(7 * DAY, tracked), 3 * HOUR));
+  const long = d7.days < 7 ? `${(d7.days * 24).toFixed(0)}-hour` : '7-day';
+  const sameAsLive = d7.days * DAY <= 3 * HOUR;
   const lines = [
     `# Roadmap progress (${now.slice(0, 16).replace('T', ' ')} UTC)`,
     '',
@@ -447,9 +452,11 @@ export function progress(slices, commits, now) {
     `- Started (named in at least one merged PR): ${prs.size} of ${slices.length} slices. Not started: ${left}.`,
     `- PRs per started slice: ${perSlice.toFixed(1)} on average; ${counts.filter((c) => c === 1).length} have one PR, ${counts.filter((c) => c === 2).length} two, ${counts.filter((c) => c > 2).length} three or more.`,
     `- Last 3 hours: ${rate(h3)}.`,
-    `- Last ${d7.days < 7 ? `${(d7.days * 24).toFixed(0)} hours (since the first named merge)` : '7 days'}: ${rate(d7)}.`,
+    ...(sameAsLive
+      ? []
+      : [`- Last ${d7.days < 7 ? `${(d7.days * 24).toFixed(0)} hours (since the first named merge)` : '7 days'}: ${rate(d7)}.`]),
     forecast('3-hour', h3),
-    forecast('7-day', d7),
+    ...(sameAsLive ? [] : [forecast(long, d7)]),
     '',
     '| Lane | Slices | Started | PRs |',
     '| --- | --- | --- | --- |',
