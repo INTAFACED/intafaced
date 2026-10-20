@@ -161,4 +161,17 @@ describe('price alerts page', () => {
     expect(page).toContain('Price alerts belong to your personal account.');
     expect(page).not.toContain('data-testid="alerts-form"');
   });
+
+  it('offers every condition and the optional name, message and expiry on the form', () => {
+    reads.markets = markets;
+    reads.alerts = ready([]);
+    const page = render();
+    for (const words of ['At or above', 'At or below', 'Crossing up through', 'Crossing down through', 'Crossing, either way,']) {
+      expect(page).toContain(`>${words}</option>`);
+    }
+    expect(page).toContain('Name (optional)');
+    expect(page).toContain('Message (optional)');
+    expect(page).toContain('type="datetime-local"');
+    expect(page).toContain('{market}, {price}, {condition} and {time}');
+  });
 });
