@@ -234,6 +234,17 @@ export const features: readonly Feature[] = [
     tab: 'pay',
   },
   {
+    id: 'oauth-apps',
+    label: 'Registered apps and app sign-in',
+    paths: ['/developers/apps', '/oauth/authorize'],
+    status: 'blocked',
+    reason:
+      'oauth.lifetime_unset: the owner has not published the authorisation code and access token lifetimes, no service accepts an issued token, and the operator approval queue is not in the admin app',
+    unlock:
+      'publish OAUTH_CODE_TTL_SECONDS and OAUTH_ACCESS_TOKEN_TTL_SECONDS, add the token check to the services and the approval queue to admin',
+    tab: 'person',
+  },
+  {
     id: 'developer-portal',
     label: 'Developer portal',
     paths: ['/developers', '/developers/*'],

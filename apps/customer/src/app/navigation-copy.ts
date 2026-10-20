@@ -2,6 +2,8 @@ import { defineCopy } from '../shared/i18n';
 
 // Explicit authored room labels only; route IDs and API content never enter this catalog.
 const messages = {
+  'Authorise an app': 'Authorise an app',
+  'Allow or deny an app that asked to use your account': 'Allow or deny an app that asked to use your account',
   'Risk control': 'Risk control',
   'Cancel every open order, close positions and see platform incidents':
     'Cancel every open order, close positions and see platform incidents',

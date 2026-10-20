@@ -193,6 +193,24 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000).optional()),
       /**
+       * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
+       * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
+       */
+      OAUTH_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published lifetime of an OAuth access token, in seconds. Blank / unset → unpublished; no token is
+       * issued (`oauth.lifetime_unset`). Never git-default.
+       */
+      OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(31_536_000).optional()),
+      /**
        * Owner-published lifetime for an action-bound approval, in seconds.
        * Blank / unset → unpublished; propose refuses (`action_approval.ttl_unset`).
        * Never git-default 900 or 15 minutes.

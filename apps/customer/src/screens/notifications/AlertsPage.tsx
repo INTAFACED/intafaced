@@ -47,7 +47,7 @@ const CANCEL = {
   alreadyCancelled: 'cancelAlreadyCancelled',
   notFound: 'cancelNotFound',
 } as const satisfies Record<CancelWords, string>;
-const STATUS = { active: 'statusActive', fired: 'statusFired', cancelled: 'statusCancelled' } as const;
+const STATUS = { active: 'statusActive', fired: 'statusFired', cancelled: 'statusCancelled', expired: 'statusExpired' } as const;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
 const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest']);
@@ -393,14 +393,18 @@ export default function AlertsPage() {
               return (
                 <li key={alert.id} className="nf-alertrow" data-testid="alert-row" data-status={alert.status}>
                   <div className="nf-text">
-                    <span className="nf-title">{kind ? `${name} · ${kind}` : name}</span>
+                    <span className="nf-title">{alert.name ? alert.name : kind ? `${name} · ${kind}` : name}</span>
                     <span className="nf-body nf-body--wrap">
                       {copy.t('condition', { side: sideWords(alert.direction), price: alert.targetPrice }) +
                         (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                     </span>
+                    {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
                     <span className="nf-muted">
                       {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
-                        (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '')}
+                        (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '') +
+                        (alert.expiresAt
+                          ? ` · ${copy.t(alert.status === 'expired' ? 'expiredAt' : 'expiresAt', { when: stamp(alert.expiresAt, timeZone) })}`
+                          : '')}
                     </span>
                   </div>
                   <div className="nf-alertside">
