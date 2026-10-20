@@ -291,6 +291,25 @@ const mail = openIdentityMail({
 });
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
+auth.usePasswordResetPolicy({
+  maxAttempts: env.IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS,
+  requestMax: env.IDENTITY_PASSWORD_RESET_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS,
+  subjectKey: env.IDENTITY_FLOW_SUBJECT_KEY,
+  notifyUnknown: env.IDENTITY_RESET_NOTIFY_UNKNOWN,
+});
+// Recovery mail leaves from the outbox, not from the request. A request starts a drain right after it
+// commits; the timer picks up anything a crash or a failed start left pending. A drain claims each row
+// once, so the two never send the same mail.
+const drainRecoveryMail = () => {
+  void auth
+    .drainMailOutbox()
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'auth.mail_relay_failed'));
+};
+auth.useMailRelayTrigger(() => {
+  setImmediate(drainRecoveryMail);
+});
+setInterval(drainRecoveryMail, 15_000).unref();
 if (env.PAY_URL) {
   auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, fetch, outS2s));
 }
