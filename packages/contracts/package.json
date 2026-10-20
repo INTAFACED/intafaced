@@ -42,6 +42,10 @@
       "types": "./dist/quant-disclosure.d.ts",
       "default": "./dist/quant-disclosure.js"
     },
+    "./support-contact": {
+      "types": "./dist/support-contact.d.ts",
+      "default": "./dist/support-contact.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"
