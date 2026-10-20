@@ -10,16 +10,9 @@ import {
   protocolNetworksListOutputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
-  protocolOpsActionResultSchema,
   protocolOpsLabelsOutputSchema,
-  protocolOpsMarketDelistInputSchema,
-  protocolOpsMarketRestoreInputSchema,
-  protocolOpsMarketsListOutputSchema,
   protocolOpsMetricsInputSchema,
   protocolOpsMetricsOutputSchema,
-  protocolOpsPoolHideInputSchema,
-  protocolOpsPoolRestoreInputSchema,
-  protocolOpsPoolsListOutputSchema,
   publicJurisdictionProcedure,
   publicProcedure,
   router,
@@ -65,10 +58,7 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
-import { ACTION_APPROVAL_MISSING, ACTION_APPROVAL_UNWIRED, ActionApprovalConsumeError } from './ops/approvals.js';
-import { OpsRefusal, type ProtocolOpsDesk } from './ops/desk.js';
 import { labelsOutput, serviceLabelEntries } from './ops/labels.js';
-import type { ListingRow, ListingStore } from './ops/listing.js';
 import { buildMetrics } from './ops/metrics.js';
 
 /**
@@ -321,13 +311,8 @@ export interface ProtocolRouterDeps {
   peers?: Peers;
   /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
   probeTimeoutMs?: () => number | undefined;
-  /** The Protocol ops desk (D-order-controls-04). Absent = the ops procedures refuse as not wired. */
-  ops?: {
-    desk: ProtocolOpsDesk;
-    store: ListingStore;
-    /** `PROTOCOL_OPS_WINDOW_SECONDS`: the metrics window when the caller names none. Blank = refuse `owner.decision`. */
-    windowSeconds: () => number | undefined;
-  };
+  /** `PROTOCOL_OPS_WINDOW_SECONDS`: the ops metrics window when the caller names none. Blank = refuse `owner.decision`. */
+  opsWindowSeconds?: () => number | undefined;
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
 }
@@ -335,48 +320,6 @@ export interface ProtocolRouterDeps {
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
   const peers = deps.peers ?? noPeers;
-
-  function requireOps() {
-    if (!deps.ops) {
-      throw new TRPCError({
-        code: 'SERVICE_UNAVAILABLE',
-        message: 'protocol.ops_unwired: the Protocol ops desk is not wired in this build.',
-      });
-    }
-    return deps.ops;
-  }
-
-  /** Maps the desk's typed refusals onto tRPC; anything else is not ours to name and is rethrown. */
-  async function viaDesk<T>(run: () => Promise<T>): Promise<T> {
-    try {
-      return await run();
-    } catch (err) {
-      if (err instanceof OpsRefusal) {
-        throw new TRPCError({
-          code: err.code === 'owner.decision' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
-          message: err.message,
-          cause: err,
-        });
-      }
-      if (err instanceof ActionApprovalConsumeError) {
-        const code =
-          err.code === ACTION_APPROVAL_UNWIRED ? 'PRECONDITION_FAILED' : err.code === ACTION_APPROVAL_MISSING ? 'BAD_REQUEST' : 'FORBIDDEN';
-        throw new TRPCError({ code, message: `${err.code}: ${err.message}`, cause: err });
-      }
-      throw err;
-    }
-  }
-
-  const hiddenOf = (row: ListingRow) =>
-    row.state === 'visible' || row.reasonCode === null || row.reason === null
-      ? null
-      : {
-          reasonCode: row.reasonCode,
-          reason: row.reason,
-          approvalId: row.approvalId,
-          policyVersion: row.policyVersion,
-          at: row.updatedAt.toISOString(),
-        };
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -579,17 +522,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     /**
-     * The Protocol ops desk: founder and compliance reads, and the four-eyes listing actions. A hide is a LISTING decision,
-     * never an on-chain pause. Every action consumes an identity-issued approval from a second founder; until this service
-     * has a service-to-service role to reach identity, they refuse `action_approval.identity_unwired` and change nothing.
+     * The Protocol ops desk reads: founder metrics and the compliance label audit. The hide, delist and restore writes
+     * live in svc-ops, which consumes identity's four-eyes approval; this plane holds no platform credential.
      */
     ops: router({
       metrics: scopedProcedure('admin:read', { module: 'protocol', plane: 'protocol' })
         .input(protocolOpsMetricsInputSchema.default({}))
         .output(protocolOpsMetricsOutputSchema)
         .query(async ({ input, ctx }) => {
-          const ops = requireOps();
-          const windowSeconds = input.windowSeconds ?? ops.windowSeconds();
+          const windowSeconds = input.windowSeconds ?? deps.opsWindowSeconds?.();
           if (windowSeconds === undefined) {
             throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'owner.decision: the owner has not published a metrics window.' });
           }
@@ -608,56 +549,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       labels: scopedProcedure('admin:compliance', { module: 'protocol', plane: 'protocol' })
         .output(protocolOpsLabelsOutputSchema)
         .query(async () => {
-          requireOps();
           const audit = await loadInternalSmartAccountsPackage();
           return labelsOutput(
             serviceLabelEntries({ networks: loadNetworkRegistry(), configuredChainId: chain.config.chainId, audit }),
             new Date(),
           );
         }),
-
-      pools: router({
-        list: scopedProcedure('admin:read', { module: 'protocol', plane: 'protocol' })
-          .output(protocolOpsPoolsListOutputSchema)
-          .query(async () => {
-            const rows = await requireOps().store.list('pool');
-            return {
-              asOf: new Date().toISOString(),
-              pools: rows.map((row) => {
-                const [chainId, poolAddress] = row.targetId.split(':') as [string, string];
-                return { chainId: Number(chainId), poolAddress, state: row.state, hidden: hiddenOf(row) };
-              }),
-            };
-          }),
-        hide: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
-          .input(protocolOpsPoolHideInputSchema)
-          .output(protocolOpsActionResultSchema)
-          .mutation(({ input }) => viaDesk(() => requireOps().desk.hidePool(input))),
-        restore: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
-          .input(protocolOpsPoolRestoreInputSchema)
-          .output(protocolOpsActionResultSchema)
-          .mutation(({ input }) => viaDesk(() => requireOps().desk.restorePool(input))),
-      }),
-
-      markets: router({
-        list: scopedProcedure('admin:read', { module: 'protocol', plane: 'protocol' })
-          .output(protocolOpsMarketsListOutputSchema)
-          .query(async () => {
-            const rows = await requireOps().store.list('market');
-            return {
-              asOf: new Date().toISOString(),
-              markets: rows.map((row) => ({ symbol: row.targetId, state: row.state, hidden: hiddenOf(row) })),
-            };
-          }),
-        delist: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
-          .input(protocolOpsMarketDelistInputSchema)
-          .output(protocolOpsActionResultSchema)
-          .mutation(({ input }) => viaDesk(() => requireOps().desk.delistMarket(input))),
-        restore: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
-          .input(protocolOpsMarketRestoreInputSchema)
-          .output(protocolOpsActionResultSchema)
-          .mutation(({ input }) => viaDesk(() => requireOps().desk.restoreMarket(input))),
-      }),
     }),
 
     /** The deployed-contract registry and router versions for a chain. A chain with no recorded deployment is NOT_FOUND. */

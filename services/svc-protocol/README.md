@@ -295,17 +295,10 @@ Constant-product pools under `contracts/amm/`. Permissionless tRPC: `amm.quoteEx
 
 `networks.list` serves the owner-published registry in `deployments/networks.json`: a network is `testnet`, `local` or `unconfirmed`, and every field the owner has not published is null (a registry that names `mainnet` or `intachain` refuses to load with `protocol.network_kind_forbidden`). `deployments.list({chainId})` serves `deployments/base-sepolia.json` plus the router versions in `deployments/router-versions.json` (owner-set `sunsetAt`, null = none); a chain with no record is `NOT_FOUND`. `capabilities({chainId})` probes the configured chain's node for the pending tag and the bundler (`PROTOCOL_BUNDLER_URL` within `PROTOCOL_PEER_TIMEOUT_MS`; unset means not probed) and never reports preconfirmations as offered. There is no faucet drip: this plane holds no key.
 
-## Protocol ops desk (`protocol.ops`)
+## Protocol ops desk reads (`protocol.ops`)
 
-Founder and compliance desk (D-order-controls-04). Reads: `ops.metrics` (`admin:read`), `ops.labels` (`admin:compliance`), `ops.pools.list`, `ops.markets.list` (`admin:read`). Writes: `ops.pools.hide`, `ops.pools.restore`, `ops.markets.delist`, `ops.markets.restore` (`admin:write`).
+Founder and compliance reads for the Protocol ops desk (D-order-controls-04): `ops.metrics` (`admin:read`) and `ops.labels` (`admin:compliance`).
 
-A hide or delist is a LISTING decision, not an on-chain pause: it records that INTAFACED does not list the pool or market (`protocol.listing_overrides`, with the signed decision log in `protocol.listing_decisions`) and leaves the contract and every balance alone. Each action needs a second founder's identity-issued approval, consumed once, bound to the target, the reason and the state it moves from (`listing:<state>`); the idempotency key is `<action>:<targetId>:<approvalId>`, a different approval for the same move is a logged no-op, and a crash between the consume and the write is replayed to one decision.
+The hide, delist and restore WRITES are not here. This plane holds no platform credential, so it cannot consume `svc-identity`'s four-eyes approval; those actions live in `svc-ops`, and this service and `svc-dex` read the resulting hide list read-only.
 
-**Blocker:** `svc-protocol` has no service-to-service role (`SERVICE_NAMES` in `packages/contracts/src/service-keys.ts`), so it cannot reach `svc-identity`'s consume. Until that exists every write refuses `action_approval.identity_unwired` and nothing changes. `ops.pools.list` lists only pools that have a recorded decision; the full pool list is the indexer's (D-liquidity-03).
-
-| Env                           | Meaning                                                                        |
-| ----------------------------- | ------------------------------------------------------------------------------ |
-| `PROTOCOL_OPS_REASON_CODES`   | Comma-separated reason codes a hide may carry. Blank refuses `owner.decision`. |
-| `PROTOCOL_OPS_WINDOW_SECONDS` | Metrics window when the caller names none. Blank refuses `owner.decision`.     |
-
-Metrics: quote counts, refusal counts by code and distinct quote wallets are svc-dex's to count and read `could_not_load` (`protocol.ops_source_unavailable`) until svc-dex publishes them; a source that fails is never shown as zero. `ops.labels` covers what this service serves (network names and kinds, the configured chain label, the audited flag); the admin app adds the customer and admin copy and runs the same `labelVerdict`.
+Metrics: quote counts, refusal counts by code and distinct quote wallets are svc-dex's to count and read `could_not_load` (`protocol.ops_source_unavailable`) until svc-dex publishes them; a source that fails is never shown as zero. `PROTOCOL_OPS_WINDOW_SECONDS` is the window when the caller names none; blank refuses `owner.decision`. `ops.labels` covers what this service serves (network names and kinds, the configured chain label, the audited flag); the admin app adds the customer and admin copy and runs the same `labelVerdict`.

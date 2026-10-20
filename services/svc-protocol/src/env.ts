@@ -148,23 +148,9 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_PEER_TIMEOUT_MS: blankIsUnset(z.coerce.number().int().min(100).max(30_000).optional()),
 
     /**
-     * Protocol ops desk (D-order-controls-04). Both are owner settings with no default: a blank reason-code list refuses a
-     * hide with `owner.decision`, and a blank metrics window refuses the metrics read the same way.
-     * `PROTOCOL_OPS_REASON_CODES` is a comma-separated list, for example `scam_report,legal_request`.
+     * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics
+     * read with `owner.decision` unless the caller names a window.
      */
-    PROTOCOL_OPS_REASON_CODES: blankIsUnset(
-      z
-        .string()
-        .optional()
-        .transform((v) =>
-          v === undefined
-            ? undefined
-            : v
-                .split(',')
-                .map((code) => code.trim())
-                .filter((code) => code.length > 0),
-        ),
-    ),
     PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /** Kill-switch mirror for `protocol.smartAccounts` (§14 admin controls). */

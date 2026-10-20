@@ -1,4 +1,4 @@
-import { boolean, integer, numeric, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, numeric, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -82,41 +82,6 @@ export const sessionKeys = protocol.table(
   },
   (t) => [uniqueIndex('session_keys_account_key_hash_idx').on(t.accountId, t.sessionKey, t.specHash)],
 );
-
-/**
- * Which pool or market INTAFACED does not list, and the signed decisions behind it (D-order-controls-04). A LISTING
- * decision, not an on-chain pause. No balance and no key lives here.
- */
-export const listingOverrides = protocol.table(
-  'listing_overrides',
-  {
-    kind: text('kind').notNull(),
-    targetId: text('target_id').notNull(),
-    state: text('state').notNull(),
-    reasonCode: text('reason_code'),
-    reason: text('reason'),
-    approvalId: text('approval_id').notNull(),
-    policyVersion: text('policy_version').notNull(),
-    updatedAt: updatedAt(),
-  },
-  (t) => [primaryKey({ columns: [t.kind, t.targetId] })],
-);
-
-export const listingDecisions = protocol.table('listing_decisions', {
-  idempotencyKey: text('idempotency_key').primaryKey(),
-  action: text('action').notNull(),
-  kind: text('kind').notNull(),
-  targetId: text('target_id').notNull(),
-  outcome: text('outcome').notNull(),
-  note: text('note'),
-  reasonCode: text('reason_code'),
-  reason: text('reason'),
-  approvalId: text('approval_id').notNull(),
-  requesterId: text('requester_id').notNull(),
-  approverId: text('approver_id').notNull(),
-  policyVersion: text('policy_version').notNull(),
-  decidedAt: tstz('decided_at').notNull().defaultNow(),
-});
 
 export type SmartAccountRow = typeof smartAccounts.$inferSelect;
 export type SessionKeyRow = typeof sessionKeys.$inferSelect;
