@@ -6,7 +6,7 @@
 -- The command table keeps what each command wrote, so a replay of the same command id returns the same
 -- answer and a changed one is refused.
 --
--- Reversal: 0042_activity_report_description.down.sql
+-- Reversal: 0044_activity_report_description.down.sql
 
 ALTER TABLE "bank"."activity_notes" ADD COLUMN IF NOT EXISTS "report_description" text;
 ALTER TABLE "bank"."activity_notes" ALTER COLUMN "text" DROP NOT NULL;
