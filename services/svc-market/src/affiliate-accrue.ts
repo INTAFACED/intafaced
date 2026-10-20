@@ -9,7 +9,7 @@
  */
 
 import { formatAmount, mulBps, type Amount } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export const AFFILIATE_PRODUCER_PATH = '/internal/affiliates/accrue';
 
@@ -65,8 +65,14 @@ export async function fireAffiliateAccrue(port: AffiliateAccruePort, legs: reado
 
 const FETCH_MS = 2_000;
 
-export function createAffiliateAccrueClient(baseUrl: string, internalSecret: string): AffiliateAccruePort {
+export function createAffiliateAccrueClient(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-market's own key. With it the call is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): AffiliateAccruePort {
   const url = `${baseUrl.replace(/\/$/, '')}${AFFILIATE_PRODUCER_PATH}`;
+  const sign = serviceCallSigner({ service: 'svc-market', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async accrueMarketFee(leg) {
@@ -79,7 +85,7 @@ export function createAffiliateAccrueClient(baseUrl: string, internalSecret: str
       });
       const headers = {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-market', internalSecret, body),
+        ...sign(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
       };
       const response = await fetch(url, {
         method: 'POST',

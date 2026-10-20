@@ -48,18 +48,6 @@
       "sign": 0,
       "caller": 3
     },
-    "services/svc-market/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-matching/src/index.ts": {
       "sign": 1,
       "caller": 0
