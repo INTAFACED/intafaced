@@ -15,6 +15,7 @@ import {
   STATUS_FILTERS,
   filterTickets,
   followUpDraft,
+  requestFromSearch,
   showRatePrompt,
   statusCounts,
   ticketReference,
@@ -47,8 +48,9 @@ export function Support() {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('support');
-  const [view, setView] = useState<View>('help'),
-    [selected, setSelected] = useState(''),
+  const wanted = requestFromSearch(location.search);
+  const [view, setView] = useState<View>(wanted ? 'requests' : 'help'),
+    [selected, setSelected] = useState(wanted ?? ''),
     [followUp, setFollowUp] = useState<Ticket | null>(null);
   const limit = 200;
   const tickets = useResource(

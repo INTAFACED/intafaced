@@ -163,6 +163,19 @@ export function supportEmail(configured?: string | undefined): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
 }
 
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where one request opens in the support desk. The id is the request's own id; the desk checks it belongs to the caller. */
+export function supportRequestHref(ticketId: string): string {
+  return `/support?request=${encodeURIComponent(ticketId)}`;
+}
+
+/** The request a `/support?request=<id>` address names, or `null` when there is none or it is not an id. */
+export function requestFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('request');
+  return value !== null && REQUEST_ID.test(value) ? value.toLowerCase() : null;
+}
+
 /** A mailto link that never carries a password, code or key: only the subject and a plain prompt the person finishes. */
 export function supportMailto(address: string, subject: string, body: string): string {
   return `mailto:${address}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
