@@ -174,7 +174,7 @@ export function createToolApi(api: ApiClient) {
   return {
     convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
     /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
-    convertList: (input: { from: string; to: string; limit: number }, signal?: AbortSignal) =>
+    convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>
       api.query('trade', 'convert.list', input, convertHistorySchema, { signal }),
     convertAccept: (quoteId: string, clientConvertId: string) =>
       api.mutate('trade', 'convert.accept', { quoteId, clientConvertId }, convertTradeSchema),

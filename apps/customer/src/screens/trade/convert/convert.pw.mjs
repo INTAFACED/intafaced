@@ -137,6 +137,33 @@ test('Recent conversions lists the conversion just made, not the quotes that wer
   await shot(page, 'convert-1440x900-recent');
 });
 
+test('Recent conversions keeps reading pages past quotes that were never taken up', async ({ page }) => {
+  const stamp = '2026-10-19T10:00:00.000Z';
+  const base = { inAsset: 'USDT', outAsset: 'ETH', inAmount: '10', outAmount: '0.0038', expiresAt: stamp, createdAt: stamp };
+  const api = await mock(page, {
+    convertList: ({ input }) => ({
+      result: {
+        data: input.cursor
+          ? { rows: [{ ...base, quoteId: 'q-real', lifecycle: 'settled', acceptedAt: stamp, settledAt: stamp }], nextCursor: null }
+          : {
+              rows: Array.from({ length: 100 }, (_, i) => ({
+                ...base,
+                quoteId: `q-${i}`,
+                lifecycle: 'expired',
+                acceptedAt: null,
+                settledAt: null,
+              })),
+              nextCursor: 'page-2',
+            },
+      },
+    }),
+  });
+  await open(page);
+  await expect(page.getByTestId('cvt-recent').getByRole('table')).toContainText('Settled');
+  await expect(page.getByTestId('cvt-recent')).not.toContainText('No conversions');
+  expect(api.of('convertList').map((call) => call.input.cursor)).toContain('page-2'); // the dev harness may read page 1 twice (strict mode)
+});
+
 test('Recent conversions names a refused read and offers Retry on a failed one', async ({ page }) => {
   const api = await mock(page, { convertList: () => trpcRefusal('trade.convert_list_window_too_wide', 'refused', 400) });
   await open(page);

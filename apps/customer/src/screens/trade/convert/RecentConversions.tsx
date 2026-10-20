@@ -87,6 +87,7 @@ export function RecentConversions() {
           emptyState={<EmptyState size="inline" variant="empty" title={t('Recent empty title')} reason={t('Recent empty body')} />}
         />
       )}
+      {recent.status === 'ready' && recent.more ? <p className="cvt-recent__more">{t('Recent more')}</p> : null}
     </section>
   );
 }

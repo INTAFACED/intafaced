@@ -59,6 +59,7 @@ const messages = {
   Settled: 'Settled',
   'Recent empty title': 'No conversions in the last 30 days',
   'Recent empty body': 'Conversions you make show here.',
+  'Recent more': 'Older quotes were not checked. Your full history is in Activity.',
   'Recent label': 'Your conversions from the last 30 days',
   'Recent subtitle': 'Last 30 days',
   'You paid': 'You paid',
