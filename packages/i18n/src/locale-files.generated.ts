@@ -12,6 +12,11 @@ export const LOCALE_FILES: Readonly<Record<string, LocaleFile>> = {
       'auth.logout': 'Cerrar sesión',
       'common.action.confirm': 'Confirmar',
       'common.action.cancel': 'Cancelar',
+      'notify.ledger.freeze.set.title': 'Registros en pausa',
+      'notify.ledger.freeze.set.body':
+        'Los nuevos registros están en pausa en toda la plataforma. Los saldos existentes no cambian. Publicaremos aquí cuando termine la pausa.',
+      'notify.ledger.freeze.cleared.title': 'Registros reanudados',
+      'notify.ledger.freeze.cleared.body': 'Los registros funcionan de nuevo. El aviso de pausa anterior permanece en tu historial.',
     },
   },
   fr: {
@@ -24,6 +29,11 @@ export const LOCALE_FILES: Readonly<Record<string, LocaleFile>> = {
       'auth.logout': 'Déconnexion',
       'common.action.confirm': 'Confirmer',
       'common.action.cancel': 'Annuler',
+      'notify.ledger.freeze.set.title': 'Écritures suspendues',
+      'notify.ledger.freeze.set.body':
+        'Les nouvelles écritures sont suspendues sur toute la plateforme. Les soldes existants ne changent pas. Nous publierons ici la fin de la suspension.',
+      'notify.ledger.freeze.cleared.title': 'Écritures reprises',
+      'notify.ledger.freeze.cleared.body': 'Les écritures ont repris. L’avis de suspension précédent reste dans votre historique.',
     },
   },
 };
