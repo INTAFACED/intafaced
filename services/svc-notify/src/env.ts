@@ -215,6 +215,30 @@ const schema = serviceEnvSchema
        */
       NOTIFY_QUARANTINE_FAILURE_THRESHOLD: blankAsAbsent(z.coerce.number().int().min(1).max(100).optional()),
 
+      /**
+       * Furthest, in days, an alert may be set to expire. NO DEFAULT. Blank / unset refuses an alert that names an expiry
+       * (`notify.alert_expiry_max_unset`); an alert with no expiry is unaffected. Never invent 90.
+       */
+      NOTIFY_ALERT_MAX_EXPIRY_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
+      /**
+       * Longest, in characters, an alert's name or message may be. NO DEFAULT. Blank / unset refuses an alert that has either
+       * (`notify.alert_text_limit_unset`).
+       */
+      NOTIFY_ALERT_TEXT_MAX_LENGTH: blankAsAbsent(z.coerce.number().int().min(1).max(2000).optional()),
+
+      /**
+       * Most conditions one alert may hold, the main one included. NO DEFAULT. Blank / unset refuses an alert that adds a
+       * condition (`notify.alert_conditions_limit_unset`); an alert with one condition is unaffected.
+       */
+      NOTIFY_ALERT_MAX_CONDITIONS: blankAsAbsent(z.coerce.number().int().min(2).max(20).optional()),
+
+      /**
+       * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
+       * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
+       */
+      NOTIFY_ALERT_TRIGGER_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 

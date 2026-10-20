@@ -1,0 +1,1 @@
+ALTER TABLE trade.orders DROP COLUMN IF EXISTS tag;

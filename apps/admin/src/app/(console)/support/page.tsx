@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { SupportDesk } from '@/components/support-desk';
@@ -17,6 +18,9 @@ export default async function SupportPage() {
   const [initial, kb, staff, groups] = await Promise.all([loadQueue(founder), loadKb(founder), loadStaff(founder), loadGroups(founder)]);
   return (
     <SupportDesk initial={initial} userId={founder.session.userId}>
+      <p>
+        <Link href="/support/settings">Contact details for the help centre</Link>
+      </p>
       <StaffPanel initial={staff} />
       <GroupsPanel initial={groups} />
       <KbPanel initial={kb} />

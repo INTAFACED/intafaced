@@ -1,6 +1,8 @@
 import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
+import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
+import type { WithdrawalApprovalService } from './withdrawals/approvals/service.js';
 import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
@@ -264,6 +266,8 @@ export function createPayRouter(
   starterFee: MerchantStarterFee | null = null,
   /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
   withdrawalQuotes: WithdrawalQuoteService | null = null,
+  /** W-withdraw-11: the approval gate on the direct door. Absent in unit stubs; the direct door is then never gated. */
+  withdrawalApprovals: Pick<WithdrawalApprovalService, 'assertDirectAllowed'> | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2101,8 +2105,16 @@ export function createPayRouter(
         )
         .output(withdrawalView)
         .mutation(({ ctx, input }) =>
-          wrap(async () =>
-            toWithdrawalOut(
+          wrap(async () => {
+            // A withdrawal the user's policy sends to approvers (or a reference that already names a request) is refused
+            // here with `withdrawal_approval.required`: the direct door never sends what approvers have not approved.
+            await withdrawalApprovals?.assertDirectAllowed({
+              userId: ctx.principal.userId,
+              assetId: input.assetId,
+              amount: parseAmount(input.amount),
+              clientRef: input.clientRef,
+            });
+            return toWithdrawalOut(
               await userMoney.withdraw({
                 // From the token. There is no `userId` input, so there is no way
                 // to withdraw from an account that is not the caller's — an
@@ -2115,8 +2127,8 @@ export function createPayRouter(
                 clientRef: input.clientRef,
                 ...sandboxKeyEnv(ctx.principal),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /**
@@ -2416,7 +2428,7 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
  * Collapsing both into INTERNAL_SERVER_ERROR is how a merchant's engineer spends
  * a day guessing.
  */
-function toTrpcError(err: unknown): unknown {
+export function toTrpcError(err: unknown): unknown {
   /**
    * A guard seam refused (seams/guards.ts). Typed, so it never falls into the
    * PayError default below (BAD_REQUEST reads as "fix your request"). The
@@ -2428,6 +2440,7 @@ function toTrpcError(err: unknown): unknown {
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
+  if (err instanceof WithdrawalApprovalError) return withdrawalApprovalToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
