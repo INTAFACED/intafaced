@@ -90,7 +90,8 @@ async function mock(page, { bank = {}, rest = {} } = {}) {
   await page.route('**/api/bank/trpc/**', async (route) => {
     const url = new URL(route.request().url());
     const procedure = decodeURIComponent(url.pathname.split('/trpc/')[1]);
-    const input = url.searchParams.get('input') ? JSON.parse(url.searchParams.get('input')) : undefined;
+    const posted = route.request().postData();
+    const input = url.searchParams.get('input') ? JSON.parse(url.searchParams.get('input')) : posted ? JSON.parse(posted) : undefined;
     seen.push({ procedure, input });
     if (!(procedure in servedBank)) return route.fulfill({ status: 404, json: missing.json });
     const value = servedBank[procedure];
@@ -1085,6 +1086,39 @@ test('a failed "load more" keeps what is on screen and offers to try again', asy
   second = 'ok';
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.locator('.money-act')).toHaveCount(13);
+});
+
+test('activity detail: a private note is saved once and shows as saved', async ({ page }) => {
+  let attempts = 0;
+  const api = await mock(page, {
+    bank: {
+      'activity.note.set': (input) => {
+        attempts += 1;
+        return { activityId: input.id, text: input.text, updatedAt: '2026-10-20T02:00:00.000Z' };
+      },
+    },
+  });
+  await open(page, '/money/activity/a6');
+  const field = page.getByLabel('Your note');
+  const save = page.getByRole('button', { name: 'Add a note' });
+  await expect(save).toBeDisabled();
+  await field.fill('Rent top-up');
+  await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Note saved' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save note' })).toBeDisabled();
+  const sent = api.calls('activity.note.set');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].input).toMatchObject({ id: 'a6', text: 'Rent top-up' });
+  expect(sent[0].input.commandId).toMatch(/^note-/);
+  expect(attempts).toBe(1);
+});
+
+test('activity detail: a note with only spaces cannot be sent', async ({ page }) => {
+  const api = await mock(page, {});
+  await open(page, '/money/activity/a6');
+  await page.getByLabel('Your note').fill('   ');
+  await expect(page.getByRole('button', { name: 'Add a note' })).toBeDisabled();
+  expect(api.calls('activity.note.set')).toHaveLength(0);
 });
 
 test('activity: hide balances masks the amounts; no horizontal scroll at narrow widths', async ({ page }) => {

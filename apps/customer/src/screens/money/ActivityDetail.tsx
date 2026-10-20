@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
 import { Amount, Button, fmtAmount, navigate, refusalCopy, Skeleton, StateBlock, useActivity, type ActivityItem } from './deps';
 import { moneyCopy } from './copy';
+import { ActivityNote } from './ActivityNote';
 import { stamp } from './time';
 import { titleOf } from './activity-view';
 import { DETAIL_MAX_PAGES, findGroup, idFromPath } from './activity-detail';
@@ -171,14 +172,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
             )}
           </div>
           <p className="money-detail__note">{t('Report a problem note')}</p>
-          <div className="money-detail__actions">
-            <Button variant="secondary" size={40} disabled aria-describedby="note-why">
-              {t('Add a note')}
-            </Button>
-          </div>
-          <p id="note-why" className="money-detail__note">
-            {t('Add a note reason')} {t('Dispute reason')}
-          </p>
+          <ActivityNote key={item.id} item={item} />
         </section>
         {group.lines.length > 1 && (
           <section className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
