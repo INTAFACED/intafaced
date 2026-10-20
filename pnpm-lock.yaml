@@ -749,9 +749,6 @@ importers:
 
   packages/venue-adapter:
     dependencies:
-      '@intafaced/config':
-        specifier: workspace:*
-        version: link:../config
       '@intafaced/connect-data-lake':
         specifier: workspace:*
         version: link:../connect-data-lake
