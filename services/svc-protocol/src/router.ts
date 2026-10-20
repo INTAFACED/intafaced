@@ -1,7 +1,17 @@
 import { z } from 'zod';
 import { getAddress as toChecksum, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
-import { publicJurisdictionProcedure, publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  protocolBlockersInputSchema,
+  protocolBlockersOutputSchema,
+  protocolBlockersRead,
+  publicJurisdictionProcedure,
+  publicProcedure,
+  router,
+  scopedProcedure,
+  TRPCError,
+  type BlockerSource,
+} from '@intafaced/contracts';
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
@@ -12,6 +22,7 @@ import { RelayRefusedError, SessionRelay } from './session/relay.js';
 import {
   createSessionSpec,
   evaluateSessionCall,
+  FORBIDDEN_SELECTORS,
   hashSessionSpec,
   readSwapExactInCall,
   sessionSpecInputSchema,
@@ -28,6 +39,7 @@ import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parse
 import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
+import { noPeers, type Peers } from './blockers/peers.js';
 
 /**
  * svc-protocol's API.
@@ -252,10 +264,13 @@ export interface ProtocolRouterDeps {
    * session check refuse — they do not invent a tolerance.
    */
   swapSlippageBps: () => number | null;
+  /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
+  peers?: Peers;
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
+  const peers = deps.peers ?? noPeers;
 
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
@@ -387,6 +402,58 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           usable: status.reachable && status.suiteDeployed,
           launchUsable: status.reachable && status.tokenFactoryDeployed,
         };
+      }),
+
+    /**
+     * WHAT STANDS IN FRONT OF EACH PROTOCOL ACTION, from one engine (D-order-controls-02).
+     *
+     * Chain, audit and health are read here; the indexer and the DEX are read through their public procedures. A source
+     * that does not answer is reported as such and blocks exactly like a "no". `plannedSelector` lets a session key be
+     * checked against the session spec, which refuses transfers and approvals; the room cannot know that.
+     */
+    blockers: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolBlockersInputSchema.default({}))
+      .output(protocolBlockersOutputSchema)
+      .query(async ({ input, ctx }) => {
+        const region = typeof ctx.region === 'string' ? ctx.region : undefined;
+        const settle = async <T>(read: () => Promise<T> | T, reason: string): Promise<BlockerSource<T>> => {
+          try {
+            return { status: 'ok', data: await read() };
+          } catch {
+            return { status: 'down', reason: 'unreachable', message: reason };
+          }
+        };
+        const [chainSource, audit, indexer, dex] = await Promise.all([
+          settle(async () => {
+            const status = await chain.status();
+            return {
+              ...status,
+              usable: status.reachable && status.suiteDeployed,
+              launchUsable: status.reachable && status.tokenFactoryDeployed,
+            };
+          }, 'The network could not be checked.'),
+          settle(() => loadInternalSmartAccountsPackage(), 'The audit record could not be read.'),
+          peers.indexer(region),
+          peers.dex(region),
+        ]);
+        const refusedBy = input.plannedSelector ? FORBIDDEN_SELECTORS.get(input.plannedSelector.toLowerCase() as Hex) : undefined;
+        return protocolBlockersRead(
+          {
+            chain: chainSource,
+            audit,
+            indexer,
+            dex,
+            health: {
+              status: 'ok',
+              data: {
+                relayEnabled: deps.relayEnabled(),
+                factoryConfigured: !isZeroAddress(chain.config.factory) && !isZeroAddress(chain.config.implementation),
+              },
+            },
+            sessionPolicy: refusedBy ? { refusedBy: refusedBy.slice(0, refusedBy.indexOf('(')) } : null,
+          },
+          new Date().toISOString(),
+        );
       }),
 
     /**
