@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, httpEnvSchema, loadEnv, natsEnvSchema, otelEnvSchema, s2sEnvSchema } from '@intafaced/config';
 
 /**
  * Credentials this process must never take. Pin-tested in `env.isolation.test.ts`.
@@ -37,6 +37,7 @@ const schema = baseEnvSchema
   .merge(otelEnvSchema)
   .merge(httpEnvSchema)
   .merge(natsEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-ws'),
