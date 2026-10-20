@@ -76,6 +76,12 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
     devDependencies:
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@intafaced/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       '@tailwindcss/postcss':
         specifier: 4.3.3
         version: 4.3.3
