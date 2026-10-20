@@ -2,6 +2,7 @@ import {
   LOCK_KIND_LIST,
   LOCK_KINDS,
   accountPurpose,
+  div,
   formatAmount,
   parseAmount,
   type Amount,
@@ -17,6 +18,7 @@ import {
   needsPrices,
   valuePortfolio,
   type Holding,
+  PRICE_QUOTES,
   type PortfolioSummary,
   type PriceBook,
   type TickerMap,
@@ -47,12 +49,51 @@ export interface LockBreakdown {
   readonly claims: Array<{ readonly purpose: string; readonly amount: string }>;
 }
 
+/** One account the balances can be read for: the main account, or one named Space. */
+export interface BreakdownAccount {
+  readonly accountId: string;
+  readonly walletType: 'main' | 'space';
+  readonly name: string | null;
+}
+
 /** One asset, split exactly: total = available + the sum of every lock. */
 export interface AssetBreakdown {
   readonly assetId: string;
   readonly total: string;
   readonly available: string;
   readonly locked: LockBreakdown[];
+}
+
+/** The portfolio value in BTC. Both fields are null, with the reason, when no BTC price is published. */
+export interface BtcValuation {
+  readonly total: string | null;
+  readonly priceUsd: string | null;
+  readonly reason: 'no_price_published' | null;
+}
+
+const BTC_DECIMALS_UNIT = 10n ** 10n;
+
+/**
+ * The USD value of everything counted, divided by the last BTC price (BTC/USDT, else BTC/USDC), rounded half-up to 8
+ * decimals. What was left unpriced stays out of it, exactly as it stays out of the USD total.
+ */
+function btcValuation(summary: PortfolioSummary, prices: PriceBook): BtcValuation {
+  const unpublished: BtcValuation = { total: null, priceUsd: null, reason: 'no_price_published' };
+  // Nothing held is worth exactly nothing in any unit, with no price needed.
+  if (summary.priced.length === 0 && summary.unpriced.length === 0) return { total: '0', priceUsd: null, reason: null };
+  let price: Amount | null = null;
+  for (const quote of PRICE_QUOTES) {
+    const last = prices.tickers.get(`BTC/${quote}`)?.last ?? null;
+    if (last !== null && last > 0n) {
+      price = last;
+      break;
+    }
+  }
+  if (price === null) return unpublished;
+  const value = summary.priced.reduce<Amount>((acc, row) => acc + parseAmount(row.valueUsd), 0n);
+  const exact = div(value, price, 'half-up');
+  const rounded = ((exact + BTC_DECIMALS_UNIT / 2n) / BTC_DECIMALS_UNIT) * BTC_DECIMALS_UNIT;
+  return { total: formatAmount(rounded), priceUsd: formatAmount(price), reason: null };
 }
 
 /** The port. One method: current prices. Throws on any failure. */
@@ -155,9 +196,17 @@ export class PortfolioService {
     this.now = options.now ?? (() => new Date());
   }
 
-  /** The caller's own total only: `userId` is the verified principal, never input. */
-  async summary(userId: string): Promise<PortfolioSummary> {
-    return (await this.valued(userId)).summary;
+  /**
+   * The caller's own total only: `userId` is the verified principal, never input. `assetId` narrows the total to one
+   * asset; `valueIn: 'btc'` adds the same value in BTC, read from a published BTC price. No published price is a
+   * blank, never a guess.
+   */
+  async summary(
+    userId: string,
+    options: { assetId?: string; valueIn?: 'usd' | 'btc' } = {},
+  ): Promise<PortfolioSummary & { btc?: BtcValuation }> {
+    const { summary, prices } = await this.valued(userId, options.assetId, options.valueIn === 'btc');
+    return options.valueIn === 'btc' ? { ...summary, btc: btcValuation(summary, prices) } : summary;
   }
 
   /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
@@ -166,11 +215,16 @@ export class PortfolioService {
     return allocate(summary, holdings);
   }
 
-  private async valued(userId: string): Promise<{ summary: PortfolioSummary; holdings: Holding[] }> {
+  private async valued(
+    userId: string,
+    assetId?: string,
+    wantBtc = false,
+  ): Promise<{ summary: PortfolioSummary; holdings: Holding[]; prices: PriceBook }> {
     const rows = await this.everythingOwnedBy(userId);
-    const holdings = holdingsFromBalances(rows);
+    const only = assetId?.toUpperCase();
+    const holdings = holdingsFromBalances(rows).filter((h) => only === undefined || h.assetId.toUpperCase() === only);
     let prices: PriceBook = { tickers: new Map() as TickerMap, listed: new Set() };
-    if (needsPrices(holdings)) {
+    if (needsPrices(holdings) || (wantBtc && holdings.length > 0)) {
       if (!this.tickers) throw unavailable();
       try {
         prices = await this.tickers.prices();
@@ -178,7 +232,11 @@ export class PortfolioService {
         throw err instanceof BankError ? err : unavailable();
       }
     }
-    return { summary: valuePortfolio({ holdings, tickers: prices.tickers, listed: prices.listed, nowMs: this.now().getTime() }), holdings };
+    return {
+      summary: valuePortfolio({ holdings, tickers: prices.tickers, listed: prices.listed, nowMs: this.now().getTime() }),
+      holdings,
+      prices,
+    };
   }
 
   /**
@@ -187,10 +245,23 @@ export class PortfolioService {
    * into one "used" figure; this read keeps them apart and never rounds or nets them. An asset whose accounts are all zero
    * is absent. A negative amount is shown as it is, so a broken book is seen and not hidden.
    */
-  async balanceBreakdown(userId: string, scope: 'all' | 'main' = 'all'): Promise<{ assets: AssetBreakdown[] }> {
+  async balanceBreakdown(
+    userId: string,
+    scope: 'all' | 'main' = 'all',
+    filter: { accountId?: string; assetId?: string } = {},
+  ): Promise<{ assets: AssetBreakdown[] }> {
+    const named = await this.namedOf(userId);
     // `main` is the person's own accounts only, the same figure as the exchange balance; `all` adds every named Space.
-    const rows = scope === 'main' ? await this.ledger.balances('user', userId) : await this.everythingOwnedBy(userId);
-    const assets = [...new Set(rows.map((r) => r.account.assetId))].sort();
+    // `accountId` picks one of the listed accounts; one that is not the caller's is refused, never read.
+    let rows: Balance[];
+    if (filter.accountId === 'main') rows = await this.ledger.balances('user', userId);
+    else if (filter.accountId !== undefined) {
+      const space = named.find((s) => s.id === filter.accountId);
+      if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
+      rows = await this.ledger.balances('subaccount', space.id);
+    } else rows = scope === 'main' ? await this.ledger.balances('user', userId) : await this.ownedWith(userId, named);
+    const only = filter.assetId?.toUpperCase();
+    const assets = [...new Set(rows.map((r) => r.account.assetId))].filter((a) => only === undefined || a.toUpperCase() === only).sort();
     const out: AssetBreakdown[] = [];
     for (const assetId of assets) {
       const mine = rows.filter((r) => r.account.assetId === assetId && r.amount !== 0n);
@@ -219,6 +290,20 @@ export class PortfolioService {
     return { assets: out };
   }
 
+  private async namedOf(userId: string): Promise<SpaceRecord[]> {
+    return (await this.spaces.namedSpaces(userId)).filter((s) => s.kind === 'named' && s.userId === userId);
+  }
+
+  /** The accounts a balance read can be narrowed to: the main account, then each named Space. Names only, no amounts. */
+  async accounts(userId: string): Promise<{ accounts: BreakdownAccount[] }> {
+    return {
+      accounts: [
+        { accountId: 'main', walletType: 'main', name: null },
+        ...(await this.namedOf(userId)).map((s) => ({ accountId: s.id, walletType: 'space' as const, name: s.name })),
+      ],
+    };
+  }
+
   /**
    * Main account plus every named Space of this user. Space ids come from
    * svc-bank's own table filtered by `user_id`, so another user's Space can
@@ -226,8 +311,15 @@ export class PortfolioService {
    * are already in the first read.
    */
   private async everythingOwnedBy(userId: string): Promise<Balance[]> {
-    const [own, spaces] = await Promise.all([this.ledger.balances('user', userId), this.spaces.namedSpaces(userId)]);
-    const named = spaces.filter((s) => s.kind === 'named' && s.userId === userId);
+    const spaces = await this.spaces.namedSpaces(userId);
+    return this.ownedWith(
+      userId,
+      spaces.filter((s) => s.kind === 'named' && s.userId === userId),
+    );
+  }
+
+  private async ownedWith(userId: string, named: readonly SpaceRecord[]): Promise<Balance[]> {
+    const own = await this.ledger.balances('user', userId);
     const perSpace = await Promise.all(named.map((s) => this.ledger.balances('subaccount', s.id)));
     return [...own, ...perSpace.flat()];
   }
