@@ -231,7 +231,11 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests);
+export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests, {
+  pageSize: env.NOTIFY_INBOX_PAGE_SIZE ?? null,
+  unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
+  retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
+});
 export type AppRouter = typeof appRouter;
 
 const edgeContext = createGuestIngressContext({

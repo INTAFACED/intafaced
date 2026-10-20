@@ -197,6 +197,16 @@ const schema = serviceEnvSchema
       NOTIFY_MARKETS_LIST_LIMIT: blankAsAbsent(z.coerce.number().int().min(1).max(500).optional()),
 
       /**
+       * Notification centre owner values. Blank / unset is unpublished — never 20,
+       * never 99. `NOTIFY_INBOX_PAGE_SIZE` is the page size the app asks `notify.list`
+       * for (the list door still caps at 100); `NOTIFY_INBOX_UNREAD_CAP` is the bell's
+       * "<cap>+" ceiling; `NOTIFY_INBOX_RETENTION_DAYS` blank keeps every row.
+       */
+      NOTIFY_INBOX_PAGE_SIZE: blankAsAbsent(z.coerce.number().int().min(1).max(100).optional()),
+      NOTIFY_INBOX_UNREAD_CAP: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
+      NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
+
+      /**
        * Matching public board for venue halt-all / one-market halt (GET /markets).
        * Unset / blank → unwired: do not invent live, halt, or all-clear.
        * Never POST /halt-all — matching halt is consume-only here.

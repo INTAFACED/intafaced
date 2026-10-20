@@ -33,6 +33,7 @@ import {
   type PriceAlert,
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
+import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
 import { PreferenceError } from './preferences/account.js';
@@ -320,6 +321,7 @@ export function createNotifyRouter(
   alerts?: AlertService,
   loadVenueIncident?: VenueIncidentLoader,
   guests?: GuestNotificationService,
+  inbox: InboxSettings = BLANK_INBOX_SETTINGS,
 ) {
   return router({
     guestNotifications: guestNotificationsRouter(guests),
@@ -417,6 +419,12 @@ export function createNotifyRouter(
        * reflect runtime mark wiring; use `alerts` / `evaluateAlert` for that.
        */
       alertsPolicy: publicProcedure.query(() => describeAlertsPolicy()),
+
+      /**
+       * Notification centre owner values — page size, unread cap, retention.
+       * Blank values report unset with their typed code; nothing is defaulted.
+       */
+      inboxPolicy: publicProcedure.query(() => describeInboxPolicy(inbox)),
 
       /**
        * Public announcement. Real content is not published here.

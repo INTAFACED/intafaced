@@ -342,6 +342,19 @@ across two adjacent windows, not N× per pod.
 `notify.channel.footer` (catalog). Verification messages do not (address is still
 unconfirmed).
 
+### Notification targets and `notify.inboxPolicy`
+
+Every `href` an emitter writes is an internal path the customer app can open or
+fall back from; `event-href-targets.test.ts` pins the full list, so a new
+emitter with an unknown target fails. P2P events open `/p2p/orders/:tradeId`,
+verification `/verification`, rank `/uc/account`, stakes `/token`, futures
+positions `/trade/futures`. Bank loans, trade orders, payment requests and agent
+sessions keep the detail paths IA-SPEC gives their owning modules. Stored rows
+are not rewritten.
+
+`notify.inboxPolicy` (public) serves the owner values for page size, the bell's
+unread cap and retention. Blank values come back `null` with their typed code.
+
 ### Refusal codes (the wire vocabulary)
 
 Codes, not sentences — clients render copy from `@intafaced/i18n`. Every code a
@@ -536,6 +549,9 @@ is actually open.
 | `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
 | `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |
 | `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                   |
+| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
+| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
+| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail
