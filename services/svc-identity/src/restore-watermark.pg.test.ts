@@ -55,19 +55,26 @@ if (!available) {
       expect({ ...second, readAt: '' }).toEqual({ ...first, readAt: '' });
     });
 
-    it('moves the position, the digest and lastWriteAt when a row is written, and back when it is removed', async () => {
+    it('moves the position, the digest and lastWriteAt when a row is written, and is back once the write is rolled back', async () => {
       const before = await readIdentityWatermark(db.sql, new Date(), db.schema);
-      const [u] = await db.sql<Array<{ id: string }>>`
-        INSERT INTO users (handle, email, password_hash) VALUES ('wm_user', 'wm@example.com', 'x') RETURNING id`;
+      const ROLLBACK = new Error('rollback');
+      let inside: Awaited<ReturnType<typeof readIdentityWatermark>> | undefined;
+      await db.sql
+        .begin(async (tx) => {
+          await tx`INSERT INTO users (handle, email, password_hash) VALUES ('wm_user', 'wm@example.com', 'x')`;
+          inside = await readIdentityWatermark(tx as unknown as typeof db.sql, new Date(), db.schema);
+          throw ROLLBACK;
+        })
+        .catch((err: unknown) => {
+          if (err !== ROLLBACK) throw err;
+        });
+      expect(BigInt(inside!.position)).toBeGreaterThan(BigInt(before.position));
+      expect(inside!.integrity).not.toBe(before.integrity);
+      expect(inside!.lastWriteAt).not.toBeNull();
+      expect(Date.parse(inside!.lastWriteAt!)).toBeLessThanOrEqual(Date.now() + 1000);
       const after = await readIdentityWatermark(db.sql, new Date(), db.schema);
-      expect(BigInt(after.position)).toBeGreaterThan(BigInt(before.position));
-      expect(after.integrity).not.toBe(before.integrity);
-      expect(after.lastWriteAt).not.toBeNull();
-      expect(Date.parse(after.lastWriteAt!)).toBeLessThanOrEqual(Date.now() + 1000);
-      await db.sql`DELETE FROM users WHERE id = ${u!.id}`;
-      const gone = await readIdentityWatermark(db.sql, new Date(), db.schema);
-      expect(gone.position).toBe(before.position);
-      expect(gone.integrity).toBe(before.integrity);
+      expect(after.position).toBe(before.position);
+      expect(after.integrity).toBe(before.integrity);
     });
 
     it('reads the same lastWriteAt whatever timezone the session runs in', async () => {
