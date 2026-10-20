@@ -23,6 +23,7 @@ Old history docs were deleted. Git history keeps them (`git log --diff-filter=D 
 Each is read or cited by path from a CI gate, script or config.
 
 - Run and test locally: [`RUNNING.md`](RUNNING.md), [`LOCAL-TEST-STACK.md`](LOCAL-TEST-STACK.md), [`AI-GATEWAY-SOCKET.md`](AI-GATEWAY-SOCKET.md)
+- What is left to build, by lane and journey (plan on top, generated tables below): [`ROADMAP.md`](ROADMAP.md) (`node tooling/scripts/roadmap.mjs`)
 - Generated: [`TRACKER.md`](TRACKER.md) (`pnpm tracker`)
 - Claims board read by `pnpm wt:gc`: [`LIVE-LANES.md`](LIVE-LANES.md)
 - Licence position: [`LICENCE-POSITION.md`](LICENCE-POSITION.md)
