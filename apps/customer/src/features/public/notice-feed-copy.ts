@@ -16,6 +16,4 @@ export const noticeFeedCopy = defineCopy('notice-feed', {
   open: 'Read',
   detailNone: 'This notice is not published',
   detailNoneBody: 'No notice with this reference exists in the feed.',
-  back: 'Back to notices',
-  changelogLink: 'API changelog',
 });
