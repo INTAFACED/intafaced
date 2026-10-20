@@ -87,7 +87,8 @@ describe('returned withdrawals (real Postgres)', () => {
     await service.record(FOUNDER, input(id));
     const again = await service.record(FOUNDER, input(id));
     expect(again.withdrawalId).toBe(id);
-    const [{ n: count }] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.withdrawal_return_events`;
+    const [counted] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.withdrawal_return_events`;
+    const count = counted?.n;
     expect(count).toBe('1');
   });
 
