@@ -2,6 +2,7 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
 import {
   createMatchingClient as createMatchingClientInner,
   MatchingUnavailableError,
+  MATCHING_FETCH_MS,
   type EngineSubmitResult,
   type MatchingClient,
 } from './matching-client.js';
@@ -52,6 +53,7 @@ export async function postClosePosition(
   marketId: string,
   request: MatchingCloseRequest,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  timeoutMs: number = MATCHING_FETCH_MS,
 ): Promise<EngineSubmitResult> {
   const url = baseUrl.replace(/\/$/, '');
   const path = `/markets/${encodeURIComponent(marketId)}/positions/close`;
@@ -67,6 +69,8 @@ export async function postClosePosition(
         ...authHeaders(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
       },
       body: payload,
+      // Bounded like every other engine call: a hung engine ends as unreachable, not as a request that never returns.
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
@@ -82,11 +86,12 @@ export function createMatchingClient(
   baseUrl: string,
   internalSecret: string,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  options: { timeoutMs?: number } = {},
 ): MatchingClientWithClose {
-  const inner = createMatchingClientInner(baseUrl, internalSecret, s2s);
+  const inner = createMatchingClientInner(baseUrl, internalSecret, s2s, options);
   return Object.assign(inner, {
     closePosition(marketId: string, request: MatchingCloseRequest) {
-      return postClosePosition(baseUrl, internalSecret, marketId, request, s2s);
+      return postClosePosition(baseUrl, internalSecret, marketId, request, s2s, options.timeoutMs);
     },
   });
 }

@@ -429,12 +429,20 @@ export class MatchingNoBookError extends Error {
  */
 export const MATCHING_RESTING_ORDERS_PAGE = 500;
 
+/** How long one call to the engine may take before it counts as unreachable. Not a market or money limit. */
+export const MATCHING_FETCH_MS = 5_000;
+
 export function createMatchingClient(
   baseUrl: string,
   internalSecret: string,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+  options: { timeoutMs?: number } = {},
 ): MatchingClient {
   const url = baseUrl.replace(/\/$/, '');
+  const timeoutMs = options.timeoutMs ?? MATCHING_FETCH_MS;
+  // Every engine call is bounded. A hung engine must end as the same MatchingUnavailableError a refused connection does,
+  // so the caller's hold recovery runs instead of a request waiting forever with funds held.
+  const send = (target: string, init: RequestInit) => fetch(target, { ...init, signal: AbortSignal.timeout(timeoutMs) });
 
   /**
    * Order WRITES to the engine are service-only (§2, §5.1).
@@ -457,7 +465,7 @@ export function createMatchingClient(
   async function call<T>(path: string, init: RequestInit): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(`${url}${path}`, init);
+      response = await send(`${url}${path}`, init);
     } catch (err) {
       throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
     }
@@ -485,7 +493,7 @@ export function createMatchingClient(
       const path = `/markets/${encodeURIComponent(marketId)}/orders/${encodeURIComponent(orderId)}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'DELETE', headers: authHeaders('DELETE', path) });
+        response = await send(`${url}${path}`, { method: 'DELETE', headers: authHeaders('DELETE', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
@@ -510,7 +518,7 @@ export function createMatchingClient(
       const payload = JSON.stringify({ accountId: request.accountId });
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, {
+        response = await send(`${url}${path}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json', ...authHeaders('POST', path, payload) },
           body: payload,
@@ -546,7 +554,7 @@ export function createMatchingClient(
       const payload = JSON.stringify(request);
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, {
+        response = await send(`${url}${path}`, {
           method: 'PATCH',
           headers: { 'content-type': 'application/json', ...authHeaders('PATCH', path, payload) },
           body: payload,
@@ -592,7 +600,7 @@ export function createMatchingClient(
       const path = `/markets/${encodeURIComponent(marketId)}/depth?limit=${published}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
+        response = await send(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
@@ -620,7 +628,7 @@ export function createMatchingClient(
       const path = `/markets/${encodeURIComponent(marketId)}/orders?limit=${MATCHING_RESTING_ORDERS_PAGE}`;
       let response: Response;
       try {
-        response = await fetch(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
+        response = await send(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
       } catch (err) {
         throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
       }
