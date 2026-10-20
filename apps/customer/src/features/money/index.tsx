@@ -118,7 +118,8 @@ function MoneyRooms({ path }: { path: string }) {
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/uc/recharge') content = <Deposit />;
-  else if (pathname === '/uc/withdraw/address') content = <WithdrawalAddresses />;
+  else if (pathname === '/uc/withdraw/address')
+    content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
   else if (pathname === '/uc/withdraw')
     content = (
       <Withdrawal key={`withdrawal:${context.epoch}`} context={{ current: sameReadContext }} search={new URL(context.href).search} />

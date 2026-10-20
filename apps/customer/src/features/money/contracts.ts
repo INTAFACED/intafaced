@@ -174,6 +174,11 @@ export const destinationSchema = z.object({
   addedAt: z.string(),
   coolingOffEndsAt: z.string().nullable(),
   coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+  // The bank also returns which asset and network an entry is for and where it stands; optional so an older answer still reads.
+  assetId: z.string().nullable().optional(),
+  network: z.string().nullable().optional(),
+  tag: z.string().nullable().optional(),
+  state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
 export const bankReads = {
@@ -239,6 +244,7 @@ export const bankReads = {
 export type BankRead = keyof typeof bankReads;
 export const bankWrites = {
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
+  'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
