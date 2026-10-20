@@ -324,4 +324,20 @@ describe('over the router', () => {
     await expect(api.activity.list({ accountId: 'someone-elses' })).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     await expect(api.activity.list({ accountId: STRANGER_SPACE })).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
+
+  it('links a purchase to the asset history, and nothing else', async () => {
+    const buy = [
+      { ...post('tx-buy', 'trade.fill', 'debit', 3, { module: 'trade' }), assetId: 'BTC' },
+      { ...post('tx-buy', 'trade.fill', 'credit', 4, { module: 'trade' }), assetId: 'USDT' },
+      post('tx-send', 'bank.transfer.manual', 'credit', 5),
+    ];
+    const api = caller(service(buy));
+    const list = await api.activity.list({ limit: 10 });
+    const usdtLeg = list.items.find((i) => i.txId === 'tx-buy' && i.asset === 'USDT')!;
+    const detail = await api.activity.get({ id: usdtLeg.id });
+    expect(detail.assetPage).toBe('/coin/BTC');
+    expect(detail.lines).toHaveLength(2);
+    const send = list.items.find((i) => i.txId === 'tx-send')!;
+    expect((await api.activity.get({ id: send.id })).assetPage).toBeNull();
+  });
 });

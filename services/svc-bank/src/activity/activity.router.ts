@@ -107,7 +107,18 @@ const activityDetail = z.object({
   item: activityItem,
   lines: z.array(activityItem),
   complete: z.boolean(),
+  /** Where the history of the asset bought in this activity is: `/coin/<asset>`. Null unless a trade line brought that asset in. */
+  assetPage: z.string().nullable(),
 });
+
+/**
+ * The asset page for a purchase: the first trade line that brought an asset IN. A fill has one such leg (the asset
+ * bought) and one leg out (what paid for it), so a sale or a plain transfer has no purchase to link to.
+ */
+export function assetPageOf(lines: ReadonlyArray<{ kind: string; direction: string; asset: string }>): string | null {
+  const bought = lines.find((line) => line.kind === 'trade' && line.direction === 'in');
+  return bought ? `/coin/${encodeURIComponent(bought.asset)}` : null;
+}
 
 export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'>) {
   return router({
@@ -131,7 +142,8 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
       .output(activityDetail)
       .query(async ({ ctx, input }) => {
         try {
-          return await bank.activity.get(ctx.principal.userId, input.id);
+          const found = await bank.activity.get(ctx.principal.userId, input.id);
+          return { ...found, assetPage: assetPageOf(found.lines.length > 0 ? found.lines : [found.item]) };
         } catch (err) {
           activityFailure(err);
         }
