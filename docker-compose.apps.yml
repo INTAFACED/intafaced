@@ -1565,6 +1565,8 @@ services:
       OPS_DATABASE_POOL_MAX: ${OPS_DATABASE_POOL_MAX:-}
       # IDENTITY_URL / SUPPORT_URL blank → contacts name ops.identity_unwired /
       # ops.support_unwired. Local CRM rows still write. No second contact book.
+      # The venue report reads svc-ledger's feeRevenue door (svc-ops is the only caller it allows). Blank → ops.fee_revenue_unconfigured.
+      LEDGER_URL: http://svc-ledger:4001
       ANALYTICS_REPLICA_CONFIGURED: ${ANALYTICS_REPLICA_CONFIGURED:-}
       ANALYTICS_REPLICA_LAG_SECONDS: ${ANALYTICS_REPLICA_LAG_SECONDS:-}
       ANALYTICS_REPLICA_LEDGER_URL: ${ANALYTICS_REPLICA_LEDGER_URL:-}
