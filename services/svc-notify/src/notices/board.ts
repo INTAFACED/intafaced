@@ -7,10 +7,18 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
+import { buildStatusFeed, clampStatusDays, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
 export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
+
+/** What a status notice can be about. Components with no notice stay `unknown`. */
+export const STATUS_COMPONENTS = ['api', 'webhooks', 'console'] as const;
+export type StatusComponent = (typeof STATUS_COMPONENTS)[number];
+
+export const INCIDENT_IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
+export type IncidentImpact = (typeof INCIDENT_IMPACTS)[number];
 
 export type NoticeCode =
   | 'notify.notices_unavailable'
@@ -21,7 +29,11 @@ export type NoticeCode =
   | 'notify.notice_publish_approval_unavailable'
   | 'notify.notice_publish_same_operator'
   | 'notify.notice_approval_spent'
-  | 'notify.notice_published_immutable';
+  | 'notify.notice_published_immutable'
+  | 'notify.notice_incident_fields_invalid'
+  | 'notify.notice_component_unknown'
+  | 'notify.notice_impact_unset'
+  | 'notify.notice_parent_invalid';
 
 export class NoticeError extends Error {
   constructor(readonly code: NoticeCode) {
@@ -52,6 +64,14 @@ export type NoticeRow = {
   startsAt: Date | null;
   endsAt: Date | null;
   version: number;
+  /** Incident only. The severity this entry reports. Null on a notice that names none. */
+  impact: IncidentImpact | null;
+  /** Incident and maintenance. The status components this notice is about. */
+  components: readonly StatusComponent[];
+  /** Incident only. The first entry of the incident this one updates. Null on the first entry. */
+  parentId: string | null;
+  /** Incident only. This entry closes the incident. */
+  resolves: boolean;
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
@@ -73,6 +93,8 @@ export interface NoticeStore {
   findByDraftRequest(authorId: string, clientRequestId: string): Promise<NoticeRow | null>;
   findById(id: string): Promise<NoticeRow | null>;
   listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /** Published incident and maintenance rows, newest first, for the status feed. */
+  listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
   markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void>;
   approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null>;
   recordApproval(
@@ -118,12 +140,17 @@ export function noticeIsOpen(row: NoticeRow, now: Date): boolean {
 }
 
 function payloadHash(row: NoticeRow): string {
+  const status =
+    row.impact || row.components.length > 0 || row.parentId || row.resolves
+      ? { impact: row.impact, components: row.components, parentId: row.parentId, resolves: row.resolves }
+      : undefined;
   const payload = JSON.stringify({
     id: row.id,
     kind: row.kind,
     title: row.title,
     body: row.body,
     version: row.version,
+    ...(status ? { status } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -159,6 +186,13 @@ export class MemoryNoticeStore implements NoticeStore {
   async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
     return [...this.rows.values()]
       .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
+      .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter((row) => row.status === 'published' && (row.kind === 'incident' || row.kind === 'maintenance'))
       .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
       .slice(0, limit);
   }
@@ -204,6 +238,10 @@ export class NoticeBoard {
       body: string;
       startsAt?: string | null;
       endsAt?: string | null;
+      impact?: string | null;
+      components?: readonly string[] | null;
+      parentId?: string | null;
+      resolves?: boolean | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -213,6 +251,7 @@ export class NoticeBoard {
     const title = input.title.trim();
     const body = input.body.trim();
     if (!title || !body) throw new NoticeError('notify.notice_copy_unset');
+    const status = await this.statusFields({ ...input, kind: input.kind });
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -223,6 +262,7 @@ export class NoticeBoard {
       startsAt: parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset'),
       endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
       version: 1,
+      ...status,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -231,6 +271,38 @@ export class NoticeBoard {
     };
     await this.store.insert(row);
     return toNoticeWire(row);
+  }
+
+  /**
+   * Impact, components, thread and close flag. Components belong to incident and
+   * maintenance notices; the rest belong to incidents alone. A component list
+   * with no impact on an incident is refused, so a component never reads as
+   * affected by an unnamed severity.
+   */
+  private async statusFields(input: {
+    kind: NoticeKind;
+    impact?: string | null;
+    components?: readonly string[] | null;
+    parentId?: string | null;
+    resolves?: boolean | null;
+  }): Promise<Pick<NoticeRow, 'impact' | 'components' | 'parentId' | 'resolves'>> {
+    const components = [...new Set(input.components ?? [])];
+    const impact = input.impact ?? null;
+    const parentId = input.parentId ?? null;
+    const resolves = input.resolves === true;
+    const incident = input.kind === 'incident';
+    if (!incident && (impact !== null || parentId !== null || resolves)) throw new NoticeError('notify.notice_incident_fields_invalid');
+    if (!incident && input.kind !== 'maintenance' && components.length > 0) throw new NoticeError('notify.notice_incident_fields_invalid');
+    if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c)))
+      throw new NoticeError('notify.notice_component_unknown');
+    if (impact !== null && !(INCIDENT_IMPACTS as readonly string[]).includes(impact))
+      throw new NoticeError('notify.notice_incident_fields_invalid');
+    if (incident && components.length > 0 && impact === null) throw new NoticeError('notify.notice_impact_unset');
+    if (parentId !== null) {
+      const parent = await this.store.findById(parentId);
+      if (!parent || parent.kind !== 'incident' || parent.parentId !== null) throw new NoticeError('notify.notice_parent_invalid');
+    }
+    return { impact: impact as IncidentImpact | null, components: components as StatusComponent[], parentId, resolves };
   }
 
   async notices(input: { kind?: string | null; limit: number }): Promise<readonly NoticeWire[]> {
@@ -254,6 +326,12 @@ export class NoticeBoard {
       incidents: open.filter((row) => row.kind === 'incident'),
       maintenance: open.filter((row) => row.kind === 'maintenance'),
     };
+  }
+
+  async statusFeed(input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
+    const days = clampStatusDays(input.days);
+    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    return buildStatusFeed(rows, at, days);
   }
 
   async currentAnnouncement(at: Date = this.now()): Promise<NoticeWire | null> {
@@ -280,6 +358,10 @@ export class NoticeBoard {
     const row = await this.store.findById(input.id);
     if (!row) return fail('notify.notice_not_found');
     if (row.status === 'published') return fail('notify.notice_published_immutable');
+    if (row.parentId) {
+      const parent = await this.store.findById(row.parentId);
+      if (!parent || parent.status !== 'published') return fail('notify.notice_parent_invalid');
+    }
     if (!this.approvals) return fail('notify.notice_publish_approval_unavailable');
     const spent = await this.store.approvalOutcome(input.approvalId);
     if (spent) return fail('notify.notice_approval_spent');
