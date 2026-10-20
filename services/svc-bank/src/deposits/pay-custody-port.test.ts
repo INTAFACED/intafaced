@@ -23,6 +23,7 @@ describe('pay custody deposit port', () => {
         catalogue: { entries: [entry('USDT', 'ethereum'), entry('BTC', 'bitcoin'), entry('USDT', 'tron')] },
       }),
       address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
     };
     expect(await createPayCustodyDepositPort(pay).listAssets()).toEqual([
       {
@@ -43,9 +44,14 @@ describe('pay custody deposit port', () => {
     const empty = createPayCustodyDepositPort({
       catalogue: async () => ({ state: 'ok', catalogue: { entries: [] } }),
       address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
     });
     expect(await empty.listAssets()).toEqual([]);
-    const down = createPayCustodyDepositPort({ catalogue: async () => UNAVAILABLE, address: async () => UNAVAILABLE });
+    const down = createPayCustodyDepositPort({
+      catalogue: async () => UNAVAILABLE,
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
     expect(await down.listAssets()).toBeNull();
   });
 
@@ -53,6 +59,7 @@ describe('pay custody deposit port', () => {
     const issued = createPayCustodyDepositPort({
       catalogue: async () => UNAVAILABLE,
       address: async () => ({ state: 'issued', address: { address: '0xabc', memo: null, qrPayload: null } }),
+      records: async () => UNAVAILABLE,
     });
     expect(await issued.address(input)).toEqual({ address: '0xabc', memo: null, qrPayload: null });
     for (const reply of [
@@ -60,13 +67,21 @@ describe('pay custody deposit port', () => {
       { state: 'refused', code: 'pay.deposit_source_unset' } as const,
       UNAVAILABLE,
     ]) {
-      const port = createPayCustodyDepositPort({ catalogue: async () => UNAVAILABLE, address: async () => reply });
+      const port = createPayCustodyDepositPort({
+        catalogue: async () => UNAVAILABLE,
+        address: async () => reply,
+        records: async () => UNAVAILABLE,
+      });
       expect(await port.address(input)).toBeNull();
     }
   });
 
   it('reports no incoming deposits as not connected until the deposit record exists', async () => {
-    const port = createPayCustodyDepositPort({ catalogue: async () => UNAVAILABLE, address: async () => UNAVAILABLE });
+    const port = createPayCustodyDepositPort({
+      catalogue: async () => UNAVAILABLE,
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
     expect(await port.pending('user-1')).toBeNull();
   });
 });
