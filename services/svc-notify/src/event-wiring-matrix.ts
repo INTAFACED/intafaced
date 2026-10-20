@@ -108,6 +108,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row pay.request_paid for the person who was paid',
   },
   {
+    event: 'supportTicketResolved',
+    durable: 'notify-support-ticket-resolved',
+    subject: 'intafaced.support.ticket.resolved',
+    effect: 'Inbox row support.rate_request asking the owner to rate a resolved request; email where an address is confirmed',
+  },
+  {
     event: 'agentActionRejected',
     durable: 'notify-agent-action-rejected',
     subject: 'intafaced.agents.action.rejected',
