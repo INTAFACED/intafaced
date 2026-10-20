@@ -530,7 +530,8 @@ describe('startMmSeedJobs', () => {
             if (seedCount === 1) {
               expect(matching.submitted).toHaveLength(2);
               expect(matching.live.size).toBe(2);
-              // Simulate levels cancelled / filled — book empty, holds still present
+              // Book empty and the orders are gone, so cancel answers cancelled false.
+              // Those holds stay for the fill; the next run draws again.
               matching.live.clear();
               return;
             }
@@ -540,9 +541,9 @@ describe('startMmSeedJobs', () => {
               // second seed used new order ids (4 submits total)
               expect(matching.submitted.length).toBe(4);
               expect(matching.cancelled.length).toBe(2);
-              // pot still drawn for live second seed
-              expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('9901');
-              expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('99');
+              // first holds were not returned; second seed drew another 99 USDT and 1 BTC
+              expect(formatAmount((await ledger.balance(marketMaker('USDT'))).amount)).toBe('9802');
+              expect(formatAmount((await ledger.balance(marketMaker('BTC'))).amount)).toBe('98');
               h.stop();
               resolve();
             }

@@ -224,7 +224,18 @@ type PlanMirrorInput = {
 
 type SettleFeeShareInput = {
   followId: string;
+  /**
+   * Leader fill id — the mirror claim. `lookupLeaderFill` still requires that
+   * row to belong to the leader. This id is not the follower's fills row.
+   */
   fillId: string;
+  /**
+   * Follower's own fills row. Fee lookup reads this id and still requires
+   * that row to belong to the follower. Omitted → look up `fillId`, which
+   * refuses when that row is the leader's. Missing row refuses. Never
+   * notional×bps.
+   */
+  followerFillId?: string;
   assetId: string;
   followerFillNotional: string;
   protocolFeeBps: number;
@@ -986,8 +997,10 @@ export class CopyService {
   }
 
   /**
-   * Protocol fee is the fill's collected fee_amount. Never notional×bps
-   * and never a caller fillFeeAmount. Missing lookup or missing fill → refuse.
+   * Protocol fee is the follower fill's collected fee_amount. The id is the
+   * follower's own fills row, not the leader fill claimed by planMirror.
+   * Never notional×bps and never a caller fillFeeAmount. Missing lookup
+   * or missing fill → refuse. The row must belong to the follower.
    */
   private async resolveSettledProtocolFee(follow: CopyFollow, fillId: string, assetId: string): Promise<Amount> {
     if (!this.lookupFollowerFillFee) {
@@ -1096,6 +1109,7 @@ export class CopyService {
     }
 
     const fillId = canonicalizeCopyFillId(input.fillId);
+    const followerFillId = input.followerFillId?.trim() ? canonicalizeCopyFillId(input.followerFillId) : fillId;
     const assetId = input.assetId.trim();
     const once = await store.runFeeShareSettleOnce(follow.followId, fillId, async (ctx) => {
       const key = `${follow.leaderId}:${follow.followerId}`;
@@ -1105,7 +1119,7 @@ export class CopyService {
       if (!mirrored) {
         throw new CopyError('Fill is not a copy-mirrored fill for this follow — refuse fee-share', 'trade.copy_settle_refused');
       }
-      const settledFee = await this.resolveSettledProtocolFee(follow, fillId, assetId);
+      const settledFee = await this.resolveSettledProtocolFee(follow, followerFillId, assetId);
       const attribution = attributeCopyFeeShare({
         law: this.feeShareLaw,
         fillId,

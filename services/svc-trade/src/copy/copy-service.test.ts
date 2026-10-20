@@ -852,6 +852,161 @@ describe('CopyService', () => {
     ).rejects.toMatchObject({ code: 'trade.copy_settle_refused' });
   });
 
+  it('settleFeeShare posts from the follower fill when it is a different row from the leader fill', async () => {
+    const leaderFillId = 'leader-fill-fee-share';
+    const followerFillId = 'follower-fill-fee-share';
+    const rows = new Map<string, { userId: string; feeAmount: string }>([
+      [leaderFillId, { userId: LEADER, feeAmount: '9' }],
+      [followerFillId, { userId: FOLLOWER, feeAmount: '0.4' }],
+    ]);
+    const read = (fillId: string) => rows.get(fillId) ?? null;
+    const ledger = new MemoryLedger();
+    await ledger.post(
+      recipes.deposit({
+        userId: FOLLOWER,
+        assetId: 'USDT',
+        amount: parseAmount('100'),
+        rail: 'test',
+        railRef: 'copy-two-row-fee',
+      }),
+    );
+    await ledger.post(
+      recipes.feeCharge({
+        mode: 'asset',
+        chargeId: 'copy-two-row-fee-seed',
+        userId: FOLLOWER,
+        module: 'trade',
+        assetId: 'USDT',
+        amount: parseAmount('10'),
+      }),
+    );
+    const svc = new CopyService(ledger, {
+      feeShareLaw: publishedFee,
+      jurisdictionLaw: publishedJur,
+      lookupLeaderFill: async (fillId) => {
+        const row = read(fillId);
+        if (!row) return null;
+        return {
+          fillId,
+          userId: row.userId,
+          marketId: 'BTC-USDT',
+          side: 'buy' as const,
+          qty: parseAmount('0.01'),
+          notional: parseAmount('10'),
+        };
+      },
+      lookupFollowerFillFee: async (fillId) => {
+        const row = read(fillId);
+        if (!row) return null;
+        return {
+          fillId,
+          userId: row.userId,
+          feeAsset: 'USDT',
+          feeAmount: parseAmount(row.feeAmount),
+          createdAt: new Date(Date.now() + 60_000),
+        };
+      },
+    });
+    const follow = await svc.follow(principal, {
+      leaderId: LEADER,
+      region: 'SG',
+      permittedMarkets: ['BTC-USDT'],
+      maxNotionalPerOrder: '1000',
+      maxAggregateExposure: '10000',
+      expiresAt: futureExpiry,
+    });
+    await planOneMirror(svc, follow.followId, leaderFillId);
+    const settled = await svc.settleFeeShare(principal, {
+      followId: follow.followId,
+      fillId: leaderFillId,
+      followerFillId,
+      assetId: 'USDT',
+      followerFillNotional: '1000',
+      protocolFeeBps: 10_000,
+    });
+    expect(settled.settled).toBe(true);
+    expect(settled.protocolFee).toBe('0.4');
+    expect(settled.cappedLeaderShare).toBe('0.2');
+    expect(formatAmount((await ledger.balance(userAvailable(LEADER, 'USDT'))).amount)).toBe('0.2');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('settleFeeShare using only the leader fill id refuses the follower check', async () => {
+    const leaderFillId = 'leader-fill-only';
+    const followerFillId = 'follower-fill-unused';
+    const rows = new Map<string, { userId: string; feeAmount: string }>([
+      [leaderFillId, { userId: LEADER, feeAmount: '9' }],
+      [followerFillId, { userId: FOLLOWER, feeAmount: '0.4' }],
+    ]);
+    const read = (fillId: string) => rows.get(fillId) ?? null;
+    const ledger = new MemoryLedger();
+    await ledger.post(
+      recipes.deposit({
+        userId: FOLLOWER,
+        assetId: 'USDT',
+        amount: parseAmount('100'),
+        rail: 'test',
+        railRef: 'copy-leader-id-only',
+      }),
+    );
+    await ledger.post(
+      recipes.feeCharge({
+        mode: 'asset',
+        chargeId: 'copy-leader-id-only-seed',
+        userId: FOLLOWER,
+        module: 'trade',
+        assetId: 'USDT',
+        amount: parseAmount('10'),
+      }),
+    );
+    const svc = new CopyService(ledger, {
+      feeShareLaw: publishedFee,
+      jurisdictionLaw: publishedJur,
+      lookupLeaderFill: async (fillId) => {
+        const row = read(fillId);
+        if (!row) return null;
+        return {
+          fillId,
+          userId: row.userId,
+          marketId: 'BTC-USDT',
+          side: 'buy' as const,
+          qty: parseAmount('0.01'),
+          notional: parseAmount('10'),
+        };
+      },
+      lookupFollowerFillFee: async (fillId) => {
+        const row = read(fillId);
+        if (!row) return null;
+        return {
+          fillId,
+          userId: row.userId,
+          feeAsset: 'USDT',
+          feeAmount: parseAmount(row.feeAmount),
+          createdAt: new Date(Date.now() + 60_000),
+        };
+      },
+    });
+    const follow = await svc.follow(principal, {
+      leaderId: LEADER,
+      region: 'SG',
+      permittedMarkets: ['BTC-USDT'],
+      maxNotionalPerOrder: '1000',
+      maxAggregateExposure: '10000',
+      expiresAt: futureExpiry,
+    });
+    await planOneMirror(svc, follow.followId, leaderFillId);
+    await expect(
+      svc.settleFeeShare(principal, {
+        followId: follow.followId,
+        fillId: leaderFillId,
+        assetId: 'USDT',
+        followerFillNotional: '1000',
+        protocolFeeBps: 10_000,
+      }),
+    ).rejects.toThrow(/does not belong to this follower/);
+    expect(formatAmount((await ledger.balance(userAvailable(LEADER, 'USDT'))).amount)).toBe('0');
+  });
+
   it('settleFeeShare refuses client fillFeeAmount when lookup is unset — never invents the pot', async () => {
     const ledger = new MemoryLedger();
     await ledger.post(

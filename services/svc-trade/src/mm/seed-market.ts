@@ -11,9 +11,11 @@
  * Halted / futures-with-flag-off / unsupported kind refuse before any hold
  * or matching.submit.
  *
- * Cancel/reseed: cancelSeedMarket cancels known seed order ids for a prior run
- * and releases remaining MM holds (balance-read, never invent amount). A new
- * seed cycle MUST use a new runId — hold keys are idempotent per order id.
+ * Cancel/reseed: cancelSeedMarket cancels known seed order ids for a prior run.
+ * A true engine cancel releases the remaining MM hold from the ledger balance
+ * (never invent the amount). A matching answer that did not cancel leaves a
+ * positive hold on the order account for the fill. A new seed cycle MUST use
+ * a new runId — hold keys are idempotent per order id.
  *
  * Does NOT invent mid, market list, or inventory. Fund the pot first via
  * marketMakerSeedFund. Seed uses post-only so orders rest or reject, never take.
@@ -360,7 +362,7 @@ export interface CancelSeedDeps {
 }
 
 export type CancelSeedPlacementStatus =
-  'cancelled_and_released' | 'not_live_released' | 'not_live_no_hold' | 'cancelled_no_hold' | 'cancel_indeterminate' | 'release_failed';
+  'cancelled_and_released' | 'not_live_hold_kept' | 'not_live_no_hold' | 'cancelled_no_hold' | 'cancel_indeterminate' | 'release_failed';
 
 export interface CancelSeedPlacement {
   orderId: string;
@@ -404,11 +406,15 @@ export function seedOrderIdsForRun(
 }
 
 /**
- * Cancel house MM seed orders for a prior run and release remaining holds.
+ * Cancel house MM seed orders for a prior run.
  *
- * Engine cancel first; on transport failure → cancel_indeterminate and do NOT
- * release (order may still be live). When engine answers (live or not), release
- * remaining hold from ledger balance — never invent the amount.
+ * Engine cancel first. On transport failure → cancel_indeterminate and do NOT
+ * release (order may still be live). When the engine cancels, release the
+ * remaining hold from the ledger balance — never invent the amount. A zero
+ * balance skips. When matching answers and the order was not cancelled, do
+ * not release: a just-filled order is already off the book before
+ * marketMakerMakerFill posts, and releasing would return that inventory to
+ * the pot before the taker draw.
  */
 export async function cancelSeedMarket(spec: CancelSeedSpec, deps: CancelSeedDeps): Promise<CancelSeedResult> {
   if (!spec.marketId.trim() || !spec.baseAsset.trim() || !spec.quoteAsset.trim()) {
@@ -444,6 +450,34 @@ export async function cancelSeedMarket(spec: CancelSeedSpec, deps: CancelSeedDep
 
     // Buy holds quote, sell holds base — try primary then other (honest zero skip).
     const assets = ref.side === 'buy' ? [spec.quoteAsset, spec.baseAsset] : [spec.baseAsset, spec.quoteAsset];
+
+    // Matching answered, but did not cancel. A just-filled seed is already off
+    // the book while marketMakerMakerFill has not posted. Releasing the positive
+    // hold would pay the pot before the taker settlement draws it.
+    if (engineCancelled !== true) {
+      let holdKept = false;
+      for (const assetId of assets) {
+        let amount: Amount;
+        try {
+          const bal = await deps.ledger.balance(marketMakerOrderHoldAccount(assetId, ref.orderId));
+          amount = bal.amount;
+        } catch {
+          continue;
+        }
+        if (amount > 0n) {
+          holdKept = true;
+          break;
+        }
+      }
+      placements.push({
+        orderId: ref.orderId,
+        side: ref.side,
+        level: ref.level,
+        status: holdKept ? 'not_live_hold_kept' : 'not_live_no_hold',
+        engineCancelled,
+      });
+      continue;
+    }
 
     let released: { asset: string; amount: string } | null = null;
     let releaseFailed = false;
@@ -486,12 +520,7 @@ export async function cancelSeedMarket(spec: CancelSeedSpec, deps: CancelSeedDep
       continue;
     }
 
-    let status: CancelSeedPlacementStatus;
-    if (released) {
-      status = engineCancelled ? 'cancelled_and_released' : 'not_live_released';
-    } else {
-      status = engineCancelled ? 'cancelled_no_hold' : 'not_live_no_hold';
-    }
+    const status: CancelSeedPlacementStatus = released ? 'cancelled_and_released' : 'cancelled_no_hold';
 
     placements.push({
       orderId: ref.orderId,
@@ -517,6 +546,6 @@ export function summarizeCancelSeed(result: CancelSeedResult): string {
   if (!result.ok) {
     return `cancel fail (${result.reason}) placements=${result.placements.length}`;
   }
-  const released = result.placements.filter((p) => p.status === 'cancelled_and_released' || p.status === 'not_live_released').length;
+  const released = result.placements.filter((p) => p.status === 'cancelled_and_released').length;
   return `cancel ok released=${released}/${result.placements.length}`;
 }

@@ -1725,14 +1725,16 @@ export function createTradeRouter(
       /**
        * Attribute + settle leader fee-share for a follower fill.
        * Blank §8 → PRECONDITION_FAILED. Never invents rates.
-       * protocolFee is the fill's fee_amount from lookup — never notional×bps
-       * or a caller fillFeeAmount. Missing fill row refuses.
+       * `fillId` is the leader fill (mirror claim). `followerFillId` is the
+       * follower's own fills row. protocolFee is that row's fee_amount —
+       * never notional×bps or a caller fillFeeAmount. Missing fill row refuses.
        */
       settleFeeShare: scopedProcedure('trade:write', { module: 'trade' })
         .input(
           z.object({
             followId: z.string().min(1).max(64),
             fillId: z.string().min(1).max(120),
+            followerFillId: z.string().min(1).max(120).optional(),
             assetId: z.string().min(1).max(32),
             followerFillNotional: decimal,
             protocolFeeBps: z.number().int().min(0).max(10_000),
