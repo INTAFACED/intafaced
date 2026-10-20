@@ -84,6 +84,10 @@ Refusing to boot without it is deliberate: a desk that started anyway would
 report every account as unread, which from an operator's chair is
 indistinguishable from every account genuinely being unreadable.
 `IDENTITY_URL` defaults to `http://localhost:4002` for a dev stack.
+`STAFF_HEARTBEAT_WINDOW_SECONDS` is an owner value and stays blank by default:
+blank means staff availability (online, busy, offline) is manual, the desk says
+automatic offline is not set (`staffAvailabilityPolicy`), and a heartbeat
+refuses `support.heartbeat_window_unset`.
 
 ## Migrations
 
