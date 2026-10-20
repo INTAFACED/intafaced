@@ -159,6 +159,8 @@ export interface BankServiceOptions {
    * Travel-rule `decision()` null means Nitro/Phantom have not decided.
    */
   global?: GlobalPorts;
+  /** Owner-published purpose, source-of-funds and reference rules for a global send (JSON). Blank refuses. */
+  sendFieldRules?: string | undefined;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -207,7 +209,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   );
 
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
-  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts());
+  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts(), options.sendFieldRules);
 
   return {
     spaces,

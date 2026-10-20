@@ -260,6 +260,14 @@ const schema = serviceEnvSchema
       BANK_ELIGIBILITY_JSON: z.string().optional(),
 
       /**
+       * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
+       * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
+       * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →
+       * `bank.reference_rules_unset`. Boot stays up; the send is the refuse.
+       */
+      BANK_SEND_FIELD_RULES_JSON: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.

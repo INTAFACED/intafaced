@@ -7,6 +7,7 @@ import { classifyAccount, classifyBic, type AccountKind } from './account-format
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
+import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './send-fields.js';
 
 /**
  * Personal global send.
@@ -106,6 +107,11 @@ const DEFINITE = new Set([
   'bank.global_payout_refused',
   'bank.global_travel_rule_undecided',
   'bank.global_travel_rule_incomplete',
+  'bank.send_field_rules_unset',
+  'bank.reference_rules_unset',
+  'bank.reference_too_long',
+  'bank.send_purpose_required',
+  'bank.source_of_funds_required',
   'bank.global_insufficient_funds',
 ]);
 
@@ -241,7 +247,13 @@ export class GlobalSendService {
     private readonly ledger: LedgerClient,
     private readonly spaces: SpaceService,
     private readonly ports: GlobalPorts,
-  ) {}
+    /** Owner-published purpose, source-of-funds and reference rules (`BANK_SEND_FIELD_RULES_JSON`). Blank refuses. */
+    fieldRulesJson?: string,
+  ) {
+    this.fieldRules = parseSendFieldRules(fieldRulesJson);
+  }
+
+  private readonly fieldRules: SendFieldRules | null;
 
   async corridors(): Promise<Corridor[]> {
     if (this.ports.corridors.status() !== 'live') throw personalPayError('bank.global_corridors_unset');
@@ -540,6 +552,21 @@ export class GlobalSendService {
     for (const field of decision.requiredFields) {
       if (!supplied[field]?.trim()) return this.definite(row, 'bank.global_travel_rule_incomplete');
     }
+
+    const refusal = checkSendFields(this.fieldRules, {
+      assetId: row.asset_id,
+      amount: row.amount,
+      toCurrency: row.to_currency,
+      country: row.country,
+      deliveryMethod: row.delivery_method,
+      compliance: supplied,
+    });
+    if (refusal)
+      return this.definite(
+        row,
+        refusal.code,
+        'maxLength' in refusal ? `The reference can be at most ${refusal.maxLength} characters for this rail.` : undefined,
+      );
 
     const quote = await this.checkedQuote({ asset: row.asset_id, amount: row.amount, toCurrency: row.to_currency }, now);
     const railId = this.ports.payout.railId().trim();
