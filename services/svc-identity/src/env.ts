@@ -176,6 +176,12 @@ const schema = serviceEnvSchema
        * (`auth.sub_account_cap_unset`). Never git-default 25 — that looks published.
        * Owner-explicit 25 is allowed. Malformed / out of range → fail boot.
        */
+      /** Owner setting: most passkeys one account may hold. Blank = no limit stated, nothing refused. */
+      PASSKEY_MAX_PER_ACCOUNT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
