@@ -2,10 +2,10 @@ import type { Principal } from '@intafaced/auth';
 import {
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
-  serviceAuthHeadersForBody,
   type CurrentAuthorityInput,
   type CurrentAuthorityResult,
 } from '@intafaced/contracts';
+import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 import { ApiKeyOwnershipUnavailableError, assertIdentityApiKeyLive } from './api-key-revoked.js';
 import { assertApiKeyIp, optionalIpAllowlist } from './api-key-ip.js';
 import { assertApiKeyOrigin, optionalOriginAllowlist } from './api-key-origin.js';
@@ -18,6 +18,8 @@ type Eligible = Extract<CurrentAuthorityResult, { status: 'eligible' }>;
 export type EdgeAuthorityOptions = {
   identityUrl?: string;
   identityOwnershipSecret?: string;
+  /** The edge's own key. Absent leaves the identity reads on `identityOwnershipSecret` alone. */
+  s2s?: EdgeS2s | undefined;
   fetch?: typeof fetch;
   clientIp?: string | null;
   origin?: string | null;
@@ -113,7 +115,7 @@ export async function readEdgeAuthority(principal: Principal, options: EdgeAutho
   if (!shared) {
     let flight = inFlight.get(key);
     if (!flight) {
-      flight = fetchShared(principal, base, secret, subject.data, timeoutMs, options.fetch).finally(() => {
+      flight = fetchShared(principal, base, secret, subject.data, timeoutMs, options.fetch, options.s2s).finally(() => {
         inFlight.delete(key);
       });
       inFlight.set(key, flight);
@@ -159,6 +161,7 @@ async function fetchShared(
   subject: CurrentAuthorityInput,
   timeoutMs: number,
   fetchImpl: typeof fetch | undefined,
+  s2s: EdgeS2s | undefined,
 ): Promise<Shared> {
   const started = performance.now();
   const controller = new AbortController();
@@ -184,10 +187,14 @@ async function fetchShared(
       const body = JSON.stringify(subject);
       let response: Response;
       try {
-        response = await guardedFetch(`${base}/trpc/accountControls.currentAuthority`, {
+        const target = `${base}/trpc/accountControls.currentAuthority`;
+        response = await guardedFetch(target, {
           method: 'POST',
           body,
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-edge', secret, body) },
+          headers: {
+            'content-type': 'application/json',
+            ...identityCallHeaders(secret, s2s, { method: 'POST', target, body, contentType: 'application/json' }),
+          },
         });
       } catch {
         return UNAVAILABLE;
@@ -217,6 +224,7 @@ async function fetchShared(
             apiKeyId: principal.kid.toLowerCase(),
             userId: subject.userId,
             identityOwnershipSecret: secret,
+            s2s,
             fetch: guardedFetch,
           });
         } catch (err) {

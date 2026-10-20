@@ -1,6 +1,6 @@
 /** Enrolled passkey at the HTTP session door. A session without it cannot place. Refuse if verify is unavailable. Never invent a challenge. */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { identityCallHeaders, type EdgeS2s } from './s2s.js';
 
 export class SessionPasskeyError extends Error {
   constructor(
@@ -92,6 +92,8 @@ export interface LoadSessionPasskeyOptions {
   readonly identityUrl: string;
   readonly userId: string;
   readonly identityOwnershipSecret: string;
+  /** The edge's own key. Absent leaves the call on `identityOwnershipSecret` alone. */
+  readonly s2s?: EdgeS2s | undefined;
   readonly fetch?: typeof globalThis.fetch;
 }
 
@@ -105,10 +107,11 @@ export async function assertIdentitySessionPasskey(options: LoadSessionPasskeyOp
   if (!id) unavailable();
   const base = options.identityUrl.replace(/\/+$/, '');
   const fetchFn = options.fetch ?? globalThis.fetch;
-  const headers = serviceAuthHeadersForBody('svc-edge', options.identityOwnershipSecret, '');
+  const target = `${base}/internal/account/${encodeURIComponent(id)}`;
+  const headers = identityCallHeaders(options.identityOwnershipSecret, options.s2s, { method: 'GET', target, body: '', contentType: '' });
   let response: Response;
   try {
-    response = await fetchFn(`${base}/internal/account/${encodeURIComponent(id)}`, {
+    response = await fetchFn(target, {
       method: 'GET',
       headers,
       signal: AbortSignal.timeout(5_000),
