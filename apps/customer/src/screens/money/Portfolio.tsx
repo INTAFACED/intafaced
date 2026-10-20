@@ -486,6 +486,7 @@ export default function Portfolio() {
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const [scope, setScope] = useState('combined');
   const portfolio = useMoneyPortfolio(scope);
+  const scoped = scope !== 'combined';
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
@@ -514,19 +515,23 @@ export default function Portfolio() {
       new Map(
         (view?.rows ?? []).map((row) => [
           row.asset,
-          heldFor(
-            row.asset,
-            row.amount,
-            // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
-            balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
-            spaces,
-            lockSplit.status === 'ready' ? lockSplit.data : lockSplit.status === 'empty' ? {} : undefined,
-          ),
+          // The breakdown reads cover the whole account and the spaces list covers every space, so for one account
+          // they would sit next to an Amount they do not belong to: those columns show a dash instead.
+          scoped
+            ? heldFor(row.asset, row.amount, undefined, { state: 'unavailable', byAsset: new Map() }, undefined)
+            : heldFor(
+                row.asset,
+                row.amount,
+                // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
+                balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
+                spaces,
+                lockSplit.status === 'ready' ? lockSplit.data : lockSplit.status === 'empty' ? {} : undefined,
+              ),
         ]),
       ),
-    [view, balances, spaces, lockSplit],
+    [view, balances, spaces, lockSplit, scoped],
   );
-  const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
+  const note = layout === 'pro' && !scoped ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
   const noteFirst = cashRows.length > 0 ? 'cash' : 'crypto';
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
   const buyTarget = buyHref(null, null, false, layout);
@@ -605,7 +610,7 @@ export default function Portfolio() {
             note={noteFirst === 'crypto' ? note : null}
           />
         ) : null}
-        {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
+        {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}
         {isHiddenPath('/money/pnl') ? null : (
@@ -655,13 +660,13 @@ export default function Portfolio() {
         </div>
         <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
       </div>
-      {accounts.status === 'ready' && accounts.data.length > 0 ? (
+      {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
         <label className="money-scope">
           <span>{t('Accounts shown')}</span>
           <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
             <option value="combined">{t('All accounts')}</option>
             <option value="main">{t('Main account')}</option>
-            {accounts.data.map((account) => (
+            {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
               </option>
