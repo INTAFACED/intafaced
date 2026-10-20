@@ -87,6 +87,7 @@ function mapError(err: unknown): never {
       err.code === 'support.list_all_limit_unset' ||
       err.code === 'support.list_mine_limit_unset' ||
       err.code === 'support.list_comments_limit_unset' ||
+      err.code === 'support.list_attachments_limit_unset' ||
       err.code === 'support.list_events_limit_unset' ||
       err.code === 'support.list_kb_limit_unset' ||
       err.code === 'support.staff_bootstrap' ||
@@ -799,6 +800,28 @@ export function createSupportRouter(
           return attachmentWire(
             await support.attachment({ userId: ctx.principal!.userId, attachmentId: input.attachmentId, asOperator: true }),
           );
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The files on one ticket with their scan state. The owner reads their own; an operator reads a ticket they may see.
+     * Page size is required: blank refuses `support.list_attachments_limit_unset`, never a default.
+     */
+    ticketAttachments: scopedProcedure('support:read')
+      .input(z.object({ ticketId: z.string().uuid(), limit: z.number().int().positive().max(500).optional() }))
+      .output(z.array(supportAttachmentSchema))
+      .query(async ({ ctx, input }) => {
+        try {
+          const asOperator = ctx.principal!.scopes.includes('support:ops');
+          const rows = await support.listAttachments({
+            userId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            asOperator,
+            limit: input.limit,
+          });
+          return rows.map(attachmentWire);
         } catch (err) {
           mapError(err);
         }

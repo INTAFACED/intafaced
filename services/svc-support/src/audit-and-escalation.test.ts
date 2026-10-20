@@ -290,6 +290,7 @@ describe('escalation carries its case file', () => {
       listKbAudienceChanges: (id) => base.listKbAudienceChanges(id),
       setAttachmentScanState: (input) => base.setAttachmentScanState(input),
       listScanningAttachments: (limit) => base.listScanningAttachments(limit),
+      listAttachmentsFor: (ticketId, limit) => base.listAttachmentsFor(ticketId, limit),
       listRatedTicketIdsFor: (userId) => base.listRatedTicketIdsFor(userId),
       readReceipt: (procedure, actorId, clientRequestId) => base.readReceipt(procedure, actorId, clientRequestId),
       recordAttachment: (i) => base.recordAttachment(i),

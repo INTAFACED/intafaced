@@ -227,6 +227,8 @@ export interface SupportStore {
   setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null>;
   /** Files still `scanning`, oldest first, at most `limit`. */
   listScanningAttachments(limit: number): Promise<AttachmentMeta[]>;
+  /** Every file on one ticket, oldest first, at most `limit`. The caller has already been allowed to see the ticket. */
+  listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]>;
   recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
 }
 
@@ -1185,6 +1187,13 @@ export class MemorySupportStore implements SupportStore {
     if (!attachment) return null;
     if (attachment.scanState === 'scanning') attachment.scanState = input.state;
     return attachment;
+  }
+
+  async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
+    return [...this.attachments.values()]
+      .filter((a) => a.ticketId === ticketId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .slice(0, limit);
   }
 
   async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
@@ -2147,6 +2156,15 @@ export class PostgresSupportStore implements SupportStore {
       FROM support.ticket_attachments WHERE id = ${input.attachmentId}
     `;
     return rows[0] ? attachmentFromPg(rows[0]) : null;
+  }
+
+  async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      FROM support.ticket_attachments WHERE ticket_id = ${ticketId}
+      ORDER BY created_at, id LIMIT ${limit}
+    `;
+    return rows.map(attachmentFromPg);
   }
 
   async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
