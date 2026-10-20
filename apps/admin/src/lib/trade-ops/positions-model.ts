@@ -1,14 +1,15 @@
 /**
- * Pure logic of the Positions room: the typed row an operator will see once svc-trade lets operators read other
- * users' positions, the column layout, status words, and the lookup-form check. No rows are invented: until the
- * service exists the only rows are an empty list. Money and sizes are decimal STRINGS; unknown is null and draws "—".
+ * Pure logic of the Positions room: the row an operator sees (what `admin.positions.*` serves), the column layout,
+ * status words, and the lookup-form check. Money and sizes are decimal STRINGS. Mark price, liquidation price, margin
+ * ratio and PnL are not served by svc-trade's operator read yet: they stay null and draw "—", never zero.
  */
 
-export type PositionStatus = 'open' | 'closing' | 'liquidation_in_progress' | 'closed';
+export type PositionStatus = 'open' | 'closing' | 'liquidation_in_progress' | 'liquidated' | 'closed';
 
 export interface PositionRow {
   readonly id: string;
   readonly userId: string;
+  /** Market symbol when the markets list has it, otherwise the market id. */
   readonly market: string;
   readonly side: 'long' | 'short';
   readonly size: string;
@@ -18,7 +19,44 @@ export interface PositionRow {
   /** Maintenance margin / margin balance, as a decimal string ("0.0825" = 8.25%). */
   readonly marginRatio: string | null;
   readonly unrealisedPnl: string | null;
-  readonly status: PositionStatus;
+  /** The service's own status word; unknown words draw as themselves. */
+  readonly status: string;
+  readonly openedAt: string;
+}
+
+export interface PositionsAnswer {
+  readonly rows: readonly PositionRow[];
+  readonly nextCursor: string | null;
+}
+
+/** Map the service rows onto the table, naming each market by symbol where the markets list knows it. */
+export function toPositionRows(
+  rows: readonly {
+    id: string;
+    userId: string;
+    marketId: string;
+    side: 'long' | 'short';
+    status: string;
+    size: string;
+    entryPrice: string;
+    openedAt: string;
+  }[],
+  symbols: ReadonlyMap<string, string>,
+): PositionRow[] {
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    market: symbols.get(r.marketId) ?? r.marketId,
+    side: r.side,
+    size: r.size,
+    entryPrice: r.entryPrice,
+    markPrice: null,
+    liquidationPrice: null,
+    marginRatio: null,
+    unrealisedPnl: null,
+    status: r.status,
+    openedAt: r.openedAt,
+  }));
 }
 
 export const POSITION_COLUMNS = [
@@ -39,7 +77,7 @@ export interface PositionStatusWord {
   readonly explain: string;
 }
 
-export function positionStatusWord(s: PositionStatus): PositionStatusWord {
+export function positionStatusWord(s: string): PositionStatusWord {
   switch (s) {
     case 'open':
       return { label: 'Open', tone: 'lime', explain: 'The position is open and margined.' };
@@ -51,8 +89,12 @@ export function positionStatusWord(s: PositionStatus): PositionStatusWord {
         tone: 'error',
         explain: 'The engine is liquidating this position now. Insurance fund and auto-deleveraging rules apply.',
       };
+    case 'liquidated':
+      return { label: 'Liquidated', tone: 'error', explain: 'The position was liquidated. See the Liquidations room for the rungs.' };
     case 'closed':
       return { label: 'Closed', tone: 'neutral', explain: 'The position is closed.' };
+    default:
+      return { label: s, tone: 'neutral', explain: 'A status this desk has no word for yet; shown as the service sent it.' };
   }
 }
 

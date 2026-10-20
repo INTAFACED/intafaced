@@ -10,7 +10,7 @@ import { BLOCKERS } from '@/lib/trade-ops/blockers';
 import { readEffectiveFees, readMarkets } from '@/lib/trade-ops/reads';
 import { FUTURES_NOTE } from '@/lib/trade-ops/risk-limits-model';
 
-/** Risk limits room: the limits the desk can read per market, the engine checks it cannot read, and a built (blocked) edit form. */
+/** Risk limits room: the market rules the desk can read, the operator limits svc-trade enforces (read and change with a two-person approval), and a built (blocked) edit form for market rules. */
 export const dynamic = 'force-dynamic';
 
 export default async function RiskLimitsPage() {
@@ -21,7 +21,7 @@ export default async function RiskLimitsPage() {
   return (
     <DeskPage
       title="Risk limits"
-      description="What the engine enforces on each market. Changing a limit needs two people and an audit."
+      description="What the engine enforces on each market. Changing an operator limit needs a second founder and an audit."
       asOf={markets.asOf}
       state={markets.kind === 'ok' ? 'live' : markets.kind === 'unknown' ? 'unknown' : 'refused'}
       stateReason={markets.kind === 'ok' ? undefined : markets.kind === 'unknown' ? markets.message : markets.code}
@@ -37,12 +37,16 @@ export default async function RiskLimitsPage() {
             <ReadProblem outcome={markets} title="Market limits not read" />
           )}
         </PageSection>
-        <PageSection title="Engine-side checks">
-          <RiskLimitsChecks />
+        <PageSection title="Operator limits (engine-side checks)">
+          {markets.kind === 'ok' && markets.data.length > 0 ? (
+            <RiskLimitsChecks markets={markets.data} />
+          ) : (
+            <p className="text-sm text-fg-2">The limits need the market list above, which could not be read.</p>
+          )}
         </PageSection>
-        <PageSection title="Change a limit">
+        <PageSection title="Change a market rule">
           <div className="flex flex-col gap-3">
-            <BlockerPanel blocker={BLOCKERS.risk_limits_no_operator_api} title="No operator write exists" size="inline" />
+            <BlockerPanel blocker={BLOCKERS.market_rules_no_operator_api} title="No operator write exists for market rules" size="inline" />
             {markets.kind === 'ok' && markets.data.length > 0 ? (
               <RiskLimitsEdit markets={markets.data} signedInUserId={session.userId} />
             ) : (
