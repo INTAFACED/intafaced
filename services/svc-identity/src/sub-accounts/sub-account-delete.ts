@@ -64,8 +64,8 @@ export class SubAccountDeleteService {
    */
   async assets(input: Actor & { subAccountId: string }): Promise<{ balances: ClosureBalance[] }> {
     this.assertSession(input);
-    const row = await this.owned(input.userId, input.subAccountId);
-    if (row.revoked) return { balances: [] };
+    // A revoked sub-account can still hold funds (they can land after a revoke), so it is read like a live one.
+    await this.owned(input.userId, input.subAccountId);
     const bank = await this.deps.bank.check({ userId: input.userId, subAccountIds: [input.subAccountId], scope: 'sub_accounts' });
     if (!bank.ok) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
     return { balances: [...bank.balances] };

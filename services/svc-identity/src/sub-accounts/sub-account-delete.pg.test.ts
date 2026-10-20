@@ -273,6 +273,10 @@ if (!available) {
     expect(await caller.subAccounts.assets({ subAccountId: id })).toEqual({ balances: [{ assetId: 'USDT', amount: '1.50' }] });
     expect(asked.at(-1)).toMatchObject({ scope: 'sub_accounts', subAccountIds: [id] });
 
+    // A revoked sub-account is still read through the bank: funds can land after a revoke.
+    await db.sql`UPDATE sub_accounts SET revoked = true WHERE id = ${id}`;
+    expect(await caller.subAccounts.assets({ subAccountId: id })).toEqual({ balances: [{ assetId: 'USDT', amount: '1.50' }] });
+
     bankResult = { ok: false };
     expect((await refusal(caller.subAccounts.assets({ subAccountId: id }))).code).toBe('identity.sub_account_check_unavailable');
     expect((await refusal(caller.subAccounts.assets({ subAccountId: theirs.id }))).code).toBe('identity.sub_account_not_found');
