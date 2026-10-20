@@ -202,6 +202,8 @@ export const priceAlertSchema = z.object({
   name: z.string().max(200).nullable().optional(),
   message: z.string().max(2000).nullable().optional(),
   expiresAt: date.nullable().optional(),
+  // Added by C-alerts-scan-01b: further level conditions that must hold together with the main one.
+  extras: z.array(z.object({ condition: z.enum(['greater_than', 'less_than']), targetPrice: z.string().min(1).max(64) })).optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 
@@ -231,7 +233,11 @@ export interface AlertIntent {
   message?: string;
   /** An ISO time. Left out, the alert is open-ended. */
   expiresAt?: string;
+  /** Further level conditions on the same market; the alert triggers only when the main one and all of these hold. */
+  extras?: AlertExtra[];
 }
+
+export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 
 /** The side a condition looks at. `crossing` looks at both, so it sends `above`, which the service ignores for it. */
 export const directionOfCondition = (condition: AlertCondition): AlertDirection =>
@@ -244,7 +250,7 @@ const levelOfDirection = (direction: AlertDirection): AlertCondition => (directi
  */
 export function isIntent(
   row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
-    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt'>>,
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>>,
   intent: AlertIntent,
 ): boolean {
   const wanted = intent.condition ?? levelOfDirection(intent.direction);
@@ -256,7 +262,16 @@ export function isIntent(
     canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
     (intent.name === undefined || (row.name ?? '') === intent.name) &&
     (intent.message === undefined || (row.message ?? '') === intent.message) &&
-    (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt)))
+    (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
+    sameExtras(row.extras ?? [], intent.extras ?? [])
+  );
+}
+
+/** Added conditions match one for one, in order. An alert with some is never the same alert as one without. */
+function sameExtras(a: readonly AlertExtra[], b: readonly AlertExtra[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.condition === b[i]!.condition && canonicalPrice(x.targetPrice) === canonicalPrice(b[i]!.targetPrice))
   );
 }
 
@@ -286,6 +301,7 @@ export function createPriceAlert(
       ...(intent.name ? { name: intent.name } : {}),
       ...(intent.message ? { message: intent.message } : {}),
       ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
+      ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(

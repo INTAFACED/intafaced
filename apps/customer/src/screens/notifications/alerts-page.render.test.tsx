@@ -174,4 +174,12 @@ describe('price alerts page', () => {
     expect(page).toContain('type="datetime-local"');
     expect(page).toContain('{market}, {price}, {condition} and {time}');
   });
+
+  it('offers adding a condition and shows added conditions on a listed alert', () => {
+    reads.markets = markets;
+    reads.alerts = ready([alert({ condition: 'greater_than', extras: [{ condition: 'less_than', targetPrice: '70000' }] })]);
+    const page = render();
+    expect(page).toContain('Add a condition');
+    expect(page).toContain('and At or below 70000 USDT');
+  });
 });

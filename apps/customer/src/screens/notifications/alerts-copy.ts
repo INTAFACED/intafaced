@@ -2,6 +2,13 @@ import { defineCopy } from '../../shared/i18n';
 
 // Price alerts in the Notifications centre. Plain words: no service names, no codes. Every switched-off control has its reason beside it.
 const en = {
+  extraLabel: 'And also when the price is',
+  extraPriceLabel: 'Price for this condition',
+  extraAdd: 'Add a condition',
+  extraRemove: 'Remove',
+  reviewExtra: 'And also when',
+  listAnd: 'and {side} {price}',
+  refusedTooManyConditions: 'That is more conditions than one alert may have. Remove some and try again. Nothing was changed.',
   crossingUp: 'Crossing up through',
   crossingDown: 'Crossing down through',
   crossing: 'Crossing, either way,',
@@ -18,7 +25,7 @@ const en = {
   refusedTextRejected: 'The name or message was not accepted: it is too long or uses a placeholder we do not know. Nothing was changed.',
   refusedExpiryRejected: 'That stop time was not accepted: it must be in the future and within the allowed range. Nothing was changed.',
   refusedOptionNotOn:
-    'This platform cannot save a name, message or stop time. Remove it and save the alert without it. Nothing was changed.',
+    'This platform cannot save a name, message, stop time or added condition. Remove it and save the alert without it. Nothing was changed.',
   navAlerts: 'Price alerts',
   title: 'Price alerts',
   intro: 'Get a notification when a market reaches a price you choose. Each alert triggers once. It never places an order.',
@@ -122,6 +129,13 @@ const en = {
 } as const;
 
 const es = {
+  extraLabel: 'Y además cuando el precio esté',
+  extraPriceLabel: 'Precio de esta condición',
+  extraAdd: 'Añadir una condición',
+  extraRemove: 'Quitar',
+  reviewExtra: 'Y además cuando',
+  listAnd: 'y {side} {price}',
+  refusedTooManyConditions: 'Son más condiciones de las que admite una alerta. Quita algunas e inténtalo de nuevo. No se cambió nada.',
   crossingUp: 'Cruzando hacia arriba',
   crossingDown: 'Cruzando hacia abajo',
   crossing: 'Cruzando, en cualquier sentido,',
@@ -138,7 +152,7 @@ const es = {
   refusedTextRejected: 'No se aceptó el nombre o el mensaje: es demasiado largo o usa un marcador desconocido. No se cambió nada.',
   refusedExpiryRejected: 'No se aceptó esa hora de fin: debe ser futura y estar dentro del rango permitido. No se cambió nada.',
   refusedOptionNotOn:
-    'Esta plataforma no puede guardar un nombre, un mensaje ni una hora de fin. Quítalo y guarda la alerta sin él. No se cambió nada.',
+    'Esta plataforma no puede guardar un nombre, un mensaje, una hora de fin ni una condición añadida. Quítalo y guarda la alerta sin él. No se cambió nada.',
   navAlerts: 'Alertas de precio',
   title: 'Alertas de precio',
   intro: 'Recibe una notificación cuando un mercado llegue al precio que elijas. Cada alerta se activa una sola vez. Nunca crea una orden.',
@@ -236,6 +250,13 @@ const es = {
 } as const;
 
 const fr = {
+  extraLabel: 'Et aussi quand le prix est',
+  extraPriceLabel: 'Prix de cette condition',
+  extraAdd: 'Ajouter une condition',
+  extraRemove: 'Retirer',
+  reviewExtra: 'Et aussi quand',
+  listAnd: 'et {side} {price}',
+  refusedTooManyConditions: 'C’est plus de conditions qu’une alerte n’en admet. Retirez-en et réessayez. Rien n’a été modifié.',
   crossingUp: 'Franchit à la hausse',
   crossingDown: 'Franchit à la baisse',
   crossing: 'Franchit, dans un sens ou l’autre,',
@@ -253,7 +274,7 @@ const fr = {
   refusedExpiryRejected:
     'Cette heure de fin n’a pas été acceptée : elle doit être dans le futur et dans la plage autorisée. Rien n’a été modifié.',
   refusedOptionNotOn:
-    'Cette plateforme ne peut pas enregistrer de nom, de message ni d’heure de fin. Retirez-le et enregistrez l’alerte sans. Rien n’a été modifié.',
+    'Cette plateforme ne peut pas enregistrer de nom, de message, d’heure de fin ni de condition ajoutée. Retirez-le et enregistrez l’alerte sans. Rien n’a été modifié.',
   navAlerts: 'Alertes de prix',
   title: 'Alertes de prix',
   intro:

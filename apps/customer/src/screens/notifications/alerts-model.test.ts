@@ -179,4 +179,28 @@ describe('crossing, name, message and expiry', () => {
       findDuplicate([alert({ condition: 'crossing_up', name: 'Breakout' })], { ...base, condition: 'crossing_up', name: 'Breakout' }),
     ).not.toBeNull();
   });
+
+  it('maps the condition-count refusals to plain words', () => {
+    const say = (status: number, message: string) => settleFailure(failure({ status, message }));
+    expect(say(400, 'alert.too_many_conditions: an alert may hold 3 conditions')).toEqual({
+      kind: 'refused',
+      refusal: 'tooManyConditions',
+    });
+    expect(say(400, 'alert.extra_condition_invalid: a level with a positive decimal price')).toEqual({
+      kind: 'refused',
+      refusal: 'badRequest',
+    });
+    expect(say(412, 'notify.alert_conditions_limit_unset: needs the owner')).toEqual({ kind: 'refused', refusal: 'optionNotOn' });
+  });
+
+  it('treats added conditions as part of the alert: a different set is a different alert', () => {
+    const plain = alert({ condition: 'greater_than' });
+    const ranged = alert({ condition: 'greater_than', extras: [{ condition: 'less_than', targetPrice: '70000' }] });
+    const base: AlertIntent = { marketId: 'm1', direction: 'above', condition: 'greater_than', targetPrice: '65000.5' };
+    expect(findDuplicate([plain], base)).not.toBeNull();
+    expect(findDuplicate([ranged], base)).toBeNull();
+    expect(findDuplicate([plain], { ...base, extras: [{ condition: 'less_than', targetPrice: '70000' }] })).toBeNull();
+    expect(findDuplicate([ranged], { ...base, extras: [{ condition: 'less_than', targetPrice: '70000.0' }] })).not.toBeNull();
+    expect(findDuplicate([ranged], { ...base, extras: [{ condition: 'greater_than', targetPrice: '70000' }] })).toBeNull();
+  });
 });

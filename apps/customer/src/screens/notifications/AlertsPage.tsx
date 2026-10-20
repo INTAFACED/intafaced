@@ -17,7 +17,15 @@ import {
   type Refusal,
 } from './alerts-model';
 import { Button, StateBlock } from './deps';
-import { ALERT_CONDITIONS, directionOfCondition, listAlerts, type AlertCondition, type AlertIntent, type PriceAlert } from './notify-api';
+import {
+  ALERT_CONDITIONS,
+  directionOfCondition,
+  listAlerts,
+  type AlertCondition,
+  type AlertExtra,
+  type AlertIntent,
+  type PriceAlert,
+} from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
 
@@ -40,6 +48,7 @@ const REFUSAL = {
   badRequest: 'refusedBadRequest',
   textRejected: 'refusedTextRejected',
   expiryRejected: 'refusedExpiryRejected',
+  tooManyConditions: 'refusedTooManyConditions',
   optionNotOn: 'refusedOptionNotOn',
   tooMany: 'refusedTooMany',
   accountChanged: 'refusedAccountChanged',
@@ -62,7 +71,7 @@ const CONDITION_KEY = {
 } as const satisfies Record<AlertCondition, string>;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
-const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest', 'textRejected', 'expiryRejected']);
+const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest', 'textRejected', 'expiryRejected', 'tooManyConditions']);
 
 /**
  * Price alerts (`/notifications?view=alerts`): the person's alerts with their status, a form to add one that is reviewed
@@ -81,6 +90,7 @@ export default function AlertsPage() {
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [expires, setExpires] = useState('');
+  const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
   const [price, setPrice] = useState('');
   const [touched, setTouched] = useState(false);
   const [review, setReview] = useState<{ intent: AlertIntent; duplicate: boolean } | null>(null);
@@ -132,7 +142,15 @@ export default function AlertsPage() {
   function toReview() {
     setTouched(true);
     setNotice(null);
-    if (blockedReason || !marketId || priceProblem(price) !== null || expiryProblem(expires) !== null || !list) return;
+    if (
+      blockedReason ||
+      !marketId ||
+      priceProblem(price) !== null ||
+      expiryProblem(expires) !== null ||
+      extras.some((extra) => priceProblem(extra.price) !== null) ||
+      !list
+    )
+      return;
     const expiresAt = expiryIso(expires);
     const intent: AlertIntent = {
       marketId,
@@ -142,6 +160,7 @@ export default function AlertsPage() {
       ...(name.trim() ? { name: name.trim() } : {}),
       ...(message.trim() ? { message: message.trim() } : {}),
       ...(expiresAt ? { expiresAt } : {}),
+      ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -176,6 +195,7 @@ export default function AlertsPage() {
         setName('');
         setMessage('');
         setExpires('');
+        setExtras([]);
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -295,6 +315,14 @@ export default function AlertsPage() {
               <dt>{copy.t('reviewWhen')}</dt>
               <dd>{conditionWords(review.intent.condition ?? (review.intent.direction === 'below' ? 'less_than' : 'greater_than'))}</dd>
             </div>
+            {(review.intent.extras ?? []).map((extra, index) => (
+              <div key={index}>
+                <dt>{copy.t('reviewExtra')}</dt>
+                <dd lang="zxx" className="nf-num">
+                  {conditionWords(extra.condition)} {extra.targetPrice} {marketOf(review.intent.marketId)?.quote ?? ''}
+                </dd>
+              </div>
+            ))}
             {review.intent.name ? (
               <div>
                 <dt>{copy.t('reviewName')}</dt>
@@ -406,6 +434,55 @@ export default function AlertsPage() {
               {problem === 'empty' ? copy.t('priceEmpty') : problem === 'invalid' ? copy.t('priceInvalid') : copy.t('priceHint')}
             </small>
           </label>
+          {extras.map((extra, index) => (
+            <div className="nf-field" key={index} data-testid="alerts-extra">
+              <span>{copy.t('extraLabel')}</span>
+              <select
+                aria-label={copy.t('extraLabel')}
+                value={extra.condition}
+                disabled={blockedReason !== null}
+                onChange={(event) => {
+                  const condition = event.target.value === 'less_than' ? 'less_than' : 'greater_than';
+                  setExtras(extras.map((row, i) => (i === index ? { ...row, condition } : row)));
+                }}
+              >
+                <option value="greater_than">{conditionWords('greater_than')}</option>
+                <option value="less_than">{conditionWords('less_than')}</option>
+              </select>
+              <input
+                inputMode="decimal"
+                autoComplete="off"
+                maxLength={64}
+                aria-label={copy.t('extraPriceLabel')}
+                value={extra.price}
+                disabled={blockedReason !== null}
+                aria-invalid={touched && priceProblem(extra.price) !== null}
+                onChange={(event) => {
+                  setExtras(extras.map((row, i) => (i === index ? { ...row, price: event.target.value } : row)));
+                  setTouched(false);
+                }}
+              />
+              {touched && priceProblem(extra.price) !== null ? <small className="nf-error">{copy.t('priceInvalid')}</small> : null}
+              <Button
+                variant="ghost"
+                size={32}
+                disabled={blockedReason !== null}
+                onClick={() => setExtras(extras.filter((_, i) => i !== index))}
+              >
+                {copy.t('extraRemove')}
+              </Button>
+            </div>
+          ))}
+          <div className="nf-address__actions">
+            <Button
+              variant="secondary"
+              size={32}
+              disabled={blockedReason !== null}
+              onClick={() => setExtras([...extras, { condition: 'less_than', price: '' }])}
+            >
+              {copy.t('extraAdd')}
+            </Button>
+          </div>
           <label className="nf-field">
             <span>{copy.t('nameLabel')}</span>
             <input autoComplete="off" value={name} disabled={blockedReason !== null} onChange={(event) => setName(event.target.value)} />
@@ -478,6 +555,12 @@ export default function AlertsPage() {
                         price: alert.targetPrice,
                       }) + (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
                     </span>
+                    {(alert.extras ?? []).map((extra, index) => (
+                      <span className="nf-body nf-body--wrap" key={index}>
+                        {copy.t('listAnd', { side: conditionWords(extra.condition), price: extra.targetPrice }) +
+                          (alert.kind === 'price' && market ? ` ${market.quote}` : '')}
+                      </span>
+                    ))}
                     {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
                     <span className="nf-muted">
                       {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
