@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { InsufficientFundsError, InvalidEntryError, LedgerError, OwnerIdentitySpaceError } from './types.js';
 import { rehydrateLedgerHttpError } from './http-errors.js';
 import { IDEMPOTENCY_CONFLICT_CODE } from './client.js';
-import { DEFINITE_POST_REFUSAL_CODES, POST_IN_FLIGHT_BOUND_SECONDS, classifyPostOutcome, provesPostNotCommitted } from './post-outcome.js';
+import {
+  DEFINITE_POST_REFUSAL_CODES,
+  POST_IN_FLIGHT_BOUND_SECONDS,
+  classifyPostOutcome,
+  provesPostNotCommitted,
+  stampPostAttempts,
+} from './post-outcome.js';
 
 const withCause = (code: string, depth = 1): Error => {
   let inner: unknown = Object.assign(new Error('socket'), { code });
@@ -39,14 +45,19 @@ describe('classifyPostOutcome', () => {
       expect(classifyPostOutcome(withCause(code, 3), once)).toBe('unsent');
     }
     expect(classifyPostOutcome(withCause('ECONNREFUSED', 4), once)).toBe('unknown');
+    const stamped = withCause('ECONNREFUSED');
+    stampPostAttempts(stamped, 1);
+    expect(classifyPostOutcome(stamped)).toBe('unsent');
   });
 
   it('a retrying client only reports its last attempt, so a connect failure is never proof there', () => {
     // Attempt 0 may have committed before the ledger restarted; attempts 1 and 2 then failed to connect.
     for (const code of ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']) {
       expect(classifyPostOutcome(withCause(code))).toBe('unknown');
-      expect(classifyPostOutcome(withCause(code), { singleAttempt: false })).toBe('unknown');
-      expect(provesPostNotCommitted(withCause(code))).toBe(false);
+      const retried = withCause(code);
+      stampPostAttempts(retried, 3);
+      expect(classifyPostOutcome(retried)).toBe('unknown');
+      expect(provesPostNotCommitted(retried)).toBe(false);
     }
   });
 
@@ -68,11 +79,31 @@ describe('classifyPostOutcome', () => {
     expect(classifyPostOutcome(rehydrateLedgerHttpError('/trpc/post', 409, body(IDEMPOTENCY_CONFLICT_CODE)))).toBe('unknown');
   });
 
-  it('provesPostNotCommitted is true for refused and unsent only', () => {
-    expect(provesPostNotCommitted(new LedgerError('x', 'ledger.frozen'))).toBe(true);
-    expect(provesPostNotCommitted(withCause('ENOTFOUND'), { singleAttempt: true })).toBe(true);
-    expect(provesPostNotCommitted(new LedgerError('x', IDEMPOTENCY_CONFLICT_CODE))).toBe(false);
-    expect(provesPostNotCommitted(new Error('timeout'))).toBe(false);
+  it('provesPostNotCommitted: a refusal or a failed connect on the only attempt frees the claim', () => {
+    const once = { singleAttempt: true };
+    expect(provesPostNotCommitted(new LedgerError('x', 'ledger.frozen'), once)).toBe(true);
+    expect(provesPostNotCommitted(withCause('ENOTFOUND'), once)).toBe(true);
+    const stamped = new LedgerError('x', 'ledger.insufficient_funds');
+    stampPostAttempts(stamped, 1);
+    expect(provesPostNotCommitted(stamped)).toBe(true);
+    expect(provesPostNotCommitted(new LedgerError('x', IDEMPOTENCY_CONFLICT_CODE), once)).toBe(false);
+    expect(provesPostNotCommitted(new Error('timeout'), once)).toBe(false);
+  });
+
+  it('provesPostNotCommitted: a refusal from a retried call proves nothing until the in-flight bound has passed', () => {
+    const retried = new LedgerError('x', 'ledger.insufficient_funds');
+    stampPostAttempts(retried, 2);
+    const start = new Date('2026-10-20T00:00:00.000Z');
+    const at = (seconds: number) => new Date(start.getTime() + seconds * 1000);
+    expect(provesPostNotCommitted(retried)).toBe(false);
+    expect(provesPostNotCommitted(retried, { firstAttemptAt: start, now: at(POST_IN_FLIGHT_BOUND_SECONDS - 1) })).toBe(false);
+    expect(provesPostNotCommitted(retried, { firstAttemptAt: start, now: at(POST_IN_FLIGHT_BOUND_SECONDS) })).toBe(true);
+    // A failed connect on a retried call never proves it, however old.
+    const connect = withCause('ECONNREFUSED');
+    stampPostAttempts(connect, 3);
+    expect(provesPostNotCommitted(connect, { firstAttemptAt: start, now: at(10_000) })).toBe(false);
+    // An error with no count is treated as possibly retried.
+    expect(provesPostNotCommitted(new LedgerError('x', 'ledger.frozen'))).toBe(false);
   });
 
   it('the in-flight bound is seven minutes', () => {
