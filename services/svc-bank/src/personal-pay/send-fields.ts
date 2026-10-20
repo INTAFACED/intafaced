@@ -4,7 +4,8 @@
  * The three ride in the send's `compliance` map as `purpose`, `sourceOfFunds` and `reference`, so they are bound by the same
  * fresh approval and compared by the same idempotency check as every other compliance field. What each one needs is the
  * owner's table (`BANK_SEND_FIELD_RULES_JSON`): the longest reference a rail and country allow, the currencies that need a
- * purpose, and the amount above which a source of funds is needed. Nothing here has a default. A blank or unreadable table
+ * purpose, and the amount above which a source of funds is needed. Nothing here has a default: all three keys must be present
+ * (an explicit empty list means none), or the table is unreadable. A blank or unreadable table
  * refuses `bank.send_field_rules_unset`; a reference with no rule for its rail refuses `bank.reference_rules_unset`.
  */
 import { parseAmount } from '@intafaced/ledger-client';
@@ -12,23 +13,19 @@ import { z } from 'zod';
 
 const rulesShape = z
   .object({
-    reference: z
-      .array(
-        z.object({
-          deliveryMethod: z.string().trim().min(1).max(64),
-          country: z
-            .string()
-            .trim()
-            .regex(/^[A-Za-z]{2}$/)
-            .optional(),
-          maxLength: z.number().int().min(1).max(200),
-        }),
-      )
-      .default([]),
-    purposeRequired: z.array(z.string().trim().min(2).max(8)).default([]),
-    sourceOfFunds: z
-      .array(z.object({ asset: z.string().trim().min(2).max(16), threshold: z.string().regex(/^\d+(\.\d{1,18})?$/) }))
-      .default([]),
+    reference: z.array(
+      z.object({
+        deliveryMethod: z.string().trim().min(1).max(64),
+        country: z
+          .string()
+          .trim()
+          .regex(/^[A-Za-z]{2}$/)
+          .optional(),
+        maxLength: z.number().int().min(1).max(200),
+      }),
+    ),
+    purposeRequired: z.array(z.string().trim().min(2).max(8)),
+    sourceOfFunds: z.array(z.object({ asset: z.string().trim().min(2).max(16), threshold: z.string().regex(/^\d+(\.\d{1,18})?$/) })),
   })
   .strict();
 
@@ -49,6 +46,12 @@ export function parseSendFieldRules(json: string | undefined): SendFieldRules | 
   }
   const parsed = rulesShape.safeParse(raw);
   if (!parsed.success) return null;
+  // A threshold the ledger cannot hold is an unreadable table, not a crash on the first send.
+  try {
+    for (const rule of parsed.data.sourceOfFunds) parseAmount(rule.threshold);
+  } catch {
+    return null;
+  }
   return {
     reference: parsed.data.reference.map((rule) => ({
       deliveryMethod: rule.deliveryMethod,
@@ -91,7 +94,7 @@ export function checkSendFields(rules: SendFieldRules | null, ctx: SendFieldCont
 
   if (rules.purposeRequired.includes(ctx.toCurrency) && !ctx.compliance.purpose?.trim()) return { code: 'bank.send_purpose_required' };
 
-  const limit = rules.sourceOfFunds.find((item) => item.asset === ctx.assetId);
+  const limit = rules.sourceOfFunds.find((item) => item.asset === ctx.assetId.toUpperCase());
   if (limit && !ctx.compliance.sourceOfFunds?.trim() && parseAmount(ctx.amount) > parseAmount(limit.threshold)) {
     return { code: 'bank.source_of_funds_required' };
   }

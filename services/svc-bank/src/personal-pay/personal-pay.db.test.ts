@@ -633,7 +633,7 @@ describe('personal bill pay and global send', () => {
     // A reference on a rail the table has no rule for.
     expect(
       await attempt(
-        JSON.stringify({ reference: [{ deliveryMethod: 'wire', maxLength: 10 }] }),
+        JSON.stringify({ reference: [{ deliveryMethod: 'wire', maxLength: 10 }], purposeRequired: [], sourceOfFunds: [] }),
         { compliance: { reference: 'INV1' } },
         'fields-03',
       ),
