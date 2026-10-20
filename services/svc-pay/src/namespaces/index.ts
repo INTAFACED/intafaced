@@ -10,6 +10,7 @@ import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
+import type { TravelRuleMountDeps } from '../travel-rule/router.js';
 import type { WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
 import type { WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
@@ -55,6 +56,7 @@ export function createPayNamespaces(deps: {
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
+  travelRule?: TravelRuleMountDeps;
   withdrawalReturns?: WithdrawalReturnMountDeps;
   sql?: Sql;
   ledger?: Pick<LedgerClient, 'balances'>;
@@ -94,6 +96,7 @@ export function createPayNamespaces(deps: {
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
+      travelRule: deps.travelRule,
       withdrawalReturns: deps.withdrawalReturns,
       ops: createFounderOpsRouter(opsDeps),
       treasury: deps.treasury,
