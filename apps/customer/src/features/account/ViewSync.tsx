@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useSession } from '../session/session';
 import { accountFields, createViewSync, type ViewSync, type ViewSyncStatus } from '../../shared/view-sync';
+import { createLanguageSync, type LanguageSync } from '../../shared/language-sync';
 import { currentPreferences, savePreferences, usePreferences } from '../../shared/preferences';
 
 let status: ViewSyncStatus = 'idle';
@@ -24,19 +25,24 @@ export function useAccountViewStatus(): ViewSyncStatus {
   );
 }
 
+/** Both records must be in step: one refused or unsent write is `not-saved`. */
+function together(results: ViewSyncStatus[]): ViewSyncStatus {
+  return results.includes('not-saved') ? 'not-saved' : 'synced';
+}
+
 /** How long a run of changes (a slider, a quick toggle) waits before one write goes out. */
 const SETTLE_MS = 500;
 
 /**
- * Renders nothing. While someone is signed in it reads the account's view record (it wins over this device's copy) and writes
- * later changes back. Signed out, the device copy is the only copy.
+ * Renders nothing. While someone is signed in it reads the account's view record and interface language (they win over this
+ * device's copy) and writes later changes back. Signed out, the device copy is the only copy.
  */
 export function AccountViewSync() {
   const { api, userId } = useSession();
   const preferences = usePreferences();
   const apiRef = useRef(api);
   apiRef.current = api;
-  const sync = useRef<{ view: ViewSync; signal: AbortSignal } | null>(null);
+  const sync = useRef<{ view: ViewSync; language: LanguageSync; signal: AbortSignal } | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     if (!userId) {
@@ -52,8 +58,15 @@ export function AccountViewSync() {
       local: currentPreferences,
       applyRemote: (patch) => savePreferences(patch),
     });
-    sync.current = { view: next, signal: controller.signal };
-    void next.pull(controller.signal).then((result) => {
+    const language = createLanguageSync({
+      api: () => apiRef.current,
+      userId,
+      local: () => currentPreferences().language,
+      applyRemote: (value) => savePreferences({ language: value }),
+    });
+    sync.current = { view: next, language, signal: controller.signal };
+    void Promise.all([next.pull(controller.signal), language.pull(controller.signal)]).then((results) => {
+      const result = together(results);
       if (controller.signal.aborted) return;
       setStatus(result);
       setReady(true);
@@ -64,13 +77,16 @@ export function AccountViewSync() {
       setReady(false);
     };
   }, [userId]);
-  const fields = JSON.stringify(accountFields(preferences));
+  const fields = JSON.stringify({ ...accountFields(preferences), language: preferences.language });
   useEffect(() => {
     if (!ready) return;
     const timer = setTimeout(() => {
       // Tied to the sign-in that made it: a result that lands after sign-out or an account switch is dropped.
       const current = sync.current;
-      if (current) void current.view.push(current.signal).then((result) => sync.current === current && setStatus(result));
+      if (current)
+        void Promise.all([current.view.push(current.signal), current.language.push(current.signal)]).then(
+          (results) => sync.current === current && setStatus(together(results)),
+        );
     }, SETTLE_MS);
     return () => clearTimeout(timer);
   }, [ready, fields]);
