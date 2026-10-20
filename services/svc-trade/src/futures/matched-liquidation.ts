@@ -10,13 +10,19 @@
  *      and client id are derived from the liquidation id and the rung id), cancels the trader's resting reduce-only
  *      orders on the position, and sends it. Its limit is the position's bankruptcy price, widened by what the insurance
  *      fund holds right now when the rung closes the whole position, and pulled in to the price band around the mark the
- *      rung was planned against. Each fill settles through the reduce-fill path: the loss goes from the margin into the
- *      clearing pot, a loss past the whole margin is drawn from the insurance fund (bounded by its live balance), and no
- *      margin is handed back until the fill that closes the position. No liquidation fee is charged (none is set; the
- *      at-mark ladder charges none either).
- *   2. THE REMAINDER. Once the engine has said how much the IOC filled and every one of those fills has settled, the rung
- *      is `posted`. What the book did not take is the position's size above the size the rung leaves behind; it goes to
- *      ADL at the bankruptcy price through the existing pairing path and its owner gate. With no ADL policy and ranking
+ *      rung was planned against. Each fill settles through the reduce-fill path, NETTED with the rung's other fills
+ *      (`planLiquidationFill`): the position keeps its share of the rung's starting margin, so the part the book does
+ *      not take keeps the bankruptcy price the rung started from; nothing is paid out or released mid-tranche; a loss is
+ *      paid from the filled part's margin, after any profit an earlier fill kept back has cut it. The insurance fund
+ *      pays only the tranche's NET loss past the filled part's margin, once, when the book is done (bounded by its live
+ *      balance; a draw it cannot cover waits). No liquidation fee is charged (none is set; the at-mark ladder charges
+ *      none either).
+ *   2. THE REMAINDER. Once the engine has said how much the IOC filled and every one of those fills has settled, the
+ *      book is settled (`planLiquidationSettlement`: the filled part's free margin back, a net profit paid, the net
+ *      shortfall drawn from the fund) and the rung is `posted` in the same transaction. What the book did not take is
+ *      the position's size above the size the rung leaves behind; it goes to ADL at the rung's bankruptcy price (ADR
+ *      section 5 rule 2: the fund pays past it, the ADL counterparty never does) through the existing pairing path and
+ *      its owner gate. With no ADL policy and ranking
  *      (production today) the gate refuses `trade.adl_unconfigured`, the rung is finished, and the remainder stays open
  *      and is reported exactly as a rung the insurance fund cannot cover is: `skipped_insurance_underfunded`, every tick.
  *
@@ -38,12 +44,21 @@
  *
  * A margin adjustment finishing on the position (`margin_adjust_request`) holds the IOC back: nothing is stored or
  * sent until it has finished, and the rung waits (`in_book`, `trade.margin_adjustment_in_progress`), never fails.
+ *
+ * A FILL THAT WAITS ON A RUNG ALWAYS HAS AN OWNER. Before the IOC is stored (so before it is sent), and after the rung
+ * holds the position (so no new order is placed on it), the trader's resting orders that would grow the position come
+ * off the book, each confirmed by the engine. An IOC can then only meet a resting order of a position whose rung has
+ * not sent its own IOC yet: if liquidation X's fill waits on liquidation Y's rung, X sent before Y. So the waits form a
+ * chain ordered by send time, never a cycle, and each one ends when the rung it waits on ends — which every matched
+ * rung does (its book is done once the engine has spoken; ADL pairs or refuses). The fill then lands through
+ * `retryWaitingFills`, on the same row or a new one. The two-liquidations deadlock this rules out is in the tests.
  */
 import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { INSURANCE_UNDERFUNDED } from './insurance-bound.js';
 import { runLastResortAdlAfterInsuranceUnderfunded } from './liquidation-adl-gate.js';
 import type { AdlLastResortOutcome } from './adl-last-resort.js';
 import type { LiquidationRungStore, RungRecord } from './liquidation-rungs.js';
-import type { LiquidationPositionRow, LiquidationTickDeps, LiquidationTickItemResult } from './liquidation-tick.js';
+import type { IncreasingOrderBook, LiquidationPositionRow, LiquidationTickDeps, LiquidationTickItemResult } from './liquidation-tick.js';
 
 /** The engine took the IOC but did not say what happened: never sent again, the rung waits for the engine's events. */
 export const LIQUIDATION_SUBMIT_UNKNOWN = 'trade.futures_submit_unknown' as const;
@@ -82,8 +97,13 @@ export interface MatchedLiquidationPort {
   readiness(): string | null;
   /** The tranche on the market's lot grid: rounded UP (never less than the ladder asked for), capped at the position. */
   trancheFor(input: { marketId: string; positionSize: Amount; sizeClosed: Amount }): Promise<Amount>;
-  /** Store, send and settle the rung's IOC. Safe to call again: everything is decided by the stored order. */
+  /**
+   * Store, send and settle the rung's IOC, then settle the book and mark the rung `posted`. Safe to call again:
+   * everything is decided by the stored order and its intents.
+   */
   driveBook(input: LiquidationBookInput): Promise<LiquidationBookResult>;
+  /** The account's resting orders, for the tick's pull of increasing orders before any rung. */
+  readonly increasingOrders: IncreasingOrderBook;
   /** The position's size if it is still open, else null. Read from the row the rung holds. */
   openSize(positionId: string): Promise<Amount | null>;
 }
@@ -131,13 +151,20 @@ export async function driveMatchedRung(
     if (book.status === 'waiting') {
       return {
         positionId: row.positionId,
-        // An unknown submit needs the engine's events or an operator; a fill still settling only needs time.
-        outcome: book.code === LIQUIDATION_SUBMIT_UNKNOWN ? 'errored' : 'in_book',
+        // An unknown submit needs the engine's events or an operator; a fund that cannot cover the tranche's net
+        // shortfall is reported as every underfunded rung is; a fill still settling only needs time.
+        outcome:
+          book.code === LIQUIDATION_SUBMIT_UNKNOWN
+            ? 'errored'
+            : book.code === INSURANCE_UNDERFUNDED
+              ? 'skipped_insurance_underfunded'
+              : 'in_book',
         reason: book.code,
         summary: `${label} order ${book.orderId}: ${book.reason}`,
       };
     }
-    // Every fill of the IOC is in the row: from here the remainder is read from the row, and ADL may pair it.
+    // Every fill of the IOC is in the row and the book is settled (the port marks the rung posted with the settlement;
+    // this is a no-op then): from here the remainder is read from the row, and ADL may pair it.
     await rungs.markPosted(rung.rungId);
     bookNote = `book filled ${formatAmount(book.filled)}${book.code ? ` (${book.code})` : ''}`;
   }

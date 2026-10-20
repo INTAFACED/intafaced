@@ -446,7 +446,10 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       publishedLiquidationLimits: null,
       // ADL omitted: owner policy unset. Tick defaults policy null →
       // trade.adl_unconfigured. Do not invent last-resort reduce magnitudes.
-      ...(deps.matchedLiquidation?.current ? { matched: deps.matchedLiquidation.current } : {}),
+      // The matched-order book also pulls a position's resting increasing orders before any rung (both paths).
+      ...(deps.matchedLiquidation?.current
+        ? { matched: deps.matchedLiquidation.current, increasingOrders: deps.matchedLiquidation.current.increasingOrders }
+        : {}),
     });
     reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });

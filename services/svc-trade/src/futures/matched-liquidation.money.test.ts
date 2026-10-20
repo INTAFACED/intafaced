@@ -32,7 +32,13 @@ import type { EngineCancelResult, EngineFill, EngineSubmitRequest, EngineSubmitR
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
-import { orderHoldAmount, liquidationLimit, priceBandAround } from './matched-order-plan.js';
+import {
+  orderHoldAmount,
+  liquidationLimit,
+  planLiquidationFill,
+  planLiquidationSettlement,
+  priceBandAround,
+} from './matched-order-plan.js';
 import { unrealizedPnl } from './liquidation-planner.js';
 import { memoryAcceptedMarkStore } from './accepted-mark.js';
 import { DEFAULT_FUTURES_LADDER_POLICY } from './ladder-policy.test-harness.js';
@@ -340,8 +346,10 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
     };
   }
 
-  function tick(over: Partial<LiquidationTickDeps> & { svc?: MatchedFuturesOrders } = {}) {
-    const { svc, ...rest } = over;
+  /** `preRungPull: false` leaves out the tick's pull of increasing orders before a rung, so only the in-rung pull runs. */
+  function tick(over: Partial<LiquidationTickDeps> & { svc?: MatchedFuturesOrders; preRungPull?: boolean } = {}) {
+    const { svc, preRungPull = true, ...rest } = over;
+    const port = svc ?? build();
     return runLiquidationTick({
       marks: quotedAt(() => mark),
       positions: sqlLiquidationPositionLoader(sql),
@@ -356,7 +364,9 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       },
       ledger,
       now: () => NOW,
-      matched: (svc ?? build()).liquidationPort,
+      // As production wires it (futures-jobs.ts): the port, and its book of the account's resting orders.
+      matched: port.liquidationPort,
+      ...(preRungPull ? { increasingOrders: port.increasingOrderBook } : {}),
       ...rest,
     });
   }
@@ -508,6 +518,54 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
     });
   });
 
+  describe('netting across the rung', () => {
+    const start = { side: 'long' as const, entryPrice: A('100'), marginInitial: A('20'), roundingAllowance: 0n };
+    const none = { qty: 0n, pnl: 0n, fromMargin: 0n };
+
+    it('an above-entry fill and a fill past the bankruptcy price net to the margin, in either order: the fund pays 0', () => {
+      // Desk B1: long 2 at 100, margin 20, bankrupt at 90; fills 1 at 101 and 1 at 79. Net −20 = the margin.
+      const up = planLiquidationFill({ ...start, size: A('2'), margin: A('20'), qty: A('1'), price: A('101'), prior: none });
+      expect(up).toMatchObject({ profit: 0n, fromMargin: 0n, release: 0n, fromInsurance: 0n, remainMargin: A('20') });
+      const down = planLiquidationFill({
+        ...start,
+        size: A('1'),
+        margin: up.remainMargin,
+        marginInitial: A('10'),
+        qty: A('1'),
+        price: A('79'),
+        prior: { qty: A('1'), pnl: up.realizedPnl, fromMargin: up.fromMargin },
+      });
+      expect(down).toMatchObject({ fromMargin: A('20'), fromInsurance: 0n, profit: 0n, release: 0n, closes: true });
+
+      const first = planLiquidationFill({ ...start, size: A('2'), margin: A('20'), qty: A('1'), price: A('79'), prior: none });
+      // The fill past the bound pays its own share of the margin; the 11 past it waits for the rest of the tranche.
+      expect(first).toMatchObject({ fromMargin: A('10'), fromInsurance: 0n, remainMargin: A('10') });
+      const second = planLiquidationFill({
+        ...start,
+        size: A('1'),
+        margin: first.remainMargin,
+        marginInitial: A('10'),
+        qty: A('1'),
+        price: A('101'),
+        prior: { qty: A('1'), pnl: first.realizedPnl, fromMargin: first.fromMargin },
+      });
+      expect(second).toMatchObject({ fromMargin: A('10'), fromInsurance: 0n, profit: 0n, release: 0n });
+    });
+
+    it('a fill past the bankruptcy price leaves the remainder its share of the margin; the fund pays the excess at settlement', () => {
+      // Desk B2: long 2 at 100, margin 20; 1 fills at 86 (loss 14 against its 10 of margin).
+      const fill = planLiquidationFill({ ...start, size: A('2'), margin: A('20'), qty: A('1'), price: A('86'), prior: none });
+      expect(fill).toMatchObject({ fromMargin: A('10'), fromInsurance: 0n, remainMargin: A('10') });
+      const settle = planLiquidationSettlement({
+        size: A('1'),
+        margin: fill.remainMargin,
+        prior: { qty: A('1'), pnl: fill.realizedPnl, fromMargin: fill.fromMargin },
+      });
+      // The remainder keeps 10, so its bankruptcy price is still 90; the fund pays the 4.
+      expect(settle).toEqual({ release: 0n, profit: 0n, fromInsurance: A('4'), unbooked: 0n, remainMargin: A('10') });
+    });
+  });
+
   describe('the book takes it', () => {
     it('fills fully inside the bound: the loss goes into the pot, the rest of the margin back, the position is liquidated', async () => {
       const { alice } = await aliceLongBobShort();
@@ -577,6 +635,26 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       await assertPotIdentity(mark);
     });
 
+    it('desk B1: an above-entry fill then one past the bankruptcy price net to the margin — the fund pays nothing', async () => {
+      const wide = build({ priceBand: A('0.15') });
+      const { alice } = await aliceLongBobShort();
+      await fundInsurance('30');
+      await carolBids(A('1'), A('101'));
+      await carolBids(A('1'), A('79'));
+      mark = A('89');
+      expect((await tick({ svc: wide })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+
+      // Sold 1 at 101 (+1) and 1 at 79 (−21): the tranche lost 20, exactly the margin. Nothing comes back, no profit is
+      // paid, and the fund pays nothing.
+      expect(await positionRow(alice.id)).toMatchObject({ status: 'liquidated' });
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('980'));
+      expect(await bal(FUND)).toBe(A('30'));
+      expect(await sql`SELECT 1 FROM trade.futures_payouts WHERE user_id = ${ALICE}`).toHaveLength(0);
+      expect(await bal(POT)).toBe(A('20'));
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
     it('a partial tranche: limit at the bankruptcy price (no widening), the margin stays with the remainder', async () => {
       const { alice } = await aliceLongBobShort();
       await fundInsurance('10');
@@ -598,13 +676,14 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       const [order] = await liquidationOrders();
       expect(order).toMatchObject({ qty: '0.500000000000000000', status: 'filled' });
       expect(parseAmount(order!.limit_price)).toBe(A('90'));
-      // 0.5 at 90.5 loses 4.75; no margin is handed back on a partial liquidation, so the remainder keeps 15.25.
+      // 0.5 at 90.5 loses 4.75 of its 5 of margin. The remainder keeps its share of the rung's starting margin (15, so
+      // the same bankruptcy price, 90); the filled part's unused 0.25 comes back when the book is settled.
       expect(await positionRow(alice.id)).toMatchObject({
         status: 'open',
         size: '1.500000000000000000',
-        margin_current: '15.250000000000000000',
+        margin_current: '15.000000000000000000',
       });
-      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('0.25'));
       expect(await bal(FUND)).toBe(A('10'));
       await assertBooksAgree();
       await assertPotIdentity(mark);
@@ -612,7 +691,7 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
   });
 
   describe('the remainder goes to ADL at the bankruptcy price', () => {
-    it('a partial fill: the book takes 1, ADL pairs the other 1 against Bob, the fund pays nothing', async () => {
+    it('a partial fill: the book takes 1, ADL pairs the other 1 against Bob at the rung’s bankruptcy price', async () => {
       const { alice, bob } = await aliceLongBobShort();
       await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, NOW);
       await carolBids(A('1'), A('91'));
@@ -621,15 +700,16 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
 
       expect(result.items.find((i) => i.positionId === alice.id)).toMatchObject({ positionId: alice.id, outcome: 'liquidated' });
       expect(await positionRow(alice.id)).toMatchObject({ status: 'closed' });
-      // The book: 1 at 91, loss 9 from the margin, nothing back. The rest (1, margin 11) is bankrupt at 89: ADL closes
-      // it against Bob at 89. Alice loses exactly her margin; Bob is paid 11 for the unit and keeps the other short.
-      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20'));
+      // The book: 1 at 91, loss 9 of the unit's 10 of margin; the 1 left comes back when the book settles. The rest
+      // (1, margin 10) keeps the bankruptcy price 90: ADL closes it against Bob at 90, never at a price the fill moved.
+      // Bob is paid 10 for the unit and keeps the other short.
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('1'));
       expect(await positionRow(bob.id)).toMatchObject({
         status: 'open',
         size: '1.000000000000000000',
         margin_current: '10.000000000000000000',
       });
-      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20') + A('10') + A('11'));
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20') + A('10') + A('10'));
       expect(await bal(FUND)).toBe(0n);
       expect(await bal(POT)).toBe(A('9'));
       expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'applied' }]);
@@ -637,6 +717,118 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
         { pair_id: string; size: string; state: string }[]
       >`SELECT pair_id, size, state FROM trade.futures_adl_pairs`;
       expect(pair).toMatchObject({ pair_id: `futures.adl:${alice.id}:1:${bob.id}`, state: 'applied', size: '1.000000000000000000' });
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('desk B2: a fill past the bankruptcy price — the fund pays the excess and ADL prices the rest at the rung’s bankruptcy price', async () => {
+      const { alice, bob } = await aliceLongBobShort();
+      await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, NOW);
+      await fundInsurance('10');
+      await carolBids(A('1'), A('86'));
+      mark = A('89');
+      expect((await tick({ adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+
+      // The book: 1 at 86, loss 14 against the unit's 10 of margin. The remainder keeps its 10, so it is still bankrupt
+      // at 90, and ADL pairs it with Bob there.
+      const [pair] = await sql<{ bankruptcy_price: string; size: string; state: string }[]>`
+        SELECT bankruptcy_price, size, state FROM trade.futures_adl_pairs
+      `;
+      expect(pair).toMatchObject({ bankruptcy_price: '90.000000000000000000', size: '1.000000000000000000', state: 'applied' });
+      // WHO PAYS. The 4 past the bankruptcy price comes from the insurance fund, never from the ADL counterparty: Bob is
+      // paid his full 10 for the unit (short at 100, closed at 90) and gets that unit's 10 of margin back.
+      expect(await bal(FUND)).toBe(A('6'));
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20') + A('10') + A('10'));
+      expect(await positionRow(bob.id)).toMatchObject({
+        status: 'open',
+        size: '1.000000000000000000',
+        margin_current: '10.000000000000000000',
+      });
+      // Alice loses exactly her margin.
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('980'));
+      expect(await positionRow(alice.id)).toMatchObject({ status: 'closed' });
+      const draws = ledger.journal().filter((t) => t.reason === 'futures.loss.realized' && t.meta?.fromInsurance !== '0');
+      expect(draws.map((t) => t.meta?.fromInsurance)).toEqual([A('4').toString()]);
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('a fund that cannot cover the net shortfall when the book is done: the rung waits, nothing is drawn, then it settles once', async () => {
+      const { alice, bob } = await aliceLongBobShort();
+      await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, NOW);
+      await fundInsurance('10');
+      await carolBids(A('1'), A('86'));
+      mark = A('89');
+      // The order's limit is set from the fund's real balance; by the time the book is done, other liquidations have
+      // drained it to 3 against this tranche's shortfall of 4.
+      let drained = true;
+      let reads = 0;
+      const view = {
+        ...ledger,
+        post: (r: PostRequest) => ledger.post(r),
+        getTxByKey: (k: string) => ledger.getTxByKey(k),
+        balance: async (ref: AccountRef) => {
+          const real = await ledger.balance(ref);
+          if (ref.ownerId !== 'insurance-fund' || !drained || reads++ === 0) return real;
+          return { ...real, amount: A('3') };
+        },
+      } as unknown as LedgerClient;
+      const svc = build({}, view);
+      expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({
+        outcome: 'skipped_insurance_underfunded',
+        reason: 'trade.insurance_underfunded',
+      });
+      expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'planned' }]);
+      expect(await bal(FUND)).toBe(A('10'));
+      expect(await positionRow(alice.id)).toMatchObject({ size: '1.000000000000000000', margin_current: '10.000000000000000000' });
+      expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(0);
+
+      drained = false;
+      expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+      expect(await bal(FUND)).toBe(A('6'));
+      expect(await positionRow(bob.id)).toMatchObject({ size: '1.000000000000000000' });
+      expect(engine.submits.filter((x) => x.tif === 'IOC')).toHaveLength(1);
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('a crash after the settlement drew the fund: the replay is not refused by the balance it lowered, and draws once', async () => {
+      const { alice } = await aliceLongBobShort();
+      await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, NOW);
+      await fundInsurance('10');
+      await carolBids(A('1'), A('86'));
+      mark = A('89');
+      let drew = false;
+      let crashed = false;
+      const view = {
+        ...ledger,
+        getTxByKey: (k: string) => ledger.getTxByKey(k),
+        // Once the draw has posted, the fund reads empty (other liquidations took the rest).
+        balance: async (ref: AccountRef) => {
+          const real = await ledger.balance(ref);
+          return drew && ref.ownerId === 'insurance-fund' ? { ...real, amount: 0n } : real;
+        },
+        post: async (r: PostRequest) => {
+          const tx = await ledger.post(r);
+          if (r.idempotencyKey.includes(':settle:loss')) {
+            drew = true;
+            if (!crashed) {
+              crashed = true;
+              throw new Error('process died after the draw');
+            }
+          }
+          return tx;
+        },
+      } as unknown as LedgerClient;
+      const svc = build({}, view);
+      expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'errored' });
+      expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'planned' }]);
+      expect(await bal(FUND)).toBe(A('6'));
+
+      expect((await tick({ svc, adl: adlDeps() })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+      expect(await bal(FUND)).toBe(A('6'));
+      const keys = moneyKeys();
+      expect(new Set(keys).size).toBe(keys.length);
       await assertBooksAgree();
       await assertPotIdentity(mark);
     });
@@ -806,11 +998,13 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
         reason: 'trade.adl_unconfigured',
       });
       expect(engine.submits.filter((s) => s.tif === 'IOC')).toHaveLength(1);
+      // 1 at 91 lost 9 of the unit's 10; the 1 left came back when the book settled, and the remainder keeps its 10.
       expect(await positionRow(alice.id)).toMatchObject({
         status: 'open',
         size: '1.000000000000000000',
-        margin_current: '11.000000000000000000',
+        margin_current: '10.000000000000000000',
       });
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('1'));
       await assertBooksAgree();
       await assertPotIdentity(mark);
     });
@@ -905,21 +1099,51 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       expect(engine.submits.filter((s) => s.tif === 'IOC')).toHaveLength(1);
       expect(await positionRow(bob.id)).toMatchObject({ size: '1.000000000000000000' });
       expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(1);
-      expect(await bal(userAvailable(ALICE, USDT))).toBe(
-        A('1000') -
-          A('20') -
-          (await bal(
-            futuresOrderMarginAccount(
-              ALICE,
-              USDT,
-              (
-                await sql<
-                  { id: string }[]
-                >`SELECT id FROM trade.futures_orders WHERE user_id = ${ALICE} AND NOT reduce_only ORDER BY created_at DESC LIMIT 1`
-              )[0]!.id,
-            ),
-          )),
-      );
+      // Alice: her margin less the book's loss (9 of the unit's 10), the 1 back at settlement, the unit ADL closed at
+      // 90 with its 10 of margin; and the hold of the bid she placed meanwhile. Bob: 10 for the unit.
+      const [bid] = await sql<{ id: string }[]>`
+        SELECT id FROM trade.futures_orders WHERE user_id = ${ALICE} AND NOT reduce_only ORDER BY created_at DESC LIMIT 1
+      `;
+      const hold = await bal(futuresOrderMarginAccount(ALICE, USDT, bid!.id));
+      expect(hold).toBeGreaterThan(0n);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('1') - hold);
+      expect(await bal(userAvailable(BOB, USDT))).toBe(A('1000') - A('20') + A('10') + A('10'));
+      expect(await bal(FUND)).toBe(0n);
+    });
+
+    it('two workers settling the same book: the second finds the rung moved on and changes nothing', async () => {
+      const { alice } = await aliceLongBobShort();
+      await carolBids(A('1'), A('91'));
+      mark = A('89');
+      // Worker A stops right after its settlement's release posted; worker B runs the whole tick meanwhile.
+      let blocked = false;
+      let open!: () => void;
+      const gate = new Promise<void>((resolve) => (open = resolve));
+      const slow = {
+        ...ledger,
+        balance: (ref: AccountRef) => ledger.balance(ref),
+        getTxByKey: (k: string) => ledger.getTxByKey(k),
+        post: async (r: PostRequest) => {
+          const tx = await ledger.post(r);
+          if (!blocked && r.idempotencyKey.includes(':settle:release')) {
+            blocked = true;
+            await gate;
+          }
+          return tx;
+        },
+      } as unknown as LedgerClient;
+      const a = tick({ svc: build({}, slow) });
+      while (!blocked) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect((await tick()).items.find((i) => i.positionId === alice.id)).toMatchObject({
+        outcome: 'skipped_insurance_underfunded',
+        reason: 'trade.adl_unconfigured',
+      });
+      open();
+      expect((await a).items.find((i) => i.positionId === alice.id)).toMatchObject({ reason: 'trade.adl_unconfigured' });
+      // The release was posted (and counted) once: the remainder keeps its 10, Alice has the 1 back once.
+      expect(await positionRow(alice.id)).toMatchObject({ size: '1.000000000000000000', margin_current: '10.000000000000000000' });
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('20') + A('1'));
+      await assertBooksAgree();
     });
 
     it('in the middle of an ADL pair: the pair is driven first, then the rung finishes', async () => {
@@ -959,19 +1183,32 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
   describe('the rung holds the position', () => {
     it('other fills on the position wait while the liquidation runs; its own fill does not', async () => {
       const { alice } = await aliceLongBobShort();
-      // Alice's own resting bid below her bankruptcy price (her liquidation's IOC never reaches it), which would grow
-      // her long, and Carol's bid the liquidation sells into.
+      // Before the liquidation, Dave's sell crosses Alice's resting bid (it grows her long), and the engine's reply is
+      // lost: the fill reaches svc-trade later, as an event, while the liquidation's rung holds Alice's position.
       mark = A('92');
       const grow = await place(ALICE, 'buy', A('1'), A('89.5'));
+      engine.crashAfterAccept = true;
+      await place(DAVE, 'sell', A('1'), A('89.5')).catch(() => undefined);
+      const dave = engine.printed.at(-1)!.fills[0]!;
+      expect(dave).toMatchObject({ makerOrderId: grow.orderId });
       await carolBids(A('2'), A('91'));
       mark = A('89');
       engine.crashAfterAccept = true;
       expect((await tick()).items.find((i) => i.positionId === alice.id)).toMatchObject({ reason: 'trade.futures_submit_unknown' });
       const [liq] = await liquidationOrders();
 
-      // Dave's sell crosses Alice's resting bid while the rung is live: that fill names Alice's position and waits.
+      // Dave's fill arrives while the rung is live: it names Alice's position and waits.
       const svc = build();
-      await place(DAVE, 'sell', A('1'), A('89.5'));
+      expect(
+        await svc.settleFillOrWait({
+          marketId: MARKET,
+          makerOrderId: dave.makerOrderId,
+          takerOrderId: dave.takerOrderId,
+          price: dave.price,
+          qty: dave.qty,
+          sequence: dave.sequence,
+        }),
+      ).toBe('waiting');
       expect(await sql`SELECT reason FROM trade.futures_fill_waits WHERE settled_at IS NULL`).toMatchObject([
         { reason: 'trade.liquidation_in_progress' },
       ]);
@@ -1069,6 +1306,101 @@ describe('svc-trade liquidation by reduce-only IOC in the book (slice 7, PG-back
       expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(0);
       expect(await positionRow(bob.id)).toMatchObject({ status: 'open', size: '2.000000000000000000' });
       expect(moneyKeys()).toEqual([]);
+    });
+
+    it('desk B3: two overlapping liquidations never wait on each other — each trader’s growing bids come off first', async () => {
+      const { alice } = await aliceLongBobShort();
+      await place(CAROL, 'buy', A('2'), A('100'));
+      await place(DAVE, 'sell', A('2'), A('100'));
+      const [carol] = await openOf(CAROL);
+      for (const u of [BOB, DAVE]) await acks.recordAck(u, ADL_DISCLOSURE_VERSION, NOW);
+      // Each long rests a bid inside the other's bankruptcy bound (90): each liquidation's IOC could hit the other's.
+      mark = A('92');
+      const aliceBid = await place(ALICE, 'buy', A('1'), A('90.5'));
+      const carolBid = await place(CAROL, 'buy', A('1'), A('90.5'));
+      mark = A('89');
+      // Both rungs begin and store their IOC before either is sent (the interleaving two workers, or a crash, give).
+      let dead = true;
+      const svc = build({
+        lifecycleProof: async () => {
+          if (dead) throw new Error('process died before the submit');
+          return PROOF;
+        },
+      });
+      const adl = adlDeps();
+      // Without the tick's pull before the rung (an order can reach the book after that pull and before the rung holds
+      // the position): the pull inside the rung, before its IOC is stored, is what rules the cycle out.
+      await tick({ svc, adl, preRungPull: false });
+      expect(await rungs()).toMatchObject([
+        { kind: 'matched', state: 'planned' },
+        { kind: 'matched', state: 'planned' },
+      ]);
+      // Neither bid is in the book any more, and their holds are back.
+      expect(engine.book).toHaveLength(0);
+      for (const bid of [aliceBid, carolBid]) {
+        const [row] = await sql<{ status: string; refusal_code: string }[]>`
+          SELECT status, refusal_code FROM trade.futures_orders WHERE id = ${bid.orderId}
+        `;
+        expect(row).toMatchObject({ status: 'cancelled', refusal_code: 'trade.liquidation_in_progress' });
+      }
+
+      dead = false;
+      const second = await tick({ svc, adl, preRungPull: false });
+      for (const id of [alice.id, carol!.id])
+        expect(second.items.find((i) => i.positionId === id)).toMatchObject({ outcome: 'liquidated' });
+      expect(await sql`SELECT 1 FROM trade.futures_fill_waits`).toHaveLength(0);
+      expect(await svc.retryWaitingFills(50)).toEqual({ settled: 0, waiting: 0, failed: [] });
+      expect(await rungs()).toMatchObject([
+        { kind: 'matched', state: 'applied' },
+        { kind: 'matched', state: 'applied' },
+      ]);
+      await assertBooksAgree();
+      await assertPotIdentity(mark);
+    });
+
+    it('a growing order whose cancel the engine does not confirm holds the IOC back: nothing is stored or sent', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('92');
+      const bid = await place(ALICE, 'buy', A('1'), A('90.5'));
+      await carolBids(A('2'), A('91'));
+      mark = A('89');
+      const cancel = engine.cancel.bind(engine);
+      let down = true;
+      engine.cancel = async (marketId: string, orderId: string) => {
+        if (down) throw new Error('engine unreachable');
+        return cancel(marketId, orderId);
+      };
+      expect((await tick({ preRungPull: false })).items.find((i) => i.positionId === alice.id)).toMatchObject({
+        outcome: 'errored',
+        reason: 'trade.liquidation_increasing_cancel_timeout',
+      });
+      expect(await liquidationOrders()).toHaveLength(0);
+      expect(engine.submits.filter((x) => x.tif === 'IOC')).toHaveLength(0);
+      expect(await rungs()).toMatchObject([{ kind: 'matched', state: 'planned' }]);
+
+      down = false;
+      expect((await tick({ preRungPull: false })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+      expect(await sql`SELECT status FROM trade.futures_orders WHERE id = ${bid.orderId}`).toMatchObject([{ status: 'cancelled' }]);
+      await assertBooksAgree();
+    });
+
+    it('the tick pulls the trader’s growing orders before any rung, on the at-mark path too (wired from the matched-order book)', async () => {
+      const { alice } = await aliceLongBobShort();
+      mark = A('92');
+      const bid = await place(ALICE, 'buy', A('1'), A('88'));
+      const ask = await place(ALICE, 'sell', A('1'), A('96'), { reduceOnly: true });
+      await fundInsurance('10');
+      mark = A('89');
+      const off = build({ enabled: false });
+      expect((await tick({ svc: off })).items.find((i) => i.positionId === alice.id)).toMatchObject({ outcome: 'liquidated' });
+      expect(engine.cancels).toContain(bid.orderId);
+      expect(await sql`SELECT status FROM trade.futures_orders WHERE id = ${bid.orderId}`).toMatchObject([{ status: 'cancelled' }]);
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, bid.orderId))).toBe(0n);
+      // A reduce-only order does not grow the position: the increasing-order pull leaves it to the reduce sweep.
+      expect(engine.cancels).not.toContain(ask.orderId);
+      expect(readFileSync(join(here, 'futures-jobs.ts'), 'utf8')).toContain(
+        'increasingOrders: deps.matchedLiquidation.current.increasingOrders',
+      );
     });
 
     it('a margin adjustment in flight: nothing is stored or sent, the rung waits, the next tick sends it', async () => {

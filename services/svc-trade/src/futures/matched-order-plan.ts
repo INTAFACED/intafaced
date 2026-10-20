@@ -237,14 +237,6 @@ export function planReduceFill(input: {
   price: Amount;
   /** Units of rounding past the whole margin left unbooked: the number of earlier reduce fills on the position. */
   roundingAllowance?: bigint;
-  /**
-   * A LIQUIDATION fill (futures ADR slice 7): a fill that does not close the position returns no margin. Its loss comes
-   * out of the position's whole margin and the rest stays with the remainder, exactly as an at-mark partial rung leaves
-   * it (`planLadderLiquidation`: only a closing rung hands margin back). Without this a liquidation filled in several
-   * pieces could hand the trader part of the margin on an early, better fill and then draw the insurance fund for a
-   * later, worse one: the fund would be paying for margin the trader had just been given back.
-   */
-  holdRelease?: boolean;
 }): ReduceFillPlan {
   if (input.qty <= 0n || input.qty > input.size) throw new Error('a reduce fill must take a slice of its position');
   if (input.price <= 0n) throw new Error('a reduce fill needs a positive price');
@@ -269,22 +261,7 @@ export function planReduceFill(input: {
   let unbooked = 0n;
   let release = slice;
   let remainMargin = remainShare;
-  if (input.holdRelease === true && remainQty > 0n) {
-    // Nothing leaves the pot but the loss; the remainder keeps every other unit of margin.
-    release = 0n;
-    remainMargin = input.margin;
-    if (pnl > 0n) {
-      profit = pnl;
-    } else if (pnl < 0n) {
-      const loss = -pnl;
-      fromMargin = loss < input.margin ? loss : input.margin;
-      const excess = loss - fromMargin;
-      const allowance = input.roundingAllowance ?? 0n;
-      if (excess <= allowance) unbooked = excess;
-      else fromInsurance = excess;
-      remainMargin = input.margin - fromMargin;
-    }
-  } else if (pnl > 0n) {
+  if (pnl > 0n) {
     profit = pnl;
   } else if (pnl < 0n) {
     const loss = -pnl;
@@ -376,15 +353,14 @@ export function reduceFillProfitId(fillKey: string): string {
  * (`marketReduceLimit`). Null when no price inside the band is inside the widened bound: the book cannot take any of
  * it, and the whole tranche goes to ADL.
  *
- * WIDENED ONLY FOR A TRANCHE THAT CLOSES THE POSITION. A liquidation fill that leaves part of the position open takes
- * its loss from the position's whole margin (`planReduceFill`, `holdRelease`), so the fund pays only once the margin
- * is gone. On a partial tranche that never happens inside the bankruptcy price, and a limit past it would make the
- * remainder's margin, not the fund, pay for the worse fill. So the fund widens nothing there.
+ * WIDENED ONLY FOR A TRANCHE THAT CLOSES THE POSITION. A partial tranche is a ladder rung on a position that is not
+ * bankrupt: the book is asked for it at the bankruptcy price, never past it, and the fund is not offered for it.
  *
  * THE WIDENING NEVER PROMISES MORE THAN THE FUND HOLDS. Filling `size` at `bankruptcy ∓ w` loses at most the margin
  * plus `size × w`, and `w` is chosen so that is at most `insurance − slack`. Each fill's realised loss is charged up by
- * under one unit (10^-18), so `slack` is the most fills the tranche can be split into (`fillsBound`, one per lot);
- * the fund's live balance is checked again on every fill that draws on it, and a fill it cannot cover waits.
+ * under one unit (10^-18), so `slack` is the most fills the tranche can be split into (`fillsBound`, one per lot).
+ * The fund pays only the tranche's NET loss past the margin (`planLiquidationFill`), and its live balance is checked
+ * again when it is drawn; a draw it cannot cover waits.
  * Zero, unreadable or unset insurance widens nothing: the limit is the bankruptcy price itself.
  */
 export function liquidationLimit(input: {
@@ -409,4 +385,137 @@ export function liquidationLimit(input: {
 /** The client order id of a liquidation's IOC: a business key, the lifecycle id and the rung id. */
 export function liquidationClientOrderId(liquidationId: string, rungId: string): string {
   return `${liquidationId}:rung:${rungId}`;
+}
+
+/**
+ * What a liquidation order's earlier fills did, read from their applied intents: the fills of one rung's IOC are
+ * settled one at a time against the same position, so these totals and the row are all a fill needs.
+ */
+export interface LiquidationFillsSoFar {
+  /** Quantity the earlier fills took off the position. */
+  readonly qty: Amount;
+  /** Their realised PnL, summed. */
+  readonly pnl: Amount;
+  /** What they moved from the position's collateral pot into the clearing pot. */
+  readonly fromMargin: Amount;
+}
+
+function ceilDiv(a: Amount, b: Amount): Amount {
+  return (a + b - 1n) / b;
+}
+
+/**
+ * ONE FILL OF A LIQUIDATION'S IOC (futures ADR section 5, slice 7). The fills of one rung are one liquidation, so they
+ * are netted against each other before anything is paid out or drawn from the insurance fund:
+ *
+ * - THE REMAINDER KEEPS THE RUNG'S MARGIN RATIO. The position keeps `ceil(startMargin × remain / startSize)` in its pot
+ *   (start = the row before the order's first fill), so the part the book does not take keeps the bankruptcy price the
+ *   rung started from, and ADL prices it there (rule 2). Only the rest of the pot (`free`) is the filled part's.
+ * - NOTHING IS PAID OUT MID-TRANCHE. A profit is not paid, and the filled part's free margin is not released: both stay
+ *   where they are (the clearing pot and the collateral pot) as the trader's claim on the tranche.
+ * - A LOSS IS PAID FROM WHAT THE TRANCHE HAS. The clearing pot is owed `−(Σ pnl + Σ fromMargin)` when that is
+ *   positive (the tranche's net loss not yet paid in); this fill pays it from the free margin, as far as that goes.
+ *   A profit kept back earlier has already cut that debt, so an above-entry fill then a fill past the bankruptcy price
+ *   net to the margin, and the fund pays nothing.
+ * - THE INSURANCE FUND PAYS ONLY THE NET SHORTFALL, AND ONLY AT THE END. A debt the free margin cannot cover is not
+ *   drawn on this fill: a later, better fill may still cover it. It is drawn once, when the tranche is done: on the
+ *   fill that closes the position (here), or by `planLiquidationSettlement` when part of the position goes on to ADL.
+ *   On the closing fill the rest of the pot comes back and a net profit is paid.
+ */
+export function planLiquidationFill(input: {
+  side: PositionSide;
+  size: Amount;
+  entryPrice: Amount;
+  margin: Amount;
+  marginInitial: Amount;
+  qty: Amount;
+  price: Amount;
+  prior: LiquidationFillsSoFar;
+  /** Units of rounding past the margin left unbooked: the number of earlier reduce fills on the position. */
+  roundingAllowance?: bigint;
+}): ReduceFillPlan {
+  if (input.qty <= 0n || input.qty > input.size) throw new Error('a reduce fill must take a slice of its position');
+  if (input.price <= 0n) throw new Error('a reduce fill needs a positive price');
+  if (input.margin < 0n || input.marginInitial < 0n) throw new Error('a position margin is never negative');
+  if (input.prior.qty < 0n || input.prior.fromMargin < 0n) throw new Error('earlier liquidation fills are never negative');
+  const figures = proportionalCloseFigures({
+    side: input.side,
+    size: input.size,
+    closeQty: input.qty,
+    entryPrice: input.entryPrice,
+    exitPrice: input.price,
+    margin: input.margin,
+    marginInitial: input.marginInitial,
+  });
+  const pnl = figures.realizedPnl;
+  const remainQty = figures.remainQty;
+  const startSize = input.size + input.prior.qty;
+  const startMargin = input.margin + input.prior.fromMargin;
+  const keep = remainQty === 0n ? 0n : ceilDiv(startMargin * remainQty, startSize);
+  const free = input.margin > keep ? input.margin - keep : 0n;
+  const owed = -(input.prior.pnl + pnl + input.prior.fromMargin);
+  const fromMargin = owed > 0n ? (owed < free ? owed : free) : 0n;
+  const net = input.prior.pnl + pnl + input.prior.fromMargin + fromMargin;
+
+  let profit = 0n;
+  let fromInsurance = 0n;
+  let unbooked = 0n;
+  let release = 0n;
+  if (remainQty === 0n) {
+    release = input.margin - fromMargin;
+    if (net > 0n) profit = net;
+    else if (net < 0n) {
+      if (-net <= (input.roundingAllowance ?? 0n)) unbooked = -net;
+      else fromInsurance = -net;
+    }
+  }
+  return {
+    realizedPnl: pnl,
+    profit,
+    fromMargin,
+    fromInsurance,
+    unbooked,
+    release,
+    potOut: fromMargin + release,
+    initialOut: input.marginInitial - figures.remainInitial,
+    remainQty,
+    remainMargin: remainQty === 0n ? 0n : input.margin - fromMargin,
+    remainInitial: figures.remainInitial,
+    closes: remainQty === 0n,
+  };
+}
+
+/**
+ * THE END OF A LIQUIDATION'S BOOK when part of the position is left (it goes on to ADL, or the rung was a partial
+ * tranche). Every fill has settled (`planLiquidationFill`); what they kept back is settled now, once: the filled part's
+ * free margin comes back to the trader, a net profit is paid, and a net loss past the filled part's margin is drawn from
+ * the insurance fund. The position keeps exactly its share of the rung's starting margin, so its bankruptcy price is
+ * the one the rung started from.
+ */
+export function planLiquidationSettlement(input: {
+  size: Amount;
+  margin: Amount;
+  prior: LiquidationFillsSoFar;
+  roundingAllowance?: bigint;
+}): { release: Amount; profit: Amount; fromInsurance: Amount; unbooked: Amount; remainMargin: Amount } {
+  if (input.size <= 0n) throw new Error('a settlement needs the position still open');
+  const startSize = input.size + input.prior.qty;
+  const startMargin = input.margin + input.prior.fromMargin;
+  const keep = ceilDiv(startMargin * input.size, startSize);
+  const release = input.margin > keep ? input.margin - keep : 0n;
+  const net = input.prior.pnl + input.prior.fromMargin;
+  let profit = 0n;
+  let fromInsurance = 0n;
+  let unbooked = 0n;
+  if (net > 0n) profit = net;
+  else if (net < 0n) {
+    if (-net <= (input.roundingAllowance ?? 0n)) unbooked = -net;
+    else fromInsurance = -net;
+  }
+  return { release, profit, fromInsurance, unbooked, remainMargin: input.margin - release };
+}
+
+/** The root of a liquidation order's end-of-book settlement keys: one settlement per order, so per rung. */
+export function liquidationSettlementRoot(orderId: string): string {
+  return `liquidation:${orderId}:settle`;
 }
