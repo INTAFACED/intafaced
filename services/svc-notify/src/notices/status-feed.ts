@@ -123,7 +123,8 @@ function threadsOf(rows: readonly NoticeRow[], at: Date): Thread[] {
     const entries = [root, ...(children.get(root.id) ?? [])].sort(byPublished);
     const latest = entries[entries.length - 1]!;
     // A legacy incident has no close flag; its own end time closes it, as the open-notice read does.
-    const endsAt = [...entries].reverse().find((entry) => entry.endsAt !== null)?.endsAt ?? null;
+    // Only the newest entry's end time counts: a later update saying the incident goes on supersedes an earlier end time.
+    const endsAt = latest.endsAt;
     const closedByTime = endsAt !== null && endsAt.getTime() <= at.getTime();
     const openedMs = root.publishedAt!.getTime();
     const resolvedAt = latest.resolves ? latest.publishedAt : closedByTime ? new Date(Math.max(endsAt!.getTime(), openedMs)) : null;

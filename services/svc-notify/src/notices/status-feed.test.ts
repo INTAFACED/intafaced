@@ -176,6 +176,17 @@ describe('status feed', () => {
     expect((await h.board.noticeStatus()).incidents).toEqual([]);
   });
 
+  it('keeps an incident open when a later update says it goes on past the first end time', async () => {
+    const h = harness('2026-10-17T10:00:00.000Z');
+    const root = await h.publish(incident('o-1', { impact: 'minor', components: ['api'], endsAt: '2026-10-17T11:00:00.000Z' }));
+    h.at('2026-10-17T11:30:00.000Z');
+    await h.publish(incident('o-2', { parentId: root.id, impact: 'minor', body: 'Test still ongoing' }));
+    h.at('2026-10-17T12:00:00.000Z');
+    const feed = await h.board.statusFeed({ days: 1 });
+    expect(feed.incidents[0]).toMatchObject({ id: root.id, resolvedAt: null });
+    expect(feed.components.find((c) => c.component === 'api')?.state).toBe('degraded');
+  });
+
   it('does not show an incident dated to start later', async () => {
     const h = harness('2026-10-17T10:00:00.000Z');
     await h.publish(incident('f-1', { impact: 'minor', components: ['api'], startsAt: '2026-10-17T13:00:00.000Z' }));
