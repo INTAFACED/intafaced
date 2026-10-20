@@ -161,8 +161,8 @@ describe('kyb documents', () => {
     expect(await rejection((await api({ key: null })).kyb.documents.upload(input))).toMatchObject({
       cause: expect.objectContaining({ code: 'pay.kyb_doc_key_unset' }),
     });
-    const [{ n }] = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
-    expect(n).toBe('0');
+    const counted = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(counted[0]?.n).toBe('0');
   });
 
   it('stores an upload encrypted, shows it as provided, and the same bytes again are the same document', async () => {
@@ -233,8 +233,8 @@ describe('kyb documents', () => {
     expect(await rejection((await api()).kyb.documents.upload(input))).toMatchObject({
       cause: expect.objectContaining({ code: 'pay.kyb_application_submitted' }),
     });
-    const [{ n }] = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
-    expect(n).toBe('0');
+    const counted = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(counted[0]?.n).toBe('0');
   });
 
   it('keeps the table constraints: a reason only when rejected, one rules row, a 32-hex-pair digest', async () => {
