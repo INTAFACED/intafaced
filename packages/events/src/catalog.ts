@@ -931,6 +931,40 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+// ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
+
+export const coreOpsComplianceCaseCreated = defineEvent(
+  'core-ops',
+  'compliance_case',
+  'created',
+  1,
+  z.object({
+    caseId: z.string().min(1).max(128),
+    inboxId: z.string().min(1).max(128),
+    kind: z.enum(['screening_hit', 'kyc_review', 'network_flag', 'manual']),
+    /** Opaque subject id. Never a PII payload. */
+    subjectId: z.string().min(1).max(128),
+    createdAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance case was stored in svc-ops. Business key is the case id; consumers are idempotent on it.',
+);
+
+export const coreOpsComplianceInboxUpdated = defineEvent(
+  'core-ops',
+  'compliance_inbox',
+  'updated',
+  1,
+  z.object({
+    inboxId: z.string().min(1).max(128),
+    /** Definitions are versioned; business key compliance:queue:<name>:<version>. */
+    version: z.number().int().min(1),
+    change: z.enum(['defined', 'favourited', 'unfavourited']),
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance inbox was defined or its favourite flag changed.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -945,6 +979,8 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsComplianceCaseCreated,
+  coreOpsComplianceInboxUpdated,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1211,6 +1247,34 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when the case store lands (OPS-cases-01, next PR). A case is a durable row that the inbox list reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when an inbox is defined or favourited (OPS-cases-01, next PR). The inbox is a durable versioned row that the case list reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the case is a durable row and the admin inbox reads it. The subject exists so a later routing or notification consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the inbox definition is a durable row. The subject exists so the audit trail and a later consumer can follow without polling.',
   },
   {
     event: 'projectionUpdated',
