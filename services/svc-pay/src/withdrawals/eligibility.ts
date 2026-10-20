@@ -13,6 +13,7 @@ export const ELIGIBILITY_REASONS = [
   'negative_balance',
   'frozen_credit',
   'wallet_removed',
+  'purchase_hold',
 ] as const;
 export type EligibilityReason = (typeof ELIGIBILITY_REASONS)[number];
 
@@ -46,6 +47,7 @@ const UNWIRED_BY: Record<EligibilityReason, string> = {
   negative_balance: 'the ledger is not connected here',
   frozen_credit: 'svc-identity does not publish frozen credit here yet',
   wallet_removed: 'the custody wallet record is not connected here yet',
+  purchase_hold: 'the purchase-hold records are not connected here',
 };
 
 /** The one check this service can answer itself: a negative available balance, read from the LEDGER. */

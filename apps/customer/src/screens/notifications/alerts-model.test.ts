@@ -4,6 +4,8 @@ import {
   cancelWords,
   createGate,
   evaluationNote,
+  expiryIso,
+  expiryProblem,
   findDuplicate,
   priceProblem,
   samePrice,
@@ -144,5 +146,61 @@ describe('one change at a time', () => {
     gate.leave();
     expect(gate.busy).toBe(false);
     expect(gate.enter()).toBe(true);
+  });
+});
+
+describe('crossing, name, message and expiry', () => {
+  it('maps the owner-limit refusals to plain words, nothing changed', () => {
+    const say = (status: number, message: string) => settleFailure(failure({ status, message }));
+    expect(say(400, 'alert.text_too_long: name is over 40')).toEqual({ kind: 'refused', refusal: 'textRejected' });
+    expect(say(400, 'alert.message_placeholder_unknown: {x} is not a placeholder')).toEqual({ kind: 'refused', refusal: 'textRejected' });
+    expect(say(400, 'alert.expiry_in_past: expiry must be in the future')).toEqual({ kind: 'refused', refusal: 'expiryRejected' });
+    expect(say(400, 'alert.expiry_too_far: more than 30 days')).toEqual({ kind: 'refused', refusal: 'expiryRejected' });
+    expect(say(412, 'notify.alert_text_limit_unset: needs the owner')).toEqual({ kind: 'refused', refusal: 'optionNotOn' });
+    expect(say(412, 'notify.alert_expiry_max_unset: needs the owner')).toEqual({ kind: 'refused', refusal: 'optionNotOn' });
+  });
+
+  it('accepts a blank expiry, refuses one that is not a real moment, and sends an exact instant', () => {
+    expect(expiryProblem('')).toBeNull();
+    expect(expiryIso('')).toBeUndefined();
+    expect(expiryProblem('not a date')).toBe('invalid');
+    expect(expiryIso('not a date')).toBeUndefined();
+    expect(expiryProblem('2026-11-01T09:30')).toBeNull();
+    expect(expiryIso('2026-11-01T09:30')).toBe(new Date('2026-11-01T09:30').toISOString());
+  });
+
+  it('treats a different condition, name, message or expiry as a different alert', () => {
+    const level = alert({ condition: 'greater_than' });
+    const base: AlertIntent = { marketId: 'm1', direction: 'above', condition: 'greater_than', targetPrice: '65000.5' };
+    expect(findDuplicate([level], base)).not.toBeNull();
+    expect(findDuplicate([level], { ...base, condition: 'crossing_up' })).toBeNull();
+    expect(findDuplicate([level], { ...base, name: 'Breakout' })).toBeNull();
+    expect(
+      findDuplicate([alert({ condition: 'crossing_up', name: 'Breakout' })], { ...base, condition: 'crossing_up', name: 'Breakout' }),
+    ).not.toBeNull();
+  });
+
+  it('maps the condition-count refusals to plain words', () => {
+    const say = (status: number, message: string) => settleFailure(failure({ status, message }));
+    expect(say(400, 'alert.too_many_conditions: an alert may hold 3 conditions')).toEqual({
+      kind: 'refused',
+      refusal: 'tooManyConditions',
+    });
+    expect(say(400, 'alert.extra_condition_invalid: a level with a positive decimal price')).toEqual({
+      kind: 'refused',
+      refusal: 'badRequest',
+    });
+    expect(say(412, 'notify.alert_conditions_limit_unset: needs the owner')).toEqual({ kind: 'refused', refusal: 'optionNotOn' });
+  });
+
+  it('treats added conditions as part of the alert: a different set is a different alert', () => {
+    const plain = alert({ condition: 'greater_than' });
+    const ranged = alert({ condition: 'greater_than', extras: [{ condition: 'less_than', targetPrice: '70000' }] });
+    const base: AlertIntent = { marketId: 'm1', direction: 'above', condition: 'greater_than', targetPrice: '65000.5' };
+    expect(findDuplicate([plain], base)).not.toBeNull();
+    expect(findDuplicate([ranged], base)).toBeNull();
+    expect(findDuplicate([plain], { ...base, extras: [{ condition: 'less_than', targetPrice: '70000' }] })).toBeNull();
+    expect(findDuplicate([ranged], { ...base, extras: [{ condition: 'less_than', targetPrice: '70000.0' }] })).not.toBeNull();
+    expect(findDuplicate([ranged], { ...base, extras: [{ condition: 'greater_than', targetPrice: '70000' }] })).toBeNull();
   });
 });

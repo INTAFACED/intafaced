@@ -26,6 +26,7 @@ const BY_CODE: Readonly<Record<string, RefusalKey>> = {
   'support.attachment_type_refused': 'refuseAttachType',
   'support.attachment_body_invalid': 'refuseAttachUnreadable',
   'support.headers_not_allowed': 'refuseHeadersNotAllowed',
+  'support.follow_up_invalid': 'refuseFollowUp',
   'support.kb.not_published': 'refuseArticleGone',
   'support.kb_version_unknown': 'refuseArticleGone',
 };

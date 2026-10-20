@@ -19,6 +19,10 @@ describe('a phishing report in the request list', () => {
     expect(ticketSchema.safeParse(row).success).toBe(true);
   });
 
+  it('parses a request that is on hold', () => {
+    expect(ticketSchema.safeParse({ ...row, status: 'on_hold' }).success).toBe(true);
+  });
+
   it('is offered as a topic', () => {
     expect(CATEGORY_VALUES).toContain('phishing');
   });

@@ -1,6 +1,7 @@
 import { formatAmount, parseAmount } from '@intafaced/ledger-client/money';
 import type { MarketLifecycleAdmissionProof } from '@intafaced/exchange-contract';
-import type { ComboLeg, EngineAmend, EngineOrder, EngineOrderType, OrderId, OrderSide, TimeInForce } from './types.js';
+import type { ComboLeg, EngineAmend, EngineOrder, EngineOrderType, OrderId, OrderSide, SpreadTerms, TimeInForce } from './types.js';
+import { fromWireSpread, toWireSpread, type WireSpreadInstrument } from './spread-instrument.js';
 import {
   persistAon,
   persistAuction,
@@ -101,6 +102,8 @@ export interface WireOrder {
   readonly combo?: boolean;
   /** Named combo legs. Absent when not supplied. Replay must still refuse. */
   readonly legs?: readonly WireComboLeg[] | null;
+  /** Spread order: the listing it was admitted under and the caller anchor reference. Absent on an outright order. */
+  readonly spread?: WireSpreadTerms;
   /** Exact PX-S01 admission evidence for new HTTP submissions. */
   readonly lifecycleProof?: MarketLifecycleAdmissionProof;
 }
@@ -111,6 +114,12 @@ export interface WireComboLeg {
   readonly ratio?: string | null;
   readonly strike?: string | null;
   readonly expiry?: string | null;
+}
+
+/** Wire spread terms. Decimal strings. A missing reference stays null so replay refuses it the same way. */
+export interface WireSpreadTerms {
+  readonly instrument: WireSpreadInstrument;
+  readonly anchorReference: string | null;
 }
 
 export interface WireAmendPatch {
@@ -141,6 +150,20 @@ function fromWireLegs(legs: readonly WireComboLeg[] | null | undefined): readonl
     strike: leg.strike == null ? null : parseAmount(leg.strike),
     expiry: leg.expiry ?? null,
   }));
+}
+
+function toWireSpreadTerms(terms: SpreadTerms): WireSpreadTerms {
+  return {
+    instrument: toWireSpread(terms.instrument),
+    anchorReference: terms.anchorReference == null ? null : formatAmount(terms.anchorReference),
+  };
+}
+
+function fromWireSpreadTerms(terms: WireSpreadTerms): SpreadTerms {
+  return {
+    instrument: fromWireSpread(terms.instrument),
+    anchorReference: terms.anchorReference == null ? null : parseAmount(terms.anchorReference),
+  };
 }
 
 export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmissionProof): WireOrder {
@@ -197,6 +220,7 @@ export function toWire(order: EngineOrder, lifecycleProof?: MarketLifecycleAdmis
     ...(persistMinNotional(order) ? { minNotional: order.minNotional == null ? null : formatAmount(order.minNotional) } : {}),
     ...(persistCombo(order) ? { combo: order.combo === true } : {}),
     ...(persistLegs(order) ? { legs: toWireLegs(order.legs) } : {}),
+    ...(order.spread != null ? { spread: toWireSpreadTerms(order.spread) } : {}),
     lifecycleProof,
   };
 }
@@ -253,6 +277,7 @@ export function fromWire(order: WireOrder): EngineOrder {
     ...(persistMinNotional(order) ? { minNotional: order.minNotional == null ? null : parseAmount(order.minNotional) } : {}),
     ...(persistCombo(order) ? { combo: order.combo === true } : {}),
     ...(persistLegs(order) ? { legs: fromWireLegs(order.legs) } : {}),
+    ...(order.spread != null ? { spread: fromWireSpreadTerms(order.spread) } : {}),
   };
 }
 

@@ -6,7 +6,7 @@
 /** Help articles that describe features this release does not offer (Deposits and withdrawals, Paper vs live). */
 export const HIDDEN_FEATURE_ARTICLES: ReadonlySet<string> = new Set(['kb-deposit-withdraw-honest', 'kb-paper-vs-live']);
 
-export type TicketStatus = 'open' | 'pending' | 'resolved' | 'closed';
+export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
 export type TicketCategory = 'account' | 'trading' | 'deposit_withdraw' | 'other';
 
 export interface TicketLike {
@@ -22,10 +22,10 @@ export interface TicketLike {
 export const STATUS_FILTERS = ['all', 'active', 'resolved', 'closed'] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 
-/** "Active" is everything the team can still act on: not yet resolved, not closed. */
+/** "Active" is everything the team can still act on: not yet resolved, not closed (a request on hold is still active). */
 export function matchesFilter(status: TicketStatus, filter: StatusFilter): boolean {
   if (filter === 'all') return true;
-  if (filter === 'active') return status === 'open' || status === 'pending';
+  if (filter === 'active') return status === 'open' || status === 'pending' || status === 'on_hold';
   return status === filter;
 }
 
@@ -61,6 +61,16 @@ export function statusCounts(rows: readonly Pick<TicketLike, 'status'>[]): Recor
 /** A short, readable handle for a request ("#A1B2C3D4") that a person can quote. The full id stays on the request. */
 export function ticketReference(id: string): string {
   return `#${id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+}
+
+/** A closed request cannot be reopened, so the way on is a new request that follows it. */
+export function canFollowUp(status: TicketStatus): boolean {
+  return status === 'closed';
+}
+
+/** The starting point of a follow-up: the same topic, and a subject that names what it follows (the 200-letter limit kept). */
+export function followUpDraft(ticket: Pick<TicketLike, 'category' | 'subject'>, prefix: string): { category: string; subject: string } {
+  return { category: ticket.category, subject: `${prefix} ${ticket.subject}`.slice(0, 200) };
 }
 
 /** A closed request takes no more messages. A resolved one reopens when the person replies. */
@@ -145,14 +155,25 @@ export function inKbCategory(id: string, category: KbCategory): boolean {
 }
 
 /**
- * Where a person who cannot sign in writes to. One place, one address; `VITE_SUPPORT_EMAIL` overrides it per deployment.
- * The default is the company address recorded in the repository's contact notes (docs/TV-APPLY-PACK.md).
+ * The address a person who cannot sign in writes to, or `null` when none is published. There is no built-in address:
+ * `VITE_SUPPORT_EMAIL` at build time is the only source here, and a blank or malformed value is "not set".
  */
-export const DEFAULT_SUPPORT_EMAIL = 'hello@intafaced.com';
-
-export function supportEmail(configured?: string | undefined): string {
+export function supportEmail(configured?: string | undefined): string | null {
   const value = (configured ?? '').trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : DEFAULT_SUPPORT_EMAIL;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : null;
+}
+
+const REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Where one request opens in the support desk. The id is the request's own id; the desk checks it belongs to the caller. */
+export function supportRequestHref(ticketId: string): string {
+  return `/support?request=${encodeURIComponent(ticketId)}`;
+}
+
+/** The request a `/support?request=<id>` address names, or `null` when there is none or it is not an id. */
+export function requestFromSearch(search: string): string | null {
+  const value = new URLSearchParams(search).get('request');
+  return value !== null && REQUEST_ID.test(value) ? value.toLowerCase() : null;
 }
 
 /** A mailto link that never carries a password, code or key: only the subject and a plain prompt the person finishes. */
@@ -162,4 +183,9 @@ export function supportMailto(address: string, subject: string, body: string): s
 
 function fold(text: string): string {
   return text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase().trim();
+}
+
+/** The "rate this request" prompt shows only on a solved request whose stored rating has been read and found empty. */
+export function showRatePrompt(status: TicketStatus, ratingRead: boolean, rated: boolean): boolean {
+  return ratingRead && !rated && requestActionStates(status, rated).rate.available;
 }

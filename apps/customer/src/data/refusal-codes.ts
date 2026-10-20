@@ -35,6 +35,7 @@ export type RefusalKind =
   | 'belowMinimum'
   | 'selfTrade'
   | 'orderTypeUnsupported'
+  | 'marketLimitOnly'
   | 'optionUnsupported'
   | 'requestExpired'
   | 'exitPriceOrder'
@@ -44,6 +45,8 @@ export type RefusalKind =
   | 'postOnlyWouldCross'
   | 'fokUnfillable'
   | 'tifInvalid'
+  | 'tagInvalid'
+  | 'expiryInvalid'
   | 'ordersPaused'
   | 'accountOnHold'
   | 'notFound'
@@ -57,6 +60,8 @@ export type RefusalKind =
   | 'addressLabelTaken'
   | 'addressBookFull'
   | 'activitySortBounded'
+  | 'entriesDoNotSum'
+  | 'entriesTooLong'
   | 'chartRange'
   | 'algoSchedulerOff'
   | 'unknown';
@@ -123,6 +128,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.algo_insufficient_balance': 'insufficient',
   'trade.algo_balance_unreadable': 'tryAgain',
   'trade.fee_schedule_blank': 'notSetUp',
+  'trade.fee_product_unpublished': 'notSetUp',
+  // A maker rebate or a minimum fee the ledger has no recipe to post yet: not switched on, never shown as paid.
+  'trade.rebate_recipe_unavailable': 'notSetUp',
+  'trade.min_fee_recipe_unavailable': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
@@ -136,6 +145,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.mode_limit_only': 'marketLimitOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',
   'trade.tag_unsupported': 'optionUnsupported',
   'trade.trigger_source_unset': 'optionUnsupported',
@@ -150,6 +160,9 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.fok_unfillable': 'fokUnfillable',
   fok_unfillable: 'fokUnfillable',
   'trade.invalid_tif': 'tifInvalid',
+  'trade.invalid_tag': 'tagInvalid',
+  'trade.invalid_expiry': 'expiryInvalid',
+  'trade.fee_currency_unsupported': 'optionUnsupported',
   'trade.orders_paused': 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
@@ -166,6 +179,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.same_space': 'duplicate',
   'bank.activity_account_unknown': 'notFound',
   'bank.activity_sort_bounded': 'activitySortBounded',
+  'portfolio.entries_do_not_sum': 'entriesDoNotSum',
+  'bank.activity_lookup_bounded': 'entriesTooLong',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
 

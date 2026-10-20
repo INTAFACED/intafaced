@@ -11,6 +11,9 @@ import {
   supportLabelSchema,
   supportTicketPropertiesSchema,
   supportTicketPrioritySchema,
+  supportTicketLifecycleSchema,
+  supportTicketStatusSchema,
+  supportWaitingOnSchema,
   supportTicketTypeSchema,
   supportTicketCategorySchema,
   supportTicketSchema,
@@ -203,5 +206,34 @@ describe('ticket properties contract (SP-tickets-04)', () => {
     ).toBe(true);
     const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
     for (const key of ['priority', 'ticketType', 'labels']) expect(shape).not.toContain(key);
+  });
+});
+
+describe('ticket lifecycle (SP-tickets-04)', () => {
+  const ticketId = '11111111-1111-4111-8111-111111111111';
+  it('waiting on is the team or the customer, and null until set', () => {
+    expect(supportWaitingOnSchema.safeParse('team').success).toBe(true);
+    expect(supportWaitingOnSchema.safeParse('customer').success).toBe(true);
+    expect(supportWaitingOnSchema.safeParse('nobody').success).toBe(false);
+    const empty = { ticketId, waitingOn: null, waitingSince: null, firstPublicReplyAt: null, followsTicketId: null };
+    expect(supportTicketLifecycleSchema.safeParse(empty).success).toBe(true);
+    expect(supportTicketLifecycleSchema.safeParse({ ...empty, waitingOn: 'team', waitingSince: '2026-10-20T01:00:00.000Z' }).success).toBe(
+      true,
+    );
+    expect(supportTicketLifecycleSchema.safeParse({ ...empty, waitingSince: 'yesterday' }).success).toBe(false);
+  });
+  it('a request can be on hold, and an unknown status still fails', () => {
+    expect(supportTicketStatusSchema.safeParse('on_hold').success).toBe(true);
+    expect(supportTicketStatusSchema.safeParse('paused').success).toBe(false);
+  });
+  it('a follow-up names the closed request it follows by id', () => {
+    const base = { category: 'other', subject: 's', body: 'b' };
+    expect(createTicketInputSchema.safeParse({ ...base, followsTicketId: ticketId }).success).toBe(true);
+    expect(createTicketInputSchema.safeParse({ ...base, followsTicketId: 'x' }).success).toBe(false);
+    expect(createTicketInputSchema.safeParse(base).success).toBe(true);
+  });
+  it('the owner-read ticket schema carries no desk lifecycle fact', () => {
+    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    for (const key of ['waitingOn', 'waitingSince', 'firstPublicReplyAt']) expect(shape).not.toContain(key);
   });
 });

@@ -50,6 +50,7 @@ import type { EventBus } from '@intafaced/events';
 import { checkLeverage, initialMargin, LEVERAGE_CAP_UNSET } from './initial-margin.js';
 import { checkCollateralClassForMargin, checkMarginModeForFuturesOpen } from './margin-mode.js';
 import { planClose } from './close-planner.js';
+import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
 import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
@@ -286,6 +287,13 @@ export interface PositionServiceDeps {
    * tests that are not proving the public door; public-door + index always wire it.
    */
   assertAdlDisclosureAcked?: (userId: string) => Promise<void>;
+  /**
+   * D-account-07 — risk agreement accepted and derivatives eligibility held. When set (production always sets it),
+   * a non-reduce `open()` refuses until both hold, and refuses honestly when the owner has published nothing.
+   * A reduce-only open and every close never call it: a closing or reducing action is never blocked by a missing
+   * acceptance. Omitted only in hermetic tests that are not proving the gate.
+   */
+  assertDerivativesAccess?: DerivativesAccessGate;
   /** Test-only crash seam after the external ledger accepts, before DB finalize. */
   afterMarginLedgerPost?: (request: string) => Promise<void>;
   /**
@@ -934,7 +942,12 @@ export class PositionService {
     return this.presentListed(row);
   }
 
-  async open(input: OpenPositionInput, principal?: Principal): Promise<Position> {
+  /**
+   * `context.region` is the edge region of the request. It is read only by the derivatives gate to pick the
+   * jurisdiction text. It is deliberately not on `input`: `input` is the business payload that a replayed open is
+   * compared against, and a retry from another region must still find the original open.
+   */
+  async open(input: OpenPositionInput, principal?: Principal, context: { readonly region?: string | null } = {}): Promise<Position> {
     if (input.reduceOnly === true) return this.reduceOnlyOpen(input);
     /**
      * NO POT, NO NEW POSITIONS.
@@ -1002,6 +1015,20 @@ export class PositionService {
         throw new TradingControlError('auth.credential_denied');
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
+    }
+
+    /**
+     * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
+     * never held up by a missing acceptance. The tier is the caller's own principal claim, null when none was passed.
+     * It runs after the admitted-open replay: an open that was admitted and locked margin before a crash finishes on
+     * retry even if a new agreement or rules version was published meanwhile, so its margin is never left locked.
+     */
+    if (this.deps.assertDerivativesAccess) {
+      await this.deps.assertDerivativesAccess({
+        userId: input.userId,
+        tier: principal?.tier ?? null,
+        region: context.region ?? null,
+      });
     }
 
     this.refuseIfFuturesExposureOff();
@@ -2698,7 +2725,8 @@ function isoOf(value: Date | string | null | undefined): string | null {
   return date.toISOString();
 }
 
-function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
+/** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
+export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
   const size = parseAmount(row.size);
   const entry = parseAmount(row.entry_price);
   const leverage = row.leverage == null ? null : parseAmount(row.leverage);

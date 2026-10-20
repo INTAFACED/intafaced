@@ -38,8 +38,11 @@ import {
   writeOperatorAudit,
   type ApprovalBook,
 } from './common.js';
+import { AgreementsAdmin } from './agreements.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
+import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
+import { feeScheduleHistory, latestFeeScheduleVersion, type FeeScheduleVersionRow } from '../spot/fee-schedule-store.js';
 import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
 
@@ -89,8 +92,11 @@ function sumDecimals(values: readonly string[]): string {
 export class TradeOpsAdmin {
   /** Futures contract families, expiry tenors and pre-market (D-instruments-03). */
   readonly futuresContracts: FuturesContractsAdmin;
+  /** Risk agreements, margin terms and derivatives eligibility rules (D-account-07). */
+  readonly agreements: AgreementsAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.futuresContracts = new FuturesContractsAdmin({
       sql: deps.sql,
       approvals: deps.approvals,
@@ -326,6 +332,98 @@ export class TradeOpsAdmin {
     );
     const written = await currentRisk(this.deps.sql, input.market);
     if (!written) throw new TradeOpsError('risk_limit_unreadable', 'risk limit row was not readable after write');
+    return written;
+  }
+
+  async feeScheduleGet(principal: Principal): Promise<{ version: string; history: FeeScheduleVersionRow[] }> {
+    requireOperator(principal);
+    return { version: await latestFeeScheduleVersion(this.deps.sql), history: await feeScheduleHistory(this.deps.sql) };
+  }
+
+  /**
+   * Two-person write of a new owner fee schedule version. The proposed schedule must parse as a published schedule
+   * (a blank or malformed field refuses with the typed code and nothing is stored), and it takes effect from a stated
+   * time that is not in the past, so no order already placed is re-priced.
+   */
+  async feeScheduleSet(
+    principal: Principal,
+    input: { schedule: Record<string, unknown>; effectiveAt: string; expectedVersion: string; reason: string; approvalId: string },
+  ): Promise<FeeScheduleVersionRow> {
+    requireOperatorWrite(principal);
+    const reason = requireReason(input.reason);
+    const at = nowOf(this.deps);
+    const effectiveAt = new Date(input.effectiveAt);
+    if (Number.isNaN(effectiveAt.getTime())) {
+      throw new TradeOpsError('trade.fee_schedule_blank', 'effectiveAt must be an ISO timestamp');
+    }
+    if (effectiveAt.getTime() < at.getTime()) {
+      throw new TradeOpsError('fee_schedule_effective_in_past', 'a fee schedule version cannot take effect in the past');
+    }
+    // `version` is assigned here; a proposal that names one is refused rather than silently overwritten.
+    if ('version' in input.schedule || 'published' in input.schedule) {
+      throw new TradeOpsError('trade.fee_schedule_blank', 'a proposal carries rates only: version and published are set by the write');
+    }
+    try {
+      const parsed = parseFeeScheduleJson(JSON.stringify({ ...input.schedule, published: true, version: 'proposal' }));
+      if (parsed.published !== true) throw new TradeOpsError('trade.fee_schedule_blank', 'the proposed schedule is not published');
+    } catch (err) {
+      if (err instanceof FeeScheduleError) throw new TradeOpsError(err.code, err.message);
+      throw err;
+    }
+    // Versions take effect in order: a later version never starts before an earlier one, or the lookup would pick the older.
+    const [latest] = await this.deps.sql<Array<{ at: Date | null }>>`SELECT max(effective_at) AS at FROM trade.fee_schedule_versions`;
+    if (latest?.at && effectiveAt.getTime() < latest.at.getTime()) {
+      throw new TradeOpsError('fee_schedule_effective_out_of_order', 'a new version cannot take effect before the latest stored version');
+    }
+    const version = await latestFeeScheduleVersion(this.deps.sql);
+    if (version !== input.expectedVersion) {
+      throw new TradeOpsError('fee_schedule_stale', `expectedVersion ${input.expectedVersion} is stale; current is ${version}`);
+    }
+    const body = {
+      actionType: 'trade.fee_schedule_set',
+      schedule: input.schedule,
+      effectiveAt: effectiveAt.toISOString(),
+      expectedVersion: input.expectedVersion,
+      reason,
+    };
+    const consumed = await consumeApproval(this.deps.approvals, {
+      approvalId: input.approvalId,
+      actionType: 'trade.fee_schedule_set',
+      targetId: 'spot-fee-schedule',
+      expectedVersion: input.expectedVersion,
+      payloadHash: payloadHash(body),
+      operationId: input.approvalId,
+    });
+    const next = (BigInt(version) + 1n).toString();
+    try {
+      await this.deps.sql`INSERT INTO trade.fee_schedule_versions (
+        id, version, schedule, effective_at, operator_id, approver_id, reason, approval_id, created_at
+      ) VALUES (
+        ${randomUUID()}, ${next}::bigint, ${this.deps.sql.json(input.schedule as never)}, ${effectiveAt.toISOString()},
+        ${principal.userId}, ${consumed.approverId}, ${reason}, ${input.approvalId}, ${at.toISOString()}
+      )`;
+    } catch (err) {
+      // Two writers raced for the same next version: the loser is stale, not a second write.
+      if ((err as { code?: string }).code === '23505') {
+        throw new TradeOpsError('fee_schedule_stale', `version ${next} was written by another operator`);
+      }
+      throw err;
+    }
+    await writeOperatorAudit(
+      this.deps.sql,
+      {
+        kind: 'fee_schedule.set',
+        operatorId: principal.userId,
+        accountId: null,
+        objectId: 'spot-fee-schedule',
+        approverId: consumed.approverId,
+        reason,
+        detail: { version: next, effectiveAt: effectiveAt.toISOString() },
+      },
+      at,
+    );
+    const written = (await feeScheduleHistory(this.deps.sql)).find((row) => row.version === next);
+    if (!written) throw new TradeOpsError('fee_schedule_unreadable', 'fee schedule version was not readable after write');
     return written;
   }
 

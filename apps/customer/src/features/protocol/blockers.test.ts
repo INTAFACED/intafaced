@@ -149,6 +149,23 @@ describe('Protocol blocker mapping', () => {
   });
 });
 
+describe('Shared engine copy', () => {
+  it('has a plain sentence for every blocker code the engine can return, with no placeholder left over', () => {
+    const withPolicy = { ...healthy, sessionPolicy: { refusedBy: 'approve' } };
+    const seen = new Set<string>();
+    for (const action of PROTOCOL_ACTIONS)
+      for (const found of blockersFor(action, withPolicy)) {
+        seen.add(found.code);
+        const text = en.t(found.key, found.params);
+        expect(text, found.code).not.toMatch(/\{\w+\}|^blk_/);
+      }
+    expect(seen.has('policy_gap')).toBe(true);
+    expect(en.t('blk_policy_gap', { rule: 'approve' })).toBe(
+      'A session key cannot be given this call: sessions never get approve. It stays with your own signature.',
+    );
+  });
+});
+
 describe('Network label and copy honesty', () => {
   it('labels 84532 as the Base Sepolia test network, not INTACHAIN', () => {
     const label = networkLabel(84532);

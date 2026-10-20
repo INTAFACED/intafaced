@@ -117,6 +117,20 @@ export interface Market {
   readonly contractSize?: Amount | null;
 }
 
+/** One amend or replace of an order, as listed by GET /api/v1/orders/:id/amendments. */
+export interface OrderAmendment {
+  readonly kind: 'amend' | 'replace';
+  readonly at: string;
+  /** Amend only: the quantity and price the order was amended to, decimal strings. */
+  readonly quantity: string | null;
+  readonly price: string | null;
+  /** Amend only: the amend version. */
+  readonly version: string | null;
+  /** Replace only: the other order in the replace, and which way it points. */
+  readonly relatedOrderId: string | null;
+  readonly direction: 'replaced_by' | 'replaces' | null;
+}
+
 export interface OrderRecord {
   readonly id: string;
   readonly userId: string;
@@ -135,6 +149,8 @@ export interface OrderRecord {
   /** Proven native-amend qty-down releases. Remainder is hold − fills − this. */
   readonly amendReleased: Amount;
   readonly feeDiscountBps: number;
+  /** The caller's own label from the create body. Null when none was sent. Never part of the idempotency key. */
+  readonly tag: string | null;
   readonly protectionPrice: Amount | null;
   readonly engineSequence: number | null;
   /** Matching instruction version used as `expectedVersion` on the next PATCH. */
@@ -280,6 +296,7 @@ export type TradeErrorCode =
   // halted the listing and the caller should stop asking, this one means the
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
+  | 'trade.mode_limit_only'
   | 'trade.market_halted'
   /** Matching operator halt of ALL markets. New submits refuse; cancel stays. Distinct from one-market halt. */
   | 'trade.venue_halted'
@@ -352,6 +369,8 @@ export type TradeErrorCode =
   | 'trade.stp_mode_unsupported'
   /** Order tags are not stored yet. */
   | 'trade.tag_unsupported'
+  | 'trade.invalid_tag'
+  | 'trade.fee_currency_unsupported'
   | 'trade.trigger_source_unset'
   | 'trade.invalid_qty'
   | 'trade.invalid_price'
@@ -392,6 +411,8 @@ export type TradeErrorCode =
   | 'trade.fee_schedule_blank'
   /** A product's own maker/taker rate is unpublished. The spot rate is not charged in its place. */
   | 'trade.fee_product_unpublished'
+  | 'trade.rebate_recipe_unavailable'
+  | 'trade.min_fee_recipe_unavailable'
   /**
    * Forex/commodity production listing or place without settlement law
    * (D26-P1-T7 / §13 `socket.forex-settlement` — needs D26-P0-05 + fiat rails).

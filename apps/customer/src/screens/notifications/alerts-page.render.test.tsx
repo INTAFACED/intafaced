@@ -93,6 +93,25 @@ describe('price alerts page', () => {
     expect(page.match(/Cancel the alert on BTC\/USDT/g)).toHaveLength(1);
   });
 
+  it('shows an expired alert with the person’s own name, message and expiry, and gives it no cancel button', () => {
+    reads.markets = markets;
+    reads.alerts = ready([
+      alert({
+        status: 'expired',
+        name: 'Breakout watch',
+        message: 'Check the order book',
+        expiresAt: '2026-10-18T08:00:00.000Z',
+        condition: 'crossing_up',
+      }),
+    ]);
+    const page = render();
+    expect(page).toContain('Breakout watch');
+    expect(page).toContain('Check the order book');
+    expect(page).toContain('Expired');
+    expect(page).toContain('· Expired ');
+    expect(page).not.toContain('Cancel the alert on');
+  });
+
   it('states that nothing can trigger yet instead of promising delivery', () => {
     reads.markets = markets;
     reads.alerts = ready([]);
@@ -141,5 +160,37 @@ describe('price alerts page', () => {
     const page = render();
     expect(page).toContain('Price alerts belong to your personal account.');
     expect(page).not.toContain('data-testid="alerts-form"');
+  });
+
+  it('offers every condition and the optional name, message and expiry on the form', () => {
+    reads.markets = markets;
+    reads.alerts = ready([]);
+    const page = render();
+    for (const words of ['At or above', 'At or below', 'Crossing up through', 'Crossing down through', 'Crossing, either way,']) {
+      expect(page).toContain(`>${words}</option>`);
+    }
+    expect(page).toContain('Name (optional)');
+    expect(page).toContain('Message (optional)');
+    expect(page).toContain('type="datetime-local"');
+    expect(page).toContain('{market}, {price}, {condition} and {time}');
+  });
+
+  it('offers adding a condition and shows added conditions on a listed alert', () => {
+    reads.markets = markets;
+    reads.alerts = ready([alert({ condition: 'greater_than', extras: [{ condition: 'less_than', targetPrice: '70000' }] })]);
+    const page = render();
+    expect(page).toContain('Add a condition');
+    expect(page).toContain('and At or below 70000 USDT');
+  });
+
+  it('shows a stopped alert as Stopped, with resume and cancel buttons, instead of failing the whole list', () => {
+    reads.markets = markets;
+    reads.alerts = ready([alert({ status: 'stopped' }), alert({ id: '22222222-2222-4222-8222-222222222222' })]);
+    const page = render();
+    expect(page.match(/data-testid="alert-row"/g)).toHaveLength(2);
+    expect(page).toContain('Stopped');
+    // A stopped alert can be resumed or cancelled, as an active one can be paused or cancelled.
+    expect(page.match(/Cancel the alert on BTC\/USDT/g)).toHaveLength(2);
+    expect(page).toContain('Resume the alert on BTC/USDT');
   });
 });

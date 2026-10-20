@@ -9,24 +9,29 @@ through the runtime API only. If the isolate cannot boot, the procedure refuses
 
 ## API
 
-| Procedure              | Access                                        | Input                                                            | Output                                                          |
-| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
-| `health`               | public                                        | —                                                                | `{ ok, service }` — liveness, not a custody claim               |
-| `studio.save`          | session or allow-listed service               | `{ name, blocks, risk, cash, clientStrategyId, idempotencyKey }` | head plus version history                                       |
-| `studio.list`          | session or allow-listed service               | `{ limit, cursor? }` — omit limit is refused                     | that account's live heads, `nextCursor`                         |
-| `studio.get`           | session or allow-listed service               | `{ id }`                                                         | head plus every version, or not found                           |
-| `studio.update`        | session or allow-listed service               | `{ id, name, blocks, risk, cash, idempotencyKey }`               | new version; older versions stay                                |
-| `studio.delete`        | session or allow-listed service               | `{ id, idempotencyKey }`                                         | soft delete (`deletedAt`); versions kept                        |
-| `studio.clone`         | session or allow-listed service               | `{ strategyId, clientStrategyId, idempotencyKey }`               | version 1, name suffixed ` copy`                                |
-| `studio.run`           | session or allow-listed service               | `{ id, idempotencyKey }`                                         | sandbox result of that account's source; one run row            |
-| `studio.operatorList`  | admin scope                                   | `{ limit }`                                                      | metadata only (no source, no blocks)                            |
-| `backtest.run`         | session or allow-listed service               | strategy id, `idempotencyKey`, windows, cost model               | fill metrics plus `strategyVersion`; one run row                |
-| `backtest.get`         | session or allow-listed service               | `{ runId }`                                                      | owner equity curve, trades, costs; other accounts are not found |
-| `sandbox.capabilities` | `publicJurisdictionProcedure('quant','fiat')` | —                                                                | sandbox isolate + Venue Vault (not the lake)                    |
-| `sandbox.run`          | `publicJurisdictionProcedure('quant','fiat')` | `{ language, source, cash, idempotencyKey }`                     | fills, cash, pnl (strings); one run row                         |
-| `marketplace.claim`    | session                                       | `{ runId, idempotencyKey }` — a client `pnl` is rejected         | stored simulated pnl and stamp; no listing                      |
-| `ops.runs`             | `admin:read`                                  | `{ limit, from?, to?, kind?, userId?, cursor? }`                 | kind, user, started, duration, outcome; no result               |
-| `ops.runCounts`        | `admin:read`                                  | `{ from, to }`                                                   | counts by kind and outcome, `asOf`                              |
+| Procedure                | Access                                        | Input                                                            | Output                                                            |
+| ------------------------ | --------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `health`                 | public                                        | —                                                                | `{ ok, service }` — liveness, not a custody claim                 |
+| `studio.save`            | session or allow-listed service               | `{ name, blocks, risk, cash, clientStrategyId, idempotencyKey }` | head plus version history                                         |
+| `studio.list`            | session or allow-listed service               | `{ limit, cursor? }` — omit limit is refused                     | that account's live heads, `nextCursor`                           |
+| `studio.get`             | session or allow-listed service               | `{ id }`                                                         | head plus every version, or not found                             |
+| `studio.update`          | session or allow-listed service               | `{ id, name, blocks, risk, cash, idempotencyKey }`               | new version; older versions stay                                  |
+| `studio.delete`          | session or allow-listed service               | `{ id, idempotencyKey }`                                         | soft delete (`deletedAt`); versions kept                          |
+| `studio.clone`           | session or allow-listed service               | `{ strategyId, clientStrategyId, idempotencyKey }`               | version 1, name suffixed ` copy`                                  |
+| `studio.run`             | session or allow-listed service               | `{ id, idempotencyKey }`                                         | sandbox result of that account's source; one run row              |
+| `studio.operatorList`    | admin scope                                   | `{ limit }`                                                      | metadata only (no source, no blocks)                              |
+| `backtest.run`           | session or allow-listed service               | strategy id, `idempotencyKey`, windows, cost model               | fill metrics plus `strategyVersion`; one run row                  |
+| `backtest.get`           | session or allow-listed service               | `{ runId }`                                                      | owner equity curve, trades, costs; other accounts are not found   |
+| `sandbox.capabilities`   | `publicJurisdictionProcedure('quant','fiat')` | —                                                                | sandbox isolate + Venue Vault (not the lake)                      |
+| `sandbox.run`            | `publicJurisdictionProcedure('quant','fiat')` | `{ language, source, cash, idempotencyKey }`                     | fills, cash, pnl (strings); one run row                           |
+| `marketplace.claim`      | session                                       | `{ runId, idempotencyKey }` — a client `pnl` is rejected         | stored simulated pnl and stamp; no listing                        |
+| `ops.runs`               | `admin:read`                                  | `{ limit, from?, to?, kind?, userId?, cursor? }`                 | kind, user, started, duration, outcome; no result                 |
+| `disclosure.current`     | session or allow-listed service               | —                                                                | the published risk disclosure (`published: false` when none)      |
+| `disclosure.status`      | session or allow-listed service               | `{ strategyId, strategyVersion }`                                | disclosure, and whether this account accepted it for that version |
+| `disclosure.accept`      | session or allow-listed service               | `{ strategyId, strategyVersion, disclosureVersion }`             | one stored acceptance under `quant.disclose:<id>:v<n>:<d>`        |
+| `ops.disclosure.publish` | `admin:write`                                 | `{ text, reason, idempotencyKey }`                               | the next version; the wording is owner content                    |
+| `ops.disclosure.counts`  | `admin:read`                                  | —                                                                | versions and acceptance counts, no accounts or wording            |
+| `ops.runCounts`          | `admin:read`                                  | `{ from, to }`                                                   | counts by kind and outcome, `asOf`                                |
 
 ## Per-account library (customer contract)
 
@@ -114,3 +119,15 @@ only; the live halt is the edge kill.
 Venue Vault is trade-only when `QUANT_VENUE_VAULT` is set. Unset →
 `quant.venue_vault_unset` on venue OMS calls. Internal book still runs. The
 boot lake is `missingLake()` until a real fills port is injected.
+
+## Risk disclosure (AL-risk-02)
+
+The owner and the lawyers supply the wording; this service never writes any. An operator publishes it with
+`ops.disclosure.publish` (`admin:write`, a reason and a business key); each publish is the next version and is the audit
+row. Until one is published, `disclosure.current` answers `published: false` and `disclosure.accept` refuses
+`quant.disclosure_unset`. An acceptance is for one strategy version and one disclosure version, written once under
+`quant.disclose:<strategyId>:v<version>:<disclosureVersion>` for the signed-in account; a new strategy version or a new
+disclosure version needs a new one, and an older disclosure version refuses `quant.disclosure_version_stale`. Another
+account's strategy, a version that does not exist and a deleted strategy all read as `quant.studio_not_found`. The deploy
+and publish doors of later slices read the acceptance; nothing here starts a live run. Rows are append-only; the counts
+view carries no account, strategy or text.

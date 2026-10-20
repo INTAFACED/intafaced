@@ -9,6 +9,7 @@ import { Notifications } from './Notifications';
 import { BusinessVerification } from './BusinessVerification';
 import { Promotions } from './Promotions';
 import { Dividends } from './Dividends';
+import { OAuthConsent } from './OAuthConsent';
 import './account.css';
 
 export function AccountRoutes({ path }: { path: string }) {
@@ -22,6 +23,7 @@ export function AccountRoutes({ path }: { path: string }) {
 function AccountRooms({ path }: { path: string }) {
   const clean = path.split('?')[0];
   if (clean === '/view') return <View />;
+  if (clean === '/oauth/authorize') return <OAuthConsent />;
   if (clean === '/uc/safe') return <Security />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;

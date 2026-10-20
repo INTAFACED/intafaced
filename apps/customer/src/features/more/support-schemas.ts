@@ -7,7 +7,7 @@ export const ticketSchema = z.object({
   category: z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']),
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10000),
-  status: z.enum(['open', 'pending', 'resolved', 'closed']),
+  status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
   assigneeId: z.string().uuid().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),

@@ -22,7 +22,9 @@ import {
   ALERT_KIND_UNPUBLISHED,
   ALERT_PORTFOLIO_VIEW_UNPUBLISHED,
   ALERTS_WHALE_MARK_DARK,
+  isCrossingCondition,
   type AlertEvalOutcome,
+  type AlertSide,
   type MarkQuote,
   type PriceAlert,
   type UnpublishedAlertKind,
@@ -81,13 +83,38 @@ export function evaluateWhaleAlert(alert: PriceAlert, quote: MarkQuote): AlertEv
     };
   }
 
-  const cmp = compareDecimalStrings(quote.price, alert.targetPrice);
-  const crossed = alert.direction === 'above' ? cmp >= 0 : /* below */ cmp <= 0;
+  return judge(alert, quote.price);
+}
 
-  if (crossed) {
-    return { kind: 'fire', markPrice: quote.price };
+/**
+ * Compare a valid positive mark with the watch.
+ *
+ * A level condition fires whenever the mark is at or beyond the target. A crossing condition fires only when the mark has moved
+ * to the other side since the last sweep saw it; with no earlier observation it fires nothing and returns the side to remember
+ * (`side`), so a watch created while the price is already past its target waits for a real crossing instead of firing at once.
+ */
+function judge(alert: PriceAlert, mark: string): AlertEvalOutcome {
+  const main = judgeMain(alert, mark);
+  if (main.kind !== 'fire') return main;
+  // Added conditions are levels on the same mark: all of them must hold at the moment the main condition fires.
+  const allHold = alert.extras.every((extra) => {
+    const c = compareDecimalStrings(mark, extra.targetPrice);
+    return extra.condition === 'greater_than' ? c >= 0 : c <= 0;
+  });
+  return allHold ? main : { kind: 'hold', markPrice: mark, ...(main.side !== undefined ? { side: main.side } : {}) };
+}
+
+function judgeMain(alert: PriceAlert, mark: string): AlertEvalOutcome {
+  const cmp = compareDecimalStrings(mark, alert.targetPrice);
+  if (!isCrossingCondition(alert.condition)) {
+    const crossed = alert.direction === 'above' ? cmp >= 0 : cmp <= 0;
+    return { kind: crossed ? 'fire' : 'hold', markPrice: mark };
   }
-  return { kind: 'hold', markPrice: quote.price };
+  const side: AlertSide = cmp < 0 ? 'below' : 'at_or_above';
+  const last = alert.lastSide;
+  if (last === null || last === side) return { kind: 'hold', markPrice: mark, side };
+  const fires = alert.condition === 'crossing' || (alert.condition === 'crossing_up' ? side === 'at_or_above' : side === 'below');
+  return fires ? { kind: 'fire', markPrice: mark, side } : { kind: 'hold', markPrice: mark, side };
 }
 
 export function evaluatePriceAlert(alert: PriceAlert, quote: MarkQuote): AlertEvalOutcome {
@@ -113,11 +140,5 @@ export function evaluatePriceAlert(alert: PriceAlert, quote: MarkQuote): AlertEv
     };
   }
 
-  const cmp = compareDecimalStrings(quote.price, alert.targetPrice);
-  const crossed = alert.direction === 'above' ? cmp >= 0 : /* below */ cmp <= 0;
-
-  if (crossed) {
-    return { kind: 'fire', markPrice: quote.price };
-  }
-  return { kind: 'hold', markPrice: quote.price };
+  return judge(alert, quote.price);
 }

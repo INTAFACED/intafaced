@@ -58,6 +58,8 @@ import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
 import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
+import { supportTradeSummaryRouter } from './support/router.js';
+import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 
 /**
@@ -772,11 +774,14 @@ export function createTradeRouter(
   controls?: TradingControls,
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
+  supportSummary?: SupportTradeSummaryReader,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
     accountControls: tradingControlsRouter(controls),
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
+    /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
+    support: supportTradeSummaryRouter(supportSummary),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

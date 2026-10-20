@@ -12,6 +12,7 @@ import {
   ResidencyActions,
   VendorActions,
 } from '@/components/ops-actions';
+import { CustomerBalances } from '@/components/customer-balances';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
@@ -365,6 +366,7 @@ export function SectionView({
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'pay.transfer.lookup' && <TransferLookup />}
+      {section.sectionAction === 'bank.customer.balances' && <CustomerBalances />}
       {section.disabledActions.length > 0 && (
         <div className="dk-stack" data-testid="disabled-actions">
           {section.disabledActions.map((a) => (

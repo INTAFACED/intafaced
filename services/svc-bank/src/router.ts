@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  serviceProcedureFor,
+  TRPCError,
+  BANK_APPROVER_ELIGIBILITY_CALLERS,
+  bankApproverEligibilityInputSchema,
+  bankApproverEligibilitySchema,
+} from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -23,6 +32,7 @@ import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-progr
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
+import { customerBalanceEntriesProcedure, customerBalancesProcedure } from './ops/customer-balances.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
@@ -32,6 +42,7 @@ import { createPersonalRequestRouter } from './transfers/personal-request.router
 import { plainNote, plainReference } from './transfers/personal-pay.js';
 import { stepUpOff, type StepUpGate } from './step-up/step-up-gate.js';
 import { ALLOCATION_CLASSES, ALLOCATION_TYPES } from './portfolio/allocation.js';
+import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from './portfolio/portfolio-service.js';
 import {
   addMemberBinding,
   removeMemberBinding,
@@ -138,6 +149,23 @@ const balanceBreakdownOutput = z.object({
       ),
     }),
   ),
+});
+
+const balanceEntriesOutput = z.object({
+  assetId: z.string(),
+  entries: z.array(
+    z.object({
+      entryId: z.string().nullable(),
+      txId: z.string(),
+      accountId: z.string(),
+      reason: z.string(),
+      direction: z.enum(['debit', 'credit']),
+      amount: signedAmountString,
+      postedAt: z.string(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+  sumCheck: z.object({ ok: z.literal(true), entriesSum: signedAmountString, balance: signedAmountString, entryCount: z.number().int() }),
 });
 
 const allocationOutput = z.object({
@@ -507,6 +535,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.step_up_mismatch':
       case 'bank.step_up_used':
       case 'bank.activity_lookup_bounded':
+      case 'portfolio.entries_do_not_sum':
       case 'bank.statement_pdf_one_month':
       case 'bank.statement_too_large':
       case 'bank.personal_transfer_terms_unset':
@@ -544,6 +573,7 @@ function toTrpcError(err: unknown): TRPCError {
       // caller sent nothing wrong.
       case 'bank.prices_unavailable':
       case 'bank.statement_unavailable':
+      case 'bank.ops_audit_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -1662,6 +1692,35 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           }),
         ),
       ),
+    /**
+     * Every ledger entry behind one asset's spendable balance, with the sum check on top (PF-balances-01). Read-only,
+     * self-only. A sum that differs from the live balance refuses `portfolio.entries_do_not_sum` with the gap.
+     */
+    balanceEntries: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          .object({
+            assetId: z.string().min(1).max(16),
+            /** `main` or the id of one named Space; absent = main and every Space. */
+            accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+            cursor: z.string().min(1).max(16).optional(),
+            limit: z.number().int().min(1).max(BALANCE_ENTRIES_MAX_LIMIT).default(BALANCE_ENTRIES_DEFAULT_LIMIT),
+          })
+          .strict(),
+      )
+      .output(balanceEntriesOutput)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await bank.portfolio.balanceEntries(ctx.principal.userId, {
+            assetId: input.assetId,
+            ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
+            ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+            limit: input.limit,
+          });
+        } catch (err) {
+          return activityFailure(err);
+        }
+      }),
   });
 
   /**
@@ -3231,6 +3290,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),
+    customerBalances: customerBalancesProcedure(bank, guard),
+    customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 
@@ -4507,6 +4568,16 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           };
         }),
       ),
+
+    /**
+     * May this person approve for a team? Asked by svc-pay before it counts an approval on a multi-approval withdrawal
+     * (W-withdraw-11). Service-only: `serviceProcedureFor` proves the caller is svc-pay before the input is parsed. A read; a
+     * POST only because the caller signs the body.
+     */
+    approverEligibility: serviceProcedureFor(BANK_APPROVER_ELIGIBILITY_CALLERS)
+      .input(bankApproverEligibilityInputSchema)
+      .output(bankApproverEligibilitySchema)
+      .mutation(async ({ input }) => guard(async () => bank.business.approverEligibility(input.accountId, input.userId))),
   });
 
   return router({

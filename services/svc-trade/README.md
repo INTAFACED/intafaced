@@ -17,6 +17,8 @@ is allowed, funds it, hands it to the engine, and turns what comes back into led
 | Copy                                        | tRPC `copy.*`     | mounted; blank §8 fee-share + jurisdiction laws → refuse-closed               |
 | Futures jobs / candle / MM seed / reconcile | job hosts         | **OFF**                                                                       |
 
+`support.tradeSummary` (D-ops-06, query only, svc-support only): one customer's futures positions, liquidation rungs and orders for support, cut to a required `limit` (no default). svc-support checks the case first; this door proves the caller, reads the three lists in one snapshot, and writes a `trade.operator_audit` row (agent, case, customer, `auditId`, `readAt`) before it returns. A failed section or audit write refuses (`trade.support_summary_unavailable`, `trade.support_summary_audit_unavailable`); it never returns an empty list. Code: `src/support/`.
+
 Wave-3 sealed money on tip (#1193 TWAP respace+jobs OFF, #1191/#1199 copy races, #1202–#1207 funding/insurance/reconcile, #1211 margin-call). See tracker `trade.copy` / `trade.algo` and [Not in this PR](#not-in-this-pr).
 
 ---
@@ -94,6 +96,28 @@ The listing record carries `family` (`linear` only; `inverse` refuses `trade.inv
 `settleAsset` (the quote asset; USDC needs `TRADE_FUTURES_SETTLE_ASSETS` to name it). Blank pre-market params refuse
 `trade.premarket_params_unset`. The public market read (`GET /api/v1/markets`, `markets.list`) shows `family`,
 `settleAsset`, `contractSize` and `premarket`.
+
+**Risk agreements, margin terms and derivatives eligibility (D-account-07).** A futures open (`POST /api/v1/positions`, not
+reduce-only) is refused until the caller has accepted the current version of the risk agreement for their region and holds the
+derivatives level under the current suitability rules. There is no switch: with nothing published the open refuses with the
+typed reason. A reduce-only open and every close never reach the gate. The text, the questions, the answers that count, the
+pass mark and the minimum verification tier are the owner's content; nothing here supplies any of them.
+
+| Door                                                       | What it does                                                                                                                       |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/account/agreements`                           | `derivatives_risk` and `margin_terms` for the request region, with accepted state; unavailable kinds carry the reason              |
+| `POST /api/v1/account/agreements/accept` `{kind, version}` | idempotent on (user, kind, version); records time and the jurisdiction text id; a stale version is `trade.agreement_version_stale` |
+| `GET /api/v1/account/derivatives-eligibility`              | level state, and the questions without the scoring key                                                                             |
+| `POST /api/v1/account/derivatives-eligibility/assess`      | `{clientSubmissionId, answers}`; scored against the current rule version; idempotent on the submission id                          |
+| `admin.agreements.get` / `.publish`                        | new version per kind with one text per jurisdiction; four-eyes, append-only (a published version is never edited), audited         |
+| `admin.agreements.list` / `.export`                        | compliance view of acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited                |
+| `admin.eligibilityRules.get` / `.set`                      | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                             |
+
+Refusals on open: `trade.agreement_unpublished`, `trade.agreement_region_unavailable`, `trade.agreement_required` (body names
+the `documentId`), `trade.derivatives_eligibility_unset` (`reason`: `rules_unpublished`, `not_assessed`, `not_passed`,
+`rule_version_stale`), `trade.identity_level_insufficient` and `trade.identity_level_unavailable`. The verification tier is the
+caller's own principal claim; no identity vendor is called from this service. Futures opens need `derivatives_risk`; the
+`margin_terms` kind is stored and acceptable now and is the gate for a margin borrow door when one exists.
 
 ---
 

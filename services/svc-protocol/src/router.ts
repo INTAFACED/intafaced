@@ -3,6 +3,11 @@ import { getAddress as toChecksum, isAddress } from 'viem';
 import type { Address, Hex } from 'viem';
 import {
   protocolBlockersInputSchema,
+  protocolCapabilitiesInputSchema,
+  protocolCapabilitiesOutputSchema,
+  protocolDeploymentsInputSchema,
+  protocolDeploymentsOutputSchema,
+  protocolNetworksListOutputSchema,
   protocolBlockersOutputSchema,
   protocolBlockersRead,
   publicJurisdictionProcedure,
@@ -32,7 +37,16 @@ import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
-import { buildCreatePool, buildMintLiquidity, buildSwapExactIn, quoteExactIn } from './amm/build.js';
+import {
+  MAX_UINT256,
+  buildApprove,
+  buildCreatePool,
+  buildMintLiquidity,
+  buildRevoke,
+  buildSwapExactIn,
+  planApproval,
+  quoteExactIn,
+} from './amm/build.js';
 import { computeTokenAddress, DEFAULT_TOKEN_SALT, templateArtifact, TokenAddressError } from './launch/address.js';
 import { buildCreateToken } from './launch/build.js';
 import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parseTokenParams, TokenParamsError } from './launch/params.js';
@@ -40,6 +54,7 @@ import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
+import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
 
 /**
  * svc-protocol's API.
@@ -128,6 +143,29 @@ const tokenParamsInputSchema = z.object({
   /** Receives the entire supply at construction. */
   recipient: addressSchema,
 });
+
+/** An approval amount is a positive decimal integer; zero is a revoke and has its own call. */
+const approvalAmountSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,77}$/, 'protocol.approval_amount_invalid: use a positive whole number, or revoke to remove an approval');
+
+function parseApprovalAmount(text: string): bigint {
+  const amount = BigInt(text);
+  if (amount > MAX_UINT256) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.approval_amount_invalid: that amount does not fit a token balance.' });
+  }
+  return amount;
+}
+
+/** A zero token or spender is never a real target. */
+function requireApprovalTargets(token: Address, spender: Address): void {
+  if (isZeroAddress(token) || isZeroAddress(spender)) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'protocol.approval_target_zero: the token and the spender must be real addresses.',
+    });
+  }
+}
 
 const unsignedCallOutput = z.object({
   to: z.string(),
@@ -266,6 +304,10 @@ export interface ProtocolRouterDeps {
   swapSlippageBps: () => number | null;
   /** What the indexer and the DEX report about themselves, for `blockers`. Absent = not connected. */
   peers?: Peers;
+  /** `PROTOCOL_PEER_TIMEOUT_MS`: the published bound for the bundler probe. Absent = the probe is not made. */
+  probeTimeoutMs?: () => number | undefined;
+  /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
+  loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -454,6 +496,69 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           },
           new Date().toISOString(),
         );
+      }),
+
+    /** The owner-published network registry. A field the owner has not published is null, never filled in. */
+    networks: router({
+      list: publicProcedure.output(protocolNetworksListOutputSchema).query(() => {
+        try {
+          return { networks: (deps.loadNetworks ?? loadNetworkRegistry)() };
+        } catch (err) {
+          throw new TRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message:
+              err instanceof Error && 'code' in err ? String((err as { code: unknown }).code) : 'protocol.network_registry_unavailable',
+            cause: err,
+          });
+        }
+      }),
+    }),
+
+    /** The deployed-contract registry and router versions for a chain. A chain with no recorded deployment is NOT_FOUND. */
+    deployments: router({
+      list: publicProcedure
+        .input(protocolDeploymentsInputSchema)
+        .output(protocolDeploymentsOutputSchema)
+        .query(({ input }) => {
+          let found;
+          try {
+            found = deploymentsFor(input.chainId);
+          } catch (err) {
+            throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'protocol.deployments_unavailable', cause: err });
+          }
+          if (!found) {
+            throw new TRPCError({
+              code: 'NOT_FOUND',
+              message: `protocol.deployments_unknown_chain: no deployment is recorded for chain ${input.chainId}.`,
+            });
+          }
+          return found;
+        }),
+    }),
+
+    /** What the node and bundler can do, measured. Only the configured chain is probed; any other chain id reports nothing probed. */
+    capabilities: publicJurisdictionProcedure('protocol', 'protocol')
+      .input(protocolCapabilitiesInputSchema)
+      .output(protocolCapabilitiesOutputSchema)
+      .query(async ({ input }) => {
+        if (input.chainId !== chain.config.chainId) {
+          return {
+            chainId: input.chainId,
+            probed: false,
+            pendingTag: null,
+            bundlerReachable: null,
+            paymasterFunded: null,
+            preconfirmations: 'unknown' as const,
+          };
+        }
+        const probe = await chain.probeCapabilities(deps.probeTimeoutMs?.());
+        return {
+          chainId: input.chainId,
+          probed: true,
+          ...probe,
+          // A plain node offers no preconfirmation feed to find; the room says "not offered on this network".
+          preconfirmations: probe.pendingTag === null ? ('unknown' as const) : ('not_offered' as const),
+        };
       }),
 
     /**
@@ -994,6 +1099,89 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             BigInt(input.amount1Desired),
           );
           return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+        }),
+
+      /**
+       * Does `spender` already hold enough allowance from `owner` for `amount` of `token`, and if not, which calls fix it?
+       * Read at one pinned block, which the answer names. Exact amount unless `unlimited: true` is passed by name.
+       */
+      checkApproval: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            owner: addressSchema,
+            token: addressSchema,
+            spender: addressSchema,
+            amount: approvalAmountSchema,
+            unlimited: z.boolean().default(false),
+          }),
+        )
+        .output(
+          z.object({
+            needsApproval: z.boolean(),
+            resetFirst: z.boolean(),
+            current: z.string(),
+            blockNumber: z.string(),
+            unlimited: z.boolean(),
+            calls: z.array(unsignedCallOutput),
+          }),
+        )
+        .query(async ({ input }) => {
+          try {
+            const [owner, token, spender] = [toChecksum(input.owner), toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const amount = parseApprovalAmount(input.amount);
+            const read = await chain.tokenAllowance(token, owner, spender);
+            const directChangeReverts =
+              read.value > 0n && read.value < amount ? await chain.directApproveReverts(token, owner, spender, amount) : false;
+            const plan = planApproval({ token, spender, amount, current: read.value, unlimited: input.unlimited, directChangeReverts });
+            return {
+              needsApproval: plan.needsApproval,
+              resetFirst: plan.resetFirst,
+              current: read.value.toString(),
+              blockNumber: read.blockNumber.toString(),
+              unlimited: plan.needsApproval && input.unlimited,
+              calls: plan.calls.map((call) => ({ to: call.to, data: call.data, value: call.value, summary: call.summary })),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** `approve(spender, amount)` for exactly `amount`; `unlimited: true` is the only way to ask for more. */
+      buildApprove: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            token: addressSchema,
+            spender: addressSchema,
+            amount: approvalAmountSchema,
+            unlimited: z.boolean().default(false),
+          }),
+        )
+        .output(unsignedCallOutput)
+        .query(({ input }) => {
+          try {
+            const [token, spender] = [toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const call = buildApprove(token, spender, parseApprovalAmount(input.amount), input.unlimited);
+            return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** `approve(spender, 0)`. */
+      buildRevoke: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(z.object({ token: addressSchema, spender: addressSchema }))
+        .output(unsignedCallOutput)
+        .query(({ input }) => {
+          try {
+            const [token, spender] = [toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const call = buildRevoke(token, spender);
+            return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
     }),
 

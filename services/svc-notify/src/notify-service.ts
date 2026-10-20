@@ -1,5 +1,5 @@
 import { createHmac, randomInt } from 'node:crypto';
-import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore } from './store.js';
+import type { InsertNotificationInput, ListQuery, ListResult, Notification, NotifyStore, SystemNoticeInput } from './store.js';
 import { OwnedRecentCursorError, type ChannelTarget, type DeliveryRecord, type DeliveryStore, type TargetStore } from './channel-store.js';
 import type { DispatchReport, NotificationDispatcher } from './dispatch.js';
 import type { ChannelRegistry, ChannelStatus } from './channels/registry.js';
@@ -20,6 +20,14 @@ import type { NoticeBoard } from './notices/board.js';
 import type { ChannelSettings } from './ops-config/channel-settings.js';
 import type { MessageTemplates } from './ops-config/templates.js';
 import { TargetRateLimiter, type TargetRateLimiterPort } from './target-rate-limit.js';
+import {
+  QUARANTINE_THRESHOLD_UNSET,
+  assertReleaseReason,
+  type RecipientHealthStore,
+  type RecipientRow,
+  type RecipientState,
+  type ReleaseResult,
+} from './recipient-health.js';
 
 /** Insert plus delivery scope. `outOfApp: false` is inbox-only (agentActionCompleted). */
 export type CreateNotificationInput = InsertNotificationInput & {
@@ -194,6 +202,10 @@ export interface NotifyServiceDeps {
   readonly notices?: NoticeBoard;
   readonly channelSettings?: ChannelSettings;
   readonly templates?: MessageTemplates;
+  /** Recipient health and quarantine. Absent: the operator list is empty and a release refuses. */
+  readonly recipientHealth?: RecipientHealthStore;
+  /** Owner-set count of consecutive terminal failures that quarantines an address. Null = never. */
+  readonly quarantineThreshold?: number | null;
 }
 
 /** Stored as HMAC-SHA256 keyed by the owner pepper. A bare digest of the six-digit code is reversible. */
@@ -254,6 +266,16 @@ export class NotifyService {
       const dispatch = await this.deps.dispatcher.dispatch(row, { outOfApp });
       return { inserted: result.inserted, notification: result.notification, dispatch };
     });
+  }
+
+  /**
+   * One audience-all inbox notice, shown to every user with their own read mark.
+   * Inbox only: no out-of-app channel is attempted for a platform-wide notice.
+   * Killed fan-out acks without writing, like `create`.
+   */
+  async createSystemNotice(input: SystemNoticeInput): Promise<{ inserted: boolean }> {
+    if (!this.options.fanoutEnabled) return { inserted: false };
+    return this.store.insertSystemNotice(input);
   }
 
   list(query: ListQuery): Promise<ListResult> {
@@ -464,6 +486,31 @@ export class NotifyService {
     }
     const counts = await this.deps.deliveries.aggregate();
     return { asOf: new Date().toISOString(), ...counts };
+  }
+
+  /**
+   * Recipients by state: active, unconfirmed or quarantined. Addresses are masked.
+   * `thresholdCode` is `notify.quarantine_threshold_unset` while the owner has not
+   * set the count: nothing is quarantined then, and the page says so.
+   */
+  async operatorRecipients(
+    state: RecipientState,
+    limit?: number,
+  ): Promise<{ items: readonly RecipientRow[]; threshold: number | null; thresholdCode: typeof QUARANTINE_THRESHOLD_UNSET | null }> {
+    const cap = assertOperatorDeliveriesLimit(limit);
+    const threshold = this.deps?.quarantineThreshold ?? null;
+    const items = this.deps?.recipientHealth ? await this.deps.recipientHealth.list(state, cap) : [];
+    return { items, threshold, thresholdCode: threshold === null ? QUARANTINE_THRESHOLD_UNSET : null };
+  }
+
+  /** Lift a quarantine. A reason is required; the request id makes a replay a no-op; every release is audited. */
+  async operatorReleaseRecipient(
+    actorId: string,
+    input: { userId: string; channel: 'email' | 'push' | 'sms'; reason: string; reasonId: string },
+  ): Promise<ReleaseResult> {
+    const reason = assertReleaseReason(input.reason);
+    if (!this.deps?.recipientHealth) throw new Error('notify.recipient_health_unconfigured');
+    return this.deps.recipientHealth.release({ ...input, reason, actorId, now: new Date() });
   }
 
   // ── Preferences (mute) ─────────────────────────────────────────────────────

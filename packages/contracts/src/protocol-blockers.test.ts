@@ -128,6 +128,14 @@ describe('protocol blocker engine', () => {
     );
   });
 
+  it('names the venue kind when the order-book venue is not live', () => {
+    const fixture = { ...indexer, clob: { live: false, kind: 'fixture' } } as IndexerStatus;
+    const found = blockersFor('swap', { ...healthy, indexer: { status: 'ok', data: fixture } }).find((b) => b.code === 'venue_not_live');
+    expect(found?.params).toEqual({ kind: 'fixture' });
+    const unpublished = { ...indexer, clob: { live: true, kind: 'unpublished' } } as IndexerStatus;
+    expect(codes({ ...healthy, indexer: { status: 'ok', data: unpublished } }, 'swap')).toContain('venue_not_live');
+  });
+
   it('adds policy_gap to a session key only when the session spec refuses the planned call', () => {
     expect(codes(healthy, 'sessionKey')).not.toContain('policy_gap');
     const refused = { ...healthy, sessionPolicy: { refusedBy: 'approve' } };
@@ -137,6 +145,10 @@ describe('protocol blocker engine', () => {
 });
 
 describe('network label', () => {
+  it('does not read inherited object keys as known networks', () => {
+    expect(networkLabel('constructor' as unknown as number).known).toBe(false);
+  });
+
   it('labels 84532 as the Base Sepolia test network, not INTACHAIN', () => {
     const label = networkLabel(84532);
     expect(label.name).toBe('Base Sepolia test network');
@@ -165,6 +177,18 @@ describe('protocol.blockers read', () => {
     expect(protocolBlockersOutputSchema.parse(out)).toEqual(out);
     expect(Object.keys(out.actions).sort()).toEqual([...PROTOCOL_ACTIONS].sort());
     expect(out.sources).toEqual({ chain: 'ok', audit: 'ok', indexer: 'ok', dex: 'ok', health: 'ok' });
+  });
+
+  it('rejects an output missing an action or a source, an empty list, or a key that is not tied to its code', () => {
+    const out = protocolBlockersRead(healthy, 'now');
+    const { swap: _swap, ...fewer } = out.actions;
+    expect(protocolBlockersOutputSchema.safeParse({ ...out, actions: fewer }).success).toBe(false);
+    expect(protocolBlockersOutputSchema.safeParse({ ...out, actions: { ...out.actions, swap: [] } }).success).toBe(false);
+    const { dex: _dex, ...sources } = out.sources;
+    expect(protocolBlockersOutputSchema.safeParse({ ...out, sources }).success).toBe(false);
+    const wrongKey = [{ ...out.actions.swap[0]!, key: 'blk_p1_go' }];
+    expect(protocolBlockersOutputSchema.safeParse({ ...out, actions: { ...out.actions, swap: wrongKey } }).success).toBe(false);
+    expect(protocolBlockersOutputSchema.safeParse({ ...out, extra: 1 }).success).toBe(false);
   });
 
   it('reports how each source answered', () => {

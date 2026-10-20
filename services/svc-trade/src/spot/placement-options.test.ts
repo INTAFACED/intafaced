@@ -30,10 +30,8 @@ describe('create-body options spot does not act on', () => {
     expect(() => refuseUnsupportedPlacementOptions({ stpMode: 'cancel_maker' }, NOW)).not.toThrow();
   });
 
-  it('refuses a tag rather than dropping it', () => {
-    expect(() => refuseUnsupportedPlacementOptions({ tag: 'desk-1' }, NOW)).toThrowError(
-      expect.objectContaining({ code: 'trade.tag_unsupported' }),
-    );
+  it('accepts a tag: it is stored on the order, not refused', () => {
+    expect(() => refuseUnsupportedPlacementOptions({ tag: 'desk-1' }, NOW)).not.toThrow();
   });
 
   it('refuses a stop trigger source other than the last trade, before any hold', () => {

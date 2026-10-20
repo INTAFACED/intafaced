@@ -159,7 +159,11 @@ export function TicketActionsView(p: TicketActionsViewProps) {
           </select>
         </div>
         <div className="adm-field">
-          <label htmlFor="sd-status-note">Reason (optional, recorded in the history)</label>
+          <label htmlFor="sd-status-note">
+            {chosen === 'on_hold'
+              ? 'Reason (required to put a request on hold, shown to the customer)'
+              : 'Reason (optional, recorded in the history)'}
+          </label>
           <input
             id="sd-status-note"
             className="adm-input"

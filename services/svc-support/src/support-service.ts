@@ -6,6 +6,8 @@ import {
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
   type SupportTicketPriority,
+  type SupportAwaitingMine,
+  type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketType,
 } from '@intafaced/contracts';
@@ -54,6 +56,7 @@ import {
   type TicketOrderRead,
   type TicketOrderSource,
 } from './ticket-order.js';
+import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
@@ -231,6 +234,8 @@ export class SupportService implements SupportContract {
     private readonly allGroupsRoles: readonly StaffRole[] = [],
     /** Agent-set priority, type and labels, kept beside the ticket (operator-only). */
     private readonly properties: PropertiesBook = new MemoryPropertiesBook(),
+    /** Who a ticket waits on, the first public reply and the follow-up link, kept beside the ticket. */
+    private readonly lifecycle: LifecycleBook = new MemoryLifecycleBook(),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -363,6 +368,13 @@ export class SupportService implements SupportContract {
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
+      if (input.followsTicketId !== undefined) {
+        // Only the caller's own closed request can be followed. Anyone else's reads the same as none.
+        const followed = await this.store.findById(input.followsTicketId);
+        if (!followed || followed.userId !== input.userId || followed.status !== 'closed') {
+          throw new SupportError('a follow-up needs one of your own closed requests', 'support.follow_up_invalid');
+        }
+      }
       const row = {
         userId: input.userId,
         category: input.category,
@@ -382,6 +394,9 @@ export class SupportService implements SupportContract {
         }
         throw err;
       }
+      if (input.followsTicketId !== undefined) {
+        await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
+      }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });
@@ -391,6 +406,18 @@ export class SupportService implements SupportContract {
     return withSupportSpan('support.listMyTickets', { op: 'listMyTickets' }, async () => {
       const limit = assertListMineTicketsLimit(input.limit);
       return this.store.listByUser(input.userId, { limit });
+    });
+  }
+
+  /**
+   * How many of the caller's own requests wait on them, and which has waited longest. A count and one pointer, not a list,
+   * so it needs no page size; the ticket itself never carries who it waits on. Finished requests wait on nobody.
+   */
+  async awaitingMine(input: { userId: string }): Promise<SupportAwaitingMine> {
+    return withSupportSpan('support.awaitingMine', { op: 'awaitingMine' }, async () => {
+      const waiting = await this.lifecycle.awaitingCustomer(await this.store.openIdsByUser(input.userId));
+      const first = waiting[0];
+      return { count: waiting.length, longestWaiting: first ? { ticketId: first.ticketId, since: first.since } : null };
     });
   }
 
@@ -446,6 +473,15 @@ export class SupportService implements SupportContract {
         if (result.reason === 'not_found') throw ticketNotFound();
         throw new SupportError('comment refused: ticket is terminal', 'support.comment.terminal');
       }
+      // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
+      // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
+      const at = result.comment.createdAt;
+      if (input.asOperator) {
+        await this.lifecycle.setWaiting(input.ticketId, 'customer', at);
+        await this.lifecycle.markFirstPublicReply(input.ticketId, at);
+      } else {
+        await this.lifecycle.setWaiting(input.ticketId, 'team', at);
+      }
       return result.comment;
     });
   }
@@ -483,6 +519,9 @@ export class SupportService implements SupportContract {
   async setStatus(input: { operatorId: string; ticketId: string; status: SupportTicketStatus; note?: string }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
       await this.assertDeskVisible(input.operatorId, input.ticketId);
+      if (input.status === 'on_hold' && !input.note?.trim()) {
+        throw new SupportError('say why the request is on hold', 'support.hold_reason_required');
+      }
       // The store re-reads the ticket and every case-file reason under its
       // row lock. A latestCaseFile read here would miss a money_request that
       // a later file hides, or one that commits before the lock.
@@ -502,6 +541,10 @@ export class SupportService implements SupportContract {
       }
       span.setAttribute('intafaced.support.ticket_id', result.ticket.id);
       span.setAttribute('intafaced.support.to_status', result.ticket.status);
+      // Finished requests wait on nobody.
+      if (result.ticket.status === 'resolved' || result.ticket.status === 'closed') {
+        await this.lifecycle.setWaiting(result.ticket.id, null, result.ticket.updatedAt);
+      }
       return result.ticket;
     });
   }
@@ -866,19 +909,68 @@ export class SupportService implements SupportContract {
     total: number;
     open: number;
     pending: number;
+    onHold: number;
     resolved: number;
     closed: number;
     unassigned: number;
     claimed: number;
   }> {
     const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-    const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
+    const counts = { open: 0, pending: 0, onHold: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
     for (const ticket of tickets) {
-      counts[ticket.status] += 1;
+      counts[ticket.status === 'on_hold' ? 'onHold' : ticket.status] += 1;
       if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId === null) counts.unassigned += 1;
       if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId !== null) counts.claimed += 1;
     }
     return { asOf: new Date().toISOString(), total: tickets.length, ...counts };
+  }
+
+  /** The caller's own tickets that already carry a rating. Only the caller's ids: a list uses it to offer "rate this" on the rest. */
+  async ratedTicketIds(userId: string): Promise<string[]> {
+    return this.store.listRatedTicketIdsFor(userId);
+  }
+
+  /**
+   * Founder view of satisfaction ratings for the requests solved in a stated
+   * window: solved means resolved or closed now with the last change inside
+   * [from, to). Counts per score, responses, solved requests and the rated
+   * share in basis points (null with no solved request). The caller states
+   * the window; there is no default. With no ratings it returns zero
+   * responses and the screen shows no average.
+   */
+  async ratingSummary(input: { viewerId?: string; from: string; to: string }): Promise<{
+    from: string;
+    to: string;
+    solved: number;
+    responses: number;
+    perScore: Record<'1' | '2' | '3' | '4' | '5', number>;
+    ratedShareBasisPoints: number | null;
+  }> {
+    const from = Date.parse(input.from);
+    const to = Date.parse(input.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
+      throw new SupportError('the window must start before it ends', 'support.rating_window_invalid');
+    }
+    const solved = (await this.visibleTickets(input.viewerId, await this.store.listAll())).filter((ticket) => {
+      const at = Date.parse(ticket.updatedAt);
+      return (ticket.status === 'resolved' || ticket.status === 'closed') && at >= from && at < to;
+    });
+    const ids = new Set(solved.map((ticket) => ticket.id));
+    const perScore = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0 };
+    let responses = 0;
+    for (const rating of await this.store.listRatings()) {
+      if (!ids.has(rating.ticketId)) continue;
+      perScore[String(rating.score) as keyof typeof perScore] += 1;
+      responses += 1;
+    }
+    return {
+      from: input.from,
+      to: input.to,
+      solved: solved.length,
+      responses,
+      perScore,
+      ratedShareBasisPoints: solved.length === 0 ? null : Math.floor((responses * 10000) / solved.length),
+    };
   }
 
   /** True once any desk group exists, so list doors must apply the viewer's scope. */
@@ -892,6 +984,13 @@ export class SupportService implements SupportContract {
       const limit = assertListAllTicketsLimit(options.limit);
       return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
     });
+  }
+
+  /** Who the ticket waits on, the first public reply and the request it follows. Staff only. */
+  async getTicketLifecycle(input: { operatorId: string; ticketId: string }): Promise<SupportTicketLifecycle> {
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    return this.lifecycle.get(input.ticketId);
   }
 
   async getTicketProperties(input: { operatorId: string; ticketId: string }): Promise<SupportTicketProperties> {

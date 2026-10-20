@@ -119,7 +119,8 @@ export function replayJournal(records: readonly JournalRecord[]): {
       record.kind === 'split_brain' ||
       record.kind === 'clear_split_brain' ||
       record.kind === 'in_flight' ||
-      record.kind === 'open_surveillance'
+      record.kind === 'open_surveillance' ||
+      record.kind === 'spread_list'
     )
       continue;
     /**
@@ -213,7 +214,8 @@ export function replayFrom(snapshot: EngineSnapshot, records: readonly JournalRe
       record.kind === 'split_brain' ||
       record.kind === 'clear_split_brain' ||
       record.kind === 'in_flight' ||
-      record.kind === 'open_surveillance'
+      record.kind === 'open_surveillance' ||
+      record.kind === 'spread_list'
     )
       continue;
     // Same rule as full replay: cancel/amend/mass-cancel never invents a market.

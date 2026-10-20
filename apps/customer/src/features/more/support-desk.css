@@ -98,7 +98,8 @@
   white-space: nowrap;
 }
 .support-status--open,
-.support-status--pending {
+.support-status--pending,
+.support-status--on_hold {
   border-color: var(--color-accent);
   color: var(--color-accent);
 }

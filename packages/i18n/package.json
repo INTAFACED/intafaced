@@ -32,7 +32,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && node ../../tooling/ci/test-typecheck.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist .turbo"
+    "clean": "rimraf dist .turbo",
+    "locales": "node scripts/build-locale-index.mjs",
+    "locales:check": "node scripts/build-locale-index.mjs --check",
+    "coverage": "node scripts/coverage-report.mjs"
   },
   "dependencies": {
     "@intafaced/config": "workspace:*"

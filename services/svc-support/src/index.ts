@@ -5,8 +5,10 @@ import { env } from './env.js';
 import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
+import { SqlContactBook } from './contact-channels.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
+import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
@@ -55,6 +57,10 @@ await sql`SELECT 1 FROM support.staff LIMIT 1`.catch(() => {
   throw new Error('support.staff is missing — apply migration 0012 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.contact_channels LIMIT 1`.catch(() => {
+  throw new Error('support.contact_channels is missing — apply migration 0020 before starting svc-support');
+});
+
 const store = new PostgresSupportStore(sql);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the outgoing reads on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-support');
@@ -75,9 +81,10 @@ const support = new SupportService(
   new SqlGroupBook(sql),
   env.SUPPORT_ALL_GROUPS_ROLES,
   new SqlPropertiesBook(sql),
+  new SqlLifecycleBook(sql),
 );
 const loop = createTicketKbLoopObserver();
-const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support);
+const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql));
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   ...edgeTrustFromEnv(env),

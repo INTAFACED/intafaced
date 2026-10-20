@@ -9,7 +9,7 @@ import { accountStateSchema } from './identity.js';
  * No money: refunds are requests only; never ledger.
  */
 
-export const supportTicketStatusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
+export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
 export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);
@@ -51,6 +51,11 @@ export const createTicketInputSchema = z.object({
   category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
+  /**
+   * A new request that follows a closed one of the same account (closed stays terminal, so a follow-up is a new,
+   * linked request). Any other ticket, or one that is not the caller's and closed, is refused by the service.
+   */
+  followsTicketId: z.string().uuid().optional(),
   /** Only for a `phishing` ticket; any other category refuses it. */
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).optional(),
   /**
@@ -286,6 +291,25 @@ export type EscalateTicketInput = z.infer<typeof escalateTicketInputSchema>;
  * which the ticket owner also reads: an internal priority or label must not
  * reach the customer. The queue score stays a ranking, not a promise.
  * ------------------------------------------------------------------ */
+
+/** Who the ticket is waiting on. Null until the first public reply or status change sets one. */
+export const supportWaitingOnSchema = z.enum(['team', 'customer']);
+export type SupportWaitingOn = z.infer<typeof supportWaitingOnSchema>;
+
+/**
+ * Lifecycle facts kept beside the ticket, read by support staff. The owner's own read of their ticket
+ * (`supportTicketSchema`) never carries `waitingOn`: it is a desk fact, not a promise to the customer.
+ */
+export const supportTicketLifecycleSchema = z.object({
+  ticketId: z.string().uuid(),
+  waitingOn: supportWaitingOnSchema.nullable(),
+  waitingSince: z.string().datetime().nullable(),
+  /** The first public operator reply. Set once; an internal note never sets it. */
+  firstPublicReplyAt: z.string().datetime().nullable(),
+  /** The closed request this one follows, or null. */
+  followsTicketId: z.string().uuid().nullable(),
+});
+export type SupportTicketLifecycle = z.infer<typeof supportTicketLifecycleSchema>;
 
 export const supportTicketPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
 export type SupportTicketPriority = z.infer<typeof supportTicketPrioritySchema>;

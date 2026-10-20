@@ -18,6 +18,14 @@
       "types": "./dist/academy-cert-perks.d.ts",
       "default": "./dist/academy-cert-perks.js"
     },
+    "./protocol-blockers": {
+      "types": "./dist/protocol-blockers.d.ts",
+      "default": "./dist/protocol-blockers.js"
+    },
+    "./protocol-networks": {
+      "types": "./dist/protocol-networks.d.ts",
+      "default": "./dist/protocol-networks.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -25,6 +33,30 @@
     "./founder-change-hash": {
       "types": "./dist/founder-change-hash.d.ts",
       "default": "./dist/founder-change-hash.js"
+    },
+    "./support-awaiting": {
+      "types": "./dist/support-awaiting.d.ts",
+      "default": "./dist/support-awaiting.js"
+    },
+    "./support-trade-summary": {
+      "types": "./dist/support-trade-summary.d.ts",
+      "default": "./dist/support-trade-summary.js"
+    },
+    "./quant-disclosure": {
+      "types": "./dist/quant-disclosure.d.ts",
+      "default": "./dist/quant-disclosure.js"
+    },
+    "./support-contact": {
+      "types": "./dist/support-contact.d.ts",
+      "default": "./dist/support-contact.js"
+    },
+    "./ui-view-preferences": {
+      "types": "./dist/ui-view-preferences.d.ts",
+      "default": "./dist/ui-view-preferences.js"
+    },
+    "./oauth": {
+      "types": "./dist/oauth.d.ts",
+      "default": "./dist/oauth.js"
     }
   },
   "scripts": {

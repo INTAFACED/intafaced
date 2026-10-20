@@ -184,6 +184,8 @@ export function onChange(listener: () => void): () => void {
 export const ALERT_KINDS = ['price', 'funding', 'liquidation_proximity', 'whale'] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export type AlertDirection = 'above' | 'below';
+export const ALERT_CONDITIONS = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'] as const;
+export type AlertCondition = (typeof ALERT_CONDITIONS)[number];
 
 export const priceAlertSchema = z.object({
   id: z.string().uuid(),
@@ -192,9 +194,16 @@ export const priceAlertSchema = z.object({
   kind: z.enum(ALERT_KINDS),
   direction: z.enum(['above', 'below']),
   targetPrice: z.string().min(1).max(64),
-  status: z.enum(['active', 'fired', 'cancelled']),
+  status: z.enum(['active', 'fired', 'cancelled', 'expired', 'stopped']),
   firedAt: date.nullable(),
   createdAt: date,
+  // Added by C-alerts-scan-01. A service that does not send them still parses: the page shows only what it was given.
+  condition: z.enum(ALERT_CONDITIONS).optional(),
+  name: z.string().max(200).nullable().optional(),
+  message: z.string().max(2000).nullable().optional(),
+  expiresAt: date.nullable().optional(),
+  // Added by C-alerts-scan-01b: further level conditions that must hold together with the main one.
+  extras: z.array(z.object({ condition: z.enum(['greater_than', 'less_than']), targetPrice: z.string().min(1).max(64) })).optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 
@@ -214,18 +223,55 @@ export const listAlerts = (api: ApiClient, signal?: AbortSignal): Promise<ApiRes
 
 export interface AlertIntent {
   marketId: string;
+  /** What the condition means as a side. A level (`greater_than`, `less_than`) is exactly this; `crossing` has none, and `above` is sent. */
   direction: AlertDirection;
   /** A positive decimal string, exactly as the person typed it (trimmed). */
   targetPrice: string;
+  /** Left out, the service stores the level the direction names (what every alert meant before conditions existed). */
+  condition?: AlertCondition;
+  name?: string;
+  message?: string;
+  /** An ISO time. Left out, the alert is open-ended. */
+  expiresAt?: string;
+  /** Further level conditions on the same market; the alert triggers only when the main one and all of these hold. */
+  extras?: AlertExtra[];
 }
 
-/** True when a stored watch is the one an intent asked for: same market, side and price (100.50 equals 100.5). */
-export function isIntent(row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'>, intent: AlertIntent): boolean {
+export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
+
+/** The side a condition looks at. `crossing` looks at both, so it sends `above`, which the service ignores for it. */
+export const directionOfCondition = (condition: AlertCondition): AlertDirection =>
+  condition === 'less_than' || condition === 'crossing_down' ? 'below' : 'above';
+const levelOfDirection = (direction: AlertDirection): AlertCondition => (direction === 'above' ? 'greater_than' : 'less_than');
+
+/**
+ * True when a stored watch is the one an intent asked for: same market, condition and price (100.50 equals 100.5), and the same
+ * name, message and expiry when the intent has them. A service that sends no condition is read as the level the direction names.
+ */
+export function isIntent(
+  row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>>,
+  intent: AlertIntent,
+): boolean {
+  const wanted = intent.condition ?? levelOfDirection(intent.direction);
+  const stored = row.condition ?? levelOfDirection(row.direction);
   return (
     row.kind === 'price' &&
     row.marketId === intent.marketId &&
-    row.direction === intent.direction &&
-    canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice)
+    stored === wanted &&
+    canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+    (intent.name === undefined || (row.name ?? '') === intent.name) &&
+    (intent.message === undefined || (row.message ?? '') === intent.message) &&
+    (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
+    sameExtras(row.extras ?? [], intent.extras ?? [])
+  );
+}
+
+/** Added conditions match one for one, in order. An alert with some is never the same alert as one without. */
+function sameExtras(a: readonly AlertExtra[], b: readonly AlertExtra[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((x, i) => x.condition === b[i]!.condition && canonicalPrice(x.targetPrice) === canonicalPrice(b[i]!.targetPrice))
   );
 }
 
@@ -246,7 +292,17 @@ export function createPriceAlert(
   return api.mutate(
     'notify',
     'notify.createAlert',
-    { kind: 'price', marketId: intent.marketId, direction: intent.direction, targetPrice: intent.targetPrice },
+    {
+      kind: 'price',
+      marketId: intent.marketId,
+      direction: intent.direction,
+      targetPrice: intent.targetPrice,
+      ...(intent.condition ? { condition: intent.condition } : {}),
+      ...(intent.name ? { name: intent.name } : {}),
+      ...(intent.message ? { message: intent.message } : {}),
+      ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
+      ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
+    },
     z.object({
       alert: priceAlertSchema.refine(
         (row) => row.userId === userId && row.status === 'active' && row.firedAt === null && isIntent(row, intent),
@@ -273,5 +329,150 @@ export function cancelPriceAlert(
         alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match').nullable(),
       })
       .refine((data) => data.cancelled === (data.alert?.status === 'cancelled'), 'Inconsistent cancel answer'),
+  );
+}
+
+// ── Managing an alert (C-alerts-scan-02) ────────────────────────────────────────────────────────────────────────
+// `notify.updateAlert`, `notify.setAlertActive` and `notify.deleteAlert` (scope notify:write); `notify.alertTriggers` (notify:read).
+// Each change sets a value rather than adding to one, so repeating it after a lost answer does no harm.
+
+/** What an edit may change. A name, message or stop time set to `null` is cleared; a field left out is not touched. */
+export interface AlertEdit {
+  targetPrice?: string;
+  condition?: AlertCondition;
+  name?: string | null;
+  message?: string | null;
+  expiresAt?: string | null;
+}
+
+/** Change an alert that is active or stopped. The answer must be this person's alert showing the values just sent, or it is not believed. */
+export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, userId: string): Promise<ApiResult<{ alert: PriceAlert }>> {
+  return api.mutate(
+    'notify',
+    'notify.updateAlert',
+    { id, ...edit },
+    z.object({
+      alert: priceAlertSchema.refine(
+        (row) =>
+          row.id === id &&
+          row.userId === userId &&
+          (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
+          (edit.condition === undefined || row.condition === edit.condition) &&
+          (edit.name === undefined || (row.name ?? null) === edit.name) &&
+          (edit.message === undefined || (row.message ?? null) === edit.message),
+        'Returned alert does not match',
+      ),
+    }),
+  );
+}
+
+/** Pause (`active: false`) an active alert or resume a stopped one. The answer carries the status it ended in. */
+export function setPriceAlertActive(
+  api: ApiClient,
+  id: string,
+  active: boolean,
+  userId: string,
+): Promise<ApiResult<{ changed: boolean; alert: PriceAlert }>> {
+  return api.mutate(
+    'notify',
+    'notify.setAlertActive',
+    { id, active },
+    z.object({
+      changed: z.boolean(),
+      alert: priceAlertSchema.refine((row) => row.id === id && row.userId === userId, 'Returned alert does not match'),
+    }),
+  );
+}
+
+/** Delete an alert whatever its state. `deleted: false` means it was already gone. */
+export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<{ deleted: boolean }>> =>
+  api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
+
+export const alertTriggerSchema = z.object({
+  alertId: z.string().uuid(),
+  marketId: z.string().min(1).max(64),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string().min(1).max(64),
+  markPrice: z.string().min(1).max(64),
+  firedAt: date,
+  notificationId: z.string().nullable(),
+});
+export type AlertTrigger = z.infer<typeof alertTriggerSchema>;
+const alertTriggersSchema = z.object({ retentionDays: z.number().int().min(1), items: z.array(alertTriggerSchema).max(200) });
+export type AlertTriggerPage = z.infer<typeof alertTriggersSchema>;
+
+/** The person's triggers, newest first. `limit` is always sent. Refuses `notify.alert_trigger_log_retention_unset` while the platform has not set how long they are kept. */
+export const listAlertTriggers = (
+  api: ApiClient,
+  args: { alertId?: string; limit: number },
+  signal?: AbortSignal,
+): Promise<ApiResult<AlertTriggerPage>> =>
+  api.query(
+    'notify',
+    'notify.alertTriggers',
+    { limit: args.limit, ...(args.alertId ? { alertId: args.alertId } : {}) },
+    alertTriggersSchema,
+    {
+      signal,
+    },
+  );
+
+// ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
+
+const alertQuotaSchema = z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() });
+export type AlertQuota = z.infer<typeof alertQuotaSchema>;
+
+/** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
+export const readAlertQuota = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertQuota>> =>
+  api.query('notify', 'notify.alertQuota', undefined, alertQuotaSchema, { signal });
+
+// ── A watchlist alert (C-alerts-scan-03c) ───────────────────────────────────────────────────────────────────────
+
+export interface WatchlistIntent {
+  marketIds: string[];
+  direction: AlertDirection;
+  condition: AlertCondition;
+  /** A positive decimal string, exactly as the person typed it (trimmed). One price for every market. */
+  targetPrice: string;
+}
+
+/**
+ * Save one alert per market, all or none. The answer must be this person's active alerts, one for each market asked and no
+ * others, each at the price asked, or it is not believed. No request id exists, so a lost answer is never retried here.
+ */
+export function createPriceAlerts(
+  api: ApiClient,
+  intent: WatchlistIntent,
+  userId: string,
+): Promise<ApiResult<{ alerts: PriceAlert[]; evaluation: AlertEvaluation }>> {
+  const wanted = [...new Set(intent.marketIds)].sort();
+  return api.mutate(
+    'notify',
+    'notify.createAlerts',
+    {
+      marketIds: intent.marketIds,
+      direction: intent.direction,
+      condition: intent.condition,
+      targetPrice: intent.targetPrice,
+    },
+    z.object({
+      alerts: z
+        .array(priceAlertSchema)
+        .min(1)
+        .refine(
+          (rows) =>
+            rows.every(
+              (row) =>
+                row.userId === userId &&
+                row.kind === 'price' &&
+                row.status === 'active' &&
+                row.firedAt === null &&
+                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+                (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+            ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+          'Returned alerts do not match',
+        ),
+      evaluation: alertEvaluationSchema,
+    }),
   );
 }
