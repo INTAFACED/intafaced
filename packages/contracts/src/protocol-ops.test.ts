@@ -8,7 +8,10 @@ import {
   protocolOpsHiddenOutputSchema,
   PROTOCOL_OPS_TARGET_SERVICE,
   protocolOpsMetricsOutputSchema,
+  protocolOpsMarketDelistInputSchema,
+  protocolOpsMarketRestoreInputSchema,
   protocolOpsPoolHideInputSchema,
+  protocolOpsPoolRestoreInputSchema,
   protocolOpsPoolsListOutputSchema,
 } from './protocol-ops.js';
 
@@ -68,10 +71,37 @@ describe('label verdict', () => {
 
 describe('pool control', () => {
   it('needs a reason, a code and an approval, and refuses any extra field', () => {
-    const input = { chainId: 84532, poolAddress: pool, reasonCode: 'scam_report', reason: 'reported', approvalId: 'ap_1' };
+    const input = {
+      chainId: 84532,
+      poolAddress: pool,
+      reasonCode: 'scam_report',
+      reason: 'reported',
+      approvalId: 'ap_1',
+      operationId: 'op_1',
+    };
     expect(protocolOpsPoolHideInputSchema.safeParse(input).success).toBe(true);
-    for (const patch of [{ reason: '' }, { reasonCode: '' }, { approvalId: '' }, { poolAddress: '0x1' }, { extra: 1 }]) {
+    for (const patch of [
+      { reason: '' },
+      { reasonCode: '' },
+      { approvalId: '' },
+      { operationId: '' },
+      { poolAddress: '0x1' },
+      { extra: 1 },
+    ]) {
       expect(protocolOpsPoolHideInputSchema.safeParse({ ...input, ...patch }).success, JSON.stringify(patch)).toBe(false);
+    }
+  });
+  it('needs the approval operation id on every write, restore and delist included', () => {
+    const base = { approvalId: 'ap_1', operationId: 'op_1' };
+    const writes = [
+      [protocolOpsPoolRestoreInputSchema, { chainId: 84532, poolAddress: pool, ...base }],
+      [protocolOpsMarketDelistInputSchema, { symbol: 'BTC-USDT', reasonCode: 'scam_report', reason: 'x', ...base }],
+      [protocolOpsMarketRestoreInputSchema, { symbol: 'BTC-USDT', ...base }],
+    ] as const;
+    for (const [schema, input] of writes) {
+      expect(schema.safeParse(input).success).toBe(true);
+      const { operationId: _omitted, ...without } = input as typeof input & { operationId: string };
+      expect(schema.safeParse(without).success).toBe(false);
     }
   });
   it('lists a hidden pool with who hid it and under which policy, and returns a noop with a note', () => {
