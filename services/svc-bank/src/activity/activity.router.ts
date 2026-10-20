@@ -9,8 +9,11 @@ import {
   ACTIVITY_DEFAULT_LIMIT,
   ACTIVITY_MAX_LIMIT,
   ActivityLookupBoundedError,
+  ActivityAccountUnknownError,
   ActivityNotFoundError,
   ActivityRangeError,
+  ActivitySortBoundedError,
+  ActivityTaxYearUnsetError,
   ActivityUnavailableError,
 } from './activity-service.js';
 
@@ -38,6 +41,16 @@ const activityListInput = z
     q: z.string().trim().min(1).max(80).optional(),
     minAmount: amountString.optional(),
     maxAmount: amountString.optional(),
+    /** Oldest first or newest first (the default). */
+    sort: z.enum(['asc', 'desc']).optional(),
+    /** `main` for the account itself, or the id of one named Space. */
+    accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+    /** A UTC calendar year. */
+    year: z.number().int().min(1970).max(2200).optional(),
+    /** A tax year. Its start date is an owner value that is not set, so this refuses `portfolio.tax_year_start_unset`. */
+    taxYear: z.number().int().min(1970).max(2200).optional(),
+    /** Part of a withdrawal address. Lines with no recorded address never match. */
+    address: z.string().trim().min(4).max(128).optional(),
   })
   .strict();
 
@@ -60,6 +73,8 @@ const activityItem = z.object({
   /** This caller's private note. */
   privateNote: z.string().max(500).optional(),
   dispute: z.object({ id: z.string().uuid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
+  /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
+  address: z.string().min(1).max(256).optional(),
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
@@ -68,6 +83,11 @@ function activityFailure(err: unknown): never {
   if (err instanceof ActivityCursorInvalidError || err instanceof ActivityRangeError) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
+  if (err instanceof ActivityTaxYearUnsetError || err instanceof ActivitySortBoundedError) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} (${err.code})`, cause: err });
+  }
+  if (err instanceof ActivityAccountUnknownError)
+    throw new TRPCError({ code: 'NOT_FOUND', message: `${err.message} (${err.code})`, cause: err });
   if (err instanceof ActivityNotFoundError) throw new TRPCError({ code: 'NOT_FOUND', message: `${err.message} (${err.code})`, cause: err });
   if (err instanceof ActivityLookupBoundedError) {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} (${err.code})`, cause: err });
