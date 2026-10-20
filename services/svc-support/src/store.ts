@@ -662,11 +662,28 @@ export class MemorySupportStore implements SupportStore {
     this.comments.set(input.ticketId, list);
 
     const reopened = ticket.status === 'resolved' && input.authorRole === 'user';
+    // A customer reply on a request the team had in progress or on hold puts it back in the open queue;
+    // whoever holds it keeps it.
+    const resumed = (ticket.status === 'pending' || ticket.status === 'on_hold') && input.authorRole === 'user';
     const updated: SupportTicket = reopened
       ? { ...ticket, status: 'open', assigneeId: null, updatedAt: now }
-      : { ...ticket, updatedAt: now };
+      : resumed
+        ? { ...ticket, status: 'open', updatedAt: now }
+        : { ...ticket, updatedAt: now };
     this.tickets.set(ticket.id, updated);
 
+    if (resumed) {
+      this.record({
+        ticketId: ticket.id,
+        kind: 'status_changed',
+        actorId: input.authorId,
+        actorRole: 'user',
+        fromStatus: ticket.status,
+        toStatus: 'open',
+        note: 'user_reply_resume',
+        at: now,
+      });
+    }
     if (reopened) {
       this.record({
         ticketId: ticket.id,
@@ -1196,6 +1213,7 @@ export class PostgresSupportStore implements SupportStore {
       `;
 
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
+      const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';
       const rows = reopened
         ? await tx<PgTicket[]>`
             UPDATE support.tickets
@@ -1203,7 +1221,14 @@ export class PostgresSupportStore implements SupportStore {
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
           `
-        : await tx<PgTicket[]>`
+        : resumed
+          ? await tx<PgTicket[]>`
+            UPDATE support.tickets
+            SET status = 'open', updated_at = now()
+            WHERE id = ${input.ticketId}
+            RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
+          `
+          : await tx<PgTicket[]>`
             UPDATE support.tickets
             SET updated_at = now()
             WHERE id = ${input.ticketId}
@@ -1211,6 +1236,17 @@ export class PostgresSupportStore implements SupportStore {
           `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
+      if (resumed) {
+        await insertEvent(tx, {
+          ticketId: input.ticketId,
+          kind: 'status_changed',
+          actorId: input.authorId,
+          actorRole: 'user',
+          fromStatus: existing.status,
+          toStatus: 'open',
+          note: 'user_reply_resume',
+        });
+      }
       if (reopened) {
         await insertEvent(tx, {
           ticketId: input.ticketId,

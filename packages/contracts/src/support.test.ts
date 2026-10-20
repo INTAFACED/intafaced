@@ -12,6 +12,7 @@ import {
   supportTicketPropertiesSchema,
   supportTicketPrioritySchema,
   supportTicketLifecycleSchema,
+  supportTicketStatusSchema,
   supportWaitingOnSchema,
   supportTicketTypeSchema,
   supportTicketCategorySchema,
@@ -220,6 +221,10 @@ describe('ticket lifecycle (SP-tickets-04)', () => {
       true,
     );
     expect(supportTicketLifecycleSchema.safeParse({ ...empty, waitingSince: 'yesterday' }).success).toBe(false);
+  });
+  it('a request can be on hold, and an unknown status still fails', () => {
+    expect(supportTicketStatusSchema.safeParse('on_hold').success).toBe(true);
+    expect(supportTicketStatusSchema.safeParse('paused').success).toBe(false);
   });
   it('a follow-up names the closed request it follows by id', () => {
     const base = { category: 'other', subject: 's', body: 'b' };

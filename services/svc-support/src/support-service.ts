@@ -6,6 +6,7 @@ import {
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
   type SupportTicketPriority,
+  type SupportTicketLifecycle,
   type SupportTicketProperties,
   type SupportTicketType,
 } from '@intafaced/contracts';
@@ -54,6 +55,7 @@ import {
   type TicketOrderRead,
   type TicketOrderSource,
 } from './ticket-order.js';
+import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
@@ -231,6 +233,8 @@ export class SupportService implements SupportContract {
     private readonly allGroupsRoles: readonly StaffRole[] = [],
     /** Agent-set priority, type and labels, kept beside the ticket (operator-only). */
     private readonly properties: PropertiesBook = new MemoryPropertiesBook(),
+    /** Who a ticket waits on, the first public reply and the follow-up link, kept beside the ticket. */
+    private readonly lifecycle: LifecycleBook = new MemoryLifecycleBook(),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -363,6 +367,13 @@ export class SupportService implements SupportContract {
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
+      if (input.followsTicketId !== undefined) {
+        // Only the caller's own closed request can be followed. Anyone else's reads the same as none.
+        const followed = await this.store.findById(input.followsTicketId);
+        if (!followed || followed.userId !== input.userId || followed.status !== 'closed') {
+          throw new SupportError('a follow-up needs one of your own closed requests', 'support.follow_up_invalid');
+        }
+      }
       const row = {
         userId: input.userId,
         category: input.category,
@@ -381,6 +392,9 @@ export class SupportService implements SupportContract {
           throw new SupportError('idempotency key was already used for a different request', 'support.idempotency_conflict');
         }
         throw err;
+      }
+      if (input.followsTicketId !== undefined) {
+        await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
       }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
@@ -446,6 +460,15 @@ export class SupportService implements SupportContract {
         if (result.reason === 'not_found') throw ticketNotFound();
         throw new SupportError('comment refused: ticket is terminal', 'support.comment.terminal');
       }
+      // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
+      // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
+      const at = result.comment.createdAt;
+      if (input.asOperator) {
+        await this.lifecycle.setWaiting(input.ticketId, 'customer', at);
+        await this.lifecycle.markFirstPublicReply(input.ticketId, at);
+      } else {
+        await this.lifecycle.setWaiting(input.ticketId, 'team', at);
+      }
       return result.comment;
     });
   }
@@ -483,6 +506,9 @@ export class SupportService implements SupportContract {
   async setStatus(input: { operatorId: string; ticketId: string; status: SupportTicketStatus; note?: string }): Promise<SupportTicket> {
     return withSupportSpan('support.setStatus', { op: 'setStatus', ticketId: input.ticketId }, async (span) => {
       await this.assertDeskVisible(input.operatorId, input.ticketId);
+      if (input.status === 'on_hold' && !input.note?.trim()) {
+        throw new SupportError('say why the request is on hold', 'support.hold_reason_required');
+      }
       // The store re-reads the ticket and every case-file reason under its
       // row lock. A latestCaseFile read here would miss a money_request that
       // a later file hides, or one that commits before the lock.
@@ -502,6 +528,10 @@ export class SupportService implements SupportContract {
       }
       span.setAttribute('intafaced.support.ticket_id', result.ticket.id);
       span.setAttribute('intafaced.support.to_status', result.ticket.status);
+      // Finished requests wait on nobody.
+      if (result.ticket.status === 'resolved' || result.ticket.status === 'closed') {
+        await this.lifecycle.setWaiting(result.ticket.id, null, result.ticket.updatedAt);
+      }
       return result.ticket;
     });
   }
@@ -866,15 +896,16 @@ export class SupportService implements SupportContract {
     total: number;
     open: number;
     pending: number;
+    onHold: number;
     resolved: number;
     closed: number;
     unassigned: number;
     claimed: number;
   }> {
     const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
-    const counts = { open: 0, pending: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
+    const counts = { open: 0, pending: 0, onHold: 0, resolved: 0, closed: 0, unassigned: 0, claimed: 0 };
     for (const ticket of tickets) {
-      counts[ticket.status] += 1;
+      counts[ticket.status === 'on_hold' ? 'onHold' : ticket.status] += 1;
       if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId === null) counts.unassigned += 1;
       if ((ticket.status === 'open' || ticket.status === 'pending') && ticket.assigneeId !== null) counts.claimed += 1;
     }
@@ -892,6 +923,13 @@ export class SupportService implements SupportContract {
       const limit = assertListAllTicketsLimit(options.limit);
       return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
     });
+  }
+
+  /** Who the ticket waits on, the first public reply and the request it follows. Staff only. */
+  async getTicketLifecycle(input: { operatorId: string; ticketId: string }): Promise<SupportTicketLifecycle> {
+    await this.assertDeskVisible(input.operatorId, input.ticketId);
+    if (!(await this.store.findById(input.ticketId))) throw ticketNotFound();
+    return this.lifecycle.get(input.ticketId);
   }
 
   async getTicketProperties(input: { operatorId: string; ticketId: string }): Promise<SupportTicketProperties> {

@@ -12,6 +12,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
@@ -78,6 +79,8 @@ function mapError(err: unknown): never {
       err.code === 'support.staff_bootstrap' ||
       err.code === 'support.heartbeat_window_unset' ||
       err.code === 'support.ticket_closed' ||
+      err.code === 'support.follow_up_invalid' ||
+      err.code === 'support.hold_reason_required' ||
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
@@ -789,6 +792,7 @@ export function createSupportRouter(
           total: z.number().int(),
           open: z.number().int(),
           pending: z.number().int(),
+          onHold: z.number().int(),
           resolved: z.number().int(),
           closed: z.number().int(),
           unassigned: z.number().int(),
@@ -873,6 +877,19 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Who the ticket waits on, when the first public reply went out, and the request it follows. */
+    ticketLifecycle: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid() }))
+      .output(supportTicketLifecycleSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.getTicketLifecycle({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
         } catch (err) {
           mapError(err);
         }
