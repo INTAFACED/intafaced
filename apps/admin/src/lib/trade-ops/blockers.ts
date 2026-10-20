@@ -14,10 +14,10 @@ export const BLOCKERS = {
     'Mass cancel only exists for the signed-in account. There is no operator-scoped cancel by market or by account.',
     'TRD-0052',
   ),
-  risk_limits_no_operator_api: b(
-    'risk_limits_no_operator_api',
+  market_rules_no_operator_api: b(
+    'market_rules_no_operator_api',
     'svc-trade',
-    'Per-market limits (tick, lot, min notional, price collar, slippage cap) are enforced in the engine but have no read or write procedure for operators.',
+    'Tick size, lot size, minimum and maximum quantity, minimum notional and the listing fee bps are the market record. svc-trade has no operator procedure to change them; the operator risk limits above are the ones it lets you set.',
     'TRD-0054, TRD-0117',
   ),
   orders_by_id_cross_user_missing: b(
@@ -25,12 +25,6 @@ export const BLOCKERS = {
     'svc-trade',
     'Order lookup by id works only for the order owner. Operators can list open orders but cannot open any order by id.',
     'TRD-0093, TRD-0203',
-  ),
-  positions_cross_user_missing: b(
-    'positions_cross_user_missing',
-    'svc-trade',
-    'Positions are readable only by their owner. There is no operator list or lookup, and futures operator controls are not built.',
-    'TRD-0086, TRD-0153',
   ),
   export_missing: b(
     'export_missing',

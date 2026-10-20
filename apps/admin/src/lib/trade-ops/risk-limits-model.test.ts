@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MarketRow } from './reads';
-import { checkLimitEdit, decimalGte, isMultipleOf, isPositiveDecimal, limitEditOutcome } from './risk-limits-model';
+import { checkLimitEdit, checkRiskSet, decimalGte, isMultipleOf, isPositiveDecimal, limitEditOutcome } from './risk-limits-model';
 
 const ME = 'me';
 const market: MarketRow = {
@@ -70,6 +70,37 @@ describe('checkLimitEdit', () => {
     expect(checkLimitEdit(edit({ reason: 'short' }), [market], ME)).toMatchObject({ code: 'risk_limits.bad_reason' });
   });
   it('a valid edit ends in the typed blocker', () => {
-    expect(limitEditOutcome(edit({}), [market], ME)).toMatchObject({ kind: 'refused', blocker: { key: 'risk_limits_no_operator_api' } });
+    expect(limitEditOutcome(edit({}), [market], ME)).toMatchObject({ kind: 'refused', blocker: { key: 'market_rules_no_operator_api' } });
+  });
+});
+
+describe('checkRiskSet', () => {
+  const now = { marketId: 'm1', version: '3', collar: '0.05', fatFinger: null, slippageCap: null, throttle: null, circuitBreaker: null };
+  const vals = { collar: '0.05', fatFinger: '', slippageCap: '', throttle: '', circuitBreaker: '' };
+  const REASON = 'tighten after incident 4471';
+  it('builds the write for the version it was given, with a blank as unset', () => {
+    expect(checkRiskSet(now, { ...vals, fatFinger: '1000.5', slippageCap: '100' }, REASON)).toEqual({
+      ok: true,
+      body: {
+        market: 'm1',
+        expectedVersion: '3',
+        reason: REASON,
+        limits: { collar: '0.05', fatFinger: '1000.5', slippageCap: '100', throttle: null, circuitBreaker: null },
+      },
+    });
+  });
+  it('can clear a limit back to unset', () => {
+    const out = checkRiskSet(now, { ...vals, collar: '' }, REASON);
+    expect(out).toMatchObject({ ok: true, body: { limits: { collar: null } } });
+  });
+  it('refuses no change, bad values, slippage outside 1 to 5000 and a short reason', () => {
+    expect(checkRiskSet(now, vals, REASON)).toMatchObject({ code: 'risk_limits.no_change' });
+    for (const bad of ['1e3', '-1', '1.5.2', '0x10', ' 1 2'])
+      expect(checkRiskSet(now, { ...vals, throttle: bad }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, collar: '0.1234567890123456789' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, slippageCap: '0' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, slippageCap: '5001' }, REASON)).toMatchObject({ code: 'risk_limits.bad_value' });
+    expect(checkRiskSet(now, { ...vals, throttle: '5' }, 'short')).toMatchObject({ code: 'risk_limits.bad_reason' });
+    expect(checkRiskSet(now, { ...vals, throttle: '5' }, undefined)).toMatchObject({ code: 'risk_limits.bad_reason' });
   });
 });
