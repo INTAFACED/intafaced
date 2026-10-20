@@ -5,6 +5,8 @@ import {
   poolTargetId,
   protocolOpsActionResultSchema,
   protocolOpsIdempotencyKey,
+  protocolOpsHiddenOutputSchema,
+  PROTOCOL_OPS_TARGET_SERVICE,
   protocolOpsMetricsOutputSchema,
   protocolOpsPoolHideInputSchema,
   protocolOpsPoolsListOutputSchema,
@@ -90,5 +92,24 @@ describe('pool control', () => {
         idempotencyKey: 'k',
       }).success,
     ).toBe(true);
+  });
+});
+
+describe('hide list read', () => {
+  it('is hosted by svc-ops and carries only what a reader needs to drop a listing', () => {
+    expect(PROTOCOL_OPS_TARGET_SERVICE).toBe('svc-ops');
+    expect(
+      protocolOpsHiddenOutputSchema.safeParse({
+        asOf: now,
+        pools: [{ chainId: 84532, poolAddress: pool }],
+        markets: [{ symbol: 'BTC-USDT' }],
+      }).success,
+    ).toBe(true);
+    expect(
+      protocolOpsHiddenOutputSchema.safeParse({ asOf: now, pools: [{ chainId: 84532, poolAddress: pool, reason: 'x' }], markets: [] })
+        .success,
+    ).toBe(false);
+    expect(protocolOpsHiddenOutputSchema.safeParse({ asOf: now, pools: [], markets: [], extra: 1 }).success).toBe(false);
+    expect(protocolOpsHiddenOutputSchema.safeParse({ pools: [], markets: [] }).success).toBe(false);
   });
 });
