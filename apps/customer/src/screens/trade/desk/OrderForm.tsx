@@ -648,14 +648,15 @@ function SideForm({
         ))}
       </div>
       <AmountInput
-        label={priced ? t('Total') : t('Total estimate')}
+        label={priced ? t('Total') : marketBuy ? t('Spend up to') : t('Total estimate')}
         value={total}
         onValueChange={(next) =>
           edit(() => {
-            if (!priced) return;
-            const heldPrice = isBuyOco(side, type) ? stopLimit : price;
-            if (scaled(heldPrice) === null) {
-              setHint(t('Enter a price first'));
+            if (!priced && !marketBuy) return;
+            // A priced order is sized at its price; a market buy at the service's price protection, so the hold never passes the spend.
+            const heldPrice = marketBuy ? protectionPrice : isBuyOco(side, type) ? stopLimit : price;
+            if (heldPrice === null || scaled(heldPrice) === null) {
+              setHint(marketBuy ? t('Checking the order') : t('Enter a price first'));
               return;
             }
             setTotalEdit(next);
@@ -664,9 +665,9 @@ function SideForm({
         }
         precision={8}
         unit={market.quote}
-        readOnly={!priced}
+        readOnly={!priced && !(marketBuy && protectionPrice !== null)}
         placeholder="0"
-        aria-label={t('Total')}
+        aria-label={marketBuy ? t('Spend') : t('Total')}
       />
       <dl className="dk-avail">
         <div>
