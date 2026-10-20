@@ -55,6 +55,53 @@ export interface BankTransferInput {
   amount: Amount;
   /** Machine-readable reason suffix, e.g. 'scheduled' or 'manual'. */
   kind: 'manual' | 'scheduled';
+  /**
+   * Which operation owns `transferId`. It becomes part of the idempotency key, so an own-space
+   * transfer, a person-to-person payment, a standing-order firing and a rail send can never be
+   * the same key even when a caller hands two of them the same id.
+   *
+   * Optional only so existing callers keep compiling and keep their keys. Without it the key is
+   * the legacy shared `bank.transfer:` space, which is the F-2.1 collision. Every caller should
+   * name its space. `sched` goes with `kind: 'scheduled'` and nothing else does.
+   */
+  keySpace?: BankTransferKeySpace;
+}
+
+/**
+ * One key space per operation that books a bank transfer.
+ *
+ *   own    a user moving value between their own spaces (a one-off transfer)
+ *   p2p    a user paying another user (personal pay, pay-by-handle, a paid request)
+ *   sched  one firing of one standing order (`transferId` is the schedule id)
+ *   rail   a send to a payment rail boundary, and its reversal
+ */
+export const BANK_TRANSFER_KEY_SPACES = ['own', 'p2p', 'sched', 'rail'] as const;
+export type BankTransferKeySpace = (typeof BANK_TRANSFER_KEY_SPACES)[number];
+
+function requireOccurrence(occurrence: number): void {
+  if (!Number.isInteger(occurrence) || occurrence < 0) {
+    throw new InvalidEntryError(`Occurrence must be a non-negative integer, got ${occurrence}`);
+  }
+}
+
+/**
+ * The idempotency key a bank transfer posts under: `bank.transfer.<space>:<transferId>:<occurrence>`.
+ * Read this key back with `getTxByKey` after a lost reply; never rebuild it by hand.
+ */
+export function bankTransferKey(space: BankTransferKeySpace, transferId: string, occurrence: number): string {
+  if (!BANK_TRANSFER_KEY_SPACES.includes(space)) throw new InvalidEntryError(`Unknown bank transfer key space ${String(space)}`);
+  if (transferId.trim() === '') throw new InvalidEntryError('A bank transfer needs a transfer id');
+  requireOccurrence(occurrence);
+  return `bank.transfer.${space}:${transferId}:${occurrence}`;
+}
+
+/**
+ * The key every bank transfer used before key spaces: `bank.transfer:<id>:<occurrence>`. A caller
+ * that may meet a booking from before its move to a key space looks this key up as well. It is
+ * what a recipe call with no `keySpace` still posts.
+ */
+export function legacyBankTransferKey(transferId: string, occurrence: number): string {
+  return `bank.transfer:${transferId}:${occurrence}`;
 }
 
 /**
@@ -86,12 +133,16 @@ export function bankTransfer(input: BankTransferInput): PostRequest {
     // create a locked position without the lock's own recipe and its rules.
     throw new InvalidEntryError('Transfers move between available accounts only — locks have their own recipes');
   }
-  if (!Number.isInteger(input.occurrence) || input.occurrence < 0) {
-    throw new InvalidEntryError(`Occurrence must be a non-negative integer, got ${input.occurrence}`);
+  requireOccurrence(input.occurrence);
+  if (input.keySpace !== undefined && (input.keySpace === 'sched') !== (input.kind === 'scheduled')) {
+    throw new InvalidEntryError(`Key space ${input.keySpace} does not go with a ${input.kind} transfer`);
   }
 
   return {
-    idempotencyKey: `bank.transfer:${input.transferId}:${input.occurrence}`,
+    idempotencyKey:
+      input.keySpace === undefined
+        ? legacyBankTransferKey(input.transferId, input.occurrence)
+        : bankTransferKey(input.keySpace, input.transferId, input.occurrence),
     module: 'bank',
     reason: input.kind === 'scheduled' ? 'bank.transfer.scheduled' : 'bank.transfer.manual',
     meta: { transferId: input.transferId, occurrence: input.occurrence },

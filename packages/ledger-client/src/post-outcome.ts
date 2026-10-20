@@ -1,0 +1,72 @@
+import { LedgerError } from './types.js';
+
+/**
+ * What a failed `ledger.post` proves about the movement under its idempotency key.
+ *
+ *   `refused`  the ledger refused it before committing anything. The key is free and the caller may release its claim.
+ *   `unsent`   the request never left this process (the connection was never made). Same consequence as `refused`.
+ *   `unknown`  anything else. The post may have committed and only the reply was lost, or it may not have. Keep the
+ *              claim, read the key back (`getTxByKey`) and decide from the book.
+ */
+export type PostOutcomeClass = 'refused' | 'unsent' | 'unknown';
+
+/**
+ * Codes the ledger answers with BEFORE it commits. Both engines look the key up first (`postgres-ledger.ts`, STOP
+ * §4.2b #4), so a key that already committed returns its transaction and never reaches one of these. A reply that
+ * carries one of them therefore proves nothing committed under this key.
+ *
+ * `ledger.idempotency_conflict` is deliberately NOT here. It proves the opposite: the key already booked a movement and
+ * this body is a different one. That caller has an unknown outcome and must read the key before it decides anything.
+ * Every code not listed is `unknown` for the same reason: only a named refusal is proof.
+ */
+export const DEFINITE_POST_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'ledger.insufficient_funds',
+  'ledger.invalid_entry',
+  'ledger.unbalanced',
+  'ledger.owner_identity_space',
+  'ledger.frozen',
+  'ledger.unauthenticated',
+  'ledger.recipe_required',
+  'ledger.freeze_attributed',
+]);
+
+/** Undici reports these on `error.cause` when the socket never connected. */
+const NEVER_SENT_CAUSE_CODES: ReadonlySet<string> = new Set(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']);
+
+/**
+ * Sort a post failure into `refused`, `unsent` or `unknown`.
+ *
+ * "Never sent" is only `cause.code` (undici), walked at most three levels. A code on the error itself is not that
+ * proof. ECONNRESET, socket hang up, UND_ERR_SOCKET, every 5xx, a timeout and every untyped error stay `unknown`.
+ */
+export function classifyPostOutcome(err: unknown): PostOutcomeClass {
+  if (err instanceof LedgerError && DEFINITE_POST_REFUSAL_CODES.has(err.code)) return 'refused';
+  if (causeNeverSent(err)) return 'unsent';
+  return 'unknown';
+}
+
+/** True when the failure proves nothing committed under the key (`refused` or `unsent`). */
+export function provesPostNotCommitted(err: unknown): boolean {
+  return classifyPostOutcome(err) !== 'unknown';
+}
+
+function causeNeverSent(err: unknown): boolean {
+  let current: unknown = err;
+  for (let depth = 0; depth < 3; depth++) {
+    if (current == null || typeof current !== 'object') return false;
+    const cause = (current as { cause?: unknown }).cause;
+    if (cause == null || typeof cause !== 'object') return false;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === 'string' && NEVER_SENT_CAUSE_CODES.has(code)) return true;
+    current = cause;
+  }
+  return false;
+}
+
+/**
+ * Seconds after the last attempt before an absent key may be treated as dead (the post can no longer land).
+ * 25s caller retry deadline + 300s signature skew + one 15s statement + 60s idle-in-transaction, rounded up to 7
+ * minutes. The last two terms are the ledger pool limits in `services/svc-ledger/src/db/connection-options.ts`.
+ * Evidence, not proof: the sum does not bound time an accepted post spends queued in the pool.
+ */
+export const POST_IN_FLIGHT_BOUND_SECONDS = 7 * 60;
