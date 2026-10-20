@@ -695,9 +695,10 @@ export class MatchedFuturesOrders {
   }
 
   /**
-   * Retry the fills that are waiting, oldest first. Settling is idempotent per side, so a fill that meanwhile settled
-   * through a redelivered event is only marked settled here. A fill that fails for another reason stays waiting and
-   * is reported, never dropped.
+   * Retry the fills that are waiting: never-retried first, then the longest since its last try, so a batch full of
+   * fills stuck on a parked position cannot starve a newer fill whose position is free. Settling is idempotent per
+   * side, so a fill that meanwhile settled through a redelivered event is only marked settled here. A fill that fails
+   * for another reason stays waiting and is reported, never dropped.
    */
   async retryWaitingFills(limit: number): Promise<{ settled: number; waiting: number; failed: { sequence: number; message: string }[] }> {
     const rows = await this.deps.sql<
@@ -706,7 +707,7 @@ export class MatchedFuturesOrders {
       SELECT market_id, engine_sequence::text, maker_order_id, taker_order_id, price::text, qty::text
         FROM trade.futures_fill_waits
        WHERE settled_at IS NULL
-       ORDER BY created_at, engine_sequence
+       ORDER BY retried_at NULLS FIRST, created_at, engine_sequence
        LIMIT ${limit}
     `;
     let settled = 0;

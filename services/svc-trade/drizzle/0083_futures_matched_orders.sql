@@ -104,4 +104,4 @@ CREATE TABLE IF NOT EXISTS "trade"."futures_fill_waits" (
   CONSTRAINT "futures_fill_waits_price_ck" CHECK ("price" > 0)
 );
 CREATE INDEX IF NOT EXISTS "futures_fill_waits_open_idx"
-  ON "trade"."futures_fill_waits" ("created_at") WHERE "settled_at" IS NULL;
+  ON "trade"."futures_fill_waits" ("retried_at" NULLS FIRST, "created_at", "engine_sequence") WHERE "settled_at" IS NULL;

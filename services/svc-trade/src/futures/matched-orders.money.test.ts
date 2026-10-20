@@ -148,7 +148,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
   let admission: TradingAdmissionPort;
 
   beforeEach(async () => {
-    await sql`TRUNCATE trade.futures_order_fills, trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE trade.futures_order_fills, trade.futures_orders, trade.positions, trade.markets, trade.futures_payouts, trade.futures_fill_waits RESTART IDENTITY CASCADE`;
     await sql`
       INSERT INTO trade.markets (
         id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
@@ -978,6 +978,33 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(await svc.settleFillOrWait(fill)).toBe('settled');
       expect(await bal(positionCollateralAccount(ALICE, USDT, alicePosition.id))).toBe(aliceMargin);
       expect(await sql`SELECT 1 FROM trade.futures_order_fills WHERE engine_sequence = 8`).toHaveLength(2);
+    });
+
+    it('a fill stuck on a parked position does not starve a newer waiting fill whose position is free', async () => {
+      const DAVE = '44444444-4444-4444-8444-444444444444';
+      await ledger.post(recipes.deposit({ userId: DAVE, assetId: USDT, amount: A('1000'), rail: 'test', railRef: 'fund-dave-starve' }));
+      const { svc, positionId, bobPosition, a2, c1 } = await aliceLongWithAnotherBuy();
+      // Alice's position is parked: her fill waits however often it is retried.
+      await rung(positionId, 'abandoned');
+      const stuck = { marketId: MARKET, makerOrderId: a2.orderId, takerOrderId: c1.orderId, price: '100', qty: '1', sequence: 20 };
+      expect(await svc.settleFillOrWait(stuck)).toBe('waiting');
+
+      // A newer fill meets Bob's position while a rung runs on it, then the rung goes and Bob's position is free.
+      const b2 = await rest(BOB, 'sell', 'starve-b2');
+      const d1 = await rest(DAVE, 'buy', 'starve-d1');
+      await rung(bobPosition, 'planned');
+      const free = { marketId: MARKET, makerOrderId: d1.orderId, takerOrderId: b2.orderId, price: '100', qty: '1', sequence: 21 };
+      expect(await svc.settleFillOrWait(free)).toBe('waiting');
+      await sql`DELETE FROM trade.liquidation_rungs WHERE position_id = ${bobPosition}`;
+
+      // One row per tick: the stuck fill is tried, then the free one settles instead of the stuck one again.
+      expect(await svc.retryWaitingFills(1)).toEqual({ settled: 0, waiting: 1, failed: [] });
+      expect(await svc.retryWaitingFills(1)).toEqual({ settled: 1, waiting: 0, failed: [] });
+      expect((await orderRow(d1.orderId)).status).toBe('filled');
+      expect(await bal(futuresOrderMarginAccount(DAVE, USDT, d1.orderId))).toBe(0n);
+      // The stuck fill is still kept and its holds are intact.
+      expect(await svc.retryWaitingFills(1)).toEqual({ settled: 0, waiting: 1, failed: [] });
+      expect(await bal(futuresOrderMarginAccount(ALICE, USDT, a2.orderId))).toBe(A('10'));
     });
 
     it('a fill the engine prints while placing a taker into a busy position waits, and the placement still answers', async () => {
