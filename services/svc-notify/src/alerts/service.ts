@@ -21,10 +21,12 @@ import {
   evaluateWhaleAlert,
 } from './evaluate.js';
 import { AlertValidationError, type AlertStore } from './store.js';
+import { directionOfCondition, isCrossingCondition } from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
   AlertKindUnpublishedError,
   AlertPortfolioUnpublishedError,
+  type AlertCondition,
   type AlertEvalOutcome,
   type AlertRefuseCode,
   type CreatePortfolioAlertInput,
@@ -83,6 +85,88 @@ export function assertNotifyAlertsListLimit(limit: number | null | undefined): n
     throw new NotifyAlertsListLimitUnsetError();
   }
   return Math.min(100, n);
+}
+
+export const NOTIFY_ALERT_EXPIRY_MAX_UNSET = 'notify.alert_expiry_max_unset' as const;
+export const NOTIFY_ALERT_TEXT_LIMIT_UNSET = 'notify.alert_text_limit_unset' as const;
+
+/** Owner settings an alert's expiry and text depend on. Blank (null) is never replaced by a default: the create refuses. */
+export type AlertLimits = {
+  /** Furthest an alert may expire, in days from now (`NOTIFY_ALERT_MAX_EXPIRY_DAYS`). */
+  readonly maxExpiryDays: number | null;
+  /** Longest an alert's name or message may be (`NOTIFY_ALERT_TEXT_MAX_LENGTH`). */
+  readonly textMaxLength: number | null;
+};
+
+export const NO_ALERT_LIMITS: AlertLimits = { maxExpiryDays: null, textMaxLength: null };
+
+export type AlertLimitCode =
+  | typeof NOTIFY_ALERT_EXPIRY_MAX_UNSET
+  | typeof NOTIFY_ALERT_TEXT_LIMIT_UNSET
+  | 'alert.expiry_in_past'
+  | 'alert.expiry_too_far'
+  | 'alert.text_too_long'
+  | 'alert.message_placeholder_unknown';
+
+/** A create refused for its expiry or text: a blank owner setting, or a value outside it. Nothing is stored. */
+export class AlertLimitError extends Error {
+  readonly code: AlertLimitCode;
+  constructor(code: AlertLimitCode, detail: string) {
+    super(`${code}: ${detail}`);
+    this.name = 'AlertLimitError';
+    this.code = code;
+  }
+}
+
+const DAY_MS = 86_400_000;
+export const ALERT_PLACEHOLDERS = ['market', 'price', 'condition', 'time'] as const;
+const CONDITION_WORDS: Record<AlertCondition, string> = {
+  crossing: 'crossing',
+  crossing_up: 'crossing up',
+  crossing_down: 'crossing down',
+  greater_than: 'at or above',
+  less_than: 'at or below',
+};
+
+/** Fill the message placeholders. The values are the alert's own facts and the mark that fired it; nothing is invented. */
+export function renderAlertMessage(template: string, alert: PriceAlert, markPrice: string, at: Date): string {
+  const values: Record<(typeof ALERT_PLACEHOLDERS)[number], string> = {
+    market: alert.marketId,
+    price: markPrice,
+    condition: `${CONDITION_WORDS[alert.condition]} ${alert.targetPrice}`,
+    time: at.toISOString(),
+  };
+  return template.replace(/\{([a-z]+)\}/g, (whole, key: string) =>
+    (ALERT_PLACEHOLDERS as readonly string[]).includes(key) ? values[key as keyof typeof values] : whole,
+  );
+}
+
+function assertAlertText(label: 'name' | 'message', text: string | null | undefined, limits: AlertLimits): string | null {
+  if (text === undefined || text === null) return null;
+  const trimmed = text.trim();
+  if (trimmed === '') return null;
+  if (limits.textMaxLength === null) throw new AlertLimitError(NOTIFY_ALERT_TEXT_LIMIT_UNSET, `${label} needs the owner's length setting`);
+  if (trimmed.length > limits.textMaxLength) throw new AlertLimitError('alert.text_too_long', `${label} is over ${limits.textMaxLength}`);
+  if (label === 'message') {
+    for (const m of trimmed.matchAll(/\{([a-z]+)\}/g)) {
+      if (!(ALERT_PLACEHOLDERS as readonly string[]).includes(m[1]!)) {
+        throw new AlertLimitError('alert.message_placeholder_unknown', `{${m[1]}} is not a placeholder`);
+      }
+    }
+  }
+  return trimmed;
+}
+
+function assertAlertExpiry(expiresAt: Date | null | undefined, limits: AlertLimits, now: Date): Date | null {
+  if (expiresAt === undefined || expiresAt === null) return null;
+  if (limits.maxExpiryDays === null) throw new AlertLimitError(NOTIFY_ALERT_EXPIRY_MAX_UNSET, "expiry needs the owner's maximum");
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+    throw new AlertLimitError('alert.expiry_in_past', 'expiry must be in the future');
+  }
+  if (expiresAt.getTime() > now.getTime() + limits.maxExpiryDays * DAY_MS) {
+    throw new AlertLimitError('alert.expiry_too_far', `expiry is more than ${limits.maxExpiryDays} days away`);
+  }
+  return expiresAt;
 }
 
 const FIRE_COPY: Record<
@@ -187,17 +271,22 @@ export class AlertService {
     private readonly marks: MarkSource,
     private readonly notify: NotifyService,
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
+    private readonly limits: AlertLimits = NO_ALERT_LIMITS,
   ) {}
 
-  create(input: Omit<CreatePriceAlertInput, 'targetPrice'> & { readonly targetPrice?: string | null }): Promise<PriceAlert> {
+  async create(
+    input: Omit<CreatePriceAlertInput, 'targetPrice'> & { readonly targetPrice?: string | null },
+    now: Date = new Date(),
+  ): Promise<PriceAlert> {
     const kind = input.kind ?? 'price';
-    if (kind === 'price') {
-      return this.store.create({ ...input, kind, targetPrice: assertRealAlertPrice(input.targetPrice) });
-    }
-    if (typeof input.targetPrice !== 'string') {
+    const targetPrice = kind === 'price' ? assertRealAlertPrice(input.targetPrice) : input.targetPrice;
+    if (typeof targetPrice !== 'string') {
       throw new AlertValidationError('alert.invalid_price', 'targetPrice required');
     }
-    return this.store.create({ ...input, kind, targetPrice: input.targetPrice });
+    const name = assertAlertText('name', input.name, this.limits);
+    const message = assertAlertText('message', input.message, this.limits);
+    const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
+    return this.store.create({ ...input, kind, targetPrice, name, message, expiresAt });
   }
 
   /**
@@ -311,6 +400,7 @@ export class AlertService {
    * proven rather than waiting to be discovered missing.
    */
   async evaluateDueAlerts(at: Date = new Date()): Promise<AlertSweepReport> {
+    await this.store.expireDue(at);
     const markets = await this.store.activeMarkets();
     let fired = 0;
     let held = 0;
@@ -357,6 +447,7 @@ export class AlertService {
    * Fan-out off leaves the watch active for a later pass.
    */
   async evaluateMarket(marketId: string, at: Date = new Date()): Promise<EvaluateMarketReport> {
+    await this.store.expireDue(at);
     const quote = await this.sourcedQuote(marketId, at);
     const whaleQuote = await this.sourcedWhaleQuote(marketId, at);
     const actives = await this.store.listActiveByMarket(marketId);
@@ -384,6 +475,7 @@ export class AlertService {
    * the watch fired — even when the port quotes a last (invented live).
    */
   async evaluateAlert(userId: string, alertId: string, at: Date = new Date()): Promise<EvaluateAlertReport> {
+    await this.store.expireDue(at);
     const alert = await this.store.get(userId, alertId);
     if (!alert) {
       return {
@@ -427,8 +519,13 @@ export class AlertService {
     }
     let notificationId: string | null = null;
 
+    // A crossing watch remembers the side it saw, so the next sweep can tell a real crossing from a level it was already past.
+    if (outcome.kind === 'hold' && outcome.side !== undefined && outcome.side !== alert.lastSide) {
+      await this.store.setLastSide(alert.userId, alert.id, outcome.side);
+    }
+
     if (outcome.kind === 'fire') {
-      const created = await this.fireNotification(alert, outcome.markPrice);
+      const created = await this.fireNotification(alert, outcome.markPrice, at);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
         await this.store.markFired(alert.userId, alert.id, at);
@@ -439,20 +536,24 @@ export class AlertService {
     return { outcome, notificationId };
   }
 
-  private async fireNotification(alert: PriceAlert, markPrice: string): Promise<CreateResult> {
+  private async fireNotification(alert: PriceAlert, markPrice: string, at: Date): Promise<CreateResult> {
     const copy = FIRE_COPY[alert.kind];
     return this.notify.create({
       userId: alert.userId,
       kind: copy.kind,
-      titleKey: copy.titleKey,
-      bodyKey: copy.bodyKey,
+      // The person's own name and message replace the stock copy when they wrote them.
+      titleKey: alert.name ? 'notify.alert.price.crossed.named.title' : copy.titleKey,
+      bodyKey: alert.message ? 'notify.alert.price.crossed.message.body' : copy.bodyKey,
       params: {
         alertId: alert.id,
         alertKind: alert.kind,
         marketId: alert.marketId,
         direction: alert.direction,
+        condition: alert.condition,
         targetPrice: alert.targetPrice,
         markPrice,
+        ...(alert.name ? { name: alert.name } : {}),
+        ...(alert.message ? { message: renderAlertMessage(alert.message, alert, markPrice, at) } : {}),
       },
       href: `/markets/${alert.marketId}`,
       severity: 'action',

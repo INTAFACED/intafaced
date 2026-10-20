@@ -17,6 +17,8 @@ const KEYS = [
   ['notify.alert.funding.crossed.title', 'notify.alert.funding.crossed.body'],
   ['notify.alert.liquidation_proximity.crossed.title', 'notify.alert.liquidation_proximity.crossed.body'],
   ['notify.alert.whale.crossed.title', 'notify.alert.whale.crossed.body'],
+  // The person's own name and message (C-alerts-scan-01).
+  ['notify.alert.price.crossed.named.title', 'notify.alert.price.crossed.message.body'],
 ] as const;
 
 describe('v22.alerts catalog keys pin', () => {
@@ -54,5 +56,9 @@ describe('v22.alerts catalog keys pin', () => {
     expect(whale).toMatch(/Whale-flow/);
     expect(whale).toMatch(/BTC-PERP/);
     expect(whale).not.toMatch(/notify\.alert\.whale/);
+
+    // A named alert shows the person's own words, not the stock sentence and not a key string.
+    expect(t.t('notify.alert.price.crossed.named.title', { name: 'Breakout' })).toBe('Breakout');
+    expect(t.t('notify.alert.price.crossed.message.body', { message: 'BTC-USD hit 101' })).toBe('BTC-USD hit 101');
   });
 });

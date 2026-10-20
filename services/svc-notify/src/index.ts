@@ -268,7 +268,10 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
-const alerts = new AlertService(new PostgresAlertStore(sql), alertMarks, notify, whaleMarks);
+const alerts = new AlertService(new PostgresAlertStore(sql), alertMarks, notify, whaleMarks, {
+  maxExpiryDays: env.NOTIFY_ALERT_MAX_EXPIRY_DAYS ?? null,
+  textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
+});
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;
