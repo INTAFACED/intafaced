@@ -2256,6 +2256,7 @@ export function createPayRouter(
                 attempts: z.number().int(),
                 status: z.enum(WITHDRAWAL_STATUSES),
                 failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+                returned: z.boolean(),
                 createdAt: z.string(),
               }),
             ),

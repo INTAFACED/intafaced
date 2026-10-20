@@ -32,6 +32,8 @@ export interface WithdrawalHistoryItem {
   readonly status: WithdrawalStatus;
   /** Plain words for the failure, or the raw code when it is not one we explain. `null` when nothing failed. */
   readonly failure: { code: string; known: boolean; message: string } | null;
+  /** True when the funds of a sent withdrawal came back from the outside. The balance is not re-credited until the returned-funds recipe exists. */
+  readonly returned: boolean;
   readonly createdAt: string;
 }
 
@@ -52,6 +54,7 @@ interface Row {
   attempts: number;
   failure_code: string | null;
   status: string;
+  returned: boolean;
   created_at: string;
 }
 
@@ -86,7 +89,9 @@ export function createWithdrawalHistory(sql: Sql) {
       const cursor = filter.after ? decodeCursor(filter.after) : null;
       const rows = await sql<Row[]>`
         SELECT id, asset_id, amount::text AS amount, rail, destination, client_ref, rail_ref, attempts, failure_code,
-               status::text AS status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
+               status::text AS status,
+               EXISTS (SELECT 1 FROM pay.withdrawal_returns wr WHERE wr.withdrawal_id = pay.withdrawals.id) AS returned,
+               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
           FROM pay.withdrawals
          WHERE user_id = ${userId}
            AND (${filter.assetId ?? null}::text IS NULL OR asset_id = ${filter.assetId ?? null})
@@ -114,6 +119,7 @@ export function createWithdrawalHistory(sql: Sql) {
           attempts: r.attempts,
           status,
           failure: reason ? { code: reason.code, known: reason.known, message: reason.customer } : null,
+          returned: r.returned,
           createdAt: r.created_at,
         };
       });
