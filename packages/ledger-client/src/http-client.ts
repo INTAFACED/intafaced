@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { formatAmount, parseAmount } from './money.js';
 import { rehydrateLedgerHttpError } from './http-errors.js';
+import { stampPostAttempts } from './post-outcome.js';
 import type { LedgerClient } from './client.js';
 import type { AccountRef, Balance, LedgerTx, PostRequest, PostedEntry } from './types.js';
 
@@ -114,45 +115,58 @@ export function createLedgerTransport(options: HttpLedgerOptions): LedgerTranspo
       if (remainingMs() <= 0) throw await error();
     };
 
-    for (let attempt = 0; ; attempt += 1) {
-      const attemptTimeoutMs = Math.min(timeoutMs, remainingMs());
-      if (attemptTimeoutMs <= 0) throw new Error(`svc-ledger call to ${path} exceeded its ${deadlineMs}ms deadline`);
-      let response: Response;
-      try {
-        const target = `${url}${path}`;
-        response = await doFetch(target, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...options.sign(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
-          },
-          body: payload,
-          // Stays armed while the body is read below.
-          signal: AbortSignal.timeout(attemptTimeoutMs),
-        });
-      } catch (error) {
-        await backoff(attempt, () => error);
-        continue;
-      }
+    // How many attempts had started when the call gave up. Stamped on the thrown error (`POST_ATTEMPTS_FIELD`) so
+    // `classifyPostOutcome` can tell "the only attempt was refused" from "the last of several was".
+    let attempts = 0;
+    try {
+      return await runAttempts();
+    } catch (error) {
+      stampPostAttempts(error, attempts);
+      throw error;
+    }
 
-      if (response.ok) {
+    async function runAttempts(): Promise<T> {
+      for (let attempt = 0; ; attempt += 1) {
+        attempts = attempt + 1;
+        const attemptTimeoutMs = Math.min(timeoutMs, remainingMs());
+        if (attemptTimeoutMs <= 0) throw new Error(`svc-ledger call to ${path} exceeded its ${deadlineMs}ms deadline`);
+        let response: Response;
         try {
-          return (await response.json()) as T;
+          const target = `${url}${path}`;
+          response = await doFetch(target, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              ...options.sign(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
+            },
+            body: payload,
+            // Stays armed while the body is read below.
+            signal: AbortSignal.timeout(attemptTimeoutMs),
+          });
         } catch (error) {
           await backoff(attempt, () => error);
           continue;
         }
-      }
 
-      const detail = await response.text().catch(() => '');
-      const refusal = async () => {
-        // Keep the ledger's own error: 'ledger.insufficient_funds', 'ledger.frozen' and 'ledger.idempotency_conflict' mean
-        // different things to a caller, and "request failed" would make all of them unactionable.
-        const error = rehydrateLedgerHttpError(path, response.status, detail);
-        return options.mapError ? await options.mapError(error, { path, status: response.status, detail, body }) : error;
-      };
-      if (!RETRYABLE_STATUS.has(response.status)) throw await refusal();
-      await backoff(attempt, refusal);
+        if (response.ok) {
+          try {
+            return (await response.json()) as T;
+          } catch (error) {
+            await backoff(attempt, () => error);
+            continue;
+          }
+        }
+
+        const detail = await response.text().catch(() => '');
+        const refusal = async () => {
+          // Keep the ledger's own error: 'ledger.insufficient_funds', 'ledger.frozen' and 'ledger.idempotency_conflict' mean
+          // different things to a caller, and "request failed" would make all of them unactionable.
+          const error = rehydrateLedgerHttpError(path, response.status, detail);
+          return options.mapError ? await options.mapError(error, { path, status: response.status, detail, body }) : error;
+        };
+        if (!RETRYABLE_STATUS.has(response.status)) throw await refusal();
+        await backoff(attempt, refusal);
+      }
     }
   };
 }

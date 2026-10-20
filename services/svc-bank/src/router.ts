@@ -16,7 +16,7 @@ import type { BankServices } from './bank-service.js';
 import type { CardRecord } from './cards/card-service.js';
 import { userFacingBankMessage } from './user-copy.js';
 import { describeAutoInvestPolicy } from './auto-invest/auto-invest-policy.js';
-import { describeBusinessPolicy } from './business/business-policy.js';
+import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-policy.js';
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
@@ -25,7 +25,7 @@ import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
 import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
-import { createActivityRouter } from './activity/activity.router.js';
+import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -92,6 +92,19 @@ const portfolioSummaryOutput = z.object({
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
   asOf: z.number().int(),
   windowStart: z.number().int().nullable(),
+  /** Only when `valueIn` is `btc`. Both fields are null, with a reason, while no BTC price is published. */
+  btc: z
+    .object({
+      total: z.string().nullable(),
+      priceUsd: z.string().nullable(),
+      reason: z.enum(['no_price_published', 'nothing_priced']).nullable(),
+    })
+    .optional(),
+});
+
+const balanceAccountsOutput = z.object({
+  /** Every account the caller can read balances for: `main`, then each named Space. */
+  accounts: z.array(z.object({ accountId: z.string(), walletType: z.enum(['main', 'space']), name: z.string().nullable() })),
 });
 
 const balanceBreakdownOutput = z.object({
@@ -877,6 +890,74 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
   const transfers = router({
     /**
+     * The caller's own transfer history: money sent to or received from another person, and moves between their own
+     * accounts. It is the activity feed narrowed to those kinds, so it has the same sources, paging and ownership
+     * rules and no second list of its own. Every line is a posted ledger entry, so every line is `completed`; a failed
+     * or skipped standing-order run is read with `transfers.executions`.
+     */
+    list: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          .object({
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().min(1).max(16_384).optional(),
+            assetId: z.string().min(1).max(16).optional(),
+            from: z.string().datetime({ offset: true }).optional(),
+            to: z.string().datetime({ offset: true }).optional(),
+          })
+          .strict()
+          .optional(),
+      )
+      .output(
+        z.object({
+          items: z.array(
+            z.object({
+              id: z.string(),
+              txId: z.string(),
+              kind: z.enum(['transfer_in', 'transfer_out', 'space_move']),
+              direction: z.enum(['in', 'out']),
+              asset: z.string(),
+              amount: amountString,
+              postedAt: z.string().datetime(),
+              status: z.literal('completed'),
+              counterparty: z.object({ handle: z.string() }).nullable(),
+              spaceName: z.string().nullable(),
+              note: z.string().optional(),
+              reference: z.string().optional(),
+            }),
+          ),
+          nextCursor: z.string().nullable(),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          const page = await bank.activity.list(ctx.principal.userId, {
+            ...input,
+            kind: ['transfer_in', 'transfer_out', 'space_move'],
+          });
+          return {
+            items: page.items.map((item) => ({
+              id: item.id,
+              txId: item.txId,
+              kind: item.kind as 'transfer_in' | 'transfer_out' | 'space_move',
+              direction: item.direction,
+              asset: item.asset,
+              amount: item.amount,
+              postedAt: item.postedAt,
+              status: 'completed' as const,
+              counterparty: item.counterparty,
+              spaceName: item.spaceName,
+              ...(item.note ? { note: item.note } : {}),
+              ...(item.reference ? { reference: item.reference } : {}),
+            })),
+            nextCursor: page.nextCursor,
+          };
+        } catch (err) {
+          activityFailure(err);
+        }
+      }),
+
+    /**
      * `transferId` is supplied by the client so a retried request is the same
      * transfer, not a second one (§5: idempotency keys are business keys).
      */
@@ -1512,12 +1593,22 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    */
   const portfolio = router({
     summary: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z
+          // Not strict: a smuggled owner id is stripped here, as it always was (portfolio.router.test.ts).
+          .object({ assetId: z.string().min(1).max(16).optional(), valueIn: z.enum(['usd', 'btc']).optional() })
+          .optional(),
+      )
       .output(portfolioSummaryOutput)
-      .query(async ({ ctx }) => guard(async () => bank.portfolio.summary(ctx.principal.userId))),
+      .query(async ({ ctx, input }) => guard(async () => bank.portfolio.summary(ctx.principal.userId, input ?? {}))),
     /** The priced holdings by asset class and by available / locked (PF-balances-02). Same prices and refusals as `summary`. */
     allocation: scopedProcedure('bank:read', { module: 'bank' })
       .output(allocationOutput)
       .query(async ({ ctx }) => guard(async () => bank.portfolio.allocation(ctx.principal.userId))),
+    /** The wallet selector: `main` and each named Space the caller can narrow `balanceBreakdown` to. */
+    balanceAccounts: scopedProcedure('bank:read', { module: 'bank' })
+      .output(balanceAccountsOutput)
+      .query(async ({ ctx }) => guard(async () => bank.portfolio.accounts(ctx.principal.userId))),
     /**
      * Each asset split into spendable and every lock kind with the claim behind it (PF-balances-01). Read-only, self-only,
      * ledger reads only; the parts add up to the total exactly.
@@ -1525,12 +1616,24 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     balanceBreakdown: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z
-          .object({ scope: z.enum(['all', 'main']).optional() })
+          .object({
+            scope: z.enum(['all', 'main']).optional(),
+            /** `main` or the id of one named Space. Wins over `scope`. */
+            accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+            assetId: z.string().min(1).max(16).optional(),
+          })
           .strict()
           .optional(),
       )
       .output(balanceBreakdownOutput)
-      .query(async ({ ctx, input }) => guard(async () => bank.portfolio.balanceBreakdown(ctx.principal.userId, input?.scope ?? 'all'))),
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.portfolio.balanceBreakdown(ctx.principal.userId, input?.scope ?? 'all', {
+            ...(input?.accountId === undefined ? {} : { accountId: input.accountId }),
+            ...(input?.assetId === undefined ? {} : { assetId: input.assetId }),
+          }),
+        ),
+      ),
   });
 
   /**
@@ -3773,11 +3876,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           accountId: z.string().uuid(),
           userId: z.string().min(1),
-          role: z.enum(['admin', 'maker', 'checker']),
+          role: z.enum(BUSINESS_ROLES),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           if (stepUpEnforced) {
@@ -3970,7 +4073,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
             z.object({
               accountId: z.string(),
               userId: z.string(),
-              role: z.enum(['admin', 'maker', 'checker']),
+              role: z.enum(BUSINESS_ROLES),
               handle: z.string(),
             }),
           ),
@@ -4039,12 +4142,12 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           accountId: z.string().uuid(),
           userId: z.string().min(1),
-          role: z.enum(['admin', 'maker', 'checker']),
+          role: z.enum(BUSINESS_ROLES),
           requestId: z.string().uuid(),
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ accountId: z.string(), userId: z.string(), role: z.enum(BUSINESS_ROLES) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           if (stepUpEnforced) {
@@ -4281,7 +4384,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      */
     myRole: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ accountId: z.string().uuid() }))
-      .output(z.object({ role: z.enum(['admin', 'maker', 'checker']) }))
+      .output(z.object({ role: z.enum(BUSINESS_ROLES) }))
       .query(async ({ ctx, input }) => guard(async () => ({ role: await bank.business.myRole(input.accountId, ctx.principal.userId) }))),
 
     runPayroll: scopedProcedure('bank:write', { module: 'bank' })

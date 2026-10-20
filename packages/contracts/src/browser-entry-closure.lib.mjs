@@ -11,7 +11,7 @@ import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const ts = require('typescript');
+const ts = require('@typescript/typescript6');
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = resolve(scriptDir, '../../..');

@@ -11,6 +11,8 @@ import { formatAmount, MemoryLedger, parseAmount as amt, recipes, userAvailable,
 import { installTrailingStopPlace } from './trailing-stop-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import type { Market } from './types.js';
+import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
+import { MatchingNoBookError, MatchingUnavailableError } from './matching-client.js';
 
 installTrailingStopPlace(TradeService);
 
@@ -197,6 +199,79 @@ describe('svc-trade trailing-stop-place (H8a PG-hard)', () => {
       expect(order.rejectCode).toBe('missing_trail');
       expect(await heldFor(ALICE, 'BTC', order.id)).toBe('0');
       expect(await avail(ALICE, 'BTC')).toBe('20');
+    });
+
+    describe('with a server mark source', () => {
+      const SELL = (clientOrderId: string, extra: Record<string, unknown> = {}) =>
+        ({
+          marketId: btcusdt.id,
+          side: 'sell',
+          type: 'limit',
+          qty: amt('10'),
+          price: amt('100'),
+          clientOrderId,
+          trail: amt('5'),
+          ...extra,
+        }) as Parameters<TradeService['placeOrder']>[1];
+
+      function withSource(quote: () => Promise<{ price: ReturnType<typeof amt> } | null>): TradeService {
+        const source = { quote: async () => quote() } as unknown as QuotedMarkSource;
+        return new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
+          feeSchedule: PUBLISHED_TEST_FEE_SCHEDULE,
+          marketLifecycle: READY_MARKET_LIFECYCLE,
+          spotEnabled: true,
+          marketSlippageCapBps: 200,
+          trailingMarkSource: source,
+        });
+      }
+
+      it('starts the stop from the server mark and drops a mark the caller sent', async () => {
+        await fund(ALICE, 'BTC', '20');
+        const svc = withSource(async () => ({ price: amt('250') }));
+        const order = await svc.placeOrder(principalFor(ALICE), SELL('ts-server', { mark: amt('1') }));
+        expect(order.status).toBe('open');
+        expect(matching.submitted[0]?.request.mark).toBe('250');
+        expect(matching.submitted[0]?.request.trail).toBe('5');
+        expect(await heldFor(ALICE, 'BTC', order.id)).toBe('10');
+      });
+
+      it('no usable mark refuses trade.missing_mark — no submit, no hold', async () => {
+        await fund(ALICE, 'BTC', '20');
+        const svc = withSource(async () => null);
+        await expect(svc.placeOrder(principalFor(ALICE), SELL('ts-nomark2', { mark: amt('100') }))).rejects.toMatchObject({
+          code: 'trade.missing_mark',
+        });
+        expect(matching.submitted).toHaveLength(0);
+        expect(postsWithReason('order.hold')).toHaveLength(0);
+      });
+
+      it('a market with no book yet has no mark and refuses trade.missing_mark', async () => {
+        await fund(ALICE, 'BTC', '20');
+        const svc = withSource(async () => {
+          throw new MatchingNoBookError('probe');
+        });
+        await expect(svc.placeOrder(principalFor(ALICE), SELL('ts-nobook'))).rejects.toMatchObject({ code: 'trade.missing_mark' });
+        expect(matching.submitted).toHaveLength(0);
+      });
+
+      it('a buy trailing stop is not available until the funding hold exists — no hold', async () => {
+        await fund(ALICE, 'USDT', '5000');
+        const svc = withSource(async () => ({ price: amt('250') }));
+        await expect(svc.placeOrder(principalFor(ALICE), SELL('ts-buy', { side: 'buy' }))).rejects.toMatchObject({
+          code: 'trade.order_type_unsupported',
+        });
+        expect(matching.submitted).toHaveLength(0);
+        expect(postsWithReason('order.hold')).toHaveLength(0);
+      });
+
+      it('an unreachable engine surfaces as itself, not as a missing mark', async () => {
+        await fund(ALICE, 'BTC', '20');
+        const svc = withSource(async () => {
+          throw new MatchingUnavailableError('down');
+        });
+        await expect(svc.placeOrder(principalFor(ALICE), SELL('ts-down'))).rejects.toBeInstanceOf(MatchingUnavailableError);
+        expect(matching.submitted).toHaveLength(0);
+      });
     });
 
     it('plain GTC does not set trail or mark on the request', async () => {

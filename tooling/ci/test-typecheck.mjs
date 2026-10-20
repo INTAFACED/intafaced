@@ -130,12 +130,12 @@ const PINNED = {
   'services/svc-academy': [
     [
       2,
-      "src/certs/xp-emit.test.ts | TS2345 | Argument of type '{ userId: string; certId: string; xpDelta: string; idempotencyKey: string; }' is not assignable to parameter of type 'XpEarnedIntent'.",
+      "src/certs/xp-emit.test.ts | TS2741 | Property 'source' is missing in type '{ userId: string; certId: string; xpDelta: string; idempotencyKey: string; }' but required in type 'XpEarnedIntent'.",
     ],
     // bulk-score.test seasonId-required pins retired after calendar-gate type tighten (W6 L02).
     [
       3,
-      "src/tournaments/season-lifecycle.test.ts | TS2322 | Type 'SeasonRecord' is not assignable to type '{ status: \"scheduled\"; id: string; slug: string; title: string; rulesSummary: string; startsAt: Date; endsAt: null; }'.",
+      "src/tournaments/season-lifecycle.test.ts | TS2322 | Type 'SeasonRecord' is not assignable to type '{ id: string; slug: string; title: string; rulesSummary: string; startsAt: Date; endsAt: null; status: 'scheduled'; }'.",
     ],
   ],
 
@@ -143,9 +143,9 @@ const PINNED = {
   'services/svc-agents': [
     [
       2,
-      'src/crew-events.test.ts | TS2345 | Argument of type \'{ crewId: string; userId: string; role: string; crewSize: number; matchRunId: string; }\' is not assignable to parameter of type \'{ userId: string; crewId: string; role: "anchor" | "scout" | "builder" | "catalyst"; crewSize: number; matchRunId: string; }\'.',
+      'src/crew-events.test.ts | TS2345 | Argument of type \'{ crewId: string; userId: string; role: string; crewSize: number; matchRunId: string; }\' is not assignable to parameter of type \'{ crewId: string; userId: string; role: "anchor" | "builder" | "catalyst" | "scout"; crewSize: number; matchRunId: string; }\'.',
     ],
-    [3, "src/providers/providers.test.ts | TS2339 | Property 'message' does not exist on type 'ProviderError | CompletionResult'."],
+    [3, "src/providers/providers.test.ts | TS2339 | Property 'message' does not exist on type 'CompletionResult | ProviderError'."],
   ],
 
   // 1 — services/svc-bank
@@ -214,11 +214,7 @@ const PINNED = {
     [1, "src/ledger-client.test.ts | TS2552 | Cannot find name 'RequestInfo'. Did you mean 'RequestInit'?"],
     [4, "src/rails/posture.test.ts | TS2339 | Property 'message' does not exist on type 'Error | { txHash: string; }'."],
     [
-      1,
-      "src/rails/rails.test.ts | TS2345 | Argument of type '{ id: string; capabilities: readonly [\"authorize\"]; health: () => { healthy: boolean; latencyMs: number; lastUpdate: Date; }; authorize: (p: PaymentIntent) => Promise<RailResult>; capture: (ref: string) => Promise<RailResult>; refund: (ref: string, amount: Amount) => Promise<RailResult>; payout: (s: SettlementInstru...' is not assignable to parameter of type 'RailAdapter'.",
-    ],
-    [
-      1,
+      2,
       "src/rails/rails.test.ts | TS2741 | Property 'mode' is missing in type '{ id: string; capabilities: readonly [\"authorize\"]; health: () => { healthy: boolean; latencyMs: number; lastUpdate: Date; }; authorize: (p: PaymentIntent) => Promise<RailResult>; capture: (ref: string) => Promise<RailResult>; refund: (ref: string, amount: Amount) => Promise<RailResult>; payout: (s: SettlementInstru...' but required in type 'RailAdapter'.",
     ],
     [

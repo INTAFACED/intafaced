@@ -1026,20 +1026,23 @@ describe('recipes — the money paths', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('futures realize profit: house fees pot pays user available (close stack)', async () => {
+  it('futures realize profit: the loser pays into the clearing pot and the winner is paid from it', async () => {
     await fund(USER_A, 'USDT', '1000');
     await fund(USER_B, 'USDT', '100');
-    // Seed house fees so profit has a counterpart (no invent).
+    // Matched trade: B is the loser on the other side of A's win.
+    await ledger.post(recipes.futuresMarginLock({ positionId: 'pos-lose', userId: USER_B, assetId: 'USDT', amount: amt('50') }));
     await ledger.post(
-      recipes.feeCharge({
-        chargeId: 'pnl-seed',
+      recipes.futuresRealizeLoss({
+        positionId: 'pos-lose',
         userId: USER_B,
-        module: 'trade',
-        mode: 'asset',
         assetId: 'USDT',
-        amount: amt('100'),
+        fromMargin: amt('40'),
+        fromInsurance: 0n,
+        lossId: 'close-lose-1',
       }),
     );
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('40');
+
     await ledger.post(recipes.futuresMarginLock({ positionId: 'pos-win', userId: USER_A, assetId: 'USDT', amount: amt('200') }));
     await ledger.post(
       recipes.futuresRealizeProfit({
@@ -1052,7 +1055,9 @@ describe('recipes — the money paths', () => {
     );
     // 1000 - 200 margin + 40 profit = 840 available
     expect(await balanceOf(USER_A, 'USDT')).toBe('840');
-    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('60');
+    expect(formatAmount((await ledger.balance(futuresLossSink('USDT'))).amount)).toBe('0');
+    // House trade fees never pay a winner.
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('0');
     // residual margin still locked until release
     expect(formatAmount((await ledger.balance(positionCollateralAccount(USER_A, 'USDT', 'pos-win'))).amount)).toBe('200');
     await ledger.post(
@@ -1065,6 +1070,29 @@ describe('recipes — the money paths', () => {
       }),
     );
     expect(await balanceOf(USER_A, 'USDT')).toBe('1040');
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('futures realize profit: an empty clearing pot refuses even when house trade fees hold money', async () => {
+    await fund(USER_A, 'USDT', '1000');
+    await fund(USER_B, 'USDT', '100');
+    await ledger.post(
+      recipes.feeCharge({ chargeId: 'fees-only', userId: USER_B, module: 'trade', mode: 'asset', assetId: 'USDT', amount: amt('100') }),
+    );
+    await expect(
+      ledger.post(
+        recipes.futuresRealizeProfit({
+          positionId: 'pos-win',
+          userId: USER_A,
+          assetId: 'USDT',
+          amount: amt('40'),
+          profitId: 'close-win-empty',
+        }),
+      ),
+    ).rejects.toBeInstanceOf(InsufficientFundsError);
+    expect(await balanceOf(USER_A, 'USDT')).toBe('1000');
+    expect(formatAmount((await ledger.balance(houseFees('trade', 'USDT'))).amount)).toBe('100');
+    expect(await ledger.getTxByKey('futures.profit:close-win-empty')).toBeNull();
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 

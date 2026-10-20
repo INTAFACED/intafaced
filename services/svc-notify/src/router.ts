@@ -33,9 +33,11 @@ import {
   type PriceAlert,
 } from './alerts/types.js';
 import { describeChannelsPolicy } from './channels-policy.js';
+import { BLANK_INBOX_SETTINGS, describeInboxPolicy, type InboxSettings } from './inbox-policy.js';
 import { describeAlertsPolicy } from './alerts-policy.js';
 import { UNWIRED_VENUE_INCIDENT, resolveVenueIncident, venueIncidentOutput, type VenueIncidentLoader } from './venue-incident-truth.js';
 import { PreferenceError } from './preferences/account.js';
+import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
@@ -186,6 +188,7 @@ function deliveryToWire(d: DeliveryRecord) {
 function typedRefusal(err: unknown): never {
   if (
     err instanceof PreferenceError ||
+    err instanceof CategoryPrefError ||
     err instanceof QuietHoursError ||
     err instanceof RecentDeliveriesError ||
     err instanceof NoticeError
@@ -200,6 +203,20 @@ const topicPrefOutput = z.object({
   channel: channelSchema,
   enabled: z.boolean(),
   configured: z.boolean(),
+});
+
+const categoryPrefRowOutput = z.object({
+  category: z.enum(['security', 'orders', 'price_alerts', 'promotions', 'news', 'status']),
+  channel: z.enum(['email', 'push', 'sms', 'in_app']),
+  enabled: z.boolean(),
+  locked: z.boolean(),
+  configured: z.boolean(),
+  notConnected: z.enum(['vendor.email', 'vendor.push', 'vendor.sms']).nullable(),
+});
+
+const categoryPrefResultOutput = z.object({
+  rows: z.array(categoryPrefRowOutput),
+  locked: z.boolean(),
 });
 
 const digestOutput = z.object({
@@ -374,6 +391,7 @@ export function createNotifyRouter(
   alerts?: AlertService,
   loadVenueIncident?: VenueIncidentLoader,
   guests?: GuestNotificationService,
+  inbox: InboxSettings = BLANK_INBOX_SETTINGS,
 ) {
   return router({
     guestNotifications: guestNotificationsRouter(guests),
@@ -471,6 +489,12 @@ export function createNotifyRouter(
        * reflect runtime mark wiring; use `alerts` / `evaluateAlert` for that.
        */
       alertsPolicy: publicProcedure.query(() => describeAlertsPolicy()),
+
+      /**
+       * Notification centre owner values — page size, unread cap, retention.
+       * Blank values report unset with their typed code; nothing is defaulted.
+       */
+      inboxPolicy: publicProcedure.query(() => describeInboxPolicy(inbox)),
 
       /**
        * Public announcement. Real content is not published here.
@@ -763,6 +787,38 @@ export function createNotifyRouter(
           if (!notify.account) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
           try {
             return [...(await notify.account.setTopicPref(ctx.principal.userId, input))];
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * The category-by-channel grid. `security` and the inbox are locked on.
+       * `notConnected` names the delivery vendor a switched-off channel is missing.
+       */
+      categoryPrefs: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.array(categoryPrefRowOutput))
+        .query(async ({ ctx }) => {
+          if (!notify.categories) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          return [...(await notify.categories.rows(ctx.principal.userId))];
+        }),
+
+      /** A write to a locked cell stores nothing and answers `locked: true`. */
+      setCategoryPref: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            category: z.string().min(1).max(32),
+            channel: z.string().min(1).max(16),
+            enabled: z.boolean(),
+            clientRequestId: z.string().min(1).max(128),
+          }),
+        )
+        .output(categoryPrefResultOutput)
+        .mutation(async ({ ctx, input }) => {
+          if (!notify.categories) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.preferences_unavailable' });
+          try {
+            const out = await notify.categories.set(ctx.principal.userId, input);
+            return { rows: [...out.rows], locked: out.locked };
           } catch (err) {
             typedRefusal(err);
           }
