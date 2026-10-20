@@ -25,6 +25,8 @@ export const LEDGER_DOOR_CALLERS = {
   historyPage: READERS,
   /** svc-ops reads fee revenue for the venue report and calls no other door. */
   feeRevenue: ['svc-ops'],
+  /** svc-ops reads the chain tip for the joint restore and calls no other door. */
+  restoreWatermark: ['svc-ops'],
   portfolio: [],
   statementPnl: [],
   reportExport: [],
