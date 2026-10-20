@@ -16,6 +16,7 @@ describe('oauth redirect URLs', () => {
   it('accepts an exact HTTPS address', () => {
     expect(oauthRedirectUrlProblem('https://app.example.test/callback')).toBeNull();
     expect(oauthRedirectUrlProblem('https://app.example.test/callback?tenant=a')).toBeNull();
+    expect(oauthRedirectUrlProblem('https://app.example.test:8443/callback')).toBeNull();
   });
 
   it('refuses http, wildcards, fragments, credentials, relative and empty values', () => {
@@ -28,6 +29,24 @@ describe('oauth redirect URLs', () => {
       '/callback',
       'javascript:alert(1)',
       '',
+      'https://\uff0a.example.test/cb',
+      'HTTPS://app.example.test/cb',
+      'https:\\\\app.example.test\\cb',
+      'https:/app.example.test/cb',
+      'https:app.example.test/cb',
+      'https:///app.example.test/cb',
+      ' https://app.example.test/cb',
+      'https://app.example.test/cb ',
+      'https://app.example.test/c\nb',
+      'https://app.exa\tmple.test/cb',
+      'https://app.example.test/cb\r\nX: y',
+      'https://@app.example.test/cb',
+      'https://:@app.example.test/cb',
+      'https://%61pp.example.test/cb',
+      'https://0x7f.1/cb',
+      'https://App.Example.test/cb',
+      'https://app.example.test:443/cb',
+      'https://app.exämple.test/cb',
     ]) {
       expect(oauthRedirectUrlProblem(bad), bad).toBe('oauth.redirect_url_invalid');
     }
@@ -47,6 +66,7 @@ describe('oauth registration input', () => {
     expect(oauthRegisterAppInputSchema.safeParse(base).success).toBe(true);
     expect(oauthRegisterAppInputSchema.safeParse({ ...base, extra: 1 }).success).toBe(false);
     expect(oauthRegisterAppInputSchema.safeParse({ ...base, scopes: [] }).success).toBe(false);
+    expect(oauthRegisterAppInputSchema.safeParse({ ...base, scopes: ['trade:read trade:write'] }).success).toBe(false);
     expect(oauthRegisterAppInputSchema.safeParse({ ...base, redirectUrls: ['http://app.example.test/cb'] }).success).toBe(false);
     expect(oauthRegisterAppInputSchema.safeParse({ ...base, redirectUrls: [] }).success).toBe(false);
   });
@@ -84,6 +104,7 @@ describe('oauth authorise and token shapes', () => {
     expect(OAUTH_VERIFIER_PATTERN.test('a'.repeat(129))).toBe(false);
     expect(OAUTH_VERIFIER_PATTERN.test(`${'a'.repeat(42)}!`)).toBe(false);
     expect(OAUTH_VERIFIER_PATTERN.test(`${'a'.repeat(42)} `)).toBe(false);
+    expect(OAUTH_VERIFIER_PATTERN.test(`${'a'.repeat(43)}\n`)).toBe(false);
   });
 
   it('accepts only the authorization_code grant', () => {

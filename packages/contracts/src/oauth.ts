@@ -75,18 +75,29 @@ export const OAUTH_VERIFIER_PATTERN = /^[A-Za-z0-9\-._~]{43,128}$/;
 /** An S256 challenge is the unpadded base64url of 32 bytes. */
 export const OAUTH_CHALLENGE_PATTERN = /^[A-Za-z0-9\-_]{43}$/;
 
-/** `null` when the URL is acceptable, else why it is not. */
+/** No whitespace, backslash or control characters anywhere, and a lowercase `https://` start. */
+const RAW_HTTPS_URL = /^https:\/\/[^\s\\\u0000-\u001f\u007f-\u009f]+$/;
+
+/**
+ * `null` when the URL is acceptable, else why it is not. The raw string is what gets stored and compared, so it must
+ * already be the canonical form: the authority is plain lowercase ASCII, equal to what the URL parser makes of it.
+ * That refuses a wildcard (also a full-width one), userinfo in any form, percent-encoded or numeric hosts,
+ * a default port written out, and anything the parser would quietly tidy.
+ */
 export function oauthRedirectUrlProblem(value: string): 'oauth.redirect_url_invalid' | null {
   if (value.length === 0 || value.length > OAUTH_REDIRECT_URL_MAX || value.includes('*') || value.includes('#')) {
     return 'oauth.redirect_url_invalid';
   }
+  if (!RAW_HTTPS_URL.test(value)) return 'oauth.redirect_url_invalid';
+  const authority = value.slice('https://'.length).split(/[/?]/)[0] ?? '';
+  if (!/^[a-z0-9.\-[\]:]+$/.test(authority)) return 'oauth.redirect_url_invalid';
   let url: URL;
   try {
     url = new URL(value);
   } catch {
     return 'oauth.redirect_url_invalid';
   }
-  if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.hostname === '') return 'oauth.redirect_url_invalid';
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash || url.host !== authority) return 'oauth.redirect_url_invalid';
   return null;
 }
 
@@ -100,6 +111,12 @@ const redirectUrl = z
   .max(OAUTH_REDIRECT_URL_MAX)
   .refine((value) => oauthRedirectUrlProblem(value) === null, 'oauth.redirect_url_invalid');
 
+/** `<module>:<action>`, the shape of every platform scope. No space, so a scope list cannot be smuggled in one entry. */
+export const oauthScopeSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9_-]+:[a-z0-9_-]+$/);
+
 export const oauthAppNameSchema = z.string().trim().min(2).max(80);
 
 export const oauthRegisterAppInputSchema = z
@@ -108,7 +125,7 @@ export const oauthRegisterAppInputSchema = z
     description: z.string().trim().max(500).optional(),
     logoUrl: redirectUrl.optional(),
     redirectUrls: z.array(redirectUrl).min(1).max(OAUTH_REDIRECT_URLS_MAX),
-    scopes: z.array(z.string().min(1).max(64)).min(1).max(40),
+    scopes: z.array(oauthScopeSchema).min(1).max(40),
     /** A confidential app (a server) gets a client secret; a public app (a browser or native app) relies on PKCE alone. */
     confidential: z.boolean(),
     requestId: z.string().min(1).max(200),
@@ -154,7 +171,7 @@ export const oauthAuthorizeRequestSchema = z
     responseType: z.literal('code'),
     clientId: z.string().min(1).max(100),
     redirectUri: z.string().min(1).max(OAUTH_REDIRECT_URL_MAX),
-    scope: z.array(z.string().min(1).max(64)).min(1).max(40),
+    scope: z.array(oauthScopeSchema).min(1).max(40),
     state: z.string().min(1).max(OAUTH_STATE_MAX),
     codeChallenge: z.string().regex(OAUTH_CHALLENGE_PATTERN),
     codeChallengeMethod: z.literal('S256'),
