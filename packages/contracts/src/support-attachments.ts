@@ -126,6 +126,11 @@ export const supportAttachmentSchema = z
     contentType: z.string().min(1),
     byteLength: z.number().int().nonnegative(),
     scanState: supportAttachmentScanStateSchema,
+    /**
+     * The operator who added the file on the request, or `null` when its owner did. The file belongs to the request either way.
+     * A service that predates the field answers without it, which reads as `null`.
+     */
+    uploadedBy: z.string().uuid().nullable().default(null),
     createdAt: z.string().datetime(),
   })
   .strict();

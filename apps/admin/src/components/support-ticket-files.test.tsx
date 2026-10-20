@@ -11,6 +11,7 @@ const file = (over: Partial<TicketFile> = {}): TicketFile => ({
   contentType: 'image/png',
   byteLength: 2048,
   scanState: 'clean',
+  uploadedBy: null,
   createdAt: '2026-10-20T10:00:00.000Z',
   ...over,
 });

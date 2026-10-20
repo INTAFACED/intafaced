@@ -44,15 +44,24 @@ export function readTicketFiles(raw: unknown): TicketFile[] | null {
   if (!Array.isArray(raw)) return null;
   const out: TicketFile[] = [];
   for (const row of raw) {
-    if (!isRecord(row) || Object.keys(row).sort().join(',') !== 'byteLength,contentType,createdAt,id,ownerId,scanState,ticketId')
+    // `uploadedBy` is absent from a service that predates it, which reads as the owner's own upload.
+    if (
+      !isRecord(row) ||
+      Object.keys(row)
+        .filter((k) => k !== 'uploadedBy')
+        .sort()
+        .join(',') !== 'byteLength,contentType,createdAt,id,ownerId,scanState,ticketId'
+    )
       return null;
     const { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt } = row;
+    const uploadedBy = row.uploadedBy ?? null;
     if (!isFileId(id) || !isFileId(ticketId) || !isFileId(ownerId)) return null;
+    if (!(uploadedBy === null || isFileId(uploadedBy))) return null;
     if (typeof contentType !== 'string' || contentType === '') return null;
     if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 0) return null;
     if (typeof scanState !== 'string' || !STATES.includes(scanState)) return null;
     if (typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))) return null;
-    out.push({ id, ticketId, ownerId, contentType, byteLength, scanState: scanState as SupportAttachmentScanState, createdAt });
+    out.push({ id, ticketId, ownerId, contentType, byteLength, scanState: scanState as SupportAttachmentScanState, uploadedBy, createdAt });
   }
   return out;
 }
