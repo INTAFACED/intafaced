@@ -701,11 +701,16 @@ describe('personal bill pay and global send', () => {
     const space2 = await funded(blocked.bank, blocked.ledger);
     const me2 = caller(blocked.bank, USER, write);
     const saved2 = await me2.global.recipients.add({ idempotencyKey: 'recip-pc-02', name: 'Ada', account: '123456789', country: 'DE' });
-    const refused = await me2.global
+    const refused: { message: string; cause: { code: string } } = await me2.global
       .send({ ...sendBody, idempotencyKey: 'send-pc-02', amount: '10', fromSpaceId: space2.id, recipientId: saved2.id })
-      .catch((err: { message: string; cause: { code: string } }) => err);
+      .then(
+        () => {
+          throw new Error('the send should have been refused');
+        },
+        (err: { message: string; cause: { code: string } }) => err,
+      );
     expect(refused).toMatchObject({ cause: { code: 'bank.payee_blocked' } });
-    expect(JSON.stringify(refused.message)).not.toMatch(/123456789|1234 56789|blockedAccounts/);
+    expect(refused.message).not.toMatch(/123456789|1234 56789|blockedAccounts/);
     expect(transfers(blocked.ledger)).toHaveLength(0);
     const desk2 = await caller(blocked.bank, OP_A, compliance).global.ops.controls();
     expect(desk2.payeeControls).toEqual({ state: 'published', blockedCount: 1 });
