@@ -198,6 +198,15 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner-published lifetime of a social sign-in flow, in seconds. Blank / unset →
+       * unpublished; a start refuses (`identity.social_flow_ttl_unset`). Never git-default.
+       */
+      IDENTITY_SOCIAL_FLOW_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(3600).optional()),
+      /**
        * Owner-published display currencies, comma-separated codes. Blank / unset →
        * nothing is listed: an account can only keep "no choice" (USD is shown) and the
        * display page says the list is not set. Malformed → fail boot.

@@ -88,10 +88,14 @@ function mapError(err: unknown): never {
     if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
       throw new TRPCError({ code: 'FORBIDDEN', message });
     }
-    if (err.code === 'support.idempotency_conflict') {
+    if (
+      err.code === 'support.idempotency_conflict' ||
+      err.code === 'support.group_member_duplicate' ||
+      err.code === 'support.group_name_taken'
+    ) {
       throw new TRPCError({ code: 'CONFLICT', message });
     }
-    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found') {
+    if (err.code === 'support.release.not_found' || err.code === 'support.assign.not_found' || err.code === 'support.group_unknown') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
     }
     throw new TRPCError({ code: 'BAD_REQUEST', message });
@@ -99,7 +103,23 @@ function mapError(err: unknown): never {
   throw err;
 }
 
-export function createSupportRouter(support: SupportService, loop?: TicketKbLoopObserver, internalServiceSecret?: string | null) {
+const deskGroupSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  memberIds: z.array(z.string()),
+});
+
+/** Desk scope for the doors that page the whole queue. Left out, every operator sees the queue. */
+export type DeskScopeReader = Pick<SupportService, 'deskIsRestricted' | 'listAllTicketsInScope'>;
+
+export function createSupportRouter(
+  support: SupportService,
+  loop?: TicketKbLoopObserver,
+  internalServiceSecret?: string | null,
+  scope?: DeskScopeReader,
+) {
   return router({
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -160,6 +180,9 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
+          if (scope && (await scope.deskIsRestricted())) {
+            return await scope.listAllTicketsInScope({ limit: input?.limit, viewerId: ctx.principal!.userId });
+          }
           return await support.listAllTickets({ limit: input?.limit });
         } catch (err) {
           mapError(err);
@@ -488,7 +511,10 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          const q = await support.listOperatorQueue({ limit: input?.limit });
+          const q =
+            scope && (await scope.deskIsRestricted())
+              ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
+              : await support.listOperatorQueue({ limit: input?.limit });
           if (q.status === 'empty') return q;
           return { status: 'ok' as const, entries: [...q.entries] };
         } catch (err) {
@@ -501,7 +527,7 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
       .output(queueEntrySchema.nullable())
       .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return support.peekNext();
+        return support.peekNext(ctx.principal!.userId);
       }),
 
     /**
@@ -762,7 +788,7 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
       )
       .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return support.queueMetrics();
+        return support.queueMetrics(ctx.principal!.userId);
       }),
 
     staffList: scopedProcedure('support:ops')
@@ -838,6 +864,83 @@ export function createSupportRouter(support: SupportService, loop?: TicketKbLoop
         try {
           requireSupportOps(ctx.principal!);
           return await support.appointStaff({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** What the queue header says: whether scope is restricted, and the groups this caller sees. */
+    deskScope: scopedProcedure('support:ops')
+      .output(
+        z.object({
+          restricted: z.boolean(),
+          groups: z.array(z.object({ id: z.string(), name: z.string() })),
+          seesAllGroups: z.boolean(),
+        }),
+      )
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.deskScopeSummary(ctx.principal!.userId);
+      }),
+
+    groupsList: scopedProcedure('support:ops')
+      .output(deskGroupSchema.array())
+      .query(async ({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.listGroups();
+      }),
+
+    /** A lead creates a group, or renames one when groupId is given. */
+    groupsSave: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          groupId: z.string().uuid().optional(),
+          name: z.string().trim().min(1).max(80),
+          idempotencyKey: z.string().min(8).max(200),
+        }),
+      )
+      .output(deskGroupSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.saveGroup({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    groupsAddMember: scopedProcedure('support:ops')
+      .input(z.object({ groupId: z.string().uuid(), userId: z.string().uuid() }))
+      .output(deskGroupSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.addGroupMember({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    groupsRemoveMember: scopedProcedure('support:ops')
+      .input(z.object({ groupId: z.string().uuid(), userId: z.string().uuid() }))
+      .output(deskGroupSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.removeGroupMember({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** A lead places a ticket in a group, or takes it out with groupId null. */
+    ticketSetGroup: scopedProcedure('support:ops')
+      .input(z.object({ ticketId: z.string().uuid(), groupId: z.string().uuid().nullable() }))
+      .output(z.object({ ticketId: z.string(), groupId: z.string().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

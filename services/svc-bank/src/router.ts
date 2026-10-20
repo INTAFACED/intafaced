@@ -488,6 +488,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
+      case 'bank.fx_rate_unset':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
       case 'bank.recipient_check_unset':
@@ -1616,7 +1617,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .input(
         z
           // Not strict: a smuggled owner id is stripped here, as it always was (portfolio.router.test.ts).
-          .object({ assetId: z.string().min(1).max(16).optional(), valueIn: z.enum(['usd', 'btc']).optional() })
+          .object({
+            assetId: z.string().min(1).max(16).optional(),
+            valueIn: z.enum(['usd', 'btc']).optional(),
+            /** The customer's display currency (PF-overview-03). USD and BTC only; any other code refuses `bank.fx_rate_unset`. */
+            displayCurrency: z.string().min(2).max(8).optional(),
+            /** `combined` (default), `main`, or the id of one of the caller's named spaces. */
+            scope: z.string().min(1).max(64).optional(),
+          })
           .optional(),
       )
       .output(portfolioSummaryOutput)
