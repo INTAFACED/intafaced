@@ -60,6 +60,8 @@ const messages = {
   Home: 'Home',
   'Your money and markets': 'Your money and markets',
   'Trades, orders and transfers': 'Trades, orders and transfers',
+  'Profit and loss': 'Profit and loss',
+  'What your trades have made or lost': 'What your trades have made or lost',
   'Transaction details': 'Transaction details',
   Markets: 'Markets',
   'Prices for every market': 'Prices for every market',

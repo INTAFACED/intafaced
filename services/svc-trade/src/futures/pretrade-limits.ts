@@ -38,6 +38,8 @@ export type PreTradeCreditRefuseCode = typeof MAX_ORDER_UNSET | typeof MAX_POSIT
 export const LIMIT_MAX_ORDER = 'trade.limit_max_order' as const;
 export const LIMIT_MAX_POSITION = 'trade.limit_max_position' as const;
 export const LIMIT_MAX_LOSS = 'trade.limit_max_loss' as const;
+export const LIMIT_MAX_OPEN_ORDERS = 'trade.limit_max_open_orders' as const;
+export const MAX_OPEN_ORDERS_INVALID = 'trade.max_open_orders_invalid' as const;
 
 export type PreTradeLimitCode = typeof LIMIT_MAX_ORDER | typeof LIMIT_MAX_POSITION | typeof LIMIT_MAX_LOSS;
 
@@ -115,7 +117,7 @@ function preTradeCreditInstalled(): boolean {
 }
 
 export interface PreTradeRefusal {
-  readonly code: PreTradeLimitCode | PreTradeCreditRefuseCode;
+  readonly code: PreTradeLimitCode | PreTradeCreditRefuseCode | typeof LIMIT_MAX_OPEN_ORDERS;
   readonly message: string;
 }
 
@@ -150,6 +152,40 @@ export function resolveAdmissionLimits(
       maxPosition: publishedOwnerInteger(dims.maxPosition),
       maxLoss: publishedOwnerInteger(dims.maxLoss),
     },
+  };
+}
+
+// ── TRADE_MAX_OPEN_ORDERS ────────────────────────────────────────────────────
+
+/**
+ * Owner cap on how many resting orders ONE user holds, across every market. It is a count, not a notional, so
+ * it is its own dimension: it is not part of the three published-or-refuse limits above, and unset means no
+ * cap is compared. A value that is set but is not a whole number refuses, so a typo never turns the cap off.
+ * A published 0 refuses every new resting order.
+ */
+export function resolveOpenOrdersCap(
+  env: NodeJS.ProcessEnv = process.env,
+): { readonly refusal: { readonly code: typeof MAX_OPEN_ORDERS_INVALID; readonly message: string } } | { readonly cap: number | null } {
+  const raw = env.TRADE_MAX_OPEN_ORDERS;
+  if (raw == null || raw.trim() === '') return { cap: null };
+  const cap = parseOwnerIntegerEnv(raw);
+  if (cap == null || cap < 0) {
+    return {
+      refusal: {
+        code: MAX_OPEN_ORDERS_INVALID,
+        message: 'TRADE_MAX_OPEN_ORDERS is set but is not a whole number of 0 or more — refuse new resting orders rather than drop the cap',
+      },
+    };
+  }
+  return { cap };
+}
+
+/** The user already holds `cap` resting orders (or more): one more is refused. */
+export function checkMaxOpenOrders(input: { readonly cap: number; readonly openCount: number }): PreTradeRefusal | null {
+  if (input.openCount < input.cap) return null;
+  return {
+    code: LIMIT_MAX_OPEN_ORDERS,
+    message: `${input.openCount} open orders already rest, the max-open-orders limit is ${input.cap} (TRADE_MAX_OPEN_ORDERS) — cancel an order or wait for one to fill before placing another`,
   };
 }
 

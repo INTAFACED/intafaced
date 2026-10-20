@@ -9,6 +9,14 @@
 | `TRADE_MAX_POSITION` | Notional of the user's resulting futures position on ONE market after an open, valued at the entry mark.                                        | `trade.limit_max_position` |
 | `TRADE_MAX_LOSS`     | The user's current unrealised loss on open futures positions in that quote asset (losing positions summed; a winning one does not offset them). | `trade.limit_max_loss`     |
 
+A fourth, separate dimension caps a count, not a notional:
+
+| Env                     | What it caps                                                                                                                             | Refusal code                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `TRADE_MAX_OPEN_ORDERS` | How many resting orders ONE user holds across every market. Unset = no cap is compared. A published `0` refuses every new resting order. | `trade.limit_max_open_orders` |
+
+`TRADE_MAX_OPEN_ORDERS` is optional, so it is not part of the "must be published" refusal below. If it is set but is not a whole number (a typo, a decimal), new resting orders refuse with `trade.max_open_orders_invalid` (503) instead of silently running uncapped. Only an order that can rest counts: market, immediate-or-cancel and fill-or-kill orders, reduce-only orders, seeded market-maker orders and retries of an existing order are never refused by it. Under parallel placements the book can overshoot the cap by at most the number of requests in flight.
+
 **Units.** Each is a whole integer number of the market's QUOTE asset (USDT for `BTC/USDT`), compared exactly (no floats). `1000000` means 1,000,000 USDT on a USDT market. Exactly at the limit is allowed; one unit over is refused. A published `0` refuses every new order or open (0 is a number the owner published, not a default).
 
 ## What the user sees

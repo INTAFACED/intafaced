@@ -351,7 +351,7 @@ describe('D26-P2-12 refuse-closed identity money doors (no invent balances)', ()
     const start = src.indexOf('/internal/sub-accounts/:subAccountId');
     expect(start).toBeGreaterThanOrEqual(0);
     const block = src.slice(start, start + 900);
-    expect(block).toMatch(/verifyServiceHeaders/);
+    expect(block).toMatch(/serviceOfRequest/);
     expect(block).toMatch(/identity\.unauthenticated/);
     expect(block).toMatch(/identity\.sub_account_not_found/);
     expect(block).toMatch(/getSubAccountOwnership/);

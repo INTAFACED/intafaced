@@ -29,8 +29,16 @@ public final class FixAcceptorMain {
             System.exit(2);
             return;
         }
+        ServiceKeys.Inbound s2s;
+        try {
+            s2s = ServiceKeys.inboundFromEnv(env, ServiceAuth.SERVICE_NAME);
+        } catch (ServiceKeys.KeyError e) {
+            System.err.print("s2s_unconfigured: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
         String secret = env.get(ServiceAuth.SECRET_ENV);
-        if (!ServiceAuth.secretReady(secret)) {
+        if (!ServiceAuth.secretReady(secret) && (s2s == null || !s2s.keypairOnly())) {
             System.err.print(
                     "service_auth_unconfigured: INTERNAL_SERVICE_SECRET is blank; svc-fix does not accept unsigned drop-copy fills");
             System.exit(2);
@@ -41,7 +49,7 @@ public final class FixAcceptorMain {
         FixSessionApplication orderApp = new FixSessionApplication(new FixGatewayAdapter(), matching, hub);
         FixDropCopyApplication dropApp = new FixDropCopyApplication(hub);
         DropCopyIngest.Result ingestStarted =
-                DropCopyIngest.start(ingest.config.port, dropCopy.config.productBegin, secret, hub);
+                DropCopyIngest.start(ingest.config.port, dropCopy.config.productBegin, secret, hub, s2s);
         if (!ingestStarted.ok) {
             System.err.print(ingestStarted.errorCode + ": " + ingestStarted.errorMessage);
             System.exit(2);

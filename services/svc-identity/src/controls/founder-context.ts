@@ -3,6 +3,7 @@ import {
   inboundRawBodyOf,
   verifyServiceHeaders,
   SERVICE_HEADER,
+  S2S_KID_HEADER,
   type EdgeContextOptions,
   type EdgeRequest,
 } from '@intafaced/contracts';
@@ -65,6 +66,17 @@ export function configuredIdentityOperationOwners(options: IdentityContextOption
  */
 export function createIdentityRequestContext(options: IdentityContextOptions) {
   const regular = createEdgeContext(options);
+  // Per-service keys (S2S v3): a key-signed call is named by the key that verified, so the per-purpose secrets
+  // (owner, ws and edge authority) are replaced by checking that name. Without a verifier nothing below changes.
+  const keysWired = options.serviceVerifier !== undefined;
+  /** A call that carries key headers is judged by its key alone, and never falls back to a per-purpose secret. */
+  const keyJudged = (req: EdgeRequest, context: { serviceAuth?: string }) =>
+    keysWired && (context.serviceAuth === 'keypair' || req.headers[S2S_KID_HEADER] !== undefined);
+  /** The key-verified caller when it is one of `allowed`, otherwise none. */
+  const keyedOwner = (context: { service: string | null; serviceAuth?: string }, allowed: readonly string[]) =>
+    context.serviceAuth === 'keypair' && context.service !== null && allowed.includes(context.service) ? context.service : null;
+  /** In `keypair` mode a shared-secret call is refused at every door. */
+  const legacyRefused = options.s2sMode === 'keypair';
   return (req: EdgeRequest & { url: string; body?: unknown }) => {
     const context = regular(req);
     let procedures: string[];
@@ -78,8 +90,14 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       return { ...context, service: null };
     }
     const reader = req.headers[SERVICE_HEADER];
-    if ((reader === 'svc-ws' || reader === 'svc-edge') && procedures.includes('accountControls.currentAuthority')) {
+    // A key-signed call carries no claimed service name, so the dedicated read applies to it whoever signed.
+    if (
+      (reader === 'svc-ws' || reader === 'svc-edge' || keyJudged(req, context)) &&
+      procedures.includes('accountControls.currentAuthority')
+    ) {
       if (procedures.some((name) => name !== 'accountControls.currentAuthority')) return { ...context, service: null };
+      if (keyJudged(req, context)) return { ...context, service: keyedOwner(context, ['svc-ws', 'svc-edge']) };
+      if (legacyRefused || (reader !== 'svc-ws' && reader !== 'svc-edge')) return { ...context, service: null };
       const secret = identityAuthorityReadSecret(options, reader);
       const rawBody = inboundRawBodyOf(req);
       return { ...context, service: secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null };
@@ -93,9 +111,10 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
       // The signed `request` field is the edge's observation of the merchant call.
       // Only svc-edge, with the dedicated authority key, may present it. A mixed
       // batch or any other caller leaves service null so the field is refused.
-      if (!procedures.every((name) => signedExchange.has(name)) || reader !== 'svc-edge') {
-        return { ...context, service: null };
-      }
+      if (!procedures.every((name) => signedExchange.has(name))) return { ...context, service: null };
+      if (keyJudged(req, context)) return { ...context, service: keyedOwner(context, ['svc-edge']) };
+      if (reader !== 'svc-edge') return { ...context, service: null };
+      if (legacyRefused) return { ...context, service: null };
       const secret = identityAuthorityReadSecret(options, 'svc-edge');
       const rawBody = inboundRawBodyOf(req);
       const service = secret ? verifyServiceHeaders(req.headers, secret, { mode: 'require', rawBody }).service : null;
@@ -104,6 +123,8 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
     if (procedures.includes('operationAdmission.decide')) {
       // Owner keys authorize only this procedure, never a mixed service batch.
       if (procedures.some((name) => name !== 'operationAdmission.decide')) return { ...context, service: null };
+      if (keyJudged(req, context)) return { ...context, service: keyedOwner(context, ['svc-trade', 'svc-pay']) };
+      if (legacyRefused) return { ...context, service: null };
       const owner = req.headers[SERVICE_HEADER];
       const secret = owner === 'svc-trade' || owner === 'svc-pay' ? ownerSecret(options, owner) : null;
       const rawBody = inboundRawBodyOf(req);
@@ -121,6 +142,9 @@ export function createIdentityRequestContext(options: IdentityContextOptions) {
         name === 'actionApproval.consume',
     );
     if (!requiresBody) return context;
+    // With keys wired the edge context above already judged this call (key, or the shared secret under the same
+    // `require` body binding), so there is no second verification to run here.
+    if (keysWired) return context;
     // The tRPC Fastify adapter replaces the shared JSON parser and preserves
     // incoming UTF-8 text in req.body. Bind that exact text, never reserialize
     // an already-parsed object. Other body shapes must have retained bytes.

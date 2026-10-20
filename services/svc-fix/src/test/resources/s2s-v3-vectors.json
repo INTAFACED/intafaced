@@ -1,0 +1,102 @@
+{
+  "note": "Generated once by a TypeScript signer with throwaway keys whose signing halves were discarded. Public keys only. Java and TypeScript must both verify every case.",
+  "now": 1800000000,
+  "self": "svc-fix",
+  "keyring": {
+    "keys": [
+      {
+        "kid": "svc-trade.v1",
+        "svc": "svc-trade",
+        "use": "s2s",
+        "x": "zlvUrtQV3VR_9LK8QOT-FNG8-YvtAOClg3zPVzwU2Gw"
+      },
+      {
+        "kid": "svc-ops.v1",
+        "svc": "svc-ops",
+        "use": "s2s",
+        "x": "KAtVKTV8MV1oCU8AXUog0gJvxvrb_TYQgCyziRyq2II"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "drop-copy fill from svc-trade",
+      "method": "POST",
+      "target": "/internal/drop-copy/fills",
+      "body": "{\"fillId\":\"fill-7\",\"qty\":\"1.50\"}",
+      "headers": {
+        "x-intafaced-s2s-kid": "svc-trade.v1",
+        "x-intafaced-s2s-aud": "svc-fix",
+        "x-intafaced-s2s-ts": "1800000000",
+        "x-intafaced-s2s-nonce": "O5Vn5l_WOU_OkP__iXZt8Q",
+        "x-intafaced-s2s-body": "fdabb13ea5fabf7e2aae4578fa40b40eb07fa2ffed260380ac6c3beb5fd11e08",
+        "x-intafaced-s2s-sig": "4h6RvE6DFSiLRWpm_nXDXN0ptp-DWZ_3BQh3vjB5l6l6TR6V1_Uge1-zKeL6tRZEnmFZDRxFpeGqy356XSlVCw",
+        "content-type": "application/json"
+      },
+      "expect": {
+        "status": "accepted",
+        "service": "svc-trade",
+        "kid": "svc-trade.v1"
+      }
+    },
+    {
+      "name": "percent-encoded path and query",
+      "method": "POST",
+      "target": "/internal/a%20b/%C3%A9?q=a%2Fb&z=%E2%82%AC",
+      "body": "{\"k\":\"v\"}",
+      "headers": {
+        "x-intafaced-s2s-kid": "svc-trade.v1",
+        "x-intafaced-s2s-aud": "svc-fix",
+        "x-intafaced-s2s-ts": "1800000000",
+        "x-intafaced-s2s-nonce": "H7so1q4l7OqLo-TxZ8mPvw",
+        "x-intafaced-s2s-body": "666c1aa02e8068c6d5cc1d3295009432c16790bec28ec8ce119d0d1a18d61319",
+        "x-intafaced-s2s-sig": "8ex0rds4-naQNjaTChZ6KPMOxE_29wr9ZdPPy3G-8CgR050I3Z5VfYBT7gupWouJtcywsUKiLnI4Sie-CQtCBA",
+        "content-type": "application/json"
+      },
+      "expect": {
+        "status": "accepted",
+        "service": "svc-trade",
+        "kid": "svc-trade.v1"
+      }
+    },
+    {
+      "name": "empty GET",
+      "method": "GET",
+      "target": "/internal/ping",
+      "body": "",
+      "headers": {
+        "x-intafaced-s2s-kid": "svc-ops.v1",
+        "x-intafaced-s2s-aud": "svc-fix",
+        "x-intafaced-s2s-ts": "1800000000",
+        "x-intafaced-s2s-nonce": "0EpDwwKT2sn8GJiTMSUmow",
+        "x-intafaced-s2s-body": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "x-intafaced-s2s-sig": "05qukiy1G-8p-7WrF78JOanjlY88IdG-_VFGqE8s1KhEOMK_aCG3hyYTpBKtz40H_6jbMGlxpyP-_UVna64sCg"
+      },
+      "expect": {
+        "status": "accepted",
+        "service": "svc-ops",
+        "kid": "svc-ops.v1"
+      }
+    },
+    {
+      "name": "non-ASCII body",
+      "method": "POST",
+      "target": "/internal/drop-copy/fills",
+      "body": "{\"note\":\"€ ü 日本\"}",
+      "headers": {
+        "x-intafaced-s2s-kid": "svc-trade.v1",
+        "x-intafaced-s2s-aud": "svc-fix",
+        "x-intafaced-s2s-ts": "1800000000",
+        "x-intafaced-s2s-nonce": "wg_92TWlsfu9z-6w9IsI9Q",
+        "x-intafaced-s2s-body": "a78575168a23839cef45c93734a21f39ae4f9b17130e2014b6f27f561ca8f2c7",
+        "x-intafaced-s2s-sig": "wZZ89YZgdfsbhcTLJVjYTqP74JUgDLLD34XXqo0zcMsPGP0D9ye1d-inuJ7CtFR5GczqmUmC8KHtL-7hzeAmCQ",
+        "content-type": "application/json"
+      },
+      "expect": {
+        "status": "accepted",
+        "service": "svc-trade",
+        "kid": "svc-trade.v1"
+      }
+    }
+  ]
+}

@@ -34,12 +34,21 @@ public final class DropCopyIngest implements AutoCloseable {
     }
 
     public static Result start(int port, String beginString, String secret, DropCopyHub hub) {
+        return start(port, beginString, secret, hub, null);
+    }
+
+    /**
+     * With {@code s2s} set (per-service keys, S2S v3) a key-signed fill is accepted from svc-trade only, and a failed
+     * key-signed call is refused without trying the shared secret. {@code keypair} mode needs no shared secret.
+     */
+    public static Result start(
+            int port, String beginString, String secret, DropCopyHub hub, ServiceKeys.Inbound s2s) {
         if (port <= 0) {
             return Result.refuse(
                     DropCopyIngestConfig.UNCONFIGURED,
                     DropCopyIngestConfig.PORT_ENV + " is blank; svc-fix does not invent a listen port");
         }
-        if (!ServiceAuth.secretReady(secret)) {
+        if (!ServiceAuth.secretReady(secret) && (s2s == null || !s2s.keypairOnly())) {
             return Result.refuse(
                     "service_auth_unconfigured",
                     "INTERNAL_SERVICE_SECRET is blank; svc-fix does not accept unsigned drop-copy fills");
@@ -48,7 +57,7 @@ public final class DropCopyIngest implements AutoCloseable {
         try {
             HttpServer http = HttpServer.create(new InetSocketAddress(port), 0);
             int bound = http.getAddress().getPort();
-            http.createContext(PATH, exchange -> handle(exchange, beginString, secret, target));
+            http.createContext(PATH, exchange -> handle(exchange, beginString, secret, target, s2s));
             http.setExecutor(Executors.newCachedThreadPool(daemonFactory()));
             http.start();
             return Result.ok(new DropCopyIngest(http, bound));
@@ -85,7 +94,11 @@ public final class DropCopyIngest implements AutoCloseable {
         server.stop(0);
     }
 
-    private static void handle(HttpExchange exchange, String beginString, String secret, DropCopyHub hub)
+    /** The only service that may deliver drop-copy fills by key. */
+    static final String KEYED_CALLER = "svc-trade";
+
+    private static void handle(
+            HttpExchange exchange, String beginString, String secret, DropCopyHub hub, ServiceKeys.Inbound s2s)
             throws IOException {
         try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -94,7 +107,24 @@ public final class DropCopyIngest implements AutoCloseable {
             }
             byte[] bytes = exchange.getRequestBody().readAllBytes();
             String body = new String(bytes, StandardCharsets.UTF_8);
-            if (!ServiceAuth.secretReady(secret)) {
+            Headers headers = exchange.getRequestHeaders();
+            ServiceKeys.Verdict keyed = s2s == null ? null : verifyKeyed(exchange, headers, bytes, s2s);
+            if (keyed != null && keyed.status() == ServiceKeys.Status.REJECTED) {
+                write(
+                        exchange,
+                        401,
+                        refuseJson("unauthenticated", "service credentials required; the service key was refused"));
+                return;
+            }
+            if (keyed != null && keyed.status() == ServiceKeys.Status.ACCEPTED) {
+                if (!KEYED_CALLER.equals(keyed.service())) {
+                    write(exchange, 403, refuseJson("forbidden", "drop-copy fills are accepted from svc-trade only"));
+                    return;
+                }
+            } else if (s2s != null && s2s.keypairOnly()) {
+                write(exchange, 401, refuseJson("unauthenticated", "service key required"));
+                return;
+            } else if (!ServiceAuth.secretReady(secret)) {
                 write(
                         exchange,
                         401,
@@ -103,19 +133,20 @@ public final class DropCopyIngest implements AutoCloseable {
                                 "INTERNAL_SERVICE_SECRET is blank; svc-fix does not accept unsigned drop-copy fills"));
                 return;
             }
-            Headers headers = exchange.getRequestHeaders();
-            ServiceAuth.VerifyResult auth =
-                    ServiceAuth.verifyServiceHeaders(headers, secret, body, Instant.now());
-            if (!auth.ok()) {
-                write(
-                        exchange,
-                        401,
-                        refuseJson(
-                                "unauthenticated",
-                                "service credentials required; HMAC body-bind "
-                                        + ServiceAuth.BODY_BIND_REQUIRE
-                                        + " on the raw fill body"));
-                return;
+            if (keyed == null || keyed.status() != ServiceKeys.Status.ACCEPTED) {
+                ServiceAuth.VerifyResult auth =
+                        ServiceAuth.verifyServiceHeaders(headers, secret, body, Instant.now());
+                if (!auth.ok()) {
+                    write(
+                            exchange,
+                            401,
+                            refuseJson(
+                                    "unauthenticated",
+                                    "service credentials required; HMAC body-bind "
+                                            + ServiceAuth.BODY_BIND_REQUIRE
+                                            + " on the raw fill body"));
+                    return;
+                }
             }
             DropCopyFill.ParseResult parsed = DropCopyFill.parse(body);
             if (!parsed.ok) {
@@ -165,6 +196,13 @@ public final class DropCopyIngest implements AutoCloseable {
             sb.append(Json.string(values.get(i)));
         }
         sb.append(']');
+    }
+
+    private static ServiceKeys.Verdict verifyKeyed(
+            HttpExchange exchange, Headers headers, byte[] bytes, ServiceKeys.Inbound s2s) {
+        java.net.URI uri = exchange.getRequestURI();
+        String target = uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
+        return s2s.verifier().verify(exchange.getRequestMethod(), target, headers, bytes);
     }
 
     private static void write(HttpExchange exchange, int status, String json) throws IOException {

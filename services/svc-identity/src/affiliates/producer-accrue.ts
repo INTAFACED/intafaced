@@ -12,7 +12,8 @@
  */
 
 import type { FastifyInstance } from 'fastify';
-import { rawBodyOf, retainRawBody, verifyServiceHeaders } from '@intafaced/contracts';
+import { retainRawBody } from '@intafaced/contracts';
+import { serviceOfRequest, type IdentityS2s } from '../s2s-door.js';
 import { z } from 'zod';
 import { accrueTreeUnderRateAuthority } from './accrual-tree-authority.js';
 import type { AccrualStore } from './accrual-store.js';
@@ -46,6 +47,8 @@ const bodySchema = z
 
 export type AffiliateProducerAccrueDeps = {
   readonly internalSecret: string;
+  /** Per-service keys (S2S v3). Unset keeps the shared secret alone. */
+  readonly s2s?: IdentityS2s;
   readonly referral: { loadParentMap(): Promise<ReadonlyMap<string, string>> };
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
   readonly accruals: AccrualStore;
@@ -62,10 +65,7 @@ export function registerAffiliateProducerAccrue(app: FastifyInstance, deps: Affi
   retainRawBody(app);
 
   app.post(AFFILIATE_PRODUCER_PATH, async (req, reply) => {
-    const { service, rejected } = verifyServiceHeaders(req.headers, deps.internalSecret, {
-      rawBody: rawBodyOf(req),
-      mode: 'require',
-    });
+    const { service, rejected } = serviceOfRequest(req, deps.internalSecret, 'require', deps.s2s);
     if (service === null) {
       return reply.code(401).send({
         error: 'service credentials required',
