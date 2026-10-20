@@ -4,7 +4,7 @@ import { Button } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
 import { Details, Select, type useAction } from './common';
 import { deskCopy } from './support-desk-copy';
-import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, ticketReference, type ActionReason } from './support-desk';
+import { RATING_NOTE_MAX, RATING_SCORES, requestActionStates, showRatePrompt, ticketReference, type ActionReason } from './support-desk';
 import { fileSizeLabel, readAttachment } from './support-attach';
 import { attachFile, closeRequest, rateRequest, readRating } from './support-calls';
 import type { Ticket } from './support-schemas';
@@ -56,6 +56,9 @@ export function SupportRequestActions({
   return (
     <div className="support-actions">
       <h3>{copy.t('actionsHeading')}</h3>
+      {showRatePrompt(ticket.status, rating.resource.status === 'ready', rated) ? (
+        <p className="support-rate-ask">{copy.t('rateAsk')}</p>
+      ) : null}
       <ul>
         <li>
           <CloseControl ticket={ticket} action={action} state={states.close} describedBy={`${base}-close`} onChanged={onChanged} />
@@ -153,9 +156,12 @@ function RateControl({
   const existing = rating.resource.status === 'ready' ? rating.resource.data : null;
   if (existing)
     return (
-      <p role="status" id={describedBy}>
-        {copy.t('rateDone', { score: existing.score })}
-      </p>
+      <>
+        <p role="status" id={describedBy}>
+          {copy.t('rateDone', { score: existing.score })}
+        </p>
+        <p className="muted">{copy.t('rateDoneNext')}</p>
+      </>
     );
   return (
     <div className="support-rate">

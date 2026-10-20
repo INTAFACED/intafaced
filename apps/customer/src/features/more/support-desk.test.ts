@@ -13,6 +13,7 @@ import {
   newestFirst,
   replyReopens,
   requestActionStates,
+  showRatePrompt,
   statusCounts,
   supportEmail,
   supportMailto,
@@ -164,5 +165,18 @@ describe('follow-up on a closed request', () => {
       subject: 'Follow-up: Order stuck',
     });
     expect(followUpDraft({ category: 'other', subject: 'x'.repeat(200) }, 'Follow-up:').subject).toHaveLength(200);
+  });
+});
+
+describe('the rate-this-request prompt', () => {
+  it('shows on a solved request that has been read and is not yet rated', () => {
+    expect(showRatePrompt('resolved', true, false)).toBe(true);
+    expect(showRatePrompt('closed', true, false)).toBe(true);
+  });
+
+  it('stays away while the rating is unread, once rated, and before the request is solved', () => {
+    expect(showRatePrompt('resolved', false, false)).toBe(false);
+    expect(showRatePrompt('resolved', true, true)).toBe(false);
+    for (const status of ['open', 'pending', 'on_hold'] as const) expect(showRatePrompt(status, true, false)).toBe(false);
   });
 });
