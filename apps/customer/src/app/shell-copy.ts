@@ -57,6 +57,8 @@ const messages = {
   'Your assets and their value': 'Your assets and their value',
   Activity: 'Activity',
   'Trades, orders and transfers': 'Trades, orders and transfers',
+  'Profit and loss': 'Profit and loss',
+  'What your trades have made or lost': 'What your trades have made or lost',
   Markets: 'Markets',
   'Prices for every market': 'Prices for every market',
   'Charts, order book and orders': 'Charts, order book and orders',
