@@ -94,7 +94,7 @@ export function positionStatusWord(s: string): PositionStatusWord {
     case 'closed':
       return { label: 'Closed', tone: 'neutral', explain: 'The position is closed.' };
     default:
-      return { label: s, tone: 'neutral', explain: 'A status this desk has no word for yet; shown as the service sent it.' };
+      return { label: s, tone: 'neutral', explain: 'This desk has no word for this status; it is shown as the service sent it.' };
   }
 }
 

@@ -104,7 +104,7 @@ export function PositionsBoard() {
           Futures
         </Badge>{' '}
         Positions exist only for products that are switched on. Mark price, liquidation price, margin ratio and PnL are not served by the
-        operator read yet, so those columns show a dash.
+        operator read, so those columns show a dash.
       </p>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
