@@ -147,6 +147,7 @@ export function allRefusalCodes(): readonly RefusalCode[] {
     'channel.register_rate_limited',
     'channel.verify_rate_limited',
     'channel.unprobed',
+    'channel.recipient_quarantined',
   ];
 }
 
@@ -214,7 +215,9 @@ export type RefusalCode =
    * `/ready` and `notify.channels` — never a delivery row. `deliver()` still
    * POSTs. Configured is not reachable (same class as P2P moderation unprobed).
    */
-  | 'channel.unprobed';
+  | 'channel.unprobed'
+  /** The address failed terminally often enough to be quarantined; non-critical sends wait for an operator release. */
+  | 'channel.recipient_quarantined';
 
 /** A channel declining before it attempted anything. Terminal — never retried. */
 export class ChannelRefusal extends Error {

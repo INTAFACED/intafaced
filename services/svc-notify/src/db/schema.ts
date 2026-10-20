@@ -118,6 +118,39 @@ export const channelTargets = schema.table(
   (t) => [primaryKey({ columns: [t.userId, t.channel] })],
 );
 
+/** Terminal send failures per recipient and the quarantine they can trigger. See 0017_notify_recipient_health.sql. */
+export const recipientHealth = schema.table(
+  'recipient_health',
+  {
+    userId: text('user_id').notNull(),
+    channel: text('channel').$type<'email' | 'push' | 'sms'>().notNull(),
+    address: text('address').notNull(),
+    consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+    lastFailureAt: timestamp('last_failure_at', { withTimezone: true, mode: 'date' }),
+    lastFailureCode: text('last_failure_code'),
+    quarantinedAt: timestamp('quarantined_at', { withTimezone: true, mode: 'date' }),
+    quarantineReason: text('quarantine_reason'),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.channel] })],
+);
+
+/** Append-only: every release names who, why and the request id that makes a replay a no-op. */
+export const recipientReleaseAudit = schema.table(
+  'recipient_release_audit',
+  {
+    id: pk(),
+    userId: text('user_id').notNull(),
+    channel: text('channel').$type<'email' | 'push' | 'sms'>().notNull(),
+    actorId: text('actor_id').notNull(),
+    reason: text('reason').notNull(),
+    reasonId: text('reason_id').notNull(),
+    quarantineReason: text('quarantine_reason').notNull(),
+    releasedAt: timestamp('released_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('recipient_release_audit_key_uq').on(t.userId, t.channel, t.reasonId)],
+);
+
 /**
  * One row per (notification, channel) — the attempt AND the outcome.
  *

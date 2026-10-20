@@ -208,6 +208,13 @@ const schema = serviceEnvSchema
        */
       NOTIFY_INBOX_UNREAD_CAP: blankAsAbsent(z.coerce.number().int().min(1).max(10000).optional()),
 
+      /**
+       * Consecutive terminal send failures to one address before it is quarantined.
+       * NO DEFAULT. Blank / unset quarantines nobody, and the operator page says
+       * `notify.quarantine_threshold_unset` — never invent 3.
+       */
+      NOTIFY_QUARANTINE_FAILURE_THRESHOLD: blankAsAbsent(z.coerce.number().int().min(1).max(100).optional()),
+
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 
