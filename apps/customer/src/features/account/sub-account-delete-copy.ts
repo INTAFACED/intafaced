@@ -9,8 +9,16 @@ const messages = {
   stillOpen: 'These need to be cleared first:',
   balancesTitle: 'Balances this sub-account still holds',
   blockBalance: 'Balances still held in {count} places',
+  blockLoan: 'Open loans: {count}',
+  blockEarn: 'Earn positions: {count}',
+  blockCard: 'Cards still active or frozen: {count}',
+  blockSchedule: 'Scheduled transfers still on: {count}',
+  blockRamp: 'Pending deposits or withdrawals: {count}',
   blockOrder: 'Open orders: {count}',
   blockPosition: 'Open positions: {count}',
+  blockOffer: 'Open P2P offers: {count}',
+  blockTrade: 'P2P trades in progress: {count}',
+  blockDispute: 'P2P disputes still open: {count}',
   blockOther: 'Something else is still open ({count})',
   confirmTitle: 'Confirm it is you',
   confirmBody: 'Enter the 6-digit code from your authenticator app.',
@@ -27,4 +35,5 @@ const messages = {
   refusedDelegated: 'Sign in on this device. An API key or a sub-account cannot delete a sub-account.',
 } as const;
 
+export const subAccountDeleteMessages = messages;
 export const subAccountDeleteCopy = defineCopy('account.subaccountDelete', messages);

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { subAccountDeleteMessages } from './sub-account-delete-copy';
 import { BLOCKER_KEYS, DELETE_REFUSAL_KEYS, deleteCheck, deleteResult, deleteStepUp, isDeleteRefusal } from './sub-account-delete';
 
 describe('sub-account delete', () => {
@@ -20,6 +21,12 @@ describe('sub-account delete', () => {
     ]);
     expect(BLOCKER_KEYS.open_order).toBe('blockOrder');
     expect(BLOCKER_KEYS.balance_remaining).toBe('blockBalance');
+  });
+
+  it('has a sentence in this card for every blocker code and every refusal it can show', () => {
+    for (const key of [...Object.values(BLOCKER_KEYS), 'blockOther', ...Object.values(DELETE_REFUSAL_KEYS)]) {
+      expect(Object.hasOwn(subAccountDeleteMessages, key), key).toBe(true);
+    }
   });
 
   it('reads the answers strictly', () => {
