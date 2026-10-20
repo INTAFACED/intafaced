@@ -1,9 +1,17 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import { hasScope } from '@intafaced/auth';
-import { opsAlertRuleDraftSchema, opsAlertRuleSchema, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  OPS_ALERT_HEALTH,
+  OPS_ALERT_STATES,
+  opsAlertRuleDraftSchema,
+  opsAlertRuleSchema,
+  router,
+  scopedProcedure,
+} from '@intafaced/contracts';
 import {
   OPS_ALERT_FORBIDDEN,
+  OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_LIST_LIMIT_UNSET,
   OPS_ALERT_RULE_NOT_FOUND,
   OPS_ALERT_RULE_VERSION_STALE,
@@ -14,6 +22,7 @@ import {
 import { assertIdempotencyKey } from '../operator-desks.js';
 import { assertOpsListLimit } from '../list-limit.js';
 import type { Actor, AlertRules, RuleCursor } from './rules.js';
+import type { AlertStateStore } from './state-store.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
@@ -33,6 +42,33 @@ function decodeCursor(raw: string): RuleCursor {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'cursor is not one this list returned' });
   }
 }
+
+const stateSchema = z.object({
+  instance: z.string(),
+  state: z.enum(OPS_ALERT_STATES),
+  health: z.enum(OPS_ALERT_HEALTH),
+  epoch: z.number().int(),
+  pendingSince: z.string().nullable(),
+  firingSince: z.string().nullable(),
+  lastEvaluatedAt: z.string(),
+  lastValue: z.string().nullable(),
+  lastCode: z.string().nullable(),
+  /** The rule says keep last and the latest check was unhealthy: the state is the earlier one. */
+  kept: z.boolean(),
+});
+
+const historyRowSchema = z.object({
+  id: z.number().int(),
+  ruleId: z.string().uuid(),
+  instance: z.string(),
+  epoch: z.number().int(),
+  at: z.string(),
+  from: z.enum(OPS_ALERT_STATES),
+  to: z.enum(OPS_ALERT_STATES),
+  health: z.enum(OPS_ALERT_HEALTH),
+  value: z.string().nullable(),
+  code: z.string().nullable(),
+});
 
 const versionSchema = z.object({
   version: z.number().int().min(1),
@@ -58,7 +94,7 @@ function alertError(err: unknown): never {
   throw err;
 }
 
-export function createAlertRulesRouter(rules: AlertRules | undefined) {
+export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore?: AlertStateStore) {
   const need = (): AlertRules => {
     if (!rules) {
       throw new OpsError(
@@ -115,6 +151,112 @@ export function createAlertRulesRouter(rules: AlertRules | undefined) {
             rules: page,
             nextCursor:
               found.length > limit && last ? encodeCursor({ folder: last.folder, group: last.group, name: last.name, id: last.id }) : null,
+          };
+        }),
+      ),
+
+    /** Rules with their stored state and health. A rule that has not been evaluated yet says so; no state is invented. */
+    states: scopedProcedure('admin:read', guards)
+      .input(
+        z.object({
+          limit: z.number().int().min(1).max(200).optional(),
+          folder: z.string().optional(),
+          group: z.string().optional(),
+          name: z.string().max(120).optional(),
+          label: z.object({ key: z.string(), value: z.string() }).optional(),
+          state: z.enum(OPS_ALERT_STATES).optional(),
+          health: z.enum(OPS_ALERT_HEALTH).optional(),
+          cursor: cursorSchema.optional(),
+        }),
+      )
+      .output(z.object({ items: z.array(z.object({ rule, status: stateSchema.nullable() })), nextCursor: z.string().nullable() }))
+      .query(({ input }) =>
+        guarded(async () => {
+          const store = need();
+          const states = stateStore;
+          const limit = assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET);
+          const wanted = input.state !== undefined || input.health !== undefined;
+          const items: { rule: z.infer<typeof rule>; status: z.infer<typeof stateSchema> | null }[] = [];
+          let cursor = input.cursor ? decodeCursor(input.cursor) : undefined;
+          let more = false;
+          for (let pages = 0; pages < 50 && items.length <= limit; pages++) {
+            const found = await store.list({
+              ...(input.folder !== undefined ? { folder: input.folder } : {}),
+              ...(input.group !== undefined ? { group: input.group } : {}),
+              ...(input.name !== undefined ? { nameContains: input.name } : {}),
+              ...(input.label ? { label: input.label } : {}),
+              ...(cursor ? { after: cursor } : {}),
+              includeRetired: false,
+              limit: 200,
+            });
+            const byRule = states ? await states.states(found.map((r) => r.id)) : new Map();
+            for (const r of found) {
+              const status = byRule.get(r.id) ?? null;
+              if (
+                wanted &&
+                (!status ||
+                  (input.state !== undefined && status.state !== input.state) ||
+                  (input.health !== undefined && status.health !== input.health))
+              )
+                continue;
+              items.push({ rule: r, status });
+            }
+            const last = found[found.length - 1];
+            more = found.length === 200;
+            if (!more || !last) break;
+            cursor = { folder: last.folder, group: last.group, name: last.name, id: last.id };
+          }
+          const page = items.slice(0, limit);
+          const last = page[page.length - 1]?.rule;
+          return {
+            items: page,
+            nextCursor:
+              (items.length > limit || more) && last
+                ? encodeCursor({ folder: last.folder, group: last.group, name: last.name, id: last.id })
+                : null,
+          };
+        }),
+      ),
+
+    /** State changes, newest first, capped at the page size you pass; a cut page says so and the filters narrow it. */
+    history: scopedProcedure('admin:read', guards)
+      .input(
+        z.object({
+          limit: z.number().int().min(1).max(200).optional(),
+          ruleId: z.string().uuid().optional(),
+          state: z.enum(OPS_ALERT_STATES).optional(),
+          since: z.string().datetime({ offset: true }).optional(),
+          until: z.string().datetime({ offset: true }).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          rows: z.array(historyRowSchema),
+          truncated: z.boolean(),
+          cap: z.number().int(),
+          retention: z.object({ configured: z.literal(false), code: z.literal(OPS_ALERT_HISTORY_RETENTION_UNSET) }),
+        }),
+      )
+      .query(({ input }) =>
+        guarded(async () => {
+          need();
+          if (!stateStore) {
+            throw new OpsError(OPS_ALERT_STORAGE_UNCONFIGURED, 'No durable storage is configured for alert state. No history is listed.');
+          }
+          const limit = assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET);
+          const out = await stateStore.history({
+            limit,
+            ...(input.ruleId ? { ruleId: input.ruleId } : {}),
+            ...(input.state ? { state: input.state } : {}),
+            ...(input.since ? { since: input.since } : {}),
+            ...(input.until ? { until: input.until } : {}),
+          });
+          // No retention period is set, so nothing is pruned: the owner value is blank and says so.
+          return {
+            rows: [...out.rows],
+            truncated: out.truncated,
+            cap: limit,
+            retention: { configured: false as const, code: OPS_ALERT_HISTORY_RETENTION_UNSET },
           };
         }),
       ),

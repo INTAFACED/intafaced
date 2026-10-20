@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import type { OpsAlertRule } from '@intafaced/contracts';
 import { OPS_ALERT_LABELS_DUPLICATE, OPS_ALERT_RULE_NOT_FOUND, OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
+import type { OutboxEntry } from './state-store.js';
 import { labelsHash, type AlertRuleStore, type ApplyCommand, type ListFilter, type RuleState, type RuleVersion } from './rules.js';
 
 const conflict = () => new OpsError(OPS_IDEMPOTENCY_CONFLICT, 'This idempotency key was already used for a different request');
@@ -33,6 +34,16 @@ function build(cmd: ApplyCommand, current: OpsAlertRule | null, next: RuleState)
   };
 }
 
+/** The event a saved version announces. Its key is the rule and the version, so a retry is the same event. */
+function ruleEvent(rule: OpsAlertRule, cmd: ApplyCommand): OutboxEntry {
+  return {
+    event: 'coreOpsAlertRuleUpdated',
+    idempotencyKey: `ops:alert_rule:${rule.id}:${rule.version}`,
+    payload: { ruleId: rule.id, version: rule.version, change: cmd.change, actor: cmd.actor, changedAt: cmd.at },
+    createdAt: cmd.at,
+  };
+}
+
 const matches = (rule: OpsAlertRule, f: ListFilter): boolean =>
   (f.includeRetired || rule.retiredAt === null) &&
   (f.folder === undefined || rule.folder === f.folder) &&
@@ -47,7 +58,7 @@ const order = (a: OpsAlertRule, b: OpsAlertRule): number =>
   a.id.localeCompare(b.id, 'en');
 
 /** For tests that need a store without PostgreSQL. A running service uses the durable store. */
-export function createMemoryAlertRuleStore(): AlertRuleStore {
+export function createMemoryAlertRuleStore(outbox?: { enqueue(entry: OutboxEntry): void }): AlertRuleStore {
   const rules = new Map<string, OpsAlertRule>();
   const versions: (RuleVersion & { key: string; fingerprint: string })[] = [];
   return {
@@ -68,6 +79,7 @@ export function createMemoryAlertRuleStore(): AlertRuleStore {
         }
       }
       rules.set(rule.id, rule);
+      outbox?.enqueue(ruleEvent(rule, cmd));
       versions.push({
         version: rule.version,
         change: cmd.change,
@@ -185,14 +197,20 @@ export function createPgAlertRuleStore(sql: Sql): AlertRuleStore {
         }
         await tx`INSERT INTO ops.alert_rule_versions (rule_id,version,change,snapshot,actor,reason,idempotency_key,fingerprint,at)
           VALUES (${rule.id},${rule.version},${cmd.change},${tx.json(rule)},${cmd.actor},${cmd.reason},${cmd.key},${cmd.fingerprint},${cmd.at})`;
+        const event = ruleEvent(rule, cmd);
+        await tx`INSERT INTO ops.alert_outbox (event,idempotency_key,payload,created_at)
+          VALUES (${event.event},${event.idempotencyKey},${tx.json(event.payload as never)},${event.createdAt})
+          ON CONFLICT (idempotency_key) DO NOTHING`;
         return rule;
       });
     } catch (err) {
       const pg = err as PgError;
       if (pg.code === '23505') {
+        // A racing call with the same key committed first: read its row through the same path. The label index can fire before
+        // the key does (the same create sent twice), so a first collision looks up the key again; a real duplicate repeats.
+        if (retry && (pg.constraint_name === 'alert_rules_labels_live_idx' || pg.constraint_name === 'alert_rule_versions_idempotency_key'))
+          return apply(cmd, false);
         if (pg.constraint_name === 'alert_rules_labels_live_idx') throw duplicate();
-        // A racing call with the same key committed first: read its row through the same path.
-        if (pg.constraint_name === 'alert_rule_versions_idempotency_key' && retry) return apply(cmd, false);
       }
       throw err;
     }

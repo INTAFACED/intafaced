@@ -1,0 +1,89 @@
+import { instanceOf, isDue, step } from './evaluate.js';
+import type { AlertRuleStore } from './rules.js';
+import type { SignalReader } from './signals.js';
+import type { AlertEventName, AlertOutbox, AlertStateStore } from './state-store.js';
+
+/** The part of the event bus the publisher needs; `@intafaced/events` bus implementations satisfy it. */
+export interface AlertBus {
+  publish(name: AlertEventName, payload: never, opts: { idempotencyKey: string }): Promise<unknown>;
+}
+
+export interface EvaluatorDeps {
+  readonly rules: AlertRuleStore;
+  readonly state: AlertStateStore;
+  readonly signals: SignalReader;
+  readonly now?: () => string;
+}
+
+export interface TickReport {
+  readonly evaluated: number;
+  readonly opened: number;
+  readonly resolved: number;
+}
+
+/**
+ * Evaluates every live, unpaused rule whose interval has passed. State, history and the announcing events commit together under
+ * a per-instance lock, so a restart re-reads the stored state: no firing alert is lost and none is announced twice.
+ */
+export class AlertEvaluator {
+  private readonly now: () => string;
+  constructor(private readonly deps: EvaluatorDeps) {
+    this.now = deps.now ?? (() => new Date().toISOString());
+  }
+
+  async tick(): Promise<TickReport> {
+    let evaluated = 0;
+    let opened = 0;
+    let resolved = 0;
+    let cursor: { folder: string; group: string; name: string; id: string } | undefined;
+    for (;;) {
+      const page = await this.deps.rules.list({ includeRetired: false, limit: 200, ...(cursor ? { after: cursor } : {}) });
+      for (const rule of page) {
+        if (rule.paused) continue;
+        const instance = instanceOf(rule.labels);
+        const startedAt = Date.parse(this.now());
+        // Cheap pre-check outside the lock; the lock re-checks against the stored state.
+        const reading = await this.deps.signals.read(rule.signal);
+        const at = this.now();
+        const result = await this.deps.state.evaluate(rule.id, instance, (prev) =>
+          isDue(rule, prev, startedAt) ? step(rule, prev, reading, at) : null,
+        );
+        if (!result) continue;
+        evaluated += 1;
+        for (const t of result.transitions) t.kind === 'opened' ? (opened += 1) : (resolved += 1);
+      }
+      const last = page[page.length - 1];
+      if (page.length < 200 || !last) break;
+      cursor = { folder: last.folder, group: last.group, name: last.name, id: last.id };
+    }
+    return { evaluated, opened, resolved };
+  }
+}
+
+/**
+ * Publishes the outbox in order. A row stays pending until the bus accepts it; a crash between accept and mark republishes the same
+ * business key, which the bus drops as a duplicate and consumers handle idempotently.
+ */
+export class AlertOutboxPublisher {
+  constructor(
+    private readonly outbox: AlertOutbox,
+    private readonly bus: AlertBus,
+    private readonly now: () => string = () => new Date().toISOString(),
+  ) {}
+
+  async runOnce(limit = 50): Promise<number> {
+    let published = 0;
+    for (const row of await this.outbox.pending(limit)) {
+      try {
+        await this.bus.publish(row.event, row.payload as never, { idempotencyKey: row.idempotencyKey });
+        await this.outbox.markPublished(row.id, this.now());
+        published += 1;
+      } catch (err) {
+        await this.outbox.markFailed(row.id, err instanceof Error ? err.message : 'publish failed');
+        // Keep order: a later row must not overtake a failed one.
+        break;
+      }
+    }
+    return published;
+  }
+}
