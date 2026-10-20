@@ -30,7 +30,7 @@ function fleet() {
   const keyring: Keyring = [edge.entry];
   return {
     edge: createServiceSigner({ service: 'svc-edge', kid: edge.entry.kid, privateKey: edge.pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-mining-pool', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-mining-pool', keyring, bootSecond: 0 }),
   };
 }
 

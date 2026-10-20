@@ -9,7 +9,7 @@
  * accrued) and identity-down are swallowed. Never unwind the ledger post.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { AffiliateMarketFeeLeg } from './affiliate-accrue.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
@@ -37,15 +37,21 @@ export async function fireAffiliatePayout(port: AffiliatePayoutPort, legs: reado
 
 const FETCH_MS = 2_000;
 
-export function createAffiliatePayoutClient(baseUrl: string, internalSecret: string): AffiliatePayoutPort {
+export function createAffiliatePayoutClient(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-market's own key. With it the call is key-signed for svc-identity; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): AffiliatePayoutPort {
   const url = `${baseUrl.replace(/\/$/, '')}${AFFILIATE_PRODUCER_PAYOUT_PATH}`;
+  const sign = serviceCallSigner({ service: 'svc-market', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async payoutMarketFee(feeEventId) {
       const body = JSON.stringify({ feeEventId });
       const headers = {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-market', internalSecret, body),
+        ...sign(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
       };
       const response = await fetch(url, {
         method: 'POST',

@@ -1,4 +1,11 @@
-import { BASE_PERKS, rankPerksSchema, serviceAuthHeadersForBody, type RankPerks } from '@intafaced/contracts';
+import {
+  BASE_PERKS,
+  rankPerksSchema,
+  serviceCallSigner,
+  type ServiceAuthMode,
+  type ServiceSigner,
+  type RankPerks,
+} from '@intafaced/contracts';
 import { AcademyError } from './errors.js';
 
 /**
@@ -56,17 +63,26 @@ export class BaseHostRights implements HostRightsSource {
 }
 
 /** HTTP client for svc-identity's `/internal/rank/:userId/perks` (S2S, no user principal). */
-export function createHostRightsSource(baseUrl: string, internalSecret: string): HostRightsSource {
+export function createHostRightsSource(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-academy's own key. With it the call is key-signed; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): HostRightsSource {
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-academy', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async perksOf(userId: string): Promise<RankPerks> {
       let response: Response;
       try {
-        const body = '';
-        response = await fetch(`${url}/internal/rank/${encodeURIComponent(userId)}/perks`, {
+        const target = `${url}/internal/rank/${encodeURIComponent(userId)}/perks`;
+        response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-academy', internalSecret, body) },
+          headers: {
+            'content-type': 'application/json',
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
         });
       } catch (err) {
         throw new AcademyError(`Host rights unavailable: ${(err as Error).message}`, 'academy.host_rights_unavailable');

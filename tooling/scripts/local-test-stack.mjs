@@ -142,7 +142,8 @@ const NATS_PRIOR =
   ) ?? '/tmp/intafaced-product-vitality-2026-10-10/account-test';
 const NATS_ZIP = 'nats-server-v2.10.24-darwin-arm64.zip';
 
-const PG_BIN = '/opt/homebrew/bin';
+const PG_BIN =
+  process.env.LOCAL_STACK_PG_BIN ?? (fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin');
 const PNPM_PATH = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':');
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -235,6 +236,8 @@ function loadOrCreateSecrets() {
 
 const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST}:${PORTS.postgres}/${DB_NAME}`;
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
+const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
+
 /** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
 function localOperatorIds() {
   try {
@@ -363,6 +366,18 @@ GRANT USAGE ON SCHEMA public TO svc_${s};`,
 // ── NATS (reuse the checksum-verified binary) ───────────────────────────────
 
 function ensureNatsBinary() {
+  if (process.env.LOCAL_STACK_NATS_BIN) {
+    // Linux/CI: a nats-server already on the box (CI installs a pinned release).
+    if (!fs.existsSync(P.nats) || sha256File(P.nats) !== sha256File(process.env.LOCAL_STACK_NATS_BIN)) {
+      fs.copyFileSync(process.env.LOCAL_STACK_NATS_BIN, P.nats);
+      fs.chmodSync(P.nats, 0o755);
+    }
+    writePrivate(
+      P.natsVerified,
+      JSON.stringify({ binarySHA256: sha256File(P.nats), copiedFrom: process.env.LOCAL_STACK_NATS_BIN }, null, 2),
+    );
+    return;
+  }
   if (fs.existsSync(P.nats) && fs.existsSync(P.natsVerified)) {
     const rec = readJson(P.natsVerified);
     if (sha256File(P.nats) !== rec.binarySHA256) fail(`NATS binary changed since it was verified: ${P.nats}`);
@@ -758,7 +773,9 @@ function serviceDefs(secrets) {
         // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
         // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
         // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
-        ...(localOperatorIds() ? { MATCHING_OPERATOR_IDS: localOperatorIds() } : {}),
+        // svc-matching refuses to boot with fewer than two operator ids, so a fresh state boots on two placeholder
+        // ids that match no account; `local-test-gates.mjs operators` then restart matching swaps in the real two.
+        MATCHING_OPERATOR_IDS: localOperatorIds() || PLACEHOLDER_OPERATOR_IDS,
       }),
     },
     {

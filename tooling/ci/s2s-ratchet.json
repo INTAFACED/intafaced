@@ -1,13 +1,5 @@
 {
   "files": {
-    "services/svc-academy/src/host-rights.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-academy/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/router.ts": {
       "sign": 0,
       "caller": 1
@@ -56,18 +48,6 @@
       "sign": 0,
       "caller": 3
     },
-    "services/svc-market/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-market/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-matching/src/index.ts": {
       "sign": 1,
       "caller": 0
@@ -107,14 +87,6 @@
     "services/svc-quant/src/studio/scope.ts": {
       "sign": 0,
       "caller": 2
-    },
-    "services/svc-support/src/account-state.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-support/src/ticket-order.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-token/src/router.ts": {
       "sign": 0,

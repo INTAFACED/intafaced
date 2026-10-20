@@ -35,7 +35,7 @@ function fleet() {
   return {
     trade: createServiceSigner({ service: 'svc-trade', kid: trade.entry.kid, privateKey: trade.pkcs8, keyring }),
     token: createServiceSigner({ service: 'svc-token', kid: token.entry.kid, privateKey: token.pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-token', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-token', keyring, bootSecond: 0 }),
   };
 }
 
