@@ -9,11 +9,7 @@ import { accountStateSchema } from './identity.js';
  * No money: refunds are requests only; never ledger.
  */
 
-/**
- * `on_hold` is the team's own pause (waiting on something outside the desk). `pending` keeps its meaning: the team is
- * waiting for the customer. Who is waited on is stored separately as `waitingOn` (see `supportTicketLifecycleSchema`).
- */
-export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
+export const supportTicketStatusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
 export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);

@@ -12,7 +12,6 @@ import {
   supportTicketPropertiesSchema,
   supportTicketPrioritySchema,
   supportTicketLifecycleSchema,
-  supportTicketStatusSchema,
   supportWaitingOnSchema,
   supportTicketTypeSchema,
   supportTicketCategorySchema,
@@ -211,11 +210,6 @@ describe('ticket properties contract (SP-tickets-04)', () => {
 
 describe('ticket lifecycle (SP-tickets-04)', () => {
   const ticketId = '11111111-1111-4111-8111-111111111111';
-  it('on_hold is a status beside open, pending, resolved and closed', () => {
-    for (const s of ['open', 'pending', 'on_hold', 'resolved', 'closed'])
-      expect(supportTicketStatusSchema.safeParse(s).success, s).toBe(true);
-    for (const s of ['on-hold', 'new', 'solved', '']) expect(supportTicketStatusSchema.safeParse(s).success, s).toBe(false);
-  });
   it('waiting on is the team or the customer, and null until set', () => {
     expect(supportWaitingOnSchema.safeParse('team').success).toBe(true);
     expect(supportWaitingOnSchema.safeParse('customer').success).toBe(true);
