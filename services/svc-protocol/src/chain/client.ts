@@ -2,7 +2,7 @@ import { createPublicClient, defineChain, http } from 'viem';
 import type { Address, Hex, PublicClient } from 'viem';
 import { accountFactoryAbi, smartAccountAbi } from './abi.js';
 import { poolAbi } from '../amm/abi.js';
-import { erc20ReadAbi, tokenFactoryAbi } from './abi.js';
+import { erc20ApprovalAbi, erc20ReadAbi, tokenFactoryAbi } from './abi.js';
 import {
   ChainUnavailableError,
   chainIdMismatchRefusal,
@@ -366,6 +366,51 @@ export class ProtocolChain {
         this.client.readContract({ address: token, abi: erc20ReadAbi, functionName: 'initialHolder' }),
       ]);
       return { name, symbol, decimals: Number(decimals), totalSupply, initialHolder };
+    });
+  }
+
+  /**
+   * `owner`'s allowance for `spender`, read at ONE pinned block so the answer says which block it describes.
+   * The block is the latest the node reports when the read starts; if the chain moves, the swap's own revert is the backstop.
+   */
+  async tokenAllowance(token: Address, owner: Address, spender: Address): Promise<{ value: bigint; blockNumber: bigint }> {
+    return this.#read('tokenAllowance', 'chain.tokenAllowance', async () => {
+      const blockNumber = await this.client.getBlockNumber();
+      const value = await this.client.readContract({
+        address: token,
+        abi: erc20ApprovalAbi,
+        functionName: 'allowance',
+        args: [owner, spender],
+        blockNumber,
+      });
+      return { value, blockNumber };
+    });
+  }
+
+  /**
+   * Whether `owner` changing a non-zero allowance straight to `amount` REVERTS on this token (USDT-style tokens that demand
+   * a reset to zero first). Only an execution revert counts as yes; a node that cannot answer is a chain refusal, never a "yes"
+   * or a "no" the caller could mistake for knowledge.
+   */
+  async directApproveReverts(token: Address, owner: Address, spender: Address, amount: bigint): Promise<boolean> {
+    return this.#read('directApproveReverts', 'chain.directApproveReverts', async () => {
+      try {
+        await this.client.simulateContract({
+          address: token,
+          abi: erc20ApprovalAbi,
+          functionName: 'approve',
+          args: [spender, amount],
+          account: owner,
+        });
+        return false;
+      } catch (err) {
+        for (let link: unknown = err, depth = 0; link && typeof link === 'object' && depth < 8; depth += 1) {
+          const name = (link as { name?: unknown }).name;
+          if (name === 'ContractFunctionRevertedError' || name === 'ExecutionRevertedError') return true;
+          link = (link as { cause?: unknown }).cause;
+        }
+        throw err;
+      }
     });
   }
 

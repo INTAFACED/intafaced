@@ -32,7 +32,16 @@ import { SignatureEnvelopeError, type UserOperation } from './chain/userop.js';
 import { AmmMathError } from './amm/math.js';
 import { freshPoolQuote, PoolTokenError } from './amm/pool-quote.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
-import { buildCreatePool, buildMintLiquidity, buildSwapExactIn, quoteExactIn } from './amm/build.js';
+import {
+  MAX_UINT256,
+  buildApprove,
+  buildCreatePool,
+  buildMintLiquidity,
+  buildRevoke,
+  buildSwapExactIn,
+  planApproval,
+  quoteExactIn,
+} from './amm/build.js';
 import { computeTokenAddress, DEFAULT_TOKEN_SALT, templateArtifact, TokenAddressError } from './launch/address.js';
 import { buildCreateToken } from './launch/build.js';
 import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parseTokenParams, TokenParamsError } from './launch/params.js';
@@ -128,6 +137,29 @@ const tokenParamsInputSchema = z.object({
   /** Receives the entire supply at construction. */
   recipient: addressSchema,
 });
+
+/** An approval amount is a positive decimal integer; zero is a revoke and has its own call. */
+const approvalAmountSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,77}$/, 'protocol.approval_amount_invalid: use a positive whole number, or revoke to remove an approval');
+
+function parseApprovalAmount(text: string): bigint {
+  const amount = BigInt(text);
+  if (amount > MAX_UINT256) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'protocol.approval_amount_invalid: that amount does not fit a token balance.' });
+  }
+  return amount;
+}
+
+/** A zero token or spender is never a real target. */
+function requireApprovalTargets(token: Address, spender: Address): void {
+  if (isZeroAddress(token) || isZeroAddress(spender)) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: 'protocol.approval_target_zero: the token and the spender must be real addresses.',
+    });
+  }
+}
 
 const unsignedCallOutput = z.object({
   to: z.string(),
@@ -994,6 +1026,89 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             BigInt(input.amount1Desired),
           );
           return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+        }),
+
+      /**
+       * Does `spender` already hold enough allowance from `owner` for `amount` of `token`, and if not, which calls fix it?
+       * Read at one pinned block, which the answer names. Exact amount unless `unlimited: true` is passed by name.
+       */
+      checkApproval: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            owner: addressSchema,
+            token: addressSchema,
+            spender: addressSchema,
+            amount: approvalAmountSchema,
+            unlimited: z.boolean().default(false),
+          }),
+        )
+        .output(
+          z.object({
+            needsApproval: z.boolean(),
+            resetFirst: z.boolean(),
+            current: z.string(),
+            blockNumber: z.string(),
+            unlimited: z.boolean(),
+            calls: z.array(unsignedCallOutput),
+          }),
+        )
+        .query(async ({ input }) => {
+          try {
+            const [owner, token, spender] = [toChecksum(input.owner), toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const amount = parseApprovalAmount(input.amount);
+            const read = await chain.tokenAllowance(token, owner, spender);
+            const directChangeReverts =
+              read.value > 0n && read.value < amount ? await chain.directApproveReverts(token, owner, spender, amount) : false;
+            const plan = planApproval({ token, spender, amount, current: read.value, unlimited: input.unlimited, directChangeReverts });
+            return {
+              needsApproval: plan.needsApproval,
+              resetFirst: plan.resetFirst,
+              current: read.value.toString(),
+              blockNumber: read.blockNumber.toString(),
+              unlimited: plan.needsApproval && input.unlimited,
+              calls: plan.calls.map((call) => ({ to: call.to, data: call.data, value: call.value, summary: call.summary })),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** `approve(spender, amount)` for exactly `amount`; `unlimited: true` is the only way to ask for more. */
+      buildApprove: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(
+          z.object({
+            token: addressSchema,
+            spender: addressSchema,
+            amount: approvalAmountSchema,
+            unlimited: z.boolean().default(false),
+          }),
+        )
+        .output(unsignedCallOutput)
+        .query(({ input }) => {
+          try {
+            const [token, spender] = [toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const call = buildApprove(token, spender, parseApprovalAmount(input.amount), input.unlimited);
+            return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** `approve(spender, 0)`. */
+      buildRevoke: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(z.object({ token: addressSchema, spender: addressSchema }))
+        .output(unsignedCallOutput)
+        .query(({ input }) => {
+          try {
+            const [token, spender] = [toChecksum(input.token), toChecksum(input.spender)];
+            requireApprovalTargets(token, spender);
+            const call = buildRevoke(token, spender);
+            return { to: call.to, data: call.data, value: call.value, summary: call.summary };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
         }),
     }),
 
