@@ -9,7 +9,15 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
-import { MemoryLedger } from '@intafaced/ledger-client';
+import type { CommittedOperationAdmission } from '@intafaced/contracts';
+import {
+  MemoryLedger,
+  parseAmount,
+  positionCollateralAccount,
+  recipes,
+  type LedgerClient,
+  type PostRequest,
+} from '@intafaced/ledger-client';
 import { AuthError } from '@intafaced/auth';
 import { PositionService } from '../controls/test-admission.js';
 import { principalFor } from '../spot/testing.js';
@@ -19,6 +27,7 @@ import { TEST_MAX_LEVERAGE_AMOUNT } from '../futures/initial-margin.test-harness
 import { derivativesAccessGate } from '../futures/derivatives-access.js';
 import { assessEligibility, readEligibilityState, sqlEligibilityStore } from '../futures/derivatives-eligibility.js';
 import { acceptAgreement, assertAgreementsAccepted, sqlRiskAgreementStore } from '../futures/risk-agreements.js';
+import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
 import { tradeOpsAdminRouter } from './router.js';
@@ -648,12 +657,39 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       clientOpenId: 'open-1',
     };
 
-    function positions(gate?: Parameters<typeof derivativesAccessGate>[0] | ((s: never) => Promise<void>)) {
-      return new PositionService(db.sql, new MemoryLedger(), {
+    const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const NOW = new Date('2026-10-20T12:00:00Z');
+    const savedFutures = process.env.TRADE_FUTURES_ENABLED;
+    const savedJobs = process.env.TRADE_FUTURES_JOBS_ENABLED;
+
+    // The gate runs after the market lookup and the admitted-open replay, so the market exists here.
+    beforeEach(async () => {
+      await db.sql`TRUNCATE trade.positions, trade.markets RESTART IDENTITY CASCADE`;
+      await db.sql`
+        INSERT INTO trade.markets (
+          id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+          maker_bps, taker_bps, status, display_name, listed_at
+        ) VALUES (${MARKET}, 'BTC/USDT-PERP', 'BTC', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC perpetual', now())
+      `;
+    });
+
+    afterEach(() => {
+      if (savedFutures === undefined) delete process.env.TRADE_FUTURES_ENABLED;
+      else process.env.TRADE_FUTURES_ENABLED = savedFutures;
+      if (savedJobs === undefined) delete process.env.TRADE_FUTURES_JOBS_ENABLED;
+      else process.env.TRADE_FUTURES_JOBS_ENABLED = savedJobs;
+    });
+
+    function positions(
+      gate?: Parameters<typeof derivativesAccessGate>[0] | ((s: never) => Promise<void>),
+      extra: { ledger?: LedgerClient; accountAdmission?: TradingAdmissionPort } = {},
+    ) {
+      return new PositionService(db.sql, extra.ledger ?? new MemoryLedger(), {
         marks: MARKS.source(),
         profitSource,
         maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
-        now: () => new Date('2026-10-20T12:00:00Z'),
+        now: () => NOW,
+        ...(extra.accountAdmission ? { accountAdmission: extra.accountAdmission } : {}),
         ...(gate ? { assertDerivativesAccess: typeof gate === 'function' ? (gate as never) : derivativesAccessGate(gate) } : {}),
       });
     }
@@ -684,11 +720,11 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
       });
       await publishRules('0', 'r1', { minKycTier: 'full' });
       await assessEligibility(eligibility, { userId: ALICE, submissionId: 's1', answers: { q1: 'a', q2: 'b' }, now: new Date() });
-      // tier basic is below the rule's full; the open refuses before any market lookup
+      // tier basic is below the rule's full; the open refuses before the mark is read
       await expect(service.open(input, alice, { region: 'DE' })).rejects.toMatchObject({ code: 'trade.identity_level_insufficient' });
-      // the gate passed at tier full: the open moves on to the market lookup, which has no such market here
+      // the gate passed at tier full: the open moves on to the mark, which this test never sets
       const full = { ...alice, tier: 'full' as const };
-      await expect(service.open(input, full, { region: 'DE' })).rejects.toMatchObject({ code: 'trade.market_not_found' });
+      await expect(service.open(input, full, { region: 'DE' })).rejects.toMatchObject({ code: 'trade.mark_missing' });
     });
 
     it('a closing or reducing action never reaches the gate', async () => {
@@ -696,9 +732,9 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
         throw new Error('gate must not run for a reducing or closing action');
       });
       const service = positions(gate);
-      // reduce-only open: skips the gate (the market lookup that follows refuses on this empty schema)
+      // reduce-only open: skips the gate (and refuses on its own: there is no position to reduce)
       await expect(service.open({ ...input, reduceOnly: true }, principalFor(ALICE))).rejects.toMatchObject({
-        code: 'trade.market_not_found',
+        code: 'trade.reduce_only_would_increase',
       });
       // a normal open does run it
       await expect(service.open(input, principalFor(ALICE))).rejects.toThrow('gate must not run');
@@ -708,6 +744,85 @@ describe('risk agreements, margin terms and derivatives eligibility (D-account-0
         code: 'trade.position_not_found',
       });
       expect(gate).toHaveBeenCalledTimes(1);
+    });
+
+    it('an open admitted and locked before a crash finishes on retry after a new agreement version is published', async () => {
+      process.env.TRADE_FUTURES_ENABLED = 'true';
+      process.env.TRADE_FUTURES_JOBS_ENABLED = 'true';
+      MARKS.set({ marketId: MARKET, symbol: 'BTC/USDT-PERP', price: '100', quality: 'mid', asOfMs: NOW.getTime() });
+      const agreements = sqlRiskAgreementStore(db.sql);
+      const eligibility = sqlEligibilityStore(db.sql);
+      await publishAgreement('derivatives_risk', '0', 'crash-v1');
+      await acceptAgreement(agreements, { userId: ALICE, kind: 'derivatives_risk', version: 1, region: 'DE', now: new Date() });
+      await publishRules('0', 'crash-r1');
+      await assessEligibility(eligibility, { userId: ALICE, submissionId: 'crash-s1', answers: { q1: 'a', q2: 'b' }, now: new Date() });
+
+      const memory = new MemoryLedger();
+      await memory.post(
+        recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'crash-fund' }),
+      );
+      // The margin lock lands, then the process dies before the position row is written.
+      let crash = true;
+      const ledger = {
+        ...memory,
+        post: async (request: PostRequest) => {
+          const tx = await memory.post(request);
+          if (request.reason === 'futures.margin.lock' && crash) {
+            crash = false;
+            throw new Error('crashed after the margin lock');
+          }
+          return tx;
+        },
+        balance: (ref: Parameters<LedgerClient['balance']>[0]) => memory.balance(ref),
+      } as LedgerClient;
+      const admitted = new Map<string, { payload: unknown; admission: CommittedOperationAdmission; grantId: string }>();
+      const accountAdmission: TradingAdmissionPort = {
+        async admit(principal, kind, businessId, payload) {
+          const admission = {
+            operation: { service: 'svc-trade', kind, userId: principal.userId },
+            businessId,
+            payloadHash: 'sha256:agreements-test',
+            status: 'committed',
+            admissionId: `adm-${businessId}`,
+            admittedAt: NOW.toISOString(),
+            identityVersion: '0',
+            restrictionVersion: '0',
+          } as CommittedOperationAdmission;
+          if (!admitted.has(`${principal.userId}:${businessId}`)) {
+            admitted.set(`${principal.userId}:${businessId}`, { payload, admission, grantId: admission.admissionId });
+          }
+          return admission;
+        },
+        async admitStanding() {
+          throw new Error('no standing instruction here');
+        },
+        async original(userId, businessId) {
+          return admitted.get(`${userId}:${businessId}`) ?? null;
+        },
+        async resolve(userId, businessId) {
+          return admitted.get(`${userId}:${businessId}`) ?? null;
+        },
+      };
+      const service = positions({ agreements, eligibility }, { ledger, accountAdmission });
+      const alice = { ...principalFor(ALICE), tier: 'full' as const };
+      const open = { ...input, size: parseAmount('0.1') };
+
+      await expect(service.open(open, alice, { region: 'DE' })).rejects.toThrow('crashed after the margin lock');
+      expect(await db.sql`SELECT 1 FROM trade.positions WHERE user_id = ${ALICE}`).toHaveLength(0);
+
+      // A new version Alice has not accepted: a new open refuses, the admitted one does not.
+      await publishAgreement('derivatives_risk', '1', 'crash-v2');
+      await expect(service.open({ ...open, clientOpenId: 'open-2' }, alice, { region: 'DE' })).rejects.toMatchObject({
+        code: 'trade.agreement_required',
+      });
+      const position = await service.open(open, alice, { region: 'DE' });
+      const rows = await db.sql<{ id: string; margin_current: string }[]>`
+        SELECT id, margin_current FROM trade.positions WHERE user_id = ${ALICE}
+      `;
+      expect(rows.map((r) => r.id)).toEqual([position.id]);
+      expect((await memory.balance(positionCollateralAccount(ALICE, 'USDT', position.id!))).amount).toBe(
+        parseAmount(rows[0]!.margin_current),
+      );
     });
 
     it('the gate receives the user, the principal tier and the request region', async () => {

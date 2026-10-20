@@ -971,18 +971,6 @@ export class PositionService {
     }
 
     /**
-     * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
-     * never held up by a missing acceptance. The tier is the caller's own principal claim, null when none was passed.
-     */
-    if (this.deps.assertDerivativesAccess) {
-      await this.deps.assertDerivativesAccess({
-        userId: input.userId,
-        tier: principal?.tier ?? null,
-        region: context.region ?? null,
-      });
-    }
-
-    /**
      * IDEMPOTENT OPEN KEY (required) — refuse before mark/ledger.
      * Same clientOpenId → same lock key → ledger no-ops on retry.
      * Parity with spot clientOrderId — omit no longer mints randomUUID (double margin).
@@ -1027,6 +1015,20 @@ export class PositionService {
         throw new TradingControlError('auth.credential_denied');
       await this.deps.accountAdmission.admit(principal, 'order.place', businessId, evidence);
       return this.executeAdmittedPosition(input, evidence);
+    }
+
+    /**
+     * D-account-07 — agreement and eligibility before open. Reduce-only returned above, so a closing action is
+     * never held up by a missing acceptance. The tier is the caller's own principal claim, null when none was passed.
+     * It runs after the admitted-open replay: an open that was admitted and locked margin before a crash finishes on
+     * retry even if a new agreement or rules version was published meanwhile, so its margin is never left locked.
+     */
+    if (this.deps.assertDerivativesAccess) {
+      await this.deps.assertDerivativesAccess({
+        userId: input.userId,
+        tier: principal?.tier ?? null,
+        region: context.region ?? null,
+      });
     }
 
     this.refuseIfFuturesExposureOff();
