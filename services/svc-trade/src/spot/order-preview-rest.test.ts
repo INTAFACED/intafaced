@@ -362,6 +362,24 @@ describe('POST /api/v1/orders/preview', () => {
     await lifecycle.app.close();
   });
 
+  it('limit-only: a market order previews as refused with trade.mode_limit_only, a limit order does not', async () => {
+    const LIMIT_ONLY_LIFECYCLE: MarketLifecyclePort = {
+      snapshot: (market, options) => ({ ...READY_MARKET_LIFECYCLE.snapshot(market, options), state: 'LIMIT_ONLY' }) as never,
+      admit: (snapshot, action) => decideMarketAction(snapshot, action),
+    };
+    const { app } = appWith({ lifecycle: LIMIT_ONLY_LIFECYCLE });
+    const market = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, type: 'market', price: undefined },
+    });
+    expect(market.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.mode_limit_only');
+    const limit = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(limit.json().refusals.map((row: { code: string }) => row.code)).not.toContain('trade.mode_limit_only');
+    await app.close();
+  });
+
   it('refuses unauthenticated callers', async () => {
     const { app } = appWith({});
     const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, payload: limitBuy });

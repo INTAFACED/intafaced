@@ -32,7 +32,9 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
-  | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string };
+  | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
+  | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
+  | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -40,6 +42,8 @@ export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
+/** svc-identity's signing-key id, and the sorted comma list of ids a remove-old names (`auth-key-ring.ts`). */
+const AUTH_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export type DeskRequestKind = DeskRequest['kind'];
@@ -124,6 +128,20 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind,listingId,reason') return null;
     if (typeof raw.listingId !== 'string' || !UUID.test(raw.listingId) || !validReason(raw.reason)) return null;
     return { kind: 'market.listing.takedown', listingId: raw.listingId, reason: raw.reason };
+  }
+  // svc-identity binds the new key id (rotate) or the exact verify-only ids (remove-old) to the approval. Key material is never in a request.
+  if (raw.kind === 'identity.auth_key.rotate') {
+    if (keys !== 'keyId,kind') return null;
+    if (typeof raw.keyId !== 'string' || !AUTH_KEY_ID.test(raw.keyId) || raw.keyId === 'legacy') return null;
+    return { kind: 'identity.auth_key.rotate', keyId: raw.keyId };
+  }
+  if (raw.kind === 'identity.auth_key.remove_old') {
+    if (keys !== 'keyIds,kind') return null;
+    if (typeof raw.keyIds !== 'string') return null;
+    const ids = raw.keyIds.split(',');
+    if (!ids.every((id) => AUTH_KEY_ID.test(id)) || ids.join(',') !== [...ids].sort().join(',') || new Set(ids).size !== ids.length)
+      return null;
+    return { kind: 'identity.auth_key.remove_old', keyIds: raw.keyIds };
   }
   return null;
 }
@@ -214,6 +232,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
     case 'market.listing.takedown':
       return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
+    case 'identity.auth_key.rotate':
+      return `ROTATE KEY ${request.keyId}`;
+    case 'identity.auth_key.remove_old':
+      return 'REMOVE OLD KEYS';
   }
 }
 
@@ -250,6 +272,10 @@ export function describeRequest(request: DeskRequest): string {
         : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
+    case 'identity.auth_key.rotate':
+      return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
+    case 'identity.auth_key.remove_old':
+      return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
   }
 }
 
@@ -259,6 +285,8 @@ export function requestReason(request: DeskRequest): string | null {
     case 'academy.ambassador.unfreeze':
     case 'academy.ambassador.appoint':
     case 'academy.residency.decide':
+    case 'identity.auth_key.rotate':
+    case 'identity.auth_key.remove_old':
       return null;
     default:
       return request.reason;

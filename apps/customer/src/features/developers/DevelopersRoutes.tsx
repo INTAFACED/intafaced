@@ -1,5 +1,7 @@
 import { developersCopy } from './developers-copy';
 import { AUDIENCES, ENVIRONMENTS, PROTOCOLS, SECTIONS, developersRoute, hostTable, sectionById, type Audience } from './developers-model';
+import { ChangelogPage, UpcomingPage } from './ChangelogPages';
+import { StatusPage } from './StatusPage';
 import '../public/public-pages.css';
 
 const key = (id: string) => id.replace(/-/g, '_');
@@ -10,6 +12,9 @@ const sectionKey = (id: string) => `section_${key(id)}` as SectionKey;
 export function DevelopersRoutes({ path }: { path: string }) {
   const route = developersRoute(path);
   if (route.kind === 'hosts') return <Hosts />;
+  if (route.kind === 'status') return <StatusPage />;
+  if (route.kind === 'changelog') return <ChangelogPage />;
+  if (route.kind === 'upcoming') return <UpcomingPage />;
   if (route.kind === 'section') return <SectionPage id={route.id} />;
   if (route.kind === 'unknown' && path.split(/[?#]/)[0]!.replace(/\/+$/, '') !== '/developers') return <Unknown />;
   return <Home />;

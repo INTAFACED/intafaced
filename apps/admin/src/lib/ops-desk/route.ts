@@ -9,7 +9,7 @@ import { DESKS, readSpecFor } from './catalog';
 import { readDirectRequest } from './direct-model';
 import { runDirect } from './direct';
 import { opsExecute } from './execute';
-import { loadDesk, loadPage, loadTransferDetail } from './server';
+import { loadCustomerBalances, loadCustomerEntries, loadDesk, loadPage, loadTransferDetail } from './server';
 import { transferIdOf } from './transfer-id';
 import type { OpsDeskId } from './types';
 
@@ -110,4 +110,37 @@ export async function payPageGet(request: Request): Promise<Response> {
   }
   const outcome = await loadPage(session, 'pay', readId, cursor);
   return Response.json(outcome, { headers: NO_STORE });
+}
+
+const CUSTOMER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const COIN_ID = /^[A-Za-z0-9._-]{1,16}$/;
+const ENTRIES_CURSOR = /^[A-Za-z0-9_-]{1,16}$/;
+
+/**
+ * GET one customer's balances for the finance-treasury desk (svc-bank `ops.customerBalances`, admin:treasury), or with `asset` the
+ * entries behind that coin's balance (`ops.customerBalanceEntries`, with `cursor` for a later page). svc-bank writes a log line
+ * naming the operator and the customer before it reads a figure, so the request must come from this console's own page: a browser
+ * that says it is not same-origin is refused before anything is read. The ids are checked here only for shape; the service judges
+ * the rest. Who may read is the treasury permission on the founder's own session, decided where permissions are granted.
+ */
+export async function bankCustomerGet(request: Request): Promise<Response> {
+  const disabled = moduleDisabledResponse(DESKS.bank.module);
+  if (disabled) return disabled;
+  const site = request.headers.get('sec-fetch-site');
+  if (site !== null && site !== 'same-origin') return Response.json({ error: 'not_same_origin' }, { status: 403, headers: NO_STORE });
+  const session = await adminBffSession(request);
+  if (session instanceof Response) return session;
+  const params = new URL(request.url).searchParams;
+  const user = params.get('user')?.trim() ?? '';
+  const asset = params.get('asset');
+  const cursor = params.get('cursor');
+  if (
+    !CUSTOMER_ID.test(user) ||
+    (asset !== null && !COIN_ID.test(asset)) ||
+    (cursor !== null && (asset === null || !ENTRIES_CURSOR.test(cursor)))
+  ) {
+    return Response.json({ error: 'customer_request_invalid' }, { status: 400, headers: NO_STORE });
+  }
+  if (asset === null) return Response.json(await loadCustomerBalances(session, user), { headers: NO_STORE });
+  return Response.json(await loadCustomerEntries(session, user, asset, cursor), { headers: NO_STORE });
 }

@@ -1,8 +1,9 @@
 import { findRoom, roomDescription, roomTitle } from '../../app/navigation';
 import { useSession } from '../session/session';
-import { SUPPORT_EMAIL } from '../more/support-contact';
+import { supportContactEmail } from '../more/support-contact';
 import { supportMailto } from '../more/support-desk';
 import { ContactSupport } from './ContactSupport';
+import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
 import { PARTICIPATION_ROOMS, partnerEnquiryHref } from './public-pages';
 import { pagesCopy } from './public-pages-copy';
@@ -13,7 +14,7 @@ import './public-pages.css';
 export function PartnerPage() {
   const copy = pagesCopy.useCopy();
   const form = partnerEnquiryHref(import.meta.env.VITE_JOIN_URL as string | undefined);
-  const to = SUPPORT_EMAIL;
+  const to = supportContactEmail();
   return (
     <div className="pub-page">
       <header className="pub-heading">
@@ -27,7 +28,7 @@ export function PartnerPage() {
           <a className="button button--primary" href={form}>
             {copy.t('partnerOpenForm')} ↗
           </a>
-        ) : (
+        ) : to ? (
           <>
             <a className="button button--primary" href={supportMailto(to, copy.t('partnerMailSubject'), copy.t('partnerMailBody'))}>
               {copy.t('partnerEmail')}
@@ -36,6 +37,10 @@ export function PartnerPage() {
               <span lang="zxx">{to}</span>
             </p>
           </>
+        ) : (
+          <p role="status" data-testid="support-email-unset">
+            {copy.t('partnerEmailNotSet')}
+          </p>
         )}
       </section>
       <section className="pub-card" aria-labelledby="partner-include">
@@ -58,8 +63,8 @@ export function PartnerPage() {
   );
 }
 
-/** /notice, /announcement and their detail pages. The public notice feed publishes nothing, and the page says so. */
-export function NoticePage({ detail = false }: { detail?: boolean }) {
+/** /notice, /announcement and their detail pages: the published notice feed, read live. */
+export function NoticePage({ detail = false, id = null }: { detail?: boolean; id?: string | null }) {
   const copy = pagesCopy.useCopy();
   const { session } = useSession();
   return (
@@ -67,15 +72,12 @@ export function NoticePage({ detail = false }: { detail?: boolean }) {
       <header className="pub-heading">
         <h1>{copy.t('noticeTitle')}</h1>
       </header>
-      <section className="pub-notice" role="status">
-        <h2>{copy.t(detail ? 'noticeDetailTitle' : 'noticeNoneTitle')}</h2>
-        <p>{copy.t(detail ? 'noticeDetailBody' : 'noticeNoneBody')}</p>
-        {detail && (
-          <a className="text-link" href="/notice">
-            ← {copy.t('noticeBack')}
-          </a>
-        )}
-      </section>
+      {detail ? <NoticeDetail id={id} /> : <NoticeFeed />}
+      {detail && (
+        <a className="text-link" href="/notice">
+          ← {copy.t('noticeBack')}
+        </a>
+      )}
       <section className="pub-card">
         <h2>{copy.t('noticeAccountTitle')}</h2>
         <p>{copy.t('noticeAccountBody')}</p>

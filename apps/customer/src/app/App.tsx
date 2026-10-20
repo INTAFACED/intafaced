@@ -6,6 +6,7 @@ import { Shell } from './Shell';
 import { PublicRoutes } from '../features/public/PublicRoutes';
 import { useSession } from '../features/session/session';
 import { ApplyView } from '../features/account/View';
+import { AccountViewSync } from '../features/account/ViewSync';
 import { appCopy } from './app-copy';
 import { useKeepKeyboardFocusVisible } from '../shared/keyboard-focus';
 import { useCustomerRoomArrival } from './room-arrival';
@@ -213,6 +214,7 @@ export function App() {
   return (
     <div onClick={followLink}>
       <ApplyView />
+      <AccountViewSync />
       <RoomBoundary key={path}>{content}</RoomBoundary>
     </div>
   );

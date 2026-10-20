@@ -12,6 +12,7 @@ export const pagesCopy = defineCopy('public-pages', {
   partnerNoFormBody:
     'The enquiry form is on our invitation site, and this app has not been given that address. Email us instead and say what you have in mind.',
   partnerEmail: 'Email a partnership enquiry',
+  partnerEmailNotSet: 'Support email is not set, so there is no email link on this page.',
   partnerMailSubject: 'Partnership enquiry',
   partnerMailBody: 'About my business:\n\nWhat I would like to do with Intafaced:\n\nWhere we operate:\n',
   partnerIncludeTitle: 'What helps us answer',
@@ -24,9 +25,6 @@ export const pagesCopy = defineCopy('public-pages', {
   partnerMerchantOpen: 'Open merchant set-up',
   // Notices
   noticeTitle: 'Notices',
-  noticeNoneTitle: 'No public notices are published',
-  noticeNoneBody:
-    'Announcements, maintenance windows and incident reports would appear here. The notice feed has nothing published, so there is nothing to read and nothing is made up.',
   noticeAccountTitle: 'Notices about your account',
   noticeAccountBody: 'Order fills, verification results and rank changes arrive in your private inbox, not on this page.',
   noticeInbox: 'Open your inbox',
@@ -34,8 +32,6 @@ export const pagesCopy = defineCopy('public-pages', {
   noticeStuckTitle: 'Something not working?',
   noticeStuckBody: 'Search the help centre first. If it does not cover it, write to us.',
   noticeHelp: 'Open the help centre',
-  noticeDetailTitle: 'This notice is not published',
-  noticeDetailBody: 'No notice with this reference exists in the feed.',
   noticeBack: 'Back to notices',
   // App
   appTitle: 'Get the app',

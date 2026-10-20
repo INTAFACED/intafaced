@@ -57,7 +57,18 @@ import {
 } from './deps';
 import { buyHref } from './links';
 import { detailHref } from './activity-detail';
-import { groupMatches, hasFilters, NO_FILTERS, rangeProblem, type ActivityFilters } from './activity-filter';
+import {
+  ADDRESS_MAX,
+  ADDRESS_MIN,
+  askedOfTheBank,
+  groupMatches,
+  hasFilters,
+  NO_FILTERS,
+  rangeProblem,
+  serverOptions,
+  type ActivityFilters,
+} from './activity-filter';
+import { useNamedAccounts } from './portfolio-source';
 import { activityCsv, csvFileName } from './activity-csv';
 import { StatementPanel } from './StatementPanel';
 import { stamp } from './time';
@@ -107,6 +118,10 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
   const { t } = copy;
   const { timeZone } = usePreferences();
   const problem = rangeProblem(filters, timeZone);
+  const accounts = useNamedAccounts();
+  // The latest few UTC calendar years. A tax year that starts on another date is an owner value that is not set.
+  const thisYear = new Date().getUTCFullYear();
+  const years = Array.from({ length: 6 }, (_, back) => thisYear - back);
   return (
     <form className="money-bar" role="search" aria-label={t('Search activity')} onSubmit={(event) => event.preventDefault()}>
       <label className="money-bar__search">
@@ -136,6 +151,53 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
         <span>{t('To date')}</span>
         <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
       </label>
+      <label className="money-bar__field">
+        <span>{t('Order')}</span>
+        <select value={filters.sort} onChange={(event) => onChange({ ...filters, sort: event.target.value as ActivityFilters['sort'] })}>
+          <option value="desc">{t('Newest first')}</option>
+          <option value="asc">{t('Oldest first')}</option>
+        </select>
+      </label>
+      {accounts.status === 'ready' && accounts.data.length > 0 ? (
+        <label className="money-bar__field">
+          <span>{t('Account')}</span>
+          <select value={filters.accountId} onChange={(event) => onChange({ ...filters, accountId: event.target.value })}>
+            <option value="">{t('All accounts')}</option>
+            <option value="main">{t('Main account')}</option>
+            {accounts.data.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <label className="money-bar__field">
+        <span>{t('Year')}</span>
+        <select value={filters.year} onChange={(event) => onChange({ ...filters, year: event.target.value })}>
+          <option value="">{t('Any year')}</option>
+          {years.map((year) => (
+            <option key={year} value={String(year)}>
+              {year}
+            </option>
+          ))}
+          <option value="" disabled>
+            {t('Tax year not set up')}
+          </option>
+        </select>
+      </label>
+      <label className="money-bar__field">
+        <span>{t('Withdrawal address')}</span>
+        <input
+          type="search"
+          value={filters.address}
+          placeholder={t('Address hint', { min: ADDRESS_MIN })}
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={ADDRESS_MAX}
+          onChange={(event) => onChange({ ...filters, address: event.target.value })}
+        />
+      </label>
       <label className="money-bar__check">
         <input type="checkbox" checked={filters.hasNote} onChange={(event) => onChange({ ...filters, hasNote: event.target.checked })} />
         <span>{t('Only lines with a note')}</span>
@@ -145,6 +207,12 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
           {t('Clear filters')}
         </Button>
       )}
+      <p className="money-bar__note">{t('Tax year note')}</p>
+      {filters.address.trim() !== '' && filters.address.trim().length < ADDRESS_MIN ? (
+        <p className="money-bar__note" role="status">
+          {t('Address too short', { min: ADDRESS_MIN })}
+        </p>
+      ) : null}
       {problem && (
         <p className="money-bar__error" role="alert">
           {problem === 'order' ? t('Date range order') : t('Date range invalid')}
@@ -481,6 +549,7 @@ function Content({
   copy,
   hidden,
   filters,
+  asked,
 }: {
   activity: Loadable<ActivityFeed>;
   tab: LedgerTab;
@@ -488,6 +557,8 @@ function Content({
   copy: Copy;
   hidden: boolean;
   filters: ActivityFilters;
+  /** The bank was asked to narrow or reorder the list, so "empty" means "nothing matches", not "no activity at all". */
+  asked: boolean;
 }) {
   const { t } = copy;
   switch (activity.status) {
@@ -517,6 +588,7 @@ function Content({
       );
     }
     case 'empty':
+      if (asked) return <StateBlock kind="empty" className="money-state" title={t('No matches')} body={t('No matches body')} />;
       return (
         <StateBlock
           kind="empty"
@@ -545,8 +617,25 @@ function LedgerTabs({
   hidden: boolean;
   filters: ActivityFilters;
 }) {
-  const activity = useActivity();
-  return <Content activity={activity} tab={tab} asset={asset} copy={copy} hidden={hidden} filters={filters} />;
+  // Typing an address asks the bank only once the person pauses.
+  const [address, setAddress] = useState(filters.address);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAddress(filters.address), 400);
+    return () => window.clearTimeout(timer);
+  }, [filters.address]);
+  const asked = serverOptions({ ...filters, address });
+  const activity = useActivity(asked);
+  return (
+    <Content
+      activity={activity}
+      tab={tab}
+      asset={asset}
+      copy={copy}
+      hidden={hidden}
+      filters={filters}
+      asked={askedOfTheBank({ ...filters, address })}
+    />
+  );
 }
 
 export default function Activity({ search }: { search: string }) {

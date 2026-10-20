@@ -18,6 +18,7 @@
  */
 export * from './catalog.js';
 export * from './catalogs.js';
+export * from './locale-file.js';
 export * from './locales.js';
 export * from './format.js';
 export * from './t.js';

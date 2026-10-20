@@ -19,8 +19,8 @@ importers:
   .:
     devDependencies:
       '@axe-core/playwright':
-        specifier: ^4.13.0
-        version: 4.13.0(playwright-core@1.64.1)
+        specifier: ^4.14.0
+        version: 4.14.0(playwright-core@1.64.1)
       '@playwright/test':
         specifier: ^1.64.1
         version: 1.64.1
@@ -47,7 +47,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   apps/admin:
     dependencies:
@@ -76,6 +76,12 @@ importers:
         specifier: ^0.0.1
         version: 0.0.1
     devDependencies:
+      '@intafaced/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@intafaced/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       '@tailwindcss/postcss':
         specifier: 4.3.3
         version: 4.3.3
@@ -99,7 +105,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   apps/customer:
     dependencies:
@@ -119,11 +125,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@tanstack/react-virtual':
-        specifier: 3.14.20
-        version: 3.14.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: 3.14.21
+        version: 3.14.21(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       lucide-react:
-        specifier: 1.57.0
-        version: 1.57.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: 1.58.0
+        version: 1.58.0(@types/react@19.3.0)(react@19.3.1)
       react:
         specifier: ^19.3.1
         version: 19.3.1
@@ -147,8 +153,8 @@ importers:
         specifier: ^19.2.4
         version: 19.3.0(@types/react@19.3.0)
       happy-dom:
-        specifier: 20.14.5
-        version: 20.14.5
+        specifier: 20.14.6
+        version: 20.14.6
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
@@ -160,7 +166,7 @@ importers:
         version: 8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   apps/invitation:
     dependencies:
@@ -246,7 +252,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/auth:
     dependencies:
@@ -268,7 +274,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/config:
     dependencies:
@@ -287,7 +293,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/connect-data-lake:
     dependencies:
@@ -309,7 +315,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/contracts:
     dependencies:
@@ -343,7 +349,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/db:
     dependencies:
@@ -368,7 +374,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/events:
     dependencies:
@@ -399,7 +405,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/exchange-contract:
     dependencies:
@@ -424,7 +430,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/execution-arb:
     dependencies:
@@ -449,7 +455,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/execution-house-tenant:
     devDependencies:
@@ -464,7 +470,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/execution-mm:
     dependencies:
@@ -489,7 +495,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/greeks-adapter:
     devDependencies:
@@ -504,7 +510,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/i18n:
     dependencies:
@@ -523,7 +529,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/ledger-client:
     dependencies:
@@ -545,7 +551,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/market-data:
     dependencies:
@@ -567,7 +573,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/portfolio-view:
     dependencies:
@@ -589,7 +595,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/quant-honesty:
     devDependencies:
@@ -604,7 +610,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/safe-regex:
     dependencies:
@@ -623,7 +629,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/sbe-codec:
     devDependencies:
@@ -638,7 +644,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/sdk-ts:
     devDependencies:
@@ -653,7 +659,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/telemetry:
     dependencies:
@@ -687,7 +693,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/ui:
     dependencies:
@@ -704,8 +710,8 @@ importers:
         specifier: 0.6.2
         version: 0.6.2(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       '@tanstack/react-virtual':
-        specifier: 3.14.20
-        version: 3.14.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        specifier: 3.14.21
+        version: 3.14.21(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -713,8 +719,8 @@ importers:
         specifier: 2.1.1
         version: 2.1.1
       lucide-react:
-        specifier: 1.57.0
-        version: 1.57.0(@types/react@19.3.0)(react@19.3.1)
+        specifier: 1.58.0
+        version: 1.58.0(@types/react@19.3.0)(react@19.3.1)
       tailwind-merge:
         specifier: 3.7.0
         version: 3.7.0
@@ -748,7 +754,7 @@ importers:
         version: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@26.6.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@26.6.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/venue-adapter:
     dependencies:
@@ -779,7 +785,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   packages/venue-contracts:
     dependencies:
@@ -798,7 +804,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-academy:
     dependencies:
@@ -862,7 +868,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-agents:
     dependencies:
@@ -920,7 +926,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-bank:
     dependencies:
@@ -987,7 +993,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-blueprint:
     dependencies:
@@ -1045,7 +1051,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-dex:
     dependencies:
@@ -1094,7 +1100,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-edge:
     dependencies:
@@ -1152,7 +1158,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-execution:
     dependencies:
@@ -1216,7 +1222,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-fix:
     dependencies:
@@ -1238,7 +1244,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-identity:
     dependencies:
@@ -1302,7 +1308,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
     optionalDependencies:
       '@node-rs/argon2':
         specifier: ^2.2.2
@@ -1373,7 +1379,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-ledger:
     dependencies:
@@ -1440,7 +1446,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-market:
     dependencies:
@@ -1498,7 +1504,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-matching:
     dependencies:
@@ -1553,7 +1559,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-mining-pool:
     dependencies:
@@ -1590,7 +1596,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-notify:
     dependencies:
@@ -1648,7 +1654,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-ops:
     dependencies:
@@ -1694,7 +1700,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-p2p:
     dependencies:
@@ -1758,7 +1764,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-pay:
     dependencies:
@@ -1831,7 +1837,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-protocol:
     dependencies:
@@ -1898,7 +1904,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-quant:
     dependencies:
@@ -1953,7 +1959,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-support:
     dependencies:
@@ -2008,7 +2014,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-tax:
     dependencies:
@@ -2051,7 +2057,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-token:
     dependencies:
@@ -2115,7 +2121,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-trade:
     dependencies:
@@ -2191,7 +2197,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   services/svc-ws:
     dependencies:
@@ -2252,7 +2258,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
   tooling/pay-sim:
     dependencies:
@@ -2280,7 +2286,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^3.0.5
-        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
+        version: 3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1)
 
 packages:
 
@@ -2296,8 +2302,9 @@ packages:
     peerDependencies:
       zod: ^3.20.2
 
-  '@axe-core/playwright@4.13.0':
-    resolution: {integrity: sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==}
+  '@axe-core/playwright@4.14.0':
+    resolution: {integrity: sha512-SGUhG5PIHd2eMdpgBF2PyQLOhX+qyDR2PT4cmoS4Qk2ak+jX/rrSvst9l0PGv5WTHolKpUMvVmoHpr4cZgf1RQ==}
+    engines: {node: '>=22.12.0'}
     peerDependencies:
       playwright-core: '>= 1.0.0'
 
@@ -3899,14 +3906,14 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@tanstack/react-virtual@3.14.20':
-    resolution: {integrity: sha512-9hbhFlc0lznjXmWYDB/KEl7PJxEPz0Qnj2FzJFse98miGvXtx7jzjE5jlasmtczmZ6TxXsyI4v7PuyGQm2q1nQ==}
+  '@tanstack/react-virtual@3.14.21':
+    resolution: {integrity: sha512-wWE/ZJDNNDp18JHWy7n5PQooqerHePVkEEu6Op0twKQ2InF9DPhYMQptQY0syDEviMd3/r8D0OUvKJibDGm9HQ==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
       react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  '@tanstack/virtual-core@3.19.5':
-    resolution: {integrity: sha512-X/wq6DtSK/XClznMM+I4JE63yyIwmyPk4Ts83bD0VKaIbwHNdRsO5QipCPX+3OovqYyr0puQNpbmp8+SPhspNg==}
+  '@tanstack/virtual-core@3.19.6':
+    resolution: {integrity: sha512-CsTW892z23gy7IyxYTTorVu1uZWB+0N349rSMgKz4rFLPpLza7F7TpcCKeI5iUAwYQCt8QUlOU67J+KXCxtpGw==}
 
   '@testcontainers/postgresql@11.14.0':
     resolution: {integrity: sha512-wYbJn8GRTj8qfqzfVubxioYWlHJU/ImIjuzPwyy9C5Qfo6g3GLduPZAj+BifvqTZjgT3gd4gFVLCPhBji7dc1w==}
@@ -4261,8 +4268,8 @@ packages:
   avvio@9.3.1:
     resolution: {integrity: sha512-QyTKW61/qlba+cUQBm/sT9X8lri4UdomqSDwCnrnj1IvLVDRRiXRkz4CgBRWB+/cmfC7SK5WQc8T1vSdGvaUcQ==}
 
-  axe-core@4.13.0:
-    resolution: {integrity: sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A==}
+  axe-core@4.14.0:
+    resolution: {integrity: sha512-9WTZxEjsZ7b13TH8JPmbV2z8CHbl80/2hm3XPEG4JgNdQLK81IBRXmSxHfMAOkSqQeRxT/0dwNDz2GOm3zzpcQ==}
     engines: {node: '>=4'}
 
   b4a@1.8.1:
@@ -4882,8 +4889,8 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
-  happy-dom@20.14.5:
-    resolution: {integrity: sha512-x/RzkpWO40bTjIoT30iQtt64FLLmH/iRcUCN2X//bLx7H3ifkdfPXyqsro/OYtqzIAhiLMMA7mmiOR9C3NOKjQ==}
+  happy-dom@20.14.6:
+    resolution: {integrity: sha512-5DDsf4QmEIlRL6NkCv/fxSjYHHkZceL/IaYQdJc2h3G7DRTEai++VTjbfL0LB9geW2VrA3+vrjF3Efx+OTtX0Q==}
     engines: {node: '>=20.0.0'}
 
   has-flag@4.0.0:
@@ -5190,8 +5197,8 @@ packages:
     resolution: {integrity: sha512-4pfM1Ff0x50o0tQwb5ucw/RzNyD0/YJME6IVcStalZuMWxdt3sR3huStTtxz4PUmvZfRguvDejasvQ2kifR11g==}
     engines: {node: 20 || >=22}
 
-  lucide-react@1.57.0:
-    resolution: {integrity: sha512-bXFZEucYhAzLD62Jse76AbTR6LiSLTn3Tqir2f1n8rZrWAdLodYy7jnRZSPIT89dRLk/IseMOUWG82wJtTyTTw==}
+  lucide-react@1.58.0:
+    resolution: {integrity: sha512-hXaFNm6mk6QVtBnDGBn1YAs8j2tGUk0A4s/CpclIcczfxeXiW1rdOLVo6zCsoIih9XXsGvDODQerl749a2n7bA==}
     peerDependencies:
       '@types/react': '*'
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -6141,9 +6148,9 @@ snapshots:
       openapi3-ts: 4.6.1
       zod: 3.25.76
 
-  '@axe-core/playwright@4.13.0(playwright-core@1.64.1)':
+  '@axe-core/playwright@4.14.0(playwright-core@1.64.1)':
     dependencies:
-      axe-core: 4.13.0
+      axe-core: 4.14.0
       playwright-core: 1.64.1
 
   '@babel/runtime@8.0.7': {}
@@ -7466,13 +7473,13 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
 
-  '@tanstack/react-virtual@3.14.20(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
+  '@tanstack/react-virtual@3.14.21(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
-      '@tanstack/virtual-core': 3.19.5
+      '@tanstack/virtual-core': 3.19.6
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
 
-  '@tanstack/virtual-core@3.19.5': {}
+  '@tanstack/virtual-core@3.19.6': {}
 
   '@testcontainers/postgresql@11.14.0':
     dependencies:
@@ -7787,7 +7794,7 @@ snapshots:
       '@fastify/error': 4.2.1
       fastq: 1.20.3
 
-  axe-core@4.13.0: {}
+  axe-core@4.14.0: {}
 
   b4a@1.8.1: {}
 
@@ -8377,7 +8384,7 @@ snapshots:
 
   graceful-fs@4.2.11: {}
 
-  happy-dom@20.14.5:
+  happy-dom@20.14.6:
     dependencies:
       '@types/node': 22.20.5
       '@types/whatwg-mimetype': 3.0.2
@@ -8621,7 +8628,7 @@ snapshots:
 
   lru-cache@11.5.2: {}
 
-  lucide-react@1.57.0(@types/react@19.3.0)(react@19.3.1):
+  lucide-react@1.58.0(@types/react@19.3.0)(react@19.3.1):
     dependencies:
       react: 19.3.1
     optionalDependencies:
@@ -9558,7 +9565,7 @@ snapshots:
       tsx: 4.23.15
       yaml: 2.9.1
 
-  vitest@3.2.7(@types/node@22.20.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1):
+  vitest@3.2.7(@types/node@22.20.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.7
@@ -9585,7 +9592,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.20.5
-      happy-dom: 20.14.5
+      happy-dom: 20.14.6
     transitivePeerDependencies:
       - jiti
       - less
@@ -9600,7 +9607,7 @@ snapshots:
       - tsx
       - yaml
 
-  vitest@3.2.7(@types/node@26.6.5)(happy-dom@20.14.5)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1):
+  vitest@3.2.7(@types/node@26.6.5)(happy-dom@20.14.6)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.7
@@ -9627,7 +9634,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 26.6.5
-      happy-dom: 20.14.5
+      happy-dom: 20.14.6
     transitivePeerDependencies:
       - jiti
       - less

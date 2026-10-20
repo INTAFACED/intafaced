@@ -14,6 +14,7 @@ import { placesOf, quotePlaces } from './text';
 import { canEdit } from './EditOrder';
 import { exitKindKey } from './order-kind';
 import { orderTag } from './tif';
+import { OrderChanges } from './OrderChanges';
 
 /**
  * The order and trade tables shared by the desk's bottom strip and the Activity screen (Orders and Trades tabs), so the
@@ -273,7 +274,8 @@ export function OrdersTable({
                   </span>
                 ) : (
                   orderStatus(order, t)
-                )}
+                )}{' '}
+                {desk ? <OrderChanges orderId={order.id} tick={precision.tickOf(order.symbol)} /> : null}
               </td>
             </tr>
           ))}

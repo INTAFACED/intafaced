@@ -263,3 +263,30 @@ export const erc20ReadAbi = [
     outputs: [{ type: 'uint256' }],
   },
 ] as const;
+
+/**
+ * The two ERC-20 members an approval flow touches. `approve` is encoded here and never sent by this service: the
+ * owner signs it. `allowance` is read at a pinned block so the answer says which block it describes.
+ */
+export const erc20ApprovalAbi = [
+  {
+    type: 'function',
+    name: 'allowance',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'owner', type: 'address' },
+      { name: 'spender', type: 'address' },
+    ],
+    outputs: [{ type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'approve',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'spender', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ type: 'bool' }],
+  },
+] as const;

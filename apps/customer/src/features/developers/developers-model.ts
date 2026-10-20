@@ -64,12 +64,22 @@ export function hostTable(read: (protocol: Protocol, environment: Environment) =
 /** What the address names: the home page, the hosts table, a section, or an address that is none of these. */
 export function developersRoute(
   path: string,
-): { kind: 'home' } | { kind: 'hosts' } | { kind: 'section'; id: string } | { kind: 'unknown' } {
+):
+  | { kind: 'home' }
+  | { kind: 'hosts' }
+  | { kind: 'status' }
+  | { kind: 'changelog' }
+  | { kind: 'upcoming' }
+  | { kind: 'section'; id: string }
+  | { kind: 'unknown' } {
   const clean = path.split(/[?#]/)[0]!.replace(/\/+$/, '');
   if (clean === '/developers') return { kind: 'home' };
+  if (clean === '/developers/changelog/upcoming') return { kind: 'upcoming' };
   const match = /^\/developers\/([^/]+)$/.exec(clean);
   if (!match) return { kind: 'unknown' };
   const id = match[1]!;
   if (id === 'hosts') return { kind: 'hosts' };
+  if (id === 'status') return { kind: 'status' };
+  if (id === 'changelog') return { kind: 'changelog' };
   return sectionById(id) ? { kind: 'section', id } : { kind: 'unknown' };
 }

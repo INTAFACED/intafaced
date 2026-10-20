@@ -47,6 +47,11 @@ export function readRating(api: ApiClient, ticketId: string, userId: string | nu
   );
 }
 
+/** Ids of the signed-in person's own requests that already carry a rating. Only used to offer "rate this" on the rest. */
+export function readRatedTicketIds(api: ApiClient, signal?: AbortSignal) {
+  return api.query('support', 'ratedMine', undefined, z.array(z.string().uuid()), { signal });
+}
+
 export async function closeRequest(api: ApiClient, input: { ticketId: string; userId: string | null; clientRequestId: string }) {
   return plainSupportResult(
     await api.mutate(
