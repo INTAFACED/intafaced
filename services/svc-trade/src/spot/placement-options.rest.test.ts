@@ -21,7 +21,9 @@ function signed(): Record<string, string> {
     scopes: ['trade:read', 'trade:write'],
     tier: 'basic',
     mfa: false,
-    expiresAt: new Date(NOW.getTime() + 60_000),
+    // The edge checks the principal's expiry against the wall clock, not the route's injected `now`, so a
+    // fixed date here stops authenticating once the real time passes it.
+    expiresAt: new Date(Date.now() + 60_000),
   } as Principal;
   const raw = encodePrincipal(p);
   return {

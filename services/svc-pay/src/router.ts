@@ -1,5 +1,8 @@
 import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
+import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
+import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
+import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
 import { AuthError, requireMfa } from '@intafaced/auth';
@@ -259,6 +262,8 @@ export function createPayRouter(
   portalSql: Sql | null = null,
   /** Local-test starter fee. Null means the product fee is not set yet. */
   starterFee: MerchantStarterFee | null = null,
+  /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
+  withdrawalQuotes: WithdrawalQuoteService | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2285,6 +2290,21 @@ export function createPayRouter(
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalEligibilityFor(ctx.principal.userId, input.assetId))),
 
+      /**
+       * A fee quote for one withdrawal (W-withdraw-04): fee parts, on top or deducted, net, total debit and expiry. `trade:write`
+       * (it stores a quote, moves nothing and needs no step-up). `quoteRef` is the caller's own key, kept across a retry.
+       * A blank fee, mode or lifetime refuses with a typed error; no figure is guessed. Create does not read the quote yet.
+       */
+      quote: scopedProcedure('trade:write', { module: 'ledger' })
+        .input(quoteInputSchema)
+        .output(quoteViewSchema)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            if (!withdrawalQuotes) throw new WithdrawalQuoteError('withdrawal_quote.unwired', 'quotes need the pay database');
+            return withdrawalQuotes.quote(ctx.principal.userId, input);
+          }),
+        ),
+
       estimateFee: scopedProcedure('trade:read')
         .input(z.object({ assetId: assetIdSchema, chain: z.string().min(1), address: z.string().min(1) }))
         .output(z.object({ fee: amountSchema, assetId: assetIdSchema, address: z.string(), sent: z.literal(false) }))
@@ -2407,6 +2427,7 @@ function toTrpcError(err: unknown): unknown {
   }
   // Payout of a merchant who already has a rolling reserve. NOT_IMPLEMENTED, message is the code.
   if (err instanceof ControlError) return controlToTrpcError(err);
+  if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }

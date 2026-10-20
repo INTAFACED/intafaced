@@ -64,6 +64,7 @@ import { guarded } from './control-errors.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
+import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
 import { createTravelRuleRouter, type TravelRuleMountDeps } from '../travel-rule/router.js';
 import { createWithdrawalReturnRouter, type WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
 import { createWithdrawalLimitsRouter, type WithdrawalLimitsMountDeps } from '../limits/change-router.js';
@@ -100,6 +101,8 @@ export interface FounderAdminMounts {
   custody?: CustodyMountDeps;
   /** W-withdraw-13: holds on funds bought by card, ACH or PayPal (`founderAdmin.purchaseHolds.*`). Mounted only when supplied. */
   purchaseHolds?: PurchaseHoldMountDeps;
+  /** W-withdraw-04: withdrawal fee quote policy and quote read (`founderAdmin.withdrawalQuotes.*`). Mounted only when supplied. */
+  withdrawalQuotes?: WithdrawalQuoteMountDeps;
   /** W-compliance-notices-04: outbound travel rule (`founderAdmin.travelRule.*`). Mounted only when supplied. */
   travelRule?: TravelRuleMountDeps;
   /** W-withdraw-07: returned withdrawals, recorded and parked (`founderAdmin.withdrawalReturns.*`). Mounted only when supplied. */
@@ -157,8 +160,20 @@ async function readWrap<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export function createFounderAdminRouter(founderAuthority: FounderAuthority, mounts: FounderAdminMounts = {}) {
-  const { metrics, registries, limits, custody, purchaseHolds, travelRule, withdrawalReturns, treasury, control, halts, conversion } =
-    mounts;
+  const {
+    metrics,
+    registries,
+    limits,
+    custody,
+    purchaseHolds,
+    travelRule,
+    withdrawalQuotes,
+    withdrawalReturns,
+    treasury,
+    control,
+    halts,
+    conversion,
+  } = mounts;
   const reads = mounts.sql
     ? createFounderMerchantReads({ sql: mounts.sql, pay: mounts.pay, disputes: mounts.disputes, starterFee: mounts.starterFee })
     : null;
@@ -181,6 +196,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(custody ? { custody: createCustodyRouter({ founderAuthority, ...custody }) } : {}),
       // W-withdraw-13: purchase holds (src/withdrawals/purchase-holds). Mounted only when its deps are supplied.
       ...(purchaseHolds ? { purchaseHolds: createPurchaseHoldRouter({ founderAuthority, ...purchaseHolds }) } : {}),
+      // W-withdraw-04: withdrawal fee quotes (src/withdrawals/quotes). Mounted only when its deps are supplied.
+      ...(withdrawalQuotes ? { withdrawalQuotes: createWithdrawalQuoteRouter({ founderAuthority, ...withdrawalQuotes }) } : {}),
       // W-compliance-notices-04: outbound travel rule (src/travel-rule). Mounted only when its deps are supplied.
       ...(travelRule ? { travelRule: createTravelRuleRouter({ founderAuthority, ...travelRule }) } : {}),
       // W-withdraw-07: returned withdrawals (src/withdrawals/returns). Mounted only when its deps are supplied.

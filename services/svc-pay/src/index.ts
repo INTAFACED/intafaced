@@ -25,6 +25,7 @@ import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
 import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
+import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
 import { TravelRuleService } from './travel-rule/service.js';
@@ -411,6 +412,7 @@ const walletPay = new WalletPay({
 });
 
 const purchaseHolds = new PurchaseHoldService({ sql }).guard();
+const withdrawalQuotes = new WithdrawalQuoteService({ sql });
 /** W-compliance-notices-04: no counterparty network is connected, and no message key means nothing is stored. */
 const travelRuleCipher = loadMessageCipher(process.env);
 
@@ -498,7 +500,7 @@ export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
@@ -532,6 +534,7 @@ export const appRouter = mergeRouters(
     limits: { sql, approvals: actionApprovals },
     custody: { sql },
     purchaseHolds: { sql },
+    withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
     withdrawalReturns: { sql },
     starterFee: merchantStarterFee,
