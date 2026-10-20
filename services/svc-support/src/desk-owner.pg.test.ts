@@ -47,6 +47,7 @@ function desk(overrides: Partial<AttachmentDesk> = {}): AttachmentDesk {
     scanner: new MemoryMalwareScanner('clean'),
     maxBytes: 8,
     allowedTypes: ['text/plain'],
+    maxCount: 10,
     ...overrides,
   };
 }

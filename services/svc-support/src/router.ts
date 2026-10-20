@@ -23,6 +23,8 @@ import {
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
+import { attachmentProcedures } from './attachment-router.js';
+import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -93,6 +95,8 @@ function mapError(err: unknown): never {
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
+      err.code === 'support.attachment_count_unset' ||
+      err.code === 'support.attachment_count_reached' ||
       err.code === 'support.attachment_too_large'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
@@ -140,9 +144,11 @@ export function createSupportRouter(
   internalServiceSecret?: string | null,
   scope?: DeskScopeReader,
   contact: ContactBook = new MemoryContactBook(),
+  attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
 ) {
   return router({
     ...contactProcedures(contact, support),
+    ...attachmentProcedures(attachmentSettings, support),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

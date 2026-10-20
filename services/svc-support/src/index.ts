@@ -6,6 +6,7 @@ import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
+import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
@@ -67,6 +68,10 @@ await sql`SELECT audience FROM support.kb_article_versions LIMIT 1`.catch(() => 
   throw new Error('support.kb_article_versions.audience is missing — apply migration 0022 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.attachment_settings_log LIMIT 1`.catch(() => {
+  throw new Error('support.attachment_settings_log is missing — apply migration 0023 before starting svc-support');
+});
+
 await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
 });
@@ -98,6 +103,7 @@ const connectBus = (): Promise<JetStreamEventBus | null> => {
     });
   return connecting;
 };
+const attachmentSettings = new SqlAttachmentSettingsBook(sql);
 const ratingRequests = new RatingRequestOutbox(new SqlRatingRequestBook(sql), async () => {
   const connected = await connectBus();
   return connected ? eventRatingRequestSink(connected) : null;
@@ -125,9 +131,10 @@ const support = new SupportService(
   new SqlPropertiesBook(sql),
   new SqlLifecycleBook(sql),
   ratingRequests,
+  attachmentSettings,
 );
 const loop = createTicketKbLoopObserver();
-const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql));
+const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql), attachmentSettings);
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
   ...edgeTrustFromEnv(env),

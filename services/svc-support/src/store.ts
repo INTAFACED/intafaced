@@ -216,6 +216,8 @@ export interface SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    /** The owner's file count for one request. A new file is refused once the request already holds this many. */
+    maxCount: number;
   }): Promise<RecordAttachmentResult>;
   readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult>;
   recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
@@ -281,7 +283,7 @@ export type ReadRatingResult =
 
 export type RecordAttachmentResult =
   | { readonly status: 'ok'; readonly attachment: AttachmentMeta; readonly replay: boolean }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'count_reached' };
 
 export type ReadAttachmentResult =
   { readonly status: 'ok'; readonly attachment: AttachmentMeta } | { readonly status: 'refuse'; readonly reason: 'not_found' };
@@ -1128,12 +1130,15 @@ export class MemorySupportStore implements SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    maxCount: number;
   }): Promise<RecordAttachmentResult> {
     const stored = this.receipts.get(this.receiptKey('support.attach', input.userId, input.clientRequestId));
     if (stored) return { status: 'ok', attachment: (stored as { attachment: AttachmentMeta }).attachment, replay: true };
 
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+    const held = [...this.attachments.values()].filter((a) => a.ticketId === input.ticketId).length;
+    if (held >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
     const attachment: AttachmentMeta & { clientRequestId: string } = {
       id: input.id,
@@ -2037,6 +2042,7 @@ export class PostgresSupportStore implements SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    maxCount: number;
   }): Promise<RecordAttachmentResult> {
     return this.sql.begin(async (tx): Promise<RecordAttachmentResult> => {
       const locked = await tx<{ user_id: string }[]>`
@@ -2049,6 +2055,11 @@ export class PostgresSupportStore implements SupportStore {
       `;
       if (prior[0]) return { status: 'ok', attachment: prior[0].result.attachment, replay: true };
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+      // The ticket row is locked, so two files racing for the last place cannot both be taken.
+      const [held] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.ticket_attachments WHERE ticket_id = ${input.ticketId}
+      `;
+      if ((held?.n ?? 0) >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
       const rows = await tx<PgAttachment[]>`
         INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length)

@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
+  type SupportAttachmentKey,
+  type SupportAttachmentLimits,
+  type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
@@ -39,7 +43,14 @@ import {
 } from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
-import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
+import {
+  ATTACHMENT_MAX_COUNT_KEY,
+  UNCONFIGURED_ATTACHMENTS,
+  decodeAttachmentBody,
+  missingAttachmentKey,
+  type AttachmentDesk,
+} from './attachments.js';
+import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
 import { isTerminal } from './lifecycle.js';
 import {
@@ -254,6 +265,8 @@ export class SupportService implements SupportContract {
     private readonly lifecycle: LifecycleBook = new MemoryLifecycleBook(),
     /** The ask to rate a resolved request, recorded once per ticket and published to the bus. */
     private readonly ratingRequests: RatingRequestOutbox = new RatingRequestOutbox(new MemoryRatingRequestBook(), async () => null),
+    /** The owner's size, type and count limits for an attachment. Blank until set; the deployment desk's own values win. */
+    private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -1302,9 +1315,13 @@ export class SupportService implements SupportContract {
   }): Promise<AttachmentMeta> {
     return withSupportSpan('support.attach', { op: 'attach', ticketId: input.ticketId }, async () => {
       this.requireClientRequestId(input.clientRequestId);
-      const missing = missingAttachmentKey(this.attachments);
+      const desk = await this.attachmentDesk();
+      const missing = missingAttachmentKey(desk);
       if (missing) {
         throw new SupportError('attachments are not configured', 'support.attachments_unconfigured', missing);
+      }
+      if (desk.maxCount == null) {
+        throw new SupportError('attachment count is not set', 'support.attachment_count_unset', ATTACHMENT_MAX_COUNT_KEY);
       }
       const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
       if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
@@ -1313,15 +1330,15 @@ export class SupportService implements SupportContract {
 
       const bytes = decodeAttachmentBody(input.bodyBase64);
       if (!bytes) throw new SupportError('attachment body is not base64', 'support.attachment_body_invalid');
-      const maxBytes = this.attachments.maxBytes!;
+      const maxBytes = desk.maxBytes!;
       if (bytes.byteLength > maxBytes) {
         throw new SupportError('attachment exceeds the configured size', 'support.attachment_too_large');
       }
-      const allowed = this.attachments.allowedTypes!;
+      const allowed = desk.allowedTypes!;
       if (!allowed.includes(input.contentType)) {
         throw new SupportError('attachment type is not in the configured list', 'support.attachment_type_refused');
       }
-      const verdict = await this.attachments.scanner!.scan(bytes);
+      const verdict = await desk.scanner!.scan(bytes);
       if (verdict !== 'clean') {
         throw new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
       }
@@ -1336,13 +1353,63 @@ export class SupportService implements SupportContract {
         storeKey,
         contentType: input.contentType,
         byteLength: bytes.byteLength,
+        maxCount: desk.maxCount,
       });
-      if (recorded.status === 'refuse') throw ticketNotFound();
+      if (recorded.status === 'refuse') {
+        if (recorded.reason === 'count_reached') {
+          throw new SupportError('the request already holds its limit of files', 'support.attachment_count_reached');
+        }
+        throw ticketNotFound();
+      }
       if (!recorded.replay) {
-        await this.attachments.store!.put({ key: storeKey, bytes, contentType: input.contentType });
+        await desk.store!.put({ key: storeKey, bytes, contentType: input.contentType });
       }
       return recorded.attachment;
     });
+  }
+
+  /**
+   * The desk an attach runs against: the deployment's store and scanner, and each limit from the deployment when it
+   * supplied one and otherwise from the owner's settings. A limit neither has stays blank.
+   */
+  private async attachmentDesk(): Promise<AttachmentDesk & { maxCount: number | null }> {
+    const limits = await this.attachmentSettings.get();
+    return {
+      store: this.attachments.store,
+      scanner: this.attachments.scanner,
+      maxBytes: this.attachments.maxBytes ?? limits.maxBytes,
+      allowedTypes: this.attachments.allowedTypes ?? limits.allowedTypes,
+      maxCount: this.attachments.maxCount ?? limits.maxCount,
+    };
+  }
+
+  /** The limits as a customer or an operator reads them, with the first piece an attach is missing. */
+  async attachmentLimits(): Promise<SupportAttachmentLimits> {
+    const desk = await this.attachmentDesk();
+    const limits = await this.attachmentSettings.get();
+    return {
+      maxBytes: desk.maxBytes,
+      allowedTypes: desk.allowedTypes === null ? null : [...desk.allowedTypes],
+      maxCount: desk.maxCount,
+      missing: (missingAttachmentKey(desk) ??
+        (desk.maxCount == null ? ATTACHMENT_MAX_COUNT_KEY : null)) as SupportAttachmentLimits['missing'],
+      revision: limits.revision,
+      updatedAt: limits.updatedAt,
+    };
+  }
+
+  /** Each of the five pieces an attach needs and whether it is set, in the order it needs them. */
+  async attachmentStatus(): Promise<SupportAttachmentStatus> {
+    const limits = await this.attachmentLimits();
+    const desk = await this.attachmentDesk();
+    const set: Record<SupportAttachmentKey, boolean> = {
+      'support.attachment_store': desk.store != null,
+      'support.malware_scanner': desk.scanner != null,
+      'support.attachment_max_bytes': limits.maxBytes !== null,
+      'support.attachment_allowed_types': limits.allowedTypes !== null,
+      'support.attachment_max_count': limits.maxCount !== null,
+    };
+    return { pieces: SUPPORT_ATTACHMENT_KEYS.map((key) => ({ key, set: set[key] })), limits };
   }
 
   /** Owner reads their attachment metadata. An operator reads one only on a ticket they are assigned. */

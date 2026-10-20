@@ -137,6 +137,18 @@ and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`);
 reaches the service and, if it does, refuses `support.kb_audience_invalid`. Per-segment visibility is not built: whether it
 is wanted is a thread decision, and `support.kb_segment_cap_unset` is not introduced until it is.
 
+Attachment limits (SP-tickets-02): the owner sets the largest file (`maxBytes`), the allowed content types and the number of
+files one request may hold (`maxCount`) in `support.attachment_settings`, one row with a revision and an append-only log
+(`support.attachment_settings_log`, keyed `support.attachment_settings:r<revision>`). All three start blank and nothing is
+seeded. `attachmentLimits` (`support:read`) answers them with `missing`, the first of the five pieces an attach lacks
+(store, scanner, size, types, count); `attachmentStatus` (`support:ops`) lists the five and whether each is set;
+`setAttachmentSettings` (`support:ops`, staff lead, a reason, the revision read) changes them. A limit the deployment's desk
+supplies wins over the owner's row. An attach with a blank piece refuses `support.attachments_unconfigured` naming the key,
+and a blank count refuses `support.attachment_count_unset`; a request already at its count refuses
+`support.attachment_count_reached`, decided under the ticket row lock so two files cannot both take the last place, and a
+replay of an attach already made is never refused for the count. The store and the scanner are deployment configuration:
+no adapter is wired at boot yet, so every attach still refuses naming `support.attachment_store`.
+
 ## Migrations
 
 ```bash

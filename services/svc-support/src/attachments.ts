@@ -8,6 +8,7 @@ export const ATTACHMENT_STORE_KEY = 'support.attachment_store';
 export const ATTACHMENT_SCANNER_KEY = 'support.malware_scanner';
 export const ATTACHMENT_MAX_BYTES_KEY = 'support.attachment_max_bytes';
 export const ATTACHMENT_ALLOWED_TYPES_KEY = 'support.attachment_allowed_types';
+export const ATTACHMENT_MAX_COUNT_KEY = 'support.attachment_max_count';
 
 export type ScanVerdict = 'clean' | 'infected' | 'unknown';
 
@@ -26,6 +27,8 @@ export type AttachmentDesk = {
   readonly scanner: MalwareScanner | null;
   readonly maxBytes: number | null;
   readonly allowedTypes: readonly string[] | null;
+  /** Files one request may hold. Absent or null is blank. A deployment leaves it to the owner's settings. */
+  readonly maxCount?: number | null;
 };
 
 export const UNCONFIGURED_ATTACHMENTS: AttachmentDesk = {
@@ -33,6 +36,7 @@ export const UNCONFIGURED_ATTACHMENTS: AttachmentDesk = {
   scanner: null,
   maxBytes: null,
   allowedTypes: null,
+  maxCount: null,
 };
 
 /**
