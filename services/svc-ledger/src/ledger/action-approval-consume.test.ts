@@ -126,6 +126,17 @@ describe('ledger action-approval consume', () => {
     await expect(client.consume(CONSUME_REQUEST)).rejects.toBeInstanceOf(ActionApprovalConsumeError);
   });
 
+  it('bounds the call to identity with a timeout signal so a hung identity cannot hang a freeze door', async () => {
+    const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) => ({
+      ok: true,
+      json: async () => ({ result: { data: consumedApproval() } }),
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const client = createIdentityApprovalClient('http://identity.test', 'x'.repeat(32));
+    await client.consume(CONSUME_REQUEST);
+    expect(fetchSpy.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('boot freeze path is not wired through consume', () => {
     const service = readFileSync(join(HERE, '../service.ts'), 'utf8');
     expect(service).toMatch(/applyStartupPolicy/);
