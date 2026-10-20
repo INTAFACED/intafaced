@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createApiClient, type ApiClient, type ApiResult } from '../../shared/api';
 import { createSessionController, sessionSchema, type Session, type SessionNotice } from './session-restore';
+import { useProfiles, type Profiles } from './use-profiles';
 
 export { sessionSchema, type Session };
 type SessionContext = {
@@ -18,7 +19,10 @@ type SessionContext = {
   notice: SessionNotice | null;
   /** Ask the server again to end the session after a logout it did not confirm. */
   retryLogout: () => Promise<ApiResult<{ ok: true }>>;
+  /** Derived from the profile in view: Business only while the person has picked a business they belong to. */
   mode: 'Personal' | 'Business';
+  /** The profiles the person can pick and the one in view. */
+  profiles: Profiles;
   userId: string | null;
 };
 const Context = createContext<SessionContext | null>(null);
@@ -46,6 +50,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }),
     [accessToken, controller],
   );
+  const profiles = useProfiles(api, session?.userId ?? null);
   return (
     <Context.Provider
       value={{
@@ -59,7 +64,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         retryRestore: () => void controller.retryRestore(),
         notice,
         retryLogout: controller.retryLogout,
-        mode: 'Personal',
+        mode: profiles.business ? 'Business' : 'Personal',
+        profiles,
         userId: session?.userId ?? null,
       }}
     >

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
+import { UI_ACTIVE_PROFILE_PATTERN } from '@intafaced/contracts/ui-view-preferences';
 import { canonicalUiLocale } from './locale';
 
 const fields = z.object({
@@ -52,6 +53,11 @@ const fields = z.object({
    * A first visit lands on Pro (PLT-0009); a stored Simple choice stays Simple.
    */
   layoutMode: z.enum(['simple', 'pro']).default('pro'),
+  /**
+   * Which profile the person is looking at: `personal`, or `business:<id>` for a business they belong to. A view choice only,
+   * no service reads it. The session checks it against the person's real memberships (`features/session/profiles.ts`).
+   */
+  activeProfile: z.string().regex(UI_ACTIVE_PROFILE_PATTERN).catch('personal').default('personal'),
 });
 /**
  * Older saves wrote the whole snapshot, so a stored `UTC` cannot be told apart from a chosen one.
@@ -165,6 +171,7 @@ export function usePreferences() {
         listeners.delete(notify);
       };
     },
+    () => snapshot,
     () => snapshot,
   );
 }
