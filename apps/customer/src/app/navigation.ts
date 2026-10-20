@@ -606,7 +606,7 @@ export function roomDescription(room: Room, locale: UiLocale = currentPreference
 }
 /** Where a room lives, as search shows it: "Bank > Earn". Parked Web3 rooms sit under More; rooms outside every door have no path. */
 export function roomPath(room: Room, locale: UiLocale = currentPreferences().language): string | undefined {
-  const door = room.door ?? (room.area === 'parked' ? 'More' : undefined);
+  const door = room.door ?? (room.area === 'web3' ? 'More' : undefined);
   return door ? `${doorLabel(door, locale)} > ${roomTitle(room, locale)}` : undefined;
 }
 
