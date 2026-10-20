@@ -20,6 +20,12 @@ describe('fee refusals (SP-fees-vip-01)', () => {
       expect(classifyRefusal(code)).toBe('notSetUp');
     }
   });
+
+  it('maps the order tag, expiry and fee-currency refusals to their own copy', () => {
+    expect(classifyRefusal('trade.invalid_tag')).toBe('tagInvalid');
+    expect(classifyRefusal('trade.invalid_expiry')).toBe('expiryInvalid');
+    expect(classifyRefusal('trade.fee_currency_unsupported')).toBe('optionUnsupported');
+  });
 });
 
 describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
