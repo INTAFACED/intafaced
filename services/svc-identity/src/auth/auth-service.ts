@@ -851,6 +851,28 @@ export class AuthService {
     return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
   }
 
+  /**
+   * Open a session for an account whose identity a trusted outside party has just confirmed (a linked
+   * provider identity). The second factor is still required: an account with TOTP needs its code,
+   * counted and checked the same way as `login`, and a session without one is not marked `mfa`.
+   */
+  async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+    const [user] = await this.sql<
+      Array<{ id: string; status: string; totp_secret: string | null }>
+    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    let mfa = false;
+    if (user.totp_secret) {
+      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
+      mfa = true;
+      await recordSuccess(this.sql, user.id, 'mfa');
+    }
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+  }
+
   private async issueSession(
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
