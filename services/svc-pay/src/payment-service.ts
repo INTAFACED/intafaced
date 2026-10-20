@@ -378,6 +378,8 @@ export type PayErrorCode =
   | 'pay.withdrawal_eligibility_unwired'
   /** A page cursor this history never issued. */
   | 'pay.withdrawal_cursor_invalid'
+  | 'pay.withdrawal_not_cancellable'
+  | 'pay.withdrawal_canceled'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'
