@@ -599,8 +599,12 @@ export class PositionService {
    *     that is already booked, so any outflow would compound the difference. Adding margin is
    *     the only thing allowed (it cannot hurt the books); the operator resolves the park per
    *     the runbook, section 2.
+   *   · A PLANNED ADL PAIR (adl-pairing.ts): every operation is refused with 409
+   *     `trade.liquidation_in_progress`, adding margin included. The pair fixed both legs at
+   *     plan time, so a top-up meanwhile would sit in a position the pair then closes.
+   *     Funding skips such a position too (position-loaders.ts), for the same reason.
    *
-   * FUNDING IS NOT BLOCKED. A payee is owed; the rung's amendment path absorbs the race.
+   * FUNDING IS NOT BLOCKED by a rung. A payee is owed; the rung's amendment path absorbs the race.
    */
   private async assertLiquidationHold(
     tx: TransactionSql,
@@ -620,10 +624,11 @@ export class PositionService {
         EXISTS (SELECT 1 FROM trade.liquidation_attempts a WHERE a.liquidation_id = ${defaultLiquidationId(positionId)}) AS claimed
     `;
     if (!hold) return;
-    // A planned ADL pair moves both rows by a delta, like a partial rung: margin added meanwhile survives it.
-    if (hold.adl_planned && operation !== 'add_margin') {
+    // A planned ADL pair fixed its legs from the margin at plan time; a top-up posted meanwhile would sit in a
+    // position the pair then closes, with nothing to release it. So a planned pair refuses every change, top-ups included.
+    if (hold.adl_planned) {
       throw new FuturesError('an ADL reduction of this position is in progress — retry in a moment', LIQUIDATION_IN_PROGRESS, 409, {
-        addMarginAllowed: true,
+        addMarginAllowed: false,
       });
     }
     if (hold.live_kind !== null && !(operation === 'add_margin' && hold.live_kind === 'partial')) {

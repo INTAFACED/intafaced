@@ -27,6 +27,7 @@ import { ADL_UNCONFIGURED, memoryAdlDisclosureEventStore } from './adl-last-reso
 import { TEST_ADL_RANKING, bankruptcyPrice, sqlAdlCandidates, sqlAdlPairReducer } from './adl-pairing.js';
 import { listPayoutsForUser, pendingPayoutTotals } from './futures-payouts.js';
 import { parkUnderfundedWithAdl } from './liquidation-adl-gate.js';
+import { sqlFundingPositionLoader, sqlLiquidationPositionLoader } from './position-loaders.js';
 import { PositionService } from '../controls/test-admission.js';
 import { memoryMarkBook } from './mark-source.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
@@ -134,6 +135,41 @@ describe('ADL pairs at the bankruptcy price (PG-hard)', () => {
       at: AT,
     });
   }
+
+  /** The ledger, failing the first post of `reason` once. */
+  function failOnce(reason: string): Pick<LedgerClient, 'post' | 'balance'> {
+    let armed = true;
+    return {
+      balance: (ref) => ledger.balance(ref),
+      post: async (req) => {
+        if (req.reason === reason && armed) {
+          armed = false;
+          throw new Error('ledger timeout');
+        }
+        return ledger.post(req);
+      },
+    };
+  }
+
+  /** Alice bankrupt against Bob, with the pair planned and only its loss leg posted. */
+  async function plannedPair(): Promise<{ alice: string; bob: string }> {
+    const alice = await position(ALICE, 'long', '1', '50000', '5000');
+    const bob = await position(BOB, 'short', '1', '50000', '5000');
+    await acks.recordAck(BOB, ADL_DISCLOSURE_VERSION, AT);
+    await expect(runAdl(alice, amt('1'), adlDeps({ ledger: failOnce('futures.margin.release') }).deps)).rejects.toThrow('ledger timeout');
+    const [planned] = await sql<{ state: string }[]>`SELECT state FROM trade.futures_adl_pairs`;
+    expect(planned?.state).toBe('planned');
+    return { alice, bob };
+  }
+
+  const positionService = () =>
+    new PositionService(sql, ledger, {
+      marks: memoryMarkBook().source(),
+      profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),
+      maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+      bus: null,
+      now: () => AT,
+    });
 
   it('prices the bankruptcy where the loss equals the margin', () => {
     expect(formatAmount(bankruptcyPrice('long', amt('1'), amt('50000'), amt('5000'))!)).toBe('45000');
@@ -267,5 +303,83 @@ describe('ADL pairs at the bankruptcy price (PG-hard)', () => {
     expect(await bal(userAvailable(BOB, 'USDT'))).toBe('10000');
     expect(await pot()).toBe('0');
     expect(ledger.reconcile().ok).toBe(true);
+  });
+
+  it('refuses a margin top-up on either side while a pair is planned, so no top-up is stranded in a closed position', async () => {
+    const { alice, bob } = await plannedPair();
+    await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: amt('300'), rail: 'test', railRef: 'topup-bob' }));
+    await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('300'), rail: 'test', railRef: 'topup-alice' }));
+    const service = positionService();
+    for (const [userId, positionId] of [
+      [BOB, bob],
+      [ALICE, alice],
+    ] as const) {
+      await expect(
+        service.addIsolatedMargin({ userId, symbol: 'BTC/USDT-PERP', positionId, amount: amt('300'), clientAdjustmentId: `top-${userId}` }),
+      ).rejects.toMatchObject({ code: 'trade.liquidation_in_progress', addMarginAllowed: false });
+    }
+
+    expect(await sqlAdlPairReducer(sql, ledger).replayPlanned(bob)).toBe(true);
+    expect(await row(bob)).toMatchObject({ status: 'closed', margin_current: '5000.000000000000000000' });
+    expect(await bal(positionCollateralAccount(BOB, 'USDT', bob))).toBe('0');
+    expect(await bal(positionCollateralAccount(ALICE, 'USDT', alice))).toBe('0');
+    expect(await bal(userAvailable(BOB, 'USDT'))).toBe('10300');
+    expect(ledger.reconcile().ok).toBe(true);
+  });
+
+  it('keeps a planned pair on an expired dated contract in the liquidation scan, so the tick still drives it', async () => {
+    const { alice, bob } = await plannedPair();
+    await sql`
+      UPDATE trade.markets SET futures_contract_style = 'dated', futures_expiry_at = now() - interval '1 hour',
+             futures_settlement_fixing = 'test-fixing'
+       WHERE id = ${MARKET}
+    `;
+    const listed = (await sqlLiquidationPositionLoader(sql).listOpen()).map((p) => p.positionId);
+    expect(listed).toEqual(expect.arrayContaining([alice, bob]));
+
+    expect(await sqlAdlPairReducer(sql, ledger).replayPlanned(alice)).toBe(true);
+    expect((await row(bob)).status).toBe('closed');
+    expect(await sqlLiquidationPositionLoader(sql).listOpen()).toEqual([]);
+  });
+
+  it('leaves a planned pair out of funding, so a charge cannot leave the bankrupt short of its stored loss leg', async () => {
+    const { alice, bob } = await plannedPair();
+    const other = await position(CAROL, 'short', '1', '50000', '5000');
+    const funded = (await sqlFundingPositionLoader(sql).listOpenForMarket(MARKET)).map((p) => p.positionId);
+    expect(funded).toEqual([other]);
+    expect(funded).not.toContain(alice);
+    expect(funded).not.toContain(bob);
+  });
+
+  it('sees a liquidation claim committed while the plan waited for the row lock, and plans nothing', async () => {
+    const alice = await position(ALICE, 'long', '1', '50000', '5000');
+    const bob = await position(BOB, 'short', '1', '50000', '5000');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((resolve) => (locked = resolve));
+    const holder = sql.begin(async (tx) => {
+      await tx`SELECT id FROM trade.positions WHERE id = ${alice} FOR UPDATE`;
+      await tx`INSERT INTO trade.liquidation_attempts (liquidation_id, position_id) VALUES (${`liq:${alice}`}, ${alice})`;
+      locked();
+      await held;
+    });
+    await isLocked;
+    const reduced = sqlAdlPairReducer(sql, ledger).reduce({
+      positionId: bob,
+      bankruptPositionId: alice,
+      sizeClosed: amt('1'),
+      reason: 'trade.adl_disclosure_before_action',
+      disclosureEventId: 'evt-race',
+    });
+    // Let the reducer reach the lock wait, then commit the claim.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    release();
+    await holder;
+
+    expect(await reduced).toEqual({ sizeClosed: 0n });
+    expect(await sql`SELECT 1 FROM trade.futures_adl_pairs`).toHaveLength(0);
+    expect((await row(alice)).status).toBe('open');
+    expect(await bal(positionCollateralAccount(ALICE, 'USDT', alice))).toBe('5000');
   });
 });
