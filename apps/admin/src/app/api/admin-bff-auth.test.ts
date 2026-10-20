@@ -11,6 +11,7 @@ import { GET as p2pOpsGet } from './p2p-ops/route.js';
 import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
 import { GET as protocolOpsGet } from './protocol-ops/route.js';
+import { GET as identityKeysGet, POST as identityKeysPost } from './identity-ops/keys/route.js';
 import { ADMIN_COOKIE, founderCookie, sealFounderSession, type FounderSession } from '../../lib/founder-session.js';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -40,6 +41,8 @@ const routes = [
   ['GET /api/more-ops', moreOpsGet, 'GET'],
   ['POST /api/more-ops', moreOpsPost, 'POST'],
   ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
+  ['GET /api/identity-ops/keys', identityKeysGet, 'GET'],
+  ['POST /api/identity-ops/keys', identityKeysPost, 'POST'],
 ] as const;
 
 function configure() {
