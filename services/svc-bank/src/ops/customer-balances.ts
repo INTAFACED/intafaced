@@ -12,6 +12,7 @@ import { scopedProcedure } from '@intafaced/contracts';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { activityFailure } from '../activity/activity.router.js';
+import { ActivityLookupBoundedError, ActivityUnavailableError } from '../activity/activity-service.js';
 import { BankError } from '../errors.js';
 import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from '../portfolio/portfolio-service.js';
 
@@ -132,8 +133,8 @@ export function customerBalanceEntriesProcedure(bank: BankServices, guard: Guard
             limit: input.limit,
           });
         } catch (err) {
-          if (err instanceof BankError) throw err;
-          return activityFailure(err);
+          if (err instanceof ActivityUnavailableError || err instanceof ActivityLookupBoundedError) return activityFailure(err);
+          throw err;
         }
       }),
     );
