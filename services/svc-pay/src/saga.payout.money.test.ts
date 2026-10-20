@@ -4,7 +4,7 @@
  * each post, and requires the book of one clean run every time. Postgres and the rail (the chain) survive a crash, as
  * they would for real.
  */
-import { afterAll, afterEach, beforeAll } from 'vitest';
+import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 import { verifyServiceHeaders } from '@intafaced/contracts';
 import { formatAmount, MemoryLedger, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
 import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-client/testing/saga';
@@ -13,6 +13,9 @@ import { railFailure } from './rails/rail-adapter.js';
 import { createLedgerClient } from './ledger-client.js';
 import { installPayoutDestinationShim } from './payout-destination-test-shim.js';
 import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
+
+// Each replay boots a database and runs the door several times; the 5s default is too tight on a loaded CI runner.
+vi.setConfig({ testTimeout: 30_000 });
 
 const PAYMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';

@@ -53,10 +53,6 @@
     "services/svc-dex/src/router-quote.ts": {
       "scale": 1
     },
-    "services/svc-edge/src/action-approval-consume.ts": {
-      "unwrap": 1,
-      "fetch": 1
-    },
     "services/svc-edge/src/api-key-account.ts": {
       "unwrap": 2
     },
@@ -104,15 +100,11 @@
       "fetch": 1
     },
     "services/svc-identity/src/affiliates/commission.ts": {
-      "parse": 4
+      "parse": 2
     },
     "services/svc-indexer/scripts/dev-venue.ts": {
       "scale": 1,
       "parse": 1
-    },
-    "services/svc-ledger/src/ledger/action-approval-consume.ts": {
-      "unwrap": 1,
-      "fetch": 1
     },
     "services/svc-market/src/stake-source.ts": {
       "fetch": 1
@@ -128,10 +120,6 @@
     },
     "services/svc-notify/src/notices/approval.ts": {
       "unwrap": 1
-    },
-    "services/svc-ops/src/operator-desks.ts": {
-      "unwrap": 1,
-      "fetch": 1
     },
     "services/svc-ops/src/outreach/authority.ts": {
       "unwrap": 1

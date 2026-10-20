@@ -318,6 +318,17 @@ function SideForm({
   }, [marketBuy, protection, tradable, bestAsk]); // eslint-disable-line react-hooks/exhaustive-deps
   const protectionPrice = marketBuy ? protectionNow(protection?.price ?? null, protection?.ask ?? null, bestAsk) : null;
   const max = maxAmount({ side, type, price, available, market, protectionPrice, stopLimit });
+  const spendTyped = useRef(false);
+  // A typed spend stays a cap while the ask moves: re-size the amount from the current protection price. Leaving a market buy drops it.
+  useEffect(() => {
+    if (totalEdit === null) return;
+    if (!marketBuy) {
+      if (spendTyped.current) setTotalEdit(null);
+      return;
+    }
+    if (protectionPrice === null) return;
+    setAmount(amountForValue(totalEdit, protectionPrice, market.lotSize) ?? '');
+  }, [marketBuy, protectionPrice, totalEdit, market.lotSize]);
   const short = live.state === 'ok' && holdShort(live.preview, spendAsset, available);
   const gate = gateSubmit({
     signedIn,
@@ -648,25 +659,27 @@ function SideForm({
         ))}
       </div>
       <AmountInput
-        label={priced ? t('Total') : t('Total estimate')}
+        label={priced ? t('Total') : marketBuy ? t('Spend up to') : t('Total estimate')}
         value={total}
         onValueChange={(next) =>
           edit(() => {
-            if (!priced) return;
-            const heldPrice = isBuyOco(side, type) ? stopLimit : price;
-            if (scaled(heldPrice) === null) {
-              setHint(t('Enter a price first'));
+            if (!priced && !marketBuy) return;
+            // A priced order is sized at its price; a market buy at the service's price protection, so the hold never passes the spend.
+            const heldPrice = marketBuy ? protectionPrice : isBuyOco(side, type) ? stopLimit : price;
+            if (heldPrice === null || scaled(heldPrice) === null) {
+              setHint(marketBuy ? t('Checking the order') : t('Enter a price first'));
               return;
             }
+            spendTyped.current = marketBuy;
             setTotalEdit(next);
             setAmount(next === '' ? '' : (amountForValue(next, heldPrice, market.lotSize) ?? ''));
           })
         }
         precision={8}
         unit={market.quote}
-        readOnly={!priced}
+        readOnly={!priced && !(marketBuy && protectionPrice !== null)}
         placeholder="0"
-        aria-label={t('Total')}
+        aria-label={marketBuy ? t('Spend') : t('Total')}
       />
       <dl className="dk-avail">
         <div>

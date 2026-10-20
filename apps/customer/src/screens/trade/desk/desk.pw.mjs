@@ -584,6 +584,42 @@ test('market buy Max is sized from the price protection, so the hold never passe
   await expect(page.getByRole('alertdialog')).toBeVisible();
 });
 
+test('market buy by spend: typing a spend sizes the amount so the hold stays within it', async ({ page }) => {
+  const m = await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  const spend = buyForm(page).getByRole('textbox', { name: 'Spend' });
+  await expect(spend).toBeEditable();
+  await spend.fill('1000');
+  const amount = buyForm(page).getByRole('textbox', { name: 'Amount' });
+  await expect(amount).not.toHaveValue('');
+  const sized = await amount.inputValue();
+  const check = m.exchange.preview({ symbol: 'BTC/USDT', side: 'buy', type: 'market', amount: sized, timeInForce: 'GTC', postOnly: false });
+  expect(Number(check.holdAmount)).toBeLessThanOrEqual(1000);
+  expect(Number(check.holdAmount)).toBeGreaterThan(0);
+  await expect(spend).toHaveValue('1000');
+  expect(m.requests('POST', 'orders')).toHaveLength(0);
+});
+
+test('a typed spend is dropped when the buy stops being a market order', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  const spend = buyForm(page).getByRole('textbox', { name: 'Spend' });
+  await expect(spend).toBeEditable();
+  await spend.fill('1000');
+  await page.getByRole('tab', { name: 'Limit', exact: true }).click();
+  await expect(buyForm(page).getByRole('textbox', { name: 'Total' })).not.toHaveValue('1000');
+});
+
+test('market sell has no spend field: its total stays an estimate', async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  await page.getByRole('tab', { name: 'Market' }).click();
+  await expect(sellForm(page).getByRole('textbox', { name: 'Spend' })).toHaveCount(0);
+  await expect(sellForm(page).getByRole('textbox', { name: 'Total' })).toHaveAttribute('readonly', '');
+});
+
 test('fee line comes from the preview, not the market list', async ({ page }) => {
   await mount(page);
   await ready(page);

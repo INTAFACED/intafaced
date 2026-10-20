@@ -7,9 +7,8 @@
  */
 import { createHash } from 'node:crypto';
 import {
-  actionApprovalSchema,
+  createIdentityApprovalClient,
   founderAttestationVerdict,
-  serviceAuthHeadersForBody,
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
@@ -140,28 +139,14 @@ export function approvalPayloadHash(actionType: string, fields: Record<string, s
     .digest('hex')}`;
 }
 
+/** Identity answers or the door refuses: the shared client bounds the call with a timeout (a timeout fails closed) and checks the CONSUMED echo. */
 export function createOpsApprovalClient(baseUrl: string, internalSecret: string): ApprovalConsumer {
-  const url = baseUrl.replace(/\/$/, '');
-  return {
-    async consume(input) {
-      const payload = JSON.stringify(input);
-      const res = await fetch(`${url}/trpc/actionApproval.consume`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-ops', internalSecret, payload),
-        },
-        body: payload,
-      });
-      if (!res.ok) {
-        throw new OpsError(OPS_APPROVAL_UNWIRED, `identity refused consume (${res.status})`);
-      }
-      const body = (await res.json()) as { result?: { data?: unknown } };
-      const data = body.result?.data;
-      const json = data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data;
-      return actionApprovalSchema.parse(json);
-    },
-  };
+  return createIdentityApprovalClient({
+    service: 'svc-ops',
+    baseUrl,
+    internalSecret,
+    fail: (message) => new OpsError(OPS_APPROVAL_UNWIRED, message),
+  });
 }
 
 export function unwiredApprovalConsumer(): ApprovalConsumer {

@@ -6,12 +6,15 @@
  *
  * Two doors: a refund drawn on clearing (before the window posts) and one drawn on the merchant's proceeds (after).
  */
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, vi } from 'vitest';
 import { verifyServiceHeaders } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount as amt, type LedgerClient } from '@intafaced/ledger-client';
 import { describeMoneyDoor, type MoneyDoorScenario } from '@intafaced/ledger-client/testing/saga';
 import { createLedgerClient } from './ledger-client.js';
 import { overHarness, payServiceOver, pinPayIds, resetPay, SAGA_SECRET, sagaPayDatabase, sagaRails } from './saga-fixture-test.js';
+
+// Each replay boots a database and runs the door several times; the 5s default is too tight on a loaded CI runner.
+vi.setConfig({ testTimeout: 30_000 });
 
 const MERCHANT_USER = '11111111-1111-4111-8111-111111111111';
 const PAYMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';

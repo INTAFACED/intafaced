@@ -12,37 +12,13 @@
       "sign": 0,
       "caller": 1
     },
-    "services/svc-bank/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/auto-invest/trade-convert-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/business/business-directory.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-bank/src/personal-pay/router.ts": {
       "sign": 0,
       "caller": 1
     },
-    "services/svc-bank/src/recipient-state.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-bank/src/router.ts": {
       "sign": 0,
       "caller": 1
-    },
-    "services/svc-bank/src/transfers/party-handles.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-execution/src/router.ts": {
       "sign": 0,
@@ -76,10 +52,6 @@
       "sign": 0,
       "caller": 5
     },
-    "services/svc-ledger/src/ledger/action-approval-consume.ts": {
-      "sign": 0,
-      "caller": 0
-    },
     "services/svc-ledger/src/router.ts": {
       "sign": 0,
       "caller": 3
@@ -105,10 +77,6 @@
       "caller": 1
     },
     "services/svc-notify/src/notices/approval.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-ops/src/operator-desks.ts": {
       "sign": 1,
       "caller": 0
     },

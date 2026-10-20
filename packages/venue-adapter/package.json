@@ -19,7 +19,6 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@intafaced/config": "workspace:*",
     "@intafaced/connect-data-lake": "workspace:*",
     "@intafaced/exchange-contract": "workspace:*",
     "@intafaced/ledger-client": "workspace:*",
