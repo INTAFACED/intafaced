@@ -31,6 +31,14 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 
 If the process dies after identity consumes the approval and before the row is written, the retry cannot consume it again; the founders issue a new approval. No money is involved.
 
+## Alert rules
+
+`alertRules.list` / `get` / `versions` need `admin:read`. `create`, `update`, `setPaused` and `retire` need `admin:write` on a session with a second factor; `restore` of a retired rule needs `admin:treasury` as well, otherwise `ops.alert_forbidden`. Each takes a business `idempotencyKey` and a `reason`; edits also take `expectedVersion` (a stale one is `ops.alert_rule_version_stale`).
+
+A rule watches one signal from the analytics metric catalogue (`ops.alert_signal_unknown` otherwise), one condition with a decimal-string threshold, an evaluation interval and a pending period. A blank threshold is `ops.alert_threshold_unset`; a blank interval or pending period is `ops.alert_interval_unset` (a pending period of 0 is a value the operator chooses). No number is invented. A check that returns no data or errors defaults to `alerting` (fail closed). Two live rules cannot carry the same non-empty label set (`ops.alert_labels_duplicate`); a rule with no labels is exempt.
+
+Rules are rows in `ops.alert_rules`; every save appends a snapshot to `ops.alert_rule_versions` (update and delete refused by trigger), keyed by the idempotency key, so a retry returns the stored version and a retired rule is restored from its history, never destroyed. Without storage every call refuses `ops.alert_storage_unconfigured`. The evaluator, alert states, state history and the `alert_rule` / `alert` events are the next part of OPS-alerts-01; `alerts.list` is still the stub until then.
+
 ## Ledger
 
 None. Revenue reads `queryWarehouseSurface` from `@intafaced/contracts` (ops.analytics). No recipes. No `post`.

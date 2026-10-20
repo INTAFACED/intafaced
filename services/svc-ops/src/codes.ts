@@ -1,3 +1,21 @@
+import {
+  OPS_ALERT_FORBIDDEN,
+  OPS_ALERT_HISTORY_RETENTION_UNSET,
+  OPS_ALERT_INTERVAL_UNSET,
+  OPS_ALERT_LABELS_DUPLICATE,
+  OPS_ALERT_SIGNAL_UNKNOWN,
+  OPS_ALERT_THRESHOLD_UNSET,
+} from '@intafaced/contracts';
+
+export {
+  OPS_ALERT_FORBIDDEN,
+  OPS_ALERT_HISTORY_RETENTION_UNSET,
+  OPS_ALERT_INTERVAL_UNSET,
+  OPS_ALERT_LABELS_DUPLICATE,
+  OPS_ALERT_SIGNAL_UNKNOWN,
+  OPS_ALERT_THRESHOLD_UNSET,
+};
+
 /** Machine-readable refuses. The code leads the tRPC message so IxState can quote it. */
 export const OPS_WAREHOUSE_UNWIRED = 'ops.warehouse_unwired' as const;
 export const OPS_WAREHOUSE_LAG_UNKNOWN = 'ops.warehouse_lag_unknown' as const;
@@ -33,6 +51,12 @@ export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigure
 export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
 export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
+export const OPS_ALERT_LIST_LIMIT_UNSET = 'ops.alert_list_limit_unset' as const;
+export const OPS_ALERT_RULE_NOT_FOUND = 'ops.alert_rule_not_found' as const;
+export const OPS_ALERT_RULE_VERSION_STALE = 'ops.alert_rule_version_stale' as const;
+export const OPS_ALERT_RULE_RETIRED = 'ops.alert_rule_retired' as const;
+export const OPS_ALERT_RULE_NOT_RETIRED = 'ops.alert_rule_not_retired' as const;
+export const OPS_ALERT_STORAGE_UNCONFIGURED = 'ops.alert_storage_unconfigured' as const;
 export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
 export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
 export const OPS_IDEMPOTENCY_KEY_INVALID = 'ops.idempotency_key_invalid' as const;
@@ -77,6 +101,18 @@ export type OpsRefuseCode =
   | typeof OPS_RESTORE_ARCHIVE_UNPROBED
   | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
+  | typeof OPS_ALERT_THRESHOLD_UNSET
+  | typeof OPS_ALERT_INTERVAL_UNSET
+  | typeof OPS_ALERT_LABELS_DUPLICATE
+  | typeof OPS_ALERT_FORBIDDEN
+  | typeof OPS_ALERT_SIGNAL_UNKNOWN
+  | typeof OPS_ALERT_HISTORY_RETENTION_UNSET
+  | typeof OPS_ALERT_LIST_LIMIT_UNSET
+  | typeof OPS_ALERT_RULE_NOT_FOUND
+  | typeof OPS_ALERT_RULE_VERSION_STALE
+  | typeof OPS_ALERT_RULE_RETIRED
+  | typeof OPS_ALERT_RULE_NOT_RETIRED
+  | typeof OPS_ALERT_STORAGE_UNCONFIGURED
   | typeof OPS_ALERT_SOURCE_UNCONFIGURED
   | typeof OPS_ALERT_PROBE_UNCONFIGURED
   | typeof OPS_IDEMPOTENCY_KEY_INVALID

@@ -46,6 +46,8 @@ import {
   type ApprovalConsumer,
   type WatermarkStamp,
 } from './operator-desks.js';
+import { createAlertRulesRouter } from './alerts/router.js';
+import type { AlertRules } from './alerts/rules.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
 
 /**
@@ -155,6 +157,8 @@ export interface OperatorDeskConfig {
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
+  /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
+  readonly alertRules?: AlertRules;
 }
 
 export function createOpsRouter(
@@ -594,6 +598,8 @@ export function createOpsRouter(
           }
         }),
     }),
+
+    alertRules: createAlertRulesRouter(desks.alertRules),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)
