@@ -229,7 +229,8 @@ export class NotificationDispatcher {
           // Quarantine (info/action only): this address kept failing terminally and an
           // operator has not released it. Critical is still attempted.
           if (this.options.recipientHealth && notification.severity !== 'critical') {
-            const q = await this.options.recipientHealth.quarantineOf(notification.userId, channel, target.address);
+            // Fail open: if the health store cannot answer, the address is treated as not quarantined.
+            const q = await this.options.recipientHealth.quarantineOf(notification.userId, channel, target.address).catch(() => null);
             if (q) {
               outcomes.push(await this.refuse(notification, channel, 'channel.recipient_quarantined', q.reason));
               continue;
@@ -264,7 +265,7 @@ export class NotificationDispatcher {
             }
           }
 
-          outcomes.push(await this.attemptAndRecord(notification, channel, target.address, target.locale));
+          outcomes.push(await this.attempt(notification, channel, target.address, target.locale));
         }
 
         const retry = outcomes.some((o) => o.retryable);
@@ -313,7 +314,7 @@ export class NotificationDispatcher {
       }
     }
 
-    return this.attemptAndRecord(notification, channel, target.address, target.locale);
+    return this.attempt(notification, channel, target.address, target.locale);
   }
 
   /** Record a refusal that the adapter never got a chance to make. */
@@ -353,24 +354,26 @@ export class NotificationDispatcher {
   }
 
   /**
-   * `attempt`, then tell recipient health how it ended. Only the two terminal
-   * outcomes count: accepted resets the failure count, abandoned adds one. A
-   * `failed` attempt that will be retried, a refusal and an in-hand receipt are
-   * not evidence about the address. A health write that throws is dropped: it
-   * must not turn a delivered message into a retry.
+   * Tell recipient health how THIS pass ended a send. Called only where the pass
+   * itself settled the row (abandoned) or finished a fresh receipt (accepted), never
+   * for an outcome read back from an existing row: a redelivery of the same
+   * notification must not count the same failure twice. A health write that throws
+   * is dropped; it must not turn a delivered message into a retry.
    */
-  private async attemptAndRecord(notification: Notification, channel: ChannelId, address: string, locale: string): Promise<ChannelOutcome> {
-    const outcome = await this.attempt(notification, channel, address, locale);
+  private async noteHealth(
+    notification: Notification,
+    channel: ChannelId,
+    address: string,
+    ok: boolean,
+    code: string | null,
+  ): Promise<void> {
     const health = this.options.recipientHealth;
-    if (!health || channel === 'inapp') return outcome;
-    const ok = outcome.status === 'accepted' ? true : outcome.status === 'abandoned' ? false : null;
-    if (ok === null) return outcome;
+    if (!health || channel === 'inapp') return;
     try {
-      await health.record({ userId: notification.userId, channel, address, ok, code: ok ? null : outcome.code });
+      await health.record({ userId: notification.userId, channel, address, ok, code });
     } catch {
       // Bookkeeping about the address; the delivery row already holds the outcome.
     }
-    return outcome;
   }
 
   private async attempt(notification: Notification, channel: ChannelId, address: string, locale: string): Promise<ChannelOutcome> {
@@ -449,6 +452,8 @@ export class NotificationDispatcher {
         detail,
         attempted: true,
       });
+      // Only a terminal outcome is evidence about the address; a retryable `failed` is not.
+      if (status === 'abandoned') await this.noteHealth(notification, channel, address, false, refusalCode);
       return { channel, status, code: refusalCode, detail, retryable: status === 'failed' };
     }
 
@@ -457,7 +462,9 @@ export class NotificationDispatcher {
     // release the claim and the next pass would deliver again. reference is
     // stored as the gateway returned it, including null. Nothing is filled in.
     receiptInHand(this.deliveries).set(handKey, { reference: receipt.reference, attempt: claim.attempt });
-    return this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, receipt.reference);
+    const finished = await this.finishReceipt(handKey, notification.id, channel, claim.id, claim.attempt, receipt.reference);
+    if (finished.status === 'accepted') await this.noteHealth(notification, channel, address, true, null);
+    return finished;
   }
 
   /** Known acceptance is bookkeeping, not another transport attempt or refusal. */

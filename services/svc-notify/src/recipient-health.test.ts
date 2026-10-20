@@ -177,6 +177,47 @@ describe('recipient quarantine', () => {
     expect(await health.quarantineOf(USER, 'email', ADDRESS)).toBeNull();
   });
 
+  it('redelivering the same notification does not count the same failure again', async () => {
+    const { dispatcher, health } = await harness(3);
+    const same = note();
+    for (let i = 0; i < 4; i += 1) await dispatcher.dispatch(same);
+    expect(await health.quarantineOf(USER, 'email', ADDRESS)).toBeNull();
+    const rows = await health.list('active', 10);
+    expect(rows[0]).toMatchObject({ consecutiveFailures: 1 });
+  });
+
+  it('treats an address as not quarantined when the health store cannot answer', async () => {
+    const email = new ScriptedEmail();
+    email.mode = 'ok';
+    const registry = new ChannelRegistry([
+      new InAppChannel(),
+      email,
+      new UnconfiguredChannel('push', ['A', 'B']),
+      new UnconfiguredChannel('sms', ['A', 'B']),
+    ]);
+    const targets = new MemoryTargetStore();
+    await targets.upsert({
+      userId: USER,
+      channel: 'email',
+      address: ADDRESS,
+      locale: 'en',
+      verifyTokenHash: 'h',
+      verifyExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await targets.markVerified(USER, 'email', 'h', new Date());
+    const dispatcher = new NotificationDispatcher(registry, targets, new MemoryDeliveryStore(), {
+      maxAttempts: 3,
+      outOfAppEnabled: true,
+      recipientHealth: {
+        quarantineOf: async () => {
+          throw new Error('db down');
+        },
+        record: async () => undefined,
+      },
+    });
+    expect(emailOutcome(await dispatcher.dispatch(note()))).toMatchObject({ status: 'accepted' });
+  });
+
   it('a changed address starts clean', async () => {
     const { dispatcher, health } = await harness(1);
     await dispatcher.dispatch(note());

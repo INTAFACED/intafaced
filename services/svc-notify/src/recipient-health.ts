@@ -295,16 +295,18 @@ export class PostgresRecipientHealthStore implements RecipientHealthStore {
 
   async release(input: Parameters<RecipientHealthStore['release']>[0]): Promise<ReleaseResult> {
     return this.sql.begin(async (tx) => {
-      const prior = await tx<Array<{ id: string }>>`
-        SELECT id FROM notify.recipient_release_audit
-         WHERE user_id = ${input.userId} AND channel = ${input.channel} AND reason_id = ${input.reasonId}
-      `;
-      if (prior.length > 0) return { released: true as const, replayed: true };
+      // Lock the row first, then look for a prior release: two concurrent releases with one
+      // request id serialize here and the second sees the first one's audit row.
       const row = await tx<Array<{ quarantined_at: Date | null; quarantine_reason: string | null }>>`
         SELECT quarantined_at, quarantine_reason FROM notify.recipient_health
          WHERE user_id = ${input.userId} AND channel = ${input.channel}
          FOR UPDATE
       `;
+      const prior = await tx<Array<{ id: string }>>`
+        SELECT id FROM notify.recipient_release_audit
+         WHERE user_id = ${input.userId} AND channel = ${input.channel} AND reason_id = ${input.reasonId}
+      `;
+      if (prior.length > 0) return { released: true as const, replayed: true };
       if (row.length === 0) throw new RecipientHealthError(RECIPIENT_UNKNOWN);
       if (!row[0]!.quarantined_at || !row[0]!.quarantine_reason) throw new RecipientHealthError(RECIPIENT_NOT_QUARANTINED);
       await tx`
