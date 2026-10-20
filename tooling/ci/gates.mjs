@@ -331,7 +331,7 @@ export const NOT_GATES = {
   'test-diff-guard.mjs':
     'PR-only guard: needs the PR diff against origin/main and the PR body, so a laptop verify has no input. CI runs main’s copy of it from the `gates` job, so a PR cannot loosen the rules it is judged by. `node tooling/ci/test-diff-guard.mjs --self-test` checks the matcher.',
   'review-signoff.mjs':
-    'runs from review-signoff.yml on a review comment or a push to a pull request: posts the `Independent review` status for a listed reviewer, carries it across a clean rebase and switches auto-merge off where it does not belong. Needs a GitHub token and an event payload, so a laptop verify has no input. `node tooling/ci/review-signoff.mjs --self-test` runs the policy on fixtures and is wired in the `changes` job of ci.yml.',
+    'runs from review-signoff.yml on a review comment or a push to a pull request: posts the `Independent review` status for a listed reviewer, carries it across a clean rebase. Needs a GitHub token and an event payload, so a laptop verify has no input. `node tooling/ci/review-signoff.mjs --self-test` runs the policy on fixtures and is wired in the `changes` job of ci.yml.',
   'review-marker.mjs':
     "merge-seal step: needs the success status `Independent review` on the PR head, which review-signoff.yml posts for a listed reviewer's `Independent review: PASS <head sha>` comment. Needs a GitHub token and a head sha, so a laptop verify cannot run it; `node tooling/ci/review-marker.mjs --self-test` checks the status reader and the comment matcher.",
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',

@@ -61,18 +61,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
  * tooling.
  */
 const KNOWN = {
-  'GHSA-6g55-p6wh-862q': { severity: 'high', module: 'postcss', note: 'apps/admin > next > postcss. Build-time CSS, not a request path.' },
-  'GHSA-r28c-9q8g-f849': { severity: 'high', module: 'postcss', note: 'apps/admin > next > postcss. Build-time CSS, not a request path.' },
-  'GHSA-fxqj-rqcc-2cmp': {
-    severity: 'moderate',
-    module: 'postcss',
-    note: 'apps/admin > next > postcss. Build-time CSS, not a request path.',
-  },
-  'GHSA-qx2v-qp2m-jg93': {
-    severity: 'moderate',
-    module: 'postcss',
-    note: 'apps/admin > next > postcss. Build-time CSS, not a request path.',
-  },
   'GHSA-mh99-v99m-4gvg': {
     severity: 'high',
     module: 'brace-expansion',

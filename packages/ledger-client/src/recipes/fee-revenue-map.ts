@@ -68,8 +68,7 @@ export const FEE_REVENUE_PATHS = {
   'trade.futures.realize_profit': {
     kind: 'recipe',
     recipe: 'futuresRealizeProfit',
-    feeModule: 'trade',
-    note: 'Pays user from houseFees(trade); capitalisation of that pot is owner (§8.6).',
+    note: 'Pays user from house futures-loss, the clearing pot losers pay into. It does not touch houseFees(trade).',
   },
   'trade.futures.insurance_topup': {
     kind: 'recipe',
@@ -228,7 +227,6 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFill',
   'tradeFillFeeCorrection',
   'marketMakerMakerFill',
-  'futuresRealizeProfit',
   'futuresInsuranceTopup',
   'escrowRelease',
   'merchantSettlement',

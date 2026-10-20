@@ -88,6 +88,8 @@ import {
   positionCollateralAccount,
   recipes,
   userAvailable,
+  futuresLossSink,
+  type LedgerClient,
 } from '@intafaced/ledger-client';
 import { type ListMarketInput } from '../spot/trade-service.js';
 import { parseFeeScheduleJson } from '../spot/fee-schedule.js';
@@ -157,6 +159,34 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 const ALICE = '11111111-1111-4111-8111-111111111111';
 const BOB = '22222222-2222-4222-8222-222222222222';
 const CAROL = '33333333-3333-4333-8333-333333333333';
+
+/** A trader who is not asserted on anywhere: the loser whose realised loss fills the clearing pot. */
+const POT_LOSER = '99999999-9999-4999-8999-999999999999';
+
+/**
+ * Fund the clearing pot (`futuresLossSink`, the account losers pay into and
+ * winners are paid from) the way it fills in production: a loser's deposit,
+ * margin lock and realised loss.
+ */
+async function fundClearingPot(
+  ledger: Pick<LedgerClient, 'post'>,
+  input: { loserUserId: string; assetId: string; amount: bigint; seedId: string },
+): Promise<void> {
+  const positionId = `loser-${input.seedId}`;
+  const { loserUserId: userId, assetId, amount } = input;
+  await ledger.post(recipes.deposit({ userId, assetId, amount, rail: 'test', railRef: `clearing-pot-${input.seedId}` }));
+  await ledger.post(recipes.futuresMarginLock({ positionId, userId, assetId, amount }));
+  await ledger.post(
+    recipes.futuresRealizeLoss({
+      positionId,
+      userId,
+      assetId,
+      fromMargin: amount,
+      fromInsurance: 0n,
+      lossId: `clearing-pot-${input.seedId}`,
+    }),
+  );
+}
 
 describe('futures orderable path (source) — H8a not skip-green', () => {
   it('H8a money suite is not skip-green (no postgresAvailable / describe.skip)', () => {
@@ -285,25 +315,15 @@ describe('futures orderable path', () => {
   }
 
   const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
-  const profitPot = () => houseFees('trade', 'USDT');
+  const profitPot = () => futuresLossSink('USDT');
 
   /**
-   * Fund the profit pot with a posted trade fee into `houseFees('trade')`.
-   * A realised loss debits `futuresLossSink` and leaves the fee pot empty (#5016).
+   * Fund the clearing pot (the account losers pay into and winners are paid
+   * from) with a loser's deposit, margin lock and realised loss.
    */
   async function fundProfitSource(amount: string) {
     const seedId = `pot-seed-${randomUUID()}`;
-    await ledger.post(recipes.deposit({ userId: CAROL, assetId: 'USDT', amount: amt(amount), rail: 'test', railRef: `pot-${seedId}` }));
-    await ledger.post(
-      recipes.feeCharge({
-        chargeId: seedId,
-        userId: CAROL,
-        module: 'trade',
-        mode: 'asset',
-        assetId: 'USDT',
-        amount: amt(amount),
-      }),
-    );
+    await fundClearingPot(ledger, { loserUserId: POT_LOSER, assetId: 'USDT', amount: amt(amount), seedId: seedId });
   }
 
   /** A PositionService whose mark feed IS the book the order path built. */
