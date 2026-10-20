@@ -12,6 +12,7 @@ import { GET as p2pOpsGet } from './p2p-ops/route.js';
 import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
 import { GET as protocolOpsGet, POST as protocolOpsPost } from './protocol-ops/route.js';
+import { POST as protocolOpsReasonCodesPost } from './protocol-ops/reason-codes/route.js';
 import { GET as custodyOpsGet, POST as custodyOpsPost } from './custody-ops/route.js';
 import { GET as identityKeysGet, POST as identityKeysPost } from './identity-ops/keys/route.js';
 import { GET as identityOauthGet, POST as identityOauthPost } from './identity-ops/oauth/route.js';
@@ -46,6 +47,7 @@ const routes = [
   ['POST /api/more-ops', moreOpsPost, 'POST'],
   ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
   ['POST /api/protocol-ops', protocolOpsPost, 'POST'],
+  ['POST /api/protocol-ops/reason-codes', protocolOpsReasonCodesPost, 'POST'],
   ['GET /api/custody-ops', custodyOpsGet, 'GET'],
   ['POST /api/custody-ops', custodyOpsPost, 'POST'],
   ['GET /api/identity-ops/keys', identityKeysGet, 'GET'],

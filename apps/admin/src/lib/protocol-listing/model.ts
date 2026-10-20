@@ -60,3 +60,30 @@ export function listingRequest(form: ListingForm, reason: string): DeskRequest {
       return { kind: 'protocol.market.restore', symbol };
   }
 }
+
+const CODE = /^[a-z][a-z0-9_]{1,63}$/;
+
+/**
+ * The reason code list as an admin typed it: one code per line (commas also split). Returns the list, or the problem in words.
+ * The service checks the same rules; this keeps a bad list off the wire.
+ */
+export function parseReasonCodeLines(text: string): { ok: true; codes: string[] } | { ok: false; problem: string } {
+  const codes = text
+    .split(/[\n,]/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  if (codes.length === 0) return { ok: false, problem: 'Enter at least one reason code.' };
+  if (codes.length > 50) return { ok: false, problem: 'Use 50 reason codes or fewer.' };
+  const bad = codes.find((c) => !CODE.test(c));
+  if (bad)
+    return { ok: false, problem: `"${bad}" is not a valid code. Use lower case letters, digits and underscores, starting with a letter.` };
+  if (new Set(codes).size !== codes.length) return { ok: false, problem: 'Each reason code can appear once.' };
+  return { ok: true, codes };
+}
+
+/** What svc-ops says when it refuses an edit, in words. */
+export function reasonCodeRefusalWords(code: string | null): string | null {
+  return code === 'ops.protocol_listing_storage_unconfigured'
+    ? 'svc-ops has no durable storage for this on this deployment, so an edit would be lost. Nothing was changed.'
+    : null;
+}
