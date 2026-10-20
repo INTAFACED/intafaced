@@ -34,6 +34,10 @@
       "types": "./dist/founder-change-hash.d.ts",
       "default": "./dist/founder-change-hash.js"
     },
+    "./support-trade-summary": {
+      "types": "./dist/support-trade-summary.d.ts",
+      "default": "./dist/support-trade-summary.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"
