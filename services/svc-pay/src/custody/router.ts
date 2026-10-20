@@ -24,6 +24,8 @@ import {
   walletTypeViewSchema,
   walletViewSchema,
 } from './schemas.js';
+import { createCustodyFeesRouters } from './fees/router.js';
+import { CustodyFeesService, type FeeEstimator } from './fees/service.js';
 import { CustodyService } from './service.js';
 
 /** What a mount supplies besides the founder authority. */
@@ -32,6 +34,8 @@ export type CustodyMountDeps = Omit<CustodyRouterDeps, 'founderAuthority'>;
 export interface CustodyRouterDeps {
   readonly founderAuthority: FounderAuthority;
   readonly sql: Sql;
+  /** The chain fee estimator (W-custody-ops-10). Omitted: `fees.estimate` and `fees.check` refuse. */
+  readonly feeEstimator?: FeeEstimator;
 }
 
 function actorOf(ctx: unknown): string {
@@ -55,7 +59,9 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
 export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
   const service = new CustodyService({ sql: deps.sql });
+  const feeRouters = createCustodyFeesRouters(founder, new CustodyFeesService({ sql: deps.sql, estimator: deps.feeEstimator }), actorOf);
   return router({
+    ...feeRouters,
     walletTypes: router({
       list: founder
         .input(z.object({}).strict().optional())
