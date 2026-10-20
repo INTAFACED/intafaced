@@ -10,7 +10,7 @@
 # whole line silently do nothing. GitHub does not warn you, and a pending
 # invitation does not count — @ZenYoda3's lines below start working the moment
 # they accept, not before. Verify with:
-#   gh api /repos/Phantom-X-007/intafaced/codeowners/errors
+#   gh api /repos/INTAFACED/intafaced/codeowners/errors
 #
 # This file requests reviews; it does not enforce them. Merging follows
 # AGENTS.md ("Check, then merge"), not code-owner approval.
@@ -22,6 +22,35 @@
 /services/svc-ledger/                @Phantom-X-007 @ZenYoda3
 /services/svc-identity/              @Phantom-X-007 @ZenYoda3
 /services/svc-token/                 @Phantom-X-007 @ZenYoda3
+#
+# Money and security code named in AGENTS.md ("Check, then merge" item 3): a red
+# in these always blocks the merge. Every package that depends directly on
+# @intafaced/ledger-client is listed (checked 2026-10-20 from package.json).
+/services/svc-edge/                  @Phantom-X-007 @ZenYoda3
+/services/svc-ops/                   @Phantom-X-007 @ZenYoda3
+/services/svc-fix/                   @Phantom-X-007 @ZenYoda3
+/services/svc-pay/                   @Phantom-X-007 @ZenYoda3
+/services/svc-bank/                  @Phantom-X-007 @ZenYoda3
+/services/svc-trade/                 @Phantom-X-007 @ZenYoda3
+/services/svc-matching/              @Phantom-X-007 @ZenYoda3
+/services/svc-p2p/                   @Phantom-X-007 @ZenYoda3
+/services/svc-mining-pool/           @Phantom-X-007 @ZenYoda3
+/services/svc-tax/                   @Phantom-X-007 @ZenYoda3
+/services/svc-market/                @Phantom-X-007 @ZenYoda3
+/services/svc-academy/               @Phantom-X-007 @ZenYoda3
+/services/svc-agents/                @Phantom-X-007 @ZenYoda3
+/services/svc-execution/             @Phantom-X-007 @ZenYoda3
+/services/svc-quant/                 @Phantom-X-007 @ZenYoda3
+/services/svc-ws/                    @Phantom-X-007 @ZenYoda3
+/packages/portfolio-view/            @Phantom-X-007 @ZenYoda3
+/packages/market-data/               @Phantom-X-007 @ZenYoda3
+/packages/execution-arb/             @Phantom-X-007 @ZenYoda3
+/packages/execution-mm/              @Phantom-X-007 @ZenYoda3
+/packages/venue-adapter/             @Phantom-X-007 @ZenYoda3
+/packages/venue-contracts/           @Phantom-X-007 @ZenYoda3
+/packages/connect-data-lake/         @Phantom-X-007 @ZenYoda3
+/apps/customer/                      @Phantom-X-007 @ZenYoda3
+/tooling/pay-sim/                    @Phantom-X-007 @ZenYoda3
 
 # ── The rules themselves. Changing these changes what "done" means. ──────────
 /INTAFACED_DEFINITIVE_BUILD.md       @Phantom-X-007 @ZenYoda3
@@ -49,7 +78,3 @@
 /services/svc-indexer/               @shehzad002 @Phantom-X-007 @ZenYoda3
 /services/svc-chain/                 @shehzad002 @Phantom-X-007 @ZenYoda3
 /services/svc-bridge/                @shehzad002 @Phantom-X-007 @ZenYoda3
-/docs/SHEHZAD-BLOCKCHAIN-TASK-BOARD-2026-08-03.md @shehzad002 @ZenYoda3
-/docs/SHIZU-BOARD-AUDIT-2026-08-07.md @shehzad002 @ZenYoda3
-/docs/GITHUB-OWNERSHIP-SHEHZAD.md    @shehzad002 @ZenYoda3
-/docs/THREE-WAY-DISTRIBUTION-2026-08-04.md @shehzad002 @ZenYoda3 @Phantom-X-007
