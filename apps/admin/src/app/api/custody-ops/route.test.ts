@@ -82,6 +82,8 @@ describe('GET', () => {
     for (const [, init] of fetchMock.mock.calls as unknown as [string, RequestInit][])
       expect((init.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');
     expect(typeof body.asOf).toBe('string');
+    const urls = (fetchMock.mock.calls as unknown as [string, RequestInit][]).map(([url]) => url);
+    expect(urls.find((url) => url.includes('approvers.list'))).toContain('input=%7B%7D');
   });
 
   it('reads one task with its timeline, and refuses a malformed id before calling the service', async () => {

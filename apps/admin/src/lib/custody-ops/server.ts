@@ -38,7 +38,9 @@ export async function loadCustodyOps(ctx: FounderCallContext, now: Date = new Da
   const [pending, recent, approvers] = await Promise.all([
     founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.pending', 'GET', { limit: PENDING_WINDOW }, list(custodyTaskViewSchema)),
     founderCall(ctx, 'pay', 'founderAdmin.custody.tasks.list', 'GET', { limit: RECENT_WINDOW }, list(custodyTaskViewSchema)),
-    founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.list', 'GET', {}, list(custodyApproverViewSchema)),
+    founderCall(ctx, 'pay', 'founderAdmin.custody.approvers.list', 'GET', {}, list(custodyApproverViewSchema), {
+      sendEmptyInput: true,
+    }),
   ]);
   return {
     asOf: now.toISOString(),

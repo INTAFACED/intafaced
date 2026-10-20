@@ -164,10 +164,10 @@ export function TaskPanel({ task, userId, now, busy, reply, onDecide, onClose }:
           </>
         )}
         {payloadRows(task.payload).map(([key, value]) => (
-          <span key={key} style={{ display: 'contents' }}>
+          <div key={key}>
             <dt>{key}</dt>
             <dd>{value}</dd>
-          </span>
+          </div>
         ))}
       </dl>
       <p className="dk-muted">Fingerprint you are deciding on. Approvals and rejections apply to exactly this.</p>
@@ -308,6 +308,7 @@ export function CustodyOpsDesk({ initial, userId }: { initial: CustodyOpsRead; u
   const [problem, setProblem] = useState<RefusalView | null>(null);
   const [busy, setBusy] = useState<Decision | null>(null);
   const [reply, setReply] = useState<DecisionReply | null>(null);
+  const [stale, setStale] = useState(false);
   const alive = useRef<AbortController | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -317,7 +318,9 @@ export function CustodyOpsDesk({ initial, userId }: { initial: CustodyOpsRead; u
 
   const reload = useCallback(async () => {
     const next = await fetchCustodyOps(alive.current?.signal);
-    if (next && !alive.current?.signal.aborted) setRead(next);
+    if (alive.current?.signal.aborted) return false;
+    if (next) setRead(next);
+    return next !== null;
   }, []);
   const open = useCallback(async (id: string) => {
     setPickedId(id);
@@ -346,8 +349,10 @@ export function CustodyOpsDesk({ initial, userId }: { initial: CustodyOpsRead; u
     setReply(answer);
     // Always read the state again, whatever the answer: a refused or unknown decision may still have changed the task.
     const fresh = await fetchTask(task.id, alive.current?.signal);
-    if (!alive.current?.signal.aborted && fresh.ok) setTask(fresh.task);
-    await reload();
+    if (alive.current?.signal.aborted) return;
+    if (fresh.ok) setTask(fresh.task);
+    const listed = await reload();
+    setStale(!fresh.ok || !listed);
   }
 
   const now = new Date();
@@ -358,10 +363,15 @@ export function CustodyOpsDesk({ initial, userId }: { initial: CustodyOpsRead; u
       now={now}
       pickedId={pickedId}
       onPick={(t) => void open(t.id)}
-      onRefresh={() => void reload()}
+      onRefresh={() => void reload().then((listed) => setStale(!listed))}
       detail={
         <>
           {problem && <Refusal refusal={problem} />}
+          {stale && (
+            <div className="adm-callout" data-tone="warn" role="alert">
+              Could not re-read the latest state. What you see may be out of date; refresh before you decide.
+            </div>
+          )}
           {task && (
             <TaskPanel
               key={`${task.id}:${task.status}:${task.approvalCount}`}
