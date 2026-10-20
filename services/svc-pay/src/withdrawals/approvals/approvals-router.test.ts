@@ -194,7 +194,13 @@ describe('the direct door', () => {
       code: 'PRECONDITION_FAILED',
       message: expect.stringContaining('withdrawal_approval.required'),
     });
-    expect(gate.assertDirectAllowed).toHaveBeenCalledWith({ userId: USER, assetId: 'USDT', amount: parseAmount('60'), clientRef: 'w-1' });
+    expect(gate.assertDirectAllowed).toHaveBeenCalledWith({
+      userId: USER,
+      assetId: 'USDT',
+      amount: parseAmount('60'),
+      clientRef: 'w-1',
+      destination: view.destination,
+    });
     expect(withdraw).not.toHaveBeenCalled();
   });
 
