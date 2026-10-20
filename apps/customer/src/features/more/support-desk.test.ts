@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SUPPORT_EMAIL,
   RATING_SCORES,
   canFollowUp,
   canReply,
@@ -140,11 +139,12 @@ describe('help article groups', () => {
 });
 
 describe('contact address', () => {
-  it('uses a configured address only when it is a plain address, else the recorded company address', () => {
+  it('uses a configured address only when it is a plain address, else it is not set', () => {
     expect(supportEmail('help@example.org')).toBe('help@example.org');
     expect(supportEmail('  help@example.org ')).toBe('help@example.org');
-    expect(supportEmail('not an address')).toBe(DEFAULT_SUPPORT_EMAIL);
-    expect(supportEmail(undefined)).toBe(DEFAULT_SUPPORT_EMAIL);
+    expect(supportEmail('not an address')).toBeNull();
+    expect(supportEmail(undefined)).toBeNull();
+    expect(supportEmail('   ')).toBeNull();
   });
 
   it('builds a mailto that carries only the text it was given, encoded', () => {

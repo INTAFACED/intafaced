@@ -12,6 +12,7 @@ export const pagesCopy = defineCopy('public-pages', {
   partnerNoFormBody:
     'The enquiry form is on our invitation site, and this app has not been given that address. Email us instead and say what you have in mind.',
   partnerEmail: 'Email a partnership enquiry',
+  partnerEmailNotSet: 'Support email is not set, so there is no email link on this page.',
   partnerMailSubject: 'Partnership enquiry',
   partnerMailBody: 'About my business:\n\nWhat I would like to do with Intafaced:\n\nWhere we operate:\n',
   partnerIncludeTitle: 'What helps us answer',

@@ -1,5 +1,5 @@
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Server rendering has no browser store to subscribe to, so the preferences hook answers with the stored defaults.
 vi.mock('../../shared/preferences', async (original) => {
@@ -12,9 +12,13 @@ import { PasswordRecovery } from './PasswordRecovery';
 import { AppPage, NoticePage, PartnerPage } from './PublicPages';
 
 const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</SessionProvider>);
+const TEST_ADDRESS = 'support@example.test';
+afterEach(() => vi.unstubAllEnvs());
 
 describe('/findPwd', () => {
+  vi.stubEnv('VITE_SUPPORT_EMAIL', TEST_ADDRESS);
   const page = html(<PasswordRecovery />);
+  vi.unstubAllEnvs();
 
   it('shows the three steps in order and opens on the request step', () => {
     const first = page.indexOf('Ask for a reset code');
@@ -37,8 +41,18 @@ describe('/findPwd', () => {
   });
 
   it('gives a signed-out visitor a way to reach a person that is not the sign-in-only support desk', () => {
-    expect(page).toContain('href="mailto:');
+    expect(page).toContain(`href="mailto:${TEST_ADDRESS}`);
     expect(page).not.toContain('href="/support"');
+  });
+
+  it('says the support email is not set, with no mailto link and no address, when none is published', () => {
+    for (const blank of [undefined, '', '   ', 'not an address']) {
+      vi.stubEnv('VITE_SUPPORT_EMAIL', blank);
+      const unset = html(<PasswordRecovery />);
+      expect(unset).toContain('Support email is not set.');
+      expect(unset).not.toContain('mailto:');
+      expect(unset).not.toContain('@');
+    }
   });
 });
 
@@ -56,9 +70,17 @@ describe('other public pages', () => {
   });
 
   it('points a partner enquiry at an email draft when no invitation address is configured, and never at a fake form', () => {
+    vi.stubEnv('VITE_SUPPORT_EMAIL', TEST_ADDRESS);
     const page = html(<PartnerPage />);
-    expect(page).toContain('href="mailto:');
+    expect(page).toContain(`href="mailto:${TEST_ADDRESS}`);
     expect(page).toContain('/pay/merchant');
     expect(page).toContain('does not submit an application');
+  });
+
+  it('says the support email is not set on the partner page, with no mailto link, when none is published', () => {
+    vi.stubEnv('VITE_SUPPORT_EMAIL', '');
+    const page = html(<PartnerPage />);
+    expect(page).toContain('Support email is not set');
+    expect(page).not.toContain('mailto:');
   });
 });
