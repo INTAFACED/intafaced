@@ -287,6 +287,14 @@ const schema = serviceEnvSchema
       BANK_PROOF_LIMITS_JSON: z.string().optional(),
 
       /**
+       * Owner-published allowance for sends to crypto exchanges as JSON: `{ exchangeAccounts: ["..."], windowDays: 30,
+       * limits: [{ asset: "USDT", maxAmount: "5000" }] }`. No default. Blank / unset / not in shape, or an exchange account with
+       * no limit for the asset → the send refuses `bank.exchange_allowance_unset`; over the limit in the rolling window →
+       * `bank.exchange_allowance_exceeded`. A published empty account list means no recipient is an exchange.
+       */
+      BANK_EXCHANGE_ALLOWANCE_JSON: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.
