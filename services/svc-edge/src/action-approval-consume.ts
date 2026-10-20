@@ -6,6 +6,9 @@ import { createHash } from 'node:crypto';
 import {
   actionApprovalConsumeInputSchema,
   actionApprovalSchema,
+  ACTION_APPROVAL_CONSUME_FAILED,
+  IDENTITY_CONSUME_TIMEOUT_MS,
+  unwrapTrpcData,
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
@@ -70,8 +73,10 @@ export function createHttpEdgeApprovalConsumer(opts: {
   readonly region: string;
   /** The edge's signing key when it has one; else the shared secret signs. */
   readonly ed25519?: EdgeEd25519Signing | undefined;
+  readonly timeoutMs?: number;
 }): ActionApprovalConsumer {
   const url = opts.identityUrl.replace(/\/$/, '');
+  const timeoutMs = opts.timeoutMs ?? IDENTITY_CONSUME_TIMEOUT_MS;
   return {
     async consume(input, operator) {
       if (!operator) {
@@ -86,18 +91,27 @@ export function createHttpEdgeApprovalConsumer(opts: {
           ...forwardedPrincipalHeaders(operator, { edgeSecret: opts.edgeSecret, ed25519: opts.ed25519, region: opts.region }),
         },
         body: payload,
+        // A hung identity must not hang the kill switch: a timeout rejects, so nothing is approved.
+        signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         throw new ActionApprovalConsumeError(
           `identity refused consumeForEdge (${res.status}) ${detail}`.trim(),
-          'action_approval.consume_failed',
+          ACTION_APPROVAL_CONSUME_FAILED,
         );
       }
-      const body = (await res.json()) as { result?: { data?: unknown }; json?: unknown };
-      const data = body.result?.data ?? body;
-      const unwrapped = data && typeof data === 'object' && 'json' in (data as object) ? (data as { json: unknown }).json : data;
-      return actionApprovalSchema.parse(unwrapped);
+      let raw: unknown;
+      try {
+        raw = unwrapTrpcData(await res.json());
+      } catch {
+        throw new ActionApprovalConsumeError('identity consumeForEdge result is not JSON', ACTION_APPROVAL_CONSUME_FAILED);
+      }
+      const checked = actionApprovalSchema.safeParse(raw);
+      if (!checked.success) {
+        throw new ActionApprovalConsumeError('identity consumeForEdge result is not an action approval', ACTION_APPROVAL_CONSUME_FAILED);
+      }
+      return checked.data;
     },
   };
 }

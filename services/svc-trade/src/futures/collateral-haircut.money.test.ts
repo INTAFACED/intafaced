@@ -269,4 +269,47 @@ describe('svc-trade collateral haircut F8 money', () => {
     expect(lockPosts()).toHaveLength(0);
     expect(await sql`SELECT id FROM trade.positions`).toHaveLength(0);
   });
+
+  describe('open credit counts the ledger collateral pot, not the margin mirror', () => {
+    // 10% haircut. Alice has 100,000 USDT; a 1 BTC open at 50,000 and 10x locks 5,000 into that position's pot.
+    beforeEach(() => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+    });
+
+    async function firstPosition() {
+      await open({ clientOpenId: 'mirror-1' });
+      expect(await avail()).toBe('95000');
+      const [row] = await sql<{ id: string }[]>`SELECT id FROM trade.positions`;
+      return row!.id;
+    }
+
+    it('a mirror that claims more margin than the pot holds does not buy credit', async () => {
+      await firstPosition();
+      await sql`UPDATE trade.positions SET margin_current = '1000000'`;
+      // 18 BTC needs 90,000 more; credit is 0.9 x (95,000 free + 5,000 in the pot) = 90,000 against 95,000 required.
+      await expect(open({ clientOpenId: 'mirror-2', size: amt('18') })).rejects.toMatchObject({
+        name: 'FuturesError',
+        code: 'trade.haircut_credit_short',
+      });
+      expect(lockPosts()).toHaveLength(1);
+      expect(await avail()).toBe('95000');
+    });
+
+    it('a mirror that claims less margin than the pot holds does not refuse an open the ledger covers', async () => {
+      await firstPosition();
+      await sql`UPDATE trade.positions SET margin_current = '0'`;
+      // A second market (one open position per market): 17 units at 50,000 need 85,000 more, so required 90,000 against
+      // credit 90,000 (ledger truth).
+      const second = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+      await sql`
+        INSERT INTO trade.markets (
+          id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+          maker_bps, taker_bps, status, display_name, listed_at
+        ) VALUES (${second}, 'ETH/USDT-PERP', 'ETH', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'ETH perpetual', now())
+      `;
+      marks.set({ marketId: second, price: '50000', quality: 'mid', asOfMs: NOW.getTime() });
+      await open({ clientOpenId: 'mirror-3', symbol: 'ETH/USDT-PERP', size: amt('17') });
+      expect(lockPosts()).toHaveLength(2);
+    });
+  });
 });

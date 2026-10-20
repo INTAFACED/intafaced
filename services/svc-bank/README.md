@@ -582,8 +582,12 @@ Code for loans, cards (ledger half), ramps (crypto half), and standing-order pau
 
 ## Service keys (S2S v3)
 
-With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, every call to svc-ledger (posts, reads and history) is signed with svc-bank's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. Other outgoing calls still use the shared secret and move in their own PRs. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+With `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` set, every call to svc-ledger (posts, reads and history) is signed with svc-bank's own key, and the ledger names the caller from that key. `dual` also sends the shared secret; `keypair` sends the key signature only. Unset, the ledger calls are signed with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
 
 ## Service keys: inbound doors
 
 The internal job doors, the closure check and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The job doors keep binding the retained request bytes. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: outgoing calls
+
+The calls to svc-identity (affiliate accrue and payout, recipient status, handle lookup, business directory) and to svc-trade (auto-invest convert quote and execute) are signed with svc-bank's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`S2S_KEYRING` lets the doors verify callers); `dual` also sends the shared secret, `keypair` the key only. Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

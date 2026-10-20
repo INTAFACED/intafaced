@@ -33,3 +33,7 @@ This service holds no balances and posts no ledger recipes. Venue balance observ
 ## Service keys: inbound doors
 
 The OMS write doors and `/trpc` name the caller from its own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: `dual` accepts the key and the shared secret, `keypair` the key only. Unset, the shared secret works exactly as before. A key-signed call that fails is refused and never retried against the shared secret. The write doors still run only for a call named svc-execution. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
+## Service keys: outgoing calls
+
+The calls svc-execution makes are signed with its own key when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set: the basket order POSTs and cancel DELETEs and the kill-parent cancels to svc-matching, and the approval consume to svc-identity. `dual` also sends the shared secret, `keypair` the key only (and then a blank `INTERNAL_SERVICE_SECRET` is not a refusal). Unset, they are signed with the shared secret exactly as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.

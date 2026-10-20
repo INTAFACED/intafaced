@@ -1,0 +1,252 @@
+{
+  "files": {
+    "packages/contracts/src/instruments.ts": {
+      "scale": 1,
+      "parse": 1
+    },
+    "packages/contracts/src/merchant-portal.ts": {
+      "scale": 1,
+      "parse": 2
+    },
+    "packages/i18n/src/format.ts": {
+      "parse": 2
+    },
+    "packages/ui/src/components/amount-input-logic.ts": {
+      "parse": 1
+    },
+    "packages/ui/src/components/table-logic.ts": {
+      "parse": 1
+    },
+    "packages/venue-adapter/src/consolidated-book.ts": {
+      "scale": 1
+    },
+    "packages/venue-adapter/src/fabric/cross-check.ts": {
+      "scale": 2
+    },
+    "packages/venue-adapter/src/fabric/payout-grade.ts": {
+      "scale": 1
+    },
+    "packages/venue-adapter/src/router.ts": {
+      "scale": 2
+    },
+    "services/svc-academy/src/host-rights.ts": {
+      "fetch": 1
+    },
+    "services/svc-academy/src/stake-source.ts": {
+      "fetch": 1
+    },
+    "services/svc-agents/src/portfolio-agent/holdings.ts": {
+      "scale": 1
+    },
+    "services/svc-agents/src/support-agent/desk-port.ts": {
+      "unwrap": 1
+    },
+    "services/svc-bank/src/auto-invest/trade-convert-port.ts": {
+      "unwrap": 1
+    },
+    "services/svc-dex/src/env.ts": {
+      "unwrap": 1
+    },
+    "services/svc-dex/src/quote/indexer-venue.ts": {
+      "unwrap": 1
+    },
+    "services/svc-dex/src/router-quote.ts": {
+      "scale": 1
+    },
+    "services/svc-edge/src/api-key-account.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-expires.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-ip.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-origin.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-product.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-request-sign.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-revoked.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/api-key-user-status.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/identity-user-status.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/live-authority.ts": {
+      "unwrap": 1
+    },
+    "services/svc-edge/src/matching-proxy.ts": {
+      "unwrap": 1
+    },
+    "services/svc-edge/src/principal-exchange.ts": {
+      "unwrap": 4
+    },
+    "services/svc-edge/src/session-passkey.ts": {
+      "unwrap": 2
+    },
+    "services/svc-edge/src/session-revoked.ts": {
+      "unwrap": 2
+    },
+    "services/svc-execution/src/operator-desk.ts": {
+      "unwrap": 1,
+      "fetch": 1
+    },
+    "services/svc-identity/src/affiliates/commission.ts": {
+      "parse": 2
+    },
+    "services/svc-indexer/scripts/dev-venue.ts": {
+      "scale": 1,
+      "parse": 1
+    },
+    "services/svc-market/src/stake-source.ts": {
+      "fetch": 1
+    },
+    "services/svc-notify/src/alerts/decimal.ts": {
+      "parse": 2
+    },
+    "services/svc-notify/src/alerts/trade-http-mark.ts": {
+      "parse": 1
+    },
+    "services/svc-notify/src/gateway/env.ts": {
+      "unwrap": 1
+    },
+    "services/svc-notify/src/notices/approval.ts": {
+      "unwrap": 1
+    },
+    "services/svc-ops/src/outreach/authority.ts": {
+      "unwrap": 1
+    },
+    "services/svc-ops/src/outreach/notification-client.ts": {
+      "unwrap": 1
+    },
+    "services/svc-pay/scripts/card-sandbox-e2e.mjs": {
+      "unwrap": 2,
+      "fetch": 3
+    },
+    "services/svc-pay/scripts/live-rail-e2e.mjs": {
+      "unwrap": 2
+    },
+    "services/svc-pay/src/control/counters.ts": {
+      "scale": 2
+    },
+    "services/svc-pay/src/control/service.ts": {
+      "scale": 2
+    },
+    "services/svc-pay/src/control/store.ts": {
+      "unwrap": 1
+    },
+    "services/svc-pay/src/founder-authority.ts": {
+      "unwrap": 1
+    },
+    "services/svc-pay/src/payout-admission.ts": {
+      "unwrap": 1
+    },
+    "services/svc-pay/src/registries/decimal.ts": {
+      "parse": 1
+    },
+    "services/svc-pay/src/routing-inputs.ts": {
+      "parse": 1
+    },
+    "services/svc-protocol/scripts/deploy-sepolia-rest.ts": {
+      "scale": 3
+    },
+    "services/svc-protocol/scripts/deploy-sepolia-vesting.ts": {
+      "scale": 1
+    },
+    "services/svc-protocol/scripts/dev-chain.ts": {
+      "scale": 1
+    },
+    "services/svc-protocol/src/session/relay.ts": {
+      "fetch": 1
+    },
+    "services/svc-support/src/account-state.ts": {
+      "fetch": 1
+    },
+    "services/svc-support/src/ticket-order.ts": {
+      "fetch": 1
+    },
+    "services/svc-tax/src/ledger-reads.ts": {
+      "fetch": 1
+    },
+    "services/svc-token/src/buyback-trade-client.ts": {
+      "fetch": 1
+    },
+    "services/svc-trade/scripts/order-path-smoke.mjs": {
+      "unwrap": 1
+    },
+    "services/svc-trade/src/admin/identity-approval.ts": {
+      "unwrap": 1
+    },
+    "services/svc-trade/src/algo/algo-result.ts": {
+      "parse": 1
+    },
+    "services/svc-trade/src/controls/identity-port.ts": {
+      "unwrap": 1
+    },
+    "services/svc-trade/src/futures/close-planner.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/funding-settlement.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/liquidation-planner.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/maintenance-ladder.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/margin-summary.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/mark-from-depth.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/mark-source.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/futures/position-service.ts": {
+      "scale": 2
+    },
+    "services/svc-trade/src/futures/tick-stores.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/mm/seed-planner.ts": {
+      "scale": 1
+    },
+    "services/svc-trade/src/otc/stake-source.ts": {
+      "fetch": 1
+    },
+    "services/svc-trade/src/spot/matching-client.ts": {
+      "fetch": 6
+    },
+    "services/svc-trade/src/spot/matching-close.ts": {
+      "fetch": 1
+    },
+    "services/svc-trade/src/spot/rank-perks.ts": {
+      "fetch": 1
+    },
+    "services/svc-trade/src/spot/sub-account-ownership.ts": {
+      "fetch": 1
+    },
+    "services/svc-ws/src/private/authority.ts": {
+      "unwrap": 1
+    },
+    "services/svc-ws/src/private/live-credential.ts": {
+      "fetch": 1
+    },
+    "services/svc-ws/src/private/session-passkey.ts": {
+      "unwrap": 2
+    },
+    "services/svc-ws/src/public/futures-mark.ts": {
+      "fetch": 2
+    }
+  }
+}

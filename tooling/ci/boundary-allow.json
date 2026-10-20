@@ -7,10 +7,63 @@
       "reason": "devDependency used by a script only, not imported by service code (architecture refactor map B1)"
     },
     {
+      "rule": "B-reads",
+      "file": "packages/execution-arb/src/arb-oms-wire.ts",
+      "reason": "mount-vs-tracker honesty check: reads svc-execution and svc-edge source to prove a feature is wired before the tracker may say so; reads only, moves nothing (map B2)"
+    },
+    {
+      "rule": "B-reads",
+      "file": "packages/execution-house-tenant/src/mount-vs-tracker.ts",
+      "reason": "mount-vs-tracker honesty check over svc-execution source; reads only (map B2)"
+    },
+    {
+      "rule": "B-reads",
+      "file": "packages/quant-honesty/src/quant-backtest-mount-vs-tracker.ts",
+      "reason": "mount-vs-tracker honesty check over svc-quant source; reads only (map B2)"
+    },
+    {
+      "rule": "B-sql",
+      "file": "packages/contracts/src/ops-analytics-cube.ts",
+      "reason": "SQL text for the ops analytics cube that names ledger.* and trade.*; no service executes it from this package (map B3). Owner: ops analytics"
+    },
+    {
       "rule": "M-balance",
       "file": "services/svc-trade/drizzle/0000_trade_init.sql",
       "detail": "hold_amount",
       "reason": "immutable order state: the amount the ledger hold was opened for, never a spendable balance (architecture refactor map)"
+    },
+    {
+      "rule": "M-balance",
+      "file": "services/svc-trade/drizzle/0013_position_margin_current.sql",
+      "detail": "margin_current",
+      "reason": "KNOWN GAP: a mirror of the ledger collateral pot that open-credit reads (briefs-scope-audit 2026-10-20 gap 4). Owner: Trade build thread. Remove this entry when open credit reads the ledger pot"
+    },
+    {
+      "rule": "M-balance",
+      "file": "services/svc-pay/drizzle/0052_pay_control_caps.sql",
+      "detail": "used",
+      "reason": "KNOWN GAP: running limit counter for daily and monthly intake and payout caps, row-locked and idempotent by business key, but kept outside the ledger (audit A.13). Owner: Money and key fixes R4"
+    },
+    {
+      "rule": "M-balance",
+      "file": "services/svc-pay/drizzle/0055_pay_metrics_projection.sql",
+      "detail": "refunded",
+      "reason": "metrics read model, not money of record: recomputed from payments and events and can be thrown away (the migration says so)"
+    },
+    {
+      "rule": "M-key",
+      "file": "services/svc-notify/src/notify-service.ts",
+      "reason": "delivery dedupe key for a verification message, derived from the code expiry stored on the target row; not a ledger key"
+    },
+    {
+      "rule": "M-key",
+      "file": "services/svc-trade/scripts/order-path-smoke.mjs",
+      "reason": "local smoke script: the key is deliberately fresh per run so each run places a new order; never deployed"
+    },
+    {
+      "rule": "M-entries",
+      "file": "services/svc-pay/src/portal-reads/statement.ts",
+      "reason": "merchant statement line for display, built from ledger reads; posts nothing"
     }
   ]
 }

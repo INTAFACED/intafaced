@@ -147,6 +147,8 @@ const messages = {
   'Min amount': 'Min {min}',
   'Enter a price first': 'Enter a price first.',
   'Total estimate': 'Est. total',
+  'Spend up to': 'Spend up to',
+  Spend: 'Spend',
   'Order value estimate': 'About',
   Buy: 'Buy',
   Sell: 'Sell',

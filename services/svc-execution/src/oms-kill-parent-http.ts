@@ -12,7 +12,7 @@ import type { EmsOrderStore } from './oms-ems-store.js';
 import type { AlgoPauseStore } from './oms-pause.js';
 import { refuseLiveOmsPaper, type OmsPaperUnsupportedRefuse } from './oms-paper-refuse.js';
 import type { ApprovedAlgoParentStore } from './oms-start.js';
-import type { OmsKillParentMatchingChild } from './oms-kill-parent-matching.js';
+import type { OmsKillParentMatchingChild, OmsMatchingS2s } from './oms-kill-parent-matching.js';
 import { authorizeOmsWriteRequest, type OmsWriteS2s } from './oms-write-hmac.js';
 
 export type KillParentDoorBody = {
@@ -33,6 +33,8 @@ export type KillParentDoorDeps = {
   readonly fetch?: typeof fetch;
   readonly internalSecret?: string | null;
   readonly s2s?: OmsWriteS2s;
+  /** svc-execution's own key for the calls to matching; the `s2s` above is for the calls coming in. */
+  readonly matchingS2s?: OmsMatchingS2s;
   readonly edgeContext: (req: { headers: FastifyRequest['headers']; id: string }) => {
     principal?: { userId?: string; scopes?: readonly string[] } | null;
   };
@@ -60,6 +62,7 @@ export async function handleKillParentDoor(
     matchingUrl: deps.matchingUrl,
     matchingChildren: body.children,
     fetch: deps.fetch,
+    matchingS2s: deps.matchingS2s,
   });
 }
 

@@ -9,7 +9,7 @@
  * accrued) and identity-down are swallowed. Never unwind ledger.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { AffiliateBankFeeLeg } from './affiliate-accrue.js';
 
 export const AFFILIATE_PRODUCER_PAYOUT_PATH = '/internal/affiliates/payout';
@@ -37,15 +37,20 @@ export async function fireAffiliatePayout(port: AffiliatePayoutPort, legs: reado
 
 const FETCH_MS = 2_000;
 
-export function createAffiliatePayoutClient(baseUrl: string, internalSecret: string): AffiliatePayoutPort {
+export function createAffiliatePayoutClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): AffiliatePayoutPort {
   const url = `${baseUrl.replace(/\/$/, '')}${AFFILIATE_PRODUCER_PAYOUT_PATH}`;
+  const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   return {
     async payoutBankFee(feeEventId) {
       const body = JSON.stringify({ feeEventId });
       const headers = {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-bank', internalSecret, body),
+        ...sign(body, { method: 'POST', url: new URL(url), contentType: 'application/json' }),
       };
       const response = await fetch(url, {
         method: 'POST',

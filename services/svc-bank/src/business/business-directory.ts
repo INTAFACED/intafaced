@@ -10,7 +10,7 @@
  * email all come back empty. The query is never logged.
  */
 
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { z } from 'zod';
 
 export const BUSINESS_DIRECTORY_HANDLES_PATH = '/internal/business-directory/handles';
@@ -163,17 +163,20 @@ export function createIdentityBusinessDirectory(
   baseUrl: string,
   internalSecret: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): BusinessDirectoryPort {
   const base = baseUrl.replace(/\/+$/, '');
+  const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-identity', legacySecret: internalSecret, s2s });
 
   async function post(path: string, body: string): Promise<unknown> {
     let response: Response;
     try {
-      response = await fetchFn(`${base}${path}`, {
+      const target = `${base}${path}`;
+      response = await fetchFn(target, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...serviceAuthHeadersForBody('svc-bank', internalSecret, body),
+          ...sign(body, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
         },
         body,
         signal: AbortSignal.timeout(FETCH_MS),

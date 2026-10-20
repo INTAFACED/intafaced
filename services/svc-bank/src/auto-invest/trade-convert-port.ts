@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { div, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { ConvertPort } from './auto-invest-service.js';
@@ -21,6 +21,8 @@ export interface TradeConvertPortOptions {
   baseUrl: string;
   /** Shared internal service secret — svc-trade verifies the body-bound service call with it. */
   serviceSecret: string;
+  /** Present once svc-bank has a signing key and S2S is on; absent leaves the shared secret alone. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode };
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   /**
@@ -138,6 +140,7 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 5_000;
   const baseUrl = options.baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-trade', legacySecret: options.serviceSecret, s2s: options.s2s });
 
   async function call<T>(input: {
     method: 'GET' | 'POST';
@@ -171,7 +174,7 @@ export function tradeConvertPort(options: TradeConvertPortOptions): ConvertPort 
         headers: {
           accept: 'application/json',
           ...(payload ? { 'content-type': 'application/json' } : {}),
-          ...(input.service && payload ? serviceAuthHeadersForBody('svc-bank', options.serviceSecret, payload) : {}),
+          ...(input.service && payload ? sign(payload, { method: input.method, url: new URL(url), contentType: 'application/json' }) : {}),
         },
         body: payload,
         signal: controller.signal,

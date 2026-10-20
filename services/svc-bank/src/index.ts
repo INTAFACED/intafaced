@@ -76,7 +76,7 @@ await sql`SELECT 1 FROM bank.spaces LIMIT 1`.catch(() => {
 
 // Value moves through svc-ledger, never through this service's own tables
 // (Doctrine §0.6). This client is the only path.
-// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger calls on the shared secret alone.
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, identity and trade calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-bank');
 const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } : undefined;
 const ledgerS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
@@ -102,14 +102,16 @@ const bank = createBankServices(sql, ledger, history, {
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
   // `bank.recipient_check_unset` (see the boot warning below). No default of
   // "everyone may receive".
-  recipients: env.IDENTITY_URL ? createIdentityRecipientState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : unconfiguredRecipientState(),
-  handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  recipients: env.IDENTITY_URL
+    ? createIdentityRecipientState(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, undefined, ledgerS2s)
+    : unconfiguredRecipientState(),
+  handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s) : undefined,
   requestNotices: eventPersonalRequestNotices(bus),
   // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
   // with bank.business_directory_unset. A 404 from identity is the same refusal:
   // the directory route is not published. No invented handle.
   directory: env.IDENTITY_URL
-    ? createIdentityBusinessDirectory(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
+    ? createIdentityBusinessDirectory(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
     : unconfiguredBusinessDirectory(),
   // `bank.activity.list`: svc-ledger `historyPage` (read-only), cursors signed under the service secret.
   activity: {
@@ -127,8 +129,8 @@ const bank = createBankServices(sql, ledger, history, {
     // a database column and svc-notify's finished consumer never sees one.
     marginCalls: eventMarginCallSink(bus),
     moduleEnabled: env.BANK_LOANS_ENABLED,
-    affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
-    affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+    affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
+    affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
@@ -192,6 +194,7 @@ const bank = createBankServices(sql, ledger, history, {
           convert: tradeConvertPort({
             baseUrl: env.TRADE_URL,
             serviceSecret: env.INTERNAL_SERVICE_SECRET,
+            s2s: ledgerS2s,
             marketsLimit: env.CONVERT_MARKETS_LIMIT,
           }),
         }
