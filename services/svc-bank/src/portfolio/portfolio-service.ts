@@ -2,7 +2,7 @@ import {
   LOCK_KIND_LIST,
   LOCK_KINDS,
   accountPurpose,
-  div,
+  DECIMALS,
   formatAmount,
   parseAmount,
   type Amount,
@@ -68,10 +68,11 @@ export interface AssetBreakdown {
 export interface BtcValuation {
   readonly total: string | null;
   readonly priceUsd: string | null;
-  readonly reason: 'no_price_published' | null;
+  readonly reason: 'no_price_published' | 'nothing_priced' | null;
 }
 
-const BTC_DECIMALS_UNIT = 10n ** 10n;
+const BTC_DP = 8n;
+const BTC_SCALE_UP = 10n ** (BigInt(DECIMALS) - BTC_DP);
 
 /**
  * The USD value of everything counted, divided by the last BTC price (BTC/USDT, else BTC/USDC), rounded half-up to 8
@@ -81,6 +82,8 @@ function btcValuation(summary: PortfolioSummary, prices: PriceBook): BtcValuatio
   const unpublished: BtcValuation = { total: null, priceUsd: null, reason: 'no_price_published' };
   // Nothing held is worth exactly nothing in any unit, with no price needed.
   if (summary.priced.length === 0 && summary.unpriced.length === 0) return { total: '0', priceUsd: null, reason: null };
+  // Something is held and none of it could be priced: the USD total is blank, so the BTC total is blank, not zero.
+  if (summary.priced.length === 0) return { total: null, priceUsd: null, reason: 'nothing_priced' };
   let price: Amount | null = null;
   for (const quote of PRICE_QUOTES) {
     const last = prices.tickers.get(`BTC/${quote}`)?.last ?? null;
@@ -91,8 +94,9 @@ function btcValuation(summary: PortfolioSummary, prices: PriceBook): BtcValuatio
   }
   if (price === null) return unpublished;
   const value = summary.priced.reduce<Amount>((acc, row) => acc + parseAmount(row.valueUsd), 0n);
-  const exact = div(value, price, 'half-up');
-  const rounded = ((exact + BTC_DECIMALS_UNIT / 2n) / BTC_DECIMALS_UNIT) * BTC_DECIMALS_UNIT;
+  // One rounding, half-up, straight to 8 decimals: value / price in units of 10^-8.
+  const units = (value * 10n ** BTC_DP * 2n + price) / (price * 2n);
+  const rounded = units * BTC_SCALE_UP;
   return { total: formatAmount(rounded), priceUsd: formatAmount(price), reason: null };
 }
 
@@ -250,16 +254,16 @@ export class PortfolioService {
     scope: 'all' | 'main' = 'all',
     filter: { accountId?: string; assetId?: string } = {},
   ): Promise<{ assets: AssetBreakdown[] }> {
-    const named = await this.namedOf(userId);
     // `main` is the person's own accounts only, the same figure as the exchange balance; `all` adds every named Space.
     // `accountId` picks one of the listed accounts; one that is not the caller's is refused, never read.
     let rows: Balance[];
+    const wanted = filter.accountId?.toLowerCase();
     if (filter.accountId === 'main') rows = await this.ledger.balances('user', userId);
-    else if (filter.accountId !== undefined) {
-      const space = named.find((s) => s.id === filter.accountId);
+    else if (wanted !== undefined) {
+      const space = (await this.namedOf(userId)).find((s) => s.id.toLowerCase() === wanted);
       if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
       rows = await this.ledger.balances('subaccount', space.id);
-    } else rows = scope === 'main' ? await this.ledger.balances('user', userId) : await this.ownedWith(userId, named);
+    } else rows = scope === 'main' ? await this.ledger.balances('user', userId) : await this.everythingOwnedBy(userId);
     const only = filter.assetId?.toUpperCase();
     const assets = [...new Set(rows.map((r) => r.account.assetId))].filter((a) => only === undefined || a.toUpperCase() === only).sort();
     const out: AssetBreakdown[] = [];

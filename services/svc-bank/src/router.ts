@@ -94,7 +94,11 @@ const portfolioSummaryOutput = z.object({
   windowStart: z.number().int().nullable(),
   /** Only when `valueIn` is `btc`. Both fields are null, with a reason, while no BTC price is published. */
   btc: z
-    .object({ total: z.string().nullable(), priceUsd: z.string().nullable(), reason: z.literal('no_price_published').nullable() })
+    .object({
+      total: z.string().nullable(),
+      priceUsd: z.string().nullable(),
+      reason: z.enum(['no_price_published', 'nothing_priced']).nullable(),
+    })
     .optional(),
 });
 

@@ -131,6 +131,57 @@ describe('summary: one asset, and the value in BTC', () => {
     expect((await callerFor(portfolio, ALICE).portfolio.summary()).totalUsd).toBe('100.00');
   });
 
+  it('leaves the BTC value blank, not 0, when something is held and none of it can be priced', async () => {
+    const { portfolio } = service(
+      [row(ALICE, 'EUR', 'available', '500'), row(ALICE, 'NEWCOIN', 'available', '3')],
+      tickers({ 'BTC/USDT': '60000' }),
+    );
+    const out = await callerFor(portfolio, ALICE).portfolio.summary({ valueIn: 'btc' });
+    expect(out.totalUsd).toBeNull();
+    expect(out.btc).toEqual({ total: null, priceUsd: null, reason: 'nothing_priced' });
+    const one = await callerFor(portfolio, ALICE).portfolio.summary({ assetId: 'NEWCOIN', valueIn: 'btc' });
+    expect(one.btc?.total).toBeNull();
+  });
+
+  it('leaves an unpriced holding out of the BTC value, as it is out of the USD value', async () => {
+    const { portfolio } = service(
+      [row(ALICE, 'USDT', 'available', '6000'), row(ALICE, 'EUR', 'available', '500')],
+      tickers({ 'BTC/USDT': '60000' }),
+    );
+    const out = await callerFor(portfolio, ALICE).portfolio.summary({ valueIn: 'btc' });
+    expect(out.unpriced.map((u) => u.asset)).toEqual(['EUR']);
+    expect(out.btc?.total).toBe('0.1');
+  });
+
+  it('falls back to BTC/USDC when BTC/USDT has no last price, and refuses when listed markets answer nothing', async () => {
+    const noLast: TickerSource = {
+      prices: async (): Promise<PriceBook> => ({
+        tickers: new Map([
+          ['BTC/USDT', { last: null, open: null, windowStart: null }],
+          ['BTC/USDC', { last: amt('50000'), open: null, windowStart: null }],
+        ]),
+        listed: new Set(['BTC/USDT', 'BTC/USDC']),
+      }),
+    };
+    const { portfolio } = service([row(ALICE, 'USDT', 'available', '5000')], noLast);
+    expect((await callerFor(portfolio, ALICE).portfolio.summary({ valueIn: 'btc' })).btc).toEqual({
+      total: '0.1',
+      priceUsd: '50000',
+      reason: null,
+    });
+    const dead: TickerSource = { prices: async () => ({ tickers: new Map(), listed: new Set(['BTC/USDT']) }) };
+    const down = service([row(ALICE, 'USDT', 'available', '5000')], dead).portfolio;
+    await expect(callerFor(down, ALICE).portfolio.summary({ valueIn: 'btc' })).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+  });
+
+  it('rounds once, half-up, to 8 decimals', async () => {
+    // 1 USD at 3 USD per BTC is 0.33333333; 2 USD is 0.66666667.
+    const one = service([row(ALICE, 'USDT', 'available', '1')], tickers({ 'BTC/USDT': '3' }));
+    expect((await callerFor(one.portfolio, ALICE).portfolio.summary({ valueIn: 'btc' })).btc?.total).toBe('0.33333333');
+    const two = service([row(ALICE, 'USDT', 'available', '2')], tickers({ 'BTC/USDT': '3' }));
+    expect((await callerFor(two.portfolio, ALICE).portfolio.summary({ valueIn: 'btc' })).btc?.total).toBe('0.66666667');
+  });
+
   it('values nothing held as 0 BTC with no price needed', async () => {
     const { portfolio } = service([]);
     const out = await callerFor(portfolio, ALICE).portfolio.summary({ valueIn: 'btc' });
@@ -170,6 +221,31 @@ describe('balance breakdown: one account and one asset', () => {
     await expect(api.portfolio.balanceBreakdown({ accountId: BOBS_SPACE })).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(asked).toEqual([]);
     await expect(api.portfolio.balanceBreakdown({ accountId: 'bob' } as never)).rejects.toBeDefined();
+  });
+
+  it('takes the account id in any letter case, and lets accountId win over scope and combine with assetId', async () => {
+    const { portfolio } = service(holdings);
+    const api = callerFor(portfolio, ALICE);
+    const upper = await api.portfolio.balanceBreakdown({ accountId: SPACE.toUpperCase() });
+    expect(upper.assets.map((a) => a.total)).toEqual(['10000']);
+    const both = await api.portfolio.balanceBreakdown({ scope: 'main', accountId: SPACE, assetId: 'usdt' });
+    expect(both.assets.map((a) => [a.assetId, a.total])).toEqual([['USDT', '10000']]);
+    expect((await api.portfolio.balanceBreakdown({ accountId: SPACE, assetId: 'BTC' })).assets).toEqual([]);
+  });
+
+  it('reads no Space list for the main account, so the main figure does not wait on it', async () => {
+    const ledger = {
+      balances: async (type: string, id: string) => holdings.filter((r) => r.account.ownerType === type && r.account.ownerId === id),
+    } as unknown as Pick<LedgerClient, 'balances'>;
+    const broken: SpaceLister = {
+      namedSpaces: async () => {
+        throw new Error('spaces down');
+      },
+    };
+    const portfolio = new PortfolioService(ledger, broken, { now: () => NOW });
+    const out = await callerFor(portfolio, ALICE).portfolio.balanceBreakdown({ scope: 'main' });
+    expect(out.assets.map((a) => a.assetId)).toEqual(['BTC', 'USDT']);
+    await expect(callerFor(portfolio, ALICE).portfolio.balanceBreakdown()).rejects.toBeDefined();
   });
 
   it('narrows to one asset and keeps its locks apart', async () => {
