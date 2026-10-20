@@ -146,7 +146,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     body: 'Account numbers come from a banking partner, and none is connected in this build. No number is shown rather than a made-up one.',
   },
   detailsCurrenciesUnset: {
-    title: 'No currencies are listed yet for account details',
+    title: 'Which currencies have account details has not been published',
     body: 'Which currencies have account details has not been published, so none are listed.',
   },
   eligibilityUnset: {

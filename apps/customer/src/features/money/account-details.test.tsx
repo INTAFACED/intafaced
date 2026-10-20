@@ -71,7 +71,7 @@ describe('account details per currency', () => {
       message: 'bank.account_details_currencies_unset',
     } as never;
     const html = renderToStaticMarkup(<AccountDetailsBody resource={{ status: 'failed', failure }} reload={() => undefined} />);
-    expect(html).toContain('No currencies are listed yet for account details');
+    expect(html).toContain('Which currencies have account details has not been published');
     expect(html).not.toContain('account_details_currencies_unset</');
   });
 
