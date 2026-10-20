@@ -14,6 +14,7 @@ import {
   MemoryLedger,
   formatAmount,
   futuresLossSink,
+  InsufficientFundsError,
   insuranceFund,
   parseAmount as amt,
   positionCollateralAccount,
@@ -430,6 +431,62 @@ describe('ADL pairs at the bankruptcy price (PG-hard)', () => {
     const [pair] = await sql<{ state: string; released: string }[]>`
       SELECT state, candidate_margin_released::text AS released FROM trade.futures_adl_pairs`;
     expect(pair).toMatchObject({ state: 'applied', released: '4990.000000000000000000' });
+    expect(ledger.reconcile().ok).toBe(true);
+  });
+
+  it('reads the posted release from the ledger when the run that adjusted it rolled back after posting', async () => {
+    const { alice, bob } = await plannedPair('futures.margin.release');
+    await charge(BOB, bob, '10', 3);
+
+    // This run posts the adjusted 4990 release, then the profit leg times out and its row writes roll back.
+    await expect(sqlAdlPairReducer(sql, failOnce('futures.profit.realized')).replayPlanned(bob)).rejects.toThrow('ledger timeout');
+    const [mid] = await sql<{ state: string; released: string }[]>`
+      SELECT state, candidate_margin_released::text AS released FROM trade.futures_adl_pairs`;
+    expect(mid).toMatchObject({ state: 'planned', released: '5000.000000000000000000' });
+
+    // The replay takes 4990 from the posted release, not the stale column, and applies.
+    expect(await sqlAdlPairReducer(sql, ledger).replayPlanned(bob)).toBe(true);
+    expect((await row(alice)).status).toBe('closed');
+    expect((await row(bob)).status).toBe('closed');
+    expect(await bal(userAvailable(BOB, 'USDT'))).toBe('10000');
+    const [pair] = await sql<{ state: string; released: string }[]>`
+      SELECT state, candidate_margin_released::text AS released FROM trade.futures_adl_pairs`;
+    expect(pair).toMatchObject({ state: 'applied', released: '4990.000000000000000000' });
+    expect(ledger.reconcile().ok).toBe(true);
+  });
+
+  it('goes ahead, not abandoned, when an earlier loss post lands while this run is refused for funds', async () => {
+    const { alice, bob } = await plannedPair('futures.loss.realized');
+    const lossKey = `futures.loss:${(await sql<{ pair_id: string }[]>`SELECT pair_id FROM trade.futures_adl_pairs`)[0]!.pair_id}:loss`;
+    let firstLook = true;
+    let landed = false;
+    const racing: Pick<LedgerClient, 'post' | 'balance' | 'getTxByKey'> = {
+      balance: (ref) => ledger.balance(ref),
+      getTxByKey: async (key) => {
+        if (key === lossKey && firstLook) {
+          firstLook = false;
+          return null;
+        }
+        return ledger.getTxByKey(key);
+      },
+      post: async (req) => {
+        if (req.idempotencyKey === lossKey && !landed) {
+          // The earlier attempt lands between this run's key check and its funds check.
+          landed = true;
+          await ledger.post(req);
+          throw new InsufficientFundsError('position', 'USDT', '5000', '0');
+        }
+        return ledger.post(req);
+      },
+    };
+
+    expect(await sqlAdlPairReducer(sql, racing).replayPlanned(alice)).toBe(true);
+    const states = await sql<{ state: string }[]>`SELECT state FROM trade.futures_adl_pairs`;
+    expect(states.map((r) => r.state)).toEqual(['applied']);
+    expect((await row(alice)).status).toBe('closed');
+    expect((await row(bob)).status).toBe('closed');
+    expect(await pot()).toBe('0');
+    expect(await bal(userAvailable(BOB, 'USDT'))).toBe('10000');
     expect(ledger.reconcile().ok).toBe(true);
   });
 });
