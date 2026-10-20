@@ -222,6 +222,14 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
     return { status: 'skipped', reason: 'no_positions', periodId: quote.periodId };
   }
 
+  // The bound is asserted on the QUOTE before anything is frozen: a refused tick posts nothing, so it must also
+  // lock nothing. Freezing the membership first pinned the positions open at the refused moment, and the period
+  // then settled from that stale snapshot once the publisher corrected the rate.
+  // When a rate is already frozen the quote is irrelevant (the frozen one is what posts), so a later over-bound
+  // republish cannot block a period whose legs are already in the ledger at a valid rate.
+  const prior = await deps.periods.peekRate(quote.periodId);
+  if (prior === null) assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
+
   // Membership + size/notional frozen on the first plan for this periodId.
   // Replays plan from that snapshot only — never open-now size, never a mid-gap
   // opener (C14 + W8 notional freeze residual).
@@ -235,14 +243,8 @@ export async function runFundingTick(deps: FundingTickDeps, marketId: string): P
   // first rate seen even if the oracle now quotes a different one for the same
   // period — otherwise leg 1 re-posts under the same key with a new amount.
   //
-  // The bound is asserted on the QUOTE first: only a rate that would actually be
-  // posted is frozen. An over-bound first quote (a fat-finger publish) posts no
-  // legs, so freezing it would protect no ledger body and would wedge the period
-  // after the publisher corrects the rate.
-  // When a rate is already frozen the quote is irrelevant (the frozen one is what posts), so a later over-bound
-  // republish cannot block a period whose legs are already in the ledger at a valid rate.
-  const prior = await deps.periods.peekRate(quote.periodId);
-  if (prior === null) assertFundingRateWithinBound(quote.rate, deps.maxAbsRate);
+  // The quote was bound-checked above, before the membership froze, so only a rate that would actually be posted
+  // is frozen here.
   const rate = prior ?? (await deps.periods.freezeRate(quote.periodId, quote.rate));
 
   // Bound check before plan so an absurd rate never reaches leg construction

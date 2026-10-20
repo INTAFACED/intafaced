@@ -203,6 +203,8 @@ export const LEVERAGE_INSUFFICIENT_MARGIN = 'trade.insufficient_margin';
 export const MARGIN_BELOW_INITIAL = 'trade.margin_below_initial';
 /** Isolated reduce would leave equity ≤ 0 at the current mark. */
 export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
+/** An open whose row failed was rolled back and its margin released; the same clientOpenId cannot be replayed. */
+export const OPEN_ROLLED_BACK = 'trade.open_rolled_back';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
 /**
@@ -627,6 +629,24 @@ export class PositionService {
         409,
       );
     }
+  }
+
+  /**
+   * A MARGIN ADJUSTMENT THAT HAS POSTED BUT NOT FINALIZED BLOCKS A CLOSE.
+   *
+   * `margin_adjust_request` is set while a leverage change or an isolated margin add or reduce is between its
+   * ledger post and its row update. A crash in that gap leaves the collateral pot at the new amount and the row
+   * at the old one, so a close would release the row's amount from a pot that holds a different one (and a
+   * partial close would take the same ledger sequence the adjustment used). Resuming the same adjustment
+   * finishes it; the close is refused until then.
+   */
+  private assertNoPendingMarginAdjustment(row: PositionRow): void {
+    if (row.margin_adjust_request === null || row.margin_adjust_request === undefined) return;
+    throw new FuturesError(
+      'a margin adjustment on this position has not finished — repeat it with the same clientAdjustmentId, then close',
+      MARGIN_ADJUSTMENT_IN_PROGRESS,
+      409,
+    );
   }
 
   /**
@@ -1108,6 +1128,23 @@ export class PositionService {
     const [existing] = await this.sql<PositionRow[]>`SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${positionId} AND p.user_id = ${input.userId}`;
     if (existing) return this.presentListed(existing);
+    /**
+     * A ROLLED-BACK OPEN STAYS ROLLED BACK.
+     *
+     * The margin lock is keyed on the position id alone, and so is its release. After a failed row insert the
+     * release has been posted; re-posting the lock for the same open would be deduped by the ledger as already
+     * done, and the row would then be written with no margin held. The rollback is recorded before the release,
+     * so a retry finds it, finishes the release (idempotent) and refuses. A new open uses a new clientOpenId.
+     */
+    const [rolledBack] = await this.sql<{ outcome: { code?: string } | null }[]>`
+      SELECT outcome FROM trade.futures_open_requests
+      WHERE user_id = ${input.userId} AND market_id = ${m.id} AND client_open_id = ${input.clientOpenId}
+        AND reduce_only = false AND outcome IS NOT NULL
+    `;
+    if (rolledBack?.outcome?.code === OPEN_ROLLED_BACK) {
+      await this.releaseFailedOpenMargin(input.userId, positionId, m.quote_asset, margin);
+      throw new FuturesError('this open was rolled back; submit it again with a new clientOpenId', OPEN_ROLLED_BACK, 409);
+    }
     // Money first — never a position row without a ledger claim.
     await this.ledger.post(
       recipes.futuresMarginLock({
@@ -1176,16 +1213,16 @@ export class PositionService {
           return this.presentListed(existing[0]);
         }
       }
-      // Roll margin back if the row failed (unique open, etc.).
-      await this.ledger.post(
-        recipes.futuresMarginRelease({
-          positionId,
-          userId: input.userId,
-          assetId: m.quote_asset,
-          amount: margin,
-          sequence: 1,
-        }),
-      );
+      // Roll margin back if the row failed (unique open, etc.). Recorded first, so a crash before the release
+      // is finished by the retry instead of re-opening an unfunded position.
+      await this.sql`
+        INSERT INTO trade.futures_open_requests (user_id, market_id, client_open_id, reduce_only, outcome)
+        VALUES (${input.userId}, ${m.id}, ${input.clientOpenId}, false,
+                ${this.sql.json({ refused: true, code: OPEN_ROLLED_BACK, message: 'open rolled back' } as never)})
+        ON CONFLICT (user_id, market_id, client_open_id) DO UPDATE SET outcome = EXCLUDED.outcome
+        WHERE trade.futures_open_requests.outcome IS NULL AND trade.futures_open_requests.reduce_only = false
+      `;
+      await this.releaseFailedOpenMargin(input.userId, positionId, m.quote_asset, margin);
       throw err;
     }
 
@@ -1202,6 +1239,18 @@ export class PositionService {
     `;
     await this.publishPositionUpdated(row!);
     return this.presentListed(row!);
+  }
+
+  private async releaseFailedOpenMargin(userId: string, positionId: string, assetId: string, amount: Amount): Promise<void> {
+    await this.ledger.post(
+      recipes.futuresMarginRelease({
+        positionId,
+        userId,
+        assetId,
+        amount,
+        sequence: 1,
+      }),
+    );
   }
 
   /** Owned recovery hook, independent of live credentials; no public receipt is accepted. */
@@ -1833,6 +1882,7 @@ export class PositionService {
         // Under the row lock, before the mark read and before anything posts: a trader may not
         // close out from under a live rung or a parked position (see `assertLiquidationHold`).
         await this.assertLiquidationHold(tx, row.id, 'close');
+        this.assertNoPendingMarginAdjustment(row);
 
         /**
          * THE STAKE, TAKEN OFF THE LOCKED ROW.
@@ -2231,6 +2281,7 @@ export class PositionService {
           throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
         }
         await this.assertLiquidationHold(tx, row.id, 'close');
+        this.assertNoPendingMarginAdjustment(row);
 
         const size = parseAmount(row.size);
         const lotCheck = checkCloseQuantity({
