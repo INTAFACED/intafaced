@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { z } from 'zod';
 import { draftSchema } from '../../../features/trade/trade-api';
+import { forgetReviewId } from './review-id';
 
 export const pendingSchema = z.object({
   kind: z.enum(['place', 'cancel', 'amend', 'replace', 'convert', 'rfq', 'position', 'algo', 'copy']),
@@ -67,8 +68,13 @@ export async function reserve(userId: string, value: Pending): Promise<Reservati
   });
 }
 
-/** Remove the marker, only if it is still the one this call wrote. */
+/**
+ * Remove the marker, only if it is still the one this call wrote. Releasing is how every path ends an order whose
+ * outcome is known (placed, refused, found by a check, sent again), so the reviewed-draft number is dropped here too:
+ * the next identical draft is a new order.
+ */
 export function release(userId: string, id: string): void {
+  forgetReviewId(id);
   const current = readPending(userId);
   // Only the marker this order wrote. A different one, or one that cannot be read, stays.
   if (current.state === 'unreadable' || (current.state === 'pending' && current.value.id !== id)) return;
