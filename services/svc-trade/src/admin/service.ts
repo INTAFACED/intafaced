@@ -450,9 +450,8 @@ export class TradeOpsAdmin {
       pot = { value: null, reason: 'clearing_pot_unconfigured' };
     } else {
       const balance = await this.deps.ledger.balance(recipeProfitFundingAccount(row.quote_asset));
-      pot = balance.accountId
-        ? { value: formatAmount(balance.amount), reason: null }
-        : { value: null, reason: 'clearing_pot_unconfigured' };
+      // No account yet means no loss has been booked: the pot is empty, not unconfigured.
+      pot = { value: formatAmount(balance.amount), reason: null };
     }
     const owed = (await pendingPayoutTotals(this.deps.sql)).find((t) => t.assetId === row.quote_asset);
     await writeOperatorAudit(this.deps.sql, {

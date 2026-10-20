@@ -31,7 +31,6 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import type { Sql, TransactionSql } from 'postgres';
-import { recipeProfitFundingAccount } from './profit-source.js';
 
 export const CLEARING_POT_SHORT = 'trade.clearing_pot_short' as const;
 
@@ -88,10 +87,11 @@ export function payoutRecipe(row: { profitId: string; positionId: string; userId
  * Post the profit leg if the clearing pot holds it, otherwise record it as owed.
  *
  * Called inside the close transaction, under the position row lock, BEFORE the
- * close's other posts. The intent row is written first, then the bound is
- * read, and a ledger insufficient-funds answer (two winners racing for one
- * pot) is treated the same as a short bound: the profit is owed, never an
- * error after margin has moved.
+ * close's other posts. The intent row is written first, then the profit is
+ * posted, and the ledger is the bound: an insufficient-funds answer (a short
+ * pot, or two winners racing for one) leaves the profit owed, never an error
+ * after margin has moved. A replay of a profit that already posted is
+ * recognised by its key and marked paid.
  */
 export async function payOrOweProfit(input: {
   tx: Db;
@@ -103,8 +103,8 @@ export async function payOrOweProfit(input: {
   amount: Amount;
 }): Promise<PayoutState> {
   const recipe = payoutRecipe(input);
-  // The intent row goes in first, so the profit is on record as owed before
-  // anything posts; it only turns `paid` once the ledger has taken the post.
+  // The intent row goes in first, in the close's transaction, so the close never
+  // commits without it; it only turns `paid` once the ledger has taken the post.
   await input.tx`
     INSERT INTO trade.futures_payouts
       (profit_id, position_id, user_id, asset_id, amount, state, refusal_code, attempts, last_attempt_at)
@@ -114,8 +114,9 @@ export async function payOrOweProfit(input: {
     )
     ON CONFLICT (profit_id) DO NOTHING
   `;
-  const { amount: available } = await input.ledger.balance(recipeProfitFundingAccount(input.assetId));
-  if (available < input.amount) return 'pending';
+  // No balance pre-check: the ledger answers. A replay of a profit that already
+  // posted must reach the ledger to be recognised by its key, and the pot is a
+  // house account the ledger never lets go below zero.
   try {
     await input.ledger.post(recipe);
   } catch (err) {
@@ -125,7 +126,7 @@ export async function payOrOweProfit(input: {
   await input.tx`
     UPDATE trade.futures_payouts
     SET state = 'paid', paid_at = now(), refusal_code = NULL
-    WHERE profit_id = ${input.profitId}
+    WHERE profit_id = ${input.profitId} AND state = 'pending'
   `;
   return 'paid';
 }
@@ -168,17 +169,14 @@ export async function runPayoutTick(input: {
         `;
         if (!row) return 'skipped' as const;
         const amount = parseAmount(row.amount);
-        const { amount: available } = await input.ledger.balance(recipeProfitFundingAccount(row.asset_id));
         let posted = false;
-        if (available >= amount) {
-          try {
-            await input.ledger.post(
-              payoutRecipe({ profitId: row.profit_id, positionId: row.position_id, userId: row.user_id, assetId: row.asset_id, amount }),
-            );
-            posted = true;
-          } catch (err) {
-            if (!isInsufficientFunds(err)) throw err;
-          }
+        try {
+          await input.ledger.post(
+            payoutRecipe({ profitId: row.profit_id, positionId: row.position_id, userId: row.user_id, assetId: row.asset_id, amount }),
+          );
+          posted = true;
+        } catch (err) {
+          if (!isInsufficientFunds(err)) throw err;
         }
         if (posted) {
           await tx`

@@ -836,6 +836,56 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
   });
 
   /**
+   * The profit posted, then the close failed and rolled back. The retry must
+   * not record that profit as still owed: the ledger recognises its key.
+   */
+  it('marks a profit paid when a retried close finds it already posted', async () => {
+    feed('50000');
+    await fundProfitSource('1000');
+    let failRelease = true;
+    const flaky = new Proxy(ledger, {
+      get(target, prop, receiver) {
+        if (prop === 'post') {
+          return async (req: Parameters<LedgerClient['post']>[0]) => {
+            if (req.reason === 'futures.margin.release' && failRelease) {
+              failRelease = false;
+              throw new Error('ledger timeout after commit');
+            }
+            return target.post(req);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const service = new PositionService(sql, flaky, {
+      marks: marks.source(),
+      profitSource: profitSourceFromConfig(PROFIT_SOURCE),
+      maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+      bus,
+      now: () => NOW,
+    });
+    const pos = await service.open({
+      clientOpenId: 't-open-position-service.test-14r',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const before = (await ledger.balance(userAvailable(ALICE, 'USDT'))).amount;
+    feed('51000');
+    await expect(service.close(ALICE, pos.id!)).rejects.toThrow('ledger timeout after commit');
+    expect(await listPayoutsForUser(sql, ALICE)).toEqual([]);
+
+    expect((await service.close(ALICE, pos.id!)).status).toBe('closed');
+    expect((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount - before).toBe(amt('6000'));
+    expect(formatAmount((await ledger.balance(profitPot())).amount)).toBe('0');
+    expect(await listPayoutsForUser(sql, ALICE)).toMatchObject([{ state: 'paid', refusalCode: null }]);
+    expect(await pendingPayoutTotals(sql)).toEqual([]);
+  });
+
+  /**
    * Two winners race for one pot under their own position locks: the bound
    * read passes for both, and the ledger refuses the second. That refusal
    * becomes an owed profit, never an error after the close's margin moved.

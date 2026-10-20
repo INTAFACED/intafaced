@@ -10,7 +10,7 @@
 CREATE TABLE IF NOT EXISTS "trade"."futures_payouts" (
   "profit_id"       text           PRIMARY KEY,
   "position_id"     uuid           NOT NULL,
-  "user_id"         uuid           NOT NULL,
+  "user_id"         text           NOT NULL,
   "asset_id"        text           NOT NULL,
   "amount"          numeric(38, 18) NOT NULL,
   "state"           text           NOT NULL,
