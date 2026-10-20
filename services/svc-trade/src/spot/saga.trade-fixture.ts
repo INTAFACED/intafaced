@@ -24,7 +24,7 @@ export const migrations = readdirSync(drizzle)
   .sort()
   .map((f) => readFileSync(join(drizzle, f), 'utf8'));
 
-export const SECRET = 'svc-trade-test-internal-secret-0123456789';
+export const SECRET = 'svc-trade-test-secret-0123456789';
 export const ALICE = '11111111-1111-4111-8111-111111111111';
 export const BOB = '22222222-2222-4222-8222-222222222222';
 export const MARKET_ID = '77777777-7777-4777-8777-777777777777';
