@@ -37,6 +37,21 @@ const schema = serviceEnvSchema
        * offline. Blank is an owner value left unset: availability stays as
        * last set and the desk says so. Never defaulted.
        */
+      /**
+       * Staff roles the owner marks as seeing every group once groups exist,
+       * comma separated (agent, lead). Blank marks none: scope then follows
+       * group membership and assignment only. Never defaulted.
+       */
+      SUPPORT_ALL_GROUPS_ROLES: z
+        .string()
+        .optional()
+        .transform((v) =>
+          (v ?? '')
+            .split(',')
+            .map((r) => r.trim())
+            .filter(Boolean),
+        )
+        .pipe(z.array(z.enum(['agent', 'lead']))),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );

@@ -26,6 +26,9 @@ import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/con
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
 import { buildPayGuards } from './seams/registry.js';
+import { loadScreeningReleaseTtl } from './screening/desk-config.js';
+import { createScreeningRouter } from './screening/desk-router.js';
+import { ScreeningDeskService } from './screening/desk-service.js';
 import { resolveMerchantControlsMode } from './control/mode.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -72,6 +75,7 @@ import { KybService } from './kyb-service.js';
 import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
+import { KybApplicationService } from './kyb-application.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -429,6 +433,7 @@ const merchantState = new MerchantStateService(sql);
  * Path-disjoint from settlement / fraud. See `kyb-service.ts` / `psp-mode.ts`.
  */
 const kyb = new KybService(sql);
+const kybEntityTypes = new KybEntityTypeService(sql);
 const pspMode = new PspModeService(sql);
 
 /**
@@ -475,6 +480,10 @@ export const appRouter = mergeRouters(
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
+  // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
+  createScreeningRouter(
+    new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
+  ),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {
@@ -482,7 +491,7 @@ export const appRouter = mergeRouters(
       await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
     }),
   ),
-  createKybPspRouter(kyb, pspMode, actionApprovals, pay, new KybEntityTypeService(sql)),
+  createKybPspRouter(kyb, pspMode, actionApprovals, pay, kybEntityTypes, new KybApplicationService(sql, kyb, kybEntityTypes)),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any

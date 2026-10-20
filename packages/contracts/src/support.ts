@@ -279,6 +279,61 @@ export const escalateTicketInputSchema = z.object({
 });
 export type EscalateTicketInput = z.infer<typeof escalateTicketInputSchema>;
 
+/* ------------------------------------------------------------------ *
+ * TICKET PROPERTIES — agent-set priority, type and labels (SP-tickets-04)
+ *
+ * Operator-only. They are deliberately NOT fields of `supportTicketSchema`,
+ * which the ticket owner also reads: an internal priority or label must not
+ * reach the customer. The queue score stays a ranking, not a promise.
+ * ------------------------------------------------------------------ */
+
+export const supportTicketPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
+export type SupportTicketPriority = z.infer<typeof supportTicketPrioritySchema>;
+
+export const supportTicketTypeSchema = z.enum(['question', 'problem', 'incident']);
+export type SupportTicketType = z.infer<typeof supportTicketTypeSchema>;
+
+/** Input-safety bounds on label text and count, not a product limit. */
+export const SUPPORT_LABEL_MAX = 64;
+export const SUPPORT_LABELS_MAX = 20;
+
+/** Letters, digits, hyphen and underscore only. A space is `support.label_invalid`. */
+export const supportLabelSchema = z
+  .string()
+  .min(1)
+  .max(SUPPORT_LABEL_MAX)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+export const supportTicketPropertiesSchema = z.object({
+  ticketId: z.string().uuid(),
+  /** Null until an agent sets one. Never guessed. */
+  priority: supportTicketPrioritySchema.nullable(),
+  ticketType: supportTicketTypeSchema.nullable(),
+  labels: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX),
+  updatedAt: z.string().datetime().nullable(),
+});
+export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
+
+/**
+ * Set any of priority, type and labels. An omitted field is left as it is; null
+ * clears priority or type; `labels` replaces the whole set. A repeat of the same
+ * `clientRequestId` returns the first result.
+ */
+export const setTicketPropertiesInputSchema = z
+  .object({
+    ticketId: z.string().uuid(),
+    priority: supportTicketPrioritySchema.nullable().optional(),
+    ticketType: supportTicketTypeSchema.nullable().optional(),
+    labels: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX).optional(),
+    /** Short operator reason, kept in the audit log. */
+    reason: z.string().min(1).max(500).optional(),
+    clientRequestId: z.string().min(1).max(200),
+  })
+  .refine((v) => v.priority !== undefined || v.ticketType !== undefined || v.labels !== undefined, {
+    message: 'set at least one of priority, ticketType or labels',
+  });
+export type SetTicketPropertiesInput = z.infer<typeof setTicketPropertiesInputSchema>;
+
 export interface SupportContract {
   createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket>;
   listMyTickets(input: { userId: string }): Promise<SupportTicket[]>;
