@@ -311,7 +311,7 @@ if (chargebackOutcomeSlots < 1) {
 // W-deposit-05: the record of customer crypto deposits. A chain delivery to a customer address is booked here, not as a payment.
 const custodyDepositBook = new CustodyDepositBook({
   sql,
-  ledger,
+  postDeposit: (input) => userMoney.postCustodyDeposit(input),
   registries: createRegistryReader(sql),
   log: (msg, extra) => app.log.warn(extra ?? {}, msg),
 });

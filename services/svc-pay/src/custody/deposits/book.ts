@@ -1,5 +1,5 @@
 import type { Sql } from 'postgres';
-import { formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   PAY_CUSTODY_DEPOSIT_PENDING_STATUSES,
   type PayCustodyDepositReason,
@@ -9,7 +9,6 @@ import {
   type PayCustodyDepositStatus,
 } from '@intafaced/contracts';
 import type { RegistryReader } from '../../registries/read-api.js';
-import { postPayLedger } from '../../ledger-receipt.js';
 
 /**
  * The record of customer crypto deposits (W-deposit-05). NO BALANCE LIVES HERE: a row is evidence of one transfer, and a
@@ -30,8 +29,6 @@ import { postPayLedger } from '../../ledger-receipt.js';
  *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
  */
 
-export const CUSTODY_DEPOSIT_RAIL = 'crypto-native';
-
 /** One transfer to a watched address, as the chain saw it. */
 export interface ChainDeposit {
   readonly address: string;
@@ -48,7 +45,15 @@ export type ChainDepositOutcome =
 
 export interface CustodyDepositBookDeps {
   readonly sql: Sql;
-  readonly ledger: Pick<LedgerClient, 'post' | 'balance'>;
+  /** The one deposit engine (`UserMoneyService.postCustodyDeposit`): posts the ledger `deposit` under the business key. */
+  readonly postDeposit: (input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }) => Promise<{ id: string }>;
   readonly registries: Pick<RegistryReader, 'listRoutableNetworks'>;
   readonly log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
@@ -236,11 +241,14 @@ export class CustodyDepositBook {
          WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
       if (!started[0]) return this.reload(row.id);
     }
-    const railRef = `${row.network_id}:${row.tx_hash}:${row.output_index}`;
-    const tx = await postPayLedger(
-      this.deps.ledger as LedgerClient,
-      recipes.deposit({ userId: row.user_id, assetId: row.asset_id, amount, rail: CUSTODY_DEPOSIT_RAIL, railRef }),
-    );
+    const tx = await this.deps.postDeposit({
+      userId: row.user_id,
+      assetId: row.asset_id,
+      amount,
+      networkId: row.network_id,
+      txHash: row.tx_hash,
+      outputIndex: row.output_index,
+    });
     const credited = await sql<Row[]>`
       UPDATE pay.custody_deposits
          SET status = 'credited', reason = NULL, confirmations_required = ${required}, minimum_deposit = ${minimum},

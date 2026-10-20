@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MemoryLedger, parseAmount, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -57,12 +57,10 @@ describe('custody deposit record (real Postgres)', () => {
   const book = () =>
     new CustodyDepositBook({
       sql: db.sql,
-      ledger: {
-        balance: (ref) => ledger.balance(ref),
-        post: async (req) => {
-          if (failPost) throw new Error('ledger timeout');
-          return ledger.post(req);
-        },
+      postDeposit: async (input) => {
+        if (failPost) throw new Error('ledger timeout');
+        const { networkId, txHash, outputIndex, ...rest } = input;
+        return ledger.post(recipes.deposit({ ...rest, rail: 'crypto-native', railRef: `${networkId}:${txHash}:${outputIndex}` }));
       },
       registries: { listRoutableNetworks: async () => networks },
       log: (msg, extra) => logs.push({ msg, extra }),
@@ -194,7 +192,6 @@ describe('custody deposit record (real Postgres)', () => {
     const b = book();
     await b.receive(seen({ confirmations: 1 }));
     const [row] = await db.sql<Array<{ network_id: string }>>`SELECT network_id FROM pay.custody_deposits`;
-    const { recipes } = await import('@intafaced/ledger-client');
     await ledger.post(
       recipes.deposit({
         userId: ALICE,
