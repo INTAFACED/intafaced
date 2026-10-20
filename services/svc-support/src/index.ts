@@ -68,6 +68,10 @@ await sql`SELECT audience FROM support.kb_article_versions LIMIT 1`.catch(() => 
   throw new Error('support.kb_article_versions.audience is missing — apply migration 0022 before starting svc-support');
 });
 
+await sql`SELECT scan_state FROM support.ticket_attachments LIMIT 1`.catch(() => {
+  throw new Error('support.ticket_attachments.scan_state is missing — apply migration 0024 before starting svc-support');
+});
+
 await sql`SELECT 1 FROM support.attachment_settings_log LIMIT 1`.catch(() => {
   throw new Error('support.attachment_settings_log is missing — apply migration 0023 before starting svc-support');
 });
@@ -159,10 +163,21 @@ sweep();
 const sweepTimer = setInterval(sweep, 60_000);
 sweepTimer.unref();
 
+// Held attachments: scanned again only when the owner has set both the interval and the batch. Blank runs no pass.
+let rescanTimer: NodeJS.Timeout | null = null;
+if (env.SUPPORT_ATTACHMENT_RESCAN_SECONDS && env.SUPPORT_ATTACHMENT_RESCAN_BATCH) {
+  const batch = env.SUPPORT_ATTACHMENT_RESCAN_BATCH;
+  const rescan = (): void =>
+    void support.rescanHeldAttachments(batch).catch((err: unknown) => app.log.warn({ err }, 'attachment rescan failed'));
+  rescanTimer = setInterval(rescan, env.SUPPORT_ATTACHMENT_RESCAN_SECONDS * 1000);
+  rescanTimer.unref();
+}
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(sweepTimer);
+      if (rescanTimer) clearInterval(rescanTimer);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

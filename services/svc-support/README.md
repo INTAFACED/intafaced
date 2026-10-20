@@ -149,6 +149,17 @@ and a blank count refuses `support.attachment_count_unset`; a request already at
 replay of an attach already made is never refused for the count. The store and the scanner are deployment configuration:
 no adapter is wired at boot yet, so every attach still refuses naming `support.attachment_store`.
 
+Scan state: a file's row is written `scanning` first (`support.ticket_attachments.scan_state`, migration 0024; rows from before
+read `clean`). A clean verdict stores the bytes and then marks the row `clean`; an infected one marks it `blocked`, stores
+nothing and refuses `support.attachment_scan_refused`, and a blocked file holds no place on the request; a scanner that cannot
+say (or fails) keeps the bytes, leaves the row `scanning` and refuses `support.attachment_scan_unknown`. A row only ever leaves
+`scanning` once. `attachmentDownload` (owner) and `attachmentDownloadOps` (the assigned operator) serve a file only when it is
+clean, as base64 under the fixed type `application/octet-stream` and always as an attachment; a file that is not the caller's
+answers as not found. A retry under the same request id never scans or stores twice. `rescanHeldAttachments` scans held files
+again; it runs on a timer only when the owner has set both `SUPPORT_ATTACHMENT_RESCAN_SECONDS` and
+`SUPPORT_ATTACHMENT_RESCAN_BATCH`, and with either blank held files wait for the owner's retry. A held file whose bytes never
+reached the store stays held.
+
 ## Migrations
 
 ```bash

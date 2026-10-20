@@ -220,6 +220,13 @@ export interface SupportStore {
     maxCount: number;
   }): Promise<RecordAttachmentResult>;
   readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult>;
+  /**
+   * Records the scanner's answer for a file still `scanning`. A file that already left `scanning` is returned as it is and
+   * never changes again, so a late or repeated answer cannot turn a blocked file clean. Null when there is no such file.
+   */
+  setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null>;
+  /** Files still `scanning`, oldest first, at most `limit`. */
+  listScanningAttachments(limit: number): Promise<AttachmentMeta[]>;
   recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
 }
 
@@ -253,6 +260,8 @@ export type TicketRating = {
   createdAt: string;
 };
 
+export type AttachmentScanState = 'scanning' | 'clean' | 'blocked';
+
 export type AttachmentMeta = {
   id: string;
   ticketId: string;
@@ -261,6 +270,7 @@ export type AttachmentMeta = {
   byteLength: number;
   storeKey: string;
   createdAt: string;
+  scanState: AttachmentScanState;
 };
 
 export type KbFeedbackVote = {
@@ -1133,11 +1143,15 @@ export class MemorySupportStore implements SupportStore {
     maxCount: number;
   }): Promise<RecordAttachmentResult> {
     const stored = this.receipts.get(this.receiptKey('support.attach', input.userId, input.clientRequestId));
-    if (stored) return { status: 'ok', attachment: (stored as { attachment: AttachmentMeta }).attachment, replay: true };
+    if (stored) {
+      const first = (stored as { attachment: AttachmentMeta }).attachment;
+      // The receipt holds what was first answered; the file's state since is read live.
+      return { status: 'ok', attachment: this.attachments.get(first.id) ?? first, replay: true };
+    }
 
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
-    const held = [...this.attachments.values()].filter((a) => a.ticketId === input.ticketId).length;
+    const held = [...this.attachments.values()].filter((a) => a.ticketId === input.ticketId && a.scanState !== 'blocked').length;
     if (held >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
     const attachment: AttachmentMeta & { clientRequestId: string } = {
@@ -1147,6 +1161,7 @@ export class MemorySupportStore implements SupportStore {
       contentType: input.contentType,
       byteLength: input.byteLength,
       storeKey: input.storeKey,
+      scanState: 'scanning',
       createdAt: new Date().toISOString(),
       clientRequestId: input.clientRequestId,
     };
@@ -1163,6 +1178,20 @@ export class MemorySupportStore implements SupportStore {
     if (attachment.ownerId === input.userId) return { status: 'ok', attachment };
     if (input.asOperator && ticket.assigneeId === input.userId) return { status: 'ok', attachment };
     return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null> {
+    const attachment = this.attachments.get(input.attachmentId);
+    if (!attachment) return null;
+    if (attachment.scanState === 'scanning') attachment.scanState = input.state;
+    return attachment;
+  }
+
+  async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
+    return [...this.attachments.values()]
+      .filter((a) => a.scanState === 'scanning')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, limit);
   }
 
   async recordKbFeedback(input: {
@@ -2053,16 +2082,24 @@ export class PostgresSupportStore implements SupportStore {
         WHERE procedure = 'support.attach' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
       `;
-      if (prior[0]) return { status: 'ok', attachment: prior[0].result.attachment, replay: true };
+      if (prior[0]) {
+        // The receipt holds what was first answered; the file's state since is read live.
+        const [live] = await tx<PgAttachment[]>`
+          SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+          FROM support.ticket_attachments WHERE id = ${prior[0].result.attachment.id}
+        `;
+        return { status: 'ok', attachment: live ? attachmentFromPg(live) : prior[0].result.attachment, replay: true };
+      }
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
       // The ticket row is locked, so two files racing for the last place cannot both be taken.
       const [held] = await tx<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM support.ticket_attachments WHERE ticket_id = ${input.ticketId}
+        SELECT count(*)::int AS n FROM support.ticket_attachments
+        WHERE ticket_id = ${input.ticketId} AND scan_state <> 'blocked'
       `;
       if ((held?.n ?? 0) >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
       const rows = await tx<PgAttachment[]>`
-        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length)
+        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length, scan_state)
         VALUES (
           ${input.id},
           ${input.ticketId},
@@ -2070,9 +2107,10 @@ export class PostgresSupportStore implements SupportStore {
           ${input.clientRequestId},
           ${input.storeKey},
           ${input.contentType},
-          ${input.byteLength}
+          ${input.byteLength},
+          'scanning'
         )
-        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, created_at
+        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
       `;
       const attachment = attachmentFromPg(rows[0]!);
       await tx`
@@ -2085,7 +2123,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
     const rows = await this.sql<(PgAttachment & { assignee_id: string | null })[]>`
-      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.created_at, t.assignee_id
+      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.scan_state, a.created_at, t.assignee_id
       FROM support.ticket_attachments AS a
       JOIN support.tickets AS t ON t.id = a.ticket_id
       WHERE a.id = ${input.attachmentId}
@@ -2096,6 +2134,28 @@ export class PostgresSupportStore implements SupportStore {
     if (row.owner_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
     if (input.asOperator && row.assignee_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
     return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null> {
+    // Only a file still scanning moves; the answer for any other is the row as it is.
+    await this.sql`
+      UPDATE support.ticket_attachments SET scan_state = ${input.state}
+      WHERE id = ${input.attachmentId} AND scan_state = 'scanning'
+    `;
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      FROM support.ticket_attachments WHERE id = ${input.attachmentId}
+    `;
+    return rows[0] ? attachmentFromPg(rows[0]) : null;
+  }
+
+  async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, created_at
+      FROM support.ticket_attachments WHERE scan_state = 'scanning'
+      ORDER BY created_at, id LIMIT ${limit}
+    `;
+    return rows.map(attachmentFromPg);
   }
 
   async recordKbFeedback(input: {
@@ -2172,6 +2232,7 @@ type PgAttachment = {
   content_type: string;
   byte_length: number;
   store_key: string;
+  scan_state: AttachmentScanState;
   created_at: Date;
 };
 
@@ -2183,6 +2244,7 @@ function attachmentFromPg(row: PgAttachment): AttachmentMeta {
     contentType: row.content_type,
     byteLength: Number(row.byte_length),
     storeKey: row.store_key,
+    scanState: row.scan_state,
     createdAt: toIso(row.created_at),
   };
 }

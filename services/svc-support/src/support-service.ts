@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
   SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
@@ -8,6 +9,7 @@ import {
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
+  type SupportAttachmentDownload,
   type SupportAttachmentKey,
   type SupportAttachmentLimits,
   type SupportAttachmentStatus,
@@ -49,6 +51,7 @@ import {
   decodeAttachmentBody,
   missingAttachmentKey,
   type AttachmentDesk,
+  type ScanVerdict,
 } from './attachments.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
@@ -88,6 +91,8 @@ function parseEnumField<T extends string>(
   const parsed = schema.safeParse(value);
   return parsed.success ? (parsed.data as T) : INVALID;
 }
+
+const scanRefused = (): SupportError => new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
 
 export class SupportError extends Error {
   constructor(
@@ -1323,13 +1328,23 @@ export class SupportService implements SupportContract {
       if (desk.maxCount == null) {
         throw new SupportError('attachment count is not set', 'support.attachment_count_unset', ATTACHMENT_MAX_COUNT_KEY);
       }
-      const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
-      if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
-        return (replay as { attachment: AttachmentMeta }).attachment;
-      }
-
       const bytes = decodeAttachmentBody(input.bodyBase64);
       if (!bytes) throw new SupportError('attachment body is not base64', 'support.attachment_body_invalid');
+      const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
+      if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
+        // A reply that was lost is answered from the file as it now stands, never scanned or counted a second time.
+        const first = (replay as { attachment: AttachmentMeta }).attachment;
+        const live = await this.store.readAttachment({ userId: input.userId, attachmentId: first.id, asOperator: false });
+        const meta = live.status === 'ok' ? live.attachment : first;
+        if (meta.scanState === 'clean') return meta;
+        if (meta.scanState === 'blocked') throw scanRefused();
+        // A held file is scanned from the bytes this retry carries, so they must be the bytes it was first sent with.
+        if (bytes.byteLength !== meta.byteLength) {
+          throw new SupportError('attachment body is not the one first sent', 'support.attachment_body_invalid');
+        }
+        return this.settleScan(desk, meta, bytes);
+      }
+
       const maxBytes = desk.maxBytes!;
       if (bytes.byteLength > maxBytes) {
         throw new SupportError('attachment exceeds the configured size', 'support.attachment_too_large');
@@ -1338,13 +1353,10 @@ export class SupportService implements SupportContract {
       if (!allowed.includes(input.contentType)) {
         throw new SupportError('attachment type is not in the configured list', 'support.attachment_type_refused');
       }
-      const verdict = await desk.scanner!.scan(bytes);
-      if (verdict !== 'clean') {
-        throw new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
-      }
 
       const id = randomUUID();
       const storeKey = `${input.ticketId}/${id}`;
+      // The row is written first, as `scanning`: whatever happens after this, the file is on record and is not served.
       const recorded = await this.store.recordAttachment({
         id,
         userId: input.userId,
@@ -1361,10 +1373,96 @@ export class SupportService implements SupportContract {
         }
         throw ticketNotFound();
       }
-      if (!recorded.replay) {
-        await desk.store!.put({ key: storeKey, bytes, contentType: input.contentType });
+      if (recorded.attachment.scanState === 'clean') return recorded.attachment;
+      if (recorded.attachment.scanState === 'blocked') throw scanRefused();
+      return this.settleScan(desk, recorded.attachment, bytes);
+    });
+  }
+
+  /**
+   * Scans a file that is `scanning` and records the answer. Clean bytes are written to the store before the row is marked
+   * clean, so a crash between the two leaves a held file that a later pass scans again; it is never marked clean without a
+   * verdict. Infected bytes are never stored. When the scanner cannot answer, the bytes are kept so the file can be scanned
+   * again, the row stays `scanning`, and the caller is told `support.attachment_scan_unknown`.
+   */
+  private async settleScan(desk: AttachmentDesk, meta: AttachmentMeta, bytes: Uint8Array): Promise<AttachmentMeta> {
+    let verdict: ScanVerdict;
+    try {
+      verdict = await desk.scanner!.scan(bytes);
+    } catch {
+      verdict = 'unknown';
+    }
+    if (verdict === 'infected') {
+      await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'blocked' });
+      throw scanRefused();
+    }
+    await desk.store!.put({ key: meta.storeKey, bytes, contentType: meta.contentType });
+    if (verdict !== 'clean') {
+      throw new SupportError('the scanner could not say whether the attachment is safe', 'support.attachment_scan_unknown');
+    }
+    const settled = await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'clean' });
+    if (!settled) throw ticketNotFound();
+    if (settled.scanState === 'blocked') throw scanRefused();
+    return settled;
+  }
+
+  /**
+   * Scans again the files a crash or a scanner outage left `scanning`, oldest first, at most `limit`. A file whose bytes are
+   * not in the store (the crash came before they were written) is left held: nothing here can invent them, and the owner's
+   * retry under the same request id writes them. Returns how many files were settled.
+   */
+  async rescanHeldAttachments(limit: number): Promise<{ clean: number; blocked: number; held: number }> {
+    const out = { clean: 0, blocked: 0, held: 0 };
+    const desk = await this.attachmentDesk();
+    if (missingAttachmentKey(desk)) return out;
+    for (const meta of await this.store.listScanningAttachments(limit)) {
+      const object = await desk.store!.get(meta.storeKey);
+      if (!object) {
+        out.held += 1;
+        continue;
       }
-      return recorded.attachment;
+      try {
+        const settled = await this.settleScan(desk, meta, object.bytes);
+        if (settled.scanState === 'clean') out.clean += 1;
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.attachment_scan_refused') out.blocked += 1;
+        else if (err instanceof SupportError && err.code === 'support.attachment_scan_unknown') out.held += 1;
+        else throw err;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * One stored file's bytes, to its owner or to the operator the ticket is assigned to, and only when the scanner said
+   * clean. Someone else's file answers exactly like no file. A file that is still scanning is held with
+   * `support.attachment_scan_unknown`, a blocked file is never served, and the content type is fixed here, never the uploader's.
+   */
+  async attachmentDownload(input: { userId: string; attachmentId: string; asOperator?: boolean }): Promise<SupportAttachmentDownload> {
+    return withSupportSpan('support.attachmentDownload', { op: 'attachmentDownload' }, async () => {
+      const result = await this.store.readAttachment({
+        userId: input.userId,
+        attachmentId: input.attachmentId,
+        asOperator: input.asOperator === true,
+      });
+      if (result.status === 'refuse') throw ticketNotFound();
+      const meta = result.attachment;
+      if (meta.scanState === 'blocked') throw scanRefused();
+      if (meta.scanState !== 'clean') {
+        throw new SupportError('the attachment has not been scanned yet', 'support.attachment_scan_unknown');
+      }
+      const desk = await this.attachmentDesk();
+      const missing = missingAttachmentKey(desk);
+      if (missing) throw new SupportError('attachments are not configured', 'support.attachments_unconfigured', missing);
+      const object = await desk.store!.get(meta.storeKey);
+      if (!object) throw ticketNotFound();
+      return {
+        id: meta.id,
+        contentType: SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
+        disposition: 'attachment',
+        byteLength: object.bytes.byteLength,
+        bodyBase64: Buffer.from(object.bytes).toString('base64'),
+      };
     });
   }
 
