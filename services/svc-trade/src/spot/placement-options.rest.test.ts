@@ -270,6 +270,7 @@ describe('the create door and the options spot does not act on', () => {
     ['a deadline', { requestDeadline: '2026-10-20T12:30:00.000Z' }],
     ['a self-trade mode', { stpMode: 'cancel_maker' }],
     ['a tag', { tag: 'x' }],
+    ['a fee currency', { feeCurrency: 'BTC' }],
   ])('the replace door takes no %s and cancels nothing', async (_name, extra) => {
     const { app, replaced } = await build();
     const res = await app.inject({

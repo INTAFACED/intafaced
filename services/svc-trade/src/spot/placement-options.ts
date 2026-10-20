@@ -8,6 +8,7 @@ import { TradeError } from './types.js';
 export interface PlacementOptions {
   readonly stpMode?: string;
   readonly tag?: string;
+  readonly feeCurrency?: string;
   readonly requestDeadline?: string;
   readonly triggerBy?: string;
   readonly timeInForce?: string;
@@ -59,11 +60,19 @@ export function refuseUnsetTriggerSource(options: Pick<PlacementOptions, 'trigge
 
 /**
  * A replacement cancels the original first, so an option that could be refused or ignored after that point is refused
- * before it: the replace door takes none of the three.
+ * before it: the replace door takes none of these.
  */
 export function refuseOptionsOnReplacement(options: PlacementOptions): void {
-  if (options.requestDeadline !== undefined || options.stpMode !== undefined || options.tag !== undefined) {
-    throw new TradeError('a replacement does not take a request deadline, a self-trade mode or a tag', 'trade.order_type_unsupported');
+  if (
+    options.requestDeadline !== undefined ||
+    options.stpMode !== undefined ||
+    options.tag !== undefined ||
+    options.feeCurrency !== undefined
+  ) {
+    throw new TradeError(
+      'a replacement does not take a request deadline, a self-trade mode, a tag or a fee currency',
+      'trade.order_type_unsupported',
+    );
   }
   refuseUnsetTriggerSource(options);
 }
