@@ -4,23 +4,32 @@
  */
 
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { OtcError } from './errors.js';
 
 export interface OtcStakeSource {
   stakeOf(userId: string): Promise<Amount>;
 }
 
-export function createOtcStakeSource(baseUrl: string, internalSecret: string): OtcStakeSource {
+export function createOtcStakeSource(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): OtcStakeSource {
   const url = baseUrl.replace(/\/$/, '');
+  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-token', legacySecret: internalSecret, s2s });
 
   return {
     async stakeOf(userId: string): Promise<Amount> {
       let response: Response;
       try {
-        response = await fetch(`${url}/internal/stake/${encodeURIComponent(userId)}`, {
+        const target = `${url}/internal/stake/${encodeURIComponent(userId)}`;
+        response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-trade', internalSecret, '') },
+          headers: {
+            'content-type': 'application/json',
+            ...authHeaders('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
         });
       } catch (err) {
         throw new OtcError(`OTC stake gate unavailable: ${(err as Error).message}`, 'trade.otc_stake_unavailable');

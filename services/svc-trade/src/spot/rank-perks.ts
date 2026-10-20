@@ -1,4 +1,11 @@
-import { BASE_PERKS, rankPerksSchema, serviceAuthHeadersForBody, type RankPerks } from '@intafaced/contracts';
+import {
+  BASE_PERKS,
+  rankPerksSchema,
+  serviceCallSigner,
+  type RankPerks,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 import { TradeError } from './types.js';
 
 /**
@@ -40,7 +47,11 @@ export class BasePerks implements RankPerksSource {
  * has moved at this point in the flow, which is exactly why this is the right
  * place to be strict.
  */
-export function createRankPerksClient(baseUrl: string, internalSecret: string): RankPerksSource {
+export function createRankPerksClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): RankPerksSource {
   const url = baseUrl.replace(/\/$/, '');
 
   /**
@@ -56,7 +67,8 @@ export function createRankPerksClient(baseUrl: string, internalSecret: string): 
    * mispriced — but the whole spot path was down rather than degraded, and the
    * error named a dependency rather than a credential.
    */
-  const authHeaders = () => serviceAuthHeadersForBody('svc-trade', internalSecret, '');
+  const sign = serviceCallSigner({ service: 'svc-trade', audience: 'svc-identity', legacySecret: internalSecret, s2s });
+  const authHeaders = (target: string) => sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' });
 
   return {
     async perksOf(userId: string): Promise<RankPerks> {
@@ -64,9 +76,10 @@ export function createRankPerksClient(baseUrl: string, internalSecret: string): 
       try {
         // Internal S2S path (mounted with Core). Avoids requiring a user principal
         // on rank.perks while still failing closed on transport/parse errors.
-        response = await fetch(`${url}/internal/rank/${encodeURIComponent(userId)}/perks`, {
+        const target = `${url}/internal/rank/${encodeURIComponent(userId)}/perks`;
+        response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...authHeaders() },
+          headers: { 'content-type': 'application/json', ...authHeaders(target) },
         });
       } catch (err) {
         throw new TradeError(`rank perks unavailable: ${(err as Error).message}`, 'trade.perks_unavailable');

@@ -8,37 +8,9 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-agents/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/coach/academy-curriculum-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/copy-intel/copy-leader-fixtures-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/merchant/pay-metrics-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-agents/src/navigator/identity-session-http-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/router.ts": {
       "sign": 0,
       "caller": 1
-    },
-    "services/svc-agents/src/support-agent/desk-port.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-bank/src/personal-pay/router.ts": {
       "sign": 0,
@@ -224,49 +196,9 @@
       "sign": 0,
       "caller": 1
     },
-    "services/svc-trade/src/admin/identity-approval.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/controls/identity-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/otc/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-trade/src/router.ts": {
       "sign": 0,
       "caller": 2
-    },
-    "services/svc-trade/src/spot/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/drop-copy-ingest.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/matching-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/matching-close.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/rank-perks.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-trade/src/spot/sub-account-ownership.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-ws/src/private/authority.ts": {
       "sign": 2,

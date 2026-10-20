@@ -1,4 +1,4 @@
-import { s2sFetch, serviceAuthHeadersForBody, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import type { CoachCatalogItem, CoachGrounding } from './grounded-session.js';
 
 /**
@@ -72,23 +72,20 @@ export function createAcademyCurriculumSource(
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): CoachCurriculumSource {
   const url = baseUrl.replace(/\/$/, '');
+  const sign = serviceCallSigner({ service: 'svc-agents', audience: 'svc-academy', legacySecret: internalSecret, s2s });
 
   return {
     async load(): Promise<CoachGrounding> {
       let response: Response;
       try {
-        response = s2s
-          ? await s2sFetch(
-              s2s.signer,
-              'svc-academy',
-              new URL(`${url}/internal/curriculum`),
-              { method: 'GET', headers: { 'content-type': 'application/json' } },
-              { legacySecret: s2s.mode === 'dual' ? internalSecret : undefined, fetchImpl },
-            )
-          : await fetchImpl(`${url}/internal/curriculum`, {
-              method: 'GET',
-              headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-agents', internalSecret, '') },
-            });
+        const target = `${url}/internal/curriculum`;
+        response = await fetchImpl(target, {
+          method: 'GET',
+          headers: {
+            'content-type': 'application/json',
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
+        });
       } catch {
         return EMPTY;
       }

@@ -1,4 +1,4 @@
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import {
   createMatchingClient as createMatchingClientInner,
   MatchingUnavailableError,
@@ -28,6 +28,13 @@ export function hasClosePosition(matching: MatchingClient): matching is Matching
   return typeof (matching as MatchingClientWithClose).closePosition === 'function';
 }
 
+let boundS2s: { signer: ServiceSigner; mode: ServiceAuthMode } | undefined;
+
+/** The env-addressed close below has no client to carry the signer, so `index.ts` binds it once. Unbound leaves the shared secret alone. */
+export function bindMatchingCloseS2s(s2s: { signer: ServiceSigner; mode: ServiceAuthMode } | undefined): void {
+  boundS2s = s2s;
+}
+
 export async function closePositionOnMatching(
   matching: MatchingClient,
   marketId: string,
@@ -36,7 +43,7 @@ export async function closePositionOnMatching(
   if (hasClosePosition(matching)) {
     return matching.closePosition(marketId, request);
   }
-  return postClosePosition(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, marketId, request);
+  return postClosePosition(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, marketId, request, boundS2s);
 }
 
 export async function postClosePosition(
@@ -44,17 +51,20 @@ export async function postClosePosition(
   internalSecret: string,
   marketId: string,
   request: MatchingCloseRequest,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): Promise<EngineSubmitResult> {
   const url = baseUrl.replace(/\/$/, '');
   const path = `/markets/${encodeURIComponent(marketId)}/positions/close`;
   const payload = JSON.stringify(request);
+  const authHeaders = serviceCallSigner({ service: 'svc-trade', audience: 'svc-matching', legacySecret: internalSecret, s2s });
+  const target = `${url}${path}`;
   let response: Response;
   try {
-    response = await fetch(`${url}${path}`, {
+    response = await fetch(target, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-trade', internalSecret, payload),
+        ...authHeaders(payload, { method: 'POST', url: new URL(target), contentType: 'application/json' }),
       },
       body: payload,
     });
@@ -68,11 +78,15 @@ export async function postClosePosition(
   return (await response.json()) as EngineSubmitResult;
 }
 
-export function createMatchingClient(baseUrl: string, internalSecret: string): MatchingClientWithClose {
-  const inner = createMatchingClientInner(baseUrl, internalSecret);
+export function createMatchingClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): MatchingClientWithClose {
+  const inner = createMatchingClientInner(baseUrl, internalSecret, s2s);
   return Object.assign(inner, {
     closePosition(marketId: string, request: MatchingCloseRequest) {
-      return postClosePosition(baseUrl, internalSecret, marketId, request);
+      return postClosePosition(baseUrl, internalSecret, marketId, request, s2s);
     },
   });
 }
