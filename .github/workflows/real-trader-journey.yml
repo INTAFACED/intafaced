@@ -37,7 +37,7 @@ jobs:
       - name: Get a nats-server binary
         run: |
           docker create --name nats-src nats:2.10.24-alpine
-          docker cp nats-src:/nats-server "$RUNNER_TEMP/nats-server"
+          docker cp nats-src:/usr/local/bin/nats-server "$RUNNER_TEMP/nats-server"
           docker rm nats-src
           chmod +x "$RUNNER_TEMP/nats-server"
 
@@ -72,4 +72,4 @@ jobs:
         if: always()
         env:
           LOCAL_STACK_STATE: ${{ runner.temp }}/stack-state
-        run: pnpm local:stack stop
+        run: node tooling/scripts/local-test-stack.mjs stop
