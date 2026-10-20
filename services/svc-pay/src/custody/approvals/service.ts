@@ -202,7 +202,9 @@ export class CustodyApprovalService {
         VALUES (${taskId}, ${approverId}, 'approve', ${payloadHash}, ${now}) ON CONFLICT DO NOTHING RETURNING task_id`;
       if (added.length > 0) await this.event(tx, taskId, 'approved', approverId, {});
       const [count] = await tx<Array<{ n: number }>>`
-        SELECT count(*)::int AS n FROM pay.custody_task_decisions WHERE task_id = ${taskId} AND decision = 'approve'`;
+        SELECT count(*)::int AS n FROM pay.custody_task_decisions d
+         WHERE d.task_id = ${taskId} AND d.decision = 'approve'
+           AND COALESCE((SELECT e.active FROM pay.custody_approver_events e WHERE e.user_id = d.approver_id ORDER BY e.seq DESC LIMIT 1), false)`;
       if (count!.n < row.required_approvals) return { row, expired: false };
       const [done] = await tx<TaskRow[]>`
         UPDATE pay.custody_tasks SET status = 'approved', decided_at = ${now}, updated_at = ${now}
@@ -470,9 +472,11 @@ export class CustodyApprovalService {
 
   private async view(viewerId: string, r: TaskRow): Promise<TaskView> {
     const [counts] = await this.deps.sql<Array<{ n: number; mine: boolean }>>`
-      SELECT count(*) FILTER (WHERE decision = 'approve')::int AS n,
-             COALESCE(bool_or(approver_id = ${viewerId} AND decision = 'approve'), false) AS mine
-        FROM pay.custody_task_decisions WHERE task_id = ${r.id}`;
+      SELECT count(*) FILTER (WHERE d.decision = 'approve' AND a.active)::int AS n,
+             COALESCE(bool_or(d.approver_id = ${viewerId} AND d.decision = 'approve'), false) AS mine
+        FROM pay.custody_task_decisions d
+        LEFT JOIN LATERAL (SELECT e.active FROM pay.custody_approver_events e WHERE e.user_id = d.approver_id ORDER BY e.seq DESC LIMIT 1) a ON true
+       WHERE d.task_id = ${r.id}`;
     return {
       id: r.id,
       clientRef: r.client_ref,

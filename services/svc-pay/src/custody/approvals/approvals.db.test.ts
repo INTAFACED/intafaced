@@ -166,6 +166,18 @@ describe('custody approval tasks (real Postgres)', () => {
     await expect(service.revokeApprover('owner', 'nobody')).rejects.toMatchObject({ code: 'custody_approval.approver_unknown' });
   });
 
+  it('an approver revoked after approving no longer counts toward quorum', async () => {
+    await setUp(2);
+    const task = await start();
+    await service.approve(A1, task.id, task.payloadHash);
+    await service.revokeApprover('owner', A1);
+    const second = await service.approve(A2, task.id, task.payloadHash);
+    expect(second).toMatchObject({ status: 'pending', approvalCount: 1 });
+    expect(ran).toHaveLength(0);
+    await service.approve(A3, task.id, task.payloadHash);
+    expect(ran).toHaveLength(1);
+  });
+
   it('the payload hash binds the task: a wrong hash is refused, a changed payload is a new task', async () => {
     await setUp();
     const a = await start({ clientRef: 'bind-a' });
