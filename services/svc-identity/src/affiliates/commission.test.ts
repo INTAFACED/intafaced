@@ -36,6 +36,38 @@ describe('affiliates Slice B — commission accrual (no payout)', () => {
     expect(decimalMul('1.5', '0.333333333333333333')).toBe('0.499999999999999999');
   });
 
+  it('decimalMul equals the old hand-rolled truncating multiply on edge and pseudo-random inputs', () => {
+    // The reference is the pre-swap implementation, copied here so the move to the shared money module is pinned.
+    const legacy = (a: string, b: string): string => {
+      const [aw, af = ''] = a.split('.') as [string, string?];
+      const [bw, bf = ''] = b.split('.') as [string, string?];
+      const prod = BigInt(aw + af.padEnd(18, '0').slice(0, 18)) * BigInt(bw + bf.padEnd(18, '0').slice(0, 18));
+      const whole = prod / 10n ** 18n;
+      const str = whole.toString().padStart(19, '0');
+      const w = str.slice(0, str.length - 18) || '0';
+      const f = str.slice(str.length - 18).replace(/0+$/, '');
+      return f.length ? `${w}.${f}` : w;
+    };
+    const fees = ['0', '1', '0.000000000000000001', '100.00', '33.333333333333333333', '123456789.123456789012345678', '1.5'];
+    const rates = ['0', '1', '0.1', '0.333333333333333333', '0.000000000000000001', '0.999999999999999999', '1.000'];
+    for (const fee of fees) for (const rate of rates) expect(decimalMul(fee, rate), `${fee} x ${rate}`).toBe(legacy(fee, rate));
+    let seed = 12345;
+    const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+    const digits = (n: number) => Array.from({ length: n }, () => next() % 10).join('');
+    for (let i = 0; i < 200; i += 1) {
+      const fee = `${1 + (next() % 999999)}.${digits(1 + (next() % 18))}`;
+      const rate = `0.${digits(1 + (next() % 18))}`;
+      expect(decimalMul(fee, rate), `${fee} x ${rate}`).toBe(legacy(fee, rate));
+    }
+  });
+
+  it('decimalMul still refuses a malformed amount or rate with a typed commission error', () => {
+    expect(() => decimalMul('-1', '0.1')).toThrow(/Invalid amount/);
+    expect(() => decimalMul('1', '0.1.2')).toThrow(/Invalid amount/);
+    expect(() => decimalMul('abc', '0.1')).toThrow(/Invalid amount/);
+    expect(() => decimalMul('99999999999999999999999999', '1')).toThrow(/out of range/);
+  });
+
   it('zero fee → zero commission rows', () => {
     const tree = new MemoryReferralTree();
     tree.attribute({ userId: 'u2', referrerId: 'u1' });
