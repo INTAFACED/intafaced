@@ -1,4 +1,5 @@
-import { SUPPORT_KB_AUDIENCES, type SupportKbAudience } from '@intafaced/contracts';
+import type { SupportKbAudience } from '@intafaced/contracts';
+import { KB_AUDIENCES } from './audience';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
@@ -326,7 +327,7 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         Number.isInteger(raw.baseRevision) &&
         raw.baseRevision >= 1 &&
         typeof raw.audience === 'string' &&
-        (SUPPORT_KB_AUDIENCES as readonly string[]).includes(raw.audience)
+        (KB_AUDIENCES as readonly string[]).includes(raw.audience)
         ? { action: 'kb_audience', id: raw.id.trim(), baseRevision: raw.baseRevision, audience: raw.audience as SupportKbAudience }
         : null;
     default:

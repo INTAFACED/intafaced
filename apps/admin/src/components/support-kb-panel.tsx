@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { SUPPORT_KB_AUDIENCES, type SupportKbArticle, type SupportKbAudience } from '@intafaced/contracts';
+import type { SupportKbArticle, SupportKbAudience } from '@intafaced/contracts';
+import { KB_AUDIENCES } from '@/lib/support/audience';
 import { en } from '@intafaced/i18n';
 import { fetchKb, postSupportAction, type ActionReply } from '@/lib/support/browser';
 import type { SupportActionRequest } from '@/lib/support/model';
@@ -161,7 +162,7 @@ export function KbPanelView(p: KbPanelViewProps) {
                               p.onStep({ kind: 'audience', id: a.id, revision: a.revision, audience: next });
                           }}
                         >
-                          {SUPPORT_KB_AUDIENCES.map((v) => (
+                          {KB_AUDIENCES.map((v) => (
                             <option key={v} value={v}>
                               {KB_AUDIENCE_WORDS[v]}
                             </option>
