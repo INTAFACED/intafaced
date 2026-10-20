@@ -136,3 +136,10 @@ export function registryChangeFields(input: {
     reason: input.reason,
   };
 }
+
+/** The action a second person's approval must be issued for when a compliance officer releases a screened send. */
+export const PAY_SCREENING_RELEASE = 'pay.screening_release';
+
+export function screeningReleaseFields(input: { subjectKind: string; caseId: string; reason: string }): Record<string, string> {
+  return { subjectKind: input.subjectKind, caseId: input.caseId, reason: input.reason };
+}

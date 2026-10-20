@@ -23,6 +23,9 @@ import { assertConversionBoot, openConversionVenue, readConversionConfig } from 
 import { createRegistryReader } from './registries/read-api.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { buildPayGuards } from './seams/registry.js';
+import { loadScreeningReleaseTtl } from './screening/desk-config.js';
+import { createScreeningRouter } from './screening/desk-router.js';
+import { ScreeningDeskService } from './screening/desk-service.js';
 import { resolveMerchantControlsMode } from './control/mode.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv, isExplicitDevOrTestEnv } from '@intafaced/config';
 import Fastify from 'fastify';
@@ -462,6 +465,10 @@ export const appRouter = mergeRouters(
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
   createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
+  // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
+  createScreeningRouter(
+    new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
+  ),
   createMerchantStateRouter(
     merchantState,
     new MerchantAccountControls(sql, founderAuthority, async (tx, merchantId) => {

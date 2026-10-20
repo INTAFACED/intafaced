@@ -30,10 +30,7 @@ export interface ScreeningCaseStore {
    * and asset that covers `amount`, of a case other than `exceptKey`. Returns the key of the case it came from, or null.
    * Optional: a store without it never honours a release.
    */
-  spendRelease?(
-    q: Sql,
-    want: { partyRef: string; assetId: string; amount: string; exceptKey: string },
-  ): Promise<string | null>;
+  spendRelease?(q: Sql, want: { partyRef: string; assetId: string; amount: string; exceptKey: string }): Promise<string | null>;
 }
 
 /** Subject key is a hash. The case row does not store names, addresses, or client text. */
