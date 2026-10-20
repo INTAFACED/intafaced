@@ -316,6 +316,9 @@ test('market buy: the preview shows the fee and the price protection before conf
   await expect(row).toContainText('BTC/USDT');
   await expect(row).toContainText('65,000.10');
   await expect(row).toContainText('0.0001');
+  // The fill says which side of the book it was on and the rate its fee was charged at (the service's own words).
+  await expect(row).toContainText('Taker');
+  await expect(row).toContainText('0.20%');
   await shotBoth(page, 'desk-trade-history', { full: true });
   expect(m.errors).toEqual([]);
 });
