@@ -649,12 +649,14 @@ export interface FuturesProfitInput {
 }
 
 /**
- * Realize a profit on voluntary close (trade.futures residual).
+ * Realize a profit on close (trade.futures).
  *
- * House trade fees still pay the user's available balance. The loss recipe
- * debits the futures-loss sink instead, so a winning close is not the mirror
- * of a loss. Engine names the amount from an **external** exit mark — this
- * recipe never invents a price.
+ * Paid from the clearing pot `futuresLossSink`, the account every realised
+ * loss pays into. Futures match trader against trader, so every unit of profit
+ * is a unit another trader lost (docs/adr/2026-10-20-futures-matched-traders.md).
+ * House trade fees never pay a winner. The engine names the amount from an
+ * **external** exit price and bounds it by the pot's balance before posting —
+ * this recipe never invents a price.
  */
 export function futuresRealizeProfit(input: FuturesProfitInput): PostRequest {
   requirePositive('futures realized profit', input.amount);
@@ -666,7 +668,7 @@ export function futuresRealizeProfit(input: FuturesProfitInput): PostRequest {
       positionId: input.positionId,
       amount: input.amount.toString(),
     },
-    entries: [credit(houseFees('trade', input.assetId), input.amount), debit(userAvailable(input.userId, input.assetId), input.amount)],
+    entries: [credit(futuresLossSink(input.assetId), input.amount), debit(userAvailable(input.userId, input.assetId), input.amount)],
   };
 }
 
