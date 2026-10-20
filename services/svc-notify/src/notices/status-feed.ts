@@ -89,11 +89,20 @@ export function clampStatusDays(days: number): number {
   return Math.min(days, STATUS_FEED_DAYS_MAX);
 }
 
+type Segment = {
+  readonly from: number;
+  readonly to: number;
+  readonly impact: IncidentImpact | null;
+  readonly components: readonly StatusComponent[];
+};
+
 type Thread = {
   readonly root: NoticeRow;
   readonly entries: readonly NoticeRow[];
   readonly latest: NoticeRow;
   readonly resolvedAt: Date | null;
+  /** What each entry said was affected, from its time to the next entry. An entry that names nothing keeps the one before. */
+  readonly segments: readonly Segment[];
 };
 
 function byPublished(a: NoticeRow, b: NoticeRow): number {
@@ -109,14 +118,39 @@ function threadsOf(rows: readonly NoticeRow[], at: Date): Thread[] {
   }
   const threads: Thread[] = [];
   for (const root of incidents.filter((row) => row.parentId === null)) {
+    // An incident dated to start later is not shown yet, as the open-notice read had it.
+    if (root.startsAt !== null && root.startsAt.getTime() > at.getTime()) continue;
     const entries = [root, ...(children.get(root.id) ?? [])].sort(byPublished);
     const latest = entries[entries.length - 1]!;
     // A legacy incident has no close flag; its own end time closes it, as the open-notice read does.
-    const closedByTime = latest.endsAt !== null && latest.endsAt.getTime() <= at.getTime();
-    const resolvedAt = latest.resolves ? latest.publishedAt : closedByTime ? latest.endsAt : null;
-    threads.push({ root, entries, latest, resolvedAt });
+    const endsAt = [...entries].reverse().find((entry) => entry.endsAt !== null)?.endsAt ?? null;
+    const closedByTime = endsAt !== null && endsAt.getTime() <= at.getTime();
+    const openedMs = root.publishedAt!.getTime();
+    const resolvedAt = latest.resolves ? latest.publishedAt : closedByTime ? new Date(Math.max(endsAt!.getTime(), openedMs)) : null;
+    const endMs = resolvedAt?.getTime() ?? at.getTime();
+    let impact: IncidentImpact | null = null;
+    let components: readonly StatusComponent[] = [];
+    const segments: Segment[] = entries.map((entry, i) => {
+      impact = entry.impact ?? impact;
+      components = entry.components.length > 0 ? entry.components : components;
+      const next = entries[i + 1];
+      return {
+        from: entry.publishedAt!.getTime(),
+        to: next ? next.publishedAt!.getTime() : Math.max(endMs, entry.publishedAt!.getTime()),
+        impact,
+        components,
+      };
+    });
+    threads.push({ root, entries, latest, resolvedAt, segments });
   }
   return threads;
+}
+
+/** Incident entries that open a thread no entry has closed. The public status read lists these. */
+export function openIncidentRoots(rows: readonly NoticeRow[], at: Date): NoticeRow[] {
+  return threadsOf(rows, at)
+    .filter((t) => t.resolvedAt === null)
+    .map((t) => t.root);
 }
 
 function dayKey(ms: number): string {
@@ -137,8 +171,8 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
   const incidents: StatusIncident[] = shown.map((t) => ({
     id: t.root.id,
     title: t.root.title,
-    impact: t.latest.impact ?? t.root.impact,
-    components: t.latest.components.length > 0 ? t.latest.components : t.root.components,
+    impact: t.segments[t.segments.length - 1]!.impact,
+    components: t.segments[t.segments.length - 1]!.components,
     openedAt: t.root.publishedAt!.toISOString(),
     resolvedAt: t.resolvedAt?.toISOString() ?? null,
     updates: t.entries.map((entry) => ({
@@ -164,9 +198,8 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
   const components: ComponentStatus[] = STATUS_COMPONENTS.map((component) => {
     let worst: { rank: number; state: ComponentState; since: Date } | null = null;
     for (const t of open) {
-      const impact = t.latest.impact ?? t.root.impact;
-      const affected = (t.latest.components.length > 0 ? t.latest.components : t.root.components).includes(component);
-      if (!impact || impact === 'none' || !affected) continue;
+      const { impact, components: named } = t.segments[t.segments.length - 1]!;
+      if (!impact || impact === 'none' || !named.includes(component)) continue;
       const rank = IMPACT_RANK[impact];
       if (!worst || rank > worst.rank) worst = { rank, state: STATE_FOR[impact], since: t.root.publishedAt! };
     }
@@ -188,16 +221,16 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
         let worstRank = -1;
         let worstImpact: IncidentImpact | null = null;
         for (const t of threads) {
-          const impact = t.latest.impact ?? t.root.impact;
-          const affected = (t.latest.components.length > 0 ? t.latest.components : t.root.components).includes(component);
-          if (!impact || impact === 'none' || !affected) continue;
-          const from = Math.max(t.root.publishedAt!.getTime(), dayStart);
-          const to = Math.min(t.resolvedAt?.getTime() ?? now, dayEnd);
-          if (to <= from) continue;
-          spans.push([from, to]);
-          if (IMPACT_RANK[impact] > worstRank) {
-            worstRank = IMPACT_RANK[impact];
-            worstImpact = impact;
+          for (const seg of t.segments) {
+            if (!seg.impact || seg.impact === 'none' || !seg.components.includes(component)) continue;
+            const from = Math.max(seg.from, dayStart);
+            const to = Math.min(seg.to, dayEnd);
+            if (to <= from) continue;
+            spans.push([from, to]);
+            if (IMPACT_RANK[seg.impact] > worstRank) {
+              worstRank = IMPACT_RANK[seg.impact];
+              worstImpact = seg.impact;
+            }
           }
         }
         // Overlapping incidents on one component count their shared minutes once.

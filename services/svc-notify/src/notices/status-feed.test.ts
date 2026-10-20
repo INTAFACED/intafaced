@@ -91,7 +91,7 @@ describe('status feed', () => {
     expect(during.history.days[0]!.components.find((c) => c.component === 'api')).toEqual({
       component: 'api',
       incidentMinutes: 120,
-      worstImpact: 'minor',
+      worstImpact: 'major',
     });
 
     h.at('2026-10-17T11:00:00.000Z');
@@ -149,6 +149,39 @@ describe('status feed', () => {
     expect(open.components.every((c) => c.state === 'unknown')).toBe(true);
     h.at('2026-10-17T12:00:00.000Z');
     expect((await h.board.statusFeed({ days: 1 })).incidents[0]!.resolvedAt).toBe('2026-10-17T11:00:00.000Z');
+  });
+
+  it('keeps the minutes and worst impact of an incident whose resolving update names impact none', async () => {
+    const h = harness('2026-10-17T10:00:00.000Z');
+    const root = await h.publish(incident('d-1', { impact: 'critical', components: ['api'] }));
+    h.at('2026-10-17T11:00:00.000Z');
+    await h.publish(incident('d-2', { parentId: root.id, impact: 'none', resolves: true, body: 'Test resolved' }));
+    h.at('2026-10-17T12:00:00.000Z');
+    const feed = await h.board.statusFeed({ days: 1 });
+    expect(feed.history.days[0]!.components.find((c) => c.component === 'api')).toEqual({
+      component: 'api',
+      incidentMinutes: 60,
+      worstImpact: 'critical',
+    });
+  });
+
+  it('lists an incident once in the status read, and drops it when an update closes it', async () => {
+    const h = harness('2026-10-17T10:00:00.000Z');
+    const root = await h.publish(incident('s-1', { impact: 'major', components: ['api'] }));
+    h.at('2026-10-17T10:30:00.000Z');
+    await h.publish(incident('s-2', { parentId: root.id, impact: 'minor', components: ['api'] }));
+    expect((await h.board.noticeStatus()).incidents.map((i) => i.id)).toEqual([root.id]);
+    h.at('2026-10-17T11:00:00.000Z');
+    await h.publish(incident('s-3', { parentId: root.id, resolves: true }));
+    expect((await h.board.noticeStatus()).incidents).toEqual([]);
+  });
+
+  it('does not show an incident dated to start later', async () => {
+    const h = harness('2026-10-17T10:00:00.000Z');
+    await h.publish(incident('f-1', { impact: 'minor', components: ['api'], startsAt: '2026-10-17T13:00:00.000Z' }));
+    const feed = await h.board.statusFeed({ days: 1 });
+    expect(feed.incidents).toEqual([]);
+    expect(feed.components.find((c) => c.component === 'api')?.state).toBe('unknown');
   });
 
   it('clamps and refuses the day window', () => {

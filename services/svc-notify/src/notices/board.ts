@@ -7,7 +7,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
-import { buildStatusFeed, clampStatusDays, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
+import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
 export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
@@ -320,11 +320,11 @@ export class NoticeBoard {
   }
 
   async noticeStatus(at: Date = this.now()): Promise<NoticeStatusRead> {
-    const published = await this.store.listPublished(null, NOTICES_LIST_LIMIT_MAX);
-    const open = published.filter((row) => noticeIsOpen(row, at)).map(toNoticeWire);
+    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
     return {
-      incidents: open.filter((row) => row.kind === 'incident'),
-      maintenance: open.filter((row) => row.kind === 'maintenance'),
+      // An incident is open until an update closes it; its updates are not listed again.
+      incidents: openIncidentRoots(published, at).map(toNoticeWire),
+      maintenance: published.filter((row) => row.kind === 'maintenance' && noticeIsOpen(row, at)).map(toNoticeWire),
     };
   }
 
