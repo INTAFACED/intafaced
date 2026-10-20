@@ -34,6 +34,7 @@ import { createApiKeyAccountRouter } from './api-key-account-router.js';
 import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
+import { createSessionFamiliesRouter } from './session-families-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
 import { createListSessionsRouter } from './list-sessions-router.js';
@@ -61,6 +62,7 @@ import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
 import { installApiKeyAttribution, installFourEyes } from './auth/four-eyes.js';
 import { installFreezeDualControl, installPrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { installLimitFeeTierDualControl } from './rank/limit-fee-tier.js';
+import { requestMetaAls } from './auth/request-meta.js';
 import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js';
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
@@ -452,6 +454,7 @@ export const appRouter = mergeRouters(
   createApiKeyRevokeAllRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
+  createSessionFamiliesRouter(sql),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),
@@ -535,8 +538,10 @@ app.addHook('onRequest', (req, _reply, done) => {
   const rawProduct = req.headers['x-product'];
   const productHeader = Array.isArray(rawProduct) ? rawProduct[0] : rawProduct;
   const clientProduct = typeof productHeader === 'string' ? productHeader.trim() : undefined;
+  const rawAgent = req.headers['user-agent'];
+  const userAgent = typeof rawAgent === 'string' ? rawAgent : undefined;
   requestIpAls.run(clientIp || undefined, () => {
-    requestProductAls.run(clientProduct || undefined, () => done());
+    requestProductAls.run(clientProduct || undefined, () => requestMetaAls.run({ ip: clientIp || undefined, userAgent }, () => done()));
   });
 });
 

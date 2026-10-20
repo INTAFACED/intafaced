@@ -11,7 +11,18 @@ const authConfig = {
 const ME = '11111111-1111-4111-8111-111111111111';
 const OTHER = '33333333-3333-4333-8333-333333333333';
 const SID = '44444444-4444-4444-8444-444444444444';
-const sql = (async () => [{ id: SID, created_at: new Date(), revoked: false }]) as never;
+const sql = (async () => [
+  {
+    id: SID,
+    family_id: SID,
+    created_at: new Date(),
+    last_used_at: new Date(),
+    device: null,
+    user_agent: null,
+    ip: null,
+    country: null,
+  },
+]) as never;
 
 async function caller() {
   const { token } = await issueAccessToken({ userId: ME, sessionId: SID, scopes: ['identity:read'], tier: 'none', mfa: true }, authConfig);

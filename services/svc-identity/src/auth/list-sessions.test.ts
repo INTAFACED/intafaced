@@ -17,14 +17,25 @@ function sessionStore(sessions: SessionRow[]) {
   let writes = 0;
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    if (text.trim() === 'true') return [];
     if (text.includes('select') && text.includes('from sessions') && text.includes('created_at')) {
       const named = values[0];
-      const limit = typeof values[1] === 'number' ? values[1] : sessions.length;
+      const lastValue = values[values.length - 1];
+      const limit = typeof lastValue === 'number' ? lastValue : sessions.length;
       return sessions
         .filter((s) => s.user_id === named && s.revoked === false)
         .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
         .slice(0, limit)
-        .map((s) => ({ id: s.id, created_at: s.created_at, revoked: s.revoked }));
+        .map((s) => ({
+          id: s.id,
+          family_id: s.id,
+          created_at: s.created_at,
+          last_used_at: s.created_at,
+          device: null,
+          user_agent: null,
+          ip: null,
+          country: null,
+        }));
     }
     if (text.includes('select') && text.includes('from sessions')) {
       const named = values[0];
@@ -67,6 +78,21 @@ const T1 = new Date('2026-01-01T00:00:00.000Z');
 const T2 = new Date('2026-02-01T00:00:00.000Z');
 const T3 = new Date('2026-03-01T00:00:00.000Z');
 
+function liveRow(id: string, createdAt: Date) {
+  return {
+    id,
+    familyId: id,
+    createdAt,
+    lastUsedAt: createdAt,
+    device: null,
+    userAgent: null,
+    ip: null,
+    country: null,
+    isCurrent: false,
+    revoked: false,
+  };
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, 'list-sessions.ts'), 'utf8');
 const indexSrc = readFileSync(join(here, '../index.ts'), 'utf8');
@@ -98,10 +124,7 @@ describe('listSessions', () => {
     ]);
     const out = await listSessions(sql, A, SESSIONS_LIST_LIMIT_MAX);
     expect(out.userId).toBe(A);
-    expect(out.sessions).toEqual([
-      { id: SID_A2, createdAt: T2, revoked: false },
-      { id: SID_A1, createdAt: T1, revoked: false },
-    ]);
+    expect(out.sessions).toEqual([liveRow(SID_A2, T2), liveRow(SID_A1, T1)]);
     expect(out.sessions.every((s) => s.revoked === false)).toBe(true);
     expect(JSON.stringify(out)).not.toMatch(/secret/);
     expect(JSON.stringify(out)).not.toMatch(/refresh/);
@@ -128,19 +151,19 @@ describe('listSessions', () => {
     const after = await listSessions(sql, A, SESSIONS_LIST_LIMIT_MAX);
     expect(after.sessions).toEqual([]);
     const other = await listSessions(sql, B, SESSIONS_LIST_LIMIT_MAX);
-    expect(other.sessions).toEqual([{ id: SID_B, createdAt: T2, revoked: false }]);
+    expect(other.sessions).toEqual([liveRow(SID_B, T2)]);
   });
 
   it('never selects refresh_hash or other secrets', () => {
-    expect(src).toMatch(/SELECT id, created_at, revoked/);
-    expect(src).toMatch(/LIMIT \$\{published\}/);
+    expect(src).toMatch(/SELECT id, family_id, created_at, last_used_at, device, user_agent, ip, country/);
+    expect(src).toMatch(/LIMIT \$\{published \+ 1\}/);
     expect(src).not.toMatch(/refresh_hash/);
-    expect(src).not.toMatch(/device/);
+    expect(src).not.toMatch(/SELECT \*/);
     expect(routerSrc).not.toMatch(/refresh_hash/);
     expect(routerSrc).toMatch(/scopedProcedure\('identity:read'\)/);
     expect(routerSrc).toMatch(/userId: z\.string\(\)\.uuid\(\)/);
     expect(routerSrc).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
-    expect(routerSrc).toMatch(/listSessions\(sql, input\.userId, input\.limit\)/);
+    expect(routerSrc).toMatch(/listSessions\(sql, input\.userId, input\.limit,/);
   });
 });
 
