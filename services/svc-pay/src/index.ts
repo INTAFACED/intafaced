@@ -25,6 +25,9 @@ import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
 import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
+import { WithdrawalApprovalService, approvalMoneyOf } from './withdrawals/approvals/service.js';
+import { createWithdrawalApprovalGuards } from './withdrawals/approvals/guard.js';
+import { createWithdrawalApprovalRouter } from './withdrawals/approvals/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
@@ -94,7 +97,14 @@ import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscrip
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { createEdgeContext, mergeRouters, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  mergeRouters,
+  retainRawBody,
+  createIdentityOperationDecisionClient,
+  createBankApproverEligibilityClient,
+  s2sFromEnv,
+} from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { setIsolationDenialSink } from './isolation-log.js';
 import { onCapturedOverCap } from './control/over-cap-signal.js';
@@ -418,6 +428,8 @@ const travelRuleCipher = loadMessageCipher(process.env);
 
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
+  // The approval gate rides the claim's own transaction (W-withdraw-11), after the shared guards.
+  claimGuards: createWithdrawalApprovalGuards(),
   haltStore,
   operatorCreditRails,
   valueMovement: railPosture.policy,
@@ -436,6 +448,16 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
   }),
   purchaseHolds,
+});
+
+/**
+ * W-withdraw-11: multi-approval for withdrawals. Approver eligibility is svc-bank's (team roles) and is asked over the
+ * contract; with no `BANK_URL` the client answers `unavailable` and every approval refuses.
+ */
+const withdrawalApprovals = new WithdrawalApprovalService({
+  sql,
+  money: approvalMoneyOf(userMoney),
+  eligibility: createBankApproverEligibilityClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET }),
 });
 
 /**
@@ -506,7 +528,8 @@ export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalApprovals),
+  createWithdrawalApprovalRouter(withdrawalApprovals),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
@@ -543,6 +566,7 @@ export const appRouter = mergeRouters(
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
     withdrawalReturns: { sql },
+    withdrawalApprovals: { service: withdrawalApprovals },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
@@ -825,6 +849,23 @@ const payoutReconciler = startPayoutReconciler(
   { intervalMs: env.PAY_PAYOUT_RECONCILE_INTERVAL_MS, batchLimit: env.PAY_PAYOUT_RECONCILE_BATCH_LIMIT },
   app.log,
 );
+
+/**
+ * Multi-approval withdrawals (W-withdraw-11): expire waiting requests, give back their holds, run requests that reached
+ * their approvals. Off, with the blocker named in the boot log, until the owner sets the interval.
+ */
+if (env.PAY_WITHDRAWAL_APPROVAL_SWEEP_MS === undefined) {
+  app.log.info(
+    'withdrawal approval sweep is off: PAY_WITHDRAWAL_APPROVAL_SWEEP_MS is unset; founderAdmin.withdrawalApprovals.settleDue runs it',
+  );
+} else {
+  const approvalSweep = setInterval(() => {
+    void withdrawalApprovals.settleDue('system').catch((err) => {
+      app.log.warn({ err }, 'withdrawal approval sweep failed');
+    });
+  }, env.PAY_WITHDRAWAL_APPROVAL_SWEEP_MS);
+  approvalSweep.unref?.();
+}
 
 /** Keep the metrics projection within seconds of source; lag is reported on every metrics response. */
 const metricsRefresher = startMetricsRefresher(metrics.projector, {
