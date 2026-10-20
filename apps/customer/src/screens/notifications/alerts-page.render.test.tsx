@@ -93,6 +93,25 @@ describe('price alerts page', () => {
     expect(page.match(/Cancel the alert on BTC\/USDT/g)).toHaveLength(1);
   });
 
+  it('shows an expired alert with the person’s own name, message and expiry, and gives it no cancel button', () => {
+    reads.markets = markets;
+    reads.alerts = ready([
+      alert({
+        status: 'expired',
+        name: 'Breakout watch',
+        message: 'Check the order book',
+        expiresAt: '2026-10-18T08:00:00.000Z',
+        condition: 'crossing_up',
+      }),
+    ]);
+    const page = render();
+    expect(page).toContain('Breakout watch');
+    expect(page).toContain('Check the order book');
+    expect(page).toContain('Expired');
+    expect(page).toContain('· Expired ');
+    expect(page).not.toContain('Cancel the alert on');
+  });
+
   it('states that nothing can trigger yet instead of promising delivery', () => {
     reads.markets = markets;
     reads.alerts = ready([]);

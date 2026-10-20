@@ -3,6 +3,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { missingLake } from './backtest/lake.js';
+import { openDisclosureRepository } from './disclosure/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
@@ -34,6 +35,7 @@ const lake = missingLake();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
 export const appRouter = createQuantRouter({
   wired: isolateWired,
@@ -42,6 +44,7 @@ export const appRouter = createQuantRouter({
   lake,
   strategies: strategies.repository,
   runs: runs.repository,
+  disclosure: disclosure.repository,
 });
 export type AppRouter = typeof appRouter;
 
@@ -74,6 +77,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await app.close();
       await strategies.close();
       await runs.close();
+      await disclosure.close();
       process.exit(0);
     })();
   });

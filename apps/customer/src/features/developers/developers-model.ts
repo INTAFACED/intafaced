@@ -26,7 +26,7 @@ export const SECTIONS: readonly Section[] = [
   { id: 'protocols', audience: 'institutional' },
   { id: 'webhooks', audience: 'embedded', published: { href: '/pay/developer/webhooks' } },
   { id: 'sandbox', audience: 'embedded', published: { href: '/pay/developer/sandbox' } },
-  { id: 'apps', audience: 'broker' },
+  { id: 'apps', audience: 'broker', published: { href: '/developers/apps' } },
   { id: 'quickstart', audience: 'practice' },
   { id: 'sdks', audience: 'practice' },
   { id: 'cli', audience: 'practice' },
@@ -70,6 +70,7 @@ export function developersRoute(
   | { kind: 'status' }
   | { kind: 'changelog' }
   | { kind: 'upcoming' }
+  | { kind: 'apps' }
   | { kind: 'section'; id: string }
   | { kind: 'unknown' } {
   const clean = path.split(/[?#]/)[0]!.replace(/\/+$/, '');
@@ -81,5 +82,6 @@ export function developersRoute(
   if (id === 'hosts') return { kind: 'hosts' };
   if (id === 'status') return { kind: 'status' };
   if (id === 'changelog') return { kind: 'changelog' };
+  if (id === 'apps') return { kind: 'apps' };
   return sectionById(id) ? { kind: 'section', id } : { kind: 'unknown' };
 }

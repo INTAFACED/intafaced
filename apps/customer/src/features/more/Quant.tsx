@@ -1,4 +1,5 @@
 import { SubNav } from '@intafaced/ui';
+import { QuantDisclosure } from './QuantDisclosure';
 import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -341,6 +342,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
             </form>
           </Panel>
           <QuantLibraryClosed />
+          <QuantDisclosure />
         </div>
       ) : (
         <div lang={languageFor('draft')} dir={directionFor('draft')}>

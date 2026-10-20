@@ -9,6 +9,19 @@ describe('edge.authority_unavailable', () => {
   });
 });
 
+describe('fee refusals (SP-fees-vip-01)', () => {
+  it('a missing schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
+    for (const code of [
+      'trade.fee_schedule_blank',
+      'trade.fee_product_unpublished',
+      'trade.rebate_recipe_unavailable',
+      'trade.min_fee_recipe_unavailable',
+    ]) {
+      expect(classifyRefusal(code)).toBe('notSetUp');
+    }
+  });
+});
+
 describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('screening refusals', () => {
     for (const code of ['denied.screening_fixture', 'denied.screening_unconfigured', 'denied.network_dark', 'denied.module_blocked']) {

@@ -1,5 +1,21 @@
 import { z } from 'zod';
-import { publicJurisdictionProcedure, publicProcedure, router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
+import {
+  publicJurisdictionProcedure,
+  publicProcedure,
+  quantDisclosureAcceptInputSchema,
+  quantDisclosureAcceptKey,
+  quantDisclosureAcceptOutputSchema,
+  quantDisclosureCountsOutputSchema,
+  quantDisclosureCurrentSchema,
+  quantDisclosurePublishInputSchema,
+  quantDisclosurePublishOutputSchema,
+  quantDisclosureStatusInputSchema,
+  quantDisclosureStatusOutputSchema,
+  router,
+  scopedProcedure,
+  TRPCError,
+  type Context,
+} from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
 import { backtestBodyOf, runBacktest } from './backtest/run.js';
@@ -13,6 +29,8 @@ import {
   QUANT_CLIENT_STRATEGY_ID_UNSET,
   QUANT_DATABASE_POOL_MAX_UNSET,
   QUANT_DATABASE_URL_UNSET,
+  QUANT_DISCLOSURE_UNSET,
+  QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
   QUANT_IDEMPOTENCY_CONFLICT,
@@ -36,6 +54,8 @@ import {
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
   QuantError,
 } from './errors.js';
+import type { DisclosureRepository } from './disclosure/repository.js';
+import { openDisclosureRepository } from './disclosure/open.js';
 import { requireSimulatedStamp } from './honesty.js';
 import { claimFromRun } from './marketplace/claim.js';
 import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound, RUN_RESULT_MAX_BYTES } from './runs/limit.js';
@@ -108,6 +128,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_RUN_RESULT_CAP_UNSET ||
             err.code === QUANT_RUN_RESULT_TOO_LARGE ||
             err.code === QUANT_CLAIM_PNL_UNSET ||
+            err.code === QUANT_DISCLOSURE_UNSET ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -254,6 +275,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly strategies?: StrategyRepository;
   /** Omitted in tests: an in-memory run log. Production passes Postgres. */
   readonly runs?: RunRepository;
+  /** Omitted refuses by naming the missing database. Production passes Postgres. */
+  readonly disclosure?: DisclosureRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
 }
@@ -278,6 +301,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
+  const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
   async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
@@ -293,6 +317,20 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   function missingStrategy(): never {
     throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
   }
+
+  async function currentDisclosure() {
+    const found = await disclosure.current();
+    return found
+      ? { published: true as const, version: found.version, text: found.text, publishedAt: found.publishedAt }
+      : { published: false as const };
+  }
+
+  /** The caller's own, undeleted strategy at a version that exists. Anything else reads as not found. */
+  async function ownedStrategyVersion(accountId: string, strategyId: string, strategyVersion: number): Promise<void> {
+    const found = await strategies.get({ accountId, id: strategyId });
+    if (!found || found.deletedAt || !found.versions.some((row) => row.version === strategyVersion)) missingStrategy();
+  }
+
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-quant') }))
@@ -797,6 +835,82 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         ),
     }),
 
+    disclosure: router({
+      current: publicJurisdictionProcedure('quant', 'fiat')
+        .output(quantDisclosureCurrentSchema)
+        .query(async ({ ctx }) => {
+          try {
+            accountOf(ctx, undefined);
+            return await currentDisclosure();
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      status: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantDisclosureStatusInputSchema)
+        .output(quantDisclosureStatusOutputSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, undefined);
+            await ownedStrategyVersion(accountId, input.strategyId, input.strategyVersion);
+            const current = await currentDisclosure();
+            const found = current.published
+              ? await disclosure.acceptance({
+                  accountId,
+                  strategyId: input.strategyId,
+                  strategyVersion: input.strategyVersion,
+                  disclosureVersion: current.version,
+                })
+              : null;
+            return {
+              strategyId: input.strategyId,
+              strategyVersion: input.strategyVersion,
+              disclosure: current,
+              accepted: found !== null,
+              acceptedAt: found?.acceptedAt ?? null,
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      accept: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantDisclosureAcceptInputSchema)
+        .output(quantDisclosureAcceptOutputSchema)
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.disclosure.accept', { language: 'none' }, async () => {
+            try {
+              const accountId = accountOf(ctx, undefined);
+              await ownedStrategyVersion(accountId, input.strategyId, input.strategyVersion);
+              const current = await currentDisclosure();
+              if (!current.published) {
+                throw new QuantError(QUANT_DISCLOSURE_UNSET, 'no risk disclosure is published');
+              }
+              if (current.version !== input.disclosureVersion) {
+                throw new QuantError(QUANT_DISCLOSURE_VERSION_STALE, 'the disclosure changed; read it again before accepting');
+              }
+              const stored = await disclosure.accept({
+                accountId,
+                strategyId: input.strategyId,
+                strategyVersion: input.strategyVersion,
+                disclosureVersion: input.disclosureVersion,
+                key: quantDisclosureAcceptKey(input.strategyId, input.strategyVersion, input.disclosureVersion),
+              });
+              return {
+                strategyId: stored.strategyId,
+                strategyVersion: stored.strategyVersion,
+                disclosureVersion: stored.disclosureVersion,
+                acceptedAt: stored.acceptedAt,
+                key: stored.key,
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+    }),
+
     ops: router({
       runs: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
         .input(
@@ -885,6 +999,38 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      disclosure: router({
+        publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantDisclosurePublishInputSchema)
+          .output(quantDisclosurePublishOutputSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.disclosure.publish', { language: 'none' }, async () => {
+              try {
+                const published = await disclosure.publish({
+                  text: input.text,
+                  reason: input.reason,
+                  publishedBy: ctx.principal.userId,
+                  idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
+                });
+                return { version: published.version, publishedAt: published.publishedAt };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+
+        counts: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .output(quantDisclosureCountsOutputSchema)
+          .query(async () => {
+            try {
+              const counts = await disclosure.counts();
+              return { versions: counts.versions.map((row) => ({ ...row })), asOf: new Date().toISOString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
     }),
   });
 }
