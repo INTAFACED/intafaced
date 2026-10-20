@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
 
 /**
@@ -60,6 +61,15 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
     case 'market.listing.takedown':
       return sha('market.takedown', { listingId: request.listingId, reason: request.reason });
+    // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
+    case 'ops.venue_cost.record':
+      return sha('ops.venue_cost.record', {
+        period: request.period,
+        category: request.category,
+        amount: normaliseCostAmount(request.amount),
+        asset: request.asset,
+        sourceNote: request.reason,
+      });
   }
 }
 
@@ -142,6 +152,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'market.takedown',
         targetService: 'svc-market',
         targetId: request.listingId,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the month and line. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.venue_cost.record':
+      return {
+        actionType: 'ops.venue_cost.record',
+        targetService: 'svc-ops',
+        targetId: `venue-cost:${request.period}:${request.category}`,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

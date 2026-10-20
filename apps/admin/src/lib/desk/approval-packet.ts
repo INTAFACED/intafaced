@@ -1,4 +1,5 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
+import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 
 /**
  * The request a founder hands to the other founder.
@@ -32,7 +33,16 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
-  | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string };
+  | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
+  /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
+  | {
+      readonly kind: 'ops.venue_cost.record';
+      readonly period: string;
+      readonly category: CostCategory;
+      readonly amount: string;
+      readonly asset: string;
+      readonly reason: string;
+    };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -125,6 +135,22 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.listingId !== 'string' || !UUID.test(raw.listingId) || !validReason(raw.reason)) return null;
     return { kind: 'market.listing.takedown', listingId: raw.listingId, reason: raw.reason };
   }
+  // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
+  if (raw.kind === 'ops.venue_cost.record') {
+    if (keys !== 'amount,asset,category,kind,period,reason') return null;
+    if (typeof raw.period !== 'string' || !PERIOD.test(raw.period)) return null;
+    if (!isCategory(raw.category)) return null;
+    if (typeof raw.amount !== 'string' || !COST_AMOUNT.test(raw.amount)) return null;
+    if (typeof raw.asset !== 'string' || !COST_ASSET.test(raw.asset) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'ops.venue_cost.record',
+      period: raw.period,
+      category: raw.category,
+      amount: raw.amount,
+      asset: raw.asset,
+      reason: raw.reason,
+    };
+  }
   return null;
 }
 
@@ -214,6 +240,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
     case 'market.listing.takedown':
       return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
+    case 'ops.venue_cost.record':
+      return `RECORD COST ${request.category} ${request.period}`;
   }
 }
 
@@ -250,6 +278,8 @@ export function describeRequest(request: DeskRequest): string {
         : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
+    case 'ops.venue_cost.record':
+      return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
   }
 }
 
