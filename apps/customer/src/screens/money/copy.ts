@@ -246,6 +246,7 @@ const messages = {
   Copied: 'Copied',
   'Report a problem': 'Report a problem',
   'Report a problem note': 'Support can look into any transaction on your account. Include the reference above.',
+  'See {asset} history': 'See {asset} history',
   'See the order': 'See your orders',
   'Parts of this transaction': 'Parts of this transaction',
   Part: 'Part',
