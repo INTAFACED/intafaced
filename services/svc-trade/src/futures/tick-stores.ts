@@ -445,6 +445,8 @@ export function sqlLiquidationRungStore(sql: Sql): LiquidationRungStore {
         const [fill] = await tx<{ pending: boolean }[]>`
           SELECT EXISTS (
             SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id::text = ${input.positionId} AND f.state = 'pending'
+          ) OR EXISTS (
+            SELECT 1 FROM trade.futures_spread_fills f WHERE f.position_id::text = ${input.positionId} AND f.state = 'pending'
           ) AS pending
         `;
         if (fill?.pending) return { status: 'changed' as const };

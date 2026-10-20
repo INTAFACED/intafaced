@@ -130,7 +130,7 @@ const FILL_WAIT_CODES: readonly string[] = [
   INSURANCE_UNDERFUNDED,
 ];
 
-function fillMustWait(err: unknown): err is MatchedOrderError {
+export function fillMustWait(err: unknown): err is MatchedOrderError {
   return err instanceof MatchedOrderError && FILL_WAIT_CODES.includes(err.code);
 }
 
@@ -407,7 +407,7 @@ function assertReduceFillFits(
   }
 }
 
-function positionSideOf(side: OrderSide): 'long' | 'short' {
+export function positionSideOf(side: OrderSide): 'long' | 'short' {
   return side === 'buy' ? 'long' : 'short';
 }
 
@@ -435,7 +435,7 @@ function presentOrder(row: OrderRow): MatchedOrderView {
   };
 }
 
-function refuse(code: string, message: string, status = 400): never {
+export function refuse(code: string, message: string, status = 400): never {
   throw new MatchedOrderError(message, code, status);
 }
 
@@ -448,7 +448,7 @@ function refuse(code: string, message: string, status = 400): never {
  * own fill back: the rung exists to get exactly that fill into the row. Every other fill on the position still waits,
  * and since a position has at most one live rung, nothing else is let through.
  */
-async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string, ownRungId: string | null = null): Promise<void> {
+export async function refuseIfPositionBusy(sql: Sql | TransactionSql, positionId: string, ownRungId: string | null = null): Promise<void> {
   const [hold] = await sql<{ live_rung: boolean; adl_planned: boolean; parked: boolean; adjusting: boolean }[]>`
     SELECT
       EXISTS (SELECT 1 FROM trade.positions p
@@ -494,7 +494,7 @@ async function liquidationFillsSoFar(
 }
 
 /** Any fill intent on this position still being recorded. A reduce waits for every one; an opening fill waits for a reduce. */
-async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, positionId: string, kind: 'any' | 'reduce'): Promise<void> {
+export async function refuseIfPositionHasPendingFill(tx: Sql | TransactionSql, positionId: string, kind: 'any' | 'reduce'): Promise<void> {
   const [pending] = await tx<{ n: number }[]>`
     SELECT 1 AS n FROM trade.futures_order_fills
      WHERE position_id = ${positionId} AND state = 'pending' AND (${kind} = 'any' OR kind = 'reduce')
@@ -541,8 +541,26 @@ interface WaitRow {
 /** Leverage is stored as numeric(8,2). A value with finer precision would be rounded in the row, not in the hold. */
 const LEVERAGE_STEP = 10n ** 16n;
 
+/**
+ * What a liquidation needs of calendar spread orders (`spread-orders.ts`): which of an account's live ones would grow a
+ * position on a market, and a way to pull one. A spread order is not in `trade.futures_orders`, so the sweep below asks.
+ */
+export interface SpreadLiquidationPort {
+  /** Live spread orders of the account with a leg on the market, each with the side the order takes on THAT leg. */
+  growing(marketId: string, accountId: string): Promise<readonly { orderId: string; side: OrderSide }[]>;
+  owns(orderId: string): Promise<boolean>;
+  cancelForLiquidation(orderId: string): Promise<'cancelled' | 'not_resting' | 'timeout'>;
+}
+
 export class MatchedFuturesOrders {
+  private spreads: SpreadLiquidationPort | null = null;
+
   constructor(private readonly deps: MatchedOrdersDeps) {}
+
+  /** Wire the spread orders in (`PositionService` builds both). Without it a liquidation sees matched orders only. */
+  attachSpreads(port: SpreadLiquidationPort): void {
+    this.spreads = port;
+  }
 
   /** Whether NEW matched orders are accepted. Read by the at-mark open, which must not run alongside them. */
   get matchingEnabled(): boolean {
@@ -702,20 +720,30 @@ export class MatchedFuturesOrders {
    * Hedge mode keeps a row per side, so both sides may open there. An account that has not chosen is one-way, as
    * the at-mark open treats it (`resolveOpenPositionMode`); nothing is stored by reading it.
    */
-  private async refuseOneWayFlip(userId: string, marketId: string, side: PositionSide): Promise<void> {
+  async refuseOneWayFlip(userId: string, marketId: string, side: PositionSide): Promise<void> {
     const [mode] = await this.deps.sql<{ mode: string }[]>`
       SELECT mode FROM trade.account_position_modes WHERE user_id = ${userId}
     `;
     if (mode?.mode === 'hedge') return;
     const opposite = oppositeSide(side);
+    const oppositeOrderSide = opposite === 'long' ? 'buy' : 'sell';
     const [conflict] = await this.deps.sql<{ what: string }[]>`
       SELECT 'position' AS what FROM trade.positions
        WHERE user_id = ${userId} AND market_id = ${marketId} AND side = ${opposite} AND status IN ('open', 'closing')
       UNION ALL
       SELECT 'order' AS what FROM trade.futures_orders
        WHERE user_id = ${userId} AND market_id = ${marketId} AND NOT reduce_only
-         AND side = ${opposite === 'long' ? 'buy' : 'sell'}
+         AND side = ${oppositeOrderSide}
          AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+      UNION ALL
+      -- A live spread order opens the leg's other side too: its side on a leg is the listed side for a buy, the reverse for a sell.
+      SELECT 'order' AS what FROM trade.futures_spread_orders s
+       WHERE s.user_id = ${userId}
+         AND s.status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+         AND ((s.leg0_market_id = ${marketId}
+               AND (CASE WHEN s.side = 'buy' THEN s.leg0_side WHEN s.leg0_side = 'buy' THEN 'sell' ELSE 'buy' END) = ${oppositeOrderSide})
+           OR (s.leg1_market_id = ${marketId}
+               AND (CASE WHEN s.side = 'buy' THEN s.leg1_side WHEN s.leg1_side = 'buy' THEN 'sell' ELSE 'buy' END) = ${oppositeOrderSide}))
       LIMIT 1
     `;
     if (!conflict) return;
@@ -1616,6 +1644,11 @@ export class MatchedFuturesOrders {
     `;
   }
 
+  /** A position grew by a fill that is not one of this class's own (a spread leg): its resting reduce orders follow its margin. */
+  async followPositionAfterGrowth(positionId: string): Promise<void> {
+    await this.cancelReduceOrdersPastBound(positionId);
+  }
+
   /**
    * Take a position's resting reduce-only orders off the book when they no longer fit it (ADR section 1, "resting
    * reduce orders follow the margin"): the position is gone, its reduce orders now claim more than its size (newest
@@ -1913,10 +1946,17 @@ export class MatchedFuturesOrders {
              AND status IN ('held', 'submitting', 'open', 'submit_unknown')
            ORDER BY created_at, id
         `;
-        return rows.map((r) => ({ orderId: r.id, side: r.side, reduceOnly: r.reduce_only }));
+        const spreads = this.spreads ? await this.spreads.growing(marketId, accountId) : [];
+        return [
+          ...rows.map((r) => ({ orderId: r.id, side: r.side, reduceOnly: r.reduce_only })),
+          ...spreads.map((o) => ({ orderId: o.orderId, side: o.side, reduceOnly: false })),
+        ];
       },
       cancelAndRelease: async (_marketId, orderId) => {
-        const result = await this.cancelForLiquidation(orderId);
+        const result =
+          this.spreads && (await this.spreads.owns(orderId))
+            ? await this.spreads.cancelForLiquidation(orderId)
+            : await this.cancelForLiquidation(orderId);
         return result === 'timeout' ? 'timeout' : 'released';
       },
     };
@@ -1982,6 +2022,19 @@ export class MatchedFuturesOrders {
           `order ${id} did not confirm its cancel; the liquidation order of position ${position.id} is not sent until it does`,
           503,
         );
+      }
+    }
+    // A calendar spread order with a leg on this market that would grow this position comes off the book too.
+    if (this.spreads) {
+      for (const order of await this.spreads.growing(position.market_id, position.user_id)) {
+        if (order.side !== growing) continue;
+        if ((await this.spreads.cancelForLiquidation(order.orderId)) === 'timeout') {
+          refuse(
+            'trade.liquidation_increasing_cancel_timeout',
+            `spread order ${order.orderId} did not confirm its cancel; the liquidation order of position ${position.id} is not sent until it does`,
+            503,
+          );
+        }
       }
     }
   }

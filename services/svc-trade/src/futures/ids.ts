@@ -42,3 +42,21 @@ export function matchedOrderIdFor(userId: string, marketId: string, clientOrderI
 export function matchedSlotPositionIdFor(userId: string, marketId: string, side: 'long' | 'short', generation: number): string {
   return derive('intafaced.trade.futures-matched-slot', `${userId}:${marketId}:${side}:${generation}`);
 }
+
+/**
+ * Spread order id for a caller's `clientOrderId` on one spread (CB-otc-16). A retry names the same order, so the hold key
+ * `futures.order.margin.hold:<id>` posts once. Its own namespace: a spread order id never equals a matched order id.
+ */
+export function spreadOrderIdFor(userId: string, spreadId: string, clientOrderId: string): string {
+  return derive('intafaced.trade.futures-spread-order', `${userId}:${spreadId}:${clientOrderId}`);
+}
+
+/**
+ * The business key of ONE LEG of ONE spread fill for ONE position. A spread's sequence comes from the spread book's own
+ * sequence space, so it can equal an outright fill's sequence on a leg market: the key therefore carries the spread id
+ * and a `spread:` prefix, and can never equal the outright `<marketId>:<sequence>:<positionId>` (a market id is a uuid).
+ * The ledger key is `futures.fill:` + this, and it is also the intent row's primary key.
+ */
+export function spreadLegFillKey(spreadId: string, sequence: number, leg: 0 | 1, positionId: string): string {
+  return `spread:${spreadId}:${sequence}:${leg}:${positionId}`;
+}

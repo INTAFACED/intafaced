@@ -67,11 +67,32 @@ export interface MatchedFillsSink {
   releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
 }
 
+/**
+ * Calendar spread orders (CB-otc-16). A spread fill is not an `orderFilled`: it has its own subject, carries both legs,
+ * and its orders are in a table of their own. `current` is null until PositionService is built; a fill that arrives
+ * before that is not acknowledged, so the bus redelivers it.
+ */
+export interface SpreadFillsSink {
+  settle(fill: {
+    spreadId: string;
+    makerOrderId: string;
+    takerOrderId: string;
+    takerSide: 'buy' | 'sell';
+    price: string;
+    qty: string;
+    sequence: number;
+    legs: readonly { symbol: string; takerSide: 'buy' | 'sell'; qty: string; price: string }[];
+  }): Promise<void>;
+  /** True when the order is a spread order (its unused hold is released once every printed fill has settled). */
+  releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+}
+
 export async function subscribeMatchingEvents(
   bus: EventBus,
   trade: TradeService,
   store: SeenStore = new MemorySeenStore(),
   futures: { current: MatchedFillsSink | null } = { current: null },
+  spreads: { current: SpreadFillsSink | null } = { current: null },
 ): Promise<Subscription[]> {
   bindCloseSpotTrade(trade);
   const filled = await bus.subscribe(
@@ -112,6 +133,7 @@ export async function subscribeMatchingEvents(
     idempotent(
       async (payload) => {
         if (futures.current && (await futures.current.releaseCancelled(payload.orderId, payload.remainingQty))) return;
+        if (spreads.current && (await spreads.current.releaseCancelled(payload.orderId, payload.remainingQty))) return;
         await trade.releaseOnCancelEvent(payload.orderId);
       },
       store,
@@ -120,5 +142,28 @@ export async function subscribeMatchingEvents(
     { durable: 'trade-cancels' },
   );
 
-  return [filled, cancelled];
+  const spreadFilled = await bus.subscribe(
+    'spreadFilled',
+    idempotent(
+      async (payload) => {
+        const sink = spreads.current;
+        if (!sink) throw new Error('spread fills are not wired in this process yet; the event is redelivered, not dropped');
+        await sink.settle({
+          spreadId: payload.spreadId,
+          makerOrderId: payload.makerOrderId,
+          takerOrderId: payload.takerOrderId,
+          takerSide: payload.takerSide,
+          price: payload.price,
+          qty: payload.qty,
+          sequence: payload.sequence,
+          legs: payload.legs,
+        });
+      },
+      store,
+      'svc-trade',
+    ),
+    { durable: 'trade-spread-fills' },
+  );
+
+  return [filled, cancelled, spreadFilled];
 }

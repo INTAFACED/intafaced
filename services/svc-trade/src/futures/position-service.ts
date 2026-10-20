@@ -76,6 +76,7 @@ import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
 import { MatchedFuturesOrders, type MatchedFillEvent, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { SpreadFuturesOrders, type PlaceSpreadOrderInput, type SpreadFillInput } from './spread-orders.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 
@@ -403,6 +404,7 @@ export class PositionService {
   private readonly afterMarginLedgerPost: ((request: string) => Promise<void>) | null;
   private readonly now: () => Date;
   private readonly matched: MatchedFuturesOrders;
+  private readonly spreads: SpreadFuturesOrders;
 
   constructor(
     private readonly sql: Sql,
@@ -430,6 +432,25 @@ export class PositionService {
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
     });
+    // Calendar spread orders (CB-otc-16) ride the same switch, band, engine and lifecycle authority as matched orders.
+    this.spreads = new SpreadFuturesOrders({
+      sql,
+      ledger,
+      matching: matchedOrders?.matching ?? null,
+      enabled: matchedOrders?.enabled ?? false,
+      priceBand: matchedOrders?.priceBand ?? null,
+      maxLeverage: this.maxLeverage,
+      now: this.now,
+      markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,
+      assertPositionIdle: (positionId) => this.sql.begin((tx) => this.assertLiquidationHold(tx, positionId, 'close')),
+      lifecycleProof: matchedOrders?.lifecycleProof ?? null,
+      assertDerivativesAccess: deps.assertDerivativesAccess ?? null,
+      admission: deps.accountAdmission,
+      publishPosition: (positionId) => this.publishPositionById(positionId),
+      matched: this.matched,
+    });
+    // A liquidation pulls a spread order whose leg would grow the position, as it pulls a matched order.
+    this.matched.attachSpreads(this.spreads.liquidationPort);
   }
 
   private requireLeverageCap(): Amount {
@@ -655,7 +676,10 @@ export class PositionService {
     // A matched fill that is still being recorded has posted into this position's pot without its row yet, so
     // no change may run until its row has caught up. The fill itself is retried until it does.
     const [pendingFill] = await tx<{ n: number }[]>`
-      SELECT 1 AS n FROM trade.futures_order_fills WHERE position_id = ${positionId} AND state = 'pending' LIMIT 1
+      SELECT 1 AS n FROM trade.futures_order_fills WHERE position_id = ${positionId} AND state = 'pending'
+      UNION ALL
+      SELECT 1 AS n FROM trade.futures_spread_fills WHERE position_id = ${positionId} AND state = 'pending'
+      LIMIT 1
     `;
     if (pendingFill) {
       throw new FuturesError(
@@ -921,6 +945,37 @@ export class PositionService {
   /** Settle matched fills that arrived while a position was busy (see `MatchedFuturesOrders.settleFillOrWait`). */
   async retryWaitingMatchedFills(limit: number) {
     return this.matched.retryWaitingFills(limit);
+  }
+
+  /**
+   * Place a futures calendar spread order through the engine's spread book (CB-otc-16). Refused unless the switch is on,
+   * the band is named and the engine lists the spread. See `spread-orders.ts`.
+   */
+  async placeSpreadOrder(principal: Principal, input: PlaceSpreadOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.spreads.place(principal, input, context);
+  }
+
+  /** Cancel a spread order the caller owns, and release the part of its hold no fill used. */
+  async cancelSpreadOrder(principal: Principal, orderId: string) {
+    return this.spreads.cancel(principal, orderId);
+  }
+
+  /** Settle spread fills that arrived while a position was busy (see `SpreadFuturesOrders.settleFillOrWait`). */
+  async retryWaitingSpreadFills(limit: number) {
+    return this.spreads.retryWaitingFills(limit);
+  }
+
+  /** The spread-order settlement, for the matching consumers. Fills and releases run whether or not the switch is on. */
+  get spreadFills(): {
+    settle(fill: SpreadFillInput): Promise<void>;
+    releaseCancelled(orderId: string, remainingQty: string): Promise<boolean>;
+  } {
+    return {
+      settle: async (fill) => {
+        await this.spreads.settleFillOrWait(fill);
+      },
+      releaseCancelled: (orderId, remainingQty) => this.spreads.releaseEngineCancellation(orderId, remainingQty),
+    };
   }
 
   /** The port the liquidation tick works a liquidation through the book with (futures ADR slice 7). */

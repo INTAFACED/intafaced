@@ -396,6 +396,57 @@ export function publishedMatchingDepthLimit(value: number | undefined | null): n
   return value;
 }
 
+/**
+ * Spread orders (CB-otc-16). svc-matching's spread book is a second door on the same engine: `POST /spreads/:spreadId/orders`
+ * takes a GTC limit order at a signed spread price over two futures legs, and each fill it prints carries every leg.
+ * Amounts are decimal strings; the spread price may be zero or negative.
+ */
+export interface EngineSpreadLegFill {
+  readonly symbol: string;
+  readonly takerSide: EngineSide;
+  readonly qty: string;
+  readonly price: string;
+}
+
+export interface EngineSpreadFill extends EngineFill {
+  readonly legs?: readonly EngineSpreadLegFill[];
+}
+
+export interface EngineSpreadSubmitRequest {
+  readonly orderId: string;
+  readonly accountId: string;
+  readonly side: EngineSide;
+  readonly qty: string;
+  /** Signed spread price. */
+  readonly price: string;
+  readonly tif: 'GTC';
+  /** The anchor leg's price for the taker side of this order's fills. The engine collars and invents nothing. */
+  readonly anchorReference: string;
+  readonly clientOrderId?: string;
+  readonly lifecycleProof: LifecycleAdmissionProof;
+}
+
+export interface EngineSpreadSubmitResult extends Omit<EngineSubmitResult, 'fills' | 'triggered'> {
+  readonly fills: readonly EngineSpreadFill[];
+}
+
+/** One owner spread listing as `GET /spreads` serves it. Read through `readWireListing`; nothing is assumed. */
+export interface EngineSpreadListingWire {
+  readonly spreadId: string;
+  readonly kind: string;
+  readonly legs: ReadonlyArray<{ readonly symbol: string; readonly side: string; readonly ratio: string }>;
+  readonly tick: string;
+  readonly lot: string;
+}
+
+/** The spread door of the same client. Cancel goes through the ordinary cancel door with the spread id as the market. */
+export interface SpreadMatchingPort {
+  /** `GET /spreads`: the owner's listings. Empty when nothing is listed, never a sample instrument. */
+  listSpreads(): Promise<{ readonly instruments: readonly EngineSpreadListingWire[] }>;
+  /** `POST /spreads/:spreadId/orders`. A refusal is a 200 with `accepted: false`; a transport failure is indeterminate. */
+  submitSpread(spreadId: string, request: EngineSpreadSubmitRequest): Promise<EngineSpreadSubmitResult>;
+}
+
 export class MatchingUnavailableError extends Error {
   constructor(
     message: string,
@@ -448,7 +499,7 @@ export function createMatchingClient(
   internalSecret: string,
   s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
   options: { timeoutMs?: number } = {},
-): MatchingClient {
+): MatchingClient & SpreadMatchingPort {
   const url = baseUrl.replace(/\/$/, '');
   const timeoutMs = options.timeoutMs ?? MATCHING_FETCH_MS;
   // Every engine call is bounded. A hung engine must end as the same MatchingUnavailableError a refused connection does,
@@ -678,6 +729,23 @@ export function createMatchingClient(
       return call<ReconcileReport>('/reconcile', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders('POST', '/reconcile', payload) },
+        body: payload,
+      });
+    },
+
+    async listSpreads() {
+      return call<{ instruments: EngineSpreadListingWire[] }>('/spreads', {
+        method: 'GET',
+        headers: authHeaders('GET', '/spreads'),
+      });
+    },
+
+    async submitSpread(spreadId, request) {
+      const payload = JSON.stringify(request);
+      const path = `/spreads/${encodeURIComponent(spreadId)}/orders`;
+      return call<EngineSpreadSubmitResult>(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...authHeaders('POST', path, payload) },
         body: payload,
       });
     },

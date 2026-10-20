@@ -19,9 +19,10 @@ import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { subscribeMatchingEvents, type MatchedFillsSink, type SpreadFillsSink } from './events.js';
 import { parsePriceBand } from './futures/matched-order-plan.js';
 import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
+import { SPREAD_FILL_RETRY_BATCH } from './futures/spread-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
@@ -253,7 +254,8 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
 // Holds the futures fill sink until PositionService exists below. Fills arriving before it is set settle as spot,
 // which is correct: no futures order can have been placed before the process that places them is running.
 const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: null };
-const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills);
+const spreadFuturesFills: { current: SpreadFillsSink | null } = { current: null };
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, spreadFuturesFills);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
 const venueMarkSymbols = parseVenueMarkSymbols(env.TRADE_VENUE_MARK_SYMBOLS);
 const otcVenueSymbols = parseVenueMarkSymbols(env.TRADE_OTC_VENUE_SYMBOLS);
@@ -512,6 +514,8 @@ const positions = new PositionService(sql, ledger, {
 });
 // Matched futures fills settle into the position book this service owns (futures ADR slice 6).
 matchedFuturesFills.current = positions.matchedFills;
+// Calendar spread fills (CB-otc-16) settle into the same position book, leg by leg.
+spreadFuturesFills.current = positions.spreadFills;
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
 // Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
@@ -530,6 +534,15 @@ futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, 
   const retry = await positions.retryWaitingMatchedFills(MATCHED_FILL_RETRY_BATCH);
   for (const item of retry.failed) {
     app.log.error({ job: 'futures.fill_waits', sequence: item.sequence, err: item.message }, 'a waiting futures fill failed to settle');
+  }
+});
+futuresJobs.host.every('futures.spread_fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const retry = await positions.retryWaitingSpreadFills(SPREAD_FILL_RETRY_BATCH);
+  for (const item of retry.failed) {
+    app.log.error(
+      { job: 'futures.spread_fill_waits', sequence: item.sequence, err: item.message },
+      'a waiting futures spread fill failed to settle',
+    );
   }
 });
 const conditionalJobsConfig = {

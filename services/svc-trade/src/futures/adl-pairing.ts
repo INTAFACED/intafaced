@@ -120,6 +120,7 @@ function holdFree(db: Sql | TransactionSql, ownBookDone = false) {
                      WHERE q.state = 'planned' AND (q.bankrupt_position_id = p.id OR q.candidate_position_id = p.id))
     -- a matched fill still being recorded has posted into the pot ahead of the row (matched-orders.ts)
     AND NOT EXISTS (SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
+    AND NOT EXISTS (SELECT 1 FROM trade.futures_spread_fills f WHERE f.position_id = p.id AND f.state = 'pending')
   `;
 }
 

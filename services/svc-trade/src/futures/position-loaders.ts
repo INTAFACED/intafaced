@@ -74,6 +74,9 @@ export function sqlFundingPositionLoader(sql: Sql): FundingPositionLoader {
           -- time, so a charge meanwhile would leave the row short of it (matched-orders.ts). The fill finishes first.
           AND NOT EXISTS (
             SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
+          -- the same for a spread leg fill (spread-orders.ts)
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_spread_fills f WHERE f.position_id = p.id AND f.state = 'pending')
         -- p.id is the tiebreak, not decoration: opened_at is not unique, so two
         -- positions opened in the same tick had no stable order between two
         -- queries. Funding legs are built by iterating this list, and under the
@@ -207,6 +210,8 @@ export function sqlDatedSettlementPositionLoader(sql: Sql): DatedSettlementPosit
           -- no matched fill still being recorded: it has posted into the pot ahead of the row (matched-orders.ts)
           AND NOT EXISTS (
             SELECT 1 FROM trade.futures_order_fills f WHERE f.position_id = p.id AND f.state = 'pending')
+          AND NOT EXISTS (
+            SELECT 1 FROM trade.futures_spread_fills f WHERE f.position_id = p.id AND f.state = 'pending')
         ORDER BY p.opened_at ASC, p.id ASC
       `;
       return rows.map(mapDatedClose);

@@ -519,6 +519,38 @@ profit pot does not move.
 
 ---
 
+## Calendar spread orders (CB-otc-16)
+
+A spread order is one GTC limit order at a signed spread price over two futures legs of one quote asset, sent to
+svc-matching's spread door (`futures/spread-orders.ts`, table `trade.futures_spread_orders`, migration `0086`).
+Calendar spreads of futures only: a spot leg, an inter-coin listing or legs in different quote assets refuse with a typed
+code. It opens or grows positions; there is no reduce-only, market or amend spread. In one-way mode an order that would
+open a leg's other side refuses at placement, as an outright order does.
+
+- **One hold, sized for the worst fill.** `futuresOrderMarginHold` takes, before anything is sent, for each leg the initial
+  margin at the leg's mark plus the full price band half-width on the whole leg quantity. The engine prints leg 0 at the
+  taker's anchor reference and does not bound it, so svc-trade bounds it: each order stores its anchor window (the anchors
+  at which neither of its legs prints outside its band), and the anchor of every send is chosen under a per-spread
+  Postgres advisory lock inside the intersection of the windows of the order and of every live order it can cross. No such
+  anchor: `trade.spread_anchor_uncovered`, nothing is sent, the hold is released. Settlement re-checks each leg against the
+  band (`trade.spread_fill_outside_cover`, refused whole before any post), and margin moves per leg by a telescoping
+  difference, so the legs of all fills together never exceed the hold. The lock holds one connection for the length of the
+  send, so the pool needs at least two.
+- **Keys.** Hold `futures.order.margin.hold:<orderId>`; release `futures.order.margin.release:<orderId>:0`; leg fill
+  `futures.fill:spread:<spreadId>:<sequence>:<leg>:<positionId>`. The spread book has its own sequence, and the `spread:`
+  prefix keeps a leg's key from ever equalling an outright `futures.fill:<marketUuid>:<sequence>:<positionUuid>`.
+- **Settlement.** The `spreadFilled` consumer (and the engine's own reply) settles each account side as two leg fills: both
+  intents are committed together, the positions are held against a close, a liquidation or funding until both are
+  `applied`, a busy position makes the fill wait durably (`futures.spread_fill_waits` job), and a replay posts nothing twice.
+- **Cancel** goes through the engine; the unused hold is released only once every fill the engine printed has settled.
+  The liquidation sweep pulls a growing spread order (it does not refuse spread placement while a rung is live).
+- **Until svc-matching publishes `spreadFilled`** it answers `spread_fill_event_unwired`; placement then refuses with
+  `trade.spread_fill_event_unwired` and the hold comes straight back.
+- **The spread's lifecycle proof** is derived from the two legs' PLACE proofs (`futures/spread-lifecycle.ts`): no dossier is
+  published per spread id, and the owner may replace the derivation when one is.
+
+---
+
 ## Running it
 
 ### Founder restrictions and operation admission
