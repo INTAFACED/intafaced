@@ -71,6 +71,7 @@ import { createMerchantStateRouter } from './merchant-state-router.js';
 import { KybService } from './kyb-service.js';
 import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
+import { KybEntityTypeService } from './kyb-entity-types.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -481,7 +482,7 @@ export const appRouter = mergeRouters(
       await drainPendingPaymentIdentityIntents(tx, merchantId, identityAdmission);
     }),
   ),
-  createKybPspRouter(kyb, pspMode, actionApprovals, pay),
+  createKybPspRouter(kyb, pspMode, actionApprovals, pay, new KybEntityTypeService(sql)),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node
   // taken from a request body would let any merchant claim to be acting as any

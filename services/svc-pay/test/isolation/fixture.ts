@@ -27,6 +27,7 @@ import { defaultDisputeCaseStore } from '../../src/fraud/dispute-case.js';
 import { recordMerchantNotification } from '../../src/merchant-ops/index.js';
 import { createFounderAuthority, type FounderAuthority } from '../../src/founder-authority.js';
 import { createKybPspRouter } from '../../src/kyb-router.js';
+import { KybEntityTypeService } from '../../src/kyb-entity-types.js';
 import { KybService } from '../../src/kyb-service.js';
 import { MerchantStateService } from '../../src/merchant-state-service.js';
 import { createMerchantStateRouter } from '../../src/merchant-state-router.js';
@@ -263,7 +264,13 @@ function composeRouter(parts: {
       parts.sql,
     ),
     createMerchantStateRouter(new MerchantStateService(parts.sql), new MerchantAccountControls(parts.sql, parts.founderAuthority)),
-    createKybPspRouter(new KybService(parts.sql), new PspModeService(parts.sql), actionApprovals, parts.pay),
+    createKybPspRouter(
+      new KybService(parts.sql),
+      new PspModeService(parts.sql),
+      actionApprovals,
+      parts.pay,
+      new KybEntityTypeService(parts.sql),
+    ),
     createSubMerchantRouter(parts.subMerchants, parts.pay, parts.sql),
     // One mount list, as in src/index.ts. A workstream that adds a mount there adds ONE line here.
     createPayNamespaces({
