@@ -315,6 +315,10 @@ boot if the `auth_attempts` table is missing.
 
 The affiliate payout ledger client signs with svc-identity's own key when `S2S_AUTH_MODE`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only); unset, it signs with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
 
+## Service keys: outgoing calls
+
+The calls to svc-pay (owner pay scopes, pay step-up grant, merchant email invite claim) and the account-closure checks to svc-bank, svc-trade and svc-p2p are signed with svc-identity's own key when `S2S_AUTH_MODE`, `S2S_KEYRING`, `S2S_SIGNING_KID` and `S2S_SIGNING_KEY` are set (`dual` also sends the shared secret, `keypair` the key only). Each signature is bound to the method, full URL, body and content type, and names the callee as its audience. Unset, they are signed with the shared secret as before. Setup and rotation: `services/svc-ledger/CALLER-BINDING.md`.
+
 ## Service keys: inbound doors
 
 Every internal door names its caller from the caller's own service key when `S2S_AUTH_MODE`, `S2S_KEYRING` and the signing pair are set: the rank, sub-account, session, account and handle reads, API-key ownership, the navigator session routes, the business directory, the affiliate producer accrue and payout, the account-closure job, and the tRPC service procedures. `dual` accepts the key and the shared secret, `keypair` the key only. A key-signed call that fails is refused and never retried against a secret. Unset, every door works on the shared secret exactly as before.

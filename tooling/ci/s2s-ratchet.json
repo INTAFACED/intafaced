@@ -136,22 +136,6 @@
       "sign": 0,
       "caller": 1
     },
-    "services/svc-identity/src/auth/merchant-email-invite-claim.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-identity/src/auth/owner-pay-scopes.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-identity/src/auth/pay-step-up-grant.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-identity/src/closure/closure-client.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-identity/src/controls/operation-identity-router.ts": {
       "sign": 0,
       "caller": 2

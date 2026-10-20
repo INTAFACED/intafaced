@@ -3,7 +3,7 @@
  * Timeout is 3 seconds. One retry. Anything other than a well-formed 2xx is
  * unavailable, which the caller must not treat as "nothing is open".
  */
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceName, type ServiceSigner } from '@intafaced/contracts';
 
 const TIMEOUT_MS = 3_000;
 const ATTEMPTS = 2;
@@ -72,7 +72,16 @@ async function defaultFetch(url: string, init: { method: 'POST'; headers: Record
   return { status: response.status, text: () => response.text() };
 }
 
-export function httpClosureChecker(options: { url: string | undefined; secret: string; fetchImpl?: ClosureFetch; timeoutMs?: number }): {
+/** Own-key signing for one owning service: `audience` is the service that URL points at. */
+export type ClosureS2s = { signer: ServiceSigner; mode: ServiceAuthMode; audience: ServiceName };
+
+export function httpClosureChecker(options: {
+  url: string | undefined;
+  secret: string;
+  s2s?: ClosureS2s;
+  fetchImpl?: ClosureFetch;
+  timeoutMs?: number;
+}): {
   check(input: { userId: string; subAccountIds: readonly string[] }): Promise<ClosureCheckResult>;
 } {
   const fetchImpl = options.fetchImpl ?? defaultFetch;
@@ -82,13 +91,23 @@ export function httpClosureChecker(options: { url: string | undefined; secret: s
       const url = options.url?.trim();
       if (!url || !options.secret) return { ok: false };
       const body = JSON.stringify({ userId: input.userId, subAccountIds: [...input.subAccountIds] });
-      const headers = {
-        'content-type': 'application/json',
-        ...serviceAuthHeadersForBody('svc-identity', options.secret, body),
-      };
+      const target = `${url.replace(/\/$/, '')}/internal/closure-check`;
+      const sign = serviceCallSigner({
+        service: 'svc-identity',
+        audience: options.s2s?.audience ?? 'svc-bank',
+        legacySecret: options.secret,
+        s2s: options.s2s ? { signer: options.s2s.signer, mode: options.s2s.mode } : undefined,
+      });
+      // Shared-secret headers do not depend on the attempt; a key signature carries a nonce, so each attempt signs afresh.
+      const sharedHeaders = options.s2s ? undefined : sign(body, { method: 'POST', url: new URL(target), contentType: 'application/json' });
       for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
         try {
-          const response = await fetchImpl(`${url.replace(/\/$/, '')}/internal/closure-check`, {
+          // A key signature carries a nonce, so the retry is signed afresh.
+          const headers = {
+            'content-type': 'application/json',
+            ...(sharedHeaders ?? sign(body, { method: 'POST', url: new URL(target), contentType: 'application/json' })),
+          };
+          const response = await fetchImpl(target, {
             method: 'POST',
             headers,
             body,
