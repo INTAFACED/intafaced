@@ -100,15 +100,11 @@
       "fetch": 1
     },
     "services/svc-identity/src/affiliates/commission.ts": {
-      "parse": 4
+      "parse": 2
     },
     "services/svc-indexer/scripts/dev-venue.ts": {
       "scale": 1,
       "parse": 1
-    },
-    "services/svc-ledger/src/ledger/action-approval-consume.ts": {
-      "unwrap": 1,
-      "fetch": 1
     },
     "services/svc-market/src/stake-source.ts": {
       "fetch": 1
