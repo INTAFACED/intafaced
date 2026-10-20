@@ -71,7 +71,7 @@ import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refu
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
-import { outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
+import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 
@@ -150,6 +150,8 @@ interface SideProps {
   autoFocus: boolean;
   /** Time in force picked once for both tickets (limit: GTC, post only, IOC, FOK; market: standard or FOK). */
   tif: Tif;
+  /** The expiry a good-till-date pick carries (UTC ISO), or null while none valid is picked. Unused by other picks. */
+  expireAt: string | null;
   onPlaced: () => void;
 }
 
@@ -167,6 +169,7 @@ function SideForm({
   suggestion,
   autoFocus,
   tif,
+  expireAt,
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
@@ -264,8 +267,8 @@ function SideForm({
 
   // Advisory preview from the server, only for an order the client rules accept.
   const draft: Draft | null = useMemo(() => {
-    if (!tradable || !checked.ok) return null;
-    return draftOf({ market, side, type, tif, checked, clientOrderId: 'desk-preview' });
+    if (!tradable || !checked.ok || (tif === 'GTD' && expireAt === null)) return null;
+    return draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: 'desk-preview' });
   }, [
     tradable,
     checked.ok,
@@ -279,9 +282,10 @@ function SideForm({
     side,
     type,
     tif,
+    expireAt,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
   const key = draft
-    ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}`
+    ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
   const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
 
@@ -341,7 +345,7 @@ function SideForm({
     short,
     busy,
   });
-  const canSend = gate.canSend;
+  const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
 
   async function startReview() {
     if (!canSend || busyRef.current || !checked.ok) return;
@@ -349,7 +353,7 @@ function SideForm({
     setBusy(true);
     setFailure(null);
     setStatus(null);
-    const fresh = draftOf({ market, side, type, tif, checked, clientOrderId: `desk:${crypto.randomUUID()}` });
+    const fresh = draftOf({ market, side, type, tif, expireAt, checked, clientOrderId: `desk:${crypto.randomUUID()}` });
     const parsed = draftSchema.safeParse(fresh);
     if (!parsed.success) setFailure({ kind: 'network' });
     else {
@@ -828,6 +832,12 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
         <dt>{t('Review time in force')}</dt>
         <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
       </div>
+      {draft.expireAt ? (
+        <div>
+          <dt>{t('Order expires')}</dt>
+          <dd className="if-num">{new Date(draft.expireAt).toLocaleString()}</dd>
+        </div>
+      ) : null}
       {stop && draft.stopPrice ? (
         <div>
           <dt>{t('Review stop price')}</dt>
@@ -968,6 +978,9 @@ export const OrderPanel = memo(function OrderPanel({
   const [pickedTif, setTif] = useState<Tif>('GTC');
   // Market orders take only what an immediate order can use; a limit-only pick (post only, IOC) falls back to standard.
   const tif = tifFor(type, pickedTif);
+  // A good-till-date pick carries the expiry the trader types (local time); it is sent only once it names a future instant.
+  const [expiry, setExpiry] = useState('');
+  const expireAt = tif === 'GTD' && expiryIsFuture(expiry, Date.now()) ? expiryOf(expiry) : null;
   const pending = usePendingOrder(userId);
   const [settled, setSettled] = useState<string | null>(null);
   const [stillChecking, setStillChecking] = useState(false);
@@ -1091,6 +1104,7 @@ export const OrderPanel = memo(function OrderPanel({
     onPlaced: () => (refresh(), onPlaced()),
     type,
     tif,
+    expireAt,
   } as const;
   return (
     <Tabs
@@ -1112,6 +1126,24 @@ export const OrderPanel = memo(function OrderPanel({
         </TabsList>
         <MoreOrderTypes />
         {market.open ? <TifSelect type={type} tif={tif} onTif={setTif} /> : null}
+        {market.open && tif === 'GTD' ? (
+          <label className="dk-tif dk-expiry">
+            <span className="dk-tif-label">{t('Order expires')}</span>
+            <input
+              type="datetime-local"
+              className="dk-expiry-input"
+              value={expiry}
+              onChange={(event) => setExpiry(event.target.value)}
+              aria-label={t('Order expires')}
+              aria-invalid={expiry !== '' && expireAt === null}
+            />
+            {expiry !== '' && expireAt === null ? (
+              <span className="dk-expiry-note" role="note">
+                {t('Order expiry past')}
+              </span>
+            ) : null}
+          </label>
+        ) : null}
       </div>
       {!market.open ? (
         <div className="dk-order-body">

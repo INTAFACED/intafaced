@@ -616,6 +616,7 @@ const en = {
   expectedAPositiveExactDecimalString: 'Expected a positive exact decimal string',
   enterALimitPrice: 'Enter a limit price.',
   aMarketOrderCannotCarryALimitPrice: 'A market order cannot carry a limit price.',
+  aGoodTillDateLimitOrderNeedsAnExpiry: 'A good-till-date order is a limit order with an expiry.',
   postOnlyRequiresALimitOrderWithGtc: 'Post only requires a limit order with GTC.',
   historyContainsADuplicateTimestampOrInvalidExactCandle: 'History contains a duplicate timestamp or invalid exact candle.',
   feeOrReservationIsUnavailablePlacementIsDisabled: 'Fee or reservation is unavailable. Placement is disabled.',
@@ -1437,6 +1438,7 @@ const es = {
   expectedAPositiveExactDecimalString: 'Se esperaba una cadena decimal exacta positiva',
   enterALimitPrice: 'Introduce un precio límite.',
   aMarketOrderCannotCarryALimitPrice: 'Una orden de mercado no puede incluir un precio límite.',
+  aGoodTillDateLimitOrderNeedsAnExpiry: 'Una orden válida hasta una fecha es una orden límite con vencimiento.',
   postOnlyRequiresALimitOrderWithGtc: 'Solo maker requiere una orden límite con GTC.',
   historyContainsADuplicateTimestampOrInvalidExactCandle:
     'El historial contiene una marca de tiempo duplicada o una vela exacta no válida.',
@@ -2268,6 +2270,7 @@ const fr = {
   expectedAPositiveExactDecimalString: 'Une chaîne décimale exacte positive était attendue',
   enterALimitPrice: 'Saisissez un prix limite.',
   aMarketOrderCannotCarryALimitPrice: 'Un ordre au marché ne peut pas comporter de prix limite.',
+  aGoodTillDateLimitOrderNeedsAnExpiry: 'Un ordre valable jusqu’à une date est un ordre à cours limité avec une échéance.',
   postOnlyRequiresALimitOrderWithGtc: 'Le mode maker uniquement nécessite un ordre limite avec GTC.',
   historyContainsADuplicateTimestampOrInvalidExactCandle: 'L’historique contient un horodatage en double ou une bougie exacte invalide.',
   feeOrReservationIsUnavailablePlacementIsDisabled: 'Les frais ou la réserve sont indisponibles. La soumission d’ordres est désactivée.',

@@ -1,7 +1,7 @@
 /**
  * Time in force on the spot ticket: what the trader may pick, what the order carries, and how the outcome is worded.
  *
- * The service accepts GTC, post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
+ * The service accepts GTC, good-till-date (GTD, with an expiry the trader picks), post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
  * (the engine sends it as IOC, or FOK when asked). Stop-limit is accepted (GTC only). An OCO (GTC, either side) and a buy
  * bracket (market, IOC, FOK or a resting GTC limit entry) are accepted. Trailing stop is refused by the service
  * (`trade.order_type_unsupported`), so the ticket shows it disabled (`UNSUPPORTED_TYPES`).
@@ -9,9 +9,9 @@
 import type { Draft, Order } from '../../../features/trade/trade-api';
 import { scaled, type OrderType } from './order-math';
 
-export type Tif = 'GTC' | 'PO' | 'IOC' | 'FOK';
+export type Tif = 'GTC' | 'GTD' | 'PO' | 'IOC' | 'FOK';
 
-const LIMIT_TIFS: readonly Tif[] = ['GTC', 'PO', 'IOC', 'FOK'];
+const LIMIT_TIFS: readonly Tif[] = ['GTC', 'GTD', 'PO', 'IOC', 'FOK'];
 /** A market order never rests, so "good till cancelled" and "post only" do not apply. Standard = the engine's immediate rule. */
 const MARKET_TIFS: readonly Tif[] = ['GTC', 'FOK'];
 
@@ -43,18 +43,33 @@ export const tifsFor = (type: OrderType): readonly Tif[] =>
 export const tifFor = (type: OrderType, tif: Tif): Tif => (tifsFor(type).includes(tif) ? tif : (tifsFor(type)[0] ?? 'GTC'));
 
 /** The two fields the order carries. Post-only is sent as time in force PO and postOnly true, as the service expects. */
-export function tifFields(tif: Tif): Pick<Draft, 'timeInForce' | 'postOnly'> {
-  return tif === 'PO' ? { timeInForce: 'PO', postOnly: true } : { timeInForce: tif, postOnly: false };
+export function tifFields(tif: Tif, expireAt?: string): Pick<Draft, 'timeInForce' | 'postOnly' | 'expireAt'> {
+  if (tif === 'PO') return { timeInForce: 'PO', postOnly: true };
+  return tif === 'GTD' && expireAt ? { timeInForce: 'GTD', postOnly: false, expireAt } : { timeInForce: tif, postOnly: false };
 }
 
-export type TifLabelKey = 'Tif GTC' | 'Tif bracket resting' | 'Tif PO' | 'Tif IOC' | 'Tif FOK' | 'Tif market standard' | 'Tif market FOK';
+/** A local "date and time" field value ("2026-10-21T18:00") as the UTC instant it names; null when it is not a date. */
+export function expiryOf(local: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local)) return null;
+  const at = new Date(local);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/** Is the picked expiry usable now: a real date, strictly after `nowMs`? */
+export const expiryIsFuture = (local: string, nowMs: number): boolean => {
+  const at = expiryOf(local);
+  return at !== null && Date.parse(at) > nowMs;
+};
+
+export type TifLabelKey =
+  'Tif GTC' | 'Tif GTD' | 'Tif bracket resting' | 'Tif PO' | 'Tif IOC' | 'Tif FOK' | 'Tif market standard' | 'Tif market FOK';
 export type TifHelpKey = `${TifLabelKey} help`;
 
 /** Copy key for the name of a pick. A market order's "standard" is the engine's immediate rule, not "good till cancelled". */
 export function tifLabelKey(type: OrderType, tif: Tif): TifLabelKey {
   if (type === 'bracket' && tif === 'GTC') return 'Tif bracket resting';
   if (type === 'market') return tif === 'FOK' ? 'Tif market FOK' : 'Tif market standard';
-  return tif === 'PO' ? 'Tif PO' : tif === 'IOC' ? 'Tif IOC' : tif === 'FOK' ? 'Tif FOK' : 'Tif GTC';
+  return tif === 'GTD' ? 'Tif GTD' : tif === 'PO' ? 'Tif PO' : tif === 'IOC' ? 'Tif IOC' : tif === 'FOK' ? 'Tif FOK' : 'Tif GTC';
 }
 
 /** The pick a draft was built from (the inverse of `tifFields`). */
