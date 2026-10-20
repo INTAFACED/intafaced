@@ -372,18 +372,11 @@ export const createOrderRequestSchema = z
     subAccountId: z.string().uuid().optional(),
     /** Caller expire instant for GTD/GTT. Never invented here. */
     expireAt: isoDatetime.optional(),
-    /** Trailing distance for a trailing stop, in quote units. Never invented; a blank distance refuses downstream. */
-    trailDistance: decimal.optional(),
-    /** Exit prices carried by an OCO or a bracket entry. */
-    takeProfit: decimal.optional(),
-    stopLoss: decimal.optional(),
-    /** Visible slice of an iceberg. */
-    displayQty: decimal.optional(),
-    /** Self-trade handling. The venue refuses a mode its engine does not support. */
+    /** Self-trade handling. A mode the engine does not support is refused by the service, never silently ignored. */
     stpMode: z.enum(['cancel_maker', 'cancel_taker', 'cancel_both']).optional(),
     /** A label for the caller's own books. Never part of the idempotency key. */
     tag: z.string().min(1).max(16).optional(),
-    /** The instant after which the caller no longer wants this order created. Past it, the create refuses before any hold. */
+    /** The instant after which the caller no longer wants this order created. Past it, the service refuses the create before any hold. */
     requestDeadline: isoDatetime.optional(),
   })
   .superRefine((order, ctx) => {
@@ -409,12 +402,6 @@ export const createOrderRequestSchema = z
     }
     if (!positiveDecimal(order.amount)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['amount'], message: 'amount must be a positive decimal string' });
-    }
-    for (const field of ['trailDistance', 'takeProfit', 'stopLoss', 'displayQty'] as const) {
-      const value = order[field];
-      if (value !== undefined && !positiveDecimal(value)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} must be a positive decimal string` });
-      }
     }
     if (order.type === 'market' && order.postOnly === true && order.timeInForce === undefined) {
       ctx.addIssue({
