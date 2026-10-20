@@ -36,6 +36,7 @@ import { memoryMarkBook } from './mark-source.js';
 import { orderHoldAmount } from './matched-order-plan.js';
 import { unrealizedPnl } from './liquidation-planner.js';
 import { runPayoutTick } from './futures-payouts.js';
+import { sqlFundingPositionLoader } from './position-loaders.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -652,6 +653,71 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       await sql`UPDATE trade.positions SET margin_adjust_request = NULL WHERE id = ${alice.id}`;
       expect(await svc.retryWaitingFills(50)).toEqual({ settled: 1, waiting: 0, failed: [] });
       expect(parseAmount((await positionRow(alice.id)).size)).toBe(A('1'));
+      await assertBooksAgree();
+    });
+
+    it('taking margin out or changing leverage refuses while a reduce-only order may still fill, and adding margin does not', async () => {
+      const { alice, aR } = await aliceReducingAgainstCarol();
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+      const target = { userId: ALICE, symbol: SYMBOL, positionId: alice.id };
+      const resting = { code: 'trade.futures_reduce_orders_resting', status: 409 };
+      const before = await positionRow(alice.id);
+      await expect(positions.reduceIsolatedMargin({ ...target, amount: A('1'), clientAdjustmentId: 'pull-1' })).rejects.toMatchObject(
+        resting,
+      );
+      await expect(positions.setLeverage({ ...target, leverage: A('10'), clientAdjustmentId: 'lev-1' })).rejects.toMatchObject(resting);
+      expect((await positionRow(alice.id)).margin_current).toBe(before.margin_current);
+
+      // Adding margin moves the bankruptcy price away from every resting order, so it stays allowed.
+      await positions.addIsolatedMargin({ ...target, amount: A('1'), clientAdjustmentId: 'add-1' });
+      expect(parseAmount((await positionRow(alice.id)).margin_current)).toBe(parseAmount(before.margin_current) + A('1'));
+
+      // Once the order is off the book with nothing left to fill, the outflow gets past the hold and stops at the
+      // valuation, which needs a mark this test does not set.
+      await build().cancel(principal(ALICE), aR.orderId);
+      await expect(positions.reduceIsolatedMargin({ ...target, amount: A('1'), clientAdjustmentId: 'pull-2' })).rejects.toMatchObject({
+        code: 'trade.mark_missing',
+      });
+      await assertBooksAgree();
+    });
+
+    it('a reduce-only order is not placed while a margin adjustment is in flight', async () => {
+      const { alice } = await aliceLongBobShort();
+      await sql`UPDATE trade.positions SET margin_adjust_request = 'adj-2' WHERE id = ${alice.id}`;
+      await expect(reduce(ALICE, 'sell', A('1'), { limitPrice: A('99') })).rejects.toMatchObject({
+        code: 'trade.margin_adjustment_in_progress',
+        status: 409,
+      });
+      expect(await sql`SELECT 1 FROM trade.futures_orders WHERE reduce_only`).toHaveLength(0);
+    });
+
+    it('funding skips a position whose reduce fill is still being recorded, and charges it once the fill lands', async () => {
+      const { alice, bob, aR, carol } = await (async () => {
+        const base = await aliceReducingAgainstCarol();
+        return { ...base, bob: (await openOf(BOB))[0]! };
+      })();
+      const throwing = {
+        ...ledger,
+        post: async (request: PostRequest) => {
+          if (REDUCE_REASONS.has(request.reason)) throw new Error('ledger unreachable');
+          return ledger.post(request);
+        },
+        balance: (ref: Parameters<LedgerClient['balance']>[0]) => ledger.balance(ref),
+      } as LedgerClient;
+      const reduceFill = { marketId: MARKET, makerOrderId: aR.orderId, takerOrderId: carol.orderId, price: '100', qty: '1', sequence: 70 };
+      await expect(build({}, throwing).settleFill(reduceFill)).rejects.toThrow('ledger unreachable');
+
+      const funded = async () => (await sqlFundingPositionLoader(sql).listOpenForMarket(MARKET)).map((p) => p.positionId);
+      expect(await funded()).not.toContain(alice.id);
+      expect(await funded()).toContain(bob.id);
+
+      await build().settleFill(reduceFill);
+      expect(await funded()).toContain(alice.id);
       await assertBooksAgree();
     });
 

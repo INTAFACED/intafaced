@@ -736,6 +736,14 @@ export class MatchedFuturesOrders {
       if (!position || position.status !== 'open') {
         refuse(FUTURES_REDUCE_ONLY_NO_POSITION, `reduce-only ${input.side} needs an open isolated ${target} position on this market`, 400);
       }
+      // The bound below is priced from the margin; one that is mid-change would price it from a figure about to move.
+      if (position.margin_adjust_request != null) {
+        refuse(
+          'trade.margin_adjustment_in_progress',
+          `position ${position.id} has a margin adjustment in flight — place the reduce-only order once it finishes`,
+          409,
+        );
+      }
       const size = parseAmount(position.size);
       const reserved = await reservedReduceQty(tx, position.id);
       if (input.qty + reserved > size) {
@@ -1487,9 +1495,10 @@ export class MatchedFuturesOrders {
     if (!order) refuse('trade.futures_order_not_found', `futures order ${fill.order_id} is not known`, 404);
 
     const qty = formatAmount(parseAmount(fill.qty));
-    // The row cannot have moved since the intent: every path that changes it waits for a pending intent. The guard
-    // on the update says so anyway, and a row that no longer matches throws with the posts already made, which the
-    // operator reconciles from the intent row.
+    // The row cannot have moved since the intent: margin changes and closes (assertLiquidationHold), rungs, ADL
+    // pairs and dated settlement wait for a pending intent, and funding skips the position (position-loaders.ts).
+    // The guard on the update says so anyway, and a row that no longer matches throws with the posts already made,
+    // which the operator reconciles from the intent row.
     const moved = fill.closes_position
       ? // A full close keeps the row's last size and margins and only closes it, as every close does
         // (`positions_size_positive_ck`); the collateral pot is empty once the posts above have run.

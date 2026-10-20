@@ -213,6 +213,8 @@ export const MARGIN_WOULD_LIQUIDATE = 'trade.margin_would_liquidate';
 export const OPEN_ROLLED_BACK = 'trade.open_rolled_back';
 /** A previous ledger-backed adjustment must finish before a different one starts. */
 export const MARGIN_ADJUSTMENT_IN_PROGRESS = 'trade.margin_adjustment_in_progress';
+/** A margin outflow or leverage change refused while reduce-only orders on the position may still fill. */
+export const FUTURES_REDUCE_ORDERS_RESTING = 'trade.futures_reduce_orders_resting';
 /**
  * A liquidation rung is live (planned or posted) on this position: its loss is booked or
  * about to be, and the row has not caught up. Refused with 409, retryable once the rung
@@ -696,6 +698,25 @@ export class PositionService {
         POSITION_UNDER_REVIEW,
         409,
       );
+    }
+    // A resting reduce-only order was bounded by the bankruptcy price of the margin at placement. Taking margin out
+    // moves that price toward entry, so a fill before the sweep could land past it and draw on the insurance fund for
+    // money the trader took out. The orders go first; adding margin moves the price away and is always allowed.
+    if (operation === 'reduce_margin' || operation === 'set_leverage') {
+      const [resting] = await tx<{ n: number }[]>`
+        SELECT 1 AS n FROM trade.futures_orders
+         WHERE position_id = ${positionId} AND reduce_only
+           AND (status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+                OR (status = 'cancelled' AND COALESCE(engine_filled_qty, qty) > filled_qty))
+         LIMIT 1
+      `;
+      if (resting) {
+        throw new FuturesError(
+          'this position has reduce-only orders that may still fill — cancel them before taking margin out or changing leverage',
+          FUTURES_REDUCE_ORDERS_RESTING,
+          409,
+        );
+      }
     }
   }
 
