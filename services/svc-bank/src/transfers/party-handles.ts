@@ -6,7 +6,7 @@
  * either party, and the receipt says so.
  */
 import { z } from 'zod';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export class PartyHandleUnavailableError extends Error {
   constructor(message = 'identity did not answer a handle lookup') {
@@ -35,17 +35,20 @@ export function createIdentityPartyHandles(
   baseUrl: string,
   internalSecret: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): PartyHandlePort {
   const base = baseUrl.replace(/\/+$/, '');
+  const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   return {
     async handleOf(userId) {
       const id = userId.trim();
       if (!id) return null;
       let response: Response;
       try {
-        response = await fetchFn(`${base}/internal/handle/${encodeURIComponent(id)}`, {
+        const target = `${base}/internal/handle/${encodeURIComponent(id)}`;
+        response = await fetchFn(target, {
           method: 'GET',
-          headers: serviceAuthHeadersForBody('svc-bank', internalSecret, ''),
+          headers: sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           signal: AbortSignal.timeout(3_000),
         });
       } catch {

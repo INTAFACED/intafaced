@@ -40,37 +40,13 @@
       "sign": 1,
       "caller": 0
     },
-    "services/svc-bank/src/affiliate-accrue.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/affiliate-payout.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/auto-invest/trade-convert-port.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-bank/src/business/business-directory.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-bank/src/personal-pay/router.ts": {
       "sign": 0,
       "caller": 1
     },
-    "services/svc-bank/src/recipient-state.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-bank/src/router.ts": {
       "sign": 0,
       "caller": 1
-    },
-    "services/svc-bank/src/transfers/party-handles.ts": {
-      "sign": 1,
-      "caller": 0
     },
     "services/svc-edge/src/api-key-revoked.ts": {
       "sign": 1,

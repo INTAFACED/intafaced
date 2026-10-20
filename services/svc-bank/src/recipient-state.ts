@@ -27,7 +27,7 @@
  * to one code and one message, matching identity's uniform `{ found: false }`.
  */
 
-import { accountStateSchema, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { accountStateSchema, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 
 export type RecipientStatus = 'active' | 'frozen' | 'closed' | 'not_found';
 
@@ -84,8 +84,10 @@ export function createIdentityRecipientState(
   internalSecret: string,
   fetchFn: typeof globalThis.fetch = globalThis.fetch,
   log: RecipientCheckFailureLog = logRecipientCheckFailure,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
 ): RecipientStatePort {
   const base = baseUrl.replace(/\/+$/, '');
+  const sign = serviceCallSigner({ service: 'svc-bank', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   return {
     async statusOf(userId) {
       const id = userId.trim();
@@ -93,9 +95,10 @@ export function createIdentityRecipientState(
       if (!id) return 'not_found';
       let response: Response;
       try {
-        response = await fetchFn(`${base}/internal/account/${encodeURIComponent(id)}`, {
+        const target = `${base}/internal/account/${encodeURIComponent(id)}`;
+        response = await fetchFn(target, {
           method: 'GET',
-          headers: serviceAuthHeadersForBody('svc-bank', internalSecret, ''),
+          headers: sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           signal: AbortSignal.timeout(FETCH_MS),
         });
       } catch (err) {
