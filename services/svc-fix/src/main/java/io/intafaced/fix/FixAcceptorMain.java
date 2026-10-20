@@ -44,7 +44,14 @@ public final class FixAcceptorMain {
             System.exit(2);
             return;
         }
-        MatchingSubmitPort matching = MatchingSubmitPort.fromEnv(env);
+        MatchingSubmitPort matching;
+        try {
+            matching = MatchingSubmitPort.fromEnv(env);
+        } catch (ServiceKeys.KeyError e) {
+            System.err.print("s2s_unconfigured: " + e.getMessage());
+            System.exit(2);
+            return;
+        }
         DropCopyHub hub = new DropCopyHub();
         FixSessionApplication orderApp = new FixSessionApplication(new FixGatewayAdapter(), matching, hub);
         FixDropCopyApplication dropApp = new FixDropCopyApplication(hub);
