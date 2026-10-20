@@ -12,7 +12,7 @@ export const GUARD_WITHDRAWAL_APPROVAL_TERMS = 'pay.guard_withdrawal_approval_te
  * - It takes the per-(user, asset) lock `propose` takes, so the window sum it reads always includes any withdrawal or request
  *   that committed before it: two withdrawals that are each under the threshold and together over it cannot both claim.
  * - A reference that names a request sends only that request's frozen terms, and only once it can be sent (approved or
- *   executed, or pending with its hold placed at submission). Any other terms on that reference are refused, so the caller's
+ *   executed, or pending with its hold placed at submission, and then only by the claim that stops after the hold). Any other terms on that reference are refused, so the caller's
  *   own amount or destination can never ride an approved request.
  * - Any other fresh withdrawal meets the policy: refused when it needs approvals.
  *
@@ -45,7 +45,9 @@ export function createWithdrawalApprovalGuards(deps: { now?: () => Date } = {}):
           request.destination.ref === ctx.destination.ref;
         if (!frozen) throw new PayGuardRefusal(GUARD_WITHDRAWAL_APPROVAL_TERMS, 'refused');
         const sendable =
-          request.status === 'approved' || request.status === 'executed' || (request.status === 'pending' && request.hold_at_submit);
+          request.status === 'approved' ||
+          request.status === 'executed' ||
+          (request.status === 'pending' && request.hold_at_submit && ctx.stopAfterHold === true);
         if (!sendable) throw new PayGuardRefusal(GUARD_WITHDRAWAL_APPROVAL_REQUIRED, 'refused');
         return;
       }

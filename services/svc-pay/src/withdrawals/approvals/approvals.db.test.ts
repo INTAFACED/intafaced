@@ -235,6 +235,22 @@ describe('multi-approval withdrawals (real Postgres)', () => {
     ).rejects.toMatchObject({ code: 'pay.guard_withdrawal_approval_terms' });
   });
 
+  it('a full send on a pending hold-at-submit request is refused by the claim; only the hold-only claim passes', async () => {
+    await service.setPolicy('founder', policy({ holdAtSubmit: true }));
+    await service.propose(USER, ask());
+    await expect(
+      money.withdraw({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('60'),
+        rail: 'card-sandbox',
+        destination: DESTINATION,
+        clientRef: 'w-1',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.guard_withdrawal_approval_required' });
+    expect((await rowOf('w-1'))?.status).toBe('pending');
+  });
+
   it('two direct withdrawals that are each under the threshold and together over it cannot both claim', async () => {
     await service.setPolicy('founder', policy());
     const go = (clientRef: string) =>

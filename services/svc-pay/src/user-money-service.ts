@@ -546,7 +546,7 @@ export class UserMoneyService {
           const fresh = !priorClaim || priorClaim.status === 'failed';
           if (fresh) this.refuseFreshWithdrawal(adapter);
 
-          let claimed = await this.claimWithdrawal(input, connection, fresh);
+          let claimed = await this.claimWithdrawal(input, connection, fresh, options.stopAfterHold === true);
 
           // Already finished. Returning it is the only correct answer to a retry:
           // the money is gone and asking the rail again would send it twice.
@@ -810,12 +810,13 @@ export class UserMoneyService {
     },
     connection: Sql,
     fresh: boolean,
+    stopAfterHold = false,
   ): Promise<WithdrawalRecord> {
     return payoutTransaction(connection, async (tx) => {
       // Seam: before the claim row is written, in the claim's own transaction, so
       // a refusal leaves no claim, hold or ledger entry. The advisory lock held by
       // `withdraw` serialises one (userId, clientRef), so this read cannot race.
-      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, replay: await this.classifyWithdrawal(tx, input) });
+      await this.guards.beforeUserMoneyWithdrawal({ tx, ...input, stopAfterHold, replay: await this.classifyWithdrawal(tx, input) });
       if (fresh) await this.assertNotHeldFromPurchase(tx, input);
 
       const inserted = await tx<WithdrawalRow[]>`
