@@ -29,7 +29,7 @@ function fleet() {
   const keyring: Keyring = [ops.entry];
   return {
     ops: createServiceSigner({ service: 'svc-ops', kid: ops.entry.kid, privateKey: ops.pkcs8, keyring }),
-    verifier: () => createServiceVerifier({ self: 'svc-p2p', keyring }),
+    verifier: () => createServiceVerifier({ self: 'svc-p2p', keyring, bootSecond: 0 }),
   };
 }
 

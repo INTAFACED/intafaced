@@ -922,6 +922,111 @@ describe('svc-trade trade-service (H8a PG-hard)', () => {
       expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('100');
       expect(ledger.reconcile()).toEqual({ ok: true });
     });
+
+    it('does not pay a qty-down again when an unsettled fill leaves the hold pot above the stale remainder', async () => {
+      await fund(BOB, 'BTC', '10');
+      await fund(ALICE, 'USDT', '1000');
+      const maker = await rest(BOB, btcusdt, 'sell', '4', '100', 'bob-unsettled-release');
+      const taker = await rest(ALICE, btcusdt, 'buy', '4', '100', 'alice-unsettled-release');
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('400');
+      expect(await avail(ALICE, 'USDT')).toBe('600');
+
+      // Fill row lands, tradeFill does not draw the hold. remainingHold already
+      // subtracts that 200. The qty-down below is only 100, so the pot stays
+      // above the stale remainder after the versioned release.
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.reason === 'trade.fill') throw new Error('died before tradeFill');
+        return post(request);
+      };
+      const fill = {
+        marketId: btcusdt.id,
+        makerOrderId: maker.id,
+        takerOrderId: taker.id,
+        price: '100',
+        qty: '2',
+        sequence: 77,
+      };
+      await expect(trade.settleFillEvent(fill)).rejects.toThrow('died before tradeFill');
+      ledger.post = post;
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('400');
+
+      const versionKey = `order.release:${taker.id}:2`;
+      ledger.post = async (request) => {
+        const posted = await post(request);
+        if (request.idempotencyKey === versionKey) throw new Error('crash after versioned release committed');
+        return posted;
+      };
+      await expect(trade.amendOrder(principalFor(ALICE), taker.id, { qty: amt('1') })).rejects.toThrow(
+        'crash after versioned release committed',
+      );
+      ledger.post = post;
+
+      // 100 is already back. Pot 300 is still above the stale remainder 200
+      // (hold 400 − unsettled fill 200 − amend_released 0).
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('300');
+      expect(await avail(ALICE, 'USDT')).toBe('700');
+
+      await trade.cancelOrder(principalFor(ALICE), taker.id);
+
+      // Cancel returns the other 100 and leaves the unsettled 200 for tradeFill.
+      // Sequence 0 must not contain the 100 already posted under the amend version.
+      expect(await avail(ALICE, 'USDT')).toBe('800');
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('200');
+      const releases = postsWithReason('order.hold.released');
+      expect(releases.map((tx) => tx.idempotencyKey).sort()).toEqual([`order.release:${taker.id}:0`, versionKey].sort());
+      const terminal = releases.find((tx) => tx.idempotencyKey === `order.release:${taker.id}:0`);
+      const terminalAmount = terminal?.entries.find((entry) => entry.direction === 'credit')?.amount;
+      expect(formatAmount(terminalAmount ?? 0n)).toBe('100');
+      const versioned = releases.find((tx) => tx.idempotencyKey === versionKey);
+      const versionedAmount = versioned?.entries.find((entry) => entry.direction === 'credit')?.amount;
+      expect(formatAmount(versionedAmount ?? 0n)).toBe('100');
+      expect(postsWithReason('trade.fill')).toHaveLength(0);
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
+
+    it('a cancel that crashes after the sequence-0 release posted retries with the same amount', async () => {
+      await fund(BOB, 'BTC', '10');
+      await fund(ALICE, 'USDT', '1000');
+      const maker = await rest(BOB, btcusdt, 'sell', '4', '100', 'bob-retry-key');
+      const taker = await rest(ALICE, btcusdt, 'buy', '4', '100', 'alice-retry-key');
+
+      // Unsettled fill of 1 (100 consumed): remainder 300, pot 400.
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (request) => {
+        if (request.reason === 'trade.fill') throw new Error('died before tradeFill');
+        return post(request);
+      };
+      await expect(
+        trade.settleFillEvent({
+          marketId: btcusdt.id,
+          makerOrderId: maker.id,
+          takerOrderId: taker.id,
+          price: '100',
+          qty: '1',
+          sequence: 88,
+        }),
+      ).rejects.toThrow('died before tradeFill');
+
+      const terminalKey = `order.release:${taker.id}:0`;
+      ledger.post = async (request) => {
+        const posted = await post(request);
+        if (request.idempotencyKey === terminalKey) throw new Error('crash after terminal release committed');
+        return posted;
+      };
+      await expect(trade.cancelOrder(principalFor(ALICE), taker.id)).rejects.toThrow('crash after terminal release committed');
+      ledger.post = post;
+
+      // Pot is now 100 (the unsettled fill). The retry must reuse the booked key, not re-amount it.
+      await trade.cancelOrder(principalFor(ALICE), taker.id);
+
+      const order = await trade.getOrder(principalFor(ALICE, ['trade:read']), taker.id);
+      expect(order.status).toBe('cancelled');
+      expect(postsWithReason('order.hold.released').filter((tx) => tx.idempotencyKey === terminalKey)).toHaveLength(1);
+      expect(await heldFor(ALICE, 'USDT', taker.id)).toBe('100');
+      expect(ledger.reconcile()).toEqual({ ok: true });
+    });
   });
 
   // ── THE double-release trap ─────────────────────────────────────────

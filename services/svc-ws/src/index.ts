@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { JetStreamEventBus, type Subscription } from '@intafaced/events';
 import { JAVA_ENV, sbeCodec } from '@intafaced/sbe-codec';
+import { s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
 import { attachBusHalf, closeBusSession } from './bus-session-close.js';
@@ -284,10 +285,13 @@ const privateTokens =
 // Private authority is mandatory; missing configuration leaves public feeds live.
 const identityUrl = env.IDENTITY_URL;
 const identityOwnershipSecret = env.IDENTITY_OWNERSHIP_SECRET;
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the identity reads on the dedicated secret alone.
+const s2s = s2sFromEnv(env, 'svc-ws');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const authority = (() => {
   if (!identityUrl || !identityOwnershipSecret) return null;
   try {
-    return createIdentityAuthorityClient({ baseUrl: identityUrl, secret: identityOwnershipSecret });
+    return createIdentityAuthorityClient({ baseUrl: identityUrl, secret: identityOwnershipSecret, ...(s2sKey ? { s2s: s2sKey } : {}) });
   } catch {
     return null;
   }

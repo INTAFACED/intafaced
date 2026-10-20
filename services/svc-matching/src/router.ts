@@ -269,6 +269,8 @@ const amendBodySchema = z
     }
   });
 
+const markBodySchema = z.object({ mark: decimal });
+
 const counterpartOrderSchema = z.object({
   orderId: z.string().min(1).max(128),
   marketId: z.string().min(1).max(128),
@@ -743,6 +745,23 @@ export function registerRoutes(
       return reply.code(404).send({ code: 'OrderNotFound', message: userCopy('matching.order_not_found') });
     }
     return reply.code(200).send(presentAmend(result));
+  });
+
+  // The mark that walks a market's trailing stops. It comes from svc-trade's own mark source, never from a customer.
+  app.post('/markets/:marketId/mark', async (req, reply) => {
+    try {
+      requireBasketChildService(req);
+    } catch (err) {
+      return authFailure(err, reply);
+    }
+
+    const { marketId } = req.params as { marketId: string };
+    const parsed = markBodySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ code: 'BadRequest', issues: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) });
+    }
+    const result = engine.markTrailingStops(marketId, parsed.data.mark);
+    return reply.code(200).send(result);
   });
 
   app.delete('/markets/:marketId/orders/:orderId', async (req, reply) => {

@@ -86,7 +86,7 @@ function kit() {
   const keyring: Keyring = keys.map((k) => ({ kid: `${k.svc}.a`, svc: k.svc, use: 's2s' as const, x: k.x }));
   const signer = (svc: ServiceName, ring: Keyring = keyring, privateKey = keys.find((k) => k.svc === svc)!.privateKey) =>
     createServiceSigner({ service: svc, kid: `${svc}.a`, privateKey, keyring: ring });
-  const verifier = () => createServiceVerifier({ self: 'svc-academy', keyring });
+  const verifier = () => createServiceVerifier({ self: 'svc-academy', keyring, bootSecond: 0 });
   return { keys, keyring, signer, verifier };
 }
 

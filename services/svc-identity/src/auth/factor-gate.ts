@@ -40,6 +40,8 @@ export interface FactorActor {
   readonly privileged: boolean;
   /** API-key or sub-account principal: every factor change is refused. */
   readonly delegated?: boolean;
+  /** The session doing the enrolling. Kept alive when TOTP enrolment revokes the account's other sessions. */
+  readonly sessionId?: string | undefined;
 }
 
 /** Derive the actor from a verified principal. `privilegedUserIds` is the founder pair. */
@@ -50,6 +52,8 @@ export function factorActor(
     readonly scopes: readonly string[];
     readonly kid?: string | undefined;
     readonly sub_account?: string | undefined;
+    /** The access token's session claim. */
+    readonly sid?: string | undefined;
   },
   privilegedUserIds: readonly string[] = [],
 ): FactorActor {
@@ -58,6 +62,7 @@ export function factorActor(
     mfa: principal.mfa === true,
     privileged: privilegedUserIds.some((p) => p.toLowerCase() === id) || principal.scopes.some((s) => s.startsWith('admin:')),
     delegated: Boolean(principal.kid) || Boolean(principal.sub_account),
+    sessionId: principal.sid,
   };
 }
 

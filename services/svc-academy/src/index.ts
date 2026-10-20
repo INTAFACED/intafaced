@@ -71,10 +71,14 @@ await sql`SELECT 1 FROM academy.rooms LIMIT 1`.catch(() => {
   throw new Error('academy schema is missing — run migrations before starting svc-academy');
 });
 
-const stakes = createStakeSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET);
+// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves every call and door on the shared secret alone.
+const s2s = s2sFromEnv(env, 'svc-academy');
+const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
+
+const stakes = createStakeSource(env.TOKEN_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
 /** §4.1 `lobbyHostRights` — who may open a room. Read at createRoom, fails closed. */
-const hostRights = createHostRightsSource(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET);
+const hostRights = createHostRightsSource(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 
 /**
  * The provider is chosen explicitly, never by fallback.
@@ -187,8 +191,6 @@ app.get('/ready', async () => ({
   xp: { id: certXp.id, usable: certXp.usable, publishes: 'intafaced.identity.xp.earned' },
 }));
 
-// Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves this door on the shared secret alone.
-const s2s = s2sFromEnv(env, 'svc-academy');
 registerInternalCurriculumRoute(
   app,
   env.INTERNAL_SERVICE_SECRET,

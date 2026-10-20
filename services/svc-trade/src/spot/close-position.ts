@@ -7,7 +7,6 @@ import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { env } from '../env.js';
-import { classifyHoldPostError } from './hold-outcome.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -72,8 +71,8 @@ export function sumBuyFillNotional(fills: readonly { readonly price: string; rea
 
 /**
  * Unit tests in close-position.flatten-hold and slice-futures-amounts still
- * call this. The close catch does not: it uses classifyHoldPostError, and a
- * close never writes hold_unknown.
+ * call this. The close catch does not: the engine has already printed the
+ * flatten when the hold is posted, so a close never deletes its row.
  */
 const DEFINITE_HOLD_REFUSAL_CODES = new Set([
   'ledger.insufficient_funds',
@@ -188,11 +187,8 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
         withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
       );
     } catch (err) {
-      const outcome = classifyHoldPostError(err);
-      if (outcome === 'refused' || outcome === 'unsent') {
-        await host.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-        throw err;
-      }
+      // The engine has already printed the flatten and told the makers they traded. Whatever the ledger said, the row
+      // stays so that fill can be settled or unwound; deleting it would leave the printed fill with no record at all.
       await host.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
       throw err;
     }
