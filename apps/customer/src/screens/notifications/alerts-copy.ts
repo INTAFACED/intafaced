@@ -18,7 +18,7 @@ const en = {
   refusedTextRejected: 'The name or message was not accepted: it is too long or uses a placeholder we do not know. Nothing was changed.',
   refusedExpiryRejected: 'That stop time was not accepted: it must be in the future and within the allowed range. Nothing was changed.',
   refusedOptionNotOn:
-    'A name, message or stop time is not switched on for this platform yet. Remove it or try again later. Nothing was changed.',
+    'This platform cannot save a name, message or stop time. Remove it and save the alert without it. Nothing was changed.',
   navAlerts: 'Price alerts',
   title: 'Price alerts',
   intro: 'Get a notification when a market reaches a price you choose. Each alert triggers once. It never places an order.',
@@ -130,7 +130,7 @@ const es = {
   messageLabel: 'Mensaje (opcional)',
   messageHint: 'Sustituye el texto predeterminado. Puedes usar {market}, {price}, {condition} y {time}.',
   expiresLabel: 'Dejar de vigilar el (opcional)',
-  expiresHint: 'Tu hora local. Déjalo vacío para vigilar hasta que se active o la canceles.',
+  expiresHint: 'Tu hora local. Déjalo vacío para vigilar hasta el momento del aviso o hasta que la canceles.',
   expiresInvalid: 'Introduce una fecha y hora reales.',
   reviewName: 'Nombre',
   reviewMessage: 'Mensaje',
@@ -138,7 +138,7 @@ const es = {
   refusedTextRejected: 'No se aceptó el nombre o el mensaje: es demasiado largo o usa un marcador desconocido. No se cambió nada.',
   refusedExpiryRejected: 'No se aceptó esa hora de fin: debe ser futura y estar dentro del rango permitido. No se cambió nada.',
   refusedOptionNotOn:
-    'Un nombre, mensaje u hora de fin aún no está activado en esta plataforma. Quítalo o inténtalo más tarde. No se cambió nada.',
+    'Esta plataforma no puede guardar un nombre, un mensaje ni una hora de fin. Quítalo y guarda la alerta sin él. No se cambió nada.',
   navAlerts: 'Alertas de precio',
   title: 'Alertas de precio',
   intro: 'Recibe una notificación cuando un mercado llegue al precio que elijas. Cada alerta se activa una sola vez. Nunca crea una orden.',
@@ -253,7 +253,7 @@ const fr = {
   refusedExpiryRejected:
     'Cette heure de fin n’a pas été acceptée : elle doit être dans le futur et dans la plage autorisée. Rien n’a été modifié.',
   refusedOptionNotOn:
-    'Un nom, un message ou une heure de fin n’est pas encore activé sur cette plateforme. Retirez-le ou réessayez plus tard. Rien n’a été modifié.',
+    'Cette plateforme ne peut pas enregistrer de nom, de message ni d’heure de fin. Retirez-le et enregistrez l’alerte sans. Rien n’a été modifié.',
   navAlerts: 'Alertes de prix',
   title: 'Alertes de prix',
   intro:
