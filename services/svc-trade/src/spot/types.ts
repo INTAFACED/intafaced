@@ -149,6 +149,8 @@ export interface OrderRecord {
   /** Proven native-amend qty-down releases. Remainder is hold − fills − this. */
   readonly amendReleased: Amount;
   readonly feeDiscountBps: number;
+  /** The caller's own label from the create body. Null when none was sent. Never part of the idempotency key. */
+  readonly tag: string | null;
   readonly protectionPrice: Amount | null;
   readonly engineSequence: number | null;
   /** Matching instruction version used as `expectedVersion` on the next PATCH. */
@@ -367,6 +369,8 @@ export type TradeErrorCode =
   | 'trade.stp_mode_unsupported'
   /** Order tags are not stored yet. */
   | 'trade.tag_unsupported'
+  | 'trade.invalid_tag'
+  | 'trade.fee_currency_unsupported'
   | 'trade.trigger_source_unset'
   | 'trade.invalid_qty'
   | 'trade.invalid_price'

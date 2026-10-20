@@ -109,7 +109,7 @@ export const features: readonly Feature[] = [
   {
     id: 'withdraw',
     label: 'Withdraw',
-    paths: ['/uc/withdraw', '/uc/withdraw/address'],
+    paths: ['/uc/withdraw', '/uc/withdraw/address', '/uc/withdraw/approvals'],
     status: 'blocked',
     reason: 'Custody withdrawal is not connected',
     unlock: 'custody contract',

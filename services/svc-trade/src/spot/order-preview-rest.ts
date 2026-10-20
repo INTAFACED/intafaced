@@ -278,8 +278,11 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       const expiresAt = expireWire === null || expireWire === '' ? null : Date.parse(expireWire);
       if (expireWire === null || expireWire === '') {
         refusals.push({ code: 'trade.missing_expire_at', field: 'expireAt', message: 'a good-till-date order needs an expiry' });
-      } else if (expiresAt === null || Number.isNaN(expiresAt) || expiresAt <= deps.now().getTime()) {
+      } else if (expiresAt === null || Number.isNaN(expiresAt)) {
         refusals.push({ code: 'trade.invalid_tif', field: 'expireAt', message: 'the expiry must be a date and time in the future' });
+      } else if (expiresAt <= deps.now().getTime()) {
+        // The same code the place door refuses a spent expiry with, so a preview and a send never disagree on it.
+        refusals.push({ code: 'trade.invalid_expiry', field: 'expireAt', message: 'the expiry must be a date and time in the future' });
       }
       if (typeWire !== 'limit') {
         refusals.push({ code: 'trade.invalid_tif', field: 'timeInForce', message: 'good-till-date needs a limit price to rest at' });

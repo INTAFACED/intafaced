@@ -87,7 +87,41 @@ export type CreatePortfolioAlertInput = {
 /** Above / below a target. Crossing fires once (status becomes `fired`). */
 export type AlertDirection = 'above' | 'below';
 
-export type AlertStatus = 'active' | 'fired' | 'cancelled';
+/** `stopped` is a pause the person chose: it never fires and can be resumed. `cancelled` is final. */
+export type AlertStatus = 'active' | 'fired' | 'cancelled' | 'expired' | 'stopped';
+
+/**
+ * How a watch compares the mark with its target.
+ *
+ *   greater_than / less_than   a LEVEL: fires whenever the mark is at or above (below) the target. The only conditions that
+ *                              existed before C-alerts-scan-01, stored as direction above / below.
+ *   crossing_up / crossing_down / crossing   fire only on a CHANGE of side, seen between two sweeps. The side the mark was last
+ *                              seen on is `lastSide`; a watch with no observation yet fires nothing and records one.
+ */
+export type AlertCondition = 'crossing' | 'crossing_up' | 'crossing_down' | 'greater_than' | 'less_than';
+export const ALERT_CONDITIONS = [
+  'crossing',
+  'crossing_up',
+  'crossing_down',
+  'greater_than',
+  'less_than',
+] as const satisfies readonly AlertCondition[];
+
+/** Which side of the target the mark was last seen on. At the target counts as `at_or_above`. */
+export type AlertSide = 'below' | 'at_or_above';
+
+export function isCrossingCondition(condition: AlertCondition): boolean {
+  return condition === 'crossing' || condition === 'crossing_up' || condition === 'crossing_down';
+}
+
+/** The stored direction for a condition. `crossing` has no direction of its own; `above` is a placeholder the evaluator ignores. */
+export function directionOfCondition(condition: AlertCondition): AlertDirection {
+  return condition === 'less_than' || condition === 'crossing_down' ? 'below' : 'above';
+}
+
+export function conditionOfDirection(direction: AlertDirection): AlertCondition {
+  return direction === 'above' ? 'greater_than' : 'less_than';
+}
 
 export type PriceAlert = {
   readonly id: string;
@@ -101,7 +135,36 @@ export type PriceAlert = {
   readonly status: AlertStatus;
   readonly firedAt: Date | null;
   readonly createdAt: Date;
+  readonly condition: AlertCondition;
+  /** The person's own label and message; `{market}`, `{price}`, `{condition}` and `{time}` are filled in when it fires. */
+  readonly name: string | null;
+  readonly message: string | null;
+  /** Open-ended when null. An active watch past this time is expired by the next sweep and never fires. */
+  readonly expiresAt: Date | null;
+  /** Internal state of a crossing watch; never on the wire. */
+  readonly lastSide: AlertSide | null;
+  /** Further level conditions on the same market. The alert fires only when the main condition AND every one of these holds. */
+  readonly extras: readonly AlertExtra[];
+  /** When the person last changed the alert (edit, stop, resume, cancel). The creation time until then. */
+  readonly updatedAt: Date;
 };
+
+/** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
+export const EXTRA_CONDITIONS = ['greater_than', 'less_than'] as const;
+export type AlertExtra = { readonly condition: (typeof EXTRA_CONDITIONS)[number]; readonly targetPrice: string };
+
+/** What the person may change on an alert that has not triggered. `null` clears a name, message or expiry. */
+export type AlertEdit = {
+  readonly targetPrice?: string;
+  readonly condition?: AlertCondition;
+  readonly name?: string | null;
+  readonly message?: string | null;
+  readonly expiresAt?: Date | null;
+  readonly extras?: readonly AlertExtra[];
+};
+
+/** The whole editable state, after an edit is merged and validated. */
+export type AlertEditState = Pick<PriceAlert, 'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>;
 
 export type CreatePriceAlertInput = {
   readonly userId: string;
@@ -109,6 +172,11 @@ export type CreatePriceAlertInput = {
   readonly kind?: SourcedAlertKind;
   readonly direction: AlertDirection;
   readonly targetPrice: string;
+  readonly condition?: AlertCondition;
+  readonly name?: string | null;
+  readonly message?: string | null;
+  readonly expiresAt?: Date | null;
+  readonly extras?: readonly AlertExtra[];
 };
 
 /**
@@ -155,8 +223,8 @@ export type AlertRefuseCode =
   | 'channel.disabled';
 
 export type AlertEvalOutcome =
-  | { readonly kind: 'hold'; readonly markPrice: string }
-  | { readonly kind: 'fire'; readonly markPrice: string }
+  | { readonly kind: 'hold'; readonly markPrice: string; readonly side?: AlertSide }
+  | { readonly kind: 'fire'; readonly markPrice: string; readonly side?: AlertSide }
   | {
       readonly kind: 'refuse';
       readonly code: AlertRefuseCode;

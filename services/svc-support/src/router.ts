@@ -12,11 +12,14 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
 } from '@intafaced/contracts';
+import { MemoryContactBook, type ContactBook } from './contact-channels.js';
+import { contactProcedures } from './contact-router.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -125,8 +128,11 @@ export function createSupportRouter(
   loop?: TicketKbLoopObserver,
   internalServiceSecret?: string | null,
   scope?: DeskScopeReader,
+  contact: ContactBook = new MemoryContactBook(),
 ) {
   return router({
+    ...contactProcedures(contact, support),
+
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
@@ -139,6 +145,17 @@ export function createSupportRouter(
           const ticket = await support.createTicket({ userId: ctx.principal!.userId, ...input });
           loop?.markTicketCreateSuccess();
           return ticket;
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** How many of the caller's own requests wait on their reply, and the one that has waited longest. */
+    awaitingMine: scopedProcedure('support:read')
+      .output(supportAwaitingMineSchema)
+      .query(async ({ ctx }) => {
+        try {
+          return await support.awaitingMine({ userId: ctx.principal!.userId });
         } catch (err) {
           mapError(err);
         }

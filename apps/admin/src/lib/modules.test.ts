@@ -92,6 +92,8 @@ describe('ADMIN_MODULES gate', () => {
   it('puts the identity keys desk behind the identity-ops module', () => {
     expect(moduleForPage('/identity-ops/keys')).toBe('identity-ops');
     expect(moduleForApi('/api/identity-ops/keys')).toBe('identity-ops');
+    expect(moduleForPage('/identity-ops/oauth')).toBe('identity-ops');
+    expect(moduleForApi('/api/identity-ops/oauth')).toBe('identity-ops');
     expect(isModuleEnabled('identity-ops', { ADMIN_MODULES: 'crm' })).toBe(false);
   });
 
