@@ -43,6 +43,15 @@ export const rooms: readonly Room[] = [
   { path: '/invite', title: 'Invite', description: 'Invite someone to Intafaced', area: 'public' },
   { path: '/app', title: 'Get the app', description: 'Mobile availability', area: 'public' },
   { path: '/partner', title: 'Partners', description: 'Work with Intafaced', area: 'public' },
+  { path: '/developers', title: 'Developers', description: 'Connect to Intafaced from your own code', area: 'public' },
+  { path: '/developers/hosts', title: 'Base addresses', description: 'Hosts per protocol, environment and region', area: 'public' },
+  {
+    path: '/developers/:section',
+    title: 'Developer section',
+    description: 'One section of the developer portal',
+    area: 'public',
+    hidden: true,
+  },
   { path: '/lab', title: 'Campaigns', description: 'Public activities', area: 'public' },
   { path: '/lab/detail/:id', title: 'Campaign', description: 'Activity details', area: 'public', hidden: true },
   { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
@@ -697,7 +706,7 @@ export function roomPath(room: Room, locale: UiLocale = currentPreferences().lan
 export function doorLabel(door: Door | 'Money', locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner']);
+const publicSearchable = new Set(['/help', '/notice', '/lab', '/app', '/partner', '/developers', '/developers/hosts']);
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
  * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business
