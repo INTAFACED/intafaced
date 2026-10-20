@@ -46,7 +46,7 @@ const row = (assetId: string, kind: 'available' | 'hold' | 'stake', amount: stri
   amount: amt(amount),
 });
 
-function build(rows: Balance[], entries: Array<{ direction: 'debit' | 'credit'; amount: string }> = []) {
+function build(rows: Balance[], entries: Array<{ direction: 'debit' | 'credit'; amount: string }> = [], withPages = true) {
   const asked: string[] = [];
   const ledger = {
     balances: async (ownerType: string, ownerId: string) => {
@@ -69,7 +69,7 @@ function build(rows: Balance[], entries: Array<{ direction: 'debit' | 'credit'; 
       nextCursor: null,
     }),
   };
-  const portfolio = new PortfolioService(ledger, { namedSpaces: async () => [] }, { pages });
+  const portfolio = new PortfolioService(ledger, { namedSpaces: async () => [] }, withPages ? { pages } : {});
   const router = createBankRouter({ portfolio } as unknown as BankServices);
   return { asked, as: (userId: string, scopes: string[]) => router.createCaller(signed(userId, scopes)) };
 }
@@ -134,6 +134,15 @@ describe('finance-treasury customer balances', () => {
       code: 'PRECONDITION_FAILED',
       cause: expect.objectContaining({ code: 'portfolio.entries_do_not_sum' }),
     });
+    info.mockRestore();
+  });
+
+  it('says the history is unavailable when the history reads are not set up, not an opaque error', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const off = build([row('USDT', 'available', '5')], [], false);
+    await expect(
+      off.as(OPERATOR, ['admin:treasury']).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' }),
+    ).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
     info.mockRestore();
   });
 
