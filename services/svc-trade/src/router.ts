@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   JurisdictionError,
+  mergeRouters,
   router,
   publicProcedure,
   scopedProcedure,
@@ -44,6 +45,7 @@ import { describeCopyPolicy } from './copy/copy-policy.js';
 import { ListMyFollowsLimitUnsetError, publishedListMyFollowsLimit, type CopyService } from './copy/copy-service.js';
 import { publishedCopyPageLimit, refuseLeaderDirectoryRanking } from './copy/leader-listing.js';
 import { describeFuturesPolicy } from './futures/futures-policy.js';
+import { isPremarket } from './futures/premarket.js';
 import { describeOptionsPolicy } from './spot/options-policy.js';
 import { describeOtcPolicy } from './otc/otc-policy.js';
 import { describeAlgoPolicy } from './algo/algo-policy.js';
@@ -55,6 +57,7 @@ import { presentAlgoDesk, presentScheduleHonesty } from './algo/present.js';
 import { tradingControlsRouter } from './controls/router.js';
 import { TradingControlError, type TradingControls } from './controls/trading-controls.js';
 import { tradeOpsAdminRouter } from './admin/router.js';
+import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 
 /**
@@ -286,6 +289,14 @@ const marketOutput = z.object({
   listedAt: z.string().nullable(),
   futuresContractStyle: z.enum(['perpetual', 'dated']).nullable(),
   futuresExpiryAt: z.string().nullable(),
+  /** Stored contract family; null where none is recorded. */
+  family: z.enum(['linear', 'inverse']).nullable(),
+  /** Asset a futures market settles in, as stored; null where none is recorded. */
+  settleAsset: z.string().nullable(),
+  /** Contract multiplier as stored; null where the market never recorded one. */
+  contractSize: decimal.nullable(),
+  /** A futures market still in prelaunch. */
+  premarket: z.boolean(),
 });
 
 const orderOutput = z.object({
@@ -352,6 +363,10 @@ function presentMarket(market: Market) {
     listedAt: market.listedAt?.toISOString() ?? null,
     futuresContractStyle: futuresStyle,
     futuresExpiryAt: market.futuresExpiryAt?.toISOString() ?? null,
+    family: market.kind === 'futures' ? (market.futuresFamily ?? null) : null,
+    settleAsset: market.kind === 'futures' ? (market.futuresSettleAsset ?? null) : null,
+    contractSize: market.kind === 'futures' && market.contractSize != null ? formatAmount(market.contractSize) : null,
+    premarket: isPremarket(market),
   };
 }
 
@@ -756,11 +771,12 @@ export function createTradeRouter(
   copy?: CopyService,
   controls?: TradingControls,
   admin?: TradeOpsAdmin,
+  insuranceTopups?: InsuranceTopupAdmin,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
     accountControls: tradingControlsRouter(controls),
-    admin: tradeOpsAdminRouter(admin),
+    admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

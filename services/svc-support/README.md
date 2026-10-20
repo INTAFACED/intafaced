@@ -88,6 +88,16 @@ indistinguishable from every account genuinely being unreadable.
 blank means staff availability (online, busy, offline) is manual, the desk says
 automatic offline is not set (`staffAvailabilityPolicy`), and a heartbeat
 refuses `support.heartbeat_window_unset`.
+Desk groups: while no group exists every support:ops caller sees the whole queue
+(`deskScope` says `restricted: false`). Once any group exists an agent sees the
+tickets of their groups plus tickets assigned to them, a lead also sees tickets in
+no group (so a new one can reach a group), and a ticket outside the scope answers
+as not found on every operator door. `SUPPORT_ALL_GROUPS_ROLES` (comma separated
+`agent`, `lead`) is an owner value, blank by default: it marks roles that see every group.
+A lead can add themselves to any group, so group scope limits agents, not leads.
+Agent-set priority, type and labels (`setProperties`, `ticketProperties`) live in `ticket_properties`
+beside the ticket, never on it: the ticket owner reads the ticket and must not see them. Each change
+is logged in `ticket_property_log`; `listQueue` takes a `label` filter.
 
 ## Migrations
 

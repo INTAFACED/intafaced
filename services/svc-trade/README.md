@@ -81,6 +81,20 @@ control that traps funds is not a safety control.
 `listMarket()` and `setMarketStatus()` are service methods with no user-facing route. A listing decides the tick
 and lot grid and therefore decides whether a legal fill on that market can be worth nothing.
 
+**Futures contract families, expiry tenors and pre-market (D-instruments-03).** Operator tRPC under `admin.*`, writes
+need `admin:write` and a second operator's `approvalId` (four-eyes), all idempotent on `clientRequestId` and audited:
+
+| Procedure                                          | What it does                                                                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `admin.futuresListing.create`                      | lists a dated futures market through `listMarket`; a second create for the symbol returns the first, writes nothing |
+| `admin.futuresSchedule.get` / `.set`               | owner tenor table (weekly, monthly, quarterly, enabled or not); versioned; blank is `no_schedule_published`; no job |
+| `admin.futuresPremarket.get` / `.set` / `.convert` | owner flat funding rate and mark clamp band per market; convert moves `pending` to `active` in one transaction      |
+
+The listing record carries `family` (`linear` only; `inverse` refuses `trade.inverse_family_unsupported`) and
+`settleAsset` (the quote asset; USDC needs `TRADE_FUTURES_SETTLE_ASSETS` to name it). Blank pre-market params refuse
+`trade.premarket_params_unset`. The public market read (`GET /api/v1/markets`, `markets.list`) shows `family`,
+`settleAsset`, `contractSize` and `premarket`.
+
 ---
 
 ## Events
