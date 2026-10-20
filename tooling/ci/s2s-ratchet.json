@@ -1,13 +1,5 @@
 {
   "files": {
-    "services/svc-academy/src/host-rights.ts": {
-      "sign": 1,
-      "caller": 0
-    },
-    "services/svc-academy/src/stake-source.ts": {
-      "sign": 1,
-      "caller": 0
-    },
     "services/svc-agents/src/router.ts": {
       "sign": 0,
       "caller": 1
