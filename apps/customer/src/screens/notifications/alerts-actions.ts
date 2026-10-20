@@ -3,6 +3,7 @@ import { activeWords, cancelWords, settleFailure, type ActiveWords, type CancelW
 import {
   cancelPriceAlert,
   createPriceAlert,
+  createPriceAlerts,
   deletePriceAlert,
   setPriceAlertActive,
   updatePriceAlert,
@@ -10,6 +11,7 @@ import {
   type AlertEvaluation,
   type AlertIntent,
   type PriceAlert,
+  type WatchlistIntent,
 } from './notify-api';
 
 export type CreateOutcome = { kind: 'saved'; alert: PriceAlert; evaluation: AlertEvaluation } | Settled;
@@ -50,4 +52,12 @@ export async function submitActive(api: ApiClient, id: string, active: boolean, 
 export async function submitDelete(api: ApiClient, id: string): Promise<DeleteOutcome> {
   const result = await deletePriceAlert(api, id);
   return result.ok ? { kind: 'deleted', deleted: result.data.deleted } : settleFailure(result);
+}
+
+export type WatchlistOutcome = { kind: 'saved'; alerts: PriceAlert[]; evaluation: AlertEvaluation } | Settled;
+
+/** Save one alert per market, all or none. Sent at most once per call: the service takes no request id. */
+export async function submitWatchlist(api: ApiClient, intent: WatchlistIntent, userId: string): Promise<WatchlistOutcome> {
+  const result = await createPriceAlerts(api, intent, userId);
+  return result.ok ? { kind: 'saved', alerts: result.data.alerts, evaluation: result.data.evaluation } : settleFailure(result);
 }
