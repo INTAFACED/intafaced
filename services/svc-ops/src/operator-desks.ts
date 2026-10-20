@@ -10,6 +10,8 @@ import {
   createIdentityApprovalClient,
   founderAttestationVerdict,
   type ActionApproval,
+  type ServiceAuthMode,
+  type ServiceSigner,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
 import {
@@ -140,12 +142,17 @@ export function approvalPayloadHash(actionType: string, fields: Record<string, s
 }
 
 /** Identity answers or the door refuses: the shared client bounds the call with a timeout (a timeout fails closed) and checks the CONSUMED echo. */
-export function createOpsApprovalClient(baseUrl: string, internalSecret: string): ApprovalConsumer {
+export function createOpsApprovalClient(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ApprovalConsumer {
   return createIdentityApprovalClient({
     service: 'svc-ops',
     baseUrl,
     internalSecret,
     fail: (message) => new OpsError(OPS_APPROVAL_UNWIRED, message),
+    ...(s2s ? { s2s } : {}),
   });
 }
 
