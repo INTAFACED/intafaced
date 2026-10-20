@@ -4,6 +4,7 @@ import {
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
 } from '@intafaced/contracts';
@@ -11,11 +12,14 @@ import { founderCall, parseWith, type FounderCallContext, type FounderCallResult
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
 import type {
   SupportKbView,
+  SupportLifecycleView,
   SupportPropertiesView,
+  SupportRatingSummaryView,
   SupportQueueView,
   SupportGroupsView,
   SupportStaffView,
@@ -108,6 +112,26 @@ export async function loadTicketProperties(
 ): Promise<SupportPropertiesView> {
   const result = await founderCall(ctx, 'support', 'ticketProperties', 'GET', { ticketId }, parseWith(supportTicketPropertiesSchema));
   return { asOf: now.toISOString(), properties: partFrom(result, (p) => p, LABELS) };
+}
+
+/** Who a ticket waits on and the request it follows. Its own read, so a refusal here never hides the ticket. */
+export async function loadTicketLifecycle(
+  ctx: FounderCallContext,
+  ticketId: string,
+  now: Date = new Date(),
+): Promise<SupportLifecycleView> {
+  const result = await founderCall(ctx, 'support', 'ticketLifecycle', 'GET', { ticketId }, parseWith(supportTicketLifecycleSchema));
+  return { asOf: now.toISOString(), lifecycle: partFrom(result, (l) => l, LABELS) };
+}
+
+/** Ratings for the requests solved in the stated window. Its own read, so a refusal here never hides the queue. */
+export async function loadRatingSummary(
+  ctx: FounderCallContext,
+  window: { readonly from: string; readonly to: string },
+  now: Date = new Date(),
+): Promise<SupportRatingSummaryView> {
+  const result = await founderCall(ctx, 'support', 'ratingSummary', 'GET', { from: window.from, to: window.to }, readRatingSummary);
+  return { asOf: now.toISOString(), summary: partFrom(result, (r) => r, LABELS) };
 }
 
 /** Who is on the support staff and whether automatic offline is set. Two reads, each its own part. */

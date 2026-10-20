@@ -52,6 +52,22 @@ describe('Support event network ownership and recorded chronology', () => {
     expect(hasSupportEventGap(result.data)).toBe(true);
     expect(result.data[1]).toMatchObject({ id: otherId, fromStatus: 'open', toStatus: 'pending' });
   });
+  it('accepts a move onto hold and back', async () => {
+    const hold = {
+      ...event,
+      id: otherId,
+      sequence: 2,
+      kind: 'status_changed',
+      actorRole: 'operator',
+      actorId: otherId,
+      fromStatus: 'open',
+      toStatus: 'on_hold',
+    };
+    const result = await read([event, hold]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data[1]).toMatchObject({ fromStatus: 'open', toStatus: 'on_hold' });
+  });
   it('treats empty returned events as a read result, with no invented opening or current status', async () => {
     expect(await read([])).toEqual({ ok: true, data: [] });
     expect(hasSupportEventGap([])).toBe(false);

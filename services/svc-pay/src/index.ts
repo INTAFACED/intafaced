@@ -24,6 +24,12 @@ import { createRegistryReader } from './registries/read-api.js';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
+import { PurchaseHoldService } from './withdrawals/purchase-holds/service.js';
+import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
+import { loadMessageCipher } from './travel-rule/cipher.js';
+import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
+import { TravelRuleService } from './travel-rule/service.js';
+import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
 import { createWithdrawalLimitReader } from './limits/reader.js';
 import { createSqlLimitSource } from './limits/source.js';
@@ -37,6 +43,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
+import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
@@ -404,6 +411,11 @@ const walletPay = new WalletPay({
   now: () => new Date(),
 });
 
+const purchaseHolds = new PurchaseHoldService({ sql }).guard();
+const withdrawalQuotes = new WithdrawalQuoteService({ sql });
+/** W-compliance-notices-04: no counterparty network is connected, and no message key means nothing is stored. */
+const travelRuleCipher = loadMessageCipher(process.env);
+
 const userMoney = new UserMoneyService(sql, ledger, rails, {
   guards: payGuards,
   haltStore,
@@ -418,8 +430,12 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     tierOf: kycTierSource,
   }),
   withdrawalHistory: createWithdrawalHistory(sql),
-  // Only the negative-balance check is answerable here (from the ledger); every other reason reads `unwired`.
-  withdrawalEligibility: createWithdrawalEligibility({ negative_balance: ledgerNegativeBalanceSource(ledger) }),
+  // The negative-balance and purchase-hold checks are answerable here (from the ledger and our own hold records); every other reason reads `unwired`.
+  withdrawalEligibility: createWithdrawalEligibility({
+    negative_balance: ledgerNegativeBalanceSource(ledger),
+    purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
+  }),
+  purchaseHolds,
 });
 
 /**
@@ -480,11 +496,19 @@ const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails });
 /** Blank, zero, or a partial triple leaves email invites unconfigured. */
 const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
 
+/** W-custody-ops-12: the custody desk reverses a dropped, held withdrawal through the withdrawal service's own posting. */
+const custodyDroppedReverser = {
+  reverseDropped: ({ withdrawalId, expectedAttempt }: { withdrawalId: string; expectedAttempt: number }) =>
+    userMoney.reverseDroppedWithdrawal({ withdrawalId, expectedAttempt }),
+};
+
 export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes),
+  // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
+  createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
   createScreeningRouter(
     new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
@@ -514,7 +538,11 @@ export const appRouter = mergeRouters(
     registries: { sql, approvals: actionApprovals },
     sql,
     limits: { sql, approvals: actionApprovals },
-    custody: { sql },
+    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
+    purchaseHolds: { sql },
+    withdrawalQuotes: { sql },
+    travelRule: { sql, cipher: travelRuleCipher },
+    withdrawalReturns: { sql },
     starterFee: merchantStarterFee,
     ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
@@ -681,6 +709,13 @@ registerOwnerPayScopeRoute(app, {
       parentMerchantId: row.parent_merchant_id,
     };
   },
+});
+
+registerClosureCheckRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  check: (input) => runPayClosureCheck(sql, input),
 });
 
 registerSubscriptionCycleRoutes(app, {

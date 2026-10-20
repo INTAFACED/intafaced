@@ -4,5 +4,6 @@
   "transport": "same-origin",
   "apiPath": "/api",
   "websocketPath": "/ws",
+  "hostDispatch": "unverified",
   "schemaVersion": 1
 }

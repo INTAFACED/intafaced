@@ -12,6 +12,7 @@ import { publicCopy } from './public-copy';
 import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, CampaignsOverview, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { pagesCopy } from './public-pages-copy';
+import { StatusPage } from './StatusPage';
 
 function Brand() {
   return (
@@ -71,12 +72,14 @@ export function PublicRoutes({ path }: { path: string }) {
           <AboutPage />
         ) : path === '/developers' || path.startsWith('/developers/') ? (
           <DevelopersRoutes path={path} />
+        ) : path === '/status' ? (
+          <StatusPage />
         ) : path === '/partner' ? (
           <PartnerPage />
         ) : path === '/notice' || path === '/announcement' ? (
           <NoticePage />
         ) : path.startsWith('/notice/') || path.startsWith('/announcement/') ? (
-          <NoticePage detail />
+          <NoticePage detail id={path.split('/')[2] ?? null} />
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (
@@ -91,6 +94,7 @@ export function PublicRoutes({ path }: { path: string }) {
         <Brand />
         <div>
           <a href="/help">{t('Help')}</a>
+          <a href="/status">{t('Status')}</a>
           <a href="/notice">{t('Notices')}</a>
           <a href="/partner">{t('Partners')}</a>
         </div>

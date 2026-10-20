@@ -186,7 +186,11 @@ const bank = createBankServices(sql, ledger, history, {
    * PORTFOLIO — "Est. total value" prices from svc-trade's public tickers, the
    * same TRADE_URL the loan marks read. A read; nothing is written back.
    */
-  portfolio: { tickers: httpTickerSource({ baseUrl: env.TRADE_URL }) },
+  portfolio: {
+    tickers: httpTickerSource({ baseUrl: env.TRADE_URL }),
+    // The entries behind a balance: svc-ledger `historyPage`, read only.
+    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+  },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,
     ...(usableTradeConvertUrl(env.TRADE_URL)

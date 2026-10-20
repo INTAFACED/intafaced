@@ -28,6 +28,7 @@ const LOOKS: Record<LifecycleState, LifecycleLook> = {
   AUCTION: { word: 'Auction', group: 'restricted', tone: 'warn', glyph: '◐' },
   OPEN: { word: 'Open', group: 'open', tone: 'neutral', glyph: '●' },
   POST_ONLY: { word: 'Post-only', group: 'restricted', tone: 'warn', glyph: '◐' },
+  LIMIT_ONLY: { word: 'Limit-only', group: 'restricted', tone: 'warn', glyph: '◐' },
   CANCEL_ONLY: { word: 'Cancel-only', group: 'restricted', tone: 'warn', glyph: '◐' },
   REDUCE_ONLY: { word: 'Reduce-only', group: 'restricted', tone: 'warn', glyph: '◐' },
   HALTED: { word: 'Halted', group: 'halted', tone: 'error', glyph: '■' },

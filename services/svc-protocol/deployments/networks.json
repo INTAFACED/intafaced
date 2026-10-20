@@ -1,0 +1,24 @@
+[
+  {
+    "chainId": 84532,
+    "name": "Base Sepolia test network",
+    "kind": "testnet",
+    "nativeCurrency": null,
+    "rpcUrls": null,
+    "blockTimeSeconds": null,
+    "explorerUrls": ["https://sepolia.basescan.org"],
+    "faucets": null,
+    "ecosystem": null
+  },
+  {
+    "chainId": 31337,
+    "name": "Local test chain",
+    "kind": "local",
+    "nativeCurrency": null,
+    "rpcUrls": null,
+    "blockTimeSeconds": null,
+    "explorerUrls": null,
+    "faucets": null,
+    "ecosystem": null
+  }
+]

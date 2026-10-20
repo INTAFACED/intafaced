@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decideMarketAdmission,
   marketAdmissionDossierSchema,
+  marketLifecycleStateSchema,
   marketStateSnapshotSchema,
   marketTransitionRecordSchema,
   type MarketAdmissionDossier,
@@ -51,6 +52,26 @@ describe('market lifecycle contract', () => {
       decision: 'REFUSED',
       blockingSockets: ['owner.jurisdiction', 'owner.risk-limits'],
     });
+  });
+
+  it('names limit-only as a lifecycle state that still takes limit placement', () => {
+    const snapshot = {
+      marketId: 'market-1',
+      ruleVersion: 'rule-1',
+      instrumentId: 'BTC-USDT',
+      instrumentVersion: 'instrument-1',
+      reasonCategory: 'OPERATOR' as const,
+      reasonCode: 'trade.lifecycle.limit_only',
+      effectiveAt: '2026-08-24T12:00:00.000Z',
+      observedAt: '2026-08-24T12:00:01.000Z',
+      lastGoodState: 'OPEN' as const,
+      transitionId: 'transition-1',
+      evidenceRefs: ['approval-1'],
+    };
+    expect(marketLifecycleStateSchema.safeParse('LIMIT_ONLY').success).toBe(true);
+    expect(marketStateSnapshotSchema.safeParse({ ...snapshot, state: 'LIMIT_ONLY', allowedActions: ['PLACE', 'CANCEL'] }).success).toBe(
+      true,
+    );
   });
 
   it('refuses risk-increasing actions in halted, cancel-only, and terminal states', () => {

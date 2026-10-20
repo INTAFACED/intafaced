@@ -7,6 +7,7 @@ import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intaf
 import { SqlGroupBook, deskCanSee } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlStaffBook } from './desk-staff.js';
+import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { PostgresSupportStore } from './store.js';
 
 /**
@@ -147,6 +148,62 @@ if (!url) {
       const staff = new SqlStaffBook(db.sql);
       await staff.appoint({ userId: AGENT, role: 'agent', by: LEAD, at: '2026-10-20T08:00:00.000Z' });
       await expect(db.sql`UPDATE support.staff SET availability = 'away' WHERE user_id = ${AGENT}`).rejects.toThrow();
+    });
+
+    it('holds a ticket in the database, resumes it on a customer reply with one trail row, and keeps closed terminal', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const ticket = await store.createTicket({ userId: USER, category: 'account', subject: 'Hold', body: 'Please look' });
+      const held = await store.setStatus({ ticketId: ticket.id, status: 'on_hold', operatorId: AGENT, note: 'Waiting on the bank' });
+      expect(held).toMatchObject({ status: 'ok', ticket: { status: 'on_hold' } });
+      const reply = await store.addComment({ ticketId: ticket.id, authorId: USER, authorRole: 'user', body: 'Any news?' });
+      expect(reply).toMatchObject({ status: 'ok', ticket: { status: 'open' } });
+      const events =
+        await db.sql`SELECT from_status, to_status, note FROM support.ticket_events WHERE ticket_id = ${ticket.id} AND kind = 'status_changed' ORDER BY sequence`;
+      expect(events.map((e) => `${e.from_status}->${e.to_status}:${e.note}`)).toEqual([
+        'open->on_hold:Waiting on the bank',
+        'on_hold->open:user_reply_resume',
+      ]);
+      await db.sql`UPDATE support.tickets SET status = 'on_hold' WHERE id = ${ticket.id}`;
+      await db.sql`UPDATE support.tickets SET status = 'closed' WHERE id = ${ticket.id}`;
+      await expect(db.sql`UPDATE support.tickets SET status = 'on_hold' WHERE id = ${ticket.id}`).rejects.toThrow(/terminal/);
+      await expect(db.sql`UPDATE support.tickets SET status = 'paused' WHERE id = ${ticket.id}`).rejects.toThrow();
+    });
+
+    it('stores waiting-on, the first public reply and the follow-up link beside the ticket', async () => {
+      const store = new PostgresSupportStore(db.sql);
+      const book = new SqlLifecycleBook(db.sql);
+      const closed = await store.createTicket({ userId: USER, category: 'account', subject: 'Old', body: 'Please look' });
+      const next = await store.createTicket({ userId: USER, category: 'account', subject: 'New', body: 'Again' });
+      const t1 = '2026-10-20T10:00:00.000Z';
+      const t2 = '2026-10-20T10:05:00.000Z';
+      expect(await book.get(next.id)).toEqual({
+        ticketId: next.id,
+        waitingOn: null,
+        waitingSince: null,
+        firstPublicReplyAt: null,
+        followsTicketId: null,
+      });
+      await book.setWaiting(next.id, 'customer', t1);
+      await book.markFirstPublicReply(next.id, t1);
+      await book.setWaiting(next.id, 'customer', t2);
+      await book.markFirstPublicReply(next.id, t2);
+      await book.linkFollowUp(next.id, closed.id, t1);
+      await book.linkFollowUp(next.id, closed.id, t2);
+      expect(await book.get(next.id)).toEqual({
+        ticketId: next.id,
+        waitingOn: 'customer',
+        waitingSince: t1,
+        firstPublicReplyAt: t1,
+        followsTicketId: closed.id,
+      });
+      await book.setWaiting(next.id, 'team', t2);
+      expect(await book.get(next.id)).toMatchObject({ waitingOn: 'team', waitingSince: t2, firstPublicReplyAt: t1 });
+      await book.setWaiting(next.id, null, t2);
+      expect(await book.get(next.id)).toMatchObject({ waitingOn: null, waitingSince: null });
+      await expect(db.sql`UPDATE support.ticket_lifecycle SET waiting_on = 'both' WHERE ticket_id = ${next.id}`).rejects.toThrow();
+      await expect(
+        db.sql`UPDATE support.ticket_lifecycle SET follows_ticket_id = ticket_id WHERE ticket_id = ${next.id}`,
+      ).rejects.toThrow();
     });
 
     it('unclaims only the assignee and lets a lead assign the ticket to another staff id', async () => {

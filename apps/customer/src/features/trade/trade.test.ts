@@ -58,6 +58,27 @@ const sourceOrder = {
   reconciliationKey: null,
 };
 
+describe('order changes read', () => {
+  const row = {
+    kind: 'amend',
+    at: '2026-10-01T00:00:00.000Z',
+    quantity: '2',
+    price: '55',
+    version: '1',
+    relatedOrderId: null,
+    direction: null,
+  };
+  const apiFor = (body: unknown) => createTradeApi(createApiClient({ fetch: async () => new Response(JSON.stringify(body)) }));
+  it('returns the rows for the order asked about', async () => {
+    const result = await apiFor({ orderId: 'original-1', amendments: [row] }).changes('original-1');
+    expect(result).toMatchObject({ ok: true, data: [{ kind: 'amend', quantity: '2' }] });
+  });
+  it('refuses a reply that names another order', async () => {
+    const result = await apiFor({ orderId: 'another-order', amendments: [row] }).changes('original-1');
+    expect(result).toMatchObject({ ok: false, reason: 'invalid_response' });
+  });
+});
+
 describe('trading feature network boundary', () => {
   it.each(['read', 'cancel', 'amend'] as const)('refuses another valid order identity returned by %s', async (kind) => {
     const wrongOrder = { ...sourceOrder, id: 'another-order', status: 'canceled' };

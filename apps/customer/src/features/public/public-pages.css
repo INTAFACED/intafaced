@@ -200,3 +200,18 @@
 .pub-card ol.pub-list {
   padding: 0;
 }
+
+.pub-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.pub-table th,
+.pub-table td {
+  padding: var(--spacing-8, 8px) var(--spacing-12);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.pub-table th {
+  font-weight: var(--font-weight-semibold);
+}

@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
+import { createHash, createHmac, createPublicKey, randomBytes, type KeyObject } from 'node:crypto';
 import { verifyAuthenticationResponse as verifyAssertionWithLibrary } from '@simplewebauthn/server';
 import type { Sql } from 'postgres';
 import { decodeCbor, decodeCborItem, encodeCbor, mapGet, type CborValue } from './cbor.js';
@@ -263,6 +263,33 @@ export function createRegistrationOptions(
     },
     attestation: 'none',
   };
+}
+
+/** Fewest and most credential ids a sign-in answer lists for an account that cannot sign in. */
+export const DECOY_COUNT_MIN = 1;
+export const DECOY_COUNT_MAX = 3;
+/** Byte lengths real credential ids come in (platform authenticators 32, security keys 64). */
+const DECOY_ID_BYTES = [32, 64] as const;
+
+/**
+ * Credential ids to list for an identifier that cannot sign in with a passkey (unknown, frozen, or no passkey), so the answer does
+ * not tell a stranger which identifiers are accounts. Derived from the server secret and the normalised identifier only: the
+ * same identifier always gets the same ids, and nothing is stored. Count 1 to 3 and each id 32 or 64 bytes, like real ones.
+ */
+export function decoyCredentialIds(secret: string, identifier: string): string[] {
+  const key = createHmac('sha256', secret).update('webauthn-decoy:v1').digest();
+  const normalised = identifier.trim().toLowerCase();
+  const head = createHmac('sha256', key).update(`count:${normalised}`).digest();
+  const count = DECOY_COUNT_MIN + (head[0]! % (DECOY_COUNT_MAX - DECOY_COUNT_MIN + 1));
+  const ids: string[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const block = Buffer.concat([
+      createHmac('sha256', key).update(`id:${i}:a:${normalised}`).digest(),
+      createHmac('sha256', key).update(`id:${i}:b:${normalised}`).digest(),
+    ]);
+    ids.push(b64urlEncode(block.subarray(0, DECOY_ID_BYTES[block[63]! % DECOY_ID_BYTES.length]!)));
+  }
+  return ids;
 }
 
 export function createAuthenticationOptions(

@@ -129,4 +129,22 @@ describe('orderHistory filters (PG-hard)', () => {
   it('filters combine, and a symbol filter still applies', async () => {
     expect(await history({ side: 'buy', status: 'cancelled', untilMs: T2, marketId: market.id })).toEqual([ids.a]);
   });
+
+  it('orderAmendments lists amends and replace links oldest first, owner only', async () => {
+    expect(await trade.orderAmendments(alice, ids.a)).toEqual([]);
+    await db.sql`INSERT INTO trade.order_events (order_id, kind, quantity, price, code, at) VALUES (${ids.a}, 'amend', 2, 55, 'amend:2', ${new Date(T3)})`;
+    await db.sql`INSERT INTO trade.order_events (order_id, kind, quantity, price, code, at) VALUES (${ids.a}, 'amend', 3, 54, 'amend:1', ${new Date(T2)})`;
+    await db.sql`UPDATE trade.orders SET replacement_of = ${ids.a}, replacement_request_hash = 'h', created_at = ${new Date(T3 + 1000)} WHERE id = ${ids.b}`;
+    const listed = await trade.orderAmendments(alice, ids.a);
+    expect(listed.map((r) => [r.kind, r.version, r.relatedOrderId, r.direction])).toEqual([
+      ['amend', '1', null, null],
+      ['amend', '2', null, null],
+      ['replace', null, ids.b, 'replaced_by'],
+    ]);
+    expect(listed[0]).toMatchObject({ quantity: '3.000000000000000000', price: '54.000000000000000000' });
+    const back = await trade.orderAmendments(alice, ids.b);
+    expect(back.map((r) => [r.kind, r.relatedOrderId, r.direction])).toEqual([['replace', ids.a, 'replaces']]);
+    await expect(trade.orderAmendments(principalFor(ALICE, ['market:read']), ids.a)).rejects.toThrow();
+    await expect(trade.orderAmendments(alice, ids.other)).rejects.toMatchObject({ code: 'trade.order_not_found' });
+  });
 });

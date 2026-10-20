@@ -606,6 +606,8 @@ export type BankErrorCode =
   | 'bank.activity_not_found'
   /** Lookup stopped before history ended, so absence is not proven. */
   | 'bank.activity_lookup_bounded'
+  /** The ledger entries of a balance do not add up to the live balance; the page shows the gap and no list. */
+  | 'portfolio.entries_do_not_sum'
   /** A from/to or amount range is backwards. */
   | 'bank.activity_range'
   /** A note command id was reused with different text. */
@@ -623,7 +625,9 @@ export type BankErrorCode =
   /** More posted lines than a statement file will carry. Narrow the dates. */
   | 'bank.statement_too_large'
   /** No service secret, or activity could not be read, so no file was built. */
-  | 'bank.statement_unavailable';
+  | 'bank.statement_unavailable'
+  /** A desk read of a customer's balances could not be recorded, so it was not made. */
+  | 'bank.ops_audit_unavailable';
 
 export class BankError extends Error {
   constructor(
