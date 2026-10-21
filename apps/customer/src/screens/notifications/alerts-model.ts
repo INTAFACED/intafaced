@@ -54,6 +54,8 @@ export type Refusal =
   | 'textRejected'
   | 'expiryRejected'
   | 'tooManyConditions'
+  | 'repeatOff'
+  | 'repeatRejected'
   | 'optionNotOn'
   | 'tooMany'
   | 'accountChanged'
@@ -86,6 +88,8 @@ export function settleFailure(failure: Failure): Settled {
   if (failure.status === 429) return { kind: 'refused', refusal: 'tooMany' };
   if (/alert\.price_unavailable/.test(said)) return { kind: 'refused', refusal: 'notOn' };
   if (/notify\.price_unset/.test(said)) return { kind: 'refused', refusal: 'priceMissing' };
+  if (/notify\.alert_frequency_unset/.test(said)) return { kind: 'refused', refusal: 'repeatOff' };
+  if (/alert\.frequency_(not_allowed|needs_crossing)/.test(said)) return { kind: 'refused', refusal: 'repeatRejected' };
   if (/alert\.too_many_conditions/.test(said)) return { kind: 'refused', refusal: 'tooManyConditions' };
   if (/notify\.alert_(text_limit|expiry_max|conditions_limit)_unset/.test(said)) return { kind: 'refused', refusal: 'optionNotOn' };
   if (/alert\.(text_too_long|message_placeholder_unknown)/.test(said)) return { kind: 'refused', refusal: 'textRejected' };
