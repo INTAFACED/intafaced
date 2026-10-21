@@ -8,6 +8,7 @@ import type {
   SupportTicketEvent,
 } from '@intafaced/contracts';
 import type { Part } from '@/lib/desk/part';
+import type { BulkPolicyView } from './bulk';
 import type { SupportRatingSummary } from './ratings';
 
 export type TicketStatus = 'open' | 'pending' | 'on_hold' | 'resolved' | 'closed';
@@ -29,6 +30,11 @@ export interface QueueRead {
   readonly entries: readonly QueueEntry[];
   /** The page size asked for. A full page means there may be more tickets than are shown. */
   readonly limit: number;
+}
+
+export interface SupportBulkPolicyView {
+  readonly asOf: string;
+  readonly policy: Part<BulkPolicyView>;
 }
 
 export interface SupportQueueView {

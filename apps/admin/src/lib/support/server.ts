@@ -12,6 +12,7 @@ import { founderCall, parseWith, type FounderCallContext, type FounderCallResult
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
 import { QUEUE_PAGE, readQueueResult, readRatingResult, type SupportActionRequest } from './model';
+import { readBulkPolicy, readBulkResults } from './bulk';
 import { readRatingSummary } from './ratings';
 import { readDeskScope, readGroup, readGroups } from './groups';
 import { readStaffMember, readStaffPolicy, readStaffRoster } from './staff';
@@ -20,6 +21,7 @@ import type {
   SupportLifecycleView,
   SupportPropertiesView,
   SupportRatingSummaryView,
+  SupportBulkPolicyView,
   SupportQueueView,
   SupportGroupsView,
   SupportStaffView,
@@ -170,6 +172,12 @@ export async function loadKb(ctx: FounderCallContext, now: Date = new Date()): P
   return { asOf: now.toISOString(), articles: partFrom(result, (a) => a, LABELS) };
 }
 
+/** The owner's bulk batch size, or `cap: null` while it is not set. A failed read is the part's failure, never a number. */
+export async function loadBulkPolicy(ctx: FounderCallContext, now: Date = new Date()): Promise<SupportBulkPolicyView> {
+  const result = await founderCall(ctx, 'support', 'bulkPolicy', 'GET', {}, readBulkPolicy);
+  return { asOf: now.toISOString(), policy: partFrom(result, (p) => p, LABELS) };
+}
+
 /**
  * One desk write, as the signed-in founder. svc-support takes the operator id from the verified session, so a reply,
  * a status change or an escalation is recorded against the person at the keyboard.
@@ -254,6 +262,20 @@ export function runSupportAction(ctx: FounderCallContext, request: SupportAction
           ...(request.reason ? { reason: request.reason } : {}),
         },
         parseWith(supportTicketPropertiesSchema),
+      );
+    case 'bulk':
+      return founderCall(
+        ctx,
+        'support',
+        'bulkUpdate',
+        'POST',
+        {
+          batchKey: request.batchKey,
+          ticketIds: [...request.ticketIds],
+          change: request.change,
+          ...(request.reason ? { reason: request.reason } : {}),
+        },
+        (raw) => readBulkResults(raw, { batchKey: request.batchKey, ticketIds: request.ticketIds }),
       );
     case 'kb_publish':
       return founderCall(
