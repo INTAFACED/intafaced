@@ -116,6 +116,45 @@ export type SetStatusInput = {
   note?: string | null;
 };
 
+/** A merge of a duplicate request (the source) into the one that stays (the survivor). One per source. */
+export type TicketMergeRecord = {
+  sourceId: string;
+  survivorId: string;
+  actorId: string;
+  reason: string;
+  commentsMoved: number;
+  attachmentsMoved: number;
+  mergedAt: string;
+};
+
+/** Both requests below resolved and held by the same requester account. Nothing else allows a merge. */
+export function mergeAllowed(
+  source: Pick<SupportTicket, 'status' | 'userId'>,
+  survivor: Pick<SupportTicket, 'status' | 'userId'>,
+): boolean {
+  const live = (status: SupportTicketStatus) => status === 'open' || status === 'pending' || status === 'on_hold';
+  return live(source.status) && live(survivor.status) && source.userId === survivor.userId;
+}
+
+/** `not_allowed` covers a resolved or closed request, two accounts, and a source already merged elsewhere. */
+export type MergeTicketsResult =
+  | { readonly status: 'ok'; readonly merge: TicketMergeRecord; readonly replay: boolean }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'not_allowed' };
+
+export type MergePreviewResult =
+  | {
+      readonly status: 'ok';
+      readonly allowed: boolean;
+      readonly alreadyMerged: boolean;
+      readonly commentsToMove: number;
+      readonly attachmentsToMove: number;
+      readonly ratingStays: boolean;
+      readonly caseFileStays: boolean;
+    }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' };
+
+export type MergeTicketsInput = { sourceId: string; survivorId: string; operatorId: string; reason: string };
+
 export interface SupportStore {
   createTicket(input: CreateTicketRow): Promise<SupportTicket>;
   /**
@@ -152,6 +191,16 @@ export interface SupportStore {
   releaseTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult>;
   /** A lead moves the ticket onto a staff member. The service has already checked the role. */
   assignTicket(input: { ticketId: string; operatorId: string; assigneeId: string }): Promise<ClaimResult>;
+  /**
+   * Fold a duplicate into a survivor in ONE transaction: comments and files move, the source ends `closed`, a `merged` trail
+   * row lands on both. Keyed (source, survivor): a replay returns the stored merge and moves nothing. Both rows are locked
+   * (lower id first) so two merges cannot cross.
+   */
+  mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult>;
+  /** What a merge would move and what stays on the source. Reads only. */
+  previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult>;
+  /** The merge that closed this request into another, or null. */
+  findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null>;
   /** Non-state-change trail row for a pure read: `grounding_read` only. */
   appendEvent(input: AppendEventInput): Promise<SupportTicketEvent>;
   /** The trail, oldest first. Omit `limit` for the full trail (tests / internal dumps). */
@@ -587,6 +636,33 @@ async function insertEvent(
   return eventFromPg(rows[0]!);
 }
 
+/** The trail note for a merge: names the other request and the operator's reason, inside the 500 bound. */
+function mergeNote(direction: 'into' | 'absorbed', otherId: string, reason: string): string {
+  return `${direction === 'into' ? 'merged into' : 'absorbed'} ${otherId}: ${reason}`;
+}
+
+type PgMerge = {
+  source_id: string;
+  survivor_id: string;
+  actor_id: string;
+  reason: string;
+  comments_moved: number;
+  attachments_moved: number;
+  merged_at: Date | string;
+};
+
+function mergeFromPg(row: PgMerge): TicketMergeRecord {
+  return {
+    sourceId: row.source_id,
+    survivorId: row.survivor_id,
+    actorId: row.actor_id,
+    reason: row.reason,
+    commentsMoved: row.comments_moved,
+    attachmentsMoved: row.attachments_moved,
+    mergedAt: toIso(row.merged_at),
+  };
+}
+
 /**
  * In-memory store for unit tests — same claim/list semantics as Postgres
  * for a single process. Not multi-replica safe (that is why production uses PG).
@@ -602,6 +678,7 @@ export class MemorySupportStore implements SupportStore {
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
   private readonly attachments = new Map<string, AttachmentMeta & { clientRequestId: string }>();
+  private readonly merges = new Map<string, TicketMergeRecord>();
   private readonly feedback = new Map<string, KbFeedbackVote & { clientRequestId: string }>();
 
   constructor() {
@@ -762,6 +839,78 @@ export class MemorySupportStore implements SupportStore {
   async listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]> {
     const rows = [...(this.comments.get(ticketId) ?? [])];
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
+  }
+
+  async findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null> {
+    return this.merges.get(sourceId) ?? null;
+  }
+
+  async previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult> {
+    const source = this.tickets.get(input.sourceId);
+    const survivor = this.tickets.get(input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const prior = this.merges.get(input.sourceId);
+    return {
+      status: 'ok',
+      allowed: mergeAllowed(source, survivor),
+      alreadyMerged: prior?.survivorId === input.survivorId,
+      commentsToMove: (this.comments.get(input.sourceId) ?? []).length,
+      attachmentsToMove: [...this.attachments.values()].filter((a) => a.ticketId === input.sourceId).length,
+      ratingStays: [...this.ratings.values()].some((r) => r.ticketId === input.sourceId),
+      caseFileStays: (this.cases.get(input.sourceId) ?? []).length > 0,
+    };
+  }
+
+  async mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult> {
+    const source = this.tickets.get(input.sourceId);
+    const survivor = this.tickets.get(input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const prior = this.merges.get(input.sourceId);
+    if (prior) {
+      return prior.survivorId === input.survivorId
+        ? { status: 'ok', merge: prior, replay: true }
+        : { status: 'refuse', reason: 'not_allowed' };
+    }
+    if (!mergeAllowed(source, survivor)) return { status: 'refuse', reason: 'not_allowed' };
+
+    const now = new Date().toISOString();
+    const moved = this.comments.get(input.sourceId) ?? [];
+    this.comments.set(input.sourceId, []);
+    this.comments.set(input.survivorId, [
+      ...(this.comments.get(input.survivorId) ?? []),
+      ...moved.map((c) => ({ ...c, ticketId: input.survivorId })),
+    ]);
+    let files = 0;
+    for (const a of this.attachments.values()) {
+      if (a.ticketId === input.sourceId) {
+        a.ticketId = input.survivorId;
+        files += 1;
+      }
+    }
+    this.tickets.set(input.sourceId, { ...source, status: 'closed', updatedAt: now });
+    this.tickets.set(input.survivorId, { ...survivor, updatedAt: now });
+    const merge: TicketMergeRecord = {
+      sourceId: input.sourceId,
+      survivorId: input.survivorId,
+      actorId: input.operatorId,
+      reason: input.reason,
+      commentsMoved: moved.length,
+      attachmentsMoved: files,
+      mergedAt: now,
+    };
+    this.merges.set(input.sourceId, merge);
+    const base = { actorId: input.operatorId, actorRole: 'operator' as const, at: now };
+    this.record({ ...base, ticketId: input.sourceId, kind: 'merged', note: mergeNote('into', input.survivorId, input.reason) });
+    this.record({
+      ...base,
+      ticketId: input.sourceId,
+      kind: 'status_changed',
+      fromStatus: source.status,
+      toStatus: 'closed',
+      note: 'merged',
+    });
+    this.record({ ...base, ticketId: input.survivorId, kind: 'merged', note: mergeNote('absorbed', input.sourceId, input.reason) });
+    return { status: 'ok', merge, replay: false };
   }
 
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
@@ -1443,6 +1592,93 @@ export class PostgresSupportStore implements SupportStore {
    * `money_request` that commits while this transaction waits must be visible
    * once the lock is held. No ledger write and no amount.
    */
+  async findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null> {
+    const rows = await this.sql<PgMerge[]>`
+      SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+      FROM support.ticket_merges WHERE source_id = ${sourceId}
+    `;
+    return rows[0] ? mergeFromPg(rows[0]) : null;
+  }
+
+  async previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult> {
+    const rows = await this.sql<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+      SELECT id, user_id, status FROM support.tickets WHERE id IN (${input.sourceId}, ${input.survivorId})
+    `;
+    const source = rows.find((r) => r.id === input.sourceId);
+    const survivor = rows.find((r) => r.id === input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const [counts] = await this.sql<{ comments: number; files: number; rated: boolean; filed: boolean; merged: boolean }[]>`
+      SELECT
+        (SELECT count(*)::int FROM support.comments WHERE ticket_id = ${input.sourceId}) AS comments,
+        (SELECT count(*)::int FROM support.ticket_attachments WHERE ticket_id = ${input.sourceId}) AS files,
+        EXISTS (SELECT 1 FROM support.ticket_ratings WHERE ticket_id = ${input.sourceId}) AS rated,
+        EXISTS (SELECT 1 FROM support.case_files WHERE ticket_id = ${input.sourceId}) AS filed,
+        EXISTS (SELECT 1 FROM support.ticket_merges WHERE source_id = ${input.sourceId} AND survivor_id = ${input.survivorId}) AS merged
+    `;
+    return {
+      status: 'ok',
+      allowed: mergeAllowed({ status: source.status, userId: source.user_id }, { status: survivor.status, userId: survivor.user_id }),
+      alreadyMerged: counts?.merged ?? false,
+      commentsToMove: counts?.comments ?? 0,
+      attachmentsToMove: counts?.files ?? 0,
+      ratingStays: counts?.rated ?? false,
+      caseFileStays: counts?.filed ?? false,
+    };
+  }
+
+  async mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult> {
+    return this.sql.begin(async (tx): Promise<MergeTicketsResult> => {
+      // Lower id first, so two merges over the same pair in opposite directions cannot wait on each other.
+      const ids = [input.sourceId, input.survivorId].sort();
+      const locked = await tx<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+        SELECT id, user_id, status FROM support.tickets WHERE id IN (${ids[0]!}, ${ids[1]!}) ORDER BY id FOR UPDATE
+      `;
+      const source = locked.find((r) => r.id === input.sourceId);
+      const survivor = locked.find((r) => r.id === input.survivorId);
+      if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+
+      const [prior] = await tx<PgMerge[]>`
+        SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+        FROM support.ticket_merges WHERE source_id = ${input.sourceId}
+      `;
+      if (prior) {
+        return prior.survivor_id === input.survivorId
+          ? { status: 'ok', merge: mergeFromPg(prior), replay: true }
+          : { status: 'refuse', reason: 'not_allowed' };
+      }
+      if (!mergeAllowed({ status: source.status, userId: source.user_id }, { status: survivor.status, userId: survivor.user_id })) {
+        return { status: 'refuse', reason: 'not_allowed' };
+      }
+
+      const comments = await tx`UPDATE support.comments SET ticket_id = ${input.survivorId} WHERE ticket_id = ${input.sourceId}`;
+      const files = await tx`UPDATE support.ticket_attachments SET ticket_id = ${input.survivorId} WHERE ticket_id = ${input.sourceId}`;
+      await tx`UPDATE support.tickets SET status = 'closed', updated_at = now() WHERE id = ${input.sourceId}`;
+      await tx`UPDATE support.tickets SET updated_at = now() WHERE id = ${input.survivorId}`;
+      const [row] = await tx<PgMerge[]>`
+        INSERT INTO support.ticket_merges (source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved)
+        VALUES (${input.sourceId}, ${input.survivorId}, ${input.operatorId}, ${input.reason}, ${comments.count}, ${files.count})
+        RETURNING source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+      `;
+      const base = { actorId: input.operatorId, actorRole: 'operator' as const };
+      await insertEvent(tx, { ...base, ticketId: input.sourceId, kind: 'merged', note: mergeNote('into', input.survivorId, input.reason) });
+      await insertEvent(tx, {
+        ...base,
+        ticketId: input.sourceId,
+        kind: 'status_changed',
+        fromStatus: source.status,
+        toStatus: 'closed',
+        note: 'merged',
+      });
+      await insertEvent(tx, {
+        ...base,
+        ticketId: input.survivorId,
+        kind: 'merged',
+        note: mergeNote('absorbed', input.sourceId, input.reason),
+      });
+      return { status: 'ok', merge: mergeFromPg(row!), replay: false };
+    });
+  }
+
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     return this.sql.begin(async (tx): Promise<SetStatusResult> => {
       const current = await tx<{ status: SupportTicketStatus; category: SupportTicket['category'] }[]>`
