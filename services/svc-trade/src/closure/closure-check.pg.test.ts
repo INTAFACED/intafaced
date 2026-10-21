@@ -223,3 +223,47 @@ it('counts rows on a listed sub-account and ignores an unlisted one', async () =
   const unlisted = await post({ userId: USER, subAccountIds: [] });
   expect(unlisted.json()).toMatchObject({ blockers: [] });
 });
+
+describe('scope sub_accounts leaves the main account out', () => {
+  const SUB = '33333333-3333-4333-8333-333333333333';
+  const openOrder = async (userId: string, subAccountId: string | null) => {
+    const marketId = await market();
+    await db.sql`
+      INSERT INTO trade.orders (id, user_id, sub_account_id, market_id, side, type, price, qty, hold_asset, hold_amount, status)
+      VALUES (${randomUUID()}, ${userId}, ${subAccountId}, ${marketId}, 'buy', 'limit', '1', '1', 'USDT', '1', 'open')
+    `;
+  };
+  const sub = async () => {
+    const response = await post({ userId: USER, subAccountIds: [SUB], scope: 'sub_accounts' });
+    expect(response.statusCode).toBe(200);
+    return (response.json() as { blockers: Array<{ code: string }> }).blockers.map((row) => row.code);
+  };
+
+  it('ignores a main-account order and counts an order placed under the sub-account', async () => {
+    await openOrder(USER, null);
+    expect(await sub()).toEqual([]);
+    await openOrder(USER, SUB);
+    expect(await sub()).toEqual(['open_order']);
+  });
+
+  it('counts an open position held under the sub-account id', async () => {
+    const marketId = await market();
+    await db.sql`
+      INSERT INTO trade.positions (user_id, market_id, side, size, entry_price, margin_initial, margin_current, margin_asset, status)
+      VALUES (${SUB}, ${marketId}, 'long', '1', '1', '1', '1', 'USDT', 'open')
+    `;
+    expect(await sub()).toEqual(['open_position']);
+  });
+
+  it('refuses a sub-account question that names no sub-account, and an unknown scope', async () => {
+    for (const body of [
+      { userId: USER, subAccountIds: [], scope: 'sub_accounts' },
+      { userId: USER, subAccountIds: [USER], scope: 'sub_accounts' },
+      { userId: USER, subAccountIds: [SUB], scope: 'everything' },
+    ]) {
+      const response = await post(body);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).not.toHaveProperty('blockers');
+    }
+  });
+});

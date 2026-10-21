@@ -1,22 +1,38 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import type { Principal } from '@intafaced/auth';
 import {
   createTicketInputSchema,
   escalateTicketInputSchema,
   getKbArticleInputSchema,
+  setKbAudienceInputSchema,
+  type SupportAttachment,
+  type SupportKbViewer,
   publicProcedure,
   router,
   scopedProcedure,
   supportAccountGroundingSchema,
+  supportAttachmentDownloadSchema,
+  supportBulkInputSchema,
+  supportBulkPolicySchema,
+  supportBulkResultSchema,
+  supportAttachmentIdInputSchema,
+  supportAttachmentSchema,
   supportCaseFileSchema,
   supportCommentSchema,
   supportKbArticleSchema,
   supportTicketEventSchema,
+  supportAwaitingMineSchema,
   supportTicketLifecycleSchema,
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
 } from '@intafaced/contracts';
+import { MemoryContactBook, type ContactBook } from './contact-channels.js';
+import { contactProcedures } from './contact-router.js';
+import type { AttachmentMeta } from './store.js';
+import { attachmentProcedures } from './attachment-router.js';
+import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -74,6 +90,7 @@ function mapError(err: unknown): never {
       err.code === 'support.list_all_limit_unset' ||
       err.code === 'support.list_mine_limit_unset' ||
       err.code === 'support.list_comments_limit_unset' ||
+      err.code === 'support.list_attachments_limit_unset' ||
       err.code === 'support.list_events_limit_unset' ||
       err.code === 'support.list_kb_limit_unset' ||
       err.code === 'support.staff_bootstrap' ||
@@ -85,8 +102,12 @@ function mapError(err: unknown): never {
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
+      err.code === 'support.bulk_cap_unset' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
+      err.code === 'support.attachment_count_unset' ||
+      err.code === 'support.attachment_scan_unknown' ||
+      err.code === 'support.attachment_count_reached' ||
       err.code === 'support.attachment_too_large'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
@@ -120,13 +141,32 @@ const deskGroupSchema = z.object({
 /** Desk scope for the doors that page the whole queue. Left out, every operator sees the queue. */
 export type DeskScopeReader = Pick<SupportService, 'deskIsRestricted' | 'listAllTicketsInScope'>;
 
+/**
+ * The reader of a help door, from the signed principal and nothing else. A visitor has no principal;
+ * the desk is a `support:ops` principal. Never read from the request body.
+ */
+function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
+  return { signedIn: Boolean(principal), staff: Boolean(principal?.scopes.includes('support:ops')) };
+}
+
+/** The wire form of a stored file: the scan state is public, the store key is not. */
+function attachmentWire(meta: AttachmentMeta): SupportAttachment {
+  const { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt } = meta;
+  return { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt };
+}
+
 export function createSupportRouter(
   support: SupportService,
   loop?: TicketKbLoopObserver,
   internalServiceSecret?: string | null,
   scope?: DeskScopeReader,
+  contact: ContactBook = new MemoryContactBook(),
+  attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
 ) {
   return router({
+    ...contactProcedures(contact, support),
+    ...attachmentProcedures(attachmentSettings, support),
+
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
@@ -139,6 +179,17 @@ export function createSupportRouter(
           const ticket = await support.createTicket({ userId: ctx.principal!.userId, ...input });
           loop?.markTicketCreateSuccess();
           return ticket;
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** How many of the caller's own requests wait on their reply, and the one that has waited longest. */
+    awaitingMine: scopedProcedure('support:read')
+      .output(supportAwaitingMineSchema)
+      .query(async ({ ctx }) => {
+        try {
+          return await support.awaitingMine({ userId: ctx.principal!.userId });
         } catch (err) {
           mapError(err);
         }
@@ -419,9 +470,9 @@ export function createSupportRouter(
           .optional(),
       )
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await support.listKb({ limit: input?.limit });
+          return await support.listKb({ limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }
@@ -444,9 +495,9 @@ export function createSupportRouter(
           .optional(),
       )
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          const found = await support.searchKb(input?.q ?? '', { limit: input?.limit });
+          const found = await support.searchKb(input?.q ?? '', { limit: input?.limit, viewer: kbViewerOf(ctx.principal) });
           if (found.length > 0) loop?.markKbSearchSuccess();
           return found;
         } catch (err) {
@@ -458,9 +509,9 @@ export function createSupportRouter(
     getKb: publicProcedure
       .input(getKbArticleInputSchema)
       .output(supportKbArticleSchema.nullable())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          const article = await support.getKbArticle({ id: input.id, version: input.version });
+          const article = await support.getKbArticle({ id: input.id, version: input.version }, { viewer: kbViewerOf(ctx.principal) });
           if (article) loop?.markKbGetSuccess();
           return article;
         } catch (err) {
@@ -486,6 +537,22 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.publishKb(input);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Operator change of who may read an article (public, signed_in or staff). Stale `baseRevision` is a CONFLICT;
+     * the same audience again is a no-op that writes no audit row.
+     */
+    setKbAudience: scopedProcedure('support:ops')
+      .input(setKbAudienceInputSchema)
+      .output(supportKbArticleSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.setKbAudience({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }
@@ -692,7 +759,8 @@ export function createSupportRouter(
 
     /**
      * Owner attach. Unconfigured store, scanner, or limits refuse
-     * support.attachments_unconfigured and name the missing key.
+     * support.attachments_unconfigured and name the missing key. The answer carries the scan state:
+     * a file is stored only once it is clean, and a file the scanner could not judge stays held.
      */
     attach: scopedProcedure('support:write')
       .input(
@@ -703,20 +771,33 @@ export function createSupportRouter(
           bodyBase64: z.string(),
         }),
       )
-      .output(
-        z.object({
-          id: z.string().uuid(),
-          ticketId: z.string().uuid(),
-          ownerId: z.string().uuid(),
-          contentType: z.string(),
-          byteLength: z.number().int().nonnegative(),
-          storeKey: z.string(),
-          createdAt: z.string().datetime(),
-        }),
-      )
+      .output(supportAttachmentSchema)
       .mutation(async ({ ctx, input }) => {
         try {
-          return await support.attach({ userId: ctx.principal!.userId, ...input });
+          return attachmentWire(await support.attach({ userId: ctx.principal!.userId, ...input }));
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * Operator attach, for the operator the ticket is assigned to. The file is the ticket owner's and names the operator
+     * in `uploadedBy`. Limits, scanner and store are the owner attach's; another operator's ticket answers like none.
+     */
+    attachOps: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          clientRequestId: z.string().min(1).max(200),
+          contentType: z.string().min(1).max(200),
+          bodyBase64: z.string(),
+        }),
+      )
+      .output(supportAttachmentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal!.userId, ...input }));
         } catch (err) {
           mapError(err);
         }
@@ -724,21 +805,13 @@ export function createSupportRouter(
 
     /** Owner read of one attachment's metadata. */
     attachment: scopedProcedure('support:read')
-      .input(z.object({ attachmentId: z.string().uuid() }))
-      .output(
-        z.object({
-          id: z.string().uuid(),
-          ticketId: z.string().uuid(),
-          ownerId: z.string().uuid(),
-          contentType: z.string(),
-          byteLength: z.number().int().nonnegative(),
-          storeKey: z.string(),
-          createdAt: z.string().datetime(),
-        }),
-      )
+      .input(supportAttachmentIdInputSchema)
+      .output(supportAttachmentSchema)
       .query(async ({ ctx, input }) => {
         try {
-          return await support.attachment({ userId: ctx.principal!.userId, attachmentId: input.attachmentId, asOperator: false });
+          return attachmentWire(
+            await support.attachment({ userId: ctx.principal!.userId, attachmentId: input.attachmentId, asOperator: false }),
+          );
         } catch (err) {
           mapError(err);
         }
@@ -746,22 +819,65 @@ export function createSupportRouter(
 
     /** Operator read. support:ops, and only an attachment on a ticket assigned to them. */
     attachmentOps: scopedProcedure('support:ops')
-      .input(z.object({ attachmentId: z.string().uuid() }))
-      .output(
-        z.object({
-          id: z.string().uuid(),
-          ticketId: z.string().uuid(),
-          ownerId: z.string().uuid(),
-          contentType: z.string(),
-          byteLength: z.number().int().nonnegative(),
-          storeKey: z.string(),
-          createdAt: z.string().datetime(),
-        }),
-      )
+      .input(supportAttachmentIdInputSchema)
+      .output(supportAttachmentSchema)
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await support.attachment({
+          return attachmentWire(
+            await support.attachment({ userId: ctx.principal!.userId, attachmentId: input.attachmentId, asOperator: true }),
+          );
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /**
+     * The files on one ticket with their scan state. The owner reads their own; an operator reads a ticket they may see.
+     * Page size is required: blank refuses `support.list_attachments_limit_unset`, never a default.
+     */
+    ticketAttachments: scopedProcedure('support:read')
+      .input(z.object({ ticketId: z.string().uuid(), limit: z.number().int().positive().max(500).optional() }))
+      .output(z.array(supportAttachmentSchema))
+      .query(async ({ ctx, input }) => {
+        try {
+          const asOperator = ctx.principal!.scopes.includes('support:ops');
+          const rows = await support.listAttachments({
+            userId: ctx.principal!.userId,
+            ticketId: input.ticketId,
+            asOperator,
+            limit: input.limit,
+          });
+          return rows.map(attachmentWire);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Owner download. Served only when the scanner said clean, always as a download with a fixed content type. */
+    attachmentDownload: scopedProcedure('support:read')
+      .input(supportAttachmentIdInputSchema)
+      .output(supportAttachmentDownloadSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.attachmentDownload({
+            userId: ctx.principal!.userId,
+            attachmentId: input.attachmentId,
+            asOperator: false,
+          });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Operator download. support:ops, and only a file on a ticket assigned to them; the same rules as the owner's. */
+    attachmentDownloadOps: scopedProcedure('support:ops')
+      .input(supportAttachmentIdInputSchema)
+      .output(supportAttachmentDownloadSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.attachmentDownload({
             userId: ctx.principal!.userId,
             attachmentId: input.attachmentId,
             asOperator: true,
@@ -790,7 +906,7 @@ export function createSupportRouter(
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await support.kbFeedback({ userId: ctx.principal!.userId, ...input });
+          return await support.kbFeedback({ userId: ctx.principal!.userId, ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }
@@ -800,9 +916,9 @@ export function createSupportRouter(
     kbRelated: publicProcedure
       .input(z.object({ id: z.string().min(1).max(200) }))
       .output(z.array(supportKbArticleSchema))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         try {
-          return await support.kbRelated(input);
+          return await support.kbRelated({ ...input, viewer: kbViewerOf(ctx.principal) });
         } catch (err) {
           mapError(err);
         }
@@ -1059,6 +1175,30 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The batch size the owner allows for a bulk change, or `null` while it is not set. */
+    bulkPolicy: scopedProcedure('support:ops')
+      .output(supportBulkPolicySchema)
+      .query(({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.bulkPolicy();
+      }),
+
+    /**
+     * One change (an assignee, a status or a priority) for several requests under one batch key. Each request is changed
+     * on its own and answers `changed`, `unchanged` or `refused` with its typed code; a blank cap refuses the whole batch.
+     */
+    bulkUpdate: scopedProcedure('support:ops')
+      .input(supportBulkInputSchema)
+      .output(supportBulkResultSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

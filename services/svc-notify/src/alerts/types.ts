@@ -87,7 +87,8 @@ export type CreatePortfolioAlertInput = {
 /** Above / below a target. Crossing fires once (status becomes `fired`). */
 export type AlertDirection = 'above' | 'below';
 
-export type AlertStatus = 'active' | 'fired' | 'cancelled' | 'expired';
+/** `stopped` is a pause the person chose: it never fires and can be resumed. `cancelled` is final. */
+export type AlertStatus = 'active' | 'fired' | 'cancelled' | 'expired' | 'stopped';
 
 /**
  * How a watch compares the mark with its target.
@@ -144,11 +145,26 @@ export type PriceAlert = {
   readonly lastSide: AlertSide | null;
   /** Further level conditions on the same market. The alert fires only when the main condition AND every one of these holds. */
   readonly extras: readonly AlertExtra[];
+  /** When the person last changed the alert (edit, stop, resume, cancel). The creation time until then. */
+  readonly updatedAt: Date;
 };
 
 /** An added condition: a level only (crossing needs a remembered side, which an added condition does not have). */
 export const EXTRA_CONDITIONS = ['greater_than', 'less_than'] as const;
 export type AlertExtra = { readonly condition: (typeof EXTRA_CONDITIONS)[number]; readonly targetPrice: string };
+
+/** What the person may change on an alert that has not triggered. `null` clears a name, message or expiry. */
+export type AlertEdit = {
+  readonly targetPrice?: string;
+  readonly condition?: AlertCondition;
+  readonly name?: string | null;
+  readonly message?: string | null;
+  readonly expiresAt?: Date | null;
+  readonly extras?: readonly AlertExtra[];
+};
+
+/** The whole editable state, after an edit is merged and validated. */
+export type AlertEditState = Pick<PriceAlert, 'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>;
 
 export type CreatePriceAlertInput = {
   readonly userId: string;
@@ -161,6 +177,11 @@ export type CreatePriceAlertInput = {
   readonly message?: string | null;
   readonly expiresAt?: Date | null;
   readonly extras?: readonly AlertExtra[];
+  /**
+   * The most open (active or paused) alerts of this kind the person may hold, counting this one. The store checks it in the
+   * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
+   */
+  readonly maxOpen?: number;
 };
 
 /**

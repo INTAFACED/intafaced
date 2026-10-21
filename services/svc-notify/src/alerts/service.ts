@@ -20,8 +20,23 @@ import {
   evaluateUnpublishedKind as unpublishedKindOutcome,
   evaluateWhaleAlert,
 } from './evaluate.js';
-import { AlertValidationError, type AlertStore } from './store.js';
-import { directionOfCondition, EXTRA_CONDITIONS, isCrossingCondition, type AlertExtra } from './types.js';
+import { AlertQuotaReachedError, AlertValidationError, type AlertStore } from './store.js';
+import {
+  MemoryAlertTriggerLog,
+  NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET,
+  triggerOf,
+  type AlertTrigger,
+  type AlertTriggerLog,
+} from './trigger-log.js';
+import {
+  ALERT_CONDITIONS,
+  directionOfCondition,
+  EXTRA_CONDITIONS,
+  isCrossingCondition,
+  type AlertEdit,
+  type AlertEditState,
+  type AlertExtra,
+} from './types.js';
 import { createDarkWhaleMarkSource } from './whale-mark.js';
 import {
   AlertKindUnpublishedError,
@@ -90,6 +105,7 @@ export function assertNotifyAlertsListLimit(limit: number | null | undefined): n
 export const NOTIFY_ALERT_EXPIRY_MAX_UNSET = 'notify.alert_expiry_max_unset' as const;
 export const NOTIFY_ALERT_TEXT_LIMIT_UNSET = 'notify.alert_text_limit_unset' as const;
 export const NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET = 'notify.alert_conditions_limit_unset' as const;
+export const NOTIFY_ALERT_QUOTA_UNSET = 'notify.alert_quota_unset' as const;
 
 /** Owner settings an alert's expiry and text depend on. Blank (null) is never replaced by a default: the create refuses. */
 export type AlertLimits = {
@@ -99,20 +115,42 @@ export type AlertLimits = {
   readonly textMaxLength: number | null;
   /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). */
   readonly maxConditions: number | null;
+  /** Days the trigger log keeps a row (`NOTIFY_ALERT_TRIGGER_LOG_DAYS`). Blank: no log is written and reading it refuses. */
+  readonly triggerLogDays: number | null;
+  /** Most price alerts one person may hold open, active or paused (`NOTIFY_ALERT_MAX_ACTIVE_PRICE`). Blank refuses a create. */
+  readonly maxActivePrice: number | null;
 };
 
-export const NO_ALERT_LIMITS: AlertLimits = { maxExpiryDays: null, textMaxLength: null, maxConditions: null };
+export const NO_ALERT_LIMITS: AlertLimits = {
+  maxExpiryDays: null,
+  textMaxLength: null,
+  maxConditions: null,
+  triggerLogDays: null,
+  maxActivePrice: null,
+};
 
 export type AlertLimitCode =
   | typeof NOTIFY_ALERT_EXPIRY_MAX_UNSET
   | typeof NOTIFY_ALERT_TEXT_LIMIT_UNSET
   | typeof NOTIFY_ALERT_CONDITIONS_LIMIT_UNSET
+  | typeof NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET
+  | typeof NOTIFY_ALERT_QUOTA_UNSET
+  | 'alert.quota_reached'
   | 'alert.too_many_conditions'
   | 'alert.extra_condition_invalid'
   | 'alert.expiry_in_past'
   | 'alert.expiry_too_far'
   | 'alert.text_too_long'
   | 'alert.message_placeholder_unknown';
+
+/** An edit or pause refused because the alert has already triggered, expired or been cancelled. */
+export class AlertNotEditableError extends Error {
+  readonly code = 'alert.not_editable' as const;
+  constructor(status: string) {
+    super(`alert.not_editable: the alert is ${status}`);
+    this.name = 'AlertNotEditableError';
+  }
+}
 
 /** A create refused for its expiry or text: a blank owner setting, or a value outside it. Nothing is stored. */
 export class AlertLimitError extends Error {
@@ -295,7 +333,23 @@ export class AlertService {
     private readonly notify: NotifyService,
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
     private readonly limits: AlertLimits = NO_ALERT_LIMITS,
+    private readonly triggerLog: AlertTriggerLog = new MemoryAlertTriggerLog(),
   ) {}
+
+  /** The person's trigger log, newest first. Refuses while the owner has not set how long it is kept. */
+  async triggers(
+    userId: string,
+    opts: { alertId?: string; limit: number },
+    now: Date = new Date(),
+  ): Promise<{ retentionDays: number; triggers: readonly AlertTrigger[] }> {
+    const days = this.limits.triggerLogDays;
+    if (days === null) {
+      throw new AlertLimitError(NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET, 'the owner has not set how long the trigger log is kept');
+    }
+    const since = new Date(now.getTime() - days * 86_400_000);
+    const triggers = await this.triggerLog.list(userId, { ...opts, since });
+    return { retentionDays: days, triggers };
+  }
 
   async create(
     input: Omit<CreatePriceAlertInput, 'targetPrice'> & { readonly targetPrice?: string | null },
@@ -310,7 +364,84 @@ export class AlertService {
     const message = assertAlertText('message', input.message, this.limits);
     const expiresAt = assertAlertExpiry(input.expiresAt, this.limits, now);
     const extras = assertAlertExtras(input.extras, this.limits);
-    return this.store.create({ ...input, kind, targetPrice, name, message, expiresAt, extras });
+    // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
+    let maxOpen: number | undefined;
+    if (kind === 'price') {
+      if (this.limits.maxActivePrice === null) {
+        throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
+      }
+      maxOpen = this.limits.maxActivePrice;
+      // An alert past its time is not open, so it must not use up a place.
+      await this.store.expireDue(now);
+    }
+    try {
+      return await this.store.create({
+        ...input,
+        kind,
+        targetPrice,
+        name,
+        message,
+        expiresAt,
+        extras,
+        ...(maxOpen !== undefined ? { maxOpen } : {}),
+      });
+    } catch (err) {
+      if (err instanceof AlertQuotaReachedError) {
+        throw new AlertLimitError('alert.quota_reached', `a person may hold ${err.limit} open price alerts`);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * A watchlist alert: the same price rule on each of several markets, one alert per market, all or none. Each is checked and
+   * stored exactly as a single create is. The number of markets is held to the price-alert quota: if the person's open alerts
+   * plus these would pass it, nothing is created. A market named twice is created once.
+   */
+  async createMany(
+    input: Omit<CreatePriceAlertInput, 'targetPrice' | 'marketId' | 'kind' | 'maxOpen'> & {
+      readonly marketIds: readonly string[];
+      readonly targetPrice?: string | null;
+    },
+    now: Date = new Date(),
+  ): Promise<readonly PriceAlert[]> {
+    const { marketIds, ...rule } = input;
+    const markets = [...new Set(marketIds.map((id) => id.trim()).filter((id) => id !== ''))];
+    if (markets.length === 0) throw new AlertValidationError('alert.invalid_market', 'at least one market is needed');
+    const targetPrice = assertRealAlertPrice(rule.targetPrice);
+    const name = assertAlertText('name', rule.name, this.limits);
+    const message = assertAlertText('message', rule.message, this.limits);
+    const expiresAt = assertAlertExpiry(rule.expiresAt, this.limits, now);
+    const extras = assertAlertExtras(rule.extras, this.limits);
+    if (this.limits.maxActivePrice === null) {
+      throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
+    }
+    await this.store.expireDue(now);
+    try {
+      return await this.store.createMany(
+        markets.map((marketId) => ({ ...rule, kind: 'price' as const, marketId, targetPrice, name, message, expiresAt, extras })),
+        this.limits.maxActivePrice,
+      );
+    } catch (err) {
+      if (err instanceof AlertQuotaReachedError) {
+        throw new AlertLimitError(
+          'alert.quota_reached',
+          err.wanted === undefined
+            ? `a person may hold ${err.limit} open price alerts`
+            : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
+        );
+      }
+      throw err;
+    }
+  }
+
+  /** How many price alerts the person holds open and the owner's cap (`null` while it is blank). */
+  async quota(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<{ readonly kind: 'price'; readonly used: number; readonly max: number | null }> {
+    await this.store.expireDue(now);
+    return { kind: 'price', used: await this.store.countOpen(userId, 'price'), max: this.limits.maxActivePrice };
   }
 
   /**
@@ -348,8 +479,54 @@ export class AlertService {
     return this.store.list(userId, limit);
   }
 
+  get(userId: string, id: string): Promise<PriceAlert | null> {
+    return this.store.get(userId, id);
+  }
+
   cancel(userId: string, id: string): Promise<PriceAlert | null> {
     return this.store.cancel(userId, id);
+  }
+
+  /**
+   * Change an alert that is active or stopped. The edit is merged over what is stored and checked exactly as a create is, so an
+   * owner setting that is blank still refuses, and nothing is written unless every part passes. A changed alert forgets the side
+   * a crossing was last seen on. `null` when the alert is not the person's.
+   */
+  async edit(userId: string, id: string, edit: AlertEdit, now: Date = new Date()): Promise<PriceAlert | null> {
+    await this.store.expireDue(now);
+    const row = await this.store.get(userId, id);
+    if (!row) return null;
+    if (row.status !== 'active' && row.status !== 'stopped') throw new AlertNotEditableError(row.status);
+    const condition = edit.condition ?? row.condition;
+    if (!(ALERT_CONDITIONS as readonly string[]).includes(condition)) {
+      throw new AlertLimitError('alert.extra_condition_invalid', `condition=${String(condition)}`);
+    }
+    const targetPrice = edit.targetPrice === undefined ? row.targetPrice : assertRealAlertPrice(edit.targetPrice).trim();
+    if (!isValidPositivePrice(targetPrice)) throw new AlertLimitError('alert.extra_condition_invalid', `targetPrice=${targetPrice}`);
+    const next: AlertEditState = {
+      direction: condition === 'crossing' ? row.direction : directionOfCondition(condition),
+      targetPrice,
+      condition,
+      name: edit.name === undefined ? row.name : assertAlertText('name', edit.name, this.limits),
+      message: edit.message === undefined ? row.message : assertAlertText('message', edit.message, this.limits),
+      expiresAt: edit.expiresAt === undefined ? row.expiresAt : assertAlertExpiry(edit.expiresAt, this.limits, now),
+      extras: edit.extras === undefined ? row.extras : assertAlertExtras(edit.extras, this.limits),
+    };
+    return this.store.replace(userId, id, next, now);
+  }
+
+  /**
+   * Pause an active alert or resume a stopped one. Pausing twice or resuming twice is harmless and returns the alert as it is.
+   * A stopped alert whose expiry has passed is expired, not resumed. `null` when the alert is not the person's.
+   */
+  async setActive(userId: string, id: string, active: boolean, now: Date = new Date()): Promise<PriceAlert | null> {
+    await this.store.expireDue(now);
+    return this.store.setStopped(userId, id, !active, now);
+  }
+
+  /** Delete an alert whatever its state. True when there was one. */
+  remove(userId: string, id: string): Promise<boolean> {
+    return this.store.remove(userId, id);
   }
 
   /**
@@ -425,6 +602,9 @@ export class AlertService {
    */
   async evaluateDueAlerts(at: Date = new Date()): Promise<AlertSweepReport> {
     await this.store.expireDue(at);
+    if (this.limits.triggerLogDays !== null) {
+      await this.triggerLog.prune(new Date(at.getTime() - this.limits.triggerLogDays * 86_400_000));
+    }
     const markets = await this.store.activeMarkets();
     let fired = 0;
     let held = 0;
@@ -552,8 +732,13 @@ export class AlertService {
       const created = await this.fireNotification(alert, outcome.markPrice, at);
       const reachedInbox = created.notification !== null || created.dispatch !== null;
       if (reachedInbox) {
-        await this.store.markFired(alert.userId, alert.id, at);
         notificationId = created.notification?.id ?? null;
+        // Logged after the inbox has it and before the watch is marked fired: a crash between the two retries and the
+        // alert-id key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
+        if (this.limits.triggerLogDays !== null) {
+          await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId));
+        }
+        await this.store.markFired(alert.userId, alert.id, at);
       }
     }
 

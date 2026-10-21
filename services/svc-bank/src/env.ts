@@ -27,6 +27,12 @@ const schema = serviceEnvSchema
       IDENTITY_URL: z.string().url().optional(),
 
       /**
+       * svc-pay base for customer deposit addresses and the deposit catalogue (W-deposit-01). Blank → the deposit doors refuse
+       * `bank.deposit_custody_unset`. No localhost default, no invented address.
+       */
+      PAY_URL: z.string().url().optional(),
+
+      /**
        * The native asset. svc-bank refuses it in earn pools because native
        * staking lives in svc-token (§8.1) — one asset, one owner.
        *
@@ -244,6 +250,49 @@ const schema = serviceEnvSchema
        * `bank.address_book_cap_unset`. Boot stays up; the save is the refuse.
        */
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
+
+      /**
+       * Owner-published currencies that have local account details, comma separated ISO-4217 codes ("GBP,EUR").
+       *
+       * No default. Blank / unset / a code that is not three letters → the list refuses
+       * `bank.account_details_currencies_unset`. Boot stays up; the read is the refuse.
+       */
+      BANK_ACCOUNT_DETAILS_CURRENCIES: z.string().optional(),
+
+      /**
+       * Owner-published eligibility rule set as JSON: `{ countries: ["GB", ...], entityTypes: [...], productRestrictions:
+       * [{ product, restriction }] }`. No default. Blank / unset / not in shape → `bank.eligibility_unset`.
+       */
+      BANK_ELIGIBILITY_JSON: z.string().optional(),
+
+      /**
+       * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
+       * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
+       * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →
+       * `bank.reference_rules_unset`. Boot stays up; the send is the refuse.
+       */
+      BANK_SEND_FIELD_RULES_JSON: z.string().optional(),
+
+      /**
+       * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list
+       * blocks nothing. No default. Blank / unset / not in shape → every send refuses `bank.payee_controls_unset`; a listed
+       * account refuses `bank.payee_blocked` without naming the list.
+       */
+      BANK_PAYEE_CONTROLS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published limits for a proof-of-payment upload as JSON: `{ allowedTypes: ["application/pdf"], maxBytes: n }`.
+       * No default. Blank / unset / not in shape → an upload refuses `bank.proof_limits_unset`.
+       */
+      BANK_PROOF_LIMITS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published allowance for sends to crypto exchanges as JSON: `{ exchangeAccounts: ["..."], windowDays: 30,
+       * limits: [{ asset: "USDT", maxAmount: "5000" }] }`. No default. Blank / unset / not in shape, or an exchange account with
+       * no limit for the asset → the send refuses `bank.exchange_allowance_unset`; over the limit in the rolling window →
+       * `bank.exchange_allowance_exceeded`. A published empty account list means no recipient is an exchange.
+       */
+      BANK_EXCHANGE_ALLOWANCE_JSON: z.string().optional(),
 
       /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).

@@ -291,6 +291,33 @@ if (!available) {
       expect(await stored(user.userId)).toBe(0);
     });
 
+    it('check lists what still blocks without spending a step-up or storing anything, and fails closed', async () => {
+      const user = await register();
+      const caller = await callerOf(user);
+      expect(await caller.accountClosure.check()).toEqual({ blockers: [], balances: [] });
+      bankResult = { ok: true, blockers: [{ code: 'balance_remaining', count: 1 }], balances: [{ assetId: 'USDT', amount: '1.50' }] };
+      tradeResult = { ok: true, blockers: [{ code: 'open_order', count: 2 }], balances: [] };
+      expect(await caller.accountClosure.check()).toEqual({
+        blockers: [
+          { code: 'balance_remaining', count: 1 },
+          { code: 'open_order', count: 2 },
+        ],
+        balances: [{ assetId: 'USDT', amount: '1.50' }],
+      });
+      p2pResult = { ok: false };
+      expect((await refusal(caller.accountClosure.check())).code).toBe('identity.close_check_unavailable');
+      p2pResult = { ok: true, blockers: [], balances: [] };
+      enabled = false;
+      expect((await refusal(caller.accountClosure.check())).code).toBe('identity.close_disabled');
+      enabled = true;
+      coolingOffDays = undefined;
+      expect((await refusal(caller.accountClosure.check())).code).toBe('identity.close_cooling_off_unset');
+      coolingOffDays = 7;
+      const keyed = await callerOf(user, { kid: 'key-1' });
+      expect((await refusal(keyed.accountClosure.check())).code).toBe('identity.close_delegated');
+      expect(await stored(user.userId)).toBe(0);
+    });
+
     it('stores a clean request at now plus the published days, replays it, and refuses a second open row', async () => {
       const user = await register();
       const secret = await enrolTotp(user.userId);

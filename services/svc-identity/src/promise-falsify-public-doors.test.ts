@@ -42,6 +42,7 @@ import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { FreezeService } from './affiliates/freeze-service.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { createIdentityRouter } from './router.js';
+import type { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { stubActionApprovals } from './auth/privileged-dual-control.js';
 import { userCopy } from './user-copy.js';
 
@@ -71,6 +72,9 @@ type Book = {
   label: string;
   purpose: string | null;
   revoked: boolean;
+  frozen: boolean;
+  kind: 'standard';
+  nickname: string | null;
   createdAt: Date;
 };
 
@@ -89,6 +93,9 @@ class MemorySubAccountAuth {
       label,
       purpose: purpose ?? null,
       revoked: false,
+      frozen: false,
+      kind: 'standard',
+      nickname: null,
       createdAt: new Date('2026-08-15T00:00:00.000Z'),
     });
     return { id };
@@ -270,6 +277,8 @@ async function mountDoors(auth: MemorySubAccountAuth, money: MoneyMountOpts = {}
   const router = createIdentityRouter(auth as unknown as AuthService, {} as RankService, {
     registrationOpen: true,
     actionApprovals: stubActionApprovals(),
+    // The revoke door reads the money services first; these doors test ownership, so the read answers "empty".
+    subAccountDelete: { assertEmpty: async () => undefined } as unknown as SubAccountDeleteService,
     ...money,
   });
   const app = Fastify({ logger: false });

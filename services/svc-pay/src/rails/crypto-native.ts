@@ -637,6 +637,15 @@ export class CryptoNativeAdapter implements RailAdapter {
       assetId: typeof b.assetId === 'string' ? b.assetId : undefined,
       occurredAt,
       failureCode: typeof b.failureCode === 'string' ? b.failureCode : undefined,
+      chain:
+        typeof b.txHash === 'string' &&
+        b.txHash &&
+        Number.isInteger(b.logIndex) &&
+        (b.logIndex as number) >= 0 &&
+        Number.isInteger(b.confirmations) &&
+        (b.confirmations as number) >= 0
+          ? { txHash: b.txHash, logIndex: b.logIndex as number, confirmations: b.confirmations as number }
+          : undefined,
     };
   }
 

@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PostgresAlertStore } from './store.js';
+import { AlertQuotaReachedError, PostgresAlertStore } from './store.js';
+import { PostgresAlertTriggerLog } from './trigger-log.js';
 
 /** The Postgres engine of alert conditions, expiry and the 0018 backfill, against a real database with fresh user ids. */
 
@@ -48,6 +49,8 @@ describe.skipIf(!available)('migration 0018', () => {
     await sql!.unsafe(migration('0018_notify_alert_conditions.sql'));
     await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
     await sql!.unsafe(migration('0019_notify_alert_extra_conditions.sql'));
+    await sql!.unsafe(migration('0020_notify_alert_stopped.sql'));
+    await sql!.unsafe(migration('0020_notify_alert_stopped.sql'));
     const rows = await sql!<{ id: string; condition: string; status: string; last_side: string | null }[]>`
       SELECT id, condition, status, last_side FROM notify.price_alerts WHERE user_id = ${userId}`;
     expect(rows.find((r) => r.id === above)).toMatchObject({ condition: 'greater_than', status: 'active', last_side: null });
@@ -55,11 +58,71 @@ describe.skipIf(!available)('migration 0018', () => {
     // Existing rows come out of 0019 with no added conditions.
     const extra = await sql!<{ extra_conditions: unknown }[]>`SELECT extra_conditions FROM notify.price_alerts WHERE id = ${above}`;
     expect(extra[0]!.extra_conditions).toEqual([]);
+    // ...and take their creation time as the time they last changed.
+    const times = await sql!<{ same: boolean }[]>`SELECT (updated_at = created_at) AS same FROM notify.price_alerts WHERE id = ${above}`;
+    expect(times[0]!.same).toBe(true);
   });
 });
 
 describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
   const store = () => new PostgresAlertStore(sql!);
+
+  it('replaces the editable state of an active or stopped alert and forgets the remembered side', async () => {
+    const userId = fresh();
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', condition: 'crossing_up' });
+    await store().setLastSide(userId, row.id, 'below');
+    expect((await store().get(userId, row.id))!.lastSide).toBe('below');
+    const next = {
+      direction: 'below' as const,
+      targetPrice: '90.000000000000000001',
+      condition: 'less_than' as const,
+      name: 'Dip',
+      message: null,
+      expiresAt: null,
+      extras: [{ condition: 'greater_than' as const, targetPrice: '80' }],
+    };
+    const edited = await store().replace(userId, row.id, next, NOW);
+    expect(edited).toMatchObject({ ...next, lastSide: null, status: 'active' });
+    expect(edited!.updatedAt).toEqual(NOW);
+    await store().setStopped(userId, row.id, true, NOW);
+    expect(await store().replace(userId, row.id, { ...next, name: 'Still editable' }, NOW)).toMatchObject({
+      status: 'stopped',
+      name: 'Still editable',
+    });
+    await store().cancel(userId, row.id);
+    expect(await store().replace(userId, row.id, next, NOW)).toBeNull();
+  });
+
+  it('stops and resumes only the right way round, and keeps the alert', async () => {
+    const userId = fresh();
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('active');
+    expect((await store().setStopped(userId, row.id, true, NOW))!.status).toBe('stopped');
+    expect((await store().setStopped(userId, row.id, true, NOW))!.status).toBe('stopped');
+    expect(
+      await store()
+        .listActiveByMarket('BTC-USD')
+        .then((rows) => rows.some((r) => r.id === row.id)),
+    ).toBe(false);
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('active');
+    expect(await store().setStopped('someone-else', row.id, true, NOW)).toBeNull();
+    const cancelled = await store().cancel(userId, row.id);
+    expect(cancelled!.status).toBe('cancelled');
+    expect((await store().setStopped(userId, row.id, false, NOW))!.status).toBe('cancelled');
+  });
+
+  it('expires a stopped alert whose time has passed, and deletes any alert once', async () => {
+    const userId = fresh();
+    const past = new Date(NOW.getTime() - 1000);
+    const row = await store().create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', expiresAt: past });
+    await store().setStopped(userId, row.id, true, NOW);
+    await store().expireDue(NOW);
+    expect((await store().get(userId, row.id))!.status).toBe('expired');
+    expect(await store().remove('someone-else', row.id)).toBe(false);
+    expect(await store().remove(userId, row.id)).toBe(true);
+    expect(await store().remove(userId, row.id)).toBe(false);
+    expect(await store().get(userId, row.id)).toBeNull();
+  });
 
   it('stores added conditions as an array and reads them back exactly', async () => {
     const userId = fresh();
@@ -134,5 +197,87 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
     expect((await store().get(userId, open.id))?.status).toBe('active');
     expect((await store().cancel(userId, due.id))?.status).toBe('expired');
     expect((await store().listActiveByMarket('ETH-USD')).some((r) => r.id === due.id)).toBe(false);
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertTriggerLog and migration 0021', () => {
+  it('runs twice, records a fire once, lists newest first for the owner only, and prunes', async () => {
+    await sql!.unsafe(migration('0021_notify_alert_triggers.sql'));
+    await sql!.unsafe(migration('0021_notify_alert_triggers.sql'));
+    const log = new PostgresAlertTriggerLog(sql!);
+    const userId = fresh();
+    const other = fresh();
+    const a = randomUUID();
+    const b = randomUUID();
+    const row = (alertId: string, uid: string, at: Date, markPrice: string) => ({
+      alertId,
+      userId: uid,
+      marketId: 'BTC-USD',
+      condition: 'greater_than' as const,
+      targetPrice: '100',
+      markPrice,
+      firedAt: at,
+      notificationId: null,
+    });
+    await log.record(row(a, userId, NOW, '101.5'));
+    await log.record(row(a, userId, NOW, '999'));
+    await log.record(row(b, userId, new Date(NOW.getTime() + 1000), '102'));
+    await log.record(row(randomUUID(), other, NOW, '103'));
+    const mineRows = await log.list(userId, { since: new Date(0), limit: 10 });
+    expect(mineRows.map((r) => r.markPrice)).toEqual(['102', '101.5']);
+    expect(await log.list(userId, { alertId: a, since: new Date(0), limit: 10 })).toHaveLength(1);
+    expect(await log.list(userId, { since: new Date(NOW.getTime() + 500), limit: 10 })).toHaveLength(1);
+    expect(await log.prune(new Date(NOW.getTime() + 500))).toBeGreaterThanOrEqual(2);
+    expect(await log.list(userId, { since: new Date(0), limit: 10 })).toHaveLength(1);
+    await sql!`DELETE FROM notify.alert_triggers WHERE user_id IN (${userId}, ${other})`;
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore quota', () => {
+  const input = (userId: string, targetPrice: string, maxOpen?: number) => ({
+    userId,
+    marketId: 'BTC-USD',
+    direction: 'above' as const,
+    targetPrice,
+    ...(maxOpen !== undefined ? { maxOpen } : {}),
+  });
+  it('counts active and paused alerts only, and refuses the create past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const a = await store.create(input(userId, '100', 2));
+    const b = await store.create(input(userId, '101', 2));
+    await expect(store.create(input(userId, '102', 2))).rejects.toBeInstanceOf(AlertQuotaReachedError);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.setStopped(userId, a.id, true, NOW);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.cancel(userId, b.id);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await expect(store.create(input(userId, '103', 2))).resolves.toMatchObject({ status: 'active' });
+  });
+  it('lets two creates racing for the last place through only once, and a create with no cap is unchecked', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled(['100', '101', '102', '103'].map((price) => store.create(input(userId, price, 1))));
+    expect(settled.filter((s) => s.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await store.create(input(userId, '104'));
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+  });
+  it('creates a batch as one step: all of it, or none of it past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const batch = (prices: string[]) => prices.map((price) => input(userId, price));
+    const made = await store.createMany(batch(['100', '101', '102']), 4);
+    expect(made).toHaveLength(3);
+    await expect(store.createMany(batch(['103', '104']), 4)).rejects.toMatchObject({ limit: 4, held: 3, wanted: 2 });
+    expect(await store.countOpen(userId, 'price')).toBe(3);
+    await expect(store.createMany(batch(['105']), 4)).resolves.toHaveLength(1);
+  });
+  it('lets two batches racing for the last places through only once', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled([0, 1, 2].map((n) => store.createMany([input(userId, `${n}1`), input(userId, `${n}2`)], 2)));
+    expect(settled.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
   });
 });

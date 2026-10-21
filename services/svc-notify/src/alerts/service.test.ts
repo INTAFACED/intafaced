@@ -18,6 +18,7 @@ import {
   type MarkQuote,
   type MarkSource,
 } from './types.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
 
 function quoteSource(mark: MarkQuote): MarkSource {
   return {
@@ -37,7 +38,7 @@ function harness(mark: MarkQuote, whaleMark: MarkQuote | 'dark' = 'dark') {
   // out-of-app dispatch is the same path as every other bus consumer.
   const notify = new NotifyService(notifyStore, { fanoutEnabled: true });
   const whaleMarks = whaleMark === 'dark' ? createDarkWhaleMarkSource() : quoteSource(whaleMark);
-  const alerts = new AlertService(new MemoryAlertStore(), quoteSource(mark), notify, whaleMarks);
+  const alerts = new AlertService(new MemoryAlertStore(), quoteSource(mark), notify, whaleMarks, TEST_ALERT_LIMITS);
   return { alerts, notifyStore };
 }
 
@@ -322,7 +323,7 @@ describe('AlertService — fire only when the inbox can receive it', () => {
         return { kind: 'ok', price: '100.5', at: new Date() };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -351,7 +352,7 @@ describe('AlertService — fire only when the inbox can receive it', () => {
         return { kind: 'ok', price: '100.5', at: new Date() };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), marks, notify);
+    const alerts = new AlertService(new MemoryAlertStore(), marks, notify, undefined, TEST_ALERT_LIMITS);
     await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -373,7 +374,13 @@ describe('AlertService — fire only when the inbox can receive it', () => {
         return { kind: 'ok', price: '100.5', at: new Date() };
       },
     };
-    const alertsKilled = new AlertService(alertStore, marks, new NotifyService(notifyStore, { fanoutEnabled: false }));
+    const alertsKilled = new AlertService(
+      alertStore,
+      marks,
+      new NotifyService(notifyStore, { fanoutEnabled: false }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
     await alertsKilled.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -385,7 +392,13 @@ describe('AlertService — fire only when the inbox can receive it', () => {
     expect(await notifyStore.unreadCount('u1')).toBe(0);
 
     // Same watch store, fan-out re-enabled — the blocked cross must still land once.
-    const alertsLive = new AlertService(alertStore, marks, new NotifyService(notifyStore, { fanoutEnabled: true }));
+    const alertsLive = new AlertService(
+      alertStore,
+      marks,
+      new NotifyService(notifyStore, { fanoutEnabled: true }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
     const report = await alertsLive.evaluateMarket('BTC-USD');
     expect(report.results[0]!.outcome.kind).toBe('fire');
     expect(report.results[0]!.notificationId).toBeTruthy();
@@ -406,7 +419,13 @@ describe('AlertService — fire only when the inbox can receive it', () => {
         return { kind: 'ok', price: '999', at: new Date() };
       },
     };
-    const alerts = new AlertService(new MemoryAlertStore(), lyingDark, new NotifyService(notifyStore, { fanoutEnabled: true }));
+    const alerts = new AlertService(
+      new MemoryAlertStore(),
+      lyingDark,
+      new NotifyService(notifyStore, { fanoutEnabled: true }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
     const row = await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',
@@ -443,7 +462,13 @@ describe('AlertService — fire only when the inbox can receive it', () => {
         return { kind: 'ok', price, at: new Date() };
       },
     };
-    const alerts = new AlertService(alertStore, marks, new NotifyService(notifyStore, { fanoutEnabled: true }));
+    const alerts = new AlertService(
+      alertStore,
+      marks,
+      new NotifyService(notifyStore, { fanoutEnabled: true }),
+      undefined,
+      TEST_ALERT_LIMITS,
+    );
     const row = await alerts.create({
       userId: 'u1',
       marketId: 'BTC-USD',

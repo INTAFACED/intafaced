@@ -34,6 +34,9 @@ export type DeskModule =
   | 'indexer'
   | 'dex';
 
+/** A module a console action can call that has no desk reads: svc-ops, reached at `/api/ops`. */
+export type CallModule = DeskModule | 'ops';
+
 export interface ServiceRefusal {
   /** Typed code from `error.data.cause.code`, or from a `[code]` suffix in the message, or null. */
   readonly code: string | null;
@@ -95,7 +98,7 @@ export interface FounderCallOptions {
 
 export async function founderCall<T>(
   ctx: FounderCallContext,
-  module: DeskModule,
+  module: CallModule,
   procedure: string,
   method: 'GET' | 'POST',
   input: unknown,

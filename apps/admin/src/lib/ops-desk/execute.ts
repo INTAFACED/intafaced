@@ -2,8 +2,10 @@ import 'server-only';
 import type { DeskRequest } from '@/lib/desk/approval-packet';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type DeskModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
+import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
+import { normaliseCostAmount } from '@/lib/venue-economics/model';
 
 /**
  * Run an approved Market or Academy request against the owning service, as the signed-in founder.
@@ -72,6 +74,92 @@ export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
   return { listingId: raw.listingId, status: raw.status };
 }
 
+interface VenueCostAnswer {
+  readonly key: string;
+  readonly period: string;
+  readonly category: string;
+  readonly amount: string;
+  readonly asset: string;
+  readonly version: number;
+}
+
+export function readVenueCostAnswer(raw: unknown): VenueCostAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { key, period, category, amount, asset, version } = raw;
+  return typeof key === 'string' &&
+    typeof period === 'string' &&
+    typeof category === 'string' &&
+    typeof amount === 'string' &&
+    typeof asset === 'string' &&
+    typeof version === 'number'
+    ? { key, period, category, amount, asset, version }
+    : null;
+}
+
+interface ListingAnswer {
+  readonly action: string;
+  readonly targetId: string;
+  readonly state: string;
+  readonly outcome: string;
+  readonly note: string | null;
+}
+
+export function readListingAnswer(raw: unknown): ListingAnswer | null {
+  if (!isRecord(raw)) return null;
+  const { action, targetId, state, outcome, note } = raw;
+  return typeof action === 'string' &&
+    typeof targetId === 'string' &&
+    typeof state === 'string' &&
+    typeof outcome === 'string' &&
+    (note === null || typeof note === 'string')
+    ? { action, targetId, state, outcome, note }
+    : null;
+}
+
+type ListingRequest = Extract<
+  DeskRequest,
+  { kind: 'protocol.pool.hide' | 'protocol.pool.restore' | 'protocol.market.delist' | 'protocol.market.restore' }
+>;
+
+/** The svc-ops procedure, its input (before the approval ids) and the state the answer must show for one listing request. */
+function listingCall(request: ListingRequest): {
+  procedure: string;
+  input: Record<string, unknown>;
+  targetId: string;
+  state: 'hidden' | 'visible';
+} {
+  switch (request.kind) {
+    case 'protocol.pool.hide':
+      return {
+        procedure: 'protocolListing.pools.hide',
+        input: { chainId: request.chainId, poolAddress: request.poolAddress, reasonCode: request.reasonCode, reason: request.reason },
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        state: 'hidden',
+      };
+    case 'protocol.pool.restore':
+      return {
+        procedure: 'protocolListing.pools.restore',
+        input: { chainId: request.chainId, poolAddress: request.poolAddress },
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        state: 'visible',
+      };
+    case 'protocol.market.delist':
+      return {
+        procedure: 'protocolListing.markets.delist',
+        input: { symbol: request.symbol, reasonCode: request.reasonCode, reason: request.reason },
+        targetId: marketTargetId(request.symbol),
+        state: 'hidden',
+      };
+    case 'protocol.market.restore':
+      return {
+        procedure: 'protocolListing.markets.restore',
+        input: { symbol: request.symbol },
+        targetId: marketTargetId(request.symbol),
+        state: 'visible',
+      };
+  }
+}
+
 const WRONG_STATE: ExecuteReply = {
   ok: false,
   refusal: explainRefusal('admin.ops_invalid_response', 502, true),
@@ -82,6 +170,7 @@ const NEEDS: Readonly<Record<string, string>> = {
   academy: 'the Academy operator permission (admin:write) and a verified second factor',
   bank: 'the bank treasury permission (admin:treasury) and a verified second factor',
   p2p: 'moderator access (admin:compliance, or being on the moderator list) and the P2P read permission',
+  ops: 'the operator write permission (admin:write) and a verified second factor',
 };
 
 /** The permission, as the founder reads it in the refusal's headline. */
@@ -90,10 +179,11 @@ const PERMISSION_NAME: Readonly<Record<string, string>> = {
   academy: 'Academy operator',
   bank: 'bank treasury',
   p2p: 'P2P moderator',
+  ops: 'operations',
 };
 
 /** A failed call as a desk refusal. A typed approval code is a definite "nothing changed"; a dropped connection is unknown. */
-export function failureRefusal(service: string, module: DeskModule, failure: FounderCallFailure<unknown>): ExecuteReply {
+export function failureRefusal(service: string, module: CallModule, failure: FounderCallFailure<unknown>): ExecuteReply {
   switch (failure.kind) {
     case 'forbidden': {
       const base = explainRefusal(failure.refusal.code ?? codeInText(failure.refusal.message), failure.refusal.status, false);
@@ -229,6 +319,50 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       const a = result.data;
       if (a.listingId !== request.listingId || a.status !== 'taken_down') return WRONG_STATE;
       return { ok: true, detail: 'svc-market answered and its returned listing is taken down.' };
+    }
+    if (request.kind === 'ops.venue_cost.record') {
+      const amount = normaliseCostAmount(request.amount);
+      const result = await founderCall(
+        ctx,
+        'ops',
+        'recordVenueCost',
+        'POST',
+        {
+          period: request.period,
+          category: request.category,
+          amount,
+          asset: request.asset,
+          sourceNote: request.reason,
+          // One approval is one entry: running the same approved request twice returns the first entry.
+          idempotencyKey: `venue-cost-approval:${ids.approvalId}`,
+          ...ids,
+        },
+        readVenueCostAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.period !== request.period || a.category !== request.category || a.amount !== amount || a.asset !== request.asset)
+        return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-ops answered and stored version ${a.version} of ${request.category.replace(/_/g, ' ')} for ${a.period}.`,
+      };
+    }
+    if (
+      request.kind === 'protocol.pool.hide' ||
+      request.kind === 'protocol.pool.restore' ||
+      request.kind === 'protocol.market.delist' ||
+      request.kind === 'protocol.market.restore'
+    ) {
+      const call = listingCall(request);
+      const result = await founderCall(ctx, 'ops', call.procedure, 'POST', { ...call.input, ...ids }, readListingAnswer);
+      if (result.kind !== 'ok') return failureRefusal('svc-ops', 'ops', result);
+      const a = result.data;
+      if (a.action !== request.kind || a.targetId !== call.targetId || a.state !== call.state) return WRONG_STATE;
+      return {
+        ok: true,
+        detail: `svc-ops answered and ${a.targetId} is ${a.state}${a.outcome === 'noop' ? ' (it already was, so nothing changed)' : ''}.`,
+      };
     }
     return { ok: false, refusal: explainRefusal('admin.request_invalid', 400, false) };
   };

@@ -67,6 +67,7 @@ import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdra
 import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
 import { createTravelRuleRouter, type TravelRuleMountDeps } from '../travel-rule/router.js';
 import { createWithdrawalReturnRouter, type WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
+import { createAllowlistFounderRouter, type AllowlistMountDeps } from '../withdrawals/allowlist/router.js';
 import { createWithdrawalApprovalFounderRouter, type WithdrawalApprovalMountDeps } from '../withdrawals/approvals/router.js';
 import { createWithdrawalLimitsRouter, type WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import { createFounderMerchantReads } from './founder-merchant-reads.js';
@@ -110,6 +111,8 @@ export interface FounderAdminMounts {
   withdrawalReturns?: WithdrawalReturnMountDeps;
   /** W-withdraw-11: policy and the due sweep for multi-approval withdrawals (`founderAdmin.withdrawalApprovals.*`). Mounted only when supplied. */
   withdrawalApprovals?: WithdrawalApprovalMountDeps;
+  /** W-withdraw-10: quorum, reads and suspension for the withdrawal allowlist (`founderAdmin.allowlist.*`). Mounted only when supplied. */
+  allowlist?: AllowlistMountDeps;
   /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
   ops?: FounderOpsRouter;
   /** W5: treasury exposure read (`founderAdmin.treasury.exposure`). Without it the procedure refuses with `pay.not_built`. */
@@ -173,6 +176,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     withdrawalQuotes,
     withdrawalReturns,
     withdrawalApprovals,
+    allowlist,
     treasury,
     control,
     halts,
@@ -209,6 +213,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(withdrawalApprovals
         ? { withdrawalApprovals: createWithdrawalApprovalFounderRouter({ founderAuthority, ...withdrawalApprovals }) }
         : {}),
+      // W-withdraw-10: the withdrawal allowlist (src/withdrawals/allowlist). Mounted only when its deps are supplied.
+      ...(allowlist ? { allowlist: createAllowlistFounderRouter({ founderAuthority, ...allowlist }) } : {}),
       // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
       ops,
       merchants: router({

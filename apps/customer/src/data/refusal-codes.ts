@@ -62,8 +62,27 @@ export type RefusalKind =
   | 'activitySortBounded'
   | 'entriesDoNotSum'
   | 'entriesTooLong'
+  | 'noBankPartner'
+  | 'detailsCurrenciesUnset'
+  | 'eligibilityUnset'
   | 'chartRange'
   | 'algoSchedulerOff'
+  | 'globalOff'
+  | 'globalNoRate'
+  | 'globalPurpose'
+  | 'globalSource'
+  | 'globalReference'
+  | 'globalRecipientInvalid'
+  | 'globalPayoutRefused'
+  | 'globalCorridorUnknown'
+  | 'globalDetailsMissing'
+  | 'globalNoSend'
+  | 'proofOff'
+  | 'proofType'
+  | 'proofSize'
+  | 'proofInvalid'
+  | 'proofNotAsked'
+  | 'proofDone'
   | 'unknown';
 
 /** Exact codes first. */
@@ -181,8 +200,48 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.activity_sort_bounded': 'activitySortBounded',
   'portfolio.entries_do_not_sum': 'entriesDoNotSum',
   'bank.activity_lookup_bounded': 'entriesTooLong',
+  'rail.bank': 'noBankPartner',
+  'bank.account_details_currencies_unset': 'detailsCurrenciesUnset',
+  'bank.account_details_unavailable': 'tryAgain',
+  'bank.eligibility_unset': 'eligibilityUnset',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
+  'bank.global_corridors_unset': 'globalOff',
+  'bank.global_corridors_unusable': 'globalOff',
+  'bank.global_payout_unset': 'globalOff',
+  'bank.global_payout_unusable': 'globalOff',
+  'bank.global_fx_unusable': 'globalOff',
+  'bank.global_travel_rule_undecided': 'globalOff',
+  'bank.send_field_rules_unset': 'globalOff',
+  'bank.reference_rules_unset': 'globalOff',
+  'bank.global_fx_unset': 'globalNoRate',
+  'bank.global_quote_expired': 'quoteExpired',
+  'bank.send_purpose_required': 'globalPurpose',
+  'bank.source_of_funds_required': 'globalSource',
+  'bank.reference_too_long': 'globalReference',
+  'bank.global_account_format_invalid': 'globalRecipientInvalid',
+  'bank.global_bic_format_invalid': 'globalRecipientInvalid',
+  'bank.global_payout_refused': 'globalPayoutRefused',
+  'bank.global_corridor_unknown': 'globalCorridorUnknown',
+  'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
+  'bank.payee_blocked': 'globalNoSend',
+  'bank.exchange_allowance_exceeded': 'globalNoSend',
+  'bank.payee_controls_unset': 'globalOff',
+  'bank.exchange_allowance_unset': 'globalOff',
+  'bank.proof_limits_unset': 'proofOff',
+  'bank.proof_type_not_allowed': 'proofType',
+  'bank.proof_too_large': 'proofSize',
+  'bank.proof_invalid': 'proofInvalid',
+  'bank.proof_not_requested': 'proofNotAsked',
+  'bank.proof_already_uploaded': 'proofDone',
+  'bank.hold_not_found': 'notFound',
+  'bank.transfer_settled': 'globalNoSend',
+  'bank.global_insufficient_funds': 'insufficient',
+  'bank.global_outcome_unknown': 'tryAgain',
+  'bank.global_conflict': 'duplicate',
+  'bank.global_not_found': 'notFound',
+  'bank.global_recipient_not_found': 'notFound',
+  'bank.global_space_not_found': 'notFound',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',

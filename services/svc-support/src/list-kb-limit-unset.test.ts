@@ -64,7 +64,8 @@ describe('listKb limit unset refuse', () => {
     const end = src.indexOf('async searchKb(', start);
     const fn = src.slice(start, end === -1 ? undefined : end);
     expect(fn).toContain('assertListKbLimit');
-    expect(fn).toContain('this.store.listPublishedKb({ limit })');
+    // The page is applied by the store together with the reader's audiences, so hidden articles take no place in it.
+    expect(fn).toContain('this.store.listPublishedKb({ limit, audiences: audiencesFor(viewer) })');
     expect(fn).not.toMatch(/this\.store\.listPublishedKb\(\)/);
     expect(fn).not.toMatch(/\?\? 100/);
   });

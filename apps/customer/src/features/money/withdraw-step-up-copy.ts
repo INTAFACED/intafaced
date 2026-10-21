@@ -1,0 +1,73 @@
+import { defineCopy } from '../../shared/i18n';
+
+const en = {
+  title: 'Confirm it’s you',
+  why: 'This changes where your money can be sent, so we check it’s you first.',
+  passkey: 'Use a passkey',
+  passkeyWaiting: 'Waiting for your passkey…',
+  or: 'Or enter a code',
+  code: 'Authenticator code or recovery code',
+  codeHint: '6 digits from your authenticator app, or a recovery code like 1A2B3-C4D5E.',
+  confirm: 'Confirm',
+  checking: 'Checking…',
+  cancel: 'Not now',
+  codeShort: 'Enter the 6 digits from your authenticator app, or a recovery code.',
+  codeBad: 'That code didn’t match. Check your authenticator app and try again.',
+  noAuthenticator: 'No authenticator app is saved on this account. Use a passkey, or add an authenticator app in Security settings.',
+  noPasskey: 'No passkey is saved on this account. Enter a code, or add a passkey in Security settings.',
+  passkeyBad: 'That passkey check didn’t work. Try again, or enter a code.',
+  passkeyStopped: 'The passkey check was cancelled or timed out. Try again, or enter a code.',
+  passkeyFailed: 'The browser could not read your passkey. Try again, or enter a code.',
+  passkeyUnavailable: 'Passkeys need a secure browser connection here. Enter a code instead.',
+  keys: 'API keys and sub-accounts cannot confirm this.',
+  failed: 'We couldn’t confirm it’s you. Try again.',
+} as const;
+
+const es = {
+  title: 'Confirma que eres tú',
+  why: 'Esto cambia a dónde puede enviarse tu dinero, así que primero comprobamos que eres tú.',
+  passkey: 'Usar una passkey',
+  passkeyWaiting: 'Esperando tu passkey…',
+  or: 'O introduce un código',
+  code: 'Código del autenticador o código de recuperación',
+  codeHint: '6 dígitos de tu app de autenticación, o un código de recuperación como 1A2B3-C4D5E.',
+  confirm: 'Confirmar',
+  checking: 'Comprobando…',
+  cancel: 'Ahora no',
+  codeShort: 'Introduce los 6 dígitos de tu app de autenticación, o un código de recuperación.',
+  codeBad: 'Ese código no coincide. Revisa tu app de autenticación e inténtalo de nuevo.',
+  noAuthenticator: 'No hay una app de autenticación guardada en esta cuenta. Usa una passkey, o añade una en Ajustes de seguridad.',
+  noPasskey: 'No hay una passkey guardada en esta cuenta. Introduce un código, o añade una passkey en Ajustes de seguridad.',
+  passkeyBad: 'Esa comprobación de passkey no funcionó. Inténtalo de nuevo, o introduce un código.',
+  passkeyStopped: 'La comprobación de passkey se canceló o caducó. Inténtalo de nuevo, o introduce un código.',
+  passkeyFailed: 'El navegador no pudo leer tu passkey. Inténtalo de nuevo, o introduce un código.',
+  passkeyUnavailable: 'Las passkeys necesitan una conexión segura del navegador aquí. Introduce un código.',
+  keys: 'Las claves API y las subcuentas no pueden confirmar esto.',
+  failed: 'No pudimos confirmar que eres tú. Inténtalo de nuevo.',
+} as const;
+
+const fr = {
+  title: 'Confirme que c’est toi',
+  why: 'Cela change où ton argent peut être envoyé, donc nous vérifions d’abord que c’est toi.',
+  passkey: 'Utiliser une passkey',
+  passkeyWaiting: 'En attente de ta passkey…',
+  or: 'Ou saisis un code',
+  code: 'Code d’authentification ou code de récupération',
+  codeHint: '6 chiffres de ton app d’authentification, ou un code de récupération comme 1A2B3-C4D5E.',
+  confirm: 'Confirmer',
+  checking: 'Vérification…',
+  cancel: 'Pas maintenant',
+  codeShort: 'Saisis les 6 chiffres de ton app d’authentification, ou un code de récupération.',
+  codeBad: 'Ce code ne correspond pas. Vérifie ton app d’authentification et réessaie.',
+  noAuthenticator:
+    'Aucune app d’authentification n’est enregistrée sur ce compte. Utilise une passkey, ou ajoutes-en une dans les réglages de sécurité.',
+  noPasskey: 'Aucune passkey n’est enregistrée sur ce compte. Saisis un code, ou ajoute une passkey dans les réglages de sécurité.',
+  passkeyBad: 'Cette vérification de passkey n’a pas fonctionné. Réessaie, ou saisis un code.',
+  passkeyStopped: 'La vérification de passkey a été annulée ou a expiré. Réessaie, ou saisis un code.',
+  passkeyFailed: 'Le navigateur n’a pas pu lire ta passkey. Réessaie, ou saisis un code.',
+  passkeyUnavailable: 'Les passkeys exigent ici une connexion sécurisée du navigateur. Saisis un code.',
+  keys: 'Les clés API et les sous-comptes ne peuvent pas confirmer cela.',
+  failed: 'Nous n’avons pas pu confirmer que c’est toi. Réessaie.',
+} as const;
+
+export const withdrawStepUpCopy = defineCopy('customer.money.withdrawStepUp', en, { es, fr });

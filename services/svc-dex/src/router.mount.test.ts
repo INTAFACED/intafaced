@@ -146,8 +146,11 @@ class FakeVenue extends MarketDataSource {
 /** A venue with real depth on both sides, read just now. */
 const liveVenue = (id = 'intachain-clob', ageMs = 0) => new FakeVenue({ id, ageMs, bids: [level('99', '10')], asks: [level('101', '10')] });
 
+/** A hide list that was read and is empty: every market is listed. */
+const NOTHING_HIDDEN = { read: async () => ({ asOf: NOW.toISOString(), pools: [], markets: [] }) };
+
 function routerWith(venues: (region: string) => FakeVenue[]) {
-  return createDexRouter({ venues, maxAgeMs: 2_000, depth: 50, now: () => NOW });
+  return createDexRouter({ venues, maxAgeMs: 2_000, depth: 50, hideList: NOTHING_HIDDEN, now: () => NOW });
 }
 
 const buy = { symbol: 'IFC-USD', side: 'buy' as const, qty: '1' };
@@ -406,7 +409,7 @@ describe('svc-dex mount — a quote it cannot source is refused, never guessed',
       DEX_EXTERNAL_VENUES: [],
     };
     await expect(
-      createDexRouter({ venues: (region) => venuesFor(env, region), maxAgeMs: 2_000, depth: 50, now: () => NOW })
+      createDexRouter({ venues: (region) => venuesFor(env, region), maxAgeMs: 2_000, depth: 50, hideList: NOTHING_HIDDEN, now: () => NOW })
         .createCaller(anonymous())
         .quote(buy),
     ).rejects.toMatchObject({

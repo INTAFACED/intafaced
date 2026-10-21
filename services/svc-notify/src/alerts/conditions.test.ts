@@ -9,12 +9,13 @@ import { describe, expect, it } from 'vitest';
 import { NotifyService } from '../notify-service.js';
 import { MemoryNotifyStore } from '../store.js';
 import { evaluatePriceAlert } from './evaluate.js';
-import { AlertLimitError, AlertService, NO_ALERT_LIMITS, renderAlertMessage, type AlertLimits } from './service.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
+import { AlertLimitError, AlertService, renderAlertMessage, type AlertLimits } from './service.js';
 import { MemoryAlertStore } from './store.js';
 import type { AlertCondition, MarkSource, PriceAlert } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: null };
+const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: null, triggerLogDays: null, maxActivePrice: 20 };
 
 function rig(limits: AlertLimits = LIMITS) {
   let price = '90';
@@ -47,6 +48,7 @@ const watch = (condition: AlertCondition, lastSide: PriceAlert['lastSide'] = nul
   expiresAt: null,
   lastSide,
   extras: [],
+  updatedAt: NOW,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
 
@@ -187,7 +189,7 @@ describe('owner limits refuse instead of defaulting', () => {
   };
 
   it('a blank maximum refuses an expiry, and a blank length refuses a name or message', async () => {
-    const { alerts } = rig(NO_ALERT_LIMITS);
+    const { alerts } = rig(TEST_ALERT_LIMITS);
     expect(await code(create(alerts, { expiresAt: new Date(NOW.getTime() + 1000) }))).toBe('notify.alert_expiry_max_unset');
     expect(await code(create(alerts, { name: 'x' }))).toBe('notify.alert_text_limit_unset');
     expect(await code(create(alerts, { message: 'x' }))).toBe('notify.alert_text_limit_unset');

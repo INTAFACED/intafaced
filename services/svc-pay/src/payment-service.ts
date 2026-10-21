@@ -892,7 +892,22 @@ export interface WebhookOutcome {
   readonly applied: boolean;
 }
 
+/** What the webhook path hands a verified chain delivery that matches no payment: a customer deposit, if the address is one. */
+export interface CustodyDepositReceiver {
+  receive(input: {
+    address: string;
+    txHash: string;
+    outputIndex: number;
+    assetId: string;
+    amount: Amount;
+    confirmations: number;
+  }): Promise<{ state: 'unmatched' } | { state: 'recorded' }>;
+}
+
 export interface PayServiceOptions {
+  /** Routes a chain delivery to a customer deposit address to the deposit record. Omitted: such a delivery is unmatched. */
+  readonly custodyDeposits?: CustodyDepositReceiver;
+
   /**
    * Guard hooks called on payment admission, payout, settlement and conversion
    * paths (seams/guards.ts). Omitted = no-ops, i.e. behaviour before the seams.
@@ -1265,6 +1280,7 @@ export class PayService {
   private readonly checkoutPublicBasePath: string;
   private readonly maxOpenSessionsPerLink: number | null;
   private readonly now: () => Date;
+  private readonly custodyDeposits: CustodyDepositReceiver | undefined;
   private readonly afterPaymentEvent:
     | ((event: {
         type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
@@ -1306,6 +1322,7 @@ export class PayService {
     this.maxOpenSessionsPerLink = options.maxOpenSessionsPerLink ?? null;
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
+    this.custodyDeposits = options.custodyDeposits;
     this.afterSettlementMerchantLock = options.afterSettlementMerchantLock;
     this.beforeSettlementPostMerchantLock = options.beforeSettlementPostMerchantLock;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
@@ -3845,6 +3862,22 @@ export class PayService {
     const payment = rows[0];
 
     if (!payment) {
+      // An inbound to a customer deposit address has no payment. The deposit record books it (once, by chain position);
+      // anything else stays unmatched below.
+      const chain = event.chain;
+      if (this.custodyDeposits && event.type === 'captured' && chain && event.amount !== undefined && event.assetId) {
+        const received = await this.custodyDeposits.receive({
+          address: event.railRef,
+          txHash: chain.txHash,
+          outputIndex: chain.logIndex,
+          assetId: event.assetId,
+          amount: event.amount,
+          confirmations: chain.confirmations,
+        });
+        if (received.state === 'recorded') {
+          return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied: true };
+        }
+      }
       // A verified event about a payment we have no record of. Rejecting is
       // right — inventing a payment row from a webhook is how a rail's bug
       // becomes our liability — but it is also an operator signal, not a

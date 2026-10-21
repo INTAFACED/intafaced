@@ -182,6 +182,8 @@ export const en = {
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',
   'notify.pay.request_paid.title': 'Request paid',
   'notify.pay.request_paid.body': '{payerHandle} paid your request for {amount} {assetId}.',
+  'notify.support.rate_request.title': 'How did we do?',
+  'notify.support.rate_request.body': 'Your support request was resolved. Tell us how it went.',
   'notify.merchant.email_provider_unset.title': 'email not set up yet',
   'notify.merchant.email_provider_unset.body': 'This notice stayed in the portal. Email is not set up yet.',
   'notify.merchant.payment_refunded.title': 'Refund outcome',

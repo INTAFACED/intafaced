@@ -22,6 +22,41 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  'custody_approval.initiator_cannot_decide': {
+    title: 'A different approver has to decide this',
+    body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',
+    next: 'Ask another registered approver to decide it from their own console or phone.',
+  },
+  'custody_approval.approver_not_registered': {
+    title: 'You are not a registered approver',
+    body: 'Only an active registered approver can approve or reject a custody task. Nothing was recorded.',
+    next: 'Ask a founder to register you as an approver, then try again.',
+  },
+  'custody_approval.hash_mismatch': {
+    title: 'That is not the request you read',
+    body: 'The task on file is not the one that matched the fingerprint you were shown, so nothing was approved or rejected.',
+    next: 'Reload the task, read it again and decide on what it says now.',
+  },
+  'custody_approval.not_pending': {
+    title: 'This task is no longer waiting for a decision',
+    body: 'It was already approved, rejected, cancelled, run or has expired.',
+    next: 'Read its timeline. If it still needs doing, ask for a new task.',
+  },
+  'custody_approval.expired': {
+    title: 'This task passed its deadline',
+    body: 'An expired task never runs. Nothing was approved.',
+    next: 'Ask for a new task if the work is still needed.',
+  },
+  'custody_approval.not_found': {
+    title: 'That task was not found',
+    body: 'There is no task with that id for your session.',
+    next: 'Reload the list.',
+  },
+  'custody_approval.quorum_unset': {
+    title: 'The number of approvers is not set',
+    body: 'The owner has not set how many approvers a task needs, so no task can start or be decided.',
+    next: 'Ask the owner to set it. Nothing was changed.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',

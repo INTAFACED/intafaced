@@ -83,6 +83,11 @@ export const EVENT_BUS_MATRIX = {
   coreOpsAlertRuleUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertOpened: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertResolved: { kind: 'socket', socketClass: 'A' },
+  coreOpsComplianceCaseCreated: { kind: 'socket', socketClass: 'A' },
+  coreOpsComplianceInboxUpdated: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreStarted: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreCompleted: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreFailed: { kind: 'socket', socketClass: 'A' },
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
   bankMarginCalled: { kind: 'live' },
@@ -112,7 +117,7 @@ export const EVENT_BUS_MATRIX = {
   p2pDisputeResolved: { kind: 'socket', socketClass: 'A' },
   p2pTradeExpired: { kind: 'socket', socketClass: 'A' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
-  supportTicketResolved: { kind: 'socket', socketClass: 'A' },
+  supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

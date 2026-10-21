@@ -154,8 +154,8 @@ export interface MatchingEngineOptions {
   /** Startup publish backoff. Tests pass a no-op. Production waits. */
   readonly startupSleep?: (ms: number) => Promise<void>;
   /**
-   * Spread fill announcements (CB-otc-16). Unset until the event catalog declares a spread-fill subject; while unset,
-   * spread orders refuse `spread_fill_event_unwired` before they are journalled.
+   * Spread fill announcements (CB-otc-16); production passes `spreadFillPublisherFor(bus)` (`matching.spread.filled`).
+   * Unset, spread orders refuse `spread_fill_event_unwired` before they are journalled.
    */
   readonly spreadFills?: SpreadFillPublisher;
 }

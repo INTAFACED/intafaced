@@ -321,6 +321,17 @@ describe('help articles panel', () => {
     expect(publish).toContain('Publish kb-a?');
     expect(publish).toContain('Yes, publish');
   });
+  it('asks for the second click before changing who can read an article, and names the audience', () => {
+    const m = panel({ step: { kind: 'audience', id: 'kb-account-access', revision: 3, audience: 'staff' } });
+    expect(m).toContain('Make kb-account-access readable by staff only?');
+    expect(m).toContain('Yes, change who can read it');
+  });
+  it('shows each article’s audience, public when the wire says nothing', () => {
+    const m = panel();
+    expect(m).toContain('Who can read it');
+    expect(m).toContain('data-testid="kb-audience"');
+    expect(m).toContain('Signed-in customers only');
+  });
   it('a forbidden founder sees the reply beside the form, and the controls stay', () => {
     const m = panel({ outcome: FORBIDDEN });
     expect(m).toContain('support operations permission');

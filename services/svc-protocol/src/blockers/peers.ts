@@ -45,6 +45,7 @@ async function read<T>(config: PeerConfig, procedure: string, schema: ZodType<T>
   try {
     response = await doFetch(`${config.url.replace(/\/+$/, '')}/trpc/${procedure}`, {
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'error',
       headers: { accept: 'application/json', ...(region ? { 'x-intafaced-region': region } : {}) },
     });
   } catch {

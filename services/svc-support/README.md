@@ -111,8 +111,75 @@ Ratings: the owner rates a resolved or closed request once (`rate`, replay safe)
 closed now whose last change falls in it: solved count, responses, count per score 1 to 5 and the rated
 share in basis points (null with nothing solved, so the screen shows no percentage). With no ratings it
 returns zero responses and the screen shows no average. A window that does not start before it ends
-refuses `support.rating_window_invalid`. The emailed rating request waits on the mail path
-(`vendor.email`); the in-app prompt does not.
+refuses `support.rating_window_invalid`. The emailed rating request is announced on the bus (see Events);
+whether anyone is emailed is svc-notify's answer and waits on the mail path (`vendor.email`). The in-app
+prompt does not wait on either.
+
+Contact channels: the owner-set support email, phone and chat hours. `contactChannels` is public (a
+signed-out visitor reads it) and answers each channel as a value or `null`; nothing is seeded and no address,
+number or hour is built in. `setContactChannels` (`support:ops`, staff lead only, until the `support:admin` scope
+exists) sets one or more from the revision it read, with a reason; `null` clears one. A change is logged
+append-only in `contact_channel_log` under `support.contact:r<revision>`; the same change replayed returns the
+stored state (it already applied) and a different change from a stale revision refuses `support.contact_revision_stale`.
+
+Awaiting reply: `awaitingMine` (`support:read`) answers how many of the caller's own open requests wait on their reply and
+which has waited longest, as a count and one pointer (no list, so no page size). The ticket the owner reads still never carries
+`waitingOn`; a resolved or closed request waits on nobody.
+
+Help article audiences (SP-help-centre-02): every article has an audience, `public` (the default), `signed_in` or `staff`,
+kept on the immutable version row. `listKb`, `searchKb`, `getKb` (with or without a version), `kbRelated` and `kbFeedback`
+show an article only to a reader its audience allows, decided from the signed principal on every path: a visitor has no
+principal, the desk is a `support:ops` principal. The filter runs before the page limit, so a hidden article takes no
+place in a page and is in no count, and it answers exactly like a missing id (`null`, or the same refusal). `setKbAudience`
+(`support:ops`) takes the revision the desk read, writes a new version that keeps the keys and topic, and one audit row
+(`support.kb_audience_changes`: article, from, to, revisions, actor; append-only). The same audience again changes nothing
+and writes no row. A stale revision is a CONFLICT (`support.kb.revision_stale`); an audience outside the list never
+reaches the service and, if it does, refuses `support.kb_audience_invalid`. Per-segment visibility is not built: whether it
+is wanted is a thread decision, and `support.kb_segment_cap_unset` is not introduced until it is.
+
+Attachment limits (SP-tickets-02): the owner sets the largest file (`maxBytes`), the allowed content types and the number of
+files one request may hold (`maxCount`) in `support.attachment_settings`, one row with a revision and an append-only log
+(`support.attachment_settings_log`, keyed `support.attachment_settings:r<revision>`). All three start blank and nothing is
+seeded. `attachmentLimits` (`support:read`) answers them with `missing`, the first of the five pieces an attach lacks
+(store, scanner, size, types, count); `attachmentStatus` (`support:ops`) lists the five and whether each is set;
+`setAttachmentSettings` (`support:ops`, staff lead, a reason, the revision read) changes them. A limit the deployment's desk
+supplies wins over the owner's row. An attach with a blank piece refuses `support.attachments_unconfigured` naming the key,
+and a blank count refuses `support.attachment_count_unset`; a request already at its count refuses
+`support.attachment_count_reached`, decided under the ticket row lock so two files cannot both take the last place, and a
+replay of an attach already made is never refused for the count. The store and the scanner are deployment configuration:
+production wires neither, so every attach refuses naming `support.attachment_store`. For the test stack only,
+`SUPPORT_ATTACHMENT_STORE=local-test-memory` (bytes kept in this process, lost on restart) and
+`SUPPORT_MALWARE_SCANNER=local-test-eicar` (infected only for the EICAR test string) install LOCAL-TEST adapters; boot
+throws `support.attachment_adapter_refused` unless `APP_ENV` is exactly `dev` or `test`, and for any other name. Size, types
+and count still come from the owner's settings, so a journey sets them through the admin card first.
+
+Scan state: a file's row is written `scanning` first (`support.ticket_attachments.scan_state`, migration 0024; rows from before
+read `clean`). Bytes reach the final store key only after a clean verdict, then the row is marked `clean`. An infected one marks the row
+`blocked`, stores nothing and refuses `support.attachment_scan_refused`, and a blocked file holds no place on the request; a
+scanner that cannot say (or fails) keeps the bytes under a held key (`held/<key>`) that nothing serves, leaves the row
+`scanning` and refuses `support.attachment_scan_unknown`. A clean pass moves held bytes to the final key and drops the held
+copy; a block that lands while the scan runs, or a later infected verdict, purges both keys. A row only ever leaves
+`scanning` once. `attachmentDownload` (owner) and `attachmentDownloadOps` (the assigned operator) serve a file only when it is
+clean, as base64 under the fixed type `application/octet-stream` and always as an attachment; a file that is not the caller's
+answers as not found. A retry under the same request id never scans or stores twice. `rescanHeldAttachments` scans held files
+again; it runs on a timer only when the owner has set both `SUPPORT_ATTACHMENT_RESCAN_SECONDS` and
+`SUPPORT_ATTACHMENT_RESCAN_BATCH`, and with either blank held files wait for the owner's retry. A held file whose bytes never
+reached the store stays held. `ticketAttachments` (`support:read`) lists the files on one ticket with their scan state and no store
+key, for the owner or for an operator who may see the ticket; its page size is the caller's and a blank one refuses
+`support.list_attachments_limit_unset`.
+
+Agent upload: `attachOps` (`support:ops`) lets the operator the ticket is assigned to add a file for its owner. Same limits, scanner,
+store and count as the owner's attach; the file belongs to the owner, who sees it like a comment, and
+`support.ticket_attachments.uploaded_by` (migration 0025) names the operator, `null` when the owner added it. A ticket that is not
+the caller's answers as not found. The retry key is the operator's own, so an operator and an owner never replay each other.
+
+Bulk update (SP-tickets-07): `bulkUpdate` (`support:ops`) applies one change (an assignee, a status or a priority) to several
+requests under one batch key; `bulkPolicy` says the batch size. The size is the owner's `SUPPORT_BULK_CAP` and stays blank by
+default: while blank, the policy answers `cap: null` and a batch refuses `support.bulk_cap_unset`; a batch over the cap
+refuses `support.bulk_too_large`; neither touches a request. Each request goes through the path a single change takes (`setStatus`,
+`assignTo`, `setTicketProperties`) under the key `bulk:<batchKey>:<ticketId>`, so each writes its own trail row and a replayed batch
+changes nothing twice and returns the first answers. The answer lists every request as `changed`, `unchanged` (already at the asked status) or `refused` with the
+typed code the single change gives, and the rest of the batch still runs. Assigning needs a lead and is refused once up front.
 
 ## Migrations
 
@@ -125,8 +192,13 @@ Dev bootstrap creates role/schema via `tooling/infra/postgres-init/01-service-sc
 
 ## Events
 
-**None published.** Ticket create/status stay in-process until a bus catalog
-subject is accepted (events PR first). No orphan subjects.
+One subject, on the `support` stream: `intafaced.support.ticket.resolved`. The first time a ticket becomes
+`resolved`, a trigger writes a row in `support.rating_requests` in the same transaction as the status
+change (a reopen and a second resolve write nothing more, so the customer is asked once). The row is
+published with the key `support.rating_request:<ticketId>` and marked; a sweep at boot and every minute
+publishes the rest. A failed publish keeps the row and never fails the status change. With the bus
+unreachable the desk still serves, the rows stay pending and each sweep tries to connect again. Tickets resolved before migration
+0021 are not asked. Ticket create and other status moves stay in-process. No orphan subjects.
 
 ## Ledger
 
