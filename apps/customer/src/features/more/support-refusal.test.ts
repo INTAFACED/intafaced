@@ -20,6 +20,9 @@ describe('which sentence answers a support refusal', () => {
     ['support.transition_same_status', 'refuseAlreadyClosed'],
     ['support.transition_illegal', 'refuseCannotClose'],
     ['support.settle.refused', 'refuseTeamHandling'],
+    ['support.attachment_count_unset', 'refuseAttachOff'],
+    ['support.attachment_count_reached', 'refuseAttachCount'],
+    ['support.attachment_scan_unknown', 'refuseAttachHeld'],
     ['support.attachment_scan_refused', 'refuseAttachScan'],
     ['support.attachment_too_large', 'refuseAttachLarge'],
     ['support.attachment_type_refused', 'refuseAttachType'],
@@ -76,5 +79,19 @@ describe('which sentence answers a support refusal', () => {
   it('registers the sentence so it follows the interface language', () => {
     const plain = plainSupportResult(fail({ message: 'support.already_rated', code: 'CONFLICT', status: 409 }));
     expect(actionFailurePresentation(plain, 'en')).toEqual({ message: deskCopy.t('refuseAlreadyRated'), language: 'en' });
+  });
+});
+
+describe('phishing report refusals', () => {
+  it('reads support.headers_not_allowed as its own plain sentence', () => {
+    expect(supportRefusalKey(fail({ message: 'support.headers_not_allowed', code: 'BAD_REQUEST', status: 400 }))).toBe(
+      'refuseHeadersNotAllowed',
+    );
+  });
+
+  it('reads support.follow_up_invalid as its own plain sentence', () => {
+    expect(supportRefusalKey(fail({ message: 'support.follow_up_invalid', code: 'PRECONDITION_FAILED', status: 412 }))).toBe(
+      'refuseFollowUp',
+    );
   });
 });

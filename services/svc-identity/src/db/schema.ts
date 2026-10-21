@@ -461,6 +461,10 @@ export const subAccounts = identity.table(
     revoked: boolean('revoked').notNull().default(false),
     /** 0 active, 1 paused. Same id. Not revoke. */
     frozen: integer('frozen').notNull().default(0),
+    /** standard | managed | derivatives | spot. Set at create, never changes. */
+    kind: text('kind').notNull().default('standard'),
+    /** 5 to 20 letters or digits, unique per main account, never changes. Null on rows made before it existed. */
+    nickname: text('nickname'),
     createdAt: createdAt(),
   },
   (t) => [index('sub_accounts_parent_idx').on(t.parentUserId), index('sub_accounts_parent_revoked_idx').on(t.parentUserId, t.revoked)],

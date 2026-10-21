@@ -6,6 +6,7 @@ import type {
   SupportCitation,
   SupportComment,
   SupportKbArticle,
+  SupportKbAudience,
   SupportTicket,
   SupportTicketEvent,
   SupportTicketEventKind,
@@ -125,6 +126,8 @@ export interface SupportStore {
   createTicketOnce(input: CreateTicketOnceRow): Promise<SupportTicket>;
   /** Newest first. Omit `limit` for the full set (tests / internal dumps). */
   listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]>;
+  /** Ids only, never ticket text: the caller's requests that are not resolved or closed. */
+  openIdsByUser(userId: string): Promise<string[]>;
   /** Newest first. Omit `limit` for the full set (queue ranking). */
   listAll(options?: { limit?: number }): Promise<SupportTicket[]>;
   findById(ticketId: string): Promise<SupportTicket | null>;
@@ -167,7 +170,8 @@ export interface SupportStore {
   /** The most recent case file for a ticket, or null if never escalated. */
   latestCaseFile(ticketId: string): Promise<SupportCaseFile | null>;
   /** Published articles only, never drafts. Omit `limit` for the full catalog (search / tests). */
-  listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]>;
+  /** `audiences` keeps only articles of those audiences, before the page; left out, all audiences. */
+  listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]>;
   /** One published article, or null when missing / unpublished. */
   getPublishedKb(id: string): Promise<SupportKbArticle | null>;
   /** Every stored version for an id (including after unpublish). Empty when the id never existed. */
@@ -178,6 +182,13 @@ export interface SupportStore {
    * unpublished. Stale baseRevision refuses.
    */
   putKbRevision(input: PutKbRevisionInput): Promise<PutKbRevisionResult>;
+  /**
+   * Change who may read an article. A new generation (revision + 1) that keeps the keys, the topic and the
+   * published flag; the same audience again changes nothing and writes no audit row.
+   */
+  setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult>;
+  /** Audience changes for one article, oldest first. */
+  listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]>;
   /**
    * Owner close. Replay of the same client request returns the stored ticket
    * and writes nothing. A transition the lifecycle table refuses writes nothing.
@@ -192,6 +203,10 @@ export interface SupportStore {
   }): Promise<RateByOwnerResult>;
   /** Owner, or an operator when `asOperator` is set. Someone else's ticket is not_found. */
   readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult>;
+  /** Every stored rating, for the founder summary. */
+  listRatings(): Promise<TicketRating[]>;
+  /** Ids of the caller's own tickets that carry a rating, so a list can tell rated from not yet rated. */
+  listRatedTicketIdsFor(userId: string): Promise<string[]>;
   readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null>;
   recordAttachment(input: {
     id: string;
@@ -201,8 +216,21 @@ export interface SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    /** The owner's file count for one request. A new file is refused once the request already holds this many. */
+    maxCount: number;
+    /** The operator adding the file for the ticket's owner, or absent when the owner adds it. */
+    operatorId?: string;
   }): Promise<RecordAttachmentResult>;
   readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult>;
+  /**
+   * Records the scanner's answer for a file still `scanning`. A file that already left `scanning` is returned as it is and
+   * never changes again, so a late or repeated answer cannot turn a blocked file clean. Null when there is no such file.
+   */
+  setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null>;
+  /** Files still `scanning`, oldest first, at most `limit`. */
+  listScanningAttachments(limit: number): Promise<AttachmentMeta[]>;
+  /** Every file on one ticket, oldest first, at most `limit`. The caller has already been allowed to see the ticket. */
+  listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]>;
   recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
 }
 
@@ -236,6 +264,8 @@ export type TicketRating = {
   createdAt: string;
 };
 
+export type AttachmentScanState = 'scanning' | 'clean' | 'blocked';
+
 export type AttachmentMeta = {
   id: string;
   ticketId: string;
@@ -244,6 +274,9 @@ export type AttachmentMeta = {
   byteLength: number;
   storeKey: string;
   createdAt: string;
+  scanState: AttachmentScanState;
+  /** The operator who added the file for the owner, or null when the owner did. */
+  uploadedBy: string | null;
 };
 
 export type KbFeedbackVote = {
@@ -266,13 +299,29 @@ export type ReadRatingResult =
 
 export type RecordAttachmentResult =
   | { readonly status: 'ok'; readonly attachment: AttachmentMeta; readonly replay: boolean }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'count_reached' };
 
 export type ReadAttachmentResult =
   { readonly status: 'ok'; readonly attachment: AttachmentMeta } | { readonly status: 'refuse'; readonly reason: 'not_found' };
 
 export type RecordFeedbackResult =
   { readonly status: 'ok'; readonly vote: KbFeedbackVote } | { readonly status: 'refuse'; readonly reason: 'not_published' };
+
+export type SetKbAudienceStoreInput = { id: string; baseRevision: number; audience: SupportKbAudience; actorId: string };
+
+export type KbAudienceChange = {
+  articleId: string;
+  fromAudience: SupportKbAudience;
+  toAudience: SupportKbAudience;
+  fromRevision: number;
+  toRevision: number;
+  actorId: string;
+  createdAt: string;
+};
+
+export type SetKbAudienceResult =
+  | { readonly status: 'ok'; readonly article: SupportKbArticle; readonly changed: boolean }
+  | { readonly status: 'refuse'; readonly reason: 'revision_stale' | 'invalid' };
 
 export type PutKbRevisionResult =
   | { readonly status: 'ok'; readonly article: SupportKbArticle }
@@ -433,6 +482,7 @@ type PgKb = {
   updated_at: Date;
   category?: string | null;
   tags?: string[] | null;
+  audience?: SupportKbAudience | null;
 };
 
 function topicOn(article: { category?: string | null; tags?: readonly string[] | null }): { category?: string; tags?: string[] } {
@@ -454,6 +504,7 @@ function kbFromPg(row: PgKb): SupportKbArticle {
     revision,
     published: row.published,
     ...topicOn(row),
+    ...(row.audience ? { audience: row.audience } : {}),
   });
 }
 
@@ -464,6 +515,7 @@ type PgKbVersion = {
   version: number;
   category?: string | null;
   tags?: string[] | null;
+  audience?: SupportKbAudience | null;
 };
 
 function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
@@ -475,6 +527,7 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
     version,
     revision: version,
     ...topicOn(row),
+    ...(row.audience ? { audience: row.audience } : {}),
   });
 }
 
@@ -545,6 +598,7 @@ export class MemorySupportStore implements SupportStore {
   private readonly cases = new Map<string, SupportCaseFile[]>();
   private readonly kb = new Map<string, SupportKbArticle>();
   private readonly kbVersions = new Map<string, SupportKbArticle[]>();
+  private readonly kbAudienceChanges: KbAudienceChange[] = [];
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
   private readonly attachments = new Map<string, AttachmentMeta & { clientRequestId: string }>();
@@ -630,6 +684,12 @@ export class MemorySupportStore implements SupportStore {
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
   }
 
+  async openIdsByUser(userId: string): Promise<string[]> {
+    return [...this.tickets.values()]
+      .filter((t) => t.userId === userId && t.status !== 'resolved' && t.status !== 'closed')
+      .map((t) => t.id);
+  }
+
   async listAll(options?: { limit?: number }): Promise<SupportTicket[]> {
     const rows = [...this.tickets.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
@@ -662,11 +722,28 @@ export class MemorySupportStore implements SupportStore {
     this.comments.set(input.ticketId, list);
 
     const reopened = ticket.status === 'resolved' && input.authorRole === 'user';
+    // A customer reply on a request the team had in progress or on hold puts it back in the open queue;
+    // whoever holds it keeps it.
+    const resumed = (ticket.status === 'pending' || ticket.status === 'on_hold') && input.authorRole === 'user';
     const updated: SupportTicket = reopened
       ? { ...ticket, status: 'open', assigneeId: null, updatedAt: now }
-      : { ...ticket, updatedAt: now };
+      : resumed
+        ? { ...ticket, status: 'open', updatedAt: now }
+        : { ...ticket, updatedAt: now };
     this.tickets.set(ticket.id, updated);
 
+    if (resumed) {
+      this.record({
+        ticketId: ticket.id,
+        kind: 'status_changed',
+        actorId: input.authorId,
+        actorRole: 'user',
+        fromStatus: ticket.status,
+        toStatus: 'open',
+        note: 'user_reply_resume',
+        at: now,
+      });
+    }
     if (reopened) {
       this.record({
         ticketId: ticket.id,
@@ -855,8 +932,10 @@ export class MemorySupportStore implements SupportStore {
     return list.length === 0 ? null : list[list.length - 1]!;
   }
 
-  async listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]> {
-    const rows = [...this.kb.values()].filter((a) => a.published === true).map((a) => ({ ...a }));
+  async listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]> {
+    const rows = [...this.kb.values()]
+      .filter((a) => a.published === true && (!options?.audiences || options.audiences.includes(a.audience ?? 'public')))
+      .map((a) => ({ ...a }));
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
   }
 
@@ -890,6 +969,7 @@ export class MemorySupportStore implements SupportStore {
           revision: 1,
           published: true,
           ...topicOn(input),
+          audience: 'public',
         });
         this.kb.set(input.id, created);
         this.rememberVersion(created);
@@ -905,6 +985,7 @@ export class MemorySupportStore implements SupportStore {
         revision: nextVersion,
         published: true,
         ...topicOn(input),
+        audience: current.audience ?? 'public',
       });
       this.kb.set(input.id, next);
       this.rememberVersion(next);
@@ -923,10 +1004,37 @@ export class MemorySupportStore implements SupportStore {
       revision: nextRevision,
       published: false,
       ...topicOn(current),
+      audience: current.audience ?? 'public',
     });
     this.kb.set(input.id, hidden);
     this.rememberVersion(hidden);
     return { status: 'ok', article: { ...hidden } };
+  }
+
+  async setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult> {
+    const current = this.kb.get(input.id);
+    if (!current) return { status: 'refuse', reason: 'invalid' };
+    const revision = kbVersionOf(current);
+    if (revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
+    const from = current.audience ?? 'public';
+    if (from === input.audience) return { status: 'ok', article: { ...current }, changed: false };
+    const next = toPublicKb({ ...current, version: revision + 1, revision: revision + 1, audience: input.audience });
+    this.kb.set(input.id, next);
+    this.rememberVersion(next);
+    this.kbAudienceChanges.push({
+      articleId: input.id,
+      fromAudience: from,
+      toAudience: input.audience,
+      fromRevision: revision,
+      toRevision: revision + 1,
+      actorId: input.actorId,
+      createdAt: new Date().toISOString(),
+    });
+    return { status: 'ok', article: { ...next }, changed: true };
+  }
+
+  async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
+    return this.kbAudienceChanges.filter((c) => c.articleId === articleId).map((c) => ({ ...c }));
   }
 
   private receiptKey(procedure: string, actorId: string, clientRequestId: string): string {
@@ -1014,6 +1122,14 @@ export class MemorySupportStore implements SupportStore {
     return ok;
   }
 
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    return [...this.ratings.values()].filter((rating) => rating.userId === userId).map((rating) => rating.ticketId);
+  }
+
+  async listRatings(): Promise<TicketRating[]> {
+    return [...this.ratings.values()].map(({ clientRequestId: _clientRequestId, ...rating }) => rating);
+  }
+
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
@@ -1030,12 +1146,22 @@ export class MemorySupportStore implements SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    maxCount: number;
+    operatorId?: string;
   }): Promise<RecordAttachmentResult> {
-    const stored = this.receipts.get(this.receiptKey('support.attach', input.userId, input.clientRequestId));
-    if (stored) return { status: 'ok', attachment: (stored as { attachment: AttachmentMeta }).attachment, replay: true };
+    const actor = input.operatorId ?? input.userId;
+    const stored = this.receipts.get(this.receiptKey('support.attach', actor, input.clientRequestId));
+    if (stored) {
+      const first = (stored as { attachment: AttachmentMeta }).attachment;
+      // The receipt holds what was first answered; the file's state since is read live.
+      return { status: 'ok', attachment: this.attachments.get(first.id) ?? first, replay: true };
+    }
 
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket || ticket.userId !== input.userId) return { status: 'refuse', reason: 'not_found' };
+    if (input.operatorId !== undefined && ticket.assigneeId !== input.operatorId) return { status: 'refuse', reason: 'not_found' };
+    const held = [...this.attachments.values()].filter((a) => a.ticketId === input.ticketId && a.scanState !== 'blocked').length;
+    if (held >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
     const attachment: AttachmentMeta & { clientRequestId: string } = {
       id: input.id,
@@ -1044,11 +1170,13 @@ export class MemorySupportStore implements SupportStore {
       contentType: input.contentType,
       byteLength: input.byteLength,
       storeKey: input.storeKey,
+      scanState: 'scanning',
+      uploadedBy: input.operatorId ?? null,
       createdAt: new Date().toISOString(),
       clientRequestId: input.clientRequestId,
     };
     this.attachments.set(attachment.id, attachment);
-    this.receipts.set(this.receiptKey('support.attach', input.userId, input.clientRequestId), { attachment });
+    this.receipts.set(this.receiptKey('support.attach', actor, input.clientRequestId), { attachment });
     return { status: 'ok', attachment, replay: false };
   }
 
@@ -1060,6 +1188,27 @@ export class MemorySupportStore implements SupportStore {
     if (attachment.ownerId === input.userId) return { status: 'ok', attachment };
     if (input.asOperator && ticket.assigneeId === input.userId) return { status: 'ok', attachment };
     return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null> {
+    const attachment = this.attachments.get(input.attachmentId);
+    if (!attachment) return null;
+    if (attachment.scanState === 'scanning') attachment.scanState = input.state;
+    return attachment;
+  }
+
+  async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
+    return [...this.attachments.values()]
+      .filter((a) => a.ticketId === ticketId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
+    return [...this.attachments.values()]
+      .filter((a) => a.scanState === 'scanning')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, limit);
   }
 
   async recordKbFeedback(input: {
@@ -1129,6 +1278,13 @@ export class PostgresSupportStore implements SupportStore {
     });
   }
 
+  async openIdsByUser(userId: string): Promise<string[]> {
+    const rows = await this.sql<{ id: string }[]>`
+      SELECT id FROM support.tickets WHERE user_id = ${userId} AND status NOT IN ('resolved', 'closed')
+    `;
+    return rows.map((r) => r.id);
+  }
+
   async listByUser(userId: string, options?: { limit?: number }): Promise<SupportTicket[]> {
     const rows =
       options?.limit === undefined
@@ -1196,6 +1352,7 @@ export class PostgresSupportStore implements SupportStore {
       `;
 
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
+      const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';
       const rows = reopened
         ? await tx<PgTicket[]>`
             UPDATE support.tickets
@@ -1203,7 +1360,14 @@ export class PostgresSupportStore implements SupportStore {
             WHERE id = ${input.ticketId}
             RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
           `
-        : await tx<PgTicket[]>`
+        : resumed
+          ? await tx<PgTicket[]>`
+            UPDATE support.tickets
+            SET status = 'open', updated_at = now()
+            WHERE id = ${input.ticketId}
+            RETURNING id, user_id, category, subject, body, message_headers, status, assignee_id, created_at, updated_at
+          `
+          : await tx<PgTicket[]>`
             UPDATE support.tickets
             SET updated_at = now()
             WHERE id = ${input.ticketId}
@@ -1211,6 +1375,17 @@ export class PostgresSupportStore implements SupportStore {
           `;
       if (!rows[0]) return { status: 'refuse', reason: 'not_found' };
 
+      if (resumed) {
+        await insertEvent(tx, {
+          ticketId: input.ticketId,
+          kind: 'status_changed',
+          actorId: input.authorId,
+          actorRole: 'user',
+          fromStatus: existing.status,
+          toStatus: 'open',
+          note: 'user_reply_resume',
+        });
+      }
       if (reopened) {
         await insertEvent(tx, {
           ticketId: input.ticketId,
@@ -1551,30 +1726,24 @@ export class PostgresSupportStore implements SupportStore {
     return rows[0] ? caseFileFromPg(rows[0]) : null;
   }
 
-  async listPublishedKb(options?: { limit?: number }): Promise<SupportKbArticle[]> {
-    const rows =
-      options?.limit === undefined
-        ? await this.sql<PgKb[]>`
-            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
-            FROM support.kb_articles AS a
-            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
-            WHERE a.published = true
-            ORDER BY a.id
-          `
-        : await this.sql<PgKb[]>`
-            SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
-            FROM support.kb_articles AS a
-            LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
-            WHERE a.published = true
-            ORDER BY a.id
-            LIMIT ${options.limit}
-          `;
+  async listPublishedKb(options?: { limit?: number; audiences?: readonly SupportKbAudience[] }): Promise<SupportKbArticle[]> {
+    // The audience filter and the page are one query, so a hidden article takes no place in a page.
+    const audiences = options?.audiences ? [...options.audiences] : null;
+    const rows = await this.sql<PgKb[]>`
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
+      FROM support.kb_articles AS a
+      LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
+      WHERE a.published = true
+        AND (${audiences}::text[] IS NULL OR COALESCE(v.audience, 'public') = ANY(${audiences}::text[]))
+      ORDER BY a.id
+      ${options?.limit === undefined ? this.sql`` : this.sql`LIMIT ${options.limit}`}
+    `;
     return rows.map(kbFromPg);
   }
 
   async getPublishedKb(id: string): Promise<SupportKbArticle | null> {
     const rows = await this.sql<PgKb[]>`
-      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
       FROM support.kb_articles AS a
       LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
       WHERE a.id = ${id} AND a.published = true
@@ -1585,7 +1754,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listKbVersions(id: string): Promise<SupportKbArticle[]> {
     const rows = await this.sql<PgKbVersion[]>`
-      SELECT id, title_key, body_key, version, category, tags
+      SELECT id, title_key, body_key, version, category, tags, audience
       FROM support.kb_article_versions
       WHERE id = ${id}
       ORDER BY version
@@ -1617,8 +1786,8 @@ export class PostgresSupportStore implements SupportStore {
             RETURNING id, title_key, body_key, revision, published, updated_at
           `;
           await tx`
-            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
-            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
+            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public')
           `;
           return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic }) };
         }
@@ -1635,17 +1804,22 @@ export class PostgresSupportStore implements SupportStore {
         `;
         if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
         const bumped = kbFromPg(rows[0]);
-        await tx`
-          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
-          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags})
+        // A new body keeps who may read it; only setKbAudience changes that.
+        const heldAudience = await tx<{ audience: SupportKbAudience }[]>`
+          SELECT audience FROM support.kb_article_versions WHERE id = ${input.id} AND version = ${input.baseRevision}
         `;
-        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic }) };
+        const audience = heldAudience[0]?.audience ?? 'public';
+        await tx`
+          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, ${audience})
+        `;
+        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic, audience }) };
       }
 
       if (!current) return { status: 'refuse', reason: 'invalid' };
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<{ category: string | null; tags: string[] | null }[]>`
-        SELECT category, tags
+      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
+        SELECT category, tags, audience
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
       `;
@@ -1663,18 +1837,94 @@ export class PostgresSupportStore implements SupportStore {
       // 0008 refuses a revision change that has no matching version row.
       // Copy the stored keys and the stored topic; do not write a new title or body.
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags)
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
         VALUES (
           ${input.id},
           ${kbVersionOf(hidden)},
           ${hidden.titleKey},
           ${hidden.bodyKey},
           ${carried.category ?? null},
-          ${carried.tags ? tx.json(carried.tags) : null}
+          ${carried.tags ? tx.json(carried.tags) : null},
+          ${prev[0]?.audience ?? 'public'}
         )
       `;
-      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried }) };
+      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried, audience: prev[0]?.audience ?? 'public' }) };
     });
+  }
+
+  async setKbAudience(input: SetKbAudienceStoreInput): Promise<SetKbAudienceResult> {
+    return this.sql.begin(async (tx): Promise<SetKbAudienceResult> => {
+      const locked = await tx<PgKb[]>`
+        SELECT id, title_key, body_key, revision, published, updated_at
+        FROM support.kb_articles
+        WHERE id = ${input.id}
+        FOR UPDATE
+      `;
+      if (!locked[0]) return { status: 'refuse', reason: 'invalid' };
+      const current = kbFromPg(locked[0]);
+      if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
+      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
+        SELECT category, tags, audience
+        FROM support.kb_article_versions
+        WHERE id = ${input.id} AND version = ${current.revision}
+      `;
+      const from = prev[0]?.audience ?? 'public';
+      const carried = topicOn(prev[0] ?? {});
+      if (from === input.audience) return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from }), changed: false };
+      const rows = await tx<PgKb[]>`
+        UPDATE support.kb_articles
+        SET revision = revision + 1,
+            updated_at = now()
+        WHERE id = ${input.id} AND revision = ${input.baseRevision}
+        RETURNING id, title_key, body_key, revision, published, updated_at
+      `;
+      if (!rows[0]) return { status: 'refuse', reason: 'revision_stale' };
+      const bumped = kbFromPg(rows[0]);
+      // 0008 refuses a revision change that has no matching version row; the keys and topic are copied unchanged.
+      await tx`
+        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+        VALUES (
+          ${input.id},
+          ${kbVersionOf(bumped)},
+          ${bumped.titleKey},
+          ${bumped.bodyKey},
+          ${carried.category ?? null},
+          ${carried.tags ? tx.json(carried.tags) : null},
+          ${input.audience}
+        )
+      `;
+      await tx`
+        INSERT INTO support.kb_audience_changes (article_id, from_audience, to_audience, from_revision, to_revision, actor_id)
+        VALUES (${input.id}, ${from}, ${input.audience}, ${current.revision ?? 0}, ${kbVersionOf(bumped)}, ${input.actorId})
+      `;
+      return { status: 'ok', article: toPublicKb({ ...bumped, ...carried, audience: input.audience }), changed: true };
+    });
+  }
+
+  async listKbAudienceChanges(articleId: string): Promise<KbAudienceChange[]> {
+    const rows = await this.sql<
+      {
+        article_id: string;
+        from_audience: SupportKbAudience;
+        to_audience: SupportKbAudience;
+        from_revision: number;
+        to_revision: number;
+        actor_id: string;
+        created_at: Date;
+      }[]
+    >`
+      SELECT article_id, from_audience, to_audience, from_revision, to_revision, actor_id, created_at
+      FROM support.kb_audience_changes WHERE article_id = ${articleId} ORDER BY to_revision
+    `;
+    return rows.map((r) => ({
+      articleId: r.article_id,
+      fromAudience: r.from_audience,
+      toAudience: r.to_audience,
+      fromRevision: Number(r.from_revision),
+      toRevision: Number(r.to_revision),
+      actorId: r.actor_id,
+      createdAt: toIso(r.created_at),
+    }));
   }
 
   async readReceipt(procedure: string, actorId: string, clientRequestId: string): Promise<unknown | null> {
@@ -1800,6 +2050,21 @@ export class PostgresSupportStore implements SupportStore {
     });
   }
 
+  async listRatedTicketIdsFor(userId: string): Promise<string[]> {
+    const rows = await this.sql<{ ticket_id: string }[]>`
+      SELECT ticket_id FROM support.ticket_ratings WHERE user_id = ${userId}
+    `;
+    return rows.map((row) => row.ticket_id);
+  }
+
+  async listRatings(): Promise<TicketRating[]> {
+    const rows = await this.sql<PgRating[]>`
+      SELECT ticket_id, user_id, score, note, created_at, client_request_id
+      FROM support.ticket_ratings
+    `;
+    return rows.map(ratingFromPg);
+  }
+
   async readRating(input: { userId: string; ticketId: string; asOperator: boolean }): Promise<ReadRatingResult> {
     const ticket = await this.sql<{ user_id: string }[]>`
       SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} LIMIT 1
@@ -1823,21 +2088,38 @@ export class PostgresSupportStore implements SupportStore {
     storeKey: string;
     contentType: string;
     byteLength: number;
+    maxCount: number;
+    operatorId?: string;
   }): Promise<RecordAttachmentResult> {
+    const actor = input.operatorId ?? input.userId;
     return this.sql.begin(async (tx): Promise<RecordAttachmentResult> => {
-      const locked = await tx<{ user_id: string }[]>`
-        SELECT user_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
+      const locked = await tx<{ user_id: string; assignee_id: string | null }[]>`
+        SELECT user_id, assignee_id FROM support.tickets WHERE id = ${input.ticketId} FOR UPDATE
       `;
       const prior = await tx<{ result: { attachment: AttachmentMeta } }[]>`
         SELECT result FROM support.write_receipts
-        WHERE procedure = 'support.attach' AND actor_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+        WHERE procedure = 'support.attach' AND actor_id = ${actor} AND client_request_id = ${input.clientRequestId}
         LIMIT 1
       `;
-      if (prior[0]) return { status: 'ok', attachment: prior[0].result.attachment, replay: true };
+      if (prior[0]) {
+        // The receipt holds what was first answered; the file's state since is read live.
+        const [live] = await tx<PgAttachment[]>`
+          SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
+          FROM support.ticket_attachments WHERE id = ${prior[0].result.attachment.id}
+        `;
+        return { status: 'ok', attachment: live ? attachmentFromPg(live) : prior[0].result.attachment, replay: true };
+      }
       if (!locked[0] || locked[0].user_id !== input.userId) return { status: 'refuse', reason: 'not_found' };
+      if (input.operatorId !== undefined && locked[0].assignee_id !== input.operatorId) return { status: 'refuse', reason: 'not_found' };
+      // The ticket row is locked, so two files racing for the last place cannot both be taken.
+      const [held] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM support.ticket_attachments
+        WHERE ticket_id = ${input.ticketId} AND scan_state <> 'blocked'
+      `;
+      if ((held?.n ?? 0) >= input.maxCount) return { status: 'refuse', reason: 'count_reached' };
 
       const rows = await tx<PgAttachment[]>`
-        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length)
+        INSERT INTO support.ticket_attachments (id, ticket_id, owner_id, client_request_id, store_key, content_type, byte_length, scan_state, uploaded_by)
         VALUES (
           ${input.id},
           ${input.ticketId},
@@ -1845,14 +2127,16 @@ export class PostgresSupportStore implements SupportStore {
           ${input.clientRequestId},
           ${input.storeKey},
           ${input.contentType},
-          ${input.byteLength}
+          ${input.byteLength},
+          'scanning',
+          ${input.operatorId ?? null}
         )
-        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, created_at
+        RETURNING id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
       `;
       const attachment = attachmentFromPg(rows[0]!);
       await tx`
         INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
-        VALUES ('support.attach', ${input.userId}, ${input.clientRequestId}, ${tx.json({ attachment } as never)})
+        VALUES ('support.attach', ${actor}, ${input.clientRequestId}, ${tx.json({ attachment } as never)})
       `;
       return { status: 'ok', attachment, replay: false };
     });
@@ -1860,7 +2144,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async readAttachment(input: { userId: string; attachmentId: string; asOperator: boolean }): Promise<ReadAttachmentResult> {
     const rows = await this.sql<(PgAttachment & { assignee_id: string | null })[]>`
-      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.created_at, t.assignee_id
+      SELECT a.id, a.ticket_id, a.owner_id, a.content_type, a.byte_length, a.store_key, a.scan_state, a.uploaded_by, a.created_at, t.assignee_id
       FROM support.ticket_attachments AS a
       JOIN support.tickets AS t ON t.id = a.ticket_id
       WHERE a.id = ${input.attachmentId}
@@ -1871,6 +2155,37 @@ export class PostgresSupportStore implements SupportStore {
     if (row.owner_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
     if (input.asOperator && row.assignee_id === input.userId) return { status: 'ok', attachment: attachmentFromPg(row) };
     return { status: 'refuse', reason: 'not_found' };
+  }
+
+  async setAttachmentScanState(input: { attachmentId: string; state: 'clean' | 'blocked' }): Promise<AttachmentMeta | null> {
+    // Only a file still scanning moves; the answer for any other is the row as it is.
+    await this.sql`
+      UPDATE support.ticket_attachments SET scan_state = ${input.state}
+      WHERE id = ${input.attachmentId} AND scan_state = 'scanning'
+    `;
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
+      FROM support.ticket_attachments WHERE id = ${input.attachmentId}
+    `;
+    return rows[0] ? attachmentFromPg(rows[0]) : null;
+  }
+
+  async listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]> {
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
+      FROM support.ticket_attachments WHERE ticket_id = ${ticketId}
+      ORDER BY created_at, id LIMIT ${limit}
+    `;
+    return rows.map(attachmentFromPg);
+  }
+
+  async listScanningAttachments(limit: number): Promise<AttachmentMeta[]> {
+    const rows = await this.sql<PgAttachment[]>`
+      SELECT id, ticket_id, owner_id, content_type, byte_length, store_key, scan_state, uploaded_by, created_at
+      FROM support.ticket_attachments WHERE scan_state = 'scanning'
+      ORDER BY created_at, id LIMIT ${limit}
+    `;
+    return rows.map(attachmentFromPg);
   }
 
   async recordKbFeedback(input: {
@@ -1947,6 +2262,8 @@ type PgAttachment = {
   content_type: string;
   byte_length: number;
   store_key: string;
+  scan_state: AttachmentScanState;
+  uploaded_by: string | null;
   created_at: Date;
 };
 
@@ -1958,6 +2275,8 @@ function attachmentFromPg(row: PgAttachment): AttachmentMeta {
     contentType: row.content_type,
     byteLength: Number(row.byte_length),
     storeKey: row.store_key,
+    scanState: row.scan_state,
+    uploadedBy: row.uploaded_by,
     createdAt: toIso(row.created_at),
   };
 }

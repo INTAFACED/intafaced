@@ -3,9 +3,23 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
+import { bulkSummary, type BulkRow } from '@/lib/support/bulk';
 import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
-import { claimTicket, loadKb, loadQueue, loadTicket, loadTicketExtras, runSupportAction } from '@/lib/support/server';
+import {
+  claimTicket,
+  loadBulkPolicy,
+  loadKb,
+  loadQueue,
+  loadTicket,
+  loadTicketExtras,
+  loadGroups,
+  loadStaff,
+  loadRatingSummary,
+  loadTicketLifecycle,
+  loadTicketProperties,
+  runSupportAction,
+} from '@/lib/support/server';
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
 
 /**
@@ -41,6 +55,31 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'bulk') return Response.json(await loadBulkPolicy(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'staff') return Response.json(await loadStaff(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'properties') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketProperties(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'lifecycle') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketLifecycle(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'ratings') {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const start = from === null ? NaN : Date.parse(from);
+    const end = to === null ? NaN : Date.parse(to);
+    if (!from || !to || !Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
+      return Response.json({ code: 'admin.support_rating_window' }, { status: 400, headers: NO_STORE });
+    }
+    return Response.json(await loadRatingSummary(session, { from: new Date(start).toISOString(), to: new Date(end).toISOString() }), {
+      headers: NO_STORE,
+    });
   }
   if (url.searchParams.get('view') === 'kb') return Response.json(await loadKb(session), { headers: NO_STORE });
   return Response.json(await loadQueue(session), { headers: NO_STORE });
@@ -121,7 +160,18 @@ const INVALID = {
   },
 } as const;
 
-const targetOf = (request: SupportActionRequest) => ('ticketId' in request ? request.ticketId : request.id);
+const targetOf = (request: SupportActionRequest) =>
+  request.action === 'staff_availability'
+    ? (request.userId ?? 'self')
+    : request.action === 'group_save'
+      ? (request.groupId ?? 'new')
+      : request.action === 'group_member'
+        ? request.groupId
+        : request.action === 'bulk'
+          ? request.batchKey
+          : 'ticketId' in request
+            ? request.ticketId
+            : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -146,7 +196,21 @@ async function writeAction(session: Session, raw: Record<string, unknown>) {
   if (result.kind !== 'ok') {
     return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
   }
-  return Response.json({ ok: true, action: request.action, summary: summaryOf(request, result.data) }, { headers: NO_STORE });
+  return Response.json(
+    {
+      ok: true,
+      action: request.action,
+      summary: summaryOf(request, result.data),
+      ...(request.action === 'bulk' ? { results: result.data } : {}),
+    },
+    { headers: NO_STORE },
+  );
+}
+
+function audienceWords(audience: unknown): string {
+  if (audience === 'signed_in') return 'signed-in customers only';
+  if (audience === 'staff') return 'staff only';
+  return 'everyone';
 }
 
 /** What svc-support says happened, in a sentence, taken from its own answer and not from what was sent. */
@@ -157,10 +221,22 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return 'svc-support recorded your reply on the ticket.';
     case 'status':
       return `svc-support says the ticket is now ${String(d.status)}.`;
+    case 'group_save':
+      return `svc-support saved the group as "${String(d.name)}".`;
+    case 'group_member':
+      return `svc-support says the group now has ${Array.isArray(d.memberIds) ? d.memberIds.length : 'an unknown number of'} members.`;
+    case 'staff_availability':
+      return `svc-support says the person is now ${String(d.availability)}.`;
+    case 'bulk':
+      return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
+    case 'properties':
+      return 'svc-support recorded the new priority, type and labels on the ticket.';
     case 'escalate':
       return `svc-support filed the case file with ${Array.isArray(d.citations) ? d.citations.length : 'its'} citations.`;
     case 'kb_publish':
       return `svc-support says ${String(d.id)} is published at revision ${String(d.revision)}.`;
+    case 'kb_audience':
+      return `svc-support says ${String(d.id)} is now readable by ${audienceWords(d.audience)}. Its revision is now ${String(d.revision)}.`;
     case 'kb_unpublish':
       return `svc-support says ${String(d.id)} is hidden from customers. Its revision is now ${String(d.revision)}; quote it to publish it again.`;
   }

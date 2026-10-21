@@ -8,6 +8,13 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { CustodyMountDeps } from '../custody/router.js';
+import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
+import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
+import type { TravelRuleMountDeps } from '../travel-rule/router.js';
+import type { WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
+import type { WithdrawalApprovalMountDeps } from '../withdrawals/approvals/router.js';
+import type { AllowlistMountDeps } from '../withdrawals/allowlist/router.js';
 import type { WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import type { DisputeEvidenceGate } from '../merchant-ops/dispute-evidence-policy.js';
 import type { DisputeCaseStore } from '../fraud/dispute-case.js';
@@ -50,6 +57,13 @@ export function createPayNamespaces(deps: {
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
   limits?: WithdrawalLimitsMountDeps;
+  custody?: CustodyMountDeps;
+  purchaseHolds?: PurchaseHoldMountDeps;
+  withdrawalQuotes?: WithdrawalQuoteMountDeps;
+  travelRule?: TravelRuleMountDeps;
+  withdrawalReturns?: WithdrawalReturnMountDeps;
+  withdrawalApprovals?: WithdrawalApprovalMountDeps;
+  allowlist?: AllowlistMountDeps;
   sql?: Sql;
   ledger?: Pick<LedgerClient, 'balances'>;
   webhooksAllowLocalHttp?: boolean;
@@ -86,6 +100,13 @@ export function createPayNamespaces(deps: {
       metrics: deps.metrics,
       registries: deps.registries,
       limits: deps.limits,
+      custody: deps.custody,
+      purchaseHolds: deps.purchaseHolds,
+      withdrawalQuotes: deps.withdrawalQuotes,
+      travelRule: deps.travelRule,
+      withdrawalReturns: deps.withdrawalReturns,
+      withdrawalApprovals: deps.withdrawalApprovals,
+      allowlist: deps.allowlist,
       ops: createFounderOpsRouter(opsDeps),
       treasury: deps.treasury,
       control: deps.control,

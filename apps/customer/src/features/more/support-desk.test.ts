@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_SUPPORT_EMAIL,
   RATING_SCORES,
+  canFollowUp,
   canReply,
+  followUpDraft,
   filterTickets,
   inKbCategory,
   kbCategory,
@@ -11,8 +12,11 @@ import {
   newestFirst,
   replyReopens,
   requestActionStates,
+  showRatePrompt,
   statusCounts,
   supportEmail,
+  supportRequestHref,
+  requestFromSearch,
   supportMailto,
   ticketReference,
   type TicketLike,
@@ -32,6 +36,8 @@ describe('status filters', () => {
   it('treats open and in-progress as active, and keeps resolved and closed apart', () => {
     expect(matchesFilter('open', 'active')).toBe(true);
     expect(matchesFilter('pending', 'active')).toBe(true);
+    expect(matchesFilter('on_hold', 'active')).toBe(true);
+    expect(matchesFilter('on_hold', 'resolved')).toBe(false);
     expect(matchesFilter('resolved', 'active')).toBe(false);
     expect(matchesFilter('closed', 'active')).toBe(false);
     expect(matchesFilter('closed', 'all')).toBe(true);
@@ -44,8 +50,9 @@ describe('status filters', () => {
       row({ id: 'b', status: 'pending' }),
       row({ id: 'c', status: 'resolved' }),
       row({ id: 'd', status: 'closed' }),
+      row({ id: 'e', status: 'on_hold' }),
     ];
-    expect(statusCounts(rows)).toEqual({ all: 4, active: 2, resolved: 1, closed: 1 });
+    expect(statusCounts(rows)).toEqual({ all: 5, active: 3, resolved: 1, closed: 1 });
   });
 });
 
@@ -134,15 +141,57 @@ describe('help article groups', () => {
 });
 
 describe('contact address', () => {
-  it('uses a configured address only when it is a plain address, else the recorded company address', () => {
+  it('uses a configured address only when it is a plain address, else it is not set', () => {
     expect(supportEmail('help@example.org')).toBe('help@example.org');
     expect(supportEmail('  help@example.org ')).toBe('help@example.org');
-    expect(supportEmail('not an address')).toBe(DEFAULT_SUPPORT_EMAIL);
-    expect(supportEmail(undefined)).toBe(DEFAULT_SUPPORT_EMAIL);
+    expect(supportEmail('not an address')).toBeNull();
+    expect(supportEmail(undefined)).toBeNull();
+    expect(supportEmail('   ')).toBeNull();
   });
 
   it('builds a mailto that carries only the text it was given, encoded', () => {
     const href = supportMailto('a@b.co', "Can't sign in", 'Hi & thanks');
     expect(href).toBe("mailto:a@b.co?subject=Can't%20sign%20in&body=Hi%20%26%20thanks");
+  });
+});
+
+describe('follow-up on a closed request', () => {
+  it('is offered on a closed request only', () => {
+    expect(canFollowUp('closed')).toBe(true);
+    for (const status of ['open', 'pending', 'resolved'] as const) expect(canFollowUp(status)).toBe(false);
+  });
+
+  it('starts from the same topic with a subject that names what it follows, within the subject limit', () => {
+    expect(followUpDraft({ category: 'trading', subject: 'Order stuck' }, 'Follow-up:')).toEqual({
+      category: 'trading',
+      subject: 'Follow-up: Order stuck',
+    });
+    expect(followUpDraft({ category: 'other', subject: 'x'.repeat(200) }, 'Follow-up:').subject).toHaveLength(200);
+  });
+});
+
+describe('the rate-this-request prompt', () => {
+  it('shows on a solved request that has been read and is not yet rated', () => {
+    expect(showRatePrompt('resolved', true, false)).toBe(true);
+    expect(showRatePrompt('closed', true, false)).toBe(true);
+  });
+
+  it('stays away while the rating is unread, once rated, and before the request is solved', () => {
+    expect(showRatePrompt('resolved', false, false)).toBe(false);
+    expect(showRatePrompt('resolved', true, true)).toBe(false);
+    for (const status of ['open', 'pending', 'on_hold'] as const) expect(showRatePrompt(status, true, false)).toBe(false);
+  });
+});
+
+describe('opening one request from an address', () => {
+  const ID = '11111111-1111-4111-8111-111111111111';
+  it('builds the address from a request id and reads it back', () => {
+    expect(supportRequestHref(ID)).toBe(`/support?request=${ID}`);
+    expect(requestFromSearch(`?request=${ID}`)).toBe(ID);
+    expect(requestFromSearch(`?request=${ID.toUpperCase()}`)).toBe(ID);
+  });
+  it('anything that is not a request id opens nothing', () => {
+    for (const search of ['', '?request=', '?request=abc', `?request=${ID}x`, '?request=../../x', `?other=${ID}`])
+      expect(requestFromSearch(search)).toBeNull();
   });
 });

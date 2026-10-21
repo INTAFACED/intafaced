@@ -1,5 +1,11 @@
 import { z } from 'zod';
+import {
+  supportAttachmentDownloadSchema,
+  supportAttachmentLimitsSchema,
+  supportAttachmentSchema,
+} from '@intafaced/contracts/support-attachments';
 import type { ApiClient } from '../../shared/api';
+import { contractProcedure, readContract } from '../../shared/contract-call';
 import { deskCopy } from './support-desk-copy';
 import { plainSupportResult } from './support-refusal';
 import { ticketSchema } from './support-schemas';
@@ -21,14 +27,12 @@ export const ratingSchema = z.object({
   note: z.string().nullable(),
   createdAt: z.string(),
 });
-export const attachmentSchema = z.object({
-  id: z.string().uuid(),
-  ticketId: z.string().uuid(),
-  ownerId: z.string().uuid(),
-  contentType: z.string(),
-  byteLength: z.number().int().nonnegative(),
-  storeKey: z.string(),
-  createdAt: z.string(),
+/** The service's own shape for a stored file: no store key, and the scan state the person is shown. */
+export const attachmentSchema = supportAttachmentSchema;
+const limitsCall = contractProcedure('support', 'attachmentLimits', { output: supportAttachmentLimitsSchema });
+const downloadCall = contractProcedure('support', 'attachmentDownload', {
+  output: supportAttachmentDownloadSchema,
+  input: z.object({ attachmentId: z.string().uuid() }),
 });
 const feedbackSchema = z.object({
   articleId: z.string(),
@@ -45,6 +49,11 @@ export function readRating(api: ApiClient, ticketId: string, userId: string | nu
     ratingSchema.nullable().refine((row) => row === null || (row.ticketId === ticketId && row.userId === userId), mismatch()),
     { signal },
   );
+}
+
+/** Ids of the signed-in person's own requests that already carry a rating. Only used to offer "rate this" on the rest. */
+export function readRatedTicketIds(api: ApiClient, signal?: AbortSignal) {
+  return api.query('support', 'ratedMine', undefined, z.array(z.string().uuid()), { signal });
 }
 
 export async function closeRequest(api: ApiClient, input: { ticketId: string; userId: string | null; clientRequestId: string }) {
@@ -125,4 +134,25 @@ export function readRelated(api: ApiClient, articleId: string, signal?: AbortSig
     ),
     { signal },
   );
+}
+
+/** The limits the owner set, read from the service. A blank limit is `null`; nothing here fills one in. */
+export function readAttachLimits(api: ApiClient, signal?: AbortSignal) {
+  return readContract(api, limitsCall, undefined, { signal });
+}
+
+/** The files on one of the person's own requests, each with its scan state. Every row must belong to that request and person. */
+export function readTicketFiles(api: ApiClient, ticketId: string, userId: string | null, limit: number, signal?: AbortSignal) {
+  return api.query(
+    'support',
+    'ticketAttachments',
+    { ticketId, limit },
+    z.array(supportAttachmentSchema).refine((rows) => rows.every((row) => row.ticketId === ticketId && row.ownerId === userId), mismatch()),
+    { signal },
+  );
+}
+
+/** One of the person's own clean files, as base64. The service refuses a file that is still being checked or was not accepted. */
+export async function downloadFile(api: ApiClient, attachmentId: string) {
+  return plainSupportResult(await readContract(api, downloadCall, { attachmentId }));
 }

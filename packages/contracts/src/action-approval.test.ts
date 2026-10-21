@@ -152,6 +152,7 @@ describe('same-person approvals', () => {
       'trusted_device_remove',
       'link_method',
       'unlink_method',
+      'sub_account_delete',
     ]) {
       expect(isSamePersonActionType(`identity.step_up.${action}`)).toBe(true);
       expect(samePersonTargetService(`identity.step_up.${action}`)).toBe('svc-identity');

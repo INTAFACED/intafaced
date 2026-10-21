@@ -139,7 +139,7 @@ describe('D26-P2-05 bus completeness inventory (ADR D-S-13)', () => {
       expect(key).not.toMatch(/crewMemberCreated/);
     }
     // Sample of ADR Class A names — record ahead of reader
-    for (const event of ['userCreated', 'ledgerTxPosted', 'orderAccepted', 'ledgerFreezeUpdated'] as const) {
+    for (const event of ['userCreated', 'ledgerTxPosted', 'orderAccepted', 'ledgerReconciliationFailed'] as const) {
       expect(socketKeys(inventory)).toContain(`${event}::subscriber`);
     }
     expect(socketKeys(inventory)).toContain('buybackExecuted::publisher');

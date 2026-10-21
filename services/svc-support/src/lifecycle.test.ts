@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SupportTicketStatus } from '@intafaced/contracts';
 import { TICKET_TRANSITIONS, checkTransition, isTerminal } from './lifecycle.js';
 
-const ALL: readonly SupportTicketStatus[] = ['open', 'pending', 'resolved', 'closed'];
+const ALL: readonly SupportTicketStatus[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 describe('ticket lifecycle', () => {
   it('closed is terminal — nothing follows it', () => {
@@ -33,18 +33,24 @@ describe('ticket lifecycle', () => {
     expect(legal.sort()).toEqual(
       [
         'open->pending',
+        'open->on_hold',
         'open->resolved',
         'open->closed',
         'pending->open',
+        'pending->on_hold',
         'pending->resolved',
         'pending->closed',
+        'on_hold->open',
+        'on_hold->pending',
+        'on_hold->resolved',
+        'on_hold->closed',
         'resolved->open',
         'resolved->closed',
       ].sort(),
     );
-    // 4 statuses × 4 targets = 16 pairs; 8 legal means 8 refused.
+    // 5 statuses × 5 targets = 25 pairs; 14 legal means 11 refused.
     const refused = ALL.flatMap((from) => ALL.map((to) => checkTransition(from, to))).filter((c) => c.status === 'refuse');
-    expect(refused).toHaveLength(8);
+    expect(refused).toHaveLength(11);
   });
 
   it('refusals carry a code, not a sentence', () => {

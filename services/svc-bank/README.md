@@ -159,14 +159,15 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
-| Procedure                    | Scope                 | What it does                                                                  |
-| ---------------------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `business.list` / `create`   | `bank:read` / `write` | Corporate account + spend threshold                                           |
-| `business.addMember`         | `bank:write`          | admin/maker/checker roles                                                     |
-| `business.proposeTransfer`   | `bank:write`          | Under threshold posts; at/above → **purposed ledger hold** + pending approval |
-| `business.approve`           | `bank:write`          | Checker (not maker) settles hold → destination                                |
-| `business.reject` / `cancel` | `bank:write`          | Checker reject or maker/admin cancel — hold returns to debit pot              |
-| `business.pending`           | `bank:read`           | Open approvals (each carries `holdLedgerTxId` while pending)                  |
+| Procedure                      | Scope                  | What it does                                                                                                                                                                                |
+| ------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `business.list` / `create`     | `bank:read` / `write`  | Corporate account + spend threshold                                                                                                                                                         |
+| `business.addMember`           | `bank:write`           | admin/maker/checker roles                                                                                                                                                                   |
+| `business.proposeTransfer`     | `bank:write`           | Under threshold posts; at/above → **purposed ledger hold** + pending approval                                                                                                               |
+| `business.approve`             | `bank:write`           | Checker (not maker) settles hold → destination                                                                                                                                              |
+| `business.reject` / `cancel`   | `bank:write`           | Checker reject or maker/admin cancel — hold returns to debit pot                                                                                                                            |
+| `business.pending`             | `bank:read`            | Open approvals (each carries `holdLedgerTxId` while pending)                                                                                                                                |
+| `business.approverEligibility` | service (svc-pay only) | May this member approve for the team? `eligible`, `role_cannot_approve`, `not_a_member`, `account_closed` or `no_such_account`; a read, used for multi-approval withdrawals (W-withdraw-11) |
 
 KYB / payroll / invoicing / expense cards remain residual or §13 — not invented here.
 
@@ -188,6 +189,9 @@ BANK_RAMP_MODE=none            # default — every ramp money path refuses bank.
 BANK_RAMP_MODE=crypto-ledger   # ledger half only; simulated: true always
 BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling_unset (never 24h)
 BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
+BANK_ACCOUNT_DETAILS_CURRENCIES= # owner-published ISO-4217 list ("GBP,EUR"); blank → bank.account_details_currencies_unset
+BANK_ELIGIBILITY_JSON=         # owner-published who can open an account; blank → bank.eligibility_unset
+BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / reference rules of a global send; blank → bank.send_field_rules_unset
 ```
 
 ### `ops` — operator only

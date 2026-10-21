@@ -115,6 +115,23 @@
     font: 400 12px/16px var(--if-font-ui);
     color: var(--if-fg-2);
   }
+  .money-scope {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-scope select {
+    min-height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+    background: var(--if-bg-1);
+    color: var(--if-fg-1);
+    font: inherit;
+  }
   .money-pnl-link {
     display: flex;
     flex-direction: column;
@@ -800,6 +817,20 @@
   .money-bar__search input {
     flex: 1;
     outline: none;
+  }
+  .money-bar__note {
+    flex-basis: 100%;
+    margin: 0;
+    font: 400 12px/16px var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .money-bar__check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    font: 400 14px/20px var(--if-font-ui);
+    color: var(--if-fg-2);
   }
   .money-bar__field {
     display: flex;

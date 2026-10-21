@@ -271,6 +271,9 @@ function trailPeakState(
   return { trail: trailAmt, peak: peakAmt };
 }
 
+/** Set by spread-book.ts when it wraps this class. Without it a spread order is refused, never matched bare. */
+const SPREAD_BOOK = Symbol.for('intafaced.matching.spread-book');
+
 export class OrderBook {
   readonly marketId: MarketId;
 
@@ -755,6 +758,9 @@ export class OrderBook {
   }
 
   private validate(order: EngineOrder, now?: Date | null): RejectReason | null {
+    if (order.spread != null && (OrderBook.prototype as unknown as Record<symbol, unknown>)[SPREAD_BOOK] !== true) {
+      return reject('spread_order_unsupported', 'spread orders need the spread book hitch; the core book does not price legs');
+    }
     const rawType = order.type as string;
     if ((order.instrument === 'option' || order.instrument === 'option_combo') && OPTION_TRIGGER_TYPES.has(rawType)) {
       return reject(
@@ -782,7 +788,8 @@ export class OrderBook {
     const needsPrice = order.type === 'limit' || order.type === 'stop_limit';
     if (needsPrice) {
       if (order.price === null) return reject('missing_price', `a ${order.type} order requires a price`);
-      if (order.price <= ZERO) return reject('invalid_price', 'price must be strictly positive');
+      // A spread price is a weighted leg-price difference and may be zero or negative (spread-instrument.ts).
+      if (order.price <= ZERO && order.spread == null) return reject('invalid_price', 'price must be strictly positive');
     } else if (order.price !== null) {
       return reject('unexpected_price', `a ${order.type} order must not carry a limit price`);
     }

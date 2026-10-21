@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { AllocationBar } from './allocation-chart';
 import { assetName, moneyCopy } from './copy';
@@ -31,6 +31,7 @@ import {
   type Loadable,
   type MarketRow,
 } from './deps';
+import { balanceEntriesHref } from './balance-entries-model';
 import { allAdd, heldFor, spacesFor, type Held, type Spaces } from './held-breakdown';
 import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
@@ -107,9 +108,17 @@ function cents(value: string | null): string | null {
   return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
 }
 
+function satoshis(value: string | null): string | null {
+  const parsed = dec(value);
+  return parsed === null ? null : toFixedString(roundScaled(parsed, 8), 8);
+}
+
 function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
   const { t } = copy;
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
+  // The bank sends the BTC total when asked for it; with no BTC price it says why and the dollar total stays on screen.
+  const inBtc = displayCurrency === 'BTC' && view.btc !== null && view.btc.total !== null;
+  const btcMissing = displayCurrency === 'BTC' && view.source === 'server' && !inBtc;
   const since = view.windowStart;
   const changeLabel =
     since !== null
@@ -123,8 +132,19 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
   return (
     <>
       <div className="money-total">
-        <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        {inBtc ? (
+          <HeroNumber value={satoshis(view.btc!.total)} decimals={8} prefix="₿" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        ) : (
+          <HeroNumber value={cents(view.totalUsd)} decimals={2} prefix="$" size={pro ? 'hero-pro' : 'hero'} hidden={hidden} />
+        )}
       </div>
+      {inBtc ? (
+        <p className="money-note">
+          {/* The dollar figure is a balance too: it stays out of the note while balances are hidden. */}
+          {hidden ? t('Shown in BTC hidden') : t('Shown in BTC', { usd: view.totalUsd ? `$${cents(view.totalUsd)}` : '—' })}
+        </p>
+      ) : null}
+      {btcMissing ? <p className="money-note">{t('BTC price missing')}</p> : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
           <ChangeText value={fmtChangeLine(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -173,7 +193,10 @@ function RowActions({ row, markets, copy, layout }: { row: MoneyRow; markets: Lo
   const buy = symbol ? buyHref(row.asset, symbol, false, layout) : null;
   const sell = symbol ? buyHref(row.asset, symbol, true, layout) : null;
   const send = isHiddenPath('/pay/send') ? null : `/pay/send?asset=${encodeURIComponent(row.asset)}`;
+  // A cash row opens the convert page with this coin as the one to give; nothing is posted until the quote is accepted there.
+  const convert = row.class === 'cash' && !isHiddenPath('/trade/convert') ? `/trade/convert?from=${encodeURIComponent(row.asset)}` : null;
   const items = [
+    { id: 'Convert', href: convert, label: t('Convert {asset}', { asset: row.asset }) },
     { id: 'Buy', href: buy, label: t('Buy {asset}', { asset: row.asset }) },
     { id: 'Sell', href: sell, label: t('Sell {asset}', { asset: row.asset }) },
     { id: 'Send', href: send, label: t('Send {asset}', { asset: row.asset }) },
@@ -260,6 +283,9 @@ function CoinRow({
         <span className="money-num__value">
           <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
         </span>
+        <a className="money-coin__name" href={balanceEntriesHref(row.asset)} aria-label={copy.t('See the entries', { asset: row.asset })}>
+          {copy.t('Entries column what')}
+        </a>
       </td>
       <td className="money-num money-cell--value">
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
@@ -460,9 +486,12 @@ function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden
 export default function Portfolio() {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, layoutMode } = usePreferences();
+  const { hideBalances, layoutMode, displayCurrency } = usePreferences();
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
-  const portfolio = useMoneyPortfolio();
+  const [scope, setScope] = useState('combined');
+  // Only this screen shows BTC; Home and P&L ask for USD, so a missing BTC price never takes their dollar total away.
+  const portfolio = useMoneyPortfolio(scope, displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const scoped = scope !== 'combined';
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
   const markets = useMarkets();
@@ -491,19 +520,23 @@ export default function Portfolio() {
       new Map(
         (view?.rows ?? []).map((row) => [
           row.asset,
-          heldFor(
-            row.asset,
-            row.amount,
-            // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
-            balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
-            spaces,
-            lockSplit.status === 'ready' ? lockSplit.data : lockSplit.status === 'empty' ? {} : undefined,
-          ),
+          // The breakdown reads cover the whole account and the spaces list covers every space, so for one account
+          // they would sit next to an Amount they do not belong to: those columns show a dash instead.
+          scoped
+            ? heldFor(row.asset, row.amount, undefined, { state: 'unavailable', byAsset: new Map() }, undefined)
+            : heldFor(
+                row.asset,
+                row.amount,
+                // A coin missing from a balance read that did arrive is a coin with nothing free and nothing in orders.
+                balances.status === 'ready' ? (balances.data[row.asset] ?? { free: '0', used: '0', total: '0' }) : undefined,
+                spaces,
+                lockSplit.status === 'ready' ? lockSplit.data : lockSplit.status === 'empty' ? {} : undefined,
+              ),
         ]),
       ),
-    [view, balances, spaces, lockSplit],
+    [view, balances, spaces, lockSplit, scoped],
   );
-  const note = layout === 'pro' ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
+  const note = layout === 'pro' && !scoped ? heldNote(spaces, allAdd([...helds.values()]), t) : null;
   const noteFirst = cashRows.length > 0 ? 'cash' : 'crypto';
   const mode: PillMode = portfolio.status === 'refused' ? 'refused' : portfolio.status === 'empty' ? 'empty' : 'normal';
   const buyTarget = buyHref(null, null, false, layout);
@@ -582,7 +615,7 @@ export default function Portfolio() {
             note={noteFirst === 'crypto' ? note : null}
           />
         ) : null}
-        {accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
+        {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}
         {isHiddenPath('/money/pnl') ? null : (
@@ -632,6 +665,23 @@ export default function Portfolio() {
         </div>
         <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
       </div>
+      {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
+        <label className="money-scope">
+          <span>{t('Accounts shown')}</span>
+          <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
+            <option value="combined">{t('All accounts')}</option>
+            <option value="main">{t('Main account')}</option>
+            {scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope)) ? (
+              <option value={scope}>{t('This account')}</option>
+            ) : null}
+            {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       {body}
     </div>
   );

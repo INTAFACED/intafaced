@@ -276,15 +276,13 @@ describe('POST /api/v1/orders/preview', () => {
     });
 
     it.each([
-      ['an expiry in the past', '2026-08-24T15:59:59.000Z'],
-      ['an expiry equal to now', '2026-08-24T16:00:00.000Z'],
-      ['an expiry that is not a date', 'tomorrow'],
-    ])('refuses %s', async (_name, expireAt) => {
+      ['an expiry in the past', '2026-08-24T15:59:59.000Z', 'trade.invalid_expiry'],
+      ['an expiry equal to now', '2026-08-24T16:00:00.000Z', 'trade.invalid_expiry'],
+      ['an expiry that is not a date', 'tomorrow', 'trade.invalid_tif'],
+    ])('refuses %s', async (_name, expireAt, code) => {
       const { response } = await post({ ...limitBuy, timeInForce: 'GTD', expireAt });
       expect(response.json().orderable).toBe(false);
-      expect(refusalsOf(response)).toEqual(
-        expect.arrayContaining([expect.objectContaining({ code: 'trade.invalid_tif', field: 'expireAt' })]),
-      );
+      expect(refusalsOf(response)).toEqual(expect.arrayContaining([expect.objectContaining({ code, field: 'expireAt' })]));
     });
 
     it('refuses an expiry on an order that is not good till date, rather than ignoring it', async () => {
@@ -360,6 +358,24 @@ describe('POST /api/v1/orders/preview', () => {
     expect(lifecycleRes.json().holdAmount).toBe('200');
     await listing.app.close();
     await lifecycle.app.close();
+  });
+
+  it('limit-only: a market order previews as refused with trade.mode_limit_only, a limit order does not', async () => {
+    const LIMIT_ONLY_LIFECYCLE: MarketLifecyclePort = {
+      snapshot: (market, options) => ({ ...READY_MARKET_LIFECYCLE.snapshot(market, options), state: 'LIMIT_ONLY' }) as never,
+      admit: (snapshot, action) => decideMarketAction(snapshot, action),
+    };
+    const { app } = appWith({ lifecycle: LIMIT_ONLY_LIFECYCLE });
+    const market = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, type: 'market', price: undefined },
+    });
+    expect(market.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.mode_limit_only');
+    const limit = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(limit.json().refusals.map((row: { code: string }) => row.code)).not.toContain('trade.mode_limit_only');
+    await app.close();
   });
 
   it('refuses unauthenticated callers', async () => {

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   getKbArticleInputSchema,
   publicKbArticleOrNull,
+  kbAudienceVisibleTo,
+  setKbAudienceInputSchema,
+  supportKbAudienceSchema,
   publishedKbArticles,
   createTicketInputSchema,
   searchKbInputSchema,
@@ -11,6 +14,9 @@ import {
   supportLabelSchema,
   supportTicketPropertiesSchema,
   supportTicketPrioritySchema,
+  supportTicketLifecycleSchema,
+  supportTicketStatusSchema,
+  supportWaitingOnSchema,
   supportTicketTypeSchema,
   supportTicketCategorySchema,
   supportTicketSchema,
@@ -203,5 +209,62 @@ describe('ticket properties contract (SP-tickets-04)', () => {
     ).toBe(true);
     const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
     for (const key of ['priority', 'ticketType', 'labels']) expect(shape).not.toContain(key);
+  });
+});
+
+describe('ticket lifecycle (SP-tickets-04)', () => {
+  const ticketId = '11111111-1111-4111-8111-111111111111';
+  it('waiting on is the team or the customer, and null until set', () => {
+    expect(supportWaitingOnSchema.safeParse('team').success).toBe(true);
+    expect(supportWaitingOnSchema.safeParse('customer').success).toBe(true);
+    expect(supportWaitingOnSchema.safeParse('nobody').success).toBe(false);
+    const empty = { ticketId, waitingOn: null, waitingSince: null, firstPublicReplyAt: null, followsTicketId: null };
+    expect(supportTicketLifecycleSchema.safeParse(empty).success).toBe(true);
+    expect(supportTicketLifecycleSchema.safeParse({ ...empty, waitingOn: 'team', waitingSince: '2026-10-20T01:00:00.000Z' }).success).toBe(
+      true,
+    );
+    expect(supportTicketLifecycleSchema.safeParse({ ...empty, waitingSince: 'yesterday' }).success).toBe(false);
+  });
+  it('a request can be on hold, and an unknown status still fails', () => {
+    expect(supportTicketStatusSchema.safeParse('on_hold').success).toBe(true);
+    expect(supportTicketStatusSchema.safeParse('paused').success).toBe(false);
+  });
+  it('a follow-up names the closed request it follows by id', () => {
+    const base = { category: 'other', subject: 's', body: 'b' };
+    expect(createTicketInputSchema.safeParse({ ...base, followsTicketId: ticketId }).success).toBe(true);
+    expect(createTicketInputSchema.safeParse({ ...base, followsTicketId: 'x' }).success).toBe(false);
+    expect(createTicketInputSchema.safeParse(base).success).toBe(true);
+  });
+  it('the owner-read ticket schema carries no desk lifecycle fact', () => {
+    const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
+    for (const key of ['waitingOn', 'waitingSince', 'firstPublicReplyAt']) expect(shape).not.toContain(key);
+  });
+});
+
+describe('help article audiences (SP-help-centre-02)', () => {
+  const visitor = { signedIn: false, staff: false };
+  const customer = { signedIn: true, staff: false };
+  const desk = { signedIn: true, staff: true };
+
+  it('shows each audience to exactly the readers it names', () => {
+    expect(kbAudienceVisibleTo('public', visitor)).toBe(true);
+    expect(kbAudienceVisibleTo(undefined, visitor)).toBe(true);
+    expect(kbAudienceVisibleTo('signed_in', visitor)).toBe(false);
+    expect(kbAudienceVisibleTo('signed_in', customer)).toBe(true);
+    expect(kbAudienceVisibleTo('staff', visitor)).toBe(false);
+    expect(kbAudienceVisibleTo('staff', customer)).toBe(false);
+    expect(kbAudienceVisibleTo('staff', desk)).toBe(true);
+  });
+
+  it('closes the audience list and parses an article without one as before', () => {
+    expect(supportKbAudienceSchema.safeParse('everyone').success).toBe(false);
+    expect(supportKbArticleSchema.safeParse({ id: 'a', titleKey: 't', bodyKey: 'b' }).success).toBe(true);
+    expect(supportKbArticleSchema.safeParse({ id: 'a', titleKey: 't', bodyKey: 'b', audience: 'staff' }).success).toBe(true);
+  });
+
+  it('setKbAudience needs a positive base revision and a known audience', () => {
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'signed_in' }).success).toBe(true);
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 0, audience: 'signed_in' }).success).toBe(false);
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'all' }).success).toBe(false);
   });
 });

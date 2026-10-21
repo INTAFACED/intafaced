@@ -295,6 +295,26 @@ export const bankMarginCalled = defineEvent(
   'A loan crossed the margin-call threshold. The call is durable at the producer whether or not anyone was reached (§8.1).',
 );
 
+/**
+ * A support request was resolved. The business key for at-least-once delivery is the ticket: a request
+ * asks for its rating once (`rating-request:<ticketId>`), however many times this is delivered.
+ *
+ * Carries no money and no request text, only who to ask and when it was solved.
+ */
+export const supportTicketResolved = defineEvent(
+  'support',
+  'ticket',
+  'resolved',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    /** The person who raised the request, i.e. whom to ask for a rating. */
+    userId: userIdSchema,
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -394,6 +414,47 @@ export const orderCancelled = defineEvent(
   1,
   z.object({ orderId: engineOrderIdSchema, marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
   'Order left the book — svc-trade releases the ledger hold.',
+);
+
+/**
+ * A spread order matched (CB-otc-16). One event per spread fill, carrying every
+ * leg, so svc-trade posts one hold release and one fill for the whole spread and
+ * never a partial leg. A spread fill is NOT an `orderFilled`: the spread price
+ * may be zero or negative, and the legs only mean something together.
+ *
+ * Idempotency key: `matching.spread.filled:<spreadId>:<sequence>`.
+ */
+export const spreadFilled = defineEvent(
+  'matching',
+  'spread',
+  'filled',
+  1,
+  z.object({
+    spreadId: z.string().min(1),
+    makerOrderId: engineOrderIdSchema,
+    takerOrderId: engineOrderIdSchema,
+    makerAccountId: z.string().min(1),
+    takerAccountId: z.string().min(1),
+    takerSide: z.enum(['buy', 'sell']),
+    /** Spread price: Σ side × ratio × leg price from the buyer's view. May be zero or negative. */
+    price: signedAmountSchema,
+    qty: amountSchema,
+    /** Engine book sequence of the spread's own book. */
+    sequence: z.number().int(),
+    ts: z.string().datetime({ offset: true }),
+    /** Every leg, filled in full at the listed ratio. Legs sum to the spread price exactly. */
+    legs: z
+      .array(
+        z.object({
+          symbol: z.string().min(1),
+          takerSide: z.enum(['buy', 'sell']),
+          qty: amountSchema,
+          price: amountSchema,
+        }),
+      )
+      .min(2),
+  }),
+  'A spread order matched with every leg filled at its ratio. svc-trade turns it into one hold release and one fill per side.',
 );
 
 /**
@@ -870,6 +931,79 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+// ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
+
+export const coreOpsComplianceCaseCreated = defineEvent(
+  'core-ops',
+  'compliance_case',
+  'created',
+  1,
+  z.object({
+    caseId: z.string().min(1).max(128),
+    inboxId: z.string().min(1).max(128),
+    kind: z.enum(['screening_hit', 'kyc_review', 'network_flag', 'manual']),
+    /** Opaque subject id. Never a PII payload. */
+    subjectId: z.string().min(1).max(128),
+    createdAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance case was stored in svc-ops. Business key is the case id; consumers are idempotent on it.',
+);
+
+export const coreOpsComplianceInboxUpdated = defineEvent(
+  'core-ops',
+  'compliance_inbox',
+  'updated',
+  1,
+  z.object({
+    inboxId: z.string().min(1).max(128),
+    /** Definitions are versioned; business key compliance:queue:<name>:<version>. */
+    version: z.number().int().min(1),
+    change: z.enum(['defined', 'favourited', 'unfavourited']),
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance inbox was defined or its favourite flag changed.',
+);
+
+// ── core-ops: joint restore (OPS-ledger-desk-05) ─────────────────────────────
+
+const restoreBase = {
+  restoreNo: z.string().min(1).max(128),
+  actor: z.string().min(1),
+};
+
+export const coreOpsRestoreStarted = defineEvent(
+  'core-ops',
+  'restore',
+  'started',
+  1,
+  z.object({ ...restoreBase, cutOff: z.string().datetime({ offset: true }), startedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was begun in svc-ops. Business key ops:restore:started:<restoreNo>.',
+);
+
+export const coreOpsRestoreCompleted = defineEvent(
+  'core-ops',
+  'restore',
+  'completed',
+  1,
+  z.object({ ...restoreBase, approverId: z.string().min(1), completedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was finalised with a second approver after every step existed as a row. Business key ops:restore:completed:<restoreNo>.',
+);
+
+export const coreOpsRestoreFailed = defineEvent(
+  'core-ops',
+  'restore',
+  'failed',
+  1,
+  z.object({
+    ...restoreBase,
+    step: z.enum(['restore_clean', 'validate', 'preview', 'finalize']),
+    code: z.string().min(1).max(128),
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A joint restore step failed or was refused; nothing was finalised. Business key ops:restore:failed:<restoreNo>:<step>.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -884,9 +1018,15 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsComplianceCaseCreated,
+  coreOpsComplianceInboxUpdated,
+  coreOpsRestoreStarted,
+  coreOpsRestoreCompleted,
+  coreOpsRestoreFailed,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
+  supportTicketResolved,
   personalRequestCreated,
   personalRequestSettled,
   blueprintCreated,
@@ -895,6 +1035,7 @@ export const EVENT_CATALOG = {
   orderAccepted,
   orderFilled,
   orderCancelled,
+  spreadFilled,
   orderUpdated,
   fillSettled,
   positionUpdated,
@@ -1012,6 +1153,18 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'spreadFilled',
+    missing: 'subscriber',
+    /**
+     * CLASS A. svc-trade consumes it with its spread place door and spread holds
+     * (CB-otc-16, svc-trade half). Until that door exists nothing can place a
+     * spread order, so no spread fill can exist without its consumer.
+     */
+    class: 'A',
+    reason:
+      'svc-trade subscribes when it gains the spread place door and spread holds; svc-matching only admits spread orders from svc-trade, so a fill cannot occur before its money consumer exists.',
+  },
   // ── no publisher ───────────────────────────────────────────────────────────
   //
   // `bankMarginCalled` was here, and was the reason this section existed: a
@@ -1096,17 +1249,6 @@ export const WIRING_SOCKETS = [
       'svc-ledger publishes on every incomplete reconciliation run, including the run that freezes after N consecutive failures. The halt is the posting_freeze row, written in-process. Nothing in this repo subscribes, and the freeze does not depend on a subscriber existing.',
   },
   {
-    event: 'ledgerFreezeUpdated',
-    missing: 'subscriber',
-    /**
-     * CLASS A. Freeze state is a durable row every replica reads, "which is
-     * precisely why nothing has to subscribe to stay correct".
-     */
-    class: 'A',
-    reason:
-      'Freeze state is DURABLE, not a process signal: every replica reads the same row, which is precisely why nothing has to subscribe to stay correct. The event exists so an operator console can react without polling. apps/admin does not yet make a network call of any kind (see tracker ops.admin-console), so there is no consumer to attach.',
-  },
-  {
     event: 'coreOpsAlertRuleUpdated',
     missing: 'publisher',
     class: 'A',
@@ -1147,6 +1289,76 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when the case store lands (OPS-cases-01, next PR). A case is a durable row that the inbox list reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when an inbox is defined or favourited (OPS-cases-01, next PR). The inbox is a durable versioned row that the case list reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the case is a durable row and the admin inbox reads it. The subject exists so a later routing or notification consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the inbox definition is a durable row. The subject exists so the audit trail and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
   },
   {
     event: 'projectionUpdated',

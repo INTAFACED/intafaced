@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -11,7 +11,17 @@ import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { StatusBadge, SupportRequest } from './SupportRequest';
 import { deskCopy } from './support-desk-copy';
-import { STATUS_FILTERS, filterTickets, statusCounts, ticketReference, type StatusFilter } from './support-desk';
+import {
+  STATUS_FILTERS,
+  filterTickets,
+  followUpDraft,
+  requestFromSearch,
+  showRatePrompt,
+  statusCounts,
+  ticketReference,
+  type StatusFilter,
+} from './support-desk';
+import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
 import './support-desk.css';
 
@@ -23,6 +33,7 @@ const CATEGORY_KEYS = {
   account: 'support.category.account',
   trading: 'support.category.trading',
   deposit_withdraw: 'support.category.deposit_withdraw',
+  phishing: 'support.category.phishing',
   other: 'support.category.other',
 } as const;
 const categoryLabel = (value: string): string =>
@@ -37,8 +48,10 @@ export function Support() {
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('support');
-  const [view, setView] = useState<View>('help'),
-    [selected, setSelected] = useState('');
+  const wanted = requestFromSearch(location.search);
+  const [view, setView] = useState<View>(wanted ? 'requests' : 'help'),
+    [selected, setSelected] = useState(wanted ?? ''),
+    [followUp, setFollowUp] = useState<Ticket | null>(null);
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -53,6 +66,13 @@ export function Support() {
       ),
     `support:${userId}:${limit}`,
   );
+  // Which requests already carry a rating. A failed read shows no chip rather than a wrong one.
+  const rated = useResource((signal) => readRatedTicketIds(api, signal), `support-rated:${userId}`);
+  const ratedIds = rated.resource.status === 'ready' ? new Set(rated.resource.data) : null;
+  const reloadRequests = () => {
+    tickets.reload();
+    rated.reload();
+  };
   const labels = Object.fromEntries(VIEWS.map((id) => [id, copy.t(VIEW_KEY[id])]));
   return (
     <div className="support-desk">
@@ -69,17 +89,31 @@ export function Support() {
       {view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => setView('new')} />}
       {view === 'requests' &&
         (selected ? (
-          <SupportRequest key={selected} id={selected} action={action} onUpdated={tickets.reload} onBack={() => setSelected('')} />
+          <SupportRequest
+            key={selected}
+            id={selected}
+            action={action}
+            onUpdated={reloadRequests}
+            onBack={() => setSelected('')}
+            onFollowUp={(ticket) => {
+              setFollowUp(ticket);
+              setSelected('');
+              setView('new');
+            }}
+          />
         ) : (
           <Read resource={tickets.resource} retry={tickets.reload}>
-            {(rows) => <RequestList rows={rows} onOpen={setSelected} onStart={() => setView('new')} />}
+            {(rows) => <RequestList rows={rows} ratedIds={ratedIds} onOpen={setSelected} onStart={() => setView('new')} />}
           </Read>
         ))}
       {view === 'new' && (
         <NewRequest
           action={action}
+          follows={followUp}
+          onClearFollows={() => setFollowUp(null)}
           onSent={() => {
-            tickets.reload();
+            setFollowUp(null);
+            reloadRequests();
             setView('requests');
           }}
         />
@@ -90,7 +124,18 @@ export function Support() {
   );
 }
 
-function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: string) => void; onStart: () => void }) {
+export function RequestList({
+  rows,
+  ratedIds,
+  onOpen,
+  onStart,
+}: {
+  rows: Ticket[];
+  /** Ids that carry a rating, or null while that is unread or unreadable (no chip is shown then). */
+  ratedIds: ReadonlySet<string> | null;
+  onOpen: (id: string) => void;
+  onStart: () => void;
+}) {
   const copy = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const [filter, setFilter] = useState<StatusFilter>('all'),
@@ -143,6 +188,11 @@ function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: s
                     <span lang="zxx">{stamp(row.updatedAt, timeZone)}</span>
                   </span>
                 </span>
+                {ratedIds && showRatePrompt(row.status, true, ratedIds.has(row.id)) ? (
+                  <span className="support-chip support-chip--on" data-testid="rate-chip">
+                    {copy.t('rateChip')}
+                  </span>
+                ) : null}
                 <StatusBadge status={row.status} />
               </button>
             </li>
@@ -153,19 +203,34 @@ function RequestList({ rows, onOpen, onStart }: { rows: Ticket[]; onOpen: (id: s
   );
 }
 
-function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; onSent: () => void }) {
+function NewRequest({
+  action,
+  follows,
+  onClearFollows,
+  onSent,
+}: {
+  action: ReturnType<typeof useAction>;
+  follows: Ticket | null;
+  onClearFollows: () => void;
+  onSent: () => void;
+}) {
   const copy = deskCopy.useCopy();
   const api = useApi(),
     { userId } = useSession();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  const [category, setCategory] = useState('other'),
-    [subject, setSubject] = useState(''),
-    [body, setBody] = useState('');
+  const draft = follows ? followUpDraft(follows, copy.t('followUpPrefix')) : null;
+  const [category, setCategory] = useState(draft?.category ?? 'other'),
+    [subject, setSubject] = useState(draft?.subject ?? ''),
+    [body, setBody] = useState(''),
+    [headers, setHeaders] = useState('');
+  const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
   return (
     <section className="support-pane support-new" aria-label={copy.t('tabNew')}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
+          // One key per decision: a double tap or a retry of this review returns the first ticket instead of a second.
+          const clientRequestId = `create:${crypto.randomUUID()}`;
           action.stage({
             title: () => copyText('support.review.support.request'),
             confirm: () => copyText('support.send.request'),
@@ -176,6 +241,7 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
                   [copyText('support.category'), <span>{categoryLabel(category)}</span>],
                   [copyText('support.subject'), <span lang="und">{subject}</span>],
                   [copyText('support.message'), <span lang="und">{body}</span>],
+                  ...(sendHeaders ? [[copy.t('headersField'), <span lang="und">{sendHeaders}</span>] as [string, ReactNode]] : []),
                 ]}
               />
             ),
@@ -183,7 +249,14 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
               api.mutate(
                 'support',
                 'create',
-                { category, subject: subject.trim(), body: body.trim() },
+                {
+                  category,
+                  subject: subject.trim(),
+                  body: body.trim(),
+                  ...(sendHeaders ? { messageHeaders: sendHeaders } : {}),
+                  ...(follows ? { followsTicketId: follows.id } : {}),
+                  clientRequestId,
+                },
                 ticketSchema.refine(
                   (row) => row.userId === userId && row.subject === subject.trim() && row.body === body.trim() && row.category === category,
                   copyText('support.created.ticket.does.not.match.this.account'),
@@ -192,11 +265,27 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
             done: () => {
               setSubject('');
               setBody('');
+              setHeaders('');
               onSent();
             },
           });
         }}
       >
+        {follows && (
+          <p className="notice" role="note">
+            {copy.t('followUpBanner', { reference: ticketReference(follows.id) })}{' '}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                onClearFollows();
+                setSubject('');
+              }}
+            >
+              {copy.t('followUpClear')}
+            </Button>
+          </p>
+        )}
         <p className="muted">{copy.t('newIntro')}</p>
         <p className="support-warning" role="note">
           {copy.t('newWarning')}
@@ -223,6 +312,19 @@ function NewRequest({ action, onSent }: { action: ReturnType<typeof useAction>; 
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} maxLength={10000} rows={7} />
           <small>{copy.t('characters', { count: body.length, max: 10000 })}</small>
         </label>
+        {category === 'phishing' && (
+          <>
+            <p className="support-warning" role="note">
+              {copy.t('phishingNote')}
+            </p>
+            <label className="field">
+              <span>{copy.t('headersField')}</span>
+              <textarea lang="zxx" value={headers} onChange={(event) => setHeaders(event.target.value)} maxLength={10000} rows={5} />
+              <small>{copy.t('headersHint')}</small>
+              <small>{copy.t('headersCharacters', { count: headers.length, max: 10000 })}</small>
+            </label>
+          </>
+        )}
         <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim()}>
           {copy.t('reviewRequest')}
         </Button>

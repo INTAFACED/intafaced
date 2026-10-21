@@ -319,6 +319,8 @@ function allowedActions(state: MarketLifecycleState, safeRecovery = false): Mark
   }
   if (state === 'CANCEL_ONLY') return ['CANCEL'];
   if (state === 'POST_ONLY') return ['PLACE_POST_ONLY', 'AMEND', 'CANCEL', 'REDUCE', 'CLOSE', 'QUOTE'];
+  // Limit orders only: placement stays open, and the door refuses a market order (`trade.mode_limit_only`).
+  if (state === 'LIMIT_ONLY') return ['PLACE', 'PLACE_POST_ONLY', 'AMEND', 'CANCEL', 'REDUCE', 'CLOSE', 'TRIGGER', 'QUOTE'];
   if (state === 'OPEN') return ['PLACE', 'PLACE_POST_ONLY', 'AMEND', 'CANCEL', 'REDUCE', 'CLOSE', 'TRIGGER', 'QUOTE', 'RFQ'];
   return [];
 }
@@ -505,7 +507,7 @@ export function decideMarketAction(
     checkedAt,
     reasonCode: eligible ? null : parsed.reasonCode,
     evidenceRefs: parsed.evidenceRefs,
-    recovery: parsed.state !== 'OPEN' && parsed.state !== 'POST_ONLY',
+    recovery: parsed.state !== 'OPEN' && parsed.state !== 'POST_ONLY' && parsed.state !== 'LIMIT_ONLY',
   };
 }
 

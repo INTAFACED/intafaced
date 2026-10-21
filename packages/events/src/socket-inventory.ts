@@ -79,10 +79,15 @@ export const EVENT_BUS_MATRIX = {
   ledgerTxPosted: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationFailed: { kind: 'socket', socketClass: 'A' },
   ledgerReconciliationRunFailed: { kind: 'socket', socketClass: 'A' },
-  ledgerFreezeUpdated: { kind: 'socket', socketClass: 'A' },
+  ledgerFreezeUpdated: { kind: 'live' },
   coreOpsAlertRuleUpdated: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertOpened: { kind: 'socket', socketClass: 'A' },
   coreOpsAlertResolved: { kind: 'socket', socketClass: 'A' },
+  coreOpsComplianceCaseCreated: { kind: 'socket', socketClass: 'A' },
+  coreOpsComplianceInboxUpdated: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreStarted: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreCompleted: { kind: 'socket', socketClass: 'A' },
+  coreOpsRestoreFailed: { kind: 'socket', socketClass: 'A' },
   stakeCreated: { kind: 'live' },
   buybackExecuted: { kind: 'socket', socketClass: 'A' },
   bankMarginCalled: { kind: 'live' },
@@ -94,6 +99,7 @@ export const EVENT_BUS_MATRIX = {
   orderAccepted: { kind: 'socket', socketClass: 'A' },
   orderFilled: { kind: 'live' },
   orderCancelled: { kind: 'live' },
+  spreadFilled: { kind: 'socket', socketClass: 'A' },
   orderUpdated: { kind: 'live' },
   fillSettled: { kind: 'live' },
   positionUpdated: { kind: 'live' },
@@ -111,6 +117,7 @@ export const EVENT_BUS_MATRIX = {
   p2pDisputeResolved: { kind: 'socket', socketClass: 'A' },
   p2pTradeExpired: { kind: 'socket', socketClass: 'A' },
   projectionUpdated: { kind: 'socket', socketClass: 'A' },
+  supportTicketResolved: { kind: 'live' },
 } as const satisfies Record<EventName, CatalogDisposition>;
 
 /**

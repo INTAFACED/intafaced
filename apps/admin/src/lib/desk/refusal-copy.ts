@@ -22,6 +22,41 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  'custody_approval.initiator_cannot_decide': {
+    title: 'A different approver has to decide this',
+    body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',
+    next: 'Ask another registered approver to decide it from their own console or phone.',
+  },
+  'custody_approval.approver_not_registered': {
+    title: 'You are not a registered approver',
+    body: 'Only an active registered approver can approve or reject a custody task. Nothing was recorded.',
+    next: 'Ask a founder to register you as an approver, then try again.',
+  },
+  'custody_approval.hash_mismatch': {
+    title: 'That is not the request you read',
+    body: 'The task on file is not the one that matched the fingerprint you were shown, so nothing was approved or rejected.',
+    next: 'Reload the task, read it again and decide on what it says now.',
+  },
+  'custody_approval.not_pending': {
+    title: 'This task is no longer waiting for a decision',
+    body: 'It was already approved, rejected, cancelled, run or has expired.',
+    next: 'Read its timeline. If it still needs doing, ask for a new task.',
+  },
+  'custody_approval.expired': {
+    title: 'This task passed its deadline',
+    body: 'An expired task never runs. Nothing was approved.',
+    next: 'Ask for a new task if the work is still needed.',
+  },
+  'custody_approval.not_found': {
+    title: 'That task was not found',
+    body: 'There is no task with that id for your session.',
+    next: 'Reload the list.',
+  },
+  'custody_approval.quorum_unset': {
+    title: 'The number of approvers is not set',
+    body: 'The owner has not set how many approvers a task needs, so no task can start or be decided.',
+    next: 'Ask the owner to set it. Nothing was changed.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',
@@ -41,6 +76,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The second approver has not approved this yet',
     body: 'Identity will not let this run until a different approver has approved exactly this request: another operator for a module kill or re-enable, another founder for a ledger unfreeze. Nothing was changed.',
     next: 'Ask the second approver to approve the request packet, then run it.',
+  },
+  'auth_key.approval_required': {
+    title: 'The approval did not cover this key change',
+    body: 'Identity checked the approval against the exact key change and refused it: it is missing, not approved, already used, expired, or for a different change. Nothing was changed.',
+    next: 'Read the key state below. If the ids still make sense, start a new request.',
+  },
+  'auth_key.material_missing': {
+    title: 'That key has no secret on the identity host',
+    body: 'A key id can only be rotated to once its secret is in the identity service settings. Secrets are never entered in this console.',
+    next: 'Ask whoever runs the host to add the key to the identity key list, then start a new request.',
+  },
+  'auth_key.already_known': {
+    title: 'That key id was used before',
+    body: 'An id is never reused, even after its key was removed. Nothing was changed.',
+    next: 'Pick a new key id that the identity host has a secret for.',
+  },
+  'auth_key.nothing_to_remove': {
+    title: 'There is no previous key to remove',
+    body: 'Only the signing key is in use, so there is nothing to retire. Nothing was changed.',
+    next: 'Read the key state below.',
+  },
+  'auth_key.invalid_id': {
+    title: 'That key id is not allowed',
+    body: 'A key id is lowercase letters, digits, dots, dashes or underscores, up to 32 characters, and is never the word legacy.',
+    next: 'Nothing was changed. Pick another id.',
   },
   'action_approval.expired': {
     title: 'This approval expired',
@@ -227,6 +287,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'That request key was used for something else',
     body: 'svc-market has already seen this request key for a different listing.',
     next: 'Start a new request. Nothing was changed.',
+  },
+  'notify.release_reason_required': {
+    title: 'A reason is needed to release this address',
+    body: 'svc-notify records why an address was released and refuses a blank or too short reason.',
+    next: 'Nothing was changed. Write why this address is safe to send to again.',
+  },
+  'notify.recipient_unknown': {
+    title: 'No such address',
+    body: 'svc-notify has no record of that person on that channel.',
+    next: 'Read the list again. Nothing was changed.',
+  },
+  'notify.recipient_not_quarantined': {
+    title: 'This address is not quarantined',
+    body: 'Someone released it first, or it never was quarantined, so there is nothing to lift.',
+    next: 'Read the list again. Nothing was changed.',
   },
   'admin.session_required': {
     title: 'You are signed out',

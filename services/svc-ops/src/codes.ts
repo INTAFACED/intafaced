@@ -1,20 +1,54 @@
 import {
+  COMPLIANCE_CASE_NOT_FOUND,
+  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
+  COMPLIANCE_INBOX_FORBIDDEN,
+  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
+  COMPLIANCE_QUEUE_NAME_TAKEN,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_INTERVAL_UNSET,
   OPS_ALERT_LABELS_DUPLICATE,
   OPS_ALERT_SIGNAL_UNKNOWN,
   OPS_ALERT_THRESHOLD_UNSET,
+  OPS_COST_AMOUNT_INVALID,
+  OPS_COST_CATEGORY_INVALID,
+  OPS_COST_PERIOD_INVALID,
+  OPS_COST_STORAGE_UNCONFIGURED,
+  OPS_RESTORE_STEP_OUT_OF_ORDER,
+  OPS_RESTORE_TARGET_UNSET,
+  OPS_RESTORE_WATERMARKS_DISAGREE,
 } from '@intafaced/contracts';
 
 export {
+  OPS_RESTORE_STEP_OUT_OF_ORDER,
+  OPS_RESTORE_TARGET_UNSET,
+  OPS_RESTORE_WATERMARKS_DISAGREE,
+  COMPLIANCE_CASE_NOT_FOUND,
+  COMPLIANCE_CASES_LIST_LIMIT_UNSET,
+  COMPLIANCE_INBOX_FORBIDDEN,
+  COMPLIANCE_QUEUE_ENTITY_UNKNOWN,
+  COMPLIANCE_QUEUE_NAME_TAKEN,
   OPS_ALERT_FORBIDDEN,
   OPS_ALERT_HISTORY_RETENTION_UNSET,
   OPS_ALERT_INTERVAL_UNSET,
   OPS_ALERT_LABELS_DUPLICATE,
   OPS_ALERT_SIGNAL_UNKNOWN,
   OPS_ALERT_THRESHOLD_UNSET,
+  OPS_COST_AMOUNT_INVALID,
+  OPS_COST_CATEGORY_INVALID,
+  OPS_COST_PERIOD_INVALID,
+  OPS_COST_STORAGE_UNCONFIGURED,
 };
+
+/** Not in the spec's list: the case store has no database, or the inbox a case names does not exist. */
+export const OPS_COMPLIANCE_STORAGE_UNCONFIGURED = 'ops.compliance_storage_unconfigured' as const;
+/** An open of an id that already belongs to a case in another inbox. */
+export const COMPLIANCE_CASE_ALREADY_OPEN = 'compliance.case_already_open' as const;
+export const COMPLIANCE_INBOX_NOT_FOUND = 'compliance.inbox_not_found' as const;
+
+/** The ledger's fee revenue read for the venue report could not be asked or did not answer cleanly. */
+export const OPS_FEE_REVENUE_UNCONFIGURED = 'ops.fee_revenue_unconfigured' as const;
+export const OPS_FEE_REVENUE_UNAVAILABLE = 'ops.fee_revenue_unavailable' as const;
 
 /** Machine-readable refuses. The code leads the tRPC message so IxState can quote it. */
 export const OPS_WAREHOUSE_UNWIRED = 'ops.warehouse_unwired' as const;
@@ -51,6 +85,9 @@ export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigure
 export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
 export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
+/** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
+export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
+export const OPS_RESTORE_RUN_NOT_FOUND = 'ops.restore_run_not_found' as const;
 export const OPS_ALERT_LIST_LIMIT_UNSET = 'ops.alert_list_limit_unset' as const;
 export const OPS_ALERT_RULE_NOT_FOUND = 'ops.alert_rule_not_found' as const;
 export const OPS_ALERT_RULE_VERSION_STALE = 'ops.alert_rule_version_stale' as const;
@@ -59,6 +96,9 @@ export const OPS_ALERT_RULE_NOT_RETIRED = 'ops.alert_rule_not_retired' as const;
 export const OPS_ALERT_STORAGE_UNCONFIGURED = 'ops.alert_storage_unconfigured' as const;
 export const OPS_ALERT_SOURCE_UNCONFIGURED = 'ops.alert_source_unconfigured' as const;
 export const OPS_ALERT_PROBE_UNCONFIGURED = 'ops.alert_probe_unconfigured' as const;
+export const OPS_PROTOCOL_REASON_CODES_UNSET = 'owner.decision' as const;
+export const OPS_PROTOCOL_REASON_CODE_UNKNOWN = 'protocol.ops_reason_code_unknown' as const;
+export const OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED = 'ops.protocol_listing_storage_unconfigured' as const;
 export const OPS_IDEMPOTENCY_KEY_INVALID = 'ops.idempotency_key_invalid' as const;
 export const OPS_IDEMPOTENCY_CONFLICT = 'ops.idempotency_conflict' as const;
 export const OPS_APPROVAL_UNWIRED = 'action_approval.identity_unwired' as const;
@@ -101,6 +141,11 @@ export type OpsRefuseCode =
   | typeof OPS_RESTORE_ARCHIVE_UNPROBED
   | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
+  | typeof OPS_RESTORE_WATERMARK_UNAVAILABLE
+  | typeof OPS_RESTORE_RUN_NOT_FOUND
+  | typeof OPS_RESTORE_STEP_OUT_OF_ORDER
+  | typeof OPS_RESTORE_TARGET_UNSET
+  | typeof OPS_RESTORE_WATERMARKS_DISAGREE
   | typeof OPS_ALERT_THRESHOLD_UNSET
   | typeof OPS_ALERT_INTERVAL_UNSET
   | typeof OPS_ALERT_LABELS_DUPLICATE
@@ -115,6 +160,21 @@ export type OpsRefuseCode =
   | typeof OPS_ALERT_STORAGE_UNCONFIGURED
   | typeof OPS_ALERT_SOURCE_UNCONFIGURED
   | typeof OPS_ALERT_PROBE_UNCONFIGURED
+  | typeof OPS_COST_AMOUNT_INVALID
+  | typeof OPS_COST_CATEGORY_INVALID
+  | typeof OPS_COST_PERIOD_INVALID
+  | typeof OPS_COST_STORAGE_UNCONFIGURED
+  | typeof COMPLIANCE_CASE_ALREADY_OPEN
+  | typeof COMPLIANCE_CASE_NOT_FOUND
+  | typeof COMPLIANCE_CASES_LIST_LIMIT_UNSET
+  | typeof COMPLIANCE_INBOX_FORBIDDEN
+  | typeof COMPLIANCE_INBOX_NOT_FOUND
+  | typeof COMPLIANCE_QUEUE_ENTITY_UNKNOWN
+  | typeof COMPLIANCE_QUEUE_NAME_TAKEN
+  | typeof OPS_COMPLIANCE_STORAGE_UNCONFIGURED
+  | typeof OPS_PROTOCOL_REASON_CODES_UNSET
+  | typeof OPS_PROTOCOL_REASON_CODE_UNKNOWN
+  | typeof OPS_PROTOCOL_LISTING_STORAGE_UNCONFIGURED
   | typeof OPS_IDEMPOTENCY_KEY_INVALID
   | typeof OPS_IDEMPOTENCY_CONFLICT
   | typeof OPS_APPROVAL_UNWIRED

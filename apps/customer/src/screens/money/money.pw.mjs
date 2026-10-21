@@ -653,7 +653,15 @@ test('activity opens on All, with Trades one tab along', async ({ page }) => {
   await mock(page);
   await open(page, '/money/activity');
   await expect(page.locator('h1')).toHaveText('Activity');
-  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual(['All', 'Trades', 'Orders', 'Deposits', 'Transfers']);
+  expect(await texts(page.locator('[data-slot="tabs-tab"]'))).toEqual([
+    'All',
+    'Trades',
+    'Orders',
+    'Deposits',
+    'Transfers',
+    'Fees',
+    'Ledger',
+  ]);
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');
   await open(page, '/money/activity?tab=nonsense');
   await expect(page.locator('[data-slot="tabs-tab"][data-active]')).toHaveText('All');

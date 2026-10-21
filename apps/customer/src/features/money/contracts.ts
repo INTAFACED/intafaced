@@ -174,9 +174,53 @@ export const destinationSchema = z.object({
   addedAt: z.string(),
   coolingOffEndsAt: z.string().nullable(),
   coolingBlocker: z.literal('bank.offramp_cooling_unset').nullable(),
+  // The bank also returns which asset and network an entry is for and where it stands; optional so an older answer still reads.
+  assetId: z.string().nullable().optional(),
+  network: z.string().nullable().optional(),
+  tag: z.string().nullable().optional(),
+  state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+const detailSetSchema = z.object({
+  id: z.string(),
+  accountNumber: z.string().nullable(),
+  sortCode: z.string().nullable(),
+  routingNumber: z.string().nullable(),
+  bsb: z.string().nullable(),
+  iban: z.string().nullable(),
+  bic: z.string().nullable(),
+  partnerBank: z.string(),
+  restrictions: z.array(z.string()),
+});
+export const accountDetailsRowSchema = z.object({
+  currency: z.string(),
+  state: z.enum(['unavailable', 'pending_user', 'requirements_fulfilled', 'done']),
+  blocker: z.literal('rail.bank').nullable(),
+  sets: z.array(detailSetSchema),
+});
+export type AccountDetailsRow = z.infer<typeof accountDetailsRowSchema>;
+export type AccountDetailSet = z.infer<typeof detailSetSchema>;
+export const eligibilitySchema = z.object({
+  rules: z.object({
+    countries: z.array(z.string()),
+    entityTypes: z.array(z.string()),
+    productRestrictions: z.array(z.object({ product: z.string(), restriction: z.string() })),
+  }),
+  verdict: z
+    .object({
+      region: z.string(),
+      status: z.enum(['open', 'restricted', 'blocked']),
+      minTier: z.string(),
+      notes: z.string().nullable(),
+      source: z.literal('JURISDICTION_MATRIX'),
+      listed: z.boolean(),
+    })
+    .nullable(),
+});
+export type Eligibility = z.infer<typeof eligibilitySchema>;
 export const bankReads = {
+  'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
+  'eligibility.get': eligibilitySchema,
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),
@@ -239,6 +283,7 @@ export const bankReads = {
 export type BankRead = keyof typeof bankReads;
 export const bankWrites = {
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
+  'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.

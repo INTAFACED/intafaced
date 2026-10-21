@@ -9,7 +9,7 @@ import { accountStateSchema } from './identity.js';
  * No money: refunds are requests only; never ledger.
  */
 
-export const supportTicketStatusSchema = z.enum(['open', 'pending', 'resolved', 'closed']);
+export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
 export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);
@@ -51,6 +51,11 @@ export const createTicketInputSchema = z.object({
   category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
+  /**
+   * A new request that follows a closed one of the same account (closed stays terminal, so a follow-up is a new,
+   * linked request). Any other ticket, or one that is not the caller's and closed, is refused by the service.
+   */
+  followsTicketId: z.string().uuid().optional(),
   /** Only for a `phishing` ticket; any other category refuses it. */
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).optional(),
   /**
@@ -60,6 +65,27 @@ export const createTicketInputSchema = z.object({
   clientRequestId: z.string().min(1).max(200).optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
+
+/**
+ * Who may read a help article (SP-help-centre-02). `public` is everyone, including a signed-out visitor;
+ * `signed_in` needs a signed-in account; `staff` is the desk only (a `support:ops` principal).
+ */
+export const SUPPORT_KB_AUDIENCES = ['public', 'signed_in', 'staff'] as const;
+export const supportKbAudienceSchema = z.enum(SUPPORT_KB_AUDIENCES);
+export type SupportKbAudience = z.infer<typeof supportKbAudienceSchema>;
+
+/** The reader as the service knows them: from the signed principal, never from a request field. */
+export interface SupportKbViewer {
+  signedIn: boolean;
+  staff: boolean;
+}
+
+/** Whether `viewer` may read an article of `audience`. Omitted audience is public (rows written before audiences). */
+export function kbAudienceVisibleTo(audience: SupportKbAudience | undefined, viewer: SupportKbViewer): boolean {
+  if (audience === undefined || audience === 'public') return true;
+  if (audience === 'signed_in') return viewer.signedIn;
+  return viewer.staff;
+}
 
 export const supportKbArticleSchema = z.object({
   id: z.string().min(1),
@@ -82,6 +108,8 @@ export const supportKbArticleSchema = z.object({
   category: z.string().min(1).max(200).optional(),
   /** Same list bound as escalateTicketInputSchema.citedArticleIds (20), each key-length 200. */
   tags: z.array(z.string().min(1).max(200)).max(20).optional(),
+  /** Who may read it. Omitted means public. A reader never receives an article their audience does not allow. */
+  audience: supportKbAudienceSchema.optional(),
 });
 export type SupportKbArticle = z.infer<typeof supportKbArticleSchema>;
 
@@ -104,6 +132,14 @@ export const getKbArticleInputSchema = z.object({
   version: z.number().int().positive().optional(),
 });
 export type GetKbArticleInput = z.infer<typeof getKbArticleInputSchema>;
+
+/** Router `setKbAudience` input (`support:ops`). `baseRevision` is the revision the desk read; a stale one is refused. */
+export const setKbAudienceInputSchema = z.object({
+  id: z.string().min(1).max(200),
+  baseRevision: z.number().int().positive(),
+  audience: supportKbAudienceSchema,
+});
+export type SetKbAudienceInput = z.infer<typeof setKbAudienceInputSchema>;
 
 /**
  * Public get: missing and unpublished are the same answer (`null`).
@@ -286,6 +322,25 @@ export type EscalateTicketInput = z.infer<typeof escalateTicketInputSchema>;
  * which the ticket owner also reads: an internal priority or label must not
  * reach the customer. The queue score stays a ranking, not a promise.
  * ------------------------------------------------------------------ */
+
+/** Who the ticket is waiting on. Null until the first public reply or status change sets one. */
+export const supportWaitingOnSchema = z.enum(['team', 'customer']);
+export type SupportWaitingOn = z.infer<typeof supportWaitingOnSchema>;
+
+/**
+ * Lifecycle facts kept beside the ticket, read by support staff. The owner's own read of their ticket
+ * (`supportTicketSchema`) never carries `waitingOn`: it is a desk fact, not a promise to the customer.
+ */
+export const supportTicketLifecycleSchema = z.object({
+  ticketId: z.string().uuid(),
+  waitingOn: supportWaitingOnSchema.nullable(),
+  waitingSince: z.string().datetime().nullable(),
+  /** The first public operator reply. Set once; an internal note never sets it. */
+  firstPublicReplyAt: z.string().datetime().nullable(),
+  /** The closed request this one follows, or null. */
+  followsTicketId: z.string().uuid().nullable(),
+});
+export type SupportTicketLifecycle = z.infer<typeof supportTicketLifecycleSchema>;
 
 export const supportTicketPrioritySchema = z.enum(['low', 'normal', 'high', 'urgent']);
 export type SupportTicketPriority = z.infer<typeof supportTicketPrioritySchema>;

@@ -31,6 +31,7 @@ export const publicAuthCopy = defineCopy(
     another: 'Another tab is preparing a sign-in. You can continue when it finishes or leaves that view.',
     locks: 'Safe coordination between tabs is unavailable. No new authentication is sent. Account help remains available.',
     cleared: 'Enter a fresh password or code for a new attempt. Earlier codes and passkey responses are not resent.',
+    passwordShape: 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
     pending: 'Checking this sign-in attempt…',
     registerPending: 'Creating your account…',
     pendingBody: 'Keep this view open while we check this attempt.',
@@ -67,6 +68,7 @@ export const publicAuthCopy = defineCopy(
       another: 'Otra pestaña está preparando un acceso. Puedes continuar cuando termine o salga de esa vista.',
       locks: 'No se puede coordinar las pestañas con seguridad. No se envía nueva autenticación. La ayuda sigue disponible.',
       cleared: 'Introduce una contraseña o un código nuevos para otro intento. Los códigos y respuestas anteriores no se reenvían.',
+      passwordShape: 'Elige una contraseña de al menos 12 caracteres, de como máximo 72 bytes y que no repita un solo carácter.',
       pending: 'Comprobando este intento de acceso…',
       registerPending: 'Creando tu cuenta…',
       pendingBody: 'Mantén esta vista abierta mientras comprobamos este intento.',
@@ -105,6 +107,7 @@ export const publicAuthCopy = defineCopy(
         'La coordination sûre entre les onglets est indisponible. Aucune nouvelle authentification n’est envoyée. L’aide reste disponible.',
       cleared:
         'Saisissez un mot de passe ou un code pour un nouvel essai. Les anciens codes et réponses de clé d’accès ne sont pas renvoyés.',
+      passwordShape: 'Choisissez un mot de passe d’au moins 12 caractères, de 72 octets au plus, et qui ne répète pas un seul caractère.',
       pending: 'Vérification de cet essai de connexion…',
       registerPending: 'Création de votre compte…',
       pendingBody: 'Gardez cette vue ouverte pendant la vérification de cet essai.',

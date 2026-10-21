@@ -15,6 +15,7 @@ import { CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/av
 import { SessionRelay } from './session/relay.js';
 import { ChainObserver } from './events.js';
 import { protocolHealthHonesty } from './health-honesty.js';
+import { createPeers } from './blockers/peers.js';
 import { createProtocolRouter, type ProtocolRouter } from './router.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -93,12 +94,18 @@ const relay = new SessionRelay(chain);
 let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
 export const appRouter = createProtocolRouter({
+  opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   chain,
   registry,
   relay,
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
+  probeTimeoutMs: () => env.PROTOCOL_PEER_TIMEOUT_MS,
+  peers: createPeers({
+    indexer: { url: env.INDEXER_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },
+    dex: { url: env.DEX_URL, timeoutMs: env.PROTOCOL_PEER_TIMEOUT_MS },
+  }),
 });
 export type AppRouter = typeof appRouter;
 

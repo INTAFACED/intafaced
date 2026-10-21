@@ -12,6 +12,8 @@ import {
   currentPreferenceObservation,
   usePreferenceObservation,
 } from '../../shared/preferences';
+import { TradingSettings } from './TradingSettings';
+import { useAccountViewStatus } from './ViewSync';
 import { customerCopyCoverage, renderedUiLanguage, useCopyRevision } from '../../shared/i18n';
 import { canonicalUiLocale, uiLocales, uiLocaleDescriptor, uiDirection } from '../../shared/locale';
 
@@ -31,6 +33,7 @@ export function ApplyView() {
 }
 export function View() {
   const preferences = usePreferences();
+  const accountStatus = useAccountViewStatus();
   const observation = usePreferenceObservation();
   const [saved, setSaved] = useState<{
     persistence: PreferencePersistence;
@@ -181,6 +184,7 @@ export function View() {
             </label>
           </section>
         </div>
+        <TradingSettings />
         <div className="actions section">
           <Button
             variant="secondary"
@@ -200,6 +204,8 @@ export function View() {
                 showFills: false,
                 confirmSend: true,
                 confirmCancel: true,
+                resetSizeOnSubmit: true,
+                quickSizes: [],
                 favoritesView: 'list',
               });
             }}
@@ -209,6 +215,11 @@ export function View() {
           <p role="status" className="muted">
             {!currentSave?.language && acknowledgement}
           </p>
+          {accountStatus === 'not-saved' && (
+            <p role="status" className="muted" data-view-sync="not-saved">
+              <Text k="view.account.sync.not.saved" />
+            </p>
+          )}
         </div>
       </Page>
     </div>

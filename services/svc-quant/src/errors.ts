@@ -33,6 +33,8 @@ export const QUANT_CLAIM_PNL_UNSET = 'quant.claim_pnl_unset' as const;
 export const QUANT_OPS_RUNS_LIMIT_UNSET = 'quant.ops_runs_limit_unset' as const;
 export const QUANT_OPS_RUNS_FROM_UNSET = 'quant.ops_runs_from_unset' as const;
 export const QUANT_OPS_RUNS_TO_UNSET = 'quant.ops_runs_to_unset' as const;
+export const QUANT_DISCLOSURE_UNSET = 'quant.disclosure_unset' as const;
+export const QUANT_DISCLOSURE_VERSION_STALE = 'quant.disclosure_version_stale' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -70,6 +72,8 @@ export type QuantCode =
   | typeof QUANT_OPS_RUNS_LIMIT_UNSET
   | typeof QUANT_OPS_RUNS_FROM_UNSET
   | typeof QUANT_OPS_RUNS_TO_UNSET
+  | typeof QUANT_DISCLOSURE_UNSET
+  | typeof QUANT_DISCLOSURE_VERSION_STALE
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

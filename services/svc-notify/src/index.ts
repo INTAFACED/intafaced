@@ -8,6 +8,7 @@ import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { PostgresNotifyStore } from './store.js';
+import { PostgresRecipientHealthStore } from './recipient-health.js';
 import { claimLeaseMsFromGatewayTimeout, DELIVERY_REAP_INTERVAL_MS, PostgresDeliveryStore, PostgresTargetStore } from './channel-store.js';
 import { channelsFromEnv } from './channels/registry.js';
 import { NotificationDispatcher } from './dispatch.js';
@@ -23,6 +24,10 @@ import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
+import { ChannelSettings } from './ops-config/channel-settings.js';
+import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
+import { MessageTemplates } from './ops-config/templates.js';
+import { PostgresTemplateStore } from './ops-config/templates.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
@@ -30,6 +35,7 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
 import { ALERT_KIND_UNPUBLISHED, UNPUBLISHED_ALERT_KINDS, type MarkSource } from './alerts/types.js';
@@ -117,6 +123,13 @@ await sql`SELECT 1 FROM notify.digest_holds LIMIT 1`.catch(() => {
 await sql`SELECT 1 FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices is missing — run migration 0011_notify_public_notices before starting svc-notify');
 });
+await sql`SELECT impact, components, parent_id, resolves FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices has no status feed columns — run migration 0013_notify_status_feed before starting svc-notify');
+});
+
+await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices has no changelog column — run migration 0015_notify_changelog_fields before starting svc-notify');
+});
 
 // Consumer only — trade / p2p / identity / token / bank own their streams.
 // `ownedStreams: []` matches svc-ws: we never create a stream for subjects we do
@@ -131,6 +144,8 @@ const bus = await JetStreamEventBus.connect({
 
 const store = new PostgresNotifyStore(sql);
 const targets = new PostgresTargetStore(sql);
+const recipientHealth = new PostgresRecipientHealthStore(sql);
+const quarantineThreshold = env.NOTIFY_QUARANTINE_FAILURE_THRESHOLD ?? null;
 // The claim lease has to outlast one gateway attempt and stay under the bus
 // `ack_wait`. `claimLeaseMsFromGatewayTimeout` keeps both bounds when an
 // operator raises NOTIFY_GATEWAY_TIMEOUT_MS toward MAX_GATEWAY_TIMEOUT_MS.
@@ -165,13 +180,32 @@ const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), command
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(s2sKey), commandLog);
+const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
+const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
+const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprovals, commandLog, {
+  verifiedAddress: async (userId, channel) => {
+    const target = (await targets.verified(userId)).find((row) => row.channel === channel);
+    return target ? { address: target.address, locale: target.locale } : null;
+  },
+  channel: (channel) => channels.get(channel),
+  status: () => channels.status(),
+  disabled: () => channelSettings.disabled(),
+});
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
+  disabledChannels: () => channelSettings.disabled(),
   mutePrefsOf: (userId) => muteStore.get(userId),
   planOutOfApp: planOutOfApp({ account, holds: holdStore, now: () => new Date(), categories }),
   loadNotification: (userId, notificationId) => store.findById(userId, notificationId),
+  recipientHealth: {
+    quarantineOf: async (userId, channel, address) =>
+      quarantineThreshold === null ? null : recipientHealth.quarantineOf(userId, channel, address),
+    record: async (input) => {
+      await recipientHealth.record({ ...input, code: input.code ?? undefined, threshold: quarantineThreshold, now: new Date() });
+    },
+  },
 });
 
 const targetRateLimiter = new PostgresTargetRateLimiter(sql);
@@ -183,7 +217,21 @@ const notify = new NotifyService(
     verifyCodePepper: env.NOTIFY_VERIFY_CODE_PEPPER,
     targetRateLimiter,
   },
-  { targets, deliveries, channels, dispatcher, muteStore, account, categories, holds: holdStore, notices },
+  {
+    targets,
+    deliveries,
+    channels,
+    dispatcher,
+    muteStore,
+    account,
+    categories,
+    holds: holdStore,
+    notices,
+    channelSettings,
+    templates,
+    recipientHealth,
+    quarantineThreshold,
+  },
 );
 
 /**
@@ -221,7 +269,20 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
-const alerts = new AlertService(new PostgresAlertStore(sql), alertMarks, notify, whaleMarks);
+const alerts = new AlertService(
+  new PostgresAlertStore(sql),
+  alertMarks,
+  notify,
+  whaleMarks,
+  {
+    maxExpiryDays: env.NOTIFY_ALERT_MAX_EXPIRY_DAYS ?? null,
+    textMaxLength: env.NOTIFY_ALERT_TEXT_MAX_LENGTH ?? null,
+    maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
+    triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
+    maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+  },
+  new PostgresAlertTriggerLog(sql),
+);
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
 let lastAlertSweepAt: string | null = null;

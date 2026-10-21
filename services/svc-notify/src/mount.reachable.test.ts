@@ -51,6 +51,7 @@ import { AlertService } from './alerts/service.js';
 import { MemoryAlertStore } from './alerts/store.js';
 import type { MarkSource } from './alerts/types.js';
 import { createDarkWhaleMarkSource } from './alerts/whale-mark.js';
+import { TEST_ALERT_LIMITS } from './alerts/test-limits.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -118,7 +119,13 @@ async function mount(options: { marks?: MarkSource; whaleMarks?: MarkSource; wit
   const alerts =
     options.withAlerts === false
       ? null
-      : new AlertService(new MemoryAlertStore(), options.marks ?? darkMarks, notify, options.whaleMarks ?? createDarkWhaleMarkSource());
+      : new AlertService(
+          new MemoryAlertStore(),
+          options.marks ?? darkMarks,
+          notify,
+          options.whaleMarks ?? createDarkWhaleMarkSource(),
+          TEST_ALERT_LIMITS,
+        );
   const appRouter = createNotifyRouter(notify, alerts ?? undefined);
   const edgeContext = createGuestIngressContext({ edgeSecret: SECRET });
   const app = Fastify({ logger: false, maxParamLength: 5_000 });

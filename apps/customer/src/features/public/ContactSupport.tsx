@@ -1,5 +1,5 @@
 import { useSession } from '../session/session';
-import { SUPPORT_EMAIL } from '../more/support-contact';
+import { useSupportContact } from '../more/support-contact';
 import { supportMailto } from '../more/support-desk';
 import { contactCopy } from './contact-copy';
 import './public-pages.css';
@@ -12,6 +12,7 @@ import './public-pages.css';
 export function ContactSupport({ context = 'general' }: { context?: 'general' | 'recovery' }) {
   const copy = contactCopy.useCopy();
   const { session } = useSession();
+  const contact = useSupportContact();
   if (session)
     return (
       <aside className="contact-card" aria-labelledby="contact-title">
@@ -22,7 +23,7 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
         </a>
       </aside>
     );
-  const to = SUPPORT_EMAIL;
+  const to = contact.email;
   const subject = copy.t(context === 'recovery' ? 'mailSubject' : 'mailSubjectGeneral');
   return (
     <aside className="contact-card" aria-labelledby="contact-title">
@@ -37,15 +38,46 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
       <p className="contact-card__warning" role="note">
         {copy.t('neverShare')}
       </p>
-      <a className="button button--primary" href={supportMailto(to, subject, copy.t('mailBody'))}>
-        {copy.t('write')}
-      </a>
-      <p className="muted contact-card__small">
-        {copy.t('addressLabel')} <span lang="zxx">{to}</span>
-      </p>
-      <p className="muted contact-card__small">
-        {copy.t('noForm')} {copy.t('noPromise')}
-      </p>
+      {to ? (
+        <>
+          <a className="button button--primary" href={supportMailto(to, subject, copy.t('mailBody'))}>
+            {copy.t('write')}
+          </a>
+          <p className="muted contact-card__small">
+            {copy.t('addressLabel')} <span lang="zxx">{to}</span>
+          </p>
+          <p className="muted contact-card__small">
+            {copy.t('noForm')} {copy.t('noPromise')}
+          </p>
+        </>
+      ) : contact.status === 'loading' ? (
+        <p className="muted" role="status">
+          {copy.t('loadingContact')}
+        </p>
+      ) : contact.status === 'unread' ? (
+        <p role="status" data-testid="support-contact-unread">
+          {copy.t('contactUnread')}
+        </p>
+      ) : (
+        <p role="status" data-testid="support-email-unset">
+          <strong>{copy.t('addressNotSet')}</strong> {copy.t('addressNotSetNote')}
+        </p>
+      )}
+      {contact.phone && (
+        <p className="contact-card__small" data-testid="support-phone">
+          {copy.t('phoneLabel')} <span lang="zxx">{contact.phone}</span>
+        </p>
+      )}
+      {contact.chatHours && (
+        <p className="contact-card__small" data-testid="support-hours">
+          {copy.t('hoursLabel')} <span lang="und">{contact.chatHours}</span>
+        </p>
+      )}
+      {contact.status === 'unread' && to && (
+        <p className="muted contact-card__small" role="status">
+          {copy.t('contactUnread')}
+        </p>
+      )}
     </aside>
   );
 }

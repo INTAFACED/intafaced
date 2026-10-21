@@ -251,6 +251,17 @@ const bankSections: readonly DeskSection[] = [
     links: [],
   },
   {
+    id: 'customer-balances',
+    title: 'Customer balances',
+    intro:
+      'One customer’s balance per coin and the entries behind it, for the finance-treasury desk. It needs the treasury permission on your session; a session without it is refused in words. The support view of the same figures waits on the customer consent grant (PF-ops-01) and is not here.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    sectionAction: 'bank.customer.balances',
+    links: [],
+  },
+  {
     id: 'ramps',
     title: 'Ramps',
     intro: 'The on- and off-ramp programme and whether fiat can settle at all.',
@@ -619,6 +630,92 @@ export const PAY_TRANSFER_DETAIL: ReadSpec = {
   emptyText: '',
   forbiddenText: FORBID_PAY_COMPLIANCE,
   refusals: TRANSFER_REFUSALS,
+};
+
+const FORBID_BANK_TREASURY =
+  'svc-bank did not accept your founder session for this read (it needs the treasury permission admin:treasury, with a verified second factor).';
+
+const CUSTOMER_BALANCE_REFUSALS: Readonly<Record<string, string>> = {
+  'bank.ops_audit_unavailable':
+    'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any figure, and refuses when it cannot.',
+  'portfolio.entries_do_not_sum':
+    'svc-bank read the customer’s entries and they do not add up to the balance it holds now. It refuses to show entries that disagree with the balance. Asking again can pass if a posting was landing at the same moment.',
+  'bank.activity_lookup_bounded':
+    'This customer’s history for this coin is longer than svc-bank will add up in one read, so it shows no entries rather than a partial list.',
+};
+
+/**
+ * One customer's balances for the finance-treasury desk (PF-balances-01), asked for by the customer's account id. Not part of any
+ * section: it is read on request, because svc-bank writes a log line with the operator and the customer before it reads any
+ * figure. The split is the customer's own: total, available and one column per lock kind, from the ledger.
+ */
+export const BANK_CUSTOMER_BALANCES: ReadSpec = {
+  id: 'bank.customer-balances',
+  title: 'Customer balances',
+  note: 'The customer’s balance per coin as the ledger holds it: the total, what is available, and what is locked by each kind of lock. Nothing here is summed or converted by this console.',
+  module: 'bank',
+  plainName: 'the customer’s balances',
+  procedure: 'ops.customerBalances',
+  shape: 'list',
+  rowsKey: 'assets',
+  idKey: 'assetId',
+  columns: [
+    text('assetId', 'Coin'),
+    amount('total', 'Total'),
+    amount('available', 'Available'),
+    amount('hold', 'On hold'),
+    amount('escrow', 'In escrow'),
+    amount('stake', 'Staked'),
+    amount('collateral', 'Collateral'),
+  ],
+  emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
+  forbiddenText: FORBID_BANK_TREASURY,
+  refusals: CUSTOMER_BALANCE_REFUSALS,
+};
+
+/** The entries behind one coin's available balance, newest first, a page at a time. Shares one call with the sum check below. */
+export const BANK_CUSTOMER_ENTRIES: ReadSpec = {
+  id: 'bank.customer-entries',
+  title: 'Entries behind the balance',
+  note: 'Every posting that makes up the available balance of one coin, newest first. A debit counts as plus and a credit as minus, the way the ledger signs them.',
+  module: 'bank',
+  plainName: 'the customer’s entries',
+  procedure: 'ops.customerBalanceEntries',
+  shape: 'list',
+  rowsKey: 'entries',
+  anonymousRows: true,
+  cursorKey: 'nextCursor',
+  columns: [
+    time('postedAt', 'Posted'),
+    text('direction', 'Debit or credit'),
+    amount('amount', 'Amount'),
+    text('reason', 'Reason'),
+    text('txId', 'Ledger transaction'),
+    text('accountId', 'Account', { detail: true }),
+    text('entryId', 'Entry id', { nullable: true, detail: true }),
+  ],
+  emptyText: 'The ledger holds no entry behind this coin for this customer.',
+  forbiddenText: FORBID_BANK_TREASURY,
+  refusals: CUSTOMER_BALANCE_REFUSALS,
+};
+
+export const BANK_CUSTOMER_ENTRIES_CHECK: ReadSpec = {
+  id: 'bank.customer-entries-check',
+  title: 'Do the entries add up to the balance',
+  note: 'svc-bank adds the entries it holds and compares the sum with the balance it holds now. It only answers when the two agree.',
+  module: 'bank',
+  plainName: 'the entries check',
+  procedure: 'ops.customerBalanceEntries',
+  shape: 'record',
+  columns: [
+    bool('sumCheck.ok', 'Entries add up to the balance', { mustBe: true }),
+    amount('sumCheck.entriesSum', 'Sum of all entries'),
+    amount('sumCheck.balance', 'Balance now'),
+    int('sumCheck.entryCount', 'Entries counted'),
+  ],
+  emptyText: '',
+  forbiddenText: FORBID_BANK_TREASURY,
+  refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 
 const payBillsSummary: ReadSpec = {
@@ -2044,6 +2141,22 @@ const protocolSections: readonly DeskSection[] = [
     links: [],
     panel: 'protocol.blockers',
   },
+  {
+    id: 'listing',
+    title: 'Pool and market control',
+    intro:
+      'Hide or restore a pool, delist or relist a market. Each is a listing decision that two founders sign; nothing on chain changes. The DEX refuses to quote a delisted market.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/protocol-ops/listing',
+        label: 'Pool and market control',
+        why: 'What is hidden now, and the two-founder request to hide, restore, delist or relist.',
+      },
+    ],
+  },
 ];
 
 export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
@@ -2096,7 +2209,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     endpoint: '/api/protocol-ops',
     title: 'Protocol operations',
     intro:
-      'Chain, audit, indexer and DEX status as the protocol services report them, with the time each was read. Read-only. The network label comes from the chain id a service reports: nothing here is INTACHAIN until a service says so, and nothing is audited.',
+      'Chain, audit, indexer and DEX status as the protocol services report them, with the time each was read. The one write is the two-founder pool and market control. The network label comes from the chain id a service reports: nothing here is INTACHAIN until a service says so, and nothing is audited.',
     sections: protocolSections,
   },
 };

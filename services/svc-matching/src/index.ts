@@ -7,6 +7,7 @@ import { JetStreamEventBus } from '@intafaced/events';
 import { createReplayLedgerClient } from './replay-ledger-client.js';
 import { env } from './env.js';
 import { MatchingEngine, MemorySnapshotSink } from './engine/engine.js';
+import { spreadFillPublisherFor } from './spread-fill-publisher.js';
 import { installCodFence } from './engine/cod-fence.js';
 import { installAuctionUncross } from './engine/auction-uncross.js';
 import { installCollars } from './engine/collars.js';
@@ -17,6 +18,7 @@ import { installIfmCrash } from './engine/ifm-crash.js';
 import { installL3Queue } from './engine/l3-queue.js';
 import { installCertRefuse } from './engine/cert-refuse.js';
 import { installComboBook } from './engine/combo-book.js';
+import { installSpreadBook } from './engine/spread-book.js';
 import { installMassQuote } from './engine/mass-quote.js';
 import { installMmp } from './engine/mmp.js';
 import { installSurveillancePersist } from './engine/surveillance-persist.js';
@@ -42,6 +44,7 @@ installIfmCrash();
 installL3Queue();
 installCertRefuse();
 installComboBook();
+installSpreadBook();
 installMassQuote();
 installMmp();
 installSurveillancePersist();
@@ -89,6 +92,8 @@ const engine = new MatchingEngine({
   snapshotEvery: env.MATCHING_SNAPSHOT_EVERY,
   snapshotSink,
   enabled: env.MATCHING_ENGINE_ENABLED,
+  // Spread fills go out on matching.spread.filled (CB-otc-16); without a publisher every spread order refuses.
+  spreadFills: spreadFillPublisherFor(bus),
 });
 
 const app = Fastify({ logger: { level: env.LOG_LEVEL } });

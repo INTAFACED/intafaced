@@ -7,6 +7,7 @@ import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
+import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from '../more/support-desk';
 import { deskCopy } from '../more/support-desk-copy';
 import './help.css';
@@ -217,6 +218,7 @@ export function PublicHelp() {
         </>
       ) : selection.kind === 'browse' ? (
         <>
+          <ActionRequired />
           <form
             className="help__search"
             onSubmit={(event) => {
@@ -234,6 +236,9 @@ export function PublicHelp() {
             />
             <Button type="submit">{t('search')}</Button>
           </form>
+          <div className="help__request">
+            <RequestEntry />
+          </div>
           <p className="help__caption muted" role="status">
             {loaded ? (
               <>
@@ -381,6 +386,15 @@ export function PublicHelp() {
           {readyNull && (
             <>
               <p className="muted help__measure">{t('notReturnedBody')}</p>
+              {!session && (
+                <section className="help__card help__measure" role="status" data-testid="help-sign-in">
+                  <h2>{t('signInTitle')}</h2>
+                  <p className="muted">{t('signInBody')}</p>
+                  <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+                    {t('signInAction')}
+                  </a>
+                </section>
+              )}
               {selection.version !== undefined && (
                 <a href={helpHref(selection.id)} className="help__link text-link">
                   {t('readLatest')}

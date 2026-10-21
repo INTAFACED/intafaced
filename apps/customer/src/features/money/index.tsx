@@ -7,6 +7,8 @@ import { MutationDialog, type ActionSpec, type BankActionContext } from './compo
 import { BankRoutes } from './rooms';
 import { RepeatBuy } from './repeat-buy';
 import { Withdrawal } from './Withdrawal';
+import { WithdrawalAllowlist } from './WithdrawalAllowlist';
+import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 import { Deposit } from './Deposit';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
@@ -118,7 +120,24 @@ function MoneyRooms({ path }: { path: string }) {
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/uc/recharge') content = <Deposit />;
-  else if (pathname === '/uc/withdraw/address') content = <WithdrawalAddresses />;
+  else if (pathname === '/uc/withdraw/address')
+    content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
+  else if (pathname === '/uc/withdraw/allowlist')
+    content = (
+      <WithdrawalAllowlist
+        key={`withdrawal-allowlist:${context.epoch}`}
+        context={{ current: sameReadContext }}
+        search={new URL(context.href).search}
+      />
+    );
+  else if (pathname === '/uc/withdraw/approvals')
+    content = (
+      <WithdrawalApprovals
+        key={`withdrawal-approvals:${context.epoch}`}
+        context={{ current: sameReadContext }}
+        search={new URL(context.href).search}
+      />
+    );
   else if (pathname === '/uc/withdraw')
     content = (
       <Withdrawal key={`withdrawal:${context.epoch}`} context={{ current: sameReadContext }} search={new URL(context.href).search} />

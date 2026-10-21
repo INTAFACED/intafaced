@@ -3,7 +3,7 @@ import './personal.css';
 import '../trade/buy/buy.css';
 import { useMemo } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
-import { Button, navigate, parseRequestSearch, Tabs, TabsList, TabsTab, useSession } from './deps';
+import { Button, navigate, parseRequestSearch, PersonalRoom, personalRoomFor, Tabs, TabsList, TabsTab, useSession } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { useIdentity } from './identity-state';
@@ -28,7 +28,12 @@ export const tabOf = (path: string): Tab => {
 };
 
 /** Pay: Send, Receive, Request, Bills and Global (UI-SPEC 5.10). Headline left, one card right with the tabs. */
-export default function PayScreen({ path, search }: ScreenProps) {
+export default function PayScreen(props: ScreenProps) {
+  const room = personalRoomFor(props.path);
+  return room ? <PersonalRoom match={room} /> : <PayTabs {...props} />;
+}
+
+function PayTabs({ path, search }: ScreenProps) {
   const { t } = payCopy.useCopy();
   const copy = personalCopy.useCopy();
   const { api, userId, session } = useSession();

@@ -4,17 +4,14 @@ import { useState } from 'react';
 import { Badge, Button, EmptyState, Field, Input, KeyValue, Table, type TableColumn } from '@intafaced/ui';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
 import type { Outcome } from '@/lib/trade-ops/outcome';
-import { checkLookup, marginRatioText, positionStatusWord, type PositionRow } from '@/lib/trade-ops/positions-model';
-import { BlockerPanel } from './blocker-panel';
+import { checkLookup, marginRatioText, positionStatusWord, type PositionRow, type PositionsAnswer } from '@/lib/trade-ops/positions-model';
 import { OutcomeNotice } from './outcome-notice';
 
 /**
- * Positions room, fully laid out: lookup form (user id, position id), the table with every column an operator needs,
- * and the detail pane. A search is a real request; today it answers with the typed refusal positions_cross_user_missing,
- * shown above the empty column layout. There are no rows to show and none are invented.
+ * Positions room: lookup form (user id, position id), the table and the detail pane. A search is a real request to
+ * svc-trade's operator read. Mark price, liquidation price, margin ratio and PnL are not served yet, so they draw a
+ * dash (not read, never zero). A refusal is shown in words with the service's own code.
  */
-
-const rows: readonly PositionRow[] = [];
 
 const columns: TableColumn<PositionRow>[] = [
   { id: 'market', header: 'Market', value: (p) => p.market, sortable: true },
@@ -41,7 +38,7 @@ const columns: TableColumn<PositionRow>[] = [
       const w = positionStatusWord(p.status);
       return (
         <Badge tone={w.tone} variant="outline" density="dense">
-          {p.status === 'liquidation_in_progress' ? '◆ ' : ''}
+          {p.status === 'liquidation_in_progress' || p.status === 'liquidated' ? '◆ ' : ''}
           {w.label}
         </Badge>
       );
@@ -54,15 +51,17 @@ export function PositionsBoard() {
   const [positionId, setPositionId] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<Outcome<unknown> | null>(null);
+  const [result, setResult] = useState<Outcome<PositionsAnswer> | null>(null);
   const [selected, setSelected] = useState<PositionRow | null>(null);
+  const rows: readonly PositionRow[] = result?.kind === 'ok' ? result.data.rows : [];
 
   async function search() {
     const check = checkLookup({ userId, positionId });
     if (!check.ok) return setFormError(check.message);
     setFormError(null);
     setBusy(true);
-    setResult(await tradeOpsAction('positions', check.value));
+    setSelected(null);
+    setResult(await tradeOpsAction<PositionsAnswer>('positions', check.value));
     setBusy(false);
   }
 
@@ -92,24 +91,20 @@ export function PositionsBoard() {
       ) : null}
 
       {result ? (
-        result.kind === 'refused' && result.blocker ? (
-          <div className="flex flex-col gap-2">
-            <BlockerPanel blocker={result.blocker} title="Positions cannot be looked up by an operator" />
-            <OutcomeNotice outcome={result} />
-          </div>
-        ) : (
-          <OutcomeNotice outcome={result} />
-        )
+        <OutcomeNotice outcome={result} doneText={`${rows.length} read`} />
       ) : (
         <p className="text-sm text-fg-2">Search by user id, position id or both. The answer, or the reason there is none, appears here.</p>
       )}
+      {result?.kind === 'ok' && result.data.nextCursor ? (
+        <p className="text-sm text-fg-2">More positions exist for this user than one page shows; narrow the search with a position id.</p>
+      ) : null}
 
       <p className="border border-line px-3 py-2 text-sm text-fg-2">
         <Badge tone="neutral" variant="outline" density="dense">
-          Futures off
+          Futures
         </Badge>{' '}
-        TRADE_FUTURES_ENABLED stays off: there is no futures market and no second matching book, so positions here will only ever appear for
-        products that are switched on.
+        Positions exist only for products that are switched on. Mark price, liquidation price, margin ratio and PnL are not served by the
+        operator read, so those columns show a dash.
       </p>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -122,7 +117,13 @@ export function PositionsBoard() {
           selection="single"
           selectedIds={new Set(selected ? [selected.id] : [])}
           onSelectionChange={(ids) => setSelected(rows.find((r) => ids.has(r.id)) ?? null)}
-          emptyState={<EmptyState variant="empty" size="inline" title="No positions loaded: nothing has been read" />}
+          emptyState={
+            <EmptyState
+              variant="empty"
+              size="inline"
+              title={result?.kind === 'ok' ? 'No positions found for that search' : 'No positions loaded: nothing has been read'}
+            />
+          }
         />
         <section aria-label="Position detail" className="border border-line p-3">
           <h2 className="mb-2 text-sm font-medium">Position detail</h2>
@@ -134,6 +135,7 @@ export function PositionsBoard() {
               { label: 'Market', value: selected?.market ?? null },
               { label: 'Side', value: selected ? selected.side : null },
               { label: 'Size', value: selected?.size ?? null },
+              { label: 'Opened', value: selected?.openedAt ?? null },
               { label: 'Entry price', value: selected?.entryPrice ?? null },
               { label: 'Mark price', value: selected?.markPrice ?? null },
               { label: 'Liquidation price', value: selected?.liquidationPrice ?? null },

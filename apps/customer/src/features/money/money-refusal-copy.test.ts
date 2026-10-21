@@ -105,6 +105,11 @@ describe('reading a refusal that has come back', () => {
       message: 'Cards are switched off right now. Nothing was changed.',
     });
   });
+  it('treats a taken address name as a clean refusal that clears the pending request', () => {
+    const settled = settleRefusal(failure(409, 'bank.destination_label_taken', 'error'), 'ramps.destinations.rename');
+    expect(settled.refusedFirst).toBe(true);
+    expect(settled.outcome).toMatchObject({ ok: false, reason: 'error', message: expect.stringContaining('Nothing was changed') });
+  });
   it('covers exactly the writes whose refusals were read in the bank', () => {
     expect([...REFUSAL_CHECKED_WRITES].sort()).toEqual([
       'business.removeMember',
@@ -114,6 +119,7 @@ describe('reading a refusal that has come back', () => {
       'cards.setChannels',
       'cards.setLimits',
       'cards.setStatus',
+      'ramps.destinations.rename',
       'transfers.create',
       'transfers.toUser',
     ]);

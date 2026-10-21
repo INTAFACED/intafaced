@@ -92,6 +92,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'mfaRequired',
   'noPermission',
   'orderTypeUnsupported',
+  'marketLimitOnly',
   'optionUnsupported',
   'accountOnHold',
   'notFound',

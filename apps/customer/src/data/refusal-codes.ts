@@ -35,6 +35,7 @@ export type RefusalKind =
   | 'belowMinimum'
   | 'selfTrade'
   | 'orderTypeUnsupported'
+  | 'marketLimitOnly'
   | 'optionUnsupported'
   | 'requestExpired'
   | 'exitPriceOrder'
@@ -44,6 +45,8 @@ export type RefusalKind =
   | 'postOnlyWouldCross'
   | 'fokUnfillable'
   | 'tifInvalid'
+  | 'tagInvalid'
+  | 'expiryInvalid'
   | 'ordersPaused'
   | 'accountOnHold'
   | 'notFound'
@@ -54,8 +57,32 @@ export type RefusalKind =
   | 'walletCap'
   | 'walletFields'
   | 'walletAddress'
+  | 'addressLabelTaken'
+  | 'addressBookFull'
+  | 'activitySortBounded'
+  | 'entriesDoNotSum'
+  | 'entriesTooLong'
+  | 'noBankPartner'
+  | 'detailsCurrenciesUnset'
+  | 'eligibilityUnset'
   | 'chartRange'
   | 'algoSchedulerOff'
+  | 'globalOff'
+  | 'globalNoRate'
+  | 'globalPurpose'
+  | 'globalSource'
+  | 'globalReference'
+  | 'globalRecipientInvalid'
+  | 'globalPayoutRefused'
+  | 'globalCorridorUnknown'
+  | 'globalDetailsMissing'
+  | 'globalNoSend'
+  | 'proofOff'
+  | 'proofType'
+  | 'proofSize'
+  | 'proofInvalid'
+  | 'proofNotAsked'
+  | 'proofDone'
   | 'unknown';
 
 /** Exact codes first. */
@@ -120,6 +147,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.algo_insufficient_balance': 'insufficient',
   'trade.algo_balance_unreadable': 'tryAgain',
   'trade.fee_schedule_blank': 'notSetUp',
+  'trade.fee_product_unpublished': 'notSetUp',
+  // A maker rebate or a minimum fee the ledger has no recipe to post yet: not switched on, never shown as paid.
+  'trade.rebate_recipe_unavailable': 'notSetUp',
+  'trade.min_fee_recipe_unavailable': 'notSetUp',
 
   'trade.invalid_qty': 'amountInvalid',
   'trade.missing_qty': 'amountInvalid',
@@ -133,6 +164,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.missing_collar': 'priceInvalid',
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
+  'trade.mode_limit_only': 'marketLimitOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',
   'trade.tag_unsupported': 'optionUnsupported',
   'trade.trigger_source_unset': 'optionUnsupported',
@@ -147,6 +179,9 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.fok_unfillable': 'fokUnfillable',
   fok_unfillable: 'fokUnfillable',
   'trade.invalid_tif': 'tifInvalid',
+  'trade.invalid_tag': 'tagInvalid',
+  'trade.invalid_expiry': 'expiryInvalid',
+  'trade.fee_currency_unsupported': 'optionUnsupported',
   'trade.orders_paused': 'ordersPaused',
   'trade.below_min_notional': 'belowMinimum',
   'trade.below_min_qty': 'belowMinimum',
@@ -161,6 +196,52 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.client_order_id_conflict': 'duplicate',
   'trade.idempotency_conflict': 'duplicate',
   'bank.same_space': 'duplicate',
+  'bank.activity_account_unknown': 'notFound',
+  'bank.activity_sort_bounded': 'activitySortBounded',
+  'portfolio.entries_do_not_sum': 'entriesDoNotSum',
+  'bank.activity_lookup_bounded': 'entriesTooLong',
+  'rail.bank': 'noBankPartner',
+  'bank.account_details_currencies_unset': 'detailsCurrenciesUnset',
+  'bank.account_details_unavailable': 'tryAgain',
+  'bank.eligibility_unset': 'eligibilityUnset',
+  'bank.destination_label_taken': 'addressLabelTaken',
+  'bank.address_book_full': 'addressBookFull',
+  'bank.global_corridors_unset': 'globalOff',
+  'bank.global_corridors_unusable': 'globalOff',
+  'bank.global_payout_unset': 'globalOff',
+  'bank.global_payout_unusable': 'globalOff',
+  'bank.global_fx_unusable': 'globalOff',
+  'bank.global_travel_rule_undecided': 'globalOff',
+  'bank.send_field_rules_unset': 'globalOff',
+  'bank.reference_rules_unset': 'globalOff',
+  'bank.global_fx_unset': 'globalNoRate',
+  'bank.global_quote_expired': 'quoteExpired',
+  'bank.send_purpose_required': 'globalPurpose',
+  'bank.source_of_funds_required': 'globalSource',
+  'bank.reference_too_long': 'globalReference',
+  'bank.global_account_format_invalid': 'globalRecipientInvalid',
+  'bank.global_bic_format_invalid': 'globalRecipientInvalid',
+  'bank.global_payout_refused': 'globalPayoutRefused',
+  'bank.global_corridor_unknown': 'globalCorridorUnknown',
+  'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
+  'bank.payee_blocked': 'globalNoSend',
+  'bank.exchange_allowance_exceeded': 'globalNoSend',
+  'bank.payee_controls_unset': 'globalOff',
+  'bank.exchange_allowance_unset': 'globalOff',
+  'bank.proof_limits_unset': 'proofOff',
+  'bank.proof_type_not_allowed': 'proofType',
+  'bank.proof_too_large': 'proofSize',
+  'bank.proof_invalid': 'proofInvalid',
+  'bank.proof_not_requested': 'proofNotAsked',
+  'bank.proof_already_uploaded': 'proofDone',
+  'bank.hold_not_found': 'notFound',
+  'bank.transfer_settled': 'globalNoSend',
+  'bank.global_insufficient_funds': 'insufficient',
+  'bank.global_outcome_unknown': 'tryAgain',
+  'bank.global_conflict': 'duplicate',
+  'bank.global_not_found': 'notFound',
+  'bank.global_recipient_not_found': 'notFound',
+  'bank.global_space_not_found': 'notFound',
 
   'pay.wallet_withdraw_unavailable': 'walletPaused',
   'pay.wallet_withdraw_disabled': 'walletPaused',

@@ -94,7 +94,7 @@
     "wt:self-test": "node tooling/scripts/worktree.mjs --self-test"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.64.1",
     "@types/node": "^22.20.5",
     "eslint": "^9.17.0",
@@ -109,6 +109,7 @@
     "overrides": {
       "fast-uri@>=3.0.0 <3.1.8": "3.1.8",
       "fast-uri@>=4.0.0 <4.1.5": "4.1.5",
+      "follow-redirects@<1.16.1": "1.16.1",
       "ip-address@>=10.0.0 <10.7.4": "10.7.4",
       "js-yaml@>=4.0.0 <4.3.1": "4.3.1",
       "nanoid@<3.3.18": "3.3.18",

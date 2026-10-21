@@ -46,7 +46,14 @@ export interface MoneyView {
   windowStart: number | null;
   source: 'server' | 'derived';
   asOf: number;
+  /** The total in BTC when the bank was asked for it; null when it was not, or when it has no BTC price (`reason`). */
+  btc: { total: Decimal | null; reason: string | null } | null;
 }
+
+/** Which accounts a total covers: `combined` (default), `main`, or the id of one named account. */
+export type MoneyScope = string;
+/** The unit a total is shown in. The bank values everything in USD first; BTC is the same value at its BTC price. */
+export type MoneyUnit = 'USD' | 'BTC';
 
 // ── the server's answer ──────────────────────────────────────────────────────
 
@@ -68,6 +75,8 @@ export const summarySchema = z.object({
   unpriced: z.array(unpricedSchema),
   asOf: z.number(),
   windowStart: z.number().nullable(),
+  /** Only present when the screen asked for BTC: the same total in BTC, or null with the bank's reason. */
+  btc: z.object({ total: z.string().nullable(), priceUsd: z.string().nullable(), reason: z.string().nullable() }).optional(),
 });
 export type ServerSummary = z.infer<typeof summarySchema>;
 
@@ -134,6 +143,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
     windowStart: summary.windowStart,
     source: 'server',
     asOf: summary.asOf,
+    btc: summary.btc ? { total: summary.btc.total, reason: summary.btc.reason } : null,
   };
 }
 
@@ -160,6 +170,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     windowStart: summary.windowStart ?? null,
     source: 'derived',
     asOf: summary.asOf,
+    btc: null,
   };
 }
 
@@ -171,9 +182,15 @@ const PRICES_DOWN = 'bank.prices_unavailable';
 export const SERVER_SUMMARY_KEY = 'bank-portfolio-summary';
 const SUMMARY_INTERVAL = 30_000;
 
-export function summaryFetcher(env: DataEnv): Fetcher<ServerSummary> {
+/** What to ask the bank: nothing for the default view (combined, USD), so that view shares one request with Home. */
+function summaryInput(scope: MoneyScope, unit: MoneyUnit): { scope?: string; displayCurrency?: string } | undefined {
+  const input = { ...(scope !== 'combined' ? { scope } : {}), ...(unit === 'BTC' ? { displayCurrency: 'BTC' } : {}) };
+  return Object.keys(input).length > 0 ? input : undefined;
+}
+
+export function summaryFetcher(env: DataEnv, scope: MoneyScope = 'combined', unit: MoneyUnit = 'USD'): Fetcher<ServerSummary> {
   return async (signal): Promise<Outcome<ServerSummary>> => {
-    const result = await env.api.query('bank', 'portfolio.summary', undefined, summarySchema, { signal });
+    const result = await env.api.query('bank', 'portfolio.summary', summaryInput(scope, unit), summarySchema, { signal });
     if (result.ok) return result;
     // The bank says it cannot read prices: that is a typed refusal with words of its own (it arrives as a 503, which the
     // poller would otherwise read as a broken connection).
@@ -186,9 +203,12 @@ export function summaryFetcher(env: DataEnv): Fetcher<ServerSummary> {
   };
 }
 
-function serverSource(env: DataEnv): Source<ServerSummary> {
+function serverSource(env: DataEnv, scope: MoneyScope, unit: MoneyUnit): Source<ServerSummary> {
   if (!env.userId) return constantSource({ status: 'refused', code: 'auth.required' });
-  return env.poller.source(`${SERVER_SUMMARY_KEY}:${env.userId}`, summaryFetcher(env), { intervalMs: SUMMARY_INTERVAL });
+  const variant = scope === 'combined' && unit === 'USD' ? '' : `:${scope}:${unit}`;
+  return env.poller.source(`${SERVER_SUMMARY_KEY}:${env.userId}${variant}`, summaryFetcher(env, scope, unit), {
+    intervalMs: SUMMARY_INTERVAL,
+  });
 }
 
 function mapLoadable<A>(snap: Loadable<A>, map: (value: A) => MoneyView): Loadable<MoneyView> {
@@ -203,10 +223,12 @@ const WAITING: Loadable<PortfolioSummary> = { status: 'loading' };
  * The Money screen's portfolio. Both hooks are cheap: the fallback only starts reading (and polling) once the server
  * summary has failed, and stops again if the server recovers.
  */
-export function useMoneyPortfolio(): Loadable<MoneyView> {
+export function useMoneyPortfolio(scope: MoneyScope = 'combined', unit: MoneyUnit = 'USD'): Loadable<MoneyView> {
   const env = useDataEnv();
-  const server = useSource(useMemo(() => serverSource(env), [env]));
-  const fallback = server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING);
+  const server = useSource(useMemo(() => serverSource(env, scope, unit), [env, scope, unit]));
+  // The client derivation only knows the combined view in USD; for one account it would show the wrong money, so it is not used there.
+  const fallback =
+    scope === 'combined' && (server.status === 'error' || (server.status === 'refused' && server.code === SERVER_SUMMARY_MISSING));
   const derived = useSource(useMemo(() => (fallback ? portfolioSource(env) : constantSource(WAITING)), [env, fallback]));
   return useMemo(() => pickMoneyView(fallback, server, derived), [fallback, derived, server]);
 }

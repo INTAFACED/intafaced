@@ -2,13 +2,24 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { createEdgeContext, rawBodyOf, retainRawBody, s2sFromEnv, verifyServiceRequest } from '@intafaced/contracts';
+import {
+  createEdgeContext,
+  createPayCustodyDepositClient,
+  rawBodyOf,
+  retainRawBody,
+  s2sFromEnv,
+  verifyServiceHeaders,
+  verifyServiceRequest,
+  type HttpServiceRequest,
+} from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { readBankWatermark } from './restore-watermark.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
 import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from './business/business-directory.js';
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
+import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
@@ -98,6 +109,11 @@ const bus = await JetStreamEventBus.connect({
 
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
+  // Deposit catalogue and addresses come from svc-pay over the signed seam. With no PAY_URL every answer is "not published"
+  // and the doors refuse `bank.deposit_custody_unset`; svc-bank derives no key.
+  deposits: {
+    custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
+  },
   // Frozen/closed recipients are refused before any posting. Identity owns that
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
   // `bank.recipient_check_unset` (see the boot warning below). No default of
@@ -186,7 +202,11 @@ const bank = createBankServices(sql, ledger, history, {
    * PORTFOLIO — "Est. total value" prices from svc-trade's public tickers, the
    * same TRADE_URL the loan marks read. A read; nothing is written back.
    */
-  portfolio: { tickers: httpTickerSource({ baseUrl: env.TRADE_URL }) },
+  portfolio: {
+    tickers: httpTickerSource({ baseUrl: env.TRADE_URL }),
+    // The entries behind a balance: svc-ledger `historyPage`, read only.
+    pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+  },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,
     ...(usableTradeConvertUrl(env.TRADE_URL)
@@ -199,6 +219,17 @@ const bank = createBankServices(sql, ledger, history, {
           }),
         }
       : {}),
+  },
+  /** Purpose, source-of-funds and reference rules of a global send: the owner's table, blank refuses. */
+  sendFieldRules: env.BANK_SEND_FIELD_RULES_JSON,
+  /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
+  payeeControls: env.BANK_PAYEE_CONTROLS_JSON,
+  exchangeAllowance: env.BANK_EXCHANGE_ALLOWANCE_JSON,
+  proofLimits: env.BANK_PROOF_LIMITS_JSON,
+  /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
+  accountDetails: {
+    currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
+    eligibilityJson: env.BANK_ELIGIBILITY_JSON,
   },
   /**
    * RAMPS — same missing-wiring shape as cards.
@@ -327,6 +358,19 @@ function requireService(req: object & { headers: Record<string, string | string[
   return requireInternalJobHmac(req.headers, env.INTERNAL_SERVICE_SECRET, inboundRawBody(req), doorS2s ? { req, ...doorS2s } : undefined);
 }
 
+/** Who signed this request. Only called after `requireService` accepted it, so a null here is unreachable in practice. */
+function callerService(req: object & { headers: Record<string, string | string[] | undefined>; body?: unknown }): string | null {
+  if (doorS2s) {
+    return verifyServiceRequest(req as HttpServiceRequest, {
+      verifier: doorS2s.verifier,
+      mode: doorS2s.mode,
+      legacySecret: env.INTERNAL_SERVICE_SECRET,
+      bodyBindMode: 'require',
+    }).service;
+  }
+  return verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, { rawBody: inboundRawBody(req), mode: 'require' }).service;
+}
+
 function bodyLimit(body: unknown): number | undefined {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
   if (!('limit' in body)) return undefined;
@@ -351,6 +395,16 @@ function sendBankJobRefuse(reply: { code: (n: number) => { send: (body: unknown)
  * point of the idempotency work — but "safe when it happens" is not a reason to
  * make it happen on every deploy.
  */
+/**
+ * The joint-restore position (OPS-ledger-desk-05): a read for svc-ops alone, signed like the job doors.
+ * No credentials is 401; a valid service that is not svc-ops is 403.
+ */
+app.post('/internal/restore/watermark', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
+  return readBankWatermark(sql);
+});
+
 app.post('/internal/jobs/run-due-transfers', async (req, reply) => {
   // 401 before the flag check: an unauthenticated caller must not be able to
   // learn which jobs are enabled by reading the difference between 401 and 503.

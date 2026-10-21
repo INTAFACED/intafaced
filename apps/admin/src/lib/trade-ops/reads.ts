@@ -98,6 +98,7 @@ export const LIFECYCLE_STATES = [
   'AUCTION',
   'OPEN',
   'POST_ONLY',
+  'LIMIT_ONLY',
   'CANCEL_ONLY',
   'REDUCE_ONLY',
   'HALTED',

@@ -1,3 +1,8 @@
+import type { SupportKbAudience } from '@intafaced/contracts';
+import { KB_AUDIENCES } from './audience';
+import type { BulkChange } from './bulk';
+import { readGroupActionRequest, type GroupActionRequest } from './groups';
+import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
 
 /**
@@ -10,7 +15,7 @@ import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types
 
 export const QUEUE_PAGE = 100;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATUSES: readonly string[] = ['open', 'pending', 'resolved', 'closed'];
+const STATUSES: readonly string[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 export const isTicketId = (value: unknown): value is string => typeof value === 'string' && UUID.test(value);
 
@@ -99,12 +104,13 @@ export function claimGate(ticket: { status: string; assigneeId: string | null },
  * Desk actions: what a founder can send, checked before the network
  * ------------------------------------------------------------------ */
 
-export const STATUS_CHOICES: readonly TicketStatus[] = ['open', 'pending', 'resolved', 'closed'];
+export const STATUS_CHOICES: readonly TicketStatus[] = ['open', 'pending', 'on_hold', 'resolved', 'closed'];
 
 /** svc-support's lifecycle table, copied so the page can say "not from here" before the click. The service stays the judge. */
 const TRANSITIONS: Readonly<Record<TicketStatus, readonly TicketStatus[]>> = {
-  open: ['pending', 'resolved', 'closed'],
-  pending: ['open', 'resolved', 'closed'],
+  open: ['pending', 'on_hold', 'resolved', 'closed'],
+  pending: ['open', 'on_hold', 'resolved', 'closed'],
+  on_hold: ['open', 'pending', 'resolved', 'closed'],
   resolved: ['open', 'closed'],
   closed: [],
 };
@@ -144,6 +150,8 @@ export function statusGate(ticket: { status: string }, next: string, note: strin
   if (!allowedNextStatuses(ticket.status).includes(next as TicketStatus))
     return { ok: false, why: `svc-support does not move a ticket from ${ticket.status} to ${next}.` };
   if (note.length > NOTE_MAX) return { ok: false, why: `The reason can be at most ${NOTE_MAX} characters.` };
+  if (next === 'on_hold' && note.trim() === '')
+    return { ok: false, why: 'Say why the request is on hold. The customer sees the reason in their history.' };
   return GO;
 }
 
@@ -155,7 +163,58 @@ export function escalateGate(ticket: { status: string }, summary: string, busy: 
   return GO;
 }
 
+export const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+export const TICKET_TYPES = ['question', 'problem', 'incident'] as const;
+export type Priority = (typeof PRIORITIES)[number];
+export type TicketType = (typeof TICKET_TYPES)[number];
+/** Same letters svc-support accepts for a label; the service stays the judge. */
+export const LABEL_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+export const LABELS_MAX = 20;
+export const REASON_MAX = 500;
+
+/** Labels typed as text, separated by commas, spaces or new lines. Repeats collapse; order is kept. */
+export function parseLabels(text: string): string[] {
+  return [...new Set(text.split(/[\s,]+/).filter((l) => l !== ''))];
+}
+
+export type PropertiesChange = {
+  /** Undefined leaves it as it is; null clears it. */
+  readonly priority?: Priority | null;
+  readonly ticketType?: TicketType | null;
+  readonly labels?: readonly string[];
+};
+
+export function propertiesGate(ticket: { status: string }, change: PropertiesChange, reason: string, busy: boolean): ActionGate {
+  if (busy) return { ok: false, why: 'A step is already in progress.' };
+  if (ticket.status === 'closed') return { ok: false, why: 'This ticket is closed, and svc-support does not change a closed ticket.' };
+  if (change.priority === undefined && change.ticketType === undefined && change.labels === undefined)
+    return { ok: false, why: 'Change at least one of priority, type or labels first.' };
+  if (change.labels) {
+    if (change.labels.length > LABELS_MAX) return { ok: false, why: `A ticket can carry at most ${LABELS_MAX} labels.` };
+    const bad = change.labels.find((l) => !LABEL_PATTERN.test(l));
+    if (bad !== undefined)
+      return { ok: false, why: `A label may hold letters, digits, hyphen and underscore only (up to 64). "${bad}" does not.` };
+  }
+  if (reason.length > REASON_MAX) return { ok: false, why: `The reason can be at most ${REASON_MAX} characters.` };
+  return GO;
+}
+
 export type SupportActionRequest =
+  | StaffAvailabilityRequest
+  | GroupActionRequest
+  | ({
+      readonly action: 'properties';
+      readonly ticketId: string;
+      readonly clientRequestId: string;
+      readonly reason?: string;
+    } & PropertiesChange)
+  | {
+      readonly action: 'bulk';
+      readonly batchKey: string;
+      readonly ticketIds: readonly string[];
+      readonly change: BulkChange;
+      readonly reason?: string;
+    }
   | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
   | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
   | {
@@ -174,10 +233,27 @@ export type SupportActionRequest =
       readonly category?: string;
       readonly tags?: readonly string[];
     }
-  | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number };
+  | { readonly action: 'kb_unpublish'; readonly id: string; readonly baseRevision: number }
+  | { readonly action: 'kb_audience'; readonly id: string; readonly baseRevision: number; readonly audience: SupportKbAudience };
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const isKey = (v: unknown): v is string => isText(v, 200);
+
+function readBulkChange(raw: unknown): BulkChange | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  // Exactly the kind and its one field: a second field is a different request, not an extra to drop.
+  if (Object.keys(c).length !== 2) return null;
+  if (c.kind === 'status') {
+    return typeof c.status === 'string' && STATUSES.includes(c.status) ? { kind: 'status', status: c.status as TicketStatus } : null;
+  }
+  if (c.kind === 'priority') {
+    if (c.priority === null) return { kind: 'priority', priority: null };
+    return PRIORITIES.includes(c.priority as Priority) ? { kind: 'priority', priority: c.priority as Priority } : null;
+  }
+  if (c.kind === 'assign') return isTicketId(c.assigneeId) ? { kind: 'assign', assigneeId: c.assigneeId } : null;
+  return null;
+}
 
 /**
  * The strict reader for an action request from the browser. Anything that is not exactly a known shape is null and
@@ -215,6 +291,52 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         ...(cited && cited.length > 0 ? { citedArticleIds: cited } : {}),
       };
     }
+    case 'staff_availability':
+      return readStaffAvailabilityRequest(raw);
+    case 'group_save':
+    case 'group_member':
+      return readGroupActionRequest(raw);
+    case 'properties': {
+      if (!isTicketId(raw.ticketId) || !isText(raw.clientRequestId, 200)) return null;
+      if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;
+      const out: { -readonly [K in keyof PropertiesChange]: PropertiesChange[K] } = {};
+      if (raw.priority !== undefined) {
+        if (raw.priority !== null && !PRIORITIES.includes(raw.priority as Priority)) return null;
+        out.priority = raw.priority as Priority | null;
+      }
+      if (raw.ticketType !== undefined) {
+        if (raw.ticketType !== null && !TICKET_TYPES.includes(raw.ticketType as TicketType)) return null;
+        out.ticketType = raw.ticketType as TicketType | null;
+      }
+      if (raw.labels !== undefined) {
+        if (!Array.isArray(raw.labels) || raw.labels.length > LABELS_MAX) return null;
+        if (!raw.labels.every((l) => typeof l === 'string' && LABEL_PATTERN.test(l))) return null;
+        out.labels = raw.labels as string[];
+      }
+      if (out.priority === undefined && out.ticketType === undefined && out.labels === undefined) return null;
+      return {
+        action: 'properties',
+        ticketId: raw.ticketId,
+        clientRequestId: raw.clientRequestId.trim(),
+        ...(raw.reason === undefined ? {} : { reason: raw.reason.trim() }),
+        ...out,
+      };
+    }
+    case 'bulk': {
+      if (!isText(raw.batchKey, 200) || !Array.isArray(raw.ticketIds)) return null;
+      if (raw.ticketIds.length === 0 || raw.ticketIds.length > 1000 || !raw.ticketIds.every(isTicketId)) return null;
+      if (new Set(raw.ticketIds).size !== raw.ticketIds.length) return null;
+      if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;
+      const change = readBulkChange(raw.change);
+      if (!change) return null;
+      return {
+        action: 'bulk',
+        batchKey: raw.batchKey.trim(),
+        ticketIds: raw.ticketIds as string[],
+        change,
+        ...(raw.reason === undefined ? {} : { reason: raw.reason.trim() }),
+      };
+    }
     case 'kb_publish': {
       if (!isKey(raw.id) || !isKey(raw.titleKey) || !isKey(raw.bodyKey)) return null;
       if (typeof raw.baseRevision !== 'number' || !Number.isInteger(raw.baseRevision) || raw.baseRevision < 0) return null;
@@ -237,6 +359,15 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
     case 'kb_unpublish':
       return isKey(raw.id) && typeof raw.baseRevision === 'number' && Number.isInteger(raw.baseRevision) && raw.baseRevision >= 1
         ? { action: 'kb_unpublish', id: raw.id.trim(), baseRevision: raw.baseRevision }
+        : null;
+    case 'kb_audience':
+      return isKey(raw.id) &&
+        typeof raw.baseRevision === 'number' &&
+        Number.isInteger(raw.baseRevision) &&
+        raw.baseRevision >= 1 &&
+        typeof raw.audience === 'string' &&
+        (KB_AUDIENCES as readonly string[]).includes(raw.audience)
+        ? { action: 'kb_audience', id: raw.id.trim(), baseRevision: raw.baseRevision, audience: raw.audience as SupportKbAudience }
         : null;
     default:
       return null;

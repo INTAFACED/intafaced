@@ -24,6 +24,8 @@ import {
   groupInAsset,
   inTab,
   isLedgerTab,
+  isLineTab,
+  lineGroups,
   ledgerEmpty,
   tabFromSearch,
   tabHref,
@@ -57,7 +59,18 @@ import {
 } from './deps';
 import { buyHref } from './links';
 import { detailHref } from './activity-detail';
-import { groupMatches, hasFilters, NO_FILTERS, rangeProblem, type ActivityFilters } from './activity-filter';
+import {
+  ADDRESS_MAX,
+  ADDRESS_MIN,
+  askedOfTheBank,
+  groupMatches,
+  hasFilters,
+  NO_FILTERS,
+  rangeProblem,
+  serverOptions,
+  type ActivityFilters,
+} from './activity-filter';
+import { useNamedAccounts } from './portfolio-source';
 import { activityCsv, csvFileName } from './activity-csv';
 import { StatementPanel } from './StatementPanel';
 import { stamp } from './time';
@@ -85,16 +98,32 @@ const WANT_ROWS = 10;
 /** ...and looks back at most this many extra pages by itself; after that the person presses "Load more". */
 const AUTO_PAGES = 4;
 
-const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders'> = {
+const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Ledger'> = {
   trades: 'Trades',
   orders: 'Orders',
   all: 'All',
   deposits: 'Deposits',
   transfers: 'Transfers',
+  fees: 'Fees',
+  ledger: 'Ledger',
 };
-const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet'> = {
+const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No ledger lines yet'> = {
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
+  fees: 'No fees yet',
+  ledger: 'No ledger lines yet',
+};
+const TAB_LATEST: Record<
+  Exclude<LedgerTab, 'all'>,
+  | 'No deposits in the latest items'
+  | 'No transfers in the latest items'
+  | 'No fees in the latest items'
+  | 'No ledger lines in the latest items'
+> = {
+  deposits: 'No deposits in the latest items',
+  transfers: 'No transfers in the latest items',
+  fees: 'No fees in the latest items',
+  ledger: 'No ledger lines in the latest items',
 };
 
 /** The words a row shows as its title, so a search finds what the person reads. */
@@ -107,6 +136,10 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
   const { t } = copy;
   const { timeZone } = usePreferences();
   const problem = rangeProblem(filters, timeZone);
+  const accounts = useNamedAccounts();
+  // The latest few UTC calendar years. A tax year that starts on another date is an owner value that is not set.
+  const thisYear = new Date().getUTCFullYear();
+  const years = Array.from({ length: 6 }, (_, back) => thisYear - back);
   return (
     <form className="money-bar" role="search" aria-label={t('Search activity')} onSubmit={(event) => event.preventDefault()}>
       <label className="money-bar__search">
@@ -136,11 +169,68 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
         <span>{t('To date')}</span>
         <input type="date" value={filters.to} onChange={(event) => onChange({ ...filters, to: event.target.value })} />
       </label>
+      <label className="money-bar__field">
+        <span>{t('Order')}</span>
+        <select value={filters.sort} onChange={(event) => onChange({ ...filters, sort: event.target.value as ActivityFilters['sort'] })}>
+          <option value="desc">{t('Newest first')}</option>
+          <option value="asc">{t('Oldest first')}</option>
+        </select>
+      </label>
+      {accounts.status === 'ready' && accounts.data.length > 0 ? (
+        <label className="money-bar__field">
+          <span>{t('Account')}</span>
+          <select value={filters.accountId} onChange={(event) => onChange({ ...filters, accountId: event.target.value })}>
+            <option value="">{t('All accounts')}</option>
+            <option value="main">{t('Main account')}</option>
+            {accounts.data.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <label className="money-bar__field">
+        <span>{t('Year')}</span>
+        <select value={filters.year} onChange={(event) => onChange({ ...filters, year: event.target.value })}>
+          <option value="">{t('Any year')}</option>
+          {years.map((year) => (
+            <option key={year} value={String(year)}>
+              {year}
+            </option>
+          ))}
+          <option value="" disabled>
+            {t('Tax year not set up')}
+          </option>
+        </select>
+      </label>
+      <label className="money-bar__field">
+        <span>{t('Withdrawal address')}</span>
+        <input
+          type="search"
+          value={filters.address}
+          placeholder={t('Address hint', { min: ADDRESS_MIN })}
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={ADDRESS_MAX}
+          onChange={(event) => onChange({ ...filters, address: event.target.value })}
+        />
+      </label>
+      <label className="money-bar__check">
+        <input type="checkbox" checked={filters.hasNote} onChange={(event) => onChange({ ...filters, hasNote: event.target.checked })} />
+        <span>{t('Only lines with a note')}</span>
+      </label>
       {hasFilters(filters) && (
         <Button type="button" variant="secondary" size={40} onClick={() => onChange(NO_FILTERS)}>
           {t('Clear filters')}
         </Button>
       )}
+      <p className="money-bar__note">{t('Tax year note')}</p>
+      {filters.address.trim() !== '' && filters.address.trim().length < ADDRESS_MIN ? (
+        <p className="money-bar__note" role="status">
+          {t('Address too short', { min: ADDRESS_MIN })}
+        </p>
+      ) : null}
       {problem && (
         <p className="money-bar__error" role="alert">
           {problem === 'order' ? t('Date range order') : t('Date range invalid')}
@@ -352,7 +442,7 @@ function Body({
 }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
-  const { groups } = useMemo(() => groupActivity(feed.items), [feed.items]);
+  const groups = useMemo(() => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items).groups), [feed.items, tab]);
   const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
   const rows = groups.filter(
     (group) =>
@@ -361,20 +451,22 @@ function Body({
       (!filtered || groupMatches(group, filters, timeZone, groupTitle(group, copy))),
   );
   const pages = useRef(0);
+  // All and Ledger keep every line, so they only look further back when a filter or a coin narrows them.
+  const everyLine = tab === 'all' || tab === 'ledger';
 
   // The server has no kind filter, so a narrow tab may be thin: look further back a few pages, then ask.
   useEffect(() => {
     pages.current = 0;
   }, [tab, asset, filters]);
   useEffect(() => {
-    if ((tab === 'all' && !asset && !filtered) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
+    if ((everyLine && !asset && !filtered) || !feed.hasMore || feed.loadingMore || feed.moreFailed) return;
     if (rows.length >= WANT_ROWS || pages.current >= AUTO_PAGES) return;
     pages.current += 1;
     feed.loadMore();
-  }, [tab, asset, filtered, rows.length, feed]);
+  }, [tab, everyLine, asset, filtered, rows.length, feed]);
 
   const searching =
-    (tab !== 'all' || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
+    (!everyLine || asset !== null || filtered) && rows.length === 0 && feed.hasMore && pages.current < AUTO_PAGES && !feed.moreFailed;
   const more = feed.hasMore ? (
     <div className="money-more">
       {feed.moreFailed ? <p className="money-more__note">{t('Couldn’t load more')}</p> : null}
@@ -404,11 +496,7 @@ function Body({
         <StateBlock
           kind="empty"
           className="money-state"
-          title={
-            asset
-              ? t('No {asset} activity in the latest items', { asset })
-              : t(tab === 'deposits' ? 'No deposits in the latest items' : 'No transfers in the latest items')
-          }
+          title={asset ? t('No {asset} activity in the latest items', { asset }) : t(TAB_LATEST[tab as Exclude<LedgerTab, 'all'>])}
           body={t('Load more to look further back')}
         />
       ) : why === 'asset' && asset ? (
@@ -477,6 +565,7 @@ function Content({
   copy,
   hidden,
   filters,
+  asked,
 }: {
   activity: Loadable<ActivityFeed>;
   tab: LedgerTab;
@@ -484,6 +573,8 @@ function Content({
   copy: Copy;
   hidden: boolean;
   filters: ActivityFilters;
+  /** The bank was asked to narrow or reorder the list, so "empty" means "nothing matches", not "no activity at all". */
+  asked: boolean;
 }) {
   const { t } = copy;
   switch (activity.status) {
@@ -513,6 +604,7 @@ function Content({
       );
     }
     case 'empty':
+      if (asked) return <StateBlock kind="empty" className="money-state" title={t('No matches')} body={t('No matches body')} />;
       return (
         <StateBlock
           kind="empty"
@@ -541,8 +633,25 @@ function LedgerTabs({
   hidden: boolean;
   filters: ActivityFilters;
 }) {
-  const activity = useActivity();
-  return <Content activity={activity} tab={tab} asset={asset} copy={copy} hidden={hidden} filters={filters} />;
+  // Typing an address asks the bank only once the person pauses.
+  const [address, setAddress] = useState(filters.address);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAddress(filters.address), 400);
+    return () => window.clearTimeout(timer);
+  }, [filters.address]);
+  const asked = serverOptions({ ...filters, address });
+  const activity = useActivity(asked);
+  return (
+    <Content
+      activity={activity}
+      tab={tab}
+      asset={asset}
+      copy={copy}
+      hidden={hidden}
+      filters={filters}
+      asked={askedOfTheBank({ ...filters, address })}
+    />
+  );
 }
 
 export default function Activity({ search }: { search: string }) {

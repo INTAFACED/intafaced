@@ -5,6 +5,8 @@ import { useSession } from '../../../features/session/session';
 import { type Order } from '../../../features/trade/trade-api';
 import { deskCopy } from './copy';
 import { useClosedOrders, useRefreshPrivate } from './data';
+import { HistoryFilters } from './HistoryFilters';
+import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
@@ -31,6 +33,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
   const { userId } = useSession();
   const refresh = useRefreshPrivate();
   const closed = useClosedOrders(tab === 'history');
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(NO_HISTORY_FILTER);
   const precision = precisionOf(markets, market);
   const showAll = !isHiddenPath('/money/activity');
   // The edit dialog is hosted here, above the lists: a replacement removes the old row (and may empty the list), and the
@@ -67,7 +70,16 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
       </TabsPanel>
       <TabsPanel value="history" className="dk-bottom-body">
         <LoadState load={closed} thing="orders">
-          {(rows) => (rows.length === 0 ? <StateBlock kind="empty" title={t('No order history')} /> : orderTable(rows, false))}
+          {(rows) => {
+            if (rows.length === 0) return <StateBlock kind="empty" title={t('No order history')} />;
+            const shown = filterHistory(rows, historyFilter);
+            return (
+              <>
+                <HistoryFilters filter={historyFilter} onFilter={setHistoryFilter} />
+                {shown.length === 0 ? <StateBlock kind="empty" title={t('History filter none match')} /> : orderTable(shown, false)}
+              </>
+            );
+          }}
         </LoadState>
       </TabsPanel>
       <TabsPanel value="trades" className="dk-bottom-body">

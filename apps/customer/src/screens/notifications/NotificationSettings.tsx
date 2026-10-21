@@ -3,7 +3,7 @@ import { Button, StateBlock, Switch } from './deps';
 import { centreCopy } from './centre-copy';
 import { ChannelCard } from './ChannelCard';
 import { NotifyNav } from './NotifyNav';
-import { TopicTable } from './TopicTable';
+import { CategoryGrid } from './CategoryGrid';
 import { OUT_OF_APP } from './prefs';
 import { useCentre } from './use-centre';
 
@@ -45,7 +45,7 @@ export default function NotificationSettings() {
             ))}
           </ul>
           <p className="nf-note">{copy.t('urgentNote')}</p>
-          <TopicTable channels={load.channels} />
+          <CategoryGrid />
           <section aria-labelledby="nf-quiet">
             <h2 className="nf-h2" id="nf-quiet">
               {copy.t('quietTitle')}

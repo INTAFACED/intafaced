@@ -26,6 +26,8 @@ import {
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
   KycRecordsListLimitUnsetError,
+  SELF_FREEZE_REASONS,
+  SUB_ACCOUNT_KINDS,
   SubAccountsListLimitUnsetError,
   WebauthnListLimitUnsetError,
   type AuthService,
@@ -82,6 +84,8 @@ import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
+import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
+import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -288,6 +292,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.webauthn_invalid':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
+    case 'identity.passkey_limit':
+      // The owner's per-account limit: removing a passkey is what helps.
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':
@@ -304,6 +311,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.mfa_already_enrolled':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
     case 'auth.account_frozen':
+    case 'identity.account_frozen_self':
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     case 'auth.invite_invalid':
     case 'auth.invite_expired':
@@ -320,6 +328,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.password_unchanged':
     case 'auth.password_policy':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.sub_account_nickname_invalid':
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+    case 'auth.sub_account_nickname_taken':
+      return new TRPCError({ code: 'CONFLICT', message, cause: err });
+    case 'auth.sub_account_kind_unavailable':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
     case 'auth.sub_account_denied':
     case 'auth.sub_account_revoked':
     case 'auth.sub_account_limit':
@@ -327,6 +341,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_cap_unset':
       // Owner number unpublished — not a 401 (no identity) or 403 (known, not allowed).
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'auth.webauthn_unconfigured':
     case 'auth.totp_key_missing':
       // Server misconfiguration — enrol cannot write plaintext. Ops must set IDENTITY_TOTP_SECRET_KEY.
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
@@ -540,6 +555,8 @@ export function createIdentityRouter(
     account?: AccountChange;
     /** Account closure. Absent → the door refuses `identity.close_disabled`. */
     closure?: AccountClosureService;
+    /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
+    subAccountDelete?: SubAccountDeleteService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -1004,6 +1021,37 @@ export function createIdentityRouter(
             }
             throw toFactorError(err);
           }
+        }),
+
+      /**
+       * Self-service freeze (I-account-lifecycle-08). Needs the current password; revokes every session and key.
+       * Not the staff freeze and not the ledger freeze.
+       */
+      selfFreeze: protectedProcedure
+        .input(z.object({ reason: z.enum(SELF_FREEZE_REASONS), password: z.string().min(1).max(200) }))
+        .output(z.object({ frozen: z.literal(true), reason: z.enum(SELF_FREEZE_REASONS), since: z.string(), changed: z.boolean() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const done = await auth.selfFreeze({
+              userId: ctx.principal.userId,
+              actor: factorActor(ctx.principal, privilegedUserIds),
+              reason: input.reason,
+              password: input.password,
+            });
+            return { frozen: done.frozen, reason: done.reason, since: done.since.toISOString(), changed: done.changed };
+          } catch (err) {
+            if (err instanceof AuthError && err.code === 'auth.invalid_credentials') {
+              throw new TRPCError({ code: 'FORBIDDEN', message: userCopy(err.code), cause: err });
+            }
+            throw toFactorError(err);
+          }
+        }),
+
+      selfFreezeStatus: protectedProcedure
+        .output(z.object({ frozen: z.boolean(), reason: z.enum(SELF_FREEZE_REASONS).nullable(), since: z.string().nullable() }))
+        .query(async ({ ctx }) => {
+          const s = await auth.selfFreezeStatus(ctx.principal.userId);
+          return { frozen: s.frozen, reason: s.reason, since: s.since ? s.since.toISOString() : null };
         }),
 
       /**
@@ -1967,10 +2015,27 @@ export function createIdentityRouter(
     }),
 
     subAccounts: router({
+      ...createSubAccountDeleteProcedures(options.subAccountDelete),
       create: scopedProcedure('identity:write')
-        .input(z.object({ label: z.string().min(1).max(64), purpose: z.string().max(200).optional() }))
+        .input(
+          z.object({
+            label: z.string().min(1).max(64),
+            purpose: z.string().max(200).optional(),
+            kind: z.enum(SUB_ACCOUNT_KINDS).optional(),
+            nickname: z.string().max(64).optional(),
+          }),
+        )
         .output(z.object({ id: z.string().uuid() }))
-        .mutation(({ ctx, input }) => auth.createSubAccount(ctx.principal.userId, input.label, input.purpose)),
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await auth.createSubAccount(ctx.principal.userId, input.label, input.purpose, {
+              kind: input.kind,
+              nickname: input.nickname,
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
 
       /** Limit required — omit never dumps partitions. */
       list: scopedProcedure('identity:read')
@@ -1982,6 +2047,9 @@ export function createIdentityRouter(
               label: z.string(),
               purpose: z.string().nullable(),
               revoked: z.boolean(),
+              frozen: z.boolean(),
+              kind: z.enum(SUB_ACCOUNT_KINDS),
+              nickname: z.string().nullable(),
               createdAt: z.string(),
             }),
           ),
@@ -1994,6 +2062,9 @@ export function createIdentityRouter(
               label: r.label,
               purpose: r.purpose,
               revoked: r.revoked,
+              frozen: r.frozen,
+              kind: r.kind,
+              nickname: r.nickname,
               createdAt: r.createdAt.toISOString(),
             }));
           } catch (err) {
@@ -2008,9 +2079,16 @@ export function createIdentityRouter(
       revoke: scopedProcedure('identity:write')
         .input(z.object({ subAccountId: z.string().uuid() }))
         .output(z.object({ revoked: z.boolean() }))
-        .mutation(async ({ ctx, input }) => ({
-          revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId),
-        })),
+        .mutation(async ({ ctx, input }) => {
+          // Revoke is the same act as delete, so it carries the same assets and open-orders check, and fails closed.
+          try {
+            if (!options.subAccountDelete) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
+            await options.subAccountDelete.assertEmpty(ctx.principal.userId, input.subAccountId);
+          } catch (err) {
+            subAccountDeleteToTrpc(err);
+          }
+          return { revoked: await auth.revokeSubAccount(ctx.principal.userId, input.subAccountId) };
+        }),
 
       /**
        * Single-row ownership door (SPEC-SUBACCOUNTS §2 / D26-P1-I1).

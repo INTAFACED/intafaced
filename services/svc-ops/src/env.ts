@@ -30,6 +30,8 @@ const schema = baseEnvSchema
       IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
       /** Env URL only. This process does not fetch; /ready names hardcoded-absent. */
       SUPPORT_URL: blankAsAbsent(z.string().url().optional()),
+      /** svc-ledger base URL for the fee revenue read. Blank → the venue report says ops.fee_revenue_unconfigured and gives no net. */
+      LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_URL: blankAsAbsent(z.string().url().optional()),
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
@@ -49,10 +51,23 @@ const schema = baseEnvSchema
        */
       OPS_RESTORE_ARCHIVE_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * Owner storage target for restored data. Blank → restore.start and restore.finalize refuse
+       * ops.restore_target_unset. Never invented.
+       */
+      OPS_RESTORE_TARGET: blankAsAbsent(z.string().min(1).max(256).optional()),
+      /** svc-bank and svc-pay base URLs for the joint-restore watermark reads. Blank → that service reads as unavailable. */
+      BANK_URL: blankAsAbsent(z.string().url().optional()),
+      PAY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
        * Alert source. Blank → alerts.list names ops.alert_source_unconfigured.
        * A set URL is not probed and acknowledge still refuses.
        */
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * Owner-published reason codes for hiding a pool or delisting a market, comma separated. Blank →
+       * protocolListing hide and delist refuse owner.decision. Nothing is invented.
+       */
+      OPS_PROTOCOL_REASON_CODES: blankAsAbsent(z.string().optional()),
     }),
   );
 

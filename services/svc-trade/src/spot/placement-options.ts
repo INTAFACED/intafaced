@@ -2,14 +2,17 @@ import { TradeError } from './types.js';
 
 /**
  * Create-body options the typed schema carries but spot does not act on yet are refused, never dropped: a caller who
- * sends a self-trade mode or a tag must be told it was not applied. A request whose own deadline has passed is
+ * sends a self-trade mode the engine lacks must be told it was not applied. A request whose own deadline has passed is
  * refused before any hold, whatever else is wrong with it.
  */
 export interface PlacementOptions {
   readonly stpMode?: string;
   readonly tag?: string;
+  readonly feeCurrency?: string;
   readonly requestDeadline?: string;
   readonly triggerBy?: string;
+  readonly timeInForce?: string;
+  readonly expireAt?: string;
 }
 
 /** The engine's one self-trade mode: the resting order is cancelled and the incoming order continues. */
@@ -21,6 +24,9 @@ const ENGINE_STP_MODE = 'cancel_maker';
  * is always replayed).
  */
 export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now: Date, replay = false): void {
+  if (!replay && hasSpentExpiry(options, now)) {
+    throw new TradeError('the order expiry is not in the future; nothing was placed', 'trade.invalid_expiry');
+  }
   if (!replay && options.requestDeadline !== undefined && Date.parse(options.requestDeadline) <= now.getTime()) {
     throw new TradeError('the request deadline has passed; nothing was placed', 'trade.request_expired');
   }
@@ -30,10 +36,16 @@ export function refuseUnsupportedPlacementOptions(options: PlacementOptions, now
       'trade.stp_mode_unsupported',
     );
   }
-  if (options.tag !== undefined) {
-    throw new TradeError('order tags are not stored yet; resend without a tag', 'trade.tag_unsupported');
-  }
   refuseUnsetTriggerSource(options);
+}
+
+/** A GTD or GTT order whose own expiry is already past or exactly now could never rest. */
+export function hasSpentExpiry(options: Pick<PlacementOptions, 'timeInForce' | 'expireAt'>, now: Date): boolean {
+  return (
+    (options.timeInForce === 'GTD' || options.timeInForce === 'GTT') &&
+    options.expireAt !== undefined &&
+    Date.parse(options.expireAt) <= now.getTime()
+  );
 }
 
 /** A stop is released by the last trade only. The mark and index prices have no owner-published source yet. */
@@ -48,11 +60,19 @@ export function refuseUnsetTriggerSource(options: Pick<PlacementOptions, 'trigge
 
 /**
  * A replacement cancels the original first, so an option that could be refused or ignored after that point is refused
- * before it: the replace door takes none of the three.
+ * before it: the replace door takes none of these.
  */
 export function refuseOptionsOnReplacement(options: PlacementOptions): void {
-  if (options.requestDeadline !== undefined || options.stpMode !== undefined || options.tag !== undefined) {
-    throw new TradeError('a replacement does not take a request deadline, a self-trade mode or a tag', 'trade.order_type_unsupported');
+  if (
+    options.requestDeadline !== undefined ||
+    options.stpMode !== undefined ||
+    options.tag !== undefined ||
+    options.feeCurrency !== undefined
+  ) {
+    throw new TradeError(
+      'a replacement does not take a request deadline, a self-trade mode, a tag or a fee currency',
+      'trade.order_type_unsupported',
+    );
   }
   refuseUnsetTriggerSource(options);
 }

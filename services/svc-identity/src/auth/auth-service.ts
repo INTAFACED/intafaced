@@ -53,6 +53,7 @@ import {
   SqlChallengeStore,
   createAuthenticationOptions,
   createRegistrationOptions,
+  decoyCredentialIds,
   generateChallenge,
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
@@ -106,8 +107,10 @@ export class AuthError extends Error {
       | 'auth.kyc_not_pending'
       | 'auth.kyc_agent_refused'
       | 'auth.mfa_not_enrolled'
+      | 'identity.passkey_limit'
       | 'auth.webauthn_invalid'
       | 'auth.webauthn_not_enrolled'
+      | 'auth.webauthn_unconfigured'
       | 'auth.domain_not_allowed'
       | 'auth.sub_account_required'
       | 'auth.sub_account_denied'
@@ -115,6 +118,10 @@ export class AuthError extends Error {
       | 'auth.sub_account_same'
       | 'auth.sub_account_limit'
       | 'auth.sub_account_cap_unset'
+      | 'identity.account_frozen_self'
+      | 'auth.sub_account_nickname_invalid'
+      | 'auth.sub_account_nickname_taken'
+      | 'auth.sub_account_kind_unavailable'
       | 'auth.api_key_denied'
       | 'auth.api_key_revoked'
       | 'auth.session_denied'
@@ -154,6 +161,12 @@ export class AuthError extends Error {
 }
 
 /** Blank / non-integer / out of 1..200 KYC pending queue limit. Never invent 50. */
+export const SELF_FREEZE_REASONS = ['compromise', 'temporary', 'personal'] as const;
+export type SelfFreezeReason = (typeof SELF_FREEZE_REASONS)[number];
+export const SUB_ACCOUNT_KINDS = ['standard', 'managed', 'derivatives', 'spot'] as const;
+export type SubAccountKind = (typeof SUB_ACCOUNT_KINDS)[number];
+/** 5 to 20 letters or digits. */
+export const SUB_ACCOUNT_NICKNAME = /^[A-Za-z0-9]{5,20}$/;
 export const IDENTITY_KYC_PENDING_LIMIT_UNSET = 'identity.kyc_pending_limit_unset' as const;
 export const KYC_PENDING_LIMIT_MAX = 200;
 
@@ -413,6 +426,7 @@ export class AuthService {
   private readonly totpSecretKey: Buffer | null;
   /** Owner-published live cap. Undefined = unpublished — create refuses, never invents 25. */
   private readonly maxSubAccounts: number | undefined;
+  private readonly subAccountKinds: ReadonlySet<SubAccountKind>;
   /** How long a just-rotated refresh token may be presented again by a second tab. */
   private readonly reuseGraceMs: number;
   /**
@@ -469,8 +483,12 @@ export class AuthService {
     maxSubAccounts?: number,
     reuseGraceSeconds: number = DEFAULT_REFRESH_REUSE_GRACE_SECONDS,
     recoverySeconds?: number,
+    offeredSubAccountKinds?: readonly string[],
   ) {
     this.webauthn = webauthn;
+    this.subAccountKinds = new Set(
+      (offeredSubAccountKinds ?? []).filter((k): k is SubAccountKind => (SUB_ACCOUNT_KINDS as readonly string[]).includes(k)),
+    );
     this.totpSecretKey = parseTotpSecretKey(totpSecretKeyMaterial);
     this.challenges = challenges ?? new SqlChallengeStore(sql, webauthn.challengeTtlMs);
     this.pendingTotp = pendingTotp ?? new SqlPendingTotpEnrolmentStore(sql);
@@ -592,6 +610,13 @@ export class AuthService {
       now: this.emailConfirmNow,
       log: this.log,
     };
+  }
+
+  private passkeyLimit: number | undefined;
+
+  /** Owner setting PASSKEY_MAX_PER_ACCOUNT; unset states no limit and refuses nothing. */
+  usePasskeyLimit(maxPerAccount: number | undefined): void {
+    this.passkeyLimit = maxPerAccount;
   }
 
   /** Founder desk scopes are added only when this directory says the user is a live founder. */
@@ -1404,6 +1429,53 @@ export class AuthService {
     this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }
 
+  /**
+   * Owner's own freeze. Needs the current password (counted like any password guess) and a signed-in person,
+   * never an API key or sub-account. Revokes every session and API key and records one open freeze in one
+   * transaction. A repeat while one is open changes nothing. A staff-frozen account may still self-freeze; this
+   * adds a state and never lifts the staff one. Moves no money and does not touch the ledger.
+   */
+  async selfFreeze(input: {
+    userId: string;
+    actor: FactorActor;
+    reason: SelfFreezeReason;
+    password: string;
+  }): Promise<{ frozen: true; reason: SelfFreezeReason; since: Date; changed: boolean }> {
+    if (input.actor.delegated) {
+      throw new AuthError('Sign in yourself to freeze your account; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+    const result = await transaction(this.sql, async (tx) => {
+      await tx`SELECT id FROM users WHERE id = ${input.userId} FOR UPDATE`;
+      const open = await tx<Array<{ reason: SelfFreezeReason; since: Date }>>`
+        SELECT reason, since FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
+      if (open[0]) return { reason: open[0].reason, since: open[0].since, changed: false };
+      const made = await tx<Array<{ since: Date }>>`
+        INSERT INTO account_self_freezes (user_id, reason) VALUES (${input.userId}, ${input.reason}) RETURNING since`;
+      await tx`UPDATE sessions SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
+      await tx`UPDATE api_keys SET revoked = true WHERE user_id = ${input.userId} AND revoked = false`;
+      return { reason: input.reason, since: made[0]!.since, changed: true };
+    });
+    if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
+    this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
+    return { frozen: true, ...result };
+  }
+
+  async selfFreezeStatus(userId: string): Promise<{ frozen: boolean; reason: SelfFreezeReason | null; since: Date | null }> {
+    const rows = await this.sql<Array<{ reason: SelfFreezeReason; since: Date }>>`
+      SELECT reason, since FROM account_self_freezes WHERE user_id = ${userId} AND state = 'frozen'`;
+    return rows[0] ? { frozen: true, reason: rows[0].reason, since: rows[0].since } : { frozen: false, reason: null, since: null };
+  }
+
   async getSessionOwnership(sessionId: string): Promise<{ id: string; userId: string; revoked: boolean } | null> {
     const rows = await this.sql<
       Array<{ id: string; user_id: string; revoked: boolean }>
@@ -1576,6 +1648,9 @@ export class AuthService {
       if (existing.some((c) => c.credentialId === stored.credentialId)) {
         throw new AuthError('That authenticator is already registered', 'auth.webauthn_invalid');
       }
+      if (this.passkeyLimit !== undefined && existing.length >= this.passkeyLimit) {
+        throw new AuthError('Passkey limit reached', 'identity.passkey_limit');
+      }
       const next = [...existing, stored];
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
       return existing.length;
@@ -1593,14 +1668,22 @@ export class AuthService {
   }
 
   async startWebauthnAuthentication(identifier: string): Promise<AuthenticationOptionsJSON> {
+    // The decoy ids come from the server secret; without it the answer would be an empty list that gives accounts away.
+    if (!this.tokens.secret) throw new AuthError('The sign-in secret is not set', 'auth.webauthn_unconfigured');
     const rows = await this.sql<
       Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
     const challenge = generateChallenge();
     const creds = user && user.status === 'active' ? asCredentialList(user.webauthn_creds) : [];
-    await this.challenges.put('authentication', challenge, user?.status === 'active' ? user.id : null);
-    return createAuthenticationOptions(this.webauthn, creds, challenge);
+    // Only an active account with a passkey can sign in; every other identifier gets decoys and a challenge with no user.
+    const real = user !== undefined && creds.length > 0;
+    await this.challenges.put('authentication', challenge, real ? user.id : null);
+    // Transport hints are left out of every answer so a real list and a decoy list have the same shape.
+    const listed = real
+      ? creds.map((c) => ({ credentialId: c.credentialId }) as StoredWebAuthnCredential)
+      : decoyCredentialIds(this.tokens.secret, identifier).map((credentialId) => ({ credentialId }) as StoredWebAuthnCredential);
+    return createAuthenticationOptions(this.webauthn, listed, challenge);
   }
 
   async confirmWebauthnAuthentication(
@@ -1612,18 +1695,16 @@ export class AuthService {
       Array<{ id: string; status: string; webauthn_creds: StoredWebAuthnCredential[] }>
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
-    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen');
+    const refuse = (): never => {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    };
+    // Unknown, frozen and passkey-less accounts were offered decoy ids, so they fail exactly like a wrong signature.
+    if (!user || user.status !== 'active' || asCredentialList(user.webauthn_creds).length === 0) return refuse();
     const clientChallenge = readClientChallenge(response.response.clientDataJSON);
-    if (!clientChallenge) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    if (!clientChallenge) return refuse();
     const held = await this.challenges.take(clientChallenge, 'authentication');
-    if (!held || held.userId !== user.id) {
-      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    }
-    if (asCredentialList(user.webauthn_creds).length === 0) throw new AuthError('No security key enrolled', 'auth.webauthn_not_enrolled');
-    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, () => {
-      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
-    });
+    if (!held || held.userId !== user.id) return refuse();
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse);
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
   }
 
@@ -1736,6 +1817,8 @@ export class AuthService {
     const insert = async (tx: Sql) => {
       const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${input.userId} FOR UPDATE`;
       if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+      const own = await tx<Array<{ id: string }>>`SELECT id FROM account_self_freezes WHERE user_id = ${input.userId} AND state = 'frozen'`;
+      if (own[0]) throw new AuthError('You froze this account', 'identity.account_frozen_self');
       return tx<
         Array<{ id: string }>
       >`INSERT INTO api_keys (user_id, name, key_hash, key_prefix, scopes, domain_whitelist, expires_at, mode) VALUES (${input.userId}, ${input.name}, ${hash}, ${prefix}, ${input.scopes}, ${input.domainWhitelist ?? []}, ${input.expiresAt ?? null}, ${mode}) RETURNING id`;
@@ -2522,7 +2605,22 @@ export class AuthService {
     return { userId, status: 'active' };
   }
 
-  async createSubAccount(userId: string, label: string, purpose?: string): Promise<{ id: string }> {
+  async createSubAccount(
+    userId: string,
+    label: string,
+    purpose?: string,
+    options: { kind?: SubAccountKind; nickname?: string } = {},
+  ): Promise<{ id: string }> {
+    const kind = options.kind ?? 'standard';
+    const nickname = options.nickname;
+    if (nickname !== undefined && !SUB_ACCOUNT_NICKNAME.test(nickname)) {
+      throw new AuthError('Nickname must be 5 to 20 letters or digits', 'auth.sub_account_nickname_invalid');
+    }
+    // Standard is always offered. Another kind is offered only when the owner lists it; derivatives also needs
+    // the main account's derivatives eligibility, which has no source yet, so it stays refused.
+    if (kind !== 'standard' && (kind === 'derivatives' || !this.subAccountKinds.has(kind))) {
+      throw new AuthError(`Sub-account kind ${kind} is not offered`, 'auth.sub_account_kind_unavailable');
+    }
     const users = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} LIMIT 1`;
     if (!users[0]) throw new AuthError('User not found', 'auth.not_found');
     if (users[0].status !== 'active') {
@@ -2546,9 +2644,15 @@ export class AuthService {
           'auth.sub_account_limit',
         );
       }
+      if (nickname !== undefined) {
+        const taken = await tx<
+          Array<{ id: string }>
+        >`SELECT id FROM sub_accounts WHERE parent_user_id = ${userId} AND lower(nickname) = ${nickname.toLowerCase()} LIMIT 1`;
+        if (taken[0]) throw new AuthError('Nickname already used on this account', 'auth.sub_account_nickname_taken');
+      }
       const rows = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sub_accounts (parent_user_id, label, purpose) VALUES (${userId}, ${label}, ${purpose ?? null}) RETURNING id`;
+      >`INSERT INTO sub_accounts (parent_user_id, label, purpose, kind, nickname) VALUES (${userId}, ${label}, ${purpose ?? null}, ${kind}, ${nickname ?? null}) RETURNING id`;
       return rows[0]!;
     });
   }
@@ -2556,12 +2660,41 @@ export class AuthService {
   async listSubAccounts(
     userId: string,
     limit: number,
-  ): Promise<Array<{ id: string; label: string; purpose: string | null; revoked: boolean; createdAt: Date }>> {
+  ): Promise<
+    Array<{
+      id: string;
+      label: string;
+      purpose: string | null;
+      revoked: boolean;
+      frozen: boolean;
+      kind: SubAccountKind;
+      nickname: string | null;
+      createdAt: Date;
+    }>
+  > {
     const published = publishedSubAccountsListLimit(limit);
     const rows = await this.sql<
-      Array<{ id: string; label: string; purpose: string | null; revoked: boolean; created_at: Date }>
-    >`SELECT id, label, purpose, revoked, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
-    return rows.map((r) => ({ id: r.id, label: r.label, purpose: r.purpose, revoked: r.revoked, createdAt: r.created_at }));
+      Array<{
+        id: string;
+        label: string;
+        purpose: string | null;
+        revoked: boolean;
+        frozen: number;
+        kind: SubAccountKind;
+        nickname: string | null;
+        created_at: Date;
+      }>
+    >`SELECT id, label, purpose, revoked, frozen, kind, nickname, created_at FROM sub_accounts WHERE parent_user_id = ${userId} ORDER BY created_at DESC LIMIT ${published}`;
+    return rows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      purpose: r.purpose,
+      revoked: r.revoked,
+      frozen: r.frozen === 1,
+      kind: r.kind,
+      nickname: r.nickname,
+      createdAt: r.created_at,
+    }));
   }
 
   async revokeSubAccount(userId: string, subAccountId: string): Promise<boolean> {

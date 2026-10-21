@@ -75,7 +75,7 @@ const PROFIT_SOURCE = formatAccountRef(recipeProfitFundingAccount('USDT'));
 describe('portfolio-margin refuse hitch (source)', () => {
   it('open path calls checkMarginModeForFuturesOpen before futuresMarginLock', () => {
     const src = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal)');
+    const openStart = src.indexOf('async open(input: OpenPositionInput, principal?: Principal');
     expect(openStart).toBeGreaterThan(-1);
     const open = src.slice(openStart);
     const hitch = open.indexOf('checkMarginModeForFuturesOpen(input.marginMode)');

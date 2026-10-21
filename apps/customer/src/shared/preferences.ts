@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
+import { UI_ACTIVE_PROFILE_PATTERN } from '@intafaced/contracts/ui-view-preferences';
 import { canonicalUiLocale } from './locale';
 
 const fields = z.object({
@@ -38,12 +39,25 @@ const fields = z.object({
   showFills: z.boolean().default(false),
   confirmSend: z.boolean().default(true),
   confirmCancel: z.boolean().default(true),
+  /** After an order goes through, the desk clears the Amount field. Off keeps it, so the next order starts from the same size. */
+  resetSizeOnSubmit: z.boolean().default(true),
+  /** Sizes the person set for the desk's quick-size buttons, in the base asset of the open market. Blank shows no buttons. A bad stored list reads as blank. */
+  quickSizes: z
+    .array(z.string().regex(/^\d+(\.\d{1,18})?$/))
+    .max(6)
+    .default([])
+    .catch([]),
   favoritesView: z.enum(['list', 'cards']).default('list'),
   /**
    * Simple (Robinhood-like) or Pro (dense desk). Layout only: it never changes data, prices or what an action does.
    * A first visit lands on Pro (PLT-0009); a stored Simple choice stays Simple.
    */
   layoutMode: z.enum(['simple', 'pro']).default('pro'),
+  /**
+   * Which profile the person is looking at: `personal`, or `business:<id>` for a business they belong to. A view choice only,
+   * no service reads it. The session checks it against the person's real memberships (`features/session/profiles.ts`).
+   */
+  activeProfile: z.string().regex(UI_ACTIVE_PROFILE_PATTERN).catch('personal').default('personal'),
 });
 /**
  * Older saves wrote the whole snapshot, so a stored `UTC` cannot be told apart from a chosen one.
@@ -157,6 +171,7 @@ export function usePreferences() {
         listeners.delete(notify);
       };
     },
+    () => snapshot,
     () => snapshot,
   );
 }

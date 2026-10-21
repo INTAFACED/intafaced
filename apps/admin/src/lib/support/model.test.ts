@@ -128,13 +128,18 @@ describe('who may claim', () => {
 
 describe('status moves', () => {
   it('offers only the moves svc-support allows, and none from closed', () => {
-    expect(allowedNextStatuses('open')).toEqual(['pending', 'resolved', 'closed']);
-    expect(allowedNextStatuses('pending')).toEqual(['open', 'resolved', 'closed']);
+    expect(allowedNextStatuses('open')).toEqual(['pending', 'on_hold', 'resolved', 'closed']);
+    expect(allowedNextStatuses('pending')).toEqual(['open', 'on_hold', 'resolved', 'closed']);
+    expect(allowedNextStatuses('on_hold')).toEqual(['open', 'pending', 'resolved', 'closed']);
     expect(allowedNextStatuses('resolved')).toEqual(['open', 'closed']);
     expect(allowedNextStatuses('closed')).toEqual([]);
     expect(allowedNextStatuses('weird')).toEqual([]);
   });
   it('says why a move is off before the click', () => {
+    expect(statusGate({ status: 'open' }, 'on_hold', '', false)).toMatchObject({ ok: false });
+    expect(statusGate({ status: 'open' }, 'on_hold', '   ', false)).toMatchObject({ ok: false });
+    expect(statusGate({ status: 'open' }, 'on_hold', 'Waiting on the bank', false)).toMatchObject({ ok: true });
+    expect(statusGate({ status: 'on_hold' }, 'open', '', false)).toMatchObject({ ok: true });
     expect(statusGate({ status: 'closed' }, 'open', '', false)).toMatchObject({ ok: false });
     expect(statusGate({ status: 'resolved' }, 'pending', '', false)).toMatchObject({ ok: false });
     expect(statusGate({ status: 'open' }, 'resolved', '', true)).toMatchObject({ ok: false });
@@ -166,6 +171,10 @@ describe('the strict action reader', () => {
       status: 'closed',
     });
     expect(readActionRequest({ action: 'status', ticketId: T1, status: 'closed', note: ' done ' })).toMatchObject({ note: 'done' });
+    expect(readActionRequest({ action: 'status', ticketId: T1, status: 'on_hold', note: 'Waiting on the bank' })).toMatchObject({
+      status: 'on_hold',
+      note: 'Waiting on the bank',
+    });
     expect(
       readActionRequest({ action: 'escalate', ticketId: T1, reason: 'kyc_review', summary: ' s ', citedArticleIds: ['kb-a'] }),
     ).toEqual({ action: 'escalate', ticketId: T1, reason: 'kyc_review', summary: 's', citedArticleIds: ['kb-a'] });
@@ -176,6 +185,12 @@ describe('the strict action reader', () => {
       action: 'kb_unpublish',
       id: 'a',
       baseRevision: 3,
+    });
+    expect(readActionRequest({ action: 'kb_audience', id: ' a ', baseRevision: 3, audience: 'staff' })).toEqual({
+      action: 'kb_audience',
+      id: 'a',
+      baseRevision: 3,
+      audience: 'staff',
     });
   });
   it('turns anything else into null so nothing is sent', () => {
@@ -194,6 +209,9 @@ describe('the strict action reader', () => {
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 1.5 },
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: '0' },
       { action: 'kb_unpublish', id: 'a', baseRevision: 0 },
+      { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'everyone' },
+      { action: 'kb_audience', id: 'a', baseRevision: 1 },
+      { action: 'kb_audience', id: 'a', baseRevision: 0, audience: 'public' },
     ];
     for (const raw of bad) expect(readActionRequest(raw)).toBeNull();
   });

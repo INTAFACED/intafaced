@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
+  LEDGER_FEE_REVENUE_WINDOW_INVALID,
   DEFAULT_SERVICE_BODY_BIND_MODE,
   retainRawBody,
   verifyServiceRequest,
@@ -24,6 +25,7 @@ import { z } from 'zod';
 import { composePortfolioView } from '@intafaced/portfolio-view';
 import { handleCustody } from './ledger/custody-adapters.js';
 import { handleFinanceClose } from './ledger/finance-close.js';
+import { parseFeeRevenueInput, serializeFeeRevenue } from './ledger/fee-revenue.js';
 import { parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
 import { handleReportExport } from './ledger/report-export.js';
 import { handleResilience } from './ledger/resilience-gate.js';
@@ -107,6 +109,7 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
     (err.code === 'ledger.history_range_invalid' ||
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
+      err.code === LEDGER_FEE_REVENUE_WINDOW_INVALID ||
       err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
@@ -230,6 +233,21 @@ export async function handleS2sHistory(ledger: LedgerService, body: unknown) {
  */
 export async function handleS2sHistoryPage(ledger: LedgerService, body: unknown) {
   return serializeHistoryPage(await ledger.historyPage(parseHistoryPageInput(body)));
+}
+
+/**
+ * Fee revenue per asset over one window, for svc-ops' venue report. A read: the
+ * answer is sums over the `fees:*` house accounts and nothing else. Its only
+ * caller is svc-ops (`door-callers.ts`), which gets no other door through this one.
+ */
+export async function handleS2sFeeRevenue(ledger: LedgerService, body: unknown) {
+  const range = parseFeeRevenueInput(body);
+  return serializeFeeRevenue(range, await ledger.feeRevenue(range));
+}
+
+/** The ledger's `restore.watermark.read`: chain tip position and hash, for svc-ops alone. A read. */
+export async function handleS2sRestoreWatermark(ledger: LedgerService) {
+  return ledger.restoreWatermark();
 }
 
 const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
@@ -509,6 +527,12 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
   app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
+  // Fee revenue per asset. Same `guarded` door; the caller list names svc-ops alone.
+  app.post('/trpc/feeRevenue', guarded('feeRevenue', handleS2sFeeRevenue));
+  app.post(
+    '/trpc/restoreWatermark',
+    guarded('restoreWatermark', (_svc, _body) => handleS2sRestoreWatermark(ledger)),
+  );
   app.post(
     '/trpc/portfolio',
     guarded('portfolio', (svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),

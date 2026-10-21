@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { serviceOfRequest } from './s2s-door.js';
+import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -48,6 +49,8 @@ import { createFounderControlsRouter } from './controls/founder-controls-router.
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { OAuthService } from './oauth/oauth.js';
+import { createOAuthRouter } from './oauth/oauth-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
@@ -60,6 +63,12 @@ import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
+import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { TotpLifecycle } from './auth/totp-lifecycle.js';
+import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
+import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
+import { SecurityStepUp } from './auth/security-step-up.js';
 import { createUnenrollPasskeyRouter } from './unenroll-passkey-router.js';
 import { installDisabledMintRefuse } from './auth/disable-user.js';
 import { installPasskeyMintRefuse } from './auth/mint-api-key-passkey.js';
@@ -84,6 +93,7 @@ import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
 import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
+import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
@@ -259,6 +269,7 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
   env.REFRESH_RECOVERY_SECONDS,
+  env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
@@ -377,6 +388,7 @@ installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
 installDisabledMintRefuse(auth, sql);
 installPasskeyMintRefuse(auth, sql);
+auth.usePasskeyLimit(env.PASSKEY_MAX_PER_ACCOUNT);
 installFourEyes();
 installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey);
@@ -401,6 +413,7 @@ const actionApprovals = new ActionApprovalService(
     }),
 );
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
+const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
@@ -425,22 +438,25 @@ const account = new AccountChange({
   log: { warn() {} },
 });
 const closureSecret = env.INTERNAL_SERVICE_SECRET;
+const bankClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_BANK_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
+});
+const tradeClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_TRADE_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
+});
+const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const closure = new AccountClosureService({
   sql,
   approvals: actionApprovals,
   enabled: env.IDENTITY_ACCOUNT_CLOSE_ENABLED,
   coolingOffDays: env.IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS,
   founderUserIds: founderPair ?? [],
-  bank: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_BANK_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
-  }),
-  trade: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_TRADE_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
-  }),
+  bank: bankClosureCheck,
+  trade: tradeClosureCheck,
   p2p: httpClosureChecker({
     url: env.IDENTITY_CLOSURE_P2P_URL,
     secret: closureSecret,
@@ -475,6 +491,7 @@ export const appRouter = mergeRouters(
     profile,
     account,
     closure,
+    subAccountDelete,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -496,6 +513,9 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createOAuthRouter(
+    new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
+  ),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
@@ -509,6 +529,7 @@ export const appRouter = mergeRouters(
       origin: env.WEBAUTHN_ORIGIN,
     },
     founderPair ?? [],
+    { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT },
   ),
   createVerifyPasskeyRouter(sql, {
     rpId: env.WEBAUTHN_RP_ID,
@@ -516,6 +537,11 @@ export const appRouter = mergeRouters(
     origin: env.WEBAUTHN_ORIGIN,
   }),
   createUnenrollPasskeyRouter(sql),
+  createTotpLifecycleRouter(
+    new TotpLifecycle({ sql, key: parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY), pending: new SqlPendingTotpEnrolmentStore(sql) }),
+    securityStepUp,
+  ),
+  createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -649,6 +675,16 @@ registerNavigatorSessionRoutes(app, {
  * Authenticated by the shared service secret — same control as bank jobs (#62).
  * Previously unauthenticated (full audit L2-3).
  */
+/**
+ * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
+ */
+app.get('/internal/restore/watermark', async (req, reply) => {
+  const caller = serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service;
+  if (caller === null) return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  if (caller !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'identity.caller_forbidden' });
+  return readIdentityWatermark(sql);
+});
+
 app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (req, reply) => {
   if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });

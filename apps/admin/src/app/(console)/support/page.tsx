@@ -1,8 +1,11 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { SupportDesk } from '@/components/support-desk';
 import { KbPanel } from '@/components/support-kb-panel';
-import { loadKb, loadQueue } from '@/lib/support/server';
+import { GroupsPanel } from '@/components/support-groups-panel';
+import { StaffPanel } from '@/components/support-staff-panel';
+import { loadGroups, loadKb, loadQueue, loadStaff } from '@/lib/support/server';
 
 /**
  * Support queue and help articles: list, ticket, claim, reply, set status, escalate, case file, rating, and publish or
@@ -12,9 +15,14 @@ import { loadKb, loadQueue } from '@/lib/support/server';
 export default async function SupportPage() {
   requireModulePage('support');
   const founder = await requireFounderPage();
-  const [initial, kb] = await Promise.all([loadQueue(founder), loadKb(founder)]);
+  const [initial, kb, staff, groups] = await Promise.all([loadQueue(founder), loadKb(founder), loadStaff(founder), loadGroups(founder)]);
   return (
     <SupportDesk initial={initial} userId={founder.session.userId}>
+      <p>
+        <Link href="/support/settings">Contact details for the help centre</Link>
+      </p>
+      <StaffPanel initial={staff} />
+      <GroupsPanel initial={groups} />
       <KbPanel initial={kb} />
     </SupportDesk>
   );

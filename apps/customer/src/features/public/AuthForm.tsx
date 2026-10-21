@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
+import { LanguageMenu } from '../../shared/LanguageMenu';
+import { useAccountViewStatus } from '../account/ViewSync';
+import { savePreferences } from '../../shared/preferences';
+import { passwordIssue } from '../../shared/password';
 import { useSession, sessionSchema, type Session } from '../session/session';
 import { signInWithPasskey } from '../session/webauthn';
 import { useLocation, navigate } from '../../app/location';
@@ -32,12 +36,13 @@ type Original = {
   invite?: string;
   target: string;
 };
-type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retained';
+type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retained' | 'passwordShape';
 export function AuthForm({ register }: { register: boolean }) {
   const { t: p, languageFor: publicLanguageFor } = publicCopy.useCopy();
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
   const { Copy: SharedCopy } = uiCopy.useCopy();
   const { api, commit, userId, restoring } = useSession();
+  const accountStatus = useAccountViewStatus();
   const context = useLocation();
   const authContext = publicAuthContext(location.pathname, location.search);
   const { destination, invite: inviteToken } = authContext;
@@ -176,6 +181,14 @@ export function AuthForm({ register }: { register: boolean }) {
     }
     if (!identifierForRequest) return;
     if (kind !== 'options' && !password) return;
+    // The service refuses a password it cannot hash (too long, one character repeated). Say so here instead of sending it and showing an uncertain answer.
+    if (kind === 'register') {
+      const issue = passwordIssue(password, password);
+      if (issue === 'tooLong' || issue === 'repeated') {
+        setProblem('passwordShape');
+        return;
+      }
+    }
     setMissingPasskeyIdentifier(false);
     const original: Original = {
       api,
@@ -325,6 +338,11 @@ export function AuthForm({ register }: { register: boolean }) {
         <div className="auth-story-line" />
       </div>
       <div className="auth-form">
+        <LanguageMenu
+          className="public-auth-language"
+          keptIn={userId ? (accountStatus === 'not-saved' ? 'not-saved' : 'account') : 'browser'}
+          onSelect={(language) => savePreferences({ language })}
+        />
         {journal.records.length > 0 && (
           <div className="public-auth-history">
             <p>

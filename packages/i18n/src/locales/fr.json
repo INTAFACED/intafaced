@@ -1,0 +1,16 @@
+{
+  "meta": {
+    "provenance": "machine",
+    "reviewedAt": null
+  },
+  "messages": {
+    "auth.login.title": "Connexion",
+    "auth.logout": "Déconnexion",
+    "common.action.confirm": "Confirmer",
+    "common.action.cancel": "Annuler",
+    "notify.ledger.freeze.set.title": "Écritures suspendues",
+    "notify.ledger.freeze.set.body": "Les nouvelles écritures sont suspendues sur toute la plateforme. Les soldes existants ne changent pas. Nous publierons ici la fin de la suspension.",
+    "notify.ledger.freeze.cleared.title": "Écritures reprises",
+    "notify.ledger.freeze.cleared.body": "Les écritures ont repris. L’avis de suspension précédent reste dans votre historique."
+  }
+}

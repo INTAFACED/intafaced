@@ -7,14 +7,22 @@ import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
+import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
 import { createPgAlertRuleStore } from './alerts/rule-store.js';
+import { createPgComplianceStore } from './compliance/store.js';
 import { AlertRules } from './alerts/rules.js';
 import { AlertEvaluator } from './alerts/runner.js';
 import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
 import { createPgRestoreStore } from './restore-store.js';
+import { createRestoreDesk } from './restore/desk.js';
+import { createPgRestoreRunStore } from './restore/run-store.js';
+import { createWatermarkReader } from './restore/watermark-reader.js';
+import { createPgVenueCostStore } from './venue-cost-store.js';
+import { createListingDesk } from './protocol-listing/wiring.js';
+import { createPgListingStore } from './protocol-listing/store.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -97,6 +105,15 @@ const notificationPort = createOutreachNotificationClient({
 
 const crm = new OutreachCrm(crmSql, outreachConfiguration, undefined, notificationPort, archivePublisher);
 const notificationWorker = crmSql ? new OutreachNotificationWorker(crmSql, notificationPort) : null;
+const approvalConsumer =
+  env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
+    ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
+    : undefined;
+const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
+  ? env.OPS_PROTOCOL_REASON_CODES.split(',')
+      .map((code) => code.trim())
+      .filter(Boolean)
+  : null;
 const appRouter = createOpsRouter(
   ops,
   {
@@ -109,13 +126,40 @@ const appRouter = createOpsRouter(
   {
     restoreArchiveUrl: env.OPS_RESTORE_ARCHIVE_URL,
     restoreStamps: crmSql ? createPgRestoreStore(crmSql) : undefined,
+    restoreDesk: crmSql
+      ? createRestoreDesk({
+          store: createPgRestoreRunStore(crmSql),
+          stamps: createPgRestoreStore(crmSql),
+          reader: createWatermarkReader({
+            urls: { ledger: env.LEDGER_URL, identity: env.IDENTITY_URL, bank: env.BANK_URL, pay: env.PAY_URL },
+            secret: env.INTERNAL_SERVICE_SECRET,
+            ...(s2sKey ? { s2s: s2sKey } : {}),
+          }),
+          approvals: approvalConsumer,
+          archiveUrl: () => env.OPS_RESTORE_ARCHIVE_URL,
+          target: () => env.OPS_RESTORE_TARGET ?? null,
+          now: () => new Date().toISOString(),
+        })
+      : undefined,
+    venueCosts: crmSql ? createPgVenueCostStore(crmSql) : undefined,
+    feeRevenue: createFeeRevenueClient({
+      ledgerUrl: env.LEDGER_URL,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
+    }),
     alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
     alertState: alertState ?? undefined,
+    compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
-    approvals:
-      env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
-        ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
-        : undefined,
+    approvals: approvalConsumer,
+    protocolListing: crmSql
+      ? createListingDesk({
+          store: createPgListingStore(crmSql),
+          approvals: approvalConsumer,
+          reasonCodes: () => protocolReasonCodes,
+          now: () => new Date().toISOString(),
+        })
+      : undefined,
   },
 );
 const edgeContext = buildEdgeContext(env);

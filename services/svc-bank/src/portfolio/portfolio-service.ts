@@ -10,6 +10,12 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import {
+  ActivityLookupBoundedError,
+  ActivityUnavailableError,
+  type LedgerHistoryPages,
+  type LedgerPageEntry,
+} from '../activity/activity-service.js';
 import { allocate, type PortfolioAllocation } from './allocation.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import {
@@ -191,7 +197,34 @@ export function httpTickerSource(options: { baseUrl: string; fetchImpl?: typeof 
 export interface PortfolioServiceOptions {
   /** Unset = no price counterparty: any user who holds a priced asset gets `bank.prices_unavailable`. */
   tickers?: TickerSource;
+  /** svc-ledger `historyPage`, read only. Unset = `balanceEntries` refuses `ActivityUnavailableError`. */
+  pages?: LedgerHistoryPages;
   now?: () => Date;
+}
+
+/** Entries read per ledger page, and the most pages read for one balance before it is called too long to prove. */
+const ENTRY_PAGE = 200;
+const ENTRY_MAX_PAGES = 50;
+export const BALANCE_ENTRIES_DEFAULT_LIMIT = 50;
+export const BALANCE_ENTRIES_MAX_LIMIT = 200;
+
+/** One ledger entry behind a balance, newest first. `accountId` is `main` or the id of the Space it posted to. */
+export interface BalanceEntry {
+  readonly entryId: string | null;
+  readonly txId: string;
+  readonly accountId: string;
+  readonly reason: string;
+  readonly direction: 'debit' | 'credit';
+  readonly amount: string;
+  readonly postedAt: string;
+}
+
+export interface BalanceEntriesPage {
+  readonly assetId: string;
+  readonly entries: BalanceEntry[];
+  readonly nextCursor: string | null;
+  /** The signed sum of every entry read equals the live spendable balance, or the call refused. */
+  readonly sumCheck: { readonly ok: true; readonly entriesSum: string; readonly balance: string; readonly entryCount: number };
 }
 
 /** The slice of SpaceService the total needs: the user's named Spaces (live, plus archived ones that still hold value). */
@@ -201,6 +234,7 @@ export interface SpaceLister {
 
 export class PortfolioService {
   private readonly tickers: TickerSource | undefined;
+  private readonly pages: LedgerHistoryPages | undefined;
   private readonly now: () => Date;
 
   constructor(
@@ -209,6 +243,7 @@ export class PortfolioService {
     options: PortfolioServiceOptions = {},
   ) {
     this.tickers = options.tickers;
+    this.pages = options.pages;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -306,6 +341,103 @@ export class PortfolioService {
       out.push({ assetId, total: formatAmount(total), available: formatAmount(available), locked });
     }
     return { assets: out };
+  }
+
+  /**
+   * Every ledger entry behind one asset's spendable balance, newest first (PF-balances-01, portfolio-balances-002).
+   * The whole history of the asset is read (bounded), the signed sum of it is compared with the live balance, and the
+   * page is cut from that. A sum that differs refuses `portfolio.entries_do_not_sum` and names the gap: a list that does not
+   * add up is never shown, and a history that fails or is too long to read gives no partial check. Locks have no entries
+   * of their own here: they are balances of other account kinds, shown by `balanceBreakdown`. Read only; self only.
+   */
+  async balanceEntries(
+    userId: string,
+    input: { assetId: string; accountId?: string; cursor?: string; limit?: number },
+  ): Promise<BalanceEntriesPage> {
+    if (!this.pages) throw new ActivityUnavailableError();
+    const assetId = input.assetId.toUpperCase();
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? BALANCE_ENTRIES_DEFAULT_LIMIT), 1), BALANCE_ENTRIES_MAX_LIMIT);
+    if (input.cursor !== undefined && !/^\d{1,9}$/.test(input.cursor)) {
+      throw new BankError('That page marker is not valid', 'bank.activity_range');
+    }
+    const skip = input.cursor === undefined ? 0 : Number(input.cursor);
+
+    const named = await this.namedOf(userId);
+    const owners: Array<{ accountId: string; ownerType: 'user' | 'subaccount'; ownerId: string }> = [];
+    if (input.accountId === undefined || input.accountId === 'main') owners.push({ accountId: 'main', ownerType: 'user', ownerId: userId });
+    if (input.accountId === undefined) {
+      for (const s of named) owners.push({ accountId: s.id, ownerType: 'subaccount', ownerId: s.id });
+    } else if (input.accountId !== 'main') {
+      const space = named.find((s) => s.id.toLowerCase() === input.accountId!.toLowerCase());
+      if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
+      owners.push({ accountId: space.id, ownerType: 'subaccount', ownerId: space.id });
+    }
+
+    const all: Array<LedgerPageEntry & { accountId: string }> = [];
+    let balance = 0n;
+    for (const owner of owners) {
+      const live = await this.ledger.balances(owner.ownerType, owner.ownerId);
+      for (const r of live) {
+        if (r.account.kind === 'available' && r.account.assetId.toUpperCase() === assetId) balance += r.amount;
+      }
+      let cursor: string | undefined;
+      for (let page = 0; ; page += 1) {
+        if (page >= ENTRY_MAX_PAGES) throw new ActivityLookupBoundedError();
+        let got: Awaited<ReturnType<LedgerHistoryPages['page']>>;
+        try {
+          got = await this.pages.page({
+            ownerType: owner.ownerType,
+            ownerId: owner.ownerId,
+            kind: 'available',
+            assetId,
+            limit: ENTRY_PAGE,
+            ...(cursor === undefined ? {} : { cursor }),
+          });
+        } catch {
+          throw new ActivityUnavailableError();
+        }
+        for (const e of got.entries) {
+          if (e.assetId.toUpperCase() === assetId) all.push({ ...e, accountId: owner.accountId });
+        }
+        if (got.nextCursor === null) break;
+        cursor = got.nextCursor;
+      }
+    }
+
+    const entriesSum = all.reduce<Amount>((acc, e) => acc + (e.direction === 'debit' ? 1n : -1n) * parseAmount(e.amount), 0n);
+    if (entriesSum !== balance) {
+      const gap = entriesSum - balance;
+      throw new BankError(
+        `The entries add up to ${formatAmount(entriesSum)} ${assetId} but the balance is ${formatAmount(balance)}, a gap of ${formatAmount(gap)}`,
+        'portfolio.entries_do_not_sum',
+      );
+    }
+
+    // Newest first: by time, then by book position when the ledger sends one, then by transaction id so the order is fixed.
+    all.sort((a, b) => {
+      const t = b.postedAt.getTime() - a.postedAt.getTime();
+      if (t !== 0) return t;
+      const ea = a.entryId === undefined ? -1n : BigInt(a.entryId);
+      const eb = b.entryId === undefined ? -1n : BigInt(b.entryId);
+      if (ea !== eb) return ea < eb ? 1 : -1;
+      return a.txId < b.txId ? 1 : a.txId > b.txId ? -1 : 0;
+    });
+    const slice = all.slice(skip, skip + limit);
+    const shown = skip + slice.length;
+    return {
+      assetId,
+      entries: slice.map((e) => ({
+        entryId: e.entryId ?? null,
+        txId: e.txId,
+        accountId: e.accountId,
+        reason: e.reason,
+        direction: e.direction,
+        amount: e.amount,
+        postedAt: e.postedAt.toISOString(),
+      })),
+      nextCursor: shown < all.length ? String(shown) : null,
+      sumCheck: { ok: true, entriesSum: formatAmount(entriesSum), balance: formatAmount(balance), entryCount: all.length },
+    };
   }
 
   /**

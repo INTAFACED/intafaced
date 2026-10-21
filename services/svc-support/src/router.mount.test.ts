@@ -248,7 +248,7 @@ describe('svc-support mount', () => {
     expect(kb).toHaveLength(1);
     expect(kb[0]!.titleKey).toMatch(/^support\.kb\./);
     expect(kb[0]).toMatchObject({ revision: 1, published: true });
-    expect(support.listKb).toHaveBeenCalledWith({ limit: 100 });
+    expect(support.listKb).toHaveBeenCalledWith({ limit: 100, viewer: { signedIn: false, staff: false } });
   });
 
   it('listKb omit is PRECONDITION_FAILED — never invents a 100-row page', async () => {
@@ -335,10 +335,13 @@ describe('svc-support mount', () => {
     const found = await caller.searchKb({ q: 'account', limit: 100 });
     expect(found).toHaveLength(1);
     expect(found[0]).toMatchObject({ revision: 1, published: true });
-    expect(support.searchKb).toHaveBeenCalledWith('account', { limit: 100 });
+    expect(support.searchKb).toHaveBeenCalledWith('account', { limit: 100, viewer: { signedIn: false, staff: false } });
     const one = await caller.getKb({ id: 'kb-account-access' });
     expect(one).toMatchObject({ id: 'kb-account-access', revision: 1, published: true });
-    expect(support.getKbArticle).toHaveBeenCalledWith({ id: 'kb-account-access', version: undefined });
+    expect(support.getKbArticle).toHaveBeenCalledWith(
+      { id: 'kb-account-access', version: undefined },
+      { viewer: { signedIn: false, staff: false } },
+    );
     const missing = await caller.getKb({ id: 'nope' });
     expect(missing).toBeNull();
   });
@@ -360,7 +363,10 @@ describe('svc-support mount', () => {
     const caller = createSupportRouter(support).createCaller(anonymous());
     const v1 = await caller.getKb({ id: 'kb-account-access', version: 1 });
     expect(v1).toMatchObject({ version: 1 });
-    expect(support.getKbArticle).toHaveBeenCalledWith({ id: 'kb-account-access', version: 1 });
+    expect(support.getKbArticle).toHaveBeenCalledWith(
+      { id: 'kb-account-access', version: 1 },
+      { viewer: { signedIn: false, staff: false } },
+    );
     await expect(caller.getKb({ id: 'kb-account-access', version: 99 })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       message: userCopy('support.kb_version_unknown'),

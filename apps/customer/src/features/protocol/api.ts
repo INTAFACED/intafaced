@@ -1,4 +1,17 @@
 import { z } from 'zod';
+import {
+  dexHealthSchema,
+  indexerStatusSchema,
+  protocolAuditStatusSchema,
+  protocolChainStatusSchema,
+  protocolServiceHealthSchema,
+} from '@intafaced/contracts/protocol-blockers';
+import {
+  protocolDeploymentsOutputSchema,
+  protocolNetworksListOutputSchema,
+  type ProtocolDeploymentsOutput,
+  type ProtocolNetworksListOutput,
+} from '@intafaced/contracts/protocol-networks';
 import type { ApiClient } from '../../shared/api';
 
 /**
@@ -7,52 +20,10 @@ import type { ApiClient } from '../../shared/api';
  * and keeps only the fields this room renders. `audited` is a literal false on the wire, so a response that
  * ever claims otherwise fails validation and shows as a refusal instead of a badge.
  */
-export const chainStatusSchema = z.object({
-  reachable: z.boolean(),
-  configuredChainId: z.number(),
-  observedChainId: z.number().nullable(),
-  blockNumber: z.string().nullable(),
-  suiteConfigured: z.boolean(),
-  suiteDeployed: z.boolean(),
-  tokenFactoryConfigured: z.boolean(),
-  tokenFactoryDeployed: z.boolean(),
-  refusalCode: z.string().nullable(),
-  reason: z.string().nullable(),
-  usable: z.boolean(),
-  launchUsable: z.boolean(),
-});
-export const auditStatusSchema = z.object({
-  id: z.string(),
-  kind: z.literal('internal'),
-  packagePath: z.string(),
-  artifactHash: z.string(),
-  signedBy: z.string().nullable(),
-  signedAt: z.string().nullable(),
-  audited: z.literal(false),
-});
-export const protocolHealthSchema = z.object({
-  relayEnabled: z.boolean(),
-  factoryConfigured: z.boolean(),
-  venueVaultConfigured: z.boolean().optional(),
-});
-export const indexerStatusSchema = z.object({
-  chainId: z.number(),
-  chainSource: z.string(),
-  indexedHeight: z.number().nullable(),
-  finalityDepth: z.number(),
-  finalizedHeight: z.number().nullable(),
-  ingestEnabled: z.boolean(),
-  halted: z.object({ reason: z.string(), at: z.string() }).nullable(),
-  behindBy: z.number().nullable(),
-  lastError: z.object({ code: z.string().nullable(), message: z.string(), at: z.string() }).nullable(),
-  chain: z.object({ reachable: z.boolean(), chainHeight: z.number().nullable(), reason: z.string().nullable() }).nullable(),
-  clob: z.object({ live: z.boolean(), kind: z.enum(['unset', 'fixture', 'sovereign-venue', 'unpublished']) }),
-});
-export const dexHealthSchema = z.object({
-  ammVenueWired: z.boolean(),
-  externalVenueWired: z.boolean(),
-  internalBook: z.object({ enabled: z.boolean() }).passthrough(),
-});
+export const chainStatusSchema = protocolChainStatusSchema;
+export const auditStatusSchema = protocolAuditStatusSchema;
+export const protocolHealthSchema = protocolServiceHealthSchema;
+export { dexHealthSchema, indexerStatusSchema };
 export const dexQuoteSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
@@ -79,6 +50,8 @@ export type ProtocolHealth = z.infer<typeof protocolHealthSchema>;
 export type IndexerStatus = z.infer<typeof indexerStatusSchema>;
 export type DexHealth = z.infer<typeof dexHealthSchema>;
 export type DexQuote = z.infer<typeof dexQuoteSchema>;
+export type NetworksList = ProtocolNetworksListOutput;
+export type Deployments = ProtocolDeploymentsOutput;
 
 export function createProtocolApi(api: ApiClient) {
   return {
@@ -87,6 +60,11 @@ export function createProtocolApi(api: ApiClient) {
     health: (signal?: AbortSignal) => api.query('protocol', 'health', undefined, protocolHealthSchema, { signal }),
     indexerStatus: (signal?: AbortSignal) => api.query('indexer', 'status', undefined, indexerStatusSchema, { signal }),
     dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),
+    /** The owner-published network registry. A field the owner has not published is null. */
+    networksList: (signal?: AbortSignal) => api.query('protocol', 'networks.list', undefined, protocolNetworksListOutputSchema, { signal }),
+    /** Recorded contracts and router versions for one chain. A chain with nothing recorded is a refusal, not an empty list. */
+    deploymentsList: (chainId: number, signal?: AbortSignal) =>
+      api.query('protocol', 'deployments.list', { chainId }, protocolDeploymentsOutputSchema, { signal }),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
       api.query('dex', 'quote', input, dexQuoteSchema, { signal }),

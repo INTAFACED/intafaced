@@ -4,7 +4,15 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MODULE_IDS, moduleForApi, moduleForPage } from '@/lib/modules';
 import { ACCOUNT_GAPS } from './accounts-gaps';
-import { DESKS, DESK_IDS, PAY_TRANSFER_DETAIL, allReads } from './catalog';
+import {
+  BANK_CUSTOMER_BALANCES,
+  BANK_CUSTOMER_ENTRIES,
+  BANK_CUSTOMER_ENTRIES_CHECK,
+  DESKS,
+  DESK_IDS,
+  PAY_TRANSFER_DETAIL,
+  allReads,
+} from './catalog';
 import type { DeskSpec, ReadSpec } from './types';
 
 const ROUTER: Record<ReadSpec['module'], string | null> = {
@@ -105,6 +113,15 @@ describe('the desks cover what the product order asks for', () => {
   const sections = (id: keyof typeof DESKS) => DESKS[id].sections.map((s) => s.id);
   it('bank: pools, loans book, card programme, ramp health, business approvals, freezes', () => {
     expect(sections('bank')).toEqual(expect.arrayContaining(['pools', 'loans', 'cards', 'ramps', 'business', 'freezes']));
+  });
+  it('bank: the customer balances lookup is a section action, so nothing about a customer is read with the page', () => {
+    const section = DESKS.bank.sections.find((s) => s.id === 'customer-balances')!;
+    expect(section.sectionAction).toBe('bank.customer.balances');
+    expect(section.reads).toEqual([]);
+    expect(allReads(DESKS.bank).map((r) => r.procedure)).not.toContain('ops.customerBalances');
+    expect(BANK_CUSTOMER_BALANCES.procedure).toBe('ops.customerBalances');
+    expect(BANK_CUSTOMER_ENTRIES.procedure).toBe(BANK_CUSTOMER_ENTRIES_CHECK.procedure);
+    expect(BANK_CUSTOMER_ENTRIES.input).toBeUndefined();
   });
   it('bank: the operator reads of BANKOPS are on the desk, and the card freeze is a two-founder section action', () => {
     const procedures = allReads(DESKS.bank).map((r) => r.procedure);
@@ -306,8 +323,8 @@ describe('the desks cover what the product order asks for', () => {
     }
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });
-  it('protocol: chain, audit, indexer finality, DEX health and the blockers panel, read-only and never INTACHAIN or audited', () => {
-    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers']);
+  it('protocol: chain, audit, indexer finality, DEX health the blockers panel and the listing control link, never INTACHAIN or audited', () => {
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing']);
     expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
       'protocol.chainStatus',
       'protocol.auditStatus',
@@ -322,6 +339,7 @@ describe('the desks cover what the product order asks for', () => {
     // The kind of the audit package is pinned too, so the page can only ever describe the internal review.
     expect(audit.columns.find((c) => c.key === 'kind')).toMatchObject({ mustBe: 'internal' });
     expect(DESKS.protocol.module).toBe('protocol-ops');
+    expect(DESKS.protocol.sections.find((s) => s.id === 'listing')!.links.map((l) => l.href)).toEqual(['/protocol-ops/listing']);
   });
   it('a figure a service cannot give is never also a read: nothing is listed both ways', () => {
     for (const id of DESK_IDS) {

@@ -181,11 +181,50 @@ const schema = serviceEnvSchema
        * (`auth.sub_account_cap_unset`). Never git-default 25 — that looks published.
        * Owner-explicit 25 is allowed. Malformed / out of range → fail boot.
        */
+      /** Owner setting: most passkeys one account may hold. Blank = no limit stated, nothing refused. */
+      PASSKEY_MAX_PER_ACCOUNT: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(100).optional()),
+      /**
+       * Owner setting: the sub-account kinds beyond `standard` that may be created, comma separated
+       * (managed, spot, derivatives). Blank = only standard is offered. Derivatives is also refused until the
+       * main account's derivatives eligibility can be read.
+       */
+      IDENTITY_SUB_ACCOUNT_KINDS: z.preprocess(
+        (v) =>
+          typeof v === 'string'
+            ? v
+                .split(',')
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : undefined,
+        z.array(z.enum(['managed', 'derivatives', 'spot'])).optional(),
+      ),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000).optional()),
+      /**
+       * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
+       * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
+       */
+      OAUTH_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published lifetime of an OAuth access token, in seconds. Blank / unset → unpublished; no token is
+       * issued (`oauth.lifetime_unset`). Never git-default.
+       */
+      OAUTH_ACCESS_TOKEN_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(31_536_000).optional()),
       /**
        * Owner-published lifetime for an action-bound approval, in seconds.
        * Blank / unset → unpublished; propose refuses (`action_approval.ttl_unset`).

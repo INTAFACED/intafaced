@@ -35,6 +35,8 @@ export const MODULE_IDS = [
   'more-ops',
   'protocol-ops',
   'tradeops',
+  'identity-ops',
+  'custody-ops',
 ] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 
@@ -57,6 +59,8 @@ export const MODULE_ROUTES: readonly { readonly id: ModuleId; readonly href: str
   { id: 'more-ops', href: '/more-ops', label: 'More modules' },
   { id: 'protocol-ops', href: '/protocol-ops', label: 'Protocol ops' },
   { id: 'tradeops', href: '/trade-ops', label: 'Trade desk' },
+  { id: 'identity-ops', href: '/identity-ops', label: 'Identity' },
+  { id: 'custody-ops', href: '/custody-ops', label: 'Custody approvals' },
 ];
 
 /**
@@ -70,6 +74,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/kill-switch', 'killswitches'],
   ['/api/ledger-freeze', 'ledger'],
   ['/api/pay-halts', 'ledger'],
+  ['/api/restore', 'ledger'],
   ['/api/compliance', 'jurisdiction'],
   ['/api/support', 'support'],
   ['/api/notify-health', 'notify'],
@@ -83,6 +88,8 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/analytics', 'tools'],
   ['/api/merchants', 'merchants'],
   ['/api/trade-ops', 'tradeops'],
+  ['/api/identity-ops', 'identity-ops'],
+  ['/api/custody-ops', 'custody-ops'],
 ];
 
 type Env = Record<string, string | undefined>;
@@ -186,6 +193,8 @@ export function moduleForPage(pathname: string): ModuleId | null {
     ].some((prefix) => under(path, `/${prefix}`))
   )
     return 'merchants';
+  if (under(path, '/compliance')) return 'jurisdiction';
+  if (under(path, '/restore')) return 'ledger';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }

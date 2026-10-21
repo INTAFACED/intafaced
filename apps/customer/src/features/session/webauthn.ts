@@ -197,7 +197,16 @@ export async function requestPasskeyAssertion(api: ApiClient, signal?: AbortSign
     return passkeyFailure('portal.passkey_unavailable', 'not_supported');
   const options = await api.mutate('identity', 'auth.stepUpOptions', {}, authenticationOptions, { signal });
   if (!options.ok) return options;
-  const json = options.data;
+  return signAssertion(options.data, signal);
+}
+
+/** Asks the browser to sign options the service already issued. Shared by every passkey confirmation. */
+export async function signAssertion(
+  json: z.infer<typeof authenticationOptions>,
+  signal?: AbortSignal,
+): Promise<ApiResult<PasskeyAssertion>> {
+  if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials?.get)
+    return passkeyFailure('portal.passkey_unavailable', 'not_supported');
   const canonical = (value: string) => /^[A-Za-z0-9_-]+$/.test(value) && base64url(bytes(value)) === value;
   try {
     if (!canonical(json.challenge) || json.allowCredentials?.some((item) => !canonical(item.id)))

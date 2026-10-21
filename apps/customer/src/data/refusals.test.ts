@@ -9,6 +9,25 @@ describe('edge.authority_unavailable', () => {
   });
 });
 
+describe('fee refusals (SP-fees-vip-01)', () => {
+  it('a missing schedule, rebate recipe or minimum-fee recipe reads as not switched on', () => {
+    for (const code of [
+      'trade.fee_schedule_blank',
+      'trade.fee_product_unpublished',
+      'trade.rebate_recipe_unavailable',
+      'trade.min_fee_recipe_unavailable',
+    ]) {
+      expect(classifyRefusal(code)).toBe('notSetUp');
+    }
+  });
+
+  it('maps the order tag, expiry and fee-currency refusals to their own copy', () => {
+    expect(classifyRefusal('trade.invalid_tag')).toBe('tagInvalid');
+    expect(classifyRefusal('trade.invalid_expiry')).toBe('expiryInvalid');
+    expect(classifyRefusal('trade.fee_currency_unsupported')).toBe('optionUnsupported');
+  });
+});
+
 describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
   it('screening refusals', () => {
     for (const code of ['denied.screening_fixture', 'denied.screening_unconfigured', 'denied.network_dark', 'denied.module_blocked']) {
@@ -55,6 +74,21 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
         title: 'Not switched on',
         body: "This part of INTAFACED isn't switched on. Nothing was changed.",
       });
+  });
+  it('the bank activity and address book refusals have their own words, and "not set" codes read as not switched on', () => {
+    expect(refusalCopy('bank.destination_label_taken')).toMatchObject({ title: 'That name is taken' });
+    expect(refusalCopy('bank.address_book_full')).toMatchObject({ title: 'Your address book is full' });
+    expect(refusalCopy('bank.activity_sort_bounded')).toMatchObject({ title: 'Too many lines to sort oldest first' });
+    expect(refusalCopy('portfolio.entries_do_not_sum')).toMatchObject({ title: 'The entries do not add up to your balance' });
+    expect(refusalCopy('bank.activity_lookup_bounded')).toMatchObject({ title: 'Too many entries to check at once' });
+    expect(refusalCopy('bank.activity_account_unknown')).toMatchObject({ title: "We couldn't find that" });
+    for (const code of [
+      'bank.fx_rate_unset',
+      'portfolio.tax_effect_map_unset',
+      'portfolio.tax_year_start_unset',
+      'bank.address_book_cap_unset',
+    ])
+      expect(refusalCopy(code)).toMatchObject({ title: 'Not switched on' });
   });
   it('market orders paused', () => {
     expect(refusalCopy('trade.slippage_cap_unset')).toEqual({ title: 'Market orders are paused', body: 'Use a limit order instead.' });

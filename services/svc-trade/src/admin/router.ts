@@ -16,6 +16,8 @@ const clientRequestId = z.string().trim().min(1).max(128);
 const nullableText = z.string().trim().min(1).max(128).nullish();
 const approvalId = z.string().trim().min(1).max(128);
 const decimalText = z.string().trim().min(1).max(64);
+const agreementKind = z.enum(['derivatives_risk', 'margin_terms']);
+const versionText = z.string().regex(/^(?:0|[1-9]\d*)$/);
 const tenorRow = z.object({ tenor: z.enum(['weekly', 'monthly', 'quarterly']), enabled: z.boolean() }).strict();
 
 const limits = z
@@ -27,6 +29,35 @@ const limits = z
     circuitBreaker: z.string().nullable(),
   })
   .strict();
+
+const fundingParamsInput = z
+  .object({
+    baseComponent: z.string().nullable(),
+    cap: z.string().nullable(),
+    cadenceSeconds: z.number().int().nullable(),
+    trimRatioBps: z.number().int().nullable(),
+    minSamples: z.number().int().nullable(),
+    periodSeconds: z.number().int().nullable(),
+    periodAnchor: z.string().nullable(),
+  })
+  .strict();
+
+const indexSourcesConfig = z
+  .object({
+    sources: z
+      .array(z.object({ sourceId: z.string().trim().min(1).max(64), weight: z.number().int(), enabled: z.boolean() }).strict())
+      .max(16),
+    params: z
+      .object({
+        minSources: z.number().int().nullable(),
+        outlierBandBps: z.number().int().nullable(),
+        maxAgeSeconds: z.number().int().nullable(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
 
 function fail(error: unknown): never {
   if (error instanceof TRPCError) throw error;
@@ -114,6 +145,20 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         )
         .mutation(({ ctx, input }) => ready().riskSet(ctx.principal, input).catch(fail)),
     }),
+    fees: router({
+      get: operator.query(({ ctx }) => ready().feeScheduleGet(ctx.principal).catch(fail)),
+      set: operatorWrite
+        .input(
+          z.object({
+            schedule: z.record(z.unknown()),
+            effectiveAt: z.string().trim().min(1).max(40),
+            expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+            reason,
+            approvalId: z.string().trim().min(1).max(128),
+          }),
+        )
+        .mutation(({ ctx, input }) => ready().feeScheduleSet(ctx.principal, input).catch(fail)),
+    }),
     positions: router({
       list: operator
         .input(z.object({ accountId: z.string().nullish(), market: id.nullish(), cursor: z.string().nullish(), limit }))
@@ -169,6 +214,27 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
+    }),
+    fundingParams: router({
+      get: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().funding.paramsGet(ctx.principal, input.market).catch(fail)),
+      set: operatorWrite
+        .input(z.object({ market: id, params: fundingParamsInput, expectedVersion, reason, approvalId, clientRequestId }).strict())
+        .mutation(({ ctx, input }) => ready().funding.paramsSet(ctx.principal, input).catch(fail)),
+    }),
+    indexSources: router({
+      get: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().funding.sourcesGet(ctx.principal, input.market).catch(fail)),
+      set: operatorWrite
+        .input(z.object({ market: id, config: indexSourcesConfig, expectedVersion, reason, approvalId, clientRequestId }).strict())
+        .mutation(({ ctx, input }) => ready().funding.sourcesSet(ctx.principal, input).catch(fail)),
+    }),
+    fundingPeriods: router({
+      recent: operator
+        .input(z.object({ market: id.nullish(), limit, sampleLimit: z.number().int().min(1).max(1000) }).strict())
+        .query(({ ctx, input }) => ready().funding.periods(ctx.principal, input).catch(fail)),
     }),
     futuresListing: router({
       create: operatorWrite
@@ -236,6 +302,100 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       convert: operatorWrite
         .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
+    }),
+    agreements: router({
+      get: operator
+        .input(z.object({ kind: agreementKind }).strict())
+        .query(({ ctx, input }) => ready().agreements.agreementGet(ctx.principal, input.kind).catch(fail)),
+      publish: operatorWrite
+        .input(
+          z
+            .object({
+              kind: agreementKind,
+              texts: z
+                .array(
+                  z
+                    .object({
+                      region: z.string().trim().min(1).max(16),
+                      title: z.string().trim().min(1).max(200),
+                      body: z.string().trim().min(1).max(200_000),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(64),
+              expectedVersion: versionText,
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.agreementPublish(ctx.principal, input).catch(fail)),
+      list: operator
+        .input(
+          z
+            .object({
+              kind: agreementKind.nullish(),
+              version: z.number().int().min(1).nullish(),
+              region: z.string().trim().min(1).max(16).nullish(),
+              userId: z.string().uuid().nullish(),
+              from: z.string().nullish(),
+              to: z.string().nullish(),
+              cursor: z.string().nullish(),
+              limit,
+            })
+            .strict(),
+        )
+        .query(({ ctx, input }) => ready().agreements.list(ctx.principal, input).catch(fail)),
+      export: operator
+        .input(
+          z
+            .object({
+              kind: agreementKind.nullish(),
+              version: z.number().int().min(1).nullish(),
+              region: z.string().trim().min(1).max(16).nullish(),
+              userId: z.string().uuid().nullish(),
+              from: z.string().nullish(),
+              to: z.string().nullish(),
+              reason,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.export(ctx.principal, input).catch(fail)),
+    }),
+    eligibilityRules: router({
+      get: operator.query(({ ctx }) => ready().agreements.eligibilityRulesGet(ctx.principal).catch(fail)),
+      set: operatorWrite
+        .input(
+          z
+            .object({
+              questions: z
+                .array(
+                  z
+                    .object({
+                      id: z.string().trim().min(1).max(64),
+                      prompt: z.string().trim().min(1).max(2000),
+                      options: z
+                        .array(z.object({ id: z.string().trim().min(1).max(64), text: z.string().trim().min(1).max(1000) }).strict())
+                        .min(2)
+                        .max(10),
+                      correctOptionId: z.string().trim().min(1).max(64),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(100),
+              passMark: z.number().int().min(1).max(100),
+              minKycTier: z.enum(['none', 'basic', 'full', 'institutional']),
+              expectedVersion: versionText,
+              reason,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().agreements.eligibilityRulesSet(ctx.principal, input).catch(fail)),
     }),
     markets: router({
       statusHistory: operator

@@ -363,6 +363,16 @@ export type BankErrorCode =
   | 'bank.withdraw_destination_missing'
   /** Another saved address of this customer already has this label (case ignored). */
   | 'bank.destination_label_taken'
+  /** No banking partner is wired, so there are no account details to show or request. The blocker is named `rail.bank`. */
+  | 'rail.bank'
+  /** The owner has not published which currencies have account details. Nothing is listed; no list is invented. */
+  | 'bank.account_details_currencies_unset'
+  /** The currency asked for is not one the owner publishes account details for. */
+  | 'bank.account_details_currency_unknown'
+  /** The banking partner did not answer. Nothing was changed. */
+  | 'bank.account_details_unavailable'
+  /** The owner has not published who can open an account. No eligibility statement is shown. */
+  | 'bank.eligibility_unset'
   /** The address book holds as many entries as the owner allows. */
   | 'bank.address_book_full'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
@@ -606,6 +616,8 @@ export type BankErrorCode =
   | 'bank.activity_not_found'
   /** Lookup stopped before history ended, so absence is not proven. */
   | 'bank.activity_lookup_bounded'
+  /** The ledger entries of a balance do not add up to the live balance; the page shows the gap and no list. */
+  | 'portfolio.entries_do_not_sum'
   /** A from/to or amount range is backwards. */
   | 'bank.activity_range'
   /** A note command id was reused with different text. */
@@ -623,7 +635,9 @@ export type BankErrorCode =
   /** More posted lines than a statement file will carry. Narrow the dates. */
   | 'bank.statement_too_large'
   /** No service secret, or activity could not be read, so no file was built. */
-  | 'bank.statement_unavailable';
+  | 'bank.statement_unavailable'
+  /** A desk read of a customer's balances could not be recorded, so it was not made. */
+  | 'bank.ops_audit_unavailable';
 
 export class BankError extends Error {
   constructor(

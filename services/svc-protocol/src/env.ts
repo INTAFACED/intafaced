@@ -13,6 +13,9 @@ const evmAddressDefaultZero = z.preprocess(
   evmAddress.default('0x0000000000000000000000000000000000000000'),
 );
 
+const blankIsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema);
+
 /**
  * Environment for svc-protocol.
  *
@@ -135,6 +138,20 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * degrades convenience, never access — that is what permissionless means.
      */
     PROTOCOL_BUNDLER_URL: z.string().url().optional(),
+
+    /**
+     * svc-indexer and svc-dex, read by `protocol.blockers` through their public procedures. No defaults: a blank URL or
+     * timeout means "not connected in this environment", never a guessed localhost or an invented wait.
+     */
+    INDEXER_URL: blankIsUnset(z.string().url().optional()),
+    DEX_URL: blankIsUnset(z.string().url().optional()),
+    PROTOCOL_PEER_TIMEOUT_MS: blankIsUnset(z.coerce.number().int().min(100).max(30_000).optional()),
+
+    /**
+     * Protocol ops desk metrics window (D-order-controls-04). An owner setting with no default: blank refuses the metrics
+     * read with `owner.decision` unless the caller names a window.
+     */
+    PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
     /** Kill-switch mirror for `protocol.smartAccounts` (§14 admin controls). */
     PROTOCOL_RELAY_ENABLED: z

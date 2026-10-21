@@ -20,7 +20,7 @@ import {
   type Source,
 } from './blockers';
 import { protocolCopy as copy } from './copy';
-import { BASE_SEPOLIA_DEPLOYMENT } from './deployments';
+import { ContractsPanel, type ChainRef, NetworkPanel, SupportedNetworksPanel } from './NetworkPanels';
 import './protocol.css';
 
 type Translate = ReturnType<typeof copy.forLocale>['t'];
@@ -31,7 +31,7 @@ export function isProtocolSlug(value: string | undefined): value is Slug {
   return slugs.includes(value as Slug);
 }
 
-function toSource<T>(value: Resource<T>): Source<T> {
+export function toSource<T>(value: Resource<T>): Source<T> {
   const { resource } = value;
   return resource.status === 'loading'
     ? { status: 'loading' }
@@ -152,7 +152,7 @@ const flag = (t: Translate, value: boolean) => (value ? t('yes') : t('no'));
 const orNone = (t: Translate, value: string | number | null | undefined) =>
   value === null || value === undefined ? t('notReturned') : String(value);
 
-function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
+export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAction[]; snapshot: ProtocolSnapshot; t: Translate }) {
   if (actions.length === 0) return null;
   return (
     <Panel title={t('actionsTitle')}>
@@ -346,6 +346,12 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   const title = slug === 'chain' ? t('titleChain') : slug === 'dex' ? t('titleDex') : t('titleProtocol');
   const description = slug === 'chain' ? t('descChain') : slug === 'dex' ? t('descDex') : t('descProtocol');
 
+  const chainRef: ChainRef =
+    chain.resource.status === 'ready'
+      ? { status: 'ready', chainId: chain.resource.data.configuredChainId }
+      : chain.resource.status === 'failed'
+        ? { status: 'failed', failure: chain.resource.failure, reload: chain.reload }
+        : { status: 'loading' };
   const chainStatusPanel = (
     <Panel title={t('tab_status')}>
       <Answer value={chain} source={t('src_chain')} t={t} shell={{ label: t('tab_status'), headers: [t('hdr_check'), t('hdr_result')] }}>
@@ -421,7 +427,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   );
 
   let body: ReactNode = null;
-  if (slug === 'chain' && tab === 'status') body = chainStatusPanel;
+  if (slug === 'chain' && tab === 'status')
+    body = (
+      <>
+        {chainStatusPanel}
+        <NetworkPanel chain={chainRef} t={t} />
+      </>
+    );
   else if (slug === 'chain' && tab === 'blocks')
     body = (
       <Panel title={t('tab_blocks')}>
@@ -491,7 +503,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         <EmptyState title={t('positionsEmpty')} />
       </Panel>
     );
-  else if (slug === 'dex' && tab === 'venue') body = venuePanel;
+  else if (slug === 'dex' && tab === 'venue')
+    body = (
+      <>
+        {venuePanel}
+        <SupportedNetworksPanel t={t} />
+      </>
+    );
   else if (slug === 'protocol' && tab === 'overview')
     body = (
       <>
@@ -511,21 +529,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </Panel>
       </>
     );
-  else if (slug === 'protocol' && tab === 'contracts')
-    body = (
-      <Panel title={t('contractsTitle')}>
-        <p className="muted">{t('contractsNote')}</p>
-        <DataTable label={t('contractsTitle')} headers={[t('hdr_contract'), t('hdr_suite'), t('hdr_address')]}>
-          {BASE_SEPOLIA_DEPLOYMENT.contracts.map((contract) => (
-            <tr key={contract.address}>
-              <td>{contract.name}</td>
-              <td>{contract.suite}</td>
-              <td className="numeric">{contract.address}</td>
-            </tr>
-          ))}
-        </DataTable>
-      </Panel>
-    );
+  else if (slug === 'protocol' && tab === 'contracts') body = <ContractsPanel chain={chainRef} t={t} />;
   else if (slug === 'protocol' && tab === 'rails')
     body = (
       <Panel title={t('railsTitle')}>

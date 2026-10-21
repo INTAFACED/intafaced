@@ -89,6 +89,20 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/session/passkey')).toBeNull();
   });
 
+  it('puts the custody approvals desk behind the custody-ops module', () => {
+    expect(moduleForPage('/custody-ops')).toBe('custody-ops');
+    expect(moduleForApi('/api/custody-ops')).toBe('custody-ops');
+    expect(isModuleEnabled('custody-ops', { ADMIN_MODULES: 'crm' })).toBe(false);
+  });
+
+  it('puts the identity keys desk behind the identity-ops module', () => {
+    expect(moduleForPage('/identity-ops/keys')).toBe('identity-ops');
+    expect(moduleForApi('/api/identity-ops/keys')).toBe('identity-ops');
+    expect(moduleForPage('/identity-ops/oauth')).toBe('identity-ops');
+    expect(moduleForApi('/api/identity-ops/oauth')).toBe('identity-ops');
+    expect(isModuleEnabled('identity-ops', { ADMIN_MODULES: 'crm' })).toBe(false);
+  });
+
   it('puts the trade desk pages and APIs behind the tradeops module', () => {
     expect(moduleForPage('/trade-ops')).toBe('tradeops');
     expect(moduleForPage('/trade-ops/orders')).toBe('tradeops');
