@@ -8,10 +8,13 @@ import {
   rawBodyOf,
   retainRawBody,
   s2sFromEnv,
+  verifyServiceHeaders,
   verifyServiceRequest,
+  type HttpServiceRequest,
 } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { readBankWatermark } from './restore-watermark.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
 import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from './business/business-directory.js';
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
@@ -355,6 +358,19 @@ function requireService(req: object & { headers: Record<string, string | string[
   return requireInternalJobHmac(req.headers, env.INTERNAL_SERVICE_SECRET, inboundRawBody(req), doorS2s ? { req, ...doorS2s } : undefined);
 }
 
+/** Who signed this request. Only called after `requireService` accepted it, so a null here is unreachable in practice. */
+function callerService(req: object & { headers: Record<string, string | string[] | undefined>; body?: unknown }): string | null {
+  if (doorS2s) {
+    return verifyServiceRequest(req as HttpServiceRequest, {
+      verifier: doorS2s.verifier,
+      mode: doorS2s.mode,
+      legacySecret: env.INTERNAL_SERVICE_SECRET,
+      bodyBindMode: 'require',
+    }).service;
+  }
+  return verifyServiceHeaders(req.headers, env.INTERNAL_SERVICE_SECRET, { rawBody: inboundRawBody(req), mode: 'require' }).service;
+}
+
 function bodyLimit(body: unknown): number | undefined {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
   if (!('limit' in body)) return undefined;
@@ -379,6 +395,16 @@ function sendBankJobRefuse(reply: { code: (n: number) => { send: (body: unknown)
  * point of the idempotency work — but "safe when it happens" is not a reason to
  * make it happen on every deploy.
  */
+/**
+ * The joint-restore position (OPS-ledger-desk-05): a read for svc-ops alone, signed like the job doors.
+ * No credentials is 401; a valid service that is not svc-ops is 403.
+ */
+app.post('/internal/restore/watermark', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
+  return readBankWatermark(sql);
+});
+
 app.post('/internal/jobs/run-due-transfers', async (req, reply) => {
   // 401 before the flag check: an unauthenticated caller must not be able to
   // learn which jobs are enabled by reading the difference between 401 and 503.

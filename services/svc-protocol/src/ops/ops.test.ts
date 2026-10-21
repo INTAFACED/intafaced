@@ -70,6 +70,10 @@ describe('metrics', () => {
     expect(out.window).toEqual({ from: '2026-10-20T11:00:00.000Z', to: now.toISOString() });
     expect(out.sections.find((s) => s.section === 'indexer')?.health).toBe('down');
     expect(out.sections.find((s) => s.section === 'chain')?.health).toBe('unknown');
+    for (const section of ['audit', 'blockers', 'contracts', 'labels'] as const) {
+      expect(out.sections.find((s) => s.section === section)?.health).toBe('unknown');
+    }
+    expect(out.sections.find((s) => s.section === 'metrics')?.health).toBe('ok');
   });
 });
 

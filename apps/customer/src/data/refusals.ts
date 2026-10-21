@@ -186,6 +186,22 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'More details are needed',
     body: 'This send needs details about you or the recipient that were not included. Nothing was sent.',
   },
+  globalNoSend: {
+    title: 'We can’t send this payment',
+    body: 'This payment can’t be sent to that recipient right now. Nothing was taken from your balance.',
+  },
+  proofOff: {
+    title: 'Uploads are switched off',
+    body: 'The file types and size we accept have not been published, so no upload is accepted. Nothing was sent.',
+  },
+  proofType: { title: 'We can’t take that kind of file', body: 'Choose a file of one of the types listed under the upload box.' },
+  proofSize: { title: 'That file is too big', body: 'Choose a smaller file, within the size shown under the upload box.' },
+  proofInvalid: { title: 'We couldn’t read that file', body: 'Choose the file again. If it keeps failing, try another copy of it.' },
+  proofNotAsked: {
+    title: 'No document is needed',
+    body: 'We haven’t asked for a document on this payment, so there is nothing to upload.',
+  },
+  proofDone: { title: 'We already have a document', body: 'A document was already uploaded for this payment and is being looked at.' },
   activitySortBounded: {
     title: 'Too many lines to sort oldest first',
     body: 'Narrow the dates, the account or the filters, then try again.',

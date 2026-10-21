@@ -247,6 +247,14 @@ describe('networks.list credential guard', () => {
     }
   });
 
+  it('never serves the configured chain connection URL through networks.list', async () => {
+    const secretRpc = 'https://node.internal.example/rpc-not-for-the-public';
+    const api = caller({
+      chain: { config: { chainId: 84532, factory: '0x0', implementation: '0x0', rpcUrl: secretRpc } },
+    });
+    expect(JSON.stringify(await api.networks.list())).not.toContain('node.internal.example');
+  });
+
   it('serves a clean public RPC URL through networks.list', async () => {
     const api = caller({ loadNetworks: () => withRpc('https://sepolia.base.org')() });
     expect((await api.networks.list()).networks[0]!.rpcUrls).toEqual(['https://sepolia.base.org']);

@@ -14,6 +14,8 @@ import {
   recipientKey,
   type ComplianceField,
   type Corridor,
+  proofProblem,
+  type GlobalHold,
   type GlobalQuote,
   type GlobalSend,
   type Recipient,
@@ -42,6 +44,106 @@ const passkeyKey: Record<string, 'noPasskey' | 'codeBad' | 'passkeyStopped' | 'p
   'portal.passkey_failed': 'passkeyFailed',
   'portal.passkey_unreadable': 'passkeyFailed',
 };
+
+const toBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => {
+      const text = typeof reader.result === 'string' ? reader.result : '';
+      resolve(text.slice(text.indexOf(',') + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+
+/**
+ * The banner on a held send: what the team asked for and, when it asked for a file, the upload. It says nothing about
+ * why the send was held, and it offers an upload only inside the limits the service published.
+ */
+function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<typeof createGlobalApi> }) {
+  const { t: g } = globalCopy.useCopy();
+  const [hold, setHold] = useState<Load<GlobalHold>>(loading);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<Say | string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void global.hold(sendId, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setHold(settle(result));
+    });
+    return () => controller.abort();
+  }, [global, sendId]);
+
+  async function choose(input: HTMLInputElement, limits: GlobalHold['proofLimits']) {
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const why = proofProblem(file, limits);
+    if (why) {
+      setProblem(
+        why === 'noLimits'
+          ? g('holdOff')
+          : sayFor(why === 'type' ? 'bank.proof_type_not_allowed' : why === 'size' ? 'bank.proof_too_large' : 'bank.proof_invalid', ''),
+      );
+      return;
+    }
+    setBusy(true);
+    setProblem(null);
+    let contentBase64: string;
+    try {
+      contentBase64 = await toBase64(file);
+    } catch {
+      setBusy(false);
+      setProblem(g('holdFileInvalid'));
+      return;
+    }
+    const result = await global.uploadProof({ id: sendId, name: file.name, type: file.type.toLowerCase(), contentBase64 });
+    setBusy(false);
+    if (result.ok) setHold({ state: 'ready', data: result.data });
+    else {
+      setProblem(sayFor(result.code, result.message));
+      if (result.code === 'bank.proof_already_uploaded' || result.code === 'bank.proof_not_requested') {
+        const fresh = await global.hold(sendId);
+        if (fresh.ok) setHold({ state: 'ready', data: fresh.data });
+      }
+    }
+  }
+
+  const data = hold.state === 'ready' ? hold.data : null;
+  const shown = typeof problem === 'string' ? { title: problem, body: '' } : problem;
+  return (
+    <div className="pay-block" role="status" data-testid="global-hold">
+      <h4 className="pay-section-title">{g('holdTitle')}</h4>
+      <p className="pay-hint">{g('holdBody')}</p>
+      {hold.state === 'failed' ? <p className="pay-hint">{sayFor(hold.code, hold.message).title}</p> : null}
+      {data?.infoRequest ? (
+        <p data-testid="global-hold-ask">
+          {g('holdAsk')} {data.infoRequest}
+        </p>
+      ) : null}
+      {data && data.state === 'under_review' && data.proofUploaded ? <p className="pay-hint">{g('holdUploaded')}</p> : null}
+      {data && data.state === 'requested' && data.infoRequest && !data.proofUploaded ? (
+        data.proofLimits ? (
+          <label className="pay-field__label">
+            {busy ? g('holdUploading') : g('holdUpload')}
+            <input
+              type="file"
+              disabled={busy}
+              accept={data.proofLimits.allowedTypes.join(',')}
+              onChange={(event) => void choose(event.currentTarget, data.proofLimits)}
+            />
+          </label>
+        ) : (
+          <p className="pay-hint">{g('holdOff')}</p>
+        )
+      ) : null}
+      {shown ? (
+        <p className="pay-problem" role="alert">
+          {shown.title} {shown.body}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Send globally (/pay/global), on the service's own answers: the destinations it publishes, the recipients you saved, a
@@ -286,13 +388,15 @@ export function GlobalCard() {
     g(
       status === 'submitted'
         ? 'statusSubmitted'
-        : status === 'sent'
-          ? 'statusSent'
-          : status === 'on_the_way'
-            ? 'statusOnTheWay'
-            : status === 'arrived'
-              ? 'statusArrived'
-              : 'statusFailed',
+        : status === 'held'
+          ? 'statusHeld'
+          : status === 'sent'
+            ? 'statusSent'
+            : status === 'on_the_way'
+              ? 'statusOnTheWay'
+              : status === 'arrived'
+                ? 'statusArrived'
+                : 'statusFailed',
     );
   const unavailable = corridors.state === 'failed' ? sayFor(corridors.code, corridors.message) : null;
   const trackSteps = [g('statusSent'), g('statusOnTheWay'), g('statusArrived')];
@@ -648,7 +752,8 @@ export function GlobalCard() {
             {history.data.map((row) => (
               <li key={row.id} data-status={row.status}>
                 {g('historyLine', { amount: row.amount, asset: row.assetId, currency: row.toCurrency, status: statusWord(row.status) })}
-                {row.status === 'failed' ? ` — ${g('failedWhy')}` : ` (${progressOf(row.status)}/3)`}
+                {row.status === 'failed' ? ` — ${g('failedWhy')}` : row.status === 'held' ? null : ` (${progressOf(row.status)}/3)`}
+                {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} /> : null}
               </li>
             ))}
           </ul>

@@ -103,6 +103,7 @@ import { registerCheckoutRoutes } from './checkout-page.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscriptions/index.js';
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
+import { readPayWatermark, registerRestoreWatermarkRoute } from './restore-watermark.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import {
@@ -740,6 +741,13 @@ registerPayStepUpGrantRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
+});
+
+registerRestoreWatermarkRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  read: () => readPayWatermark(sql),
 });
 
 registerOwnerPayScopeRoute(app, {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ApiClient } from './deps';
 import {
   corridorSchema,
+  holdSchema,
   removedSchema,
   quoteSchema,
   recipientSchema,
@@ -31,6 +32,9 @@ export function createGlobalApi(api: ApiClient) {
     sends: (signal?: AbortSignal) => api.query('bank', 'global.list', { limit: 20 }, sendPageSchema, { signal }),
     send: (draft: SendDraft, stepUpApprovalId: string, signal?: AbortSignal) =>
       api.mutate('bank', 'global.send', sendInput(draft, stepUpApprovalId), sendSchema, { signal }),
+    hold: (id: string, signal?: AbortSignal) => api.query('bank', 'global.hold.get', { id }, holdSchema, { signal }),
+    uploadProof: (input: { id: string; name: string; type: string; contentBase64: string }, signal?: AbortSignal) =>
+      api.mutate('bank', 'global.hold.uploadProof', input, holdSchema, { signal }),
     stepUpRequest: sendStepUpRequest,
   };
 }

@@ -82,6 +82,16 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-support only lets people on its staff list set availability. Your sign-in has the support permission, but nobody has appointed you.',
     next: 'Nothing was changed. A lead appoints staff.',
   },
+  'support.bulk_cap_unset': {
+    title: 'The batch size is not set',
+    body: 'The owner has not set how many requests can change at once (support.bulk_cap), so svc-support refuses bulk changes rather than guess a number.',
+    next: 'Nothing was changed. Change one request at a time, or ask the owner to set the batch size.',
+  },
+  'support.bulk_too_large': {
+    title: 'That is more requests than the desk allows at once',
+    body: 'svc-support caps how many requests one bulk change may touch, and this batch is over it.',
+    next: 'Nothing was changed. Tick fewer requests and send again.',
+  },
   'support.not_lead': {
     title: 'Only a lead can do that',
     body: 'Setting another person’s availability, and making or changing desk groups, need the lead role. Anyone on the staff list can set their own availability.',
