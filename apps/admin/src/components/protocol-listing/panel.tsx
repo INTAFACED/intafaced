@@ -18,7 +18,7 @@ import '../desk.css';
  * Hide or restore a pool, delist or relist a market. A two-founder request like a freeze: the form makes a packet, a different
  * founder approves it at identity, and svc-ops stores the decision once. A hide is a listing decision, not an on-chain pause.
  */
-export function ProtocolListingPanel({ userId }: { userId: string }) {
+export function ProtocolListingPanel({ userId, reasonCodes }: { userId: string; reasonCodes: readonly string[] | null }) {
   const router = useRouter();
   const [move, setMove] = useState<ListingMove>('hide_pool');
   const [chainId, setChainId] = useState('');
@@ -86,13 +86,24 @@ export function ProtocolListingPanel({ userId }: { userId: string }) {
         {needsReason && (
           <div className="adm-field">
             <label htmlFor="pl-code">Reason code</label>
-            <input
-              id="pl-code"
-              className="adm-input"
-              autoComplete="off"
-              value={reasonCode}
-              onChange={(e) => setReasonCode(e.target.value)}
-            />
+            {reasonCodes ? (
+              <select id="pl-code" className="adm-input" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)}>
+                <option value="">Choose a reason code</option>
+                {reasonCodes.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="pl-code"
+                className="adm-input"
+                autoComplete="off"
+                value={reasonCode}
+                onChange={(e) => setReasonCode(e.target.value)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -102,7 +113,7 @@ export function ProtocolListingPanel({ userId }: { userId: string }) {
         blockedReason={null}
         formHold={listingProblem(form)}
         action={action}
-        consequence="Two different founders must agree, and svc-ops needs the operator write permission (admin:write) and a verified second factor on your session; it refuses in words if either is missing. A hide also needs a reason code from the owner’s published list; until the owner publishes one, svc-ops refuses every hide."
+        consequence="Two different founders must agree, and svc-ops needs the operator write permission (admin:write) and a verified second factor on your session; it refuses in words if either is missing. A hide also needs a reason code from the list in force; svc-ops refuses any other."
         blockedButtonLabel="Control unavailable"
         onChanged={() => router.refresh()}
       />

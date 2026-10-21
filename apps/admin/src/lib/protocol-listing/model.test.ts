@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readDeskRequest } from '@/lib/desk/approval-packet';
-import { listingProblem, listingRequest, type ListingForm } from './model';
+import { listingProblem, listingRequest, parseReasonCodeLines, type ListingForm } from './model';
 
 const POOL = '0xAbCdEf0123456789aBcDeF0123456789abCDef01';
 const form = (over: Partial<ListingForm>): ListingForm => ({
@@ -40,5 +40,29 @@ describe('protocol listing form', () => {
       chainId: 84532,
       poolAddress: POOL,
     });
+  });
+});
+
+describe('reason code list editor', () => {
+  it('reads one code per line, or comma separated, and trims', () => {
+    expect(parseReasonCodeLines('scam_or_fraud\n security_incident ,owner_request\n')).toEqual({
+      ok: true,
+      codes: ['scam_or_fraud', 'security_incident', 'owner_request'],
+    });
+  });
+  it('refuses an empty, duplicated, oddly spelled or oversized list in words', () => {
+    for (const text of [
+      '',
+      '  \n ',
+      'a_code\na_code',
+      'Bad Code',
+      'x',
+      '9lives',
+      Array.from({ length: 51 }, (_, i) => `code_${i}`).join('\n'),
+    ]) {
+      const read = parseReasonCodeLines(text);
+      expect(read.ok, text).toBe(false);
+      if (!read.ok) expect(read.problem).toBeTruthy();
+    }
   });
 });

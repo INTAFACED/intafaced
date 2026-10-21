@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { ProtocolListingPanel } from '@/components/protocol-listing/panel';
+import { ReasonCodeList } from '@/components/protocol-listing/reason-codes';
 import { ListingState } from '@/components/protocol-listing/state';
 import { readProtocolListing } from '@/lib/protocol-listing/read';
 import '@/components/desk.css';
@@ -23,7 +24,19 @@ export default async function ProtocolListingPage() {
       </p>
       <h2>Pool and market control</h2>
       <ListingState asOf={read.asOf} pools={read.pools} markets={read.markets} />
-      <ProtocolListingPanel userId={founder.session.userId} />
+      <ProtocolListingPanel
+        userId={founder.session.userId}
+        reasonCodes={read.reasonCodes.kind === 'ok' ? read.reasonCodes.data.codes : null}
+      />
+      {read.reasonCodes.kind === 'ok' ? (
+        <ReasonCodeList {...read.reasonCodes.data} />
+      ) : (
+        <div className="adm-callout" data-tone="warn" role="status" data-testid="reason-codes-failed">
+          <strong>Could not load the reason codes</strong>
+          <p>{read.reasonCodes.message}</p>
+          <p className="dk-muted">Type the code in the form above; svc-ops refuses one that is not in force.</p>
+        </div>
+      )}
     </main>
   );
 }
