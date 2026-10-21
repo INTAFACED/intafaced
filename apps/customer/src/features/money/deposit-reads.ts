@@ -12,6 +12,13 @@ export const depositNetworkSchema = z.object({
   minimumDeposit: decimalSchema,
   confirmationsRequired: z.number().int().nonnegative(),
   estimatedArrivalMinutes: z.number().int().nonnegative(),
+  /**
+   * What the service says about this network, shown as it was written. Each list may be absent or empty: nothing is made up for a
+   * network that publishes none, and the standard wrong-network line is the only note then.
+   */
+  requirements: z.array(z.string().min(1)).optional(),
+  unsupported: z.array(z.string().min(1)).optional(),
+  warnings: z.array(z.string().min(1)).optional(),
 });
 export type DepositNetworkView = z.infer<typeof depositNetworkSchema>;
 
@@ -66,7 +73,15 @@ export const DEPOSIT_STATUSES = [
   'needs_review',
 ] as const;
 export type DepositStatus = (typeof DEPOSIT_STATUSES)[number];
-export const DEPOSIT_REASONS = ['below_minimum', 'amount_mismatch', 'unknown_asset', 'minimum_unset', 'confirmations_unset'] as const;
+export const DEPOSIT_REASONS = [
+  'below_minimum',
+  'amount_mismatch',
+  'unknown_asset',
+  'minimum_unset',
+  'confirmations_unset',
+  'chain_reorg',
+  'reversal_unfunded',
+] as const;
 
 export const depositPendingSchema = z.object({
   items: z.array(

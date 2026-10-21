@@ -109,6 +109,19 @@ describe('deposit records', () => {
     expect(text).toContain('Waiting: this network has no minimum deposit set.');
   });
 
+  it('says a reorg reversal and a reversal the balance could not cover in words', async () => {
+    await mount(
+      view([
+        record({ id: 'r', status: 'reversed', reason: 'chain_reorg', creditedAt: '2026-10-20T10:20:00.000Z' }),
+        record({ id: 'u', status: 'needs_review', reason: 'reversal_unfunded', creditedAt: '2026-10-20T10:20:00.000Z' }),
+      ]),
+    );
+    const text = host.textContent ?? '';
+    expect(text).toContain('Reversed');
+    expect(text).toContain('The network rewrote the block this deposit was in, so the credit was taken back.');
+    expect(text).toContain('the funds are already spent, so support is reviewing it.');
+  });
+
   it('offers more only while the total is larger than what is shown', async () => {
     await mount(view([record()], 3));
     expect(host.textContent).toContain('Showing 1 of 3');
