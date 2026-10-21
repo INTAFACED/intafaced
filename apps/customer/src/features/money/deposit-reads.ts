@@ -66,7 +66,15 @@ export const DEPOSIT_STATUSES = [
   'needs_review',
 ] as const;
 export type DepositStatus = (typeof DEPOSIT_STATUSES)[number];
-export const DEPOSIT_REASONS = ['below_minimum', 'amount_mismatch', 'unknown_asset', 'minimum_unset', 'confirmations_unset'] as const;
+export const DEPOSIT_REASONS = [
+  'below_minimum',
+  'amount_mismatch',
+  'unknown_asset',
+  'minimum_unset',
+  'confirmations_unset',
+  'chain_reorg',
+  'reversal_unfunded',
+] as const;
 
 export const depositPendingSchema = z.object({
   items: z.array(
