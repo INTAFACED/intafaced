@@ -18,6 +18,7 @@ import {
   loadRatingSummary,
   loadTicketLifecycle,
   loadTicketProperties,
+  previewMerge,
   runSupportAction,
 } from '@/lib/support/server';
 import type { FounderCallFailure } from '@/lib/desk/founder-call';
@@ -55,6 +56,17 @@ export async function GET(request: Request) {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
     return Response.json(await loadTicketExtras(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'merge') {
+    const id = url.searchParams.get('id');
+    const survivor = url.searchParams.get('survivor');
+    if (!isTicketId(id) || !isTicketId(survivor))
+      return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    const result = await previewMerge(session, id, survivor);
+    if (result.kind !== 'ok') {
+      return Response.json({ ok: false, refusal: explainSupportFailure(result) }, { status: statusOf(result), headers: NO_STORE });
+    }
+    return Response.json({ asOf: new Date().toISOString(), preview: result.data }, { headers: NO_STORE });
   }
   if (url.searchParams.get('view') === 'bulk') return Response.json(await loadBulkPolicy(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
@@ -169,9 +181,11 @@ const targetOf = (request: SupportActionRequest) =>
         ? request.groupId
         : request.action === 'bulk'
           ? request.batchKey
-          : 'ticketId' in request
-            ? request.ticketId
-            : request.id;
+          : request.action === 'merge'
+            ? `${request.ticketId}->${request.survivorId}`
+            : 'ticketId' in request
+              ? request.ticketId
+              : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -219,6 +233,8 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
   switch (request.action) {
     case 'reply':
       return 'svc-support recorded your reply on the ticket.';
+    case 'merge':
+      return `svc-support merged the request: ${String(d.commentsMoved)} messages and ${String(d.attachmentsMoved)} files now sit under the surviving request, and the duplicate is closed.`;
     case 'status':
       return `svc-support says the ticket is now ${String(d.status)}.`;
     case 'group_save':

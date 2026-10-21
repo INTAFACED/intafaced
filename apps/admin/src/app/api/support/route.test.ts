@@ -915,3 +915,66 @@ describe('bulk change', () => {
     expect(json.refusal.changed).toBe('unknown');
   });
 });
+
+describe('merge duplicate requests', () => {
+  const B = '44444444-4444-4444-8444-444444444444';
+  const result = { sourceId: T1, survivorId: B, commentsMoved: 2, attachmentsMoved: 1, mergedAt: '2026-10-21T01:00:00.000Z' };
+  const previewData = {
+    sourceId: T1,
+    survivorId: B,
+    refusal: null,
+    commentsToMove: 2,
+    attachmentsToMove: 1,
+    staysOnSource: { rating: false, caseFile: true },
+    alreadyMerged: false,
+  };
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads the preview as the founder and returns it as svc-support answered', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(previewData));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=merge&id=${T1}&survivor=${B}`)).json();
+    expect(json.preview).toEqual(previewData);
+    expect(fn.mock.calls[0]![0]).toContain('previewMerge');
+  });
+
+  it('refuses a preview request without two ids before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get(`?view=merge&id=${T1}&survivor=nope`)).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('sends the merge with the source, the survivor and the reason, and says what svc-support did', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(result));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await post({ action: 'merge', ticketId: T1, survivorId: B, reason: ' same problem ' })).json();
+    expect(json).toMatchObject({ ok: true, action: 'merge' });
+    expect(json.summary).toContain('2 messages and 1 files');
+    expect(sent(fn)[0]!.body).toEqual({ sourceId: T1, survivorId: B, reason: 'same problem' });
+  });
+
+  it('refuses the same request, a missing reason and a bad id before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const body of [
+      { ticketId: T1, survivorId: T1, reason: 'r' },
+      { ticketId: T1, survivorId: B },
+      { ticketId: T1, survivorId: 'x', reason: 'r' },
+    ]) {
+      expect((await post({ action: 'merge', ...body })).status).toBe(400);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says why svc-support refused a merge, and that nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.merge_not_allowed')),
+    );
+    const json = await (await post({ action: 'merge', ticketId: T1, survivorId: B, reason: 'dup' })).json();
+    expect(json.ok).toBe(false);
+    expect(json.refusal).toMatchObject({ title: 'Those requests cannot be merged', changed: 'no' });
+  });
+});
