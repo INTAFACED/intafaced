@@ -32,6 +32,7 @@ import { Button, StateBlock } from './deps';
 import {
   ALERT_CONDITIONS,
   directionOfCondition,
+  isCrossing,
   listAlerts,
   type AlertCondition,
   type AlertExtra,
@@ -67,6 +68,8 @@ const REFUSAL = {
   textRejected: 'refusedTextRejected',
   expiryRejected: 'refusedExpiryRejected',
   tooManyConditions: 'refusedTooManyConditions',
+  repeatOff: 'refusedRepeatOff',
+  repeatRejected: 'refusedRepeatRejected',
   optionNotOn: 'refusedOptionNotOn',
   tooMany: 'refusedTooMany',
   accountChanged: 'refusedAccountChanged',
@@ -113,7 +116,15 @@ const CONDITION_KEY = {
 } as const satisfies Record<AlertCondition, string>;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
-const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest', 'textRejected', 'expiryRejected', 'tooManyConditions']);
+const BACK_TO_FORM: ReadonlySet<Refusal> = new Set([
+  'priceMissing',
+  'badRequest',
+  'textRejected',
+  'expiryRejected',
+  'tooManyConditions',
+  'repeatOff',
+  'repeatRejected',
+]);
 
 /**
  * Price alerts (`/notifications?view=alerts`): the person's alerts with their status, a form to add one that is reviewed
@@ -132,6 +143,7 @@ export default function AlertsPage() {
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [expires, setExpires] = useState('');
+  const [repeat, setRepeat] = useState(false);
   const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
   const [price, setPrice] = useState('');
   const [touched, setTouched] = useState(false);
@@ -222,6 +234,7 @@ export default function AlertsPage() {
       ...(message.trim() ? { message: message.trim() } : {}),
       ...(expiresAt ? { expiresAt } : {}),
       ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
+      ...(repeat && isCrossing(condition) ? { frequency: 'every_crossing' as const } : {}),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -257,6 +270,7 @@ export default function AlertsPage() {
         setMessage('');
         setExpires('');
         setExtras([]);
+        setRepeat(false);
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -481,6 +495,10 @@ export default function AlertsPage() {
                 </dd>
               </div>
             ))}
+            <div>
+              <dt>{copy.t('reviewRepeat')}</dt>
+              <dd>{copy.t(review.intent.frequency === 'every_crossing' ? 'repeatEvery' : 'repeatOnce')}</dd>
+            </div>
             {review.intent.name ? (
               <div>
                 <dt>{copy.t('reviewName')}</dt>
@@ -572,6 +590,17 @@ export default function AlertsPage() {
               ))}
             </select>
           </label>
+          {isCrossing(condition) ? (
+            <label className="nf-check" data-testid="alerts-repeat">
+              <input
+                type="checkbox"
+                checked={repeat}
+                disabled={blockedReason !== null}
+                onChange={(event) => setRepeat(event.target.checked)}
+              />
+              <span>{copy.t('repeatLabel')}</span>
+            </label>
+          ) : null}
           <label className="nf-field" htmlFor={priceId}>
             <span>{selected ? copy.t('priceLabel', { quote: selected.quote }) : copy.t('priceLabelNoMarket')}</span>
             <input
@@ -782,6 +811,12 @@ export default function AlertsPage() {
                           </span>
                         ))}
                         {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
+                        {alert.frequency === 'every_crossing' ? (
+                          <span className="nf-body nf-body--wrap" data-testid="alert-repeats">
+                            {copy.t('repeatList', { count: String(alert.fireCount ?? 0) }) +
+                              (alert.lastFiredAt ? ` · ${copy.t('repeatLast', { when: stamp(alert.lastFiredAt, timeZone) })}` : '')}
+                          </span>
+                        ) : null}
                         <span className="nf-muted">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
                             (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '') +
