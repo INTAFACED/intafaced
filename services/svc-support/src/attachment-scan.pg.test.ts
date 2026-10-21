@@ -169,3 +169,41 @@ describe('scan state on Postgres', () => {
     );
   });
 });
+
+describe('operator attach on Postgres', () => {
+  const OPERATOR = '33333333-3333-4333-8333-333333333333';
+  const upload = (service: SupportService, ticketId: string, id: string, operatorId = OPERATOR) =>
+    service.attachAsOperator({ operatorId, ticketId, clientRequestId: id, contentType: 'text/plain', bodyBase64: BODY });
+
+  it('stores the operator in uploaded_by, keeps the owner as owner, and replays under the operator’s own key', async () => {
+    const files = new MemoryAttachmentStore();
+    const service = serviceWith(files, new Scanner('clean'));
+    const ticket = await service.createTicket({ userId: OWNER, category: 'account', subject: 'Agent file', body: 'Help' });
+    await service.claimForOperator({ operatorId: OPERATOR, ticketId: ticket.id });
+    const saved = await upload(service, ticket.id, 'agent-1');
+    expect(saved).toMatchObject({ ownerId: OWNER, uploadedBy: OPERATOR, scanState: 'clean' });
+    expect(await upload(service, ticket.id, 'agent-1')).toEqual(saved);
+    expect(files.puts).toBe(1);
+    const [row] = await sql<{ owner_id: string; uploaded_by: string | null }[]>`
+      SELECT owner_id, uploaded_by FROM support.ticket_attachments WHERE id = ${saved.id}
+    `;
+    expect(row).toEqual({ owner_id: OWNER, uploaded_by: OPERATOR });
+    const own = await attach(service, ticket.id, 'owner-1');
+    expect(own.uploadedBy).toBeNull();
+    // Both files count toward the one request limit.
+    await expect(upload(service, ticket.id, 'agent-2')).rejects.toMatchObject({ code: 'support.attachment_count_reached' });
+  });
+
+  it('refuses an operator the ticket is not assigned to, and writes nothing', async () => {
+    const files = new MemoryAttachmentStore();
+    const service = serviceWith(files, new Scanner('clean'));
+    const ticket = await service.createTicket({ userId: OWNER, category: 'account', subject: 'Not yours', body: 'Help' });
+    await service.claimForOperator({ operatorId: OPERATOR, ticketId: ticket.id });
+    await expect(upload(service, ticket.id, 'agent-x', '44444444-4444-4444-8444-444444444444')).rejects.toMatchObject({
+      code: 'support.not_found',
+    });
+    expect(files.puts).toBe(0);
+    const rows = await sql`SELECT 1 FROM support.ticket_attachments WHERE client_request_id = 'agent-x'`;
+    expect(rows).toHaveLength(0);
+  });
+});

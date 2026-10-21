@@ -68,14 +68,22 @@ The internal book implements the same interface as everyone else, so **the route
 
 There is no cache, no last-known value and no fallback venue. Every exit is a route built from fresh books, or a refusal carrying a machine-readable code:
 
-| Code                            | HTTP                  | Meaning                                                     |
-| ------------------------------- | --------------------- | ----------------------------------------------------------- |
-| `dex.quote.no_venue_configured` | `SERVICE_UNAVAILABLE` | nothing wired — an operator problem                         |
-| `dex.quote.no_venue_available`  | `SERVICE_UNAVAILABLE` | no venue answered; the market may be fine, we cannot see it |
-| `dex.quote.stale`               | `SERVICE_UNAVAILABLE` | answered, but past the freshness ceiling                    |
-| `dex.quote.no_liquidity`        | `NOT_FOUND`           | fresh books, nothing resting on the side asked for          |
-| `dex.quote.depth_unset`         | `PRECONDITION_FAILED` | `DEX_QUOTE_DEPTH` unpublished — never invent 50             |
-| `dex.quote.max_age_unset`       | `PRECONDITION_FAILED` | `QUOTE_MAX_AGE_MS` unpublished — never invent 2000          |
+| Code                              | HTTP                  | Meaning                                                          |
+| --------------------------------- | --------------------- | ---------------------------------------------------------------- |
+| `dex.quote.no_venue_configured`   | `SERVICE_UNAVAILABLE` | nothing wired — an operator problem                              |
+| `dex.quote.no_venue_available`    | `SERVICE_UNAVAILABLE` | no venue answered; the market may be fine, we cannot see it      |
+| `dex.quote.stale`                 | `SERVICE_UNAVAILABLE` | answered, but past the freshness ceiling                         |
+| `dex.quote.no_liquidity`          | `NOT_FOUND`           | fresh books, nothing resting on the side asked for               |
+| `dex.quote.depth_unset`           | `PRECONDITION_FAILED` | `DEX_QUOTE_DEPTH` unpublished — never invent 50                  |
+| `dex.quote.max_age_unset`         | `PRECONDITION_FAILED` | `QUOTE_MAX_AGE_MS` unpublished — never invent 2000               |
+| `dex.quote.hide_list_unset`       | `PRECONDITION_FAILED` | `OPS_URL` unpublished — no hide list to read, nothing quoted     |
+| `dex.quote.hide_list_unavailable` | `SERVICE_UNAVAILABLE` | svc-ops hide list unreachable or malformed — never read as empty |
+| `dex.quote.pool_hidden`           | `NOT_FOUND`           | every venue was a pool INTAFACED hides                           |
+| `dex.quote.market_hidden`         | `NOT_FOUND`           | INTAFACED hides this market (two founders, svc-ops)              |
+
+### The hide list
+
+Which markets INTAFACED does not list is decided in svc-ops (`protocolListing`, founder approval). `quote` only READS it, from `OPS_URL`, on every request (no cache), after the owner settings and before any venue is read. A list that cannot be read refuses; it is never treated as empty. A hidden pool is dropped from routing: an AMM or external-dex row in `DEX_EXTERNAL_VENUES` names its pool with `pool: { chainId, address }`, and a row without `pool` cannot be hidden by pool (the market delist still applies). If every venue is a hidden pool the quote refuses `dex.quote.pool_hidden`, not "nothing wired". This service holds no platform credential and never writes the list.
 
 ### "Best of N" must not mean "the only one that answered"
 

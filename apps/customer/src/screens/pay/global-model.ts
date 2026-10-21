@@ -45,7 +45,7 @@ export const sendSchema = z.object({
   recipientId: z.string(),
   country: z.string(),
   deliveryMethod: z.string(),
-  status: z.enum(['submitted', 'sent', 'on_the_way', 'arrived', 'failed']),
+  status: z.enum(['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed']),
   failureCode: z.string().nullable(),
   failureBlocker: z.string().nullable(),
   providerRef: z.string().nullable(),
@@ -60,12 +60,19 @@ export const sendSchema = z.object({
   updatedAt: z.string(),
 });
 export const removedSchema = z.object({ removed: z.literal(true) });
+export const holdSchema = z.object({
+  state: z.enum(['requested', 'under_review', 'released']),
+  infoRequest: z.string().nullable(),
+  proofUploaded: z.boolean(),
+  proofLimits: z.object({ allowedTypes: z.array(z.string()), maxBytes: z.number().int().positive() }).nullable(),
+});
 export const sendPageSchema = z.object({ items: z.array(sendSchema), nextCursor: z.string().nullable() });
 
 export type Corridor = z.infer<typeof corridorSchema>;
 export type Recipient = z.infer<typeof recipientSchema>;
 export type GlobalQuote = z.infer<typeof quoteSchema>;
 export type GlobalSend = z.infer<typeof sendSchema>;
+export type GlobalHold = z.infer<typeof holdSchema>;
 
 /** One row of the destination list: a country and currency with one delivery method. */
 export type Destination = { key: string; country: string; currency: string; method: string; corridor: Corridor };
@@ -165,7 +172,8 @@ export const recipientKey = (userId: string, country: string, account: string): 
 
 const STATUS_ORDER = ['submitted', 'sent', 'on_the_way', 'arrived'] as const;
 /** How far a send has got along Sent, On its way, Arrived (0 to 3 steps done); a failed send has none. */
-export const progressOf = (status: GlobalSend['status']): number => (status === 'failed' ? 0 : STATUS_ORDER.indexOf(status));
+export const progressOf = (status: GlobalSend['status']): number =>
+  status === 'failed' || status === 'held' ? 0 : STATUS_ORDER.indexOf(status);
 
 const scaled = (text: string): bigint => {
   const [whole = '0', fraction = ''] = text.split('.');
@@ -184,3 +192,15 @@ export function amountProblem(text: string, corridor: Corridor | null): 'empty' 
 
 /** The three fields as the service asked for them, kept apart from fields it has not asked for. */
 export const COMPLIANCE_FIELDS: readonly ComplianceField[] = ['purpose', 'sourceOfFunds', 'reference'];
+
+/** Why a chosen file cannot be sent, judged only by the limits the service published; null means it may be sent. */
+export function proofProblem(
+  file: { type: string; size: number },
+  limits: GlobalHold['proofLimits'],
+): 'noLimits' | 'type' | 'empty' | 'size' | null {
+  if (!limits) return 'noLimits';
+  if (file.size === 0) return 'empty';
+  if (!limits.allowedTypes.includes(file.type.toLowerCase())) return 'type';
+  if (file.size > limits.maxBytes) return 'size';
+  return null;
+}

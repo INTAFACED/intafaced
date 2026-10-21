@@ -15,6 +15,8 @@ export type ScanVerdict = 'clean' | 'infected' | 'unknown';
 export interface AttachmentStore {
   put(input: { key: string; bytes: Uint8Array; contentType: string }): Promise<void>;
   get(key: string): Promise<{ bytes: Uint8Array; contentType: string } | null>;
+  /** Removes an object. A key that is not there is not an error. */
+  delete(key: string): Promise<void>;
 }
 
 export interface MalwareScanner {
@@ -63,6 +65,10 @@ export class MemoryAttachmentStore implements AttachmentStore {
   async get(key: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
     const hit = this.objects.get(key);
     return hit ? { bytes: hit.bytes, contentType: hit.contentType } : null;
+  }
+
+  async delete(key: string): Promise<void> {
+    this.objects.delete(key);
   }
 }
 

@@ -13,6 +13,9 @@ import {
   scopedProcedure,
   supportAccountGroundingSchema,
   supportAttachmentDownloadSchema,
+  supportBulkInputSchema,
+  supportBulkPolicySchema,
+  supportBulkResultSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
   supportCaseFileSchema,
@@ -99,6 +102,7 @@ function mapError(err: unknown): never {
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
+      err.code === 'support.bulk_cap_unset' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
       err.code === 'support.attachment_count_unset' ||
@@ -147,8 +151,8 @@ function kbViewerOf(principal: Principal | null | undefined): SupportKbViewer {
 
 /** The wire form of a stored file: the scan state is public, the store key is not. */
 function attachmentWire(meta: AttachmentMeta): SupportAttachment {
-  const { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt } = meta;
-  return { id, ticketId, ownerId, contentType, byteLength, scanState, createdAt };
+  const { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt } = meta;
+  return { id, ticketId, ownerId, contentType, byteLength, scanState, uploadedBy, createdAt };
 }
 
 export function createSupportRouter(
@@ -776,6 +780,29 @@ export function createSupportRouter(
         }
       }),
 
+    /**
+     * Operator attach, for the operator the ticket is assigned to. The file is the ticket owner's and names the operator
+     * in `uploadedBy`. Limits, scanner and store are the owner attach's; another operator's ticket answers like none.
+     */
+    attachOps: scopedProcedure('support:ops')
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          clientRequestId: z.string().min(1).max(200),
+          contentType: z.string().min(1).max(200),
+          bodyBase64: z.string(),
+        }),
+      )
+      .output(supportAttachmentSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return attachmentWire(await support.attachAsOperator({ operatorId: ctx.principal!.userId, ...input }));
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** Owner read of one attachment's metadata. */
     attachment: scopedProcedure('support:read')
       .input(supportAttachmentIdInputSchema)
@@ -1148,6 +1175,30 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The batch size the owner allows for a bulk change, or `null` while it is not set. */
+    bulkPolicy: scopedProcedure('support:ops')
+      .output(supportBulkPolicySchema)
+      .query(({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.bulkPolicy();
+      }),
+
+    /**
+     * One change (an assignee, a status or a priority) for several requests under one batch key. Each request is changed
+     * on its own and answers `changed`, `unchanged` or `refused` with its typed code; a blank cap refuses the whole batch.
+     */
+    bulkUpdate: scopedProcedure('support:ops')
+      .input(supportBulkInputSchema)
+      .output(supportBulkResultSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

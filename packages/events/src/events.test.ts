@@ -997,6 +997,25 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       actor: 'operator-1',
       changedAt: ts(),
     },
+    coreOpsRestoreStarted: {
+      restoreNo: 'restore-1',
+      actor: 'operator-1',
+      cutOff: ts(),
+      startedAt: ts(),
+    },
+    coreOpsRestoreCompleted: {
+      restoreNo: 'restore-1',
+      actor: 'operator-1',
+      approverId: 'operator-2',
+      completedAt: ts(),
+    },
+    coreOpsRestoreFailed: {
+      restoreNo: 'restore-1',
+      actor: 'operator-1',
+      step: 'validate',
+      code: 'ops.restore_watermarks_disagree',
+      failedAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),

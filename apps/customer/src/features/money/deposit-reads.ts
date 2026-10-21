@@ -60,3 +60,82 @@ export function useDepositCatalogue() {
   const { api, userId } = useSession();
   return useResource<DepositCatalogue>(async (signal) => createDepositReads(api).assets(signal), `${userId}:deposit-catalogue`);
 }
+
+/** The states and reasons a deposit record can carry (W-deposit-05). Declared here for the same reason as the schemas above. */
+export const DEPOSIT_STATUSES = [
+  'detected',
+  'confirming',
+  'credited',
+  'below_minimum',
+  'held_for_screening',
+  'rejected',
+  'reversed',
+  'needs_review',
+] as const;
+export type DepositStatus = (typeof DEPOSIT_STATUSES)[number];
+export const DEPOSIT_REASONS = ['below_minimum', 'amount_mismatch', 'unknown_asset', 'minimum_unset', 'confirmations_unset'] as const;
+
+export const depositPendingSchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string().min(1),
+      assetId: z.string().min(1),
+      networkId: z.string().min(1),
+      amount: decimalSchema,
+      confirmations: z.number().int().nonnegative(),
+      confirmationsRequired: z.number().int().nonnegative().nullable(),
+    }),
+  ),
+});
+export type DepositPending = z.infer<typeof depositPendingSchema>;
+
+export const depositRecordSchema = z.object({
+  id: z.string().min(1),
+  assetId: z.string().min(1),
+  networkId: z.string().min(1),
+  address: z.string().min(1),
+  txHash: z.string().min(1),
+  outputIndex: z.number().int().nonnegative(),
+  amount: decimalSchema,
+  confirmations: z.number().int().nonnegative(),
+  confirmationsRequired: z.number().int().positive().nullable(),
+  status: z.enum(DEPOSIT_STATUSES),
+  reason: z.enum(DEPOSIT_REASONS).nullable(),
+  minimumDeposit: decimalSchema.nullable(),
+  detectedAt: z.string(),
+  creditedAt: z.string().nullable(),
+});
+export type DepositRecordView = z.infer<typeof depositRecordSchema>;
+
+export const depositRecordsSchema = z.object({ items: z.array(depositRecordSchema), total: z.number().int().nonnegative() });
+export type DepositRecordsPage = z.infer<typeof depositRecordsSchema>;
+
+export type DepositRecordFilters = { assetId?: string; status?: DepositStatus; txId?: string; address?: string };
+export const DEPOSIT_RECORDS_PAGE = 20;
+
+export function depositPendingRead(api: ApiClient, signal?: AbortSignal): Promise<ApiResult<DepositPending>> {
+  return api.query('bank', 'deposits.pending', undefined, depositPendingSchema, { signal });
+}
+
+/** The person's own deposit records, newest first. `limit` grows to load more; the service says the true total. */
+export function depositRecordsRead(
+  api: ApiClient,
+  filters: DepositRecordFilters,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<ApiResult<DepositRecordsPage>> {
+  return api.query('bank', 'deposits.list', { ...filters, offset: 0, limit }, depositRecordsSchema, { signal });
+}
+
+export function useDepositPending() {
+  const { api, userId } = useSession();
+  return useResource<DepositPending>((signal) => depositPendingRead(api, signal), `${userId}:deposit-pending`);
+}
+
+export function useDepositRecords(filters: DepositRecordFilters, limit: number) {
+  const { api, userId } = useSession();
+  return useResource<DepositRecordsPage>(
+    (signal) => depositRecordsRead(api, filters, limit, signal),
+    `${userId}:deposit-records:${JSON.stringify(filters)}:${limit}`,
+  );
+}

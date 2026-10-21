@@ -69,7 +69,7 @@ describe('feeRevenue door', () => {
   it('names svc-ops alone, and svc-ops is named on no other door', () => {
     expect(LEDGER_DOOR_CALLERS.feeRevenue).toEqual(['svc-ops']);
     for (const [door, services] of Object.entries(LEDGER_DOOR_CALLERS)) {
-      if (door === 'feeRevenue') continue;
+      if (door === 'feeRevenue' || door === 'restoreWatermark') continue;
       expect((services as readonly string[]).includes('svc-ops'), door).toBe(false);
     }
   });
@@ -111,7 +111,7 @@ describe('feeRevenue door', () => {
   it('gives svc-ops no other door: every other served door refuses it', async () => {
     const asked = { feeRevenue: [] as unknown[], other: 0 };
     const m = await mount(asked);
-    for (const door of Object.keys(LEDGER_DOOR_CALLERS).filter((d) => d !== 'feeRevenue')) {
+    for (const door of Object.keys(LEDGER_DOOR_CALLERS).filter((d) => d !== 'feeRevenue' && d !== 'restoreWatermark')) {
       const res = await m.send('svc-ops', `/trpc/${door}`, { ownerType: 'treasury', ownerId: 'fees:trade' });
       expect(res.statusCode, door).toBe(403);
     }

@@ -1,5 +1,6 @@
 import { AccountDetailsPanel } from './AccountDetails';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { DepositPendingPanel, DepositRecordsPanel } from './DepositRecords';
 import { DepositAddressPanel, DepositNetworkPicker } from './DepositFunding';
 import { DepositAssetPicker } from './DepositAssetPicker';
 import { DepositMethods } from './DepositMethods';
@@ -92,9 +93,8 @@ export function Deposit() {
           </DepthPanel>
         </div>
         <div className="bd-stack">
-          <DepthPanel title={t('pendingTitle')}>
-            <p className="money-caption">{t('pendingBody')}</p>
-          </DepthPanel>
+          <DepositPendingPanel />
+          <DepositRecordsPanel assets={assets} />
           <DepthPanel title={t('historyTitle')} lead={t('historyLead')}>
             {asset && (
               <div className="bd-filter">

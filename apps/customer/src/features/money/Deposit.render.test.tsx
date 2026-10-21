@@ -15,6 +15,7 @@ vi.mock('./holdings', () => ({ useHoldings: () => ({ resource: { status: 'ready'
 vi.mock('../../data/hooks', () => ({ useMarkets: () => ({ status: 'ready', data: [] }) }));
 vi.mock('../../data/activity', () => ({ useActivity: () => ({ status: 'ready', data: { items: [], hasMore: false } }) }));
 vi.mock('./AccountDetails', () => ({ AccountDetailsPanel: () => null }));
+vi.mock('./DepositRecords', () => ({ DepositPendingPanel: () => null, DepositRecordsPanel: () => null }));
 vi.mock('./deposit-reads', async (original) => ({
   ...(await original<typeof import('./deposit-reads')>()),
   useDepositCatalogue: () => ({ resource: world.catalogue, reload: () => undefined }),

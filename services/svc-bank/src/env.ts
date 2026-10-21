@@ -274,6 +274,27 @@ const schema = serviceEnvSchema
       BANK_SEND_FIELD_RULES_JSON: z.string().optional(),
 
       /**
+       * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list
+       * blocks nothing. No default. Blank / unset / not in shape → every send refuses `bank.payee_controls_unset`; a listed
+       * account refuses `bank.payee_blocked` without naming the list.
+       */
+      BANK_PAYEE_CONTROLS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published limits for a proof-of-payment upload as JSON: `{ allowedTypes: ["application/pdf"], maxBytes: n }`.
+       * No default. Blank / unset / not in shape → an upload refuses `bank.proof_limits_unset`.
+       */
+      BANK_PROOF_LIMITS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published allowance for sends to crypto exchanges as JSON: `{ exchangeAccounts: ["..."], windowDays: 30,
+       * limits: [{ asset: "USDT", maxAmount: "5000" }] }`. No default. Blank / unset / not in shape, or an exchange account with
+       * no limit for the asset → the send refuses `bank.exchange_allowance_unset`; over the limit in the rolling window →
+       * `bank.exchange_allowance_exceeded`. A published empty account list means no recipient is an exchange.
+       */
+      BANK_EXCHANGE_ALLOWANCE_JSON: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.

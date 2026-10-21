@@ -76,6 +76,13 @@ export type RefusalKind =
   | 'globalPayoutRefused'
   | 'globalCorridorUnknown'
   | 'globalDetailsMissing'
+  | 'globalNoSend'
+  | 'proofOff'
+  | 'proofType'
+  | 'proofSize'
+  | 'proofInvalid'
+  | 'proofNotAsked'
+  | 'proofDone'
   | 'unknown';
 
 /** Exact codes first. */
@@ -217,6 +224,18 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_payout_refused': 'globalPayoutRefused',
   'bank.global_corridor_unknown': 'globalCorridorUnknown',
   'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
+  'bank.payee_blocked': 'globalNoSend',
+  'bank.exchange_allowance_exceeded': 'globalNoSend',
+  'bank.payee_controls_unset': 'globalOff',
+  'bank.exchange_allowance_unset': 'globalOff',
+  'bank.proof_limits_unset': 'proofOff',
+  'bank.proof_type_not_allowed': 'proofType',
+  'bank.proof_too_large': 'proofSize',
+  'bank.proof_invalid': 'proofInvalid',
+  'bank.proof_not_requested': 'proofNotAsked',
+  'bank.proof_already_uploaded': 'proofDone',
+  'bank.hold_not_found': 'notFound',
+  'bank.transfer_settled': 'globalNoSend',
   'bank.global_insufficient_funds': 'insufficient',
   'bank.global_outcome_unknown': 'tryAgain',
   'bank.global_conflict': 'duplicate',
