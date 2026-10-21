@@ -1,5 +1,4 @@
-import { SUPPORT_MERGE_REASON_MAX, supportMergePreviewSchema } from '@intafaced/contracts';
-import type { SupportMergePreview } from '@intafaced/contracts';
+import { SUPPORT_MERGE_REASON_MAX, supportMergePreviewSchema, type SupportMergePreview } from '@intafaced/contracts/support-merge';
 import { isTicketId, type ActionGate } from './model';
 
 /**
