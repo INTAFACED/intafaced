@@ -14,9 +14,15 @@ import {
   OPS_COST_CATEGORY_INVALID,
   OPS_COST_PERIOD_INVALID,
   OPS_COST_STORAGE_UNCONFIGURED,
+  OPS_RESTORE_STEP_OUT_OF_ORDER,
+  OPS_RESTORE_TARGET_UNSET,
+  OPS_RESTORE_WATERMARKS_DISAGREE,
 } from '@intafaced/contracts';
 
 export {
+  OPS_RESTORE_STEP_OUT_OF_ORDER,
+  OPS_RESTORE_TARGET_UNSET,
+  OPS_RESTORE_WATERMARKS_DISAGREE,
   COMPLIANCE_CASE_NOT_FOUND,
   COMPLIANCE_CASES_LIST_LIMIT_UNSET,
   COMPLIANCE_INBOX_FORBIDDEN,
@@ -79,6 +85,9 @@ export const OPS_RESTORE_ARCHIVE_UNCONFIGURED = 'ops.restore_archive_unconfigure
 export const OPS_RESTORE_ARCHIVE_UNPROBED = 'ops.restore_archive_unprobed' as const;
 export const OPS_RESTORE_STORAGE_UNCONFIGURED = 'ops.restore_storage_unconfigured' as const;
 export const OPS_RESTORE_WATERMARK_REQUIRED = 'ops.restore_watermark_required' as const;
+/** Not in the spec's list: a service's watermark could not be read (no URL, a refusal, a timeout or a body that is not the contract). */
+export const OPS_RESTORE_WATERMARK_UNAVAILABLE = 'ops.restore_watermark_unavailable' as const;
+export const OPS_RESTORE_RUN_NOT_FOUND = 'ops.restore_run_not_found' as const;
 export const OPS_ALERT_LIST_LIMIT_UNSET = 'ops.alert_list_limit_unset' as const;
 export const OPS_ALERT_RULE_NOT_FOUND = 'ops.alert_rule_not_found' as const;
 export const OPS_ALERT_RULE_VERSION_STALE = 'ops.alert_rule_version_stale' as const;
@@ -132,6 +141,11 @@ export type OpsRefuseCode =
   | typeof OPS_RESTORE_ARCHIVE_UNPROBED
   | typeof OPS_RESTORE_STORAGE_UNCONFIGURED
   | typeof OPS_RESTORE_WATERMARK_REQUIRED
+  | typeof OPS_RESTORE_WATERMARK_UNAVAILABLE
+  | typeof OPS_RESTORE_RUN_NOT_FOUND
+  | typeof OPS_RESTORE_STEP_OUT_OF_ORDER
+  | typeof OPS_RESTORE_TARGET_UNSET
+  | typeof OPS_RESTORE_WATERMARKS_DISAGREE
   | typeof OPS_ALERT_THRESHOLD_UNSET
   | typeof OPS_ALERT_INTERVAL_UNSET
   | typeof OPS_ALERT_LABELS_DUPLICATE

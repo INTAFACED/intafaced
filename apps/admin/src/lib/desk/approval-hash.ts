@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
 
@@ -83,6 +84,19 @@ export function payloadHashFor(request: DeskRequest): string {
         asset: request.asset,
         sourceNote: request.reason,
       });
+    // svc-ops `approvalPayloadHash(action, { targetId, reasonCode, reason })` for a hide or delist, `{ targetId }` for a restore.
+    case 'protocol.pool.hide':
+      return sha(request.kind, {
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        reasonCode: request.reasonCode,
+        reason: request.reason,
+      });
+    case 'protocol.pool.restore':
+      return sha(request.kind, { targetId: poolTargetId(request.chainId, request.poolAddress) });
+    case 'protocol.market.delist':
+      return sha(request.kind, { targetId: marketTargetId(request.symbol), reasonCode: request.reasonCode, reason: request.reason });
+    case 'protocol.market.restore':
+      return sha(request.kind, { targetId: marketTargetId(request.symbol) });
   }
 }
 
@@ -181,6 +195,27 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'ops.venue_cost.record',
         targetService: 'svc-ops',
         targetId: `venue-cost:${request.period}:${request.category}`,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the pool or market itself; its target service is not on identity's operator list, so both founders are needed.
+    case 'protocol.pool.hide':
+    case 'protocol.pool.restore':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: poolTargetId(request.chainId, request.poolAddress),
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    case 'protocol.market.delist':
+    case 'protocol.market.restore':
+      return {
+        actionType: request.kind,
+        targetService: 'svc-ops',
+        targetId: marketTargetId(request.symbol),
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

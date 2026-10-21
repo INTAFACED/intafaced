@@ -74,6 +74,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/kill-switch', 'killswitches'],
   ['/api/ledger-freeze', 'ledger'],
   ['/api/pay-halts', 'ledger'],
+  ['/api/restore', 'ledger'],
   ['/api/compliance', 'jurisdiction'],
   ['/api/support', 'support'],
   ['/api/notify-health', 'notify'],
@@ -193,6 +194,7 @@ export function moduleForPage(pathname: string): ModuleId | null {
   )
     return 'merchants';
   if (under(path, '/compliance')) return 'jurisdiction';
+  if (under(path, '/restore')) return 'ledger';
   for (const route of MODULE_ROUTES) {
     if (route.href !== '/' && under(path, route.href)) return route.id;
   }

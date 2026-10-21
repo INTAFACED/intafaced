@@ -13,6 +13,9 @@ import {
   scopedProcedure,
   supportAccountGroundingSchema,
   supportAttachmentDownloadSchema,
+  supportBulkInputSchema,
+  supportBulkPolicySchema,
+  supportBulkResultSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
   supportCaseFileSchema,
@@ -99,6 +102,7 @@ function mapError(err: unknown): never {
       err.code === 'support.release.not_queueable' ||
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
+      err.code === 'support.bulk_cap_unset' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
       err.code === 'support.attachment_count_unset' ||
@@ -1171,6 +1175,30 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.unclaim({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The batch size the owner allows for a bulk change, or `null` while it is not set. */
+    bulkPolicy: scopedProcedure('support:ops')
+      .output(supportBulkPolicySchema)
+      .query(({ ctx }) => {
+        requireSupportOps(ctx.principal!);
+        return support.bulkPolicy();
+      }),
+
+    /**
+     * One change (an assignee, a status or a priority) for several requests under one batch key. Each request is changed
+     * on its own and answers `changed`, `unchanged` or `refused` with its typed code; a blank cap refuses the whole batch.
+     */
+    bulkUpdate: scopedProcedure('support:ops')
+      .input(supportBulkInputSchema)
+      .output(supportBulkResultSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

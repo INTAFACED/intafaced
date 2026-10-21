@@ -48,6 +48,16 @@ describe('pay custody deposit contract', () => {
     expect(parse({ extra: 1 })).toBe(false);
   });
 
+  it('accepts a halted list with a note or none, and refuses a blank note', () => {
+    const halted = { assetId: 'USDT', networkId: 'TEST-net', label: 'TEST network', haltNote: null };
+    const parse = (h: object) => payCustodyDepositCatalogueSchema.safeParse({ entries: [], halted: [h] }).success;
+    expect(payCustodyDepositCatalogueSchema.safeParse({ entries: [] }).success).toBe(true);
+    expect(parse(halted)).toBe(true);
+    expect(parse({ ...halted, haltNote: 'Maintenance' })).toBe(true);
+    expect(parse({ ...halted, haltNote: '' })).toBe(false);
+    expect(parse({ ...halted, extra: 1 })).toBe(false);
+  });
+
   it('refuses an address with whitespace and a reply with an invented state', () => {
     expect(payCustodyDepositAddressReplySchema.safeParse(issued).success).toBe(true);
     expect(

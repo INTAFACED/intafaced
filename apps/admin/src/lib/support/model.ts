@@ -1,5 +1,6 @@
 import type { SupportKbAudience } from '@intafaced/contracts';
 import { KB_AUDIENCES } from './audience';
+import type { BulkChange } from './bulk';
 import { readGroupActionRequest, type GroupActionRequest } from './groups';
 import { readStaffAvailabilityRequest, type StaffAvailabilityRequest } from './staff';
 import type { QueueEntry, QueueRead, SupportRating, TicketStatus } from './types';
@@ -207,6 +208,13 @@ export type SupportActionRequest =
       readonly clientRequestId: string;
       readonly reason?: string;
     } & PropertiesChange)
+  | {
+      readonly action: 'bulk';
+      readonly batchKey: string;
+      readonly ticketIds: readonly string[];
+      readonly change: BulkChange;
+      readonly reason?: string;
+    }
   | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
   | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
   | {
@@ -230,6 +238,22 @@ export type SupportActionRequest =
 
 const isText = (v: unknown, max: number): v is string => typeof v === 'string' && v.trim() !== '' && v.length <= max;
 const isKey = (v: unknown): v is string => isText(v, 200);
+
+function readBulkChange(raw: unknown): BulkChange | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const c = raw as Record<string, unknown>;
+  // Exactly the kind and its one field: a second field is a different request, not an extra to drop.
+  if (Object.keys(c).length !== 2) return null;
+  if (c.kind === 'status') {
+    return typeof c.status === 'string' && STATUSES.includes(c.status) ? { kind: 'status', status: c.status as TicketStatus } : null;
+  }
+  if (c.kind === 'priority') {
+    if (c.priority === null) return { kind: 'priority', priority: null };
+    return PRIORITIES.includes(c.priority as Priority) ? { kind: 'priority', priority: c.priority as Priority } : null;
+  }
+  if (c.kind === 'assign') return isTicketId(c.assigneeId) ? { kind: 'assign', assigneeId: c.assigneeId } : null;
+  return null;
+}
 
 /**
  * The strict reader for an action request from the browser. Anything that is not exactly a known shape is null and
@@ -296,6 +320,21 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         clientRequestId: raw.clientRequestId.trim(),
         ...(raw.reason === undefined ? {} : { reason: raw.reason.trim() }),
         ...out,
+      };
+    }
+    case 'bulk': {
+      if (!isText(raw.batchKey, 200) || !Array.isArray(raw.ticketIds)) return null;
+      if (raw.ticketIds.length === 0 || raw.ticketIds.length > 1000 || !raw.ticketIds.every(isTicketId)) return null;
+      if (new Set(raw.ticketIds).size !== raw.ticketIds.length) return null;
+      if (raw.reason !== undefined && !isText(raw.reason, REASON_MAX)) return null;
+      const change = readBulkChange(raw.change);
+      if (!change) return null;
+      return {
+        action: 'bulk',
+        batchKey: raw.batchKey.trim(),
+        ticketIds: raw.ticketIds as string[],
+        change,
+        ...(raw.reason === undefined ? {} : { reason: raw.reason.trim() }),
       };
     }
     case 'kb_publish': {

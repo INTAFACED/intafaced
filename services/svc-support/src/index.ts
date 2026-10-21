@@ -148,6 +148,7 @@ const support = new SupportService(
   new SqlLifecycleBook(sql),
   ratingRequests,
   attachmentSettings,
+  env.SUPPORT_BULK_CAP ?? null,
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql), attachmentSettings);
