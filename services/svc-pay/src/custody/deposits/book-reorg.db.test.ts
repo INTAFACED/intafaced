@@ -110,7 +110,11 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
       VALUES ('USDT', ${NETWORK}, 'TEST network', '10', 5, true, 'test-profile')`;
   }, 30_000);
 
-  it('stores the block a credit was read from and leaves it alone when the same block is seen again', async () => {
+  const gone = (over: Partial<{ txHash: string; outputIndex: number }> = {}) => [
+    { address: ADDRESS, txHash: TX, outputIndex: 0, assetId: 'USDT', ...over },
+  ];
+
+  it('stores the block a credit was read from', async () => {
     await book().receive(seen());
     expect(await row()).toMatchObject({ status: 'credited', block_hash: HASH_A });
     await book().receive(seen());
@@ -118,34 +122,41 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
     expect(await balance()).toBe(parseAmount('25'));
   });
 
-  it('a different block hash on a credited deposit reverses it once, also twice and after a restart', async () => {
+  it('a transfer re-mined in another block at the same index keeps its credit and updates the stored block', async () => {
     await book().receive(seen());
-    const moved = await book().receive(seen({ blockHash: HASH_B }));
-    expect(moved).toEqual({ state: 'recorded', status: 'reversed', reason: 'chain_reorg' });
-    await book().receive(seen({ blockHash: HASH_B }));
-    await book().receive(seen({ blockHash: HASH_B }));
+    const outcome = await book().receive(seen({ blockHash: HASH_B, blockHeight: 101n }));
+    expect(outcome).toEqual({ state: 'recorded', status: 'credited', reason: null });
+    expect(await row()).toMatchObject({ status: 'credited', block_hash: HASH_B });
+    expect(reversals()).toHaveLength(0);
+    expect(await balance()).toBe(parseAmount('25'));
+  });
+
+  it('a transfer the chain no longer reports is reversed once, also twice and after a restart', async () => {
+    await book().receive(seen());
+    expect(await book().dropped(gone())).toBe(1);
+    expect(await book().dropped(gone())).toBe(0);
+    expect(await book().dropped(gone())).toBe(0);
     expect(reversals()).toHaveLength(1);
     expect(reversals()[0]!.idempotencyKey).toBe(`deposit.reverse:${NETWORK}:${TX}:0`);
     expect(await balance()).toBe(0n);
     expect(await row()).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
     expect((await row()).reversal_ledger_tx_id).toBeTruthy();
+    // The same transfer seen again does not bring the credit back, and does not reverse it twice.
+    await book().receive(seen());
+    expect(reversals()).toHaveLength(1);
+    expect(await balance()).toBe(0n);
   });
 
-  it('a transfer the chain no longer reports is reversed once; a pending one is left alone', async () => {
+  it('a pending deposit that is dropped is left alone, and a drop for another asset or index touches nothing', async () => {
     const b = book();
     await b.receive(seen());
     await b.receive(seen({ txHash: `0x${'d'.repeat(64)}`, confirmations: 1, blockHash: HASH_A }));
-    const gone = [
-      { address: ADDRESS, txHash: TX, outputIndex: 0 },
-      { address: ADDRESS, txHash: `0x${'d'.repeat(64)}`, outputIndex: 0 },
-    ];
-    expect(await b.dropped(gone)).toBe(1);
-    expect(await b.dropped(gone)).toBe(0);
-    expect(reversals()).toHaveLength(1);
-    const rows = await db.sql<
-      Array<{ tx_hash: string; status: string }>
-    >`SELECT tx_hash, status FROM pay.custody_deposits ORDER BY tx_hash`;
-    expect(rows.map((r) => r.status).sort()).toEqual(['confirming', 'reversed']);
+    expect(await b.dropped(gone({ txHash: `0x${'d'.repeat(64)}` }))).toBe(0);
+    expect(await b.dropped([{ address: ADDRESS, txHash: TX, outputIndex: 0, assetId: 'DAI' }])).toBe(0);
+    expect(await b.dropped(gone({ outputIndex: 7 }))).toBe(0);
+    expect(reversals()).toHaveLength(0);
+    const rows = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.custody_deposits`;
+    expect(rows.map((r) => r.status).sort()).toEqual(['confirming', 'credited']);
   });
 
   it('funds already spent: needs_review with an alert, no negative balance, no reversal', async () => {
@@ -153,8 +164,8 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
     await ledger.post(
       recipes.withdrawHold({ userId: ALICE, assetId: 'USDT', amount: parseAmount('20'), rail: 'crypto-native', withdrawalId: 'w-1' }),
     );
-    const outcome = await book().receive(seen({ blockHash: HASH_B }));
-    expect(outcome).toEqual({ state: 'recorded', status: 'needs_review', reason: 'reversal_unfunded' });
+    expect(await book().dropped(gone())).toBe(0);
+    expect(await row()).toMatchObject({ status: 'needs_review', reason: 'reversal_unfunded' });
     expect(reversals()).toHaveLength(0);
     expect(await balance()).toBe(parseAmount('5'));
     expect(logs.some((l) => l.extra?.alert === true && l.msg.includes('not covered'))).toBe(true);
@@ -163,15 +174,25 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
   it('a crash after the ledger post and before the row flip is finished under the same key', async () => {
     await book().receive(seen());
     loseAnswer = true;
-    await expect(book().receive(seen({ blockHash: HASH_B }))).rejects.toThrow('ledger timeout');
+    expect(await book().dropped(gone())).toBe(0);
     expect(await row()).toMatchObject({ status: 'credited' });
     expect((await row()).reversal_started_at).not.toBeNull();
+    expect(logs.some((l) => l.msg.includes('left pending'))).toBe(true);
     loseAnswer = false;
     expect(await book().resumeReversals()).toBe(1);
     expect(await book().resumeReversals()).toBe(0);
     expect(await row()).toMatchObject({ status: 'reversed' });
     expect(reversals()).toHaveLength(1);
     expect(await balance()).toBe(0n);
+  });
+
+  it('a reversal that was started is also finished when the transfer is seen again', async () => {
+    await book().receive(seen());
+    loseAnswer = true;
+    await book().dropped(gone());
+    loseAnswer = false;
+    expect(await book().receive(seen())).toEqual({ state: 'recorded', status: 'reversed', reason: 'chain_reorg' });
+    expect(reversals()).toHaveLength(1);
   });
 
   it('a pending deposit that moves block is judged on the new depth and block, and credits nothing early', async () => {
@@ -184,11 +205,11 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
     expect(reversals()).toHaveLength(0);
   });
 
-  it('a row credited before block hashes were stored is not judged by a hash it never had', async () => {
+  it('a row credited before block hashes were stored gets its block filled in and is not reversed', async () => {
     await book().receive(seen({ blockHash: null, blockHeight: null }));
     expect((await row()).block_hash).toBeNull();
     await book().receive(seen({ blockHash: HASH_B }));
     expect(reversals()).toHaveLength(0);
-    expect(await row()).toMatchObject({ status: 'credited' });
+    expect(await row()).toMatchObject({ status: 'credited', block_hash: HASH_B });
   });
 });

@@ -286,8 +286,11 @@ describe('EvmLiveChain inbound identity', () => {
     expect(drained.map((item) => item.transfer.amount)).not.toContain(amountD);
     expect(drained).toHaveLength(3);
     // The dropped transfer is reported as dropped (the deposit record reverses a credit it made for it) and never as observed.
-    expect(port.droppedInbound().map((item) => item.transfer.txHash)).toEqual([txDropped]);
     expect(port.observedInbound().map((item) => item.transfer.txHash)).not.toContain(txDropped);
+    // One "no such receipt" answer is not yet a verdict; the same answer on the next refresh is.
+    expect(port.droppedInbound()).toEqual([]);
+    await port.refresh();
+    expect(port.droppedInbound().map((item) => item.transfer.txHash)).toEqual([txDropped]);
     const drainedSame = drained.filter((item) => item.transfer.txHash === txSame);
     expect(drainedSame).toHaveLength(2);
     expect(drainedSame.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountA, amountB]));
@@ -307,7 +310,7 @@ describe('EvmLiveChain inbound identity', () => {
 });
 
 describe('EvmLiveChain block hash (W-deposit-06)', () => {
-  it('carries the hash of the block the receipt names, and a later refresh shows a different one', async () => {
+  it('carries the hash of the block the receipt names, and follows it when the node names another', async () => {
     const token = '0x00000000000000000000000000000000000000a1';
     const port = new EvmLiveChain({
       rpcUrl: 'http://127.0.0.1:9',
@@ -334,6 +337,76 @@ describe('EvmLiveChain block hash (W-deposit-06)', () => {
     await port.refresh();
     expect(port.observedInbound()[0]).toMatchObject({ blockHash });
     expect(port.droppedInbound()).toEqual([]);
+  });
+
+  it('a native transfer re-mined at another transaction index is gone at the old index', async () => {
+    const port = new EvmLiveChain({
+      rpcUrl: 'http://127.0.0.1:9',
+      chainId: 31337,
+      deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
+      signer: TestnetSigner.fromFixtureKey(HOT_KEY),
+      assets: parseEvmAssets('ETH:native'),
+      broadcasts: new MemoryBroadcastStore(),
+      minConfirmations: 1,
+    });
+    const address = await port.acceptanceAddress('native-index', 'ETH');
+    const hash = `0x${'f'.repeat(64)}` as Hex;
+    let index = 4;
+    installRpc(port, {
+      getBlockNumber: async () => 5n,
+      getBlock: async ({ blockNumber }) =>
+        block(blockNumber, blockNumber === 5n ? [{ to: address, from: PAYER, value: 10n ** 18n, hash, transactionIndex: 4 }] : []),
+      getTransactionReceipt: async () =>
+        ({ status: 'success', transactionHash: hash, blockNumber: 5n, to: address, transactionIndex: index, logs: [] }) as never,
+    });
+    await port.refresh();
+    expect(port.observedInbound()).toHaveLength(1);
+    index = 9;
+    await port.refresh();
+    await port.refresh();
+    expect(port.observedInbound()).toEqual([]);
+    expect(port.droppedInbound()).toHaveLength(1);
+  });
+
+  it('a node that errors or times out is never taken as "the transfer is gone"', async () => {
+    const token = '0x00000000000000000000000000000000000000a1';
+    const port = new EvmLiveChain({
+      rpcUrl: 'http://127.0.0.1:9',
+      chainId: 31337,
+      deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
+      signer: TestnetSigner.fromFixtureKey(HOT_KEY),
+      assets: parseEvmAssets(`USDC:${token}:6`),
+      broadcasts: new MemoryBroadcastStore(),
+      minConfirmations: 1,
+    });
+    const address = await port.acceptanceAddress('rpc-blip', 'USDC');
+    const txHash = `0x${'e'.repeat(64)}` as Hex;
+    const log = erc20Log({ token, to: address, value: 1_000_000n, txHash, logIndex: 1, blockNumber: 5n });
+    let mode: 'ok' | 'timeout' | 'notfound' = 'ok';
+    installRpc(port, {
+      getBlockNumber: async () => 5n,
+      getBlock: async ({ blockNumber }) => block(blockNumber),
+      getLogs: async ({ fromBlock }) => (fromBlock !== undefined && fromBlock <= 5n ? [log] : []),
+      getTransactionReceipt: async () => {
+        if (mode === 'timeout') throw new Error('request timed out');
+        if (mode === 'notfound') throw Object.assign(new Error('not found'), { name: 'TransactionReceiptNotFoundError' });
+        return { status: 'success', transactionHash: txHash, blockNumber: 5n, logs: [log] };
+      },
+    });
+    await port.refresh();
+    expect(port.observedInbound()).toHaveLength(1);
+    mode = 'timeout';
+    for (let i = 0; i < 4; i += 1) await port.refresh();
+    expect(port.droppedInbound()).toEqual([]);
+    mode = 'notfound';
+    await port.refresh();
+    expect(port.droppedInbound()).toEqual([]);
+    await port.refresh();
+    expect(port.droppedInbound()).toHaveLength(1);
+    mode = 'ok';
+    await port.refresh();
+    expect(port.droppedInbound()).toEqual([]);
+    expect(port.observedInbound()).toHaveLength(1);
   });
 });
 

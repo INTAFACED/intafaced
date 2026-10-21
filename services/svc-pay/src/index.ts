@@ -1074,7 +1074,12 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     },
     onDropped: async (items) => {
       await custodyDepositBook.dropped(
-        items.map((item) => ({ address: item.address, txHash: item.transfer.txHash, outputIndex: item.logIndex })),
+        items.map((item) => ({
+          address: item.address,
+          txHash: item.transfer.txHash,
+          outputIndex: item.logIndex,
+          assetId: item.transfer.assetId,
+        })),
       );
     },
   });

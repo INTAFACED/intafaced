@@ -94,9 +94,19 @@ interface ObservedInbound extends ConfirmedTransfer {
   readonly blockNumber: bigint;
   readonly logIndex: number;
   readonly blockHash: string | null;
+  /** Refreshes in a row where the node ANSWERED that the transfer is not in a receipt. A node that did not answer adds nothing. */
+  readonly missStreak?: number;
   /** True only after this refresh re-read a receipt that still contains the transfer. */
   readonly inReceipt: boolean;
 }
+
+/**
+ * A reorg verdict (a changed block hash, or a transfer the node says is gone) is acted on only after the node has said the same
+ * thing on this many readings in a row, so one lagging replica behind a load balancer cannot reverse a real credit. The deposit
+ * record counts changed hashes; this chain counts "no such receipt" answers. A node that errors or times out says nothing and
+ * counts for neither side.
+ */
+export const REORG_CONFIRM_REFRESHES = 2;
 
 /**
  * The outbound transaction was included, and the receipt is not a success.
@@ -387,7 +397,7 @@ export class EvmLiveChain implements CryptoChainPort {
    */
   droppedInbound(): FinalizedInbound[] {
     return [...this.observed.values()]
-      .filter((observed) => !observed.inReceipt)
+      .filter((observed) => !observed.inReceipt && (observed.missStreak ?? 0) >= REORG_CONFIRM_REFRESHES)
       .sort(compareObserved)
       .map((observed) => ({
         address: getAddress(observed.address),
@@ -511,31 +521,54 @@ export class EvmLiveChain implements CryptoChainPort {
 
   private async recomputeConfirmations(): Promise<void> {
     for (const [key, observed] of [...this.observed.entries()]) {
-      const receipt = await this.receiptFor(observed.txHash as Hex);
+      const answer = await this.receiptFor(observed.txHash as Hex);
+      if (answer.kind === 'unavailable') {
+        // The node said nothing. Not confirmed this refresh, and not evidence of a drop either.
+        this.observed.set(key, { ...observed, inReceipt: false, confirmations: 0 });
+        continue;
+      }
+      const receipt = answer.kind === 'receipt' ? answer.receipt : null;
       if (!receipt || !this.transferStillInReceipt(observed, receipt)) {
         // A dropped or reverted transfer must not age in on tip distance.
-        this.observed.set(key, { ...observed, inReceipt: false, confirmations: 0 });
+        this.observed.set(key, {
+          ...observed,
+          inReceipt: false,
+          confirmations: 0,
+          missStreak: (observed.missStreak ?? 0) + 1,
+        });
         continue;
       }
       const blockNumber = typeof receipt.blockNumber === 'bigint' ? receipt.blockNumber : observed.blockNumber;
       const confirmations = Number(this.tip - blockNumber + 1n);
+      const seen = typeof receipt.blockHash === 'string' ? receipt.blockHash : null;
+      const blockHash = seen ?? observed.blockHash;
       this.observed.set(key, {
         ...observed,
         blockNumber,
-        blockHash: typeof receipt.blockHash === 'string' ? receipt.blockHash : observed.blockHash,
+        blockHash,
+        missStreak: 0,
         inReceipt: true,
         confirmations: confirmations < 0 ? 0 : confirmations,
       });
     }
   }
 
-  private async receiptFor(txHash: Hex): Promise<Awaited<ReturnType<PublicClient['getTransactionReceipt']>> | null> {
+  private async receiptFor(
+    txHash: Hex,
+  ): Promise<
+    { kind: 'receipt'; receipt: Awaited<ReturnType<PublicClient['getTransactionReceipt']>> } | { kind: 'missing' } | { kind: 'unavailable' }
+  > {
     try {
-      return (await this.public.getTransactionReceipt({ hash: txHash })) ?? null;
-    } catch {
-      // Missing receipt, or the node did not answer. This refresh has not
-      // seen the transfer, so it must not count as confirmed.
-      return null;
+      const receipt = await this.public.getTransactionReceipt({ hash: txHash });
+      return receipt ? { kind: 'receipt', receipt } : { kind: 'missing' };
+    } catch (error) {
+      // The node answered "no such receipt" (viem throws for it): that is evidence. Anything else (a timeout, a refused or
+      // malformed reply) means the node did not answer; this refresh has not seen the transfer, so it must not count as
+      // confirmed, but it must not count as dropped either.
+      for (let e: unknown = error, depth = 0; e && depth < 4; depth += 1, e = (e as { cause?: unknown }).cause) {
+        if ((e as { name?: string }).name === 'TransactionReceiptNotFoundError') return { kind: 'missing' };
+      }
+      return { kind: 'unavailable' };
     }
   }
 
@@ -546,6 +579,8 @@ export class EvmLiveChain implements CryptoChainPort {
     if (!asset) return false;
     if (asset.kind === 'native') {
       if (receipt.to && getAddress(receipt.to).toLowerCase() !== observed.address.toLowerCase()) return false;
+      // The index is part of the deposit's identity. A transaction re-mined at another index is a new deposit; this one is gone.
+      if (typeof receipt.transactionIndex === 'number' && receipt.transactionIndex !== observed.logIndex) return false;
       return true;
     }
     for (const log of receipt.logs) {

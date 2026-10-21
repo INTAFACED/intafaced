@@ -27,12 +27,16 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` is W-deposit-06 (holds, still to come).
- * - REORG (W-deposit-06). The block (height, hash) a transfer was last read from is stored on its row. When a credited row is
- *   seen again in a block with a different hash, or the chain no longer reports the transfer at all, the credit is taken back
- *   once through the reversal post (`deposit.reverse:<network>:<tx>:<index>`) and the row is `reversed`. `reversal_started_at` is
- *   written before the ledger is asked, so a crash between the two is finished on the next pass under the same key. If the
- *   customer has already spent the funds the ledger refuses, and the row is `needs_review` with `reversal_unfunded` and an alert:
- *   the balance never goes negative and a person decides. A reversed row is never credited again by this book.
+ * - REORG (W-deposit-06). A row is one transfer at one index of one transaction. If the chain positively says that transfer is gone
+ *   (the node answered "no such receipt" on several refreshes in a row, the transaction reverted, or the transfer now sits at a
+ *   different index), the credit is taken back once through the reversal post (`deposit.reverse:<network>:<tx>:<index>`) and the
+ *   row is `reversed`. A node that did not answer proves nothing. A transfer re-mined in another block at the SAME index keeps its
+ *   credit and its stored block is updated; a transfer re-mined at a NEW index is a new row that credits after its own
+ *   confirmations, while the old row is reversed. `reversal_started_at` is written before the ledger is asked, so a crash between
+ *   the two is finished on the next pass under the same key. If the customer has already spent the funds the ledger refuses, and
+ *   the row is `needs_review` with `reversal_unfunded` and an alert: the balance never goes negative and a person decides. A
+ *   reversed row is never credited again by this book. KNOWN GAP: a transfer that vanishes while no process is watching is not
+ *   re-checked by height after a restart (follow-up: a reorg audit sweep).
  */
 
 /** One transfer to a watched address, as the chain saw it. */
@@ -131,9 +135,24 @@ export class CustodyDepositBook {
         received: input.assetId,
       });
     }
-    if (row.status === 'credited' && (row.reversal_started_at || hashMoved(row.block_hash, input.blockHash))) {
-      const reversed = await this.reverse(row, 'the block this deposit was credited from was replaced');
-      return { state: 'recorded', status: reversed.status, reason: reversed.reason };
+    if (row.status === 'credited') {
+      // A reversal that was started is finished. A new block hash for a transfer still at the same index is NOT a reason to take
+      // the credit back: the funds are on the chain, only the block moved, so the stored block is brought up to date as evidence.
+      if (row.reversal_started_at) {
+        const reversed = await this.reverse(row, 'finishing a reversal that was started');
+        return { state: 'recorded', status: reversed.status, reason: reversed.reason };
+      }
+      const hash = input.blockHash ? input.blockHash.toLowerCase() : null;
+      if (hash !== null && hash !== row.block_hash) {
+        await this.deps.sql`
+          UPDATE pay.custody_deposits SET block_hash = ${hash},
+                 block_height = COALESCE(${input.blockHeight === null || input.blockHeight === undefined ? null : input.blockHeight.toString()}, block_height),
+                 updated_at = now()
+           WHERE id = ${row.id} AND status = 'credited'`;
+        if (row.block_hash !== null) {
+          this.deps.log?.('custody deposit block changed, transfer still present at the same index', { depositId: row.id });
+        }
+      }
     }
     const judged = await this.settle(row);
     const outcome: ChainDepositOutcome = { state: 'recorded', status: judged.status, reason: judged.reason };
@@ -145,15 +164,15 @@ export class CustodyDepositBook {
    * The chain no longer reports these transfers (dropped, replaced or reverted after they were seen). A credited row for one of
    * them is reversed; any other row is left as it is, because nothing was posted for it. Returns how many credits were taken back.
    */
-  async dropped(items: readonly Pick<ChainDeposit, 'address' | 'txHash' | 'outputIndex'>[]): Promise<number> {
+  async dropped(items: readonly Pick<ChainDeposit, 'address' | 'txHash' | 'outputIndex' | 'assetId'>[]): Promise<number> {
     let reversed = 0;
     for (const item of items) {
-      const key = `${item.address.toLowerCase()}:${item.txHash.toLowerCase()}:${item.outputIndex}`;
+      const key = `${item.address.toLowerCase()}:${item.txHash.toLowerCase()}:${item.outputIndex}:${item.assetId}`;
       try {
         const rows = await this.deps.sql<Row[]>`
           SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
            WHERE lower(address) = ${item.address.toLowerCase()} AND tx_hash = ${item.txHash.toLowerCase()}
-             AND output_index = ${item.outputIndex} AND status = 'credited'`;
+             AND output_index = ${item.outputIndex} AND asset_id = ${item.assetId} AND status = 'credited'`;
         const row = rows[0];
         if (row && (await this.reverse(row, 'the chain no longer reports the transfer')).status === 'reversed') reversed += 1;
       } catch (err) {
@@ -425,9 +444,4 @@ function toRecord(row: Row): PayCustodyDepositRecord {
     detectedAt: row.detected_at.toISOString(),
     creditedAt: row.credited_at ? row.credited_at.toISOString() : null,
   };
-}
-
-/** True when both sides name a block and they are different. A missing hash on either side proves nothing. */
-function hashMoved(stored: string | null, seen: string | null | undefined): boolean {
-  return stored !== null && typeof seen === 'string' && seen !== '' && stored.toLowerCase() !== seen.toLowerCase();
 }
