@@ -598,7 +598,16 @@ a row. A redelivery reuses the same key and cannot double-send.
   fired it, when, the inbox item) after the inbox has it and before the alert is marked fired, keyed by the alert so a retry
   after a crash writes it once. `notify.alertTriggers` reads the person's own rows, newest first, for all alerts or one. How long
   rows are kept is `NOTIFY_ALERT_TRIGGER_LOG_DAYS`; blank writes no log, the read refuses `notify.alert_trigger_log_retention_unset`,
-  and alerts still fire. The sweep prunes rows past the retention. Migration 0021.
+  and alerts still fire. The sweep prunes rows past the retention. Migration 0021; migration 0022 moved the log to `alert_fires`,
+  keyed by alert and fire number (`seq`).
+- Trigger frequency (C-alerts-scan-01c): `frequency` is `once` (the default: the alert triggers and is done) or `every_crossing`
+  (a crossing alert stays active and triggers each time the mark crosses the level again; `fireCount` and `lastFiredAt` say how
+  often). Only a crossing condition can repeat (`alert.frequency_needs_crossing`). Which repeating frequencies exist is
+  `NOTIFY_ALERT_FREQUENCIES`; no default: blank leaves every alert one-shot and refuses a repeating one
+  `notify.alert_frequency_unset`. Each trigger has its own inbox key (`<alertId>:n<fire number>`) and trigger-log row, and the count is
+  taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Known limit: a crash between the inbox write and the count, followed by the mark reversing before the retry, loses the
+  announcement of the next crossing (it reuses the same number); never a double send. Close-based
+  timing (once per candle close) needs the candle-close flag from svc-ws and is not built. Migration 0022.
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
