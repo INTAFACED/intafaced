@@ -14,7 +14,7 @@ const eventSchema = z
     id: z.string().uuid(),
     ticketId: z.string().uuid(),
     sequence: z.number().int().positive(),
-    kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated']),
+    kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated', 'merged']),
     actorId: z.string().uuid(),
     actorRole: z.enum(['user', 'operator']),
     fromStatus: statusSchema.nullable(),
