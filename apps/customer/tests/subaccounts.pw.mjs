@@ -30,6 +30,9 @@ const row = (id = a, label = 'Original strategy', extra = {}) => ({
   label,
   purpose: 'Original purpose',
   revoked: false,
+  frozen: false,
+  kind: 'standard',
+  nickname: null,
   createdAt: stamp,
   ...extra,
 });

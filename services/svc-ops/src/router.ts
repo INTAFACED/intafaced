@@ -34,7 +34,9 @@ import {
   OPS_WAREHOUSE_UNWIRED,
   OpsError,
   OPS_COST_STORAGE_UNCONFIGURED,
+  OPS_FEE_REVENUE_UNCONFIGURED,
 } from './codes.js';
+import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
 import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
@@ -55,11 +57,16 @@ import {
   type WatermarkStamp,
 } from './operator-desks.js';
 import { createAlertRulesRouter } from './alerts/router.js';
+import { createProtocolListingRouter } from './protocol-listing/router.js';
+import type { ListingDesk } from './protocol-listing/wiring.js';
+import { createComplianceRouter } from './compliance/router.js';
+import type { ComplianceStore } from './compliance/store.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
+import type { RestoreDesk } from './restore/desk.js';
 import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
-import { composeVenueEconomics, parseCostEntry, parseCostPeriod, readRevenue } from './venue-economics.js';
+import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, readRevenue } from './venue-economics.js';
 
 /**
  * Page size. Optional so omit reaches the named refuse
@@ -148,6 +155,24 @@ const custodyApprovalSchema = z.object({
   status: z.literal('pending'),
 });
 
+async function readFeeRevenue(port: FeeRevenuePort | undefined, period: string): Promise<FeeRevenueRead> {
+  if (!port) {
+    return {
+      ok: false,
+      code: OPS_FEE_REVENUE_UNCONFIGURED,
+      message: 'The ledger is not wired to this service. No fee revenue was invented.',
+    };
+  }
+  return port.read(periodWindow(period));
+}
+
+function requireRestoreDesk(desk: RestoreDesk | undefined): RestoreDesk {
+  if (!desk) {
+    throw new OpsError(OPS_RESTORE_STORAGE_UNCONFIGURED, 'No durable storage is configured for restore runs. Nothing was read or started.');
+  }
+  return desk;
+}
+
 function requireVenueCosts(store: VenueCostStore | undefined): VenueCostStore {
   if (!store) {
     throw new OpsError(
@@ -178,11 +203,19 @@ export interface OperatorDeskConfig {
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
+  /** The joint restore saga: runs, steps, gates. Absent means every run call refuses `ops.restore_storage_unconfigured`. */
+  readonly restoreDesk?: RestoreDesk;
   /** Durable venue cost entries. Absent means the venue economics calls refuse `ops.cost_storage_unconfigured`. */
   readonly venueCosts?: VenueCostStore;
+  /** The ledger's fee revenue read. Absent means the report says `ops.fee_revenue_unconfigured` and gives no net. */
+  readonly feeRevenue?: FeeRevenuePort;
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
+  /** Protocol pool hide and market delist (D-order-controls-04). Absent means every call refuses `ops.protocol_listing_storage_unconfigured`. */
+  readonly protocolListing?: ListingDesk;
+  /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
+  readonly compliance?: ComplianceStore;
 }
 
 export function createOpsRouter(
@@ -568,6 +601,67 @@ export function createOpsRouter(
             mapError(err);
           }
         }),
+      // The archive is not probed, so the list is empty and says why. Nothing is invented as a backup.
+      backups: scopedProcedure('admin:read', guards).query(() => {
+        const archive = archivePosture(desks.restoreArchiveUrl);
+        return { asOf: now(), archive, backups: [] as never[], reason: archive.code };
+      }),
+      runs: scopedProcedure('admin:read', guards).query(async () => {
+        try {
+          return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+      run: scopedProcedure('admin:read', guards)
+        .input(z.object({ restoreNo: z.string().min(1).max(128) }))
+        .query(async ({ input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).get(input.restoreNo);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      start: scopedProcedure('admin:treasury', guards)
+        .input(z.object({ restoreNo: z.string().min(1).max(128), cutOff: z.string(), idempotencyKey: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).start({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
+      step: scopedProcedure('admin:treasury', guards)
+        .input(
+          z.object({
+            restoreNo: z.string().min(1).max(128),
+            step: z.enum(['restore_clean', 'validate', 'preview']),
+            idempotencyKey: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).step({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
+      finalize: scopedProcedure('admin:treasury', guards)
+        .input(
+          z.object({
+            restoreNo: z.string().min(1).max(128),
+            idempotencyKey: z.string(),
+            approvalId: z.string(),
+            operationId: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).finalize({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
       record: scopedProcedure('admin:treasury', guards)
         .input(
           z.object({
@@ -631,8 +725,12 @@ export function createOpsRouter(
         try {
           const store = requireVenueCosts(desks.venueCosts);
           const period = parseCostPeriod(input.period);
-          const [revenue, entries] = await Promise.all([readRevenue(() => ops.revenue()), store.list(period)]);
-          return composeVenueEconomics(now(), period, revenue, entries);
+          const [revenue, entries, fees] = await Promise.all([
+            readRevenue(() => ops.revenue()),
+            store.list(period),
+            readFeeRevenue(desks.feeRevenue, period),
+          ]);
+          return composeVenueEconomics(now(), period, revenue, entries, fees);
         } catch (err) {
           mapError(err);
         }
@@ -667,7 +765,11 @@ export function createOpsRouter(
         }
       }),
 
+    protocolListing: createProtocolListingRouter(desks.protocolListing),
+
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
+
+    compliance: createComplianceRouter(desks.compliance, now),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

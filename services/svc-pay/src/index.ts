@@ -51,6 +51,10 @@ import postgres from 'postgres';
 import { env } from './env.js';
 import { readMerchantStarterFee } from './starter-fee.js';
 import { registerClosureCheckRoute, runPayClosureCheck } from './closure-check.js';
+import { CustodyDepositBook } from './custody/deposits/book.js';
+import { CustodyDepositService } from './custody/deposits/service.js';
+import { registerCustodyDepositRoutes } from './custody/deposits/routes.js';
+import { listIssuedDepositWatches } from './custody/deposits/watches.js';
 import { registerOwnerPayScopeRoute } from './merchant-owner-pay-scopes.js';
 import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { roleOnMerchantForUser } from './control/access.js';
@@ -99,6 +103,7 @@ import { registerCheckoutRoutes } from './checkout-page.js';
 import { registerPublicPayRest } from './public-rest.js';
 import { SubscriptionService, registerSubscriptionCycleRoutes } from './subscriptions/index.js';
 import { createMerchantWatchMetricsStore } from './agents/merchant-watch-metrics-store.js';
+import { readPayWatermark, registerRestoreWatermarkRoute } from './restore-watermark.js';
 import { registerMerchantWatchMetricsRoutes } from './agents/merchant-watch-metrics-routes.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import {
@@ -304,7 +309,16 @@ const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
 if (chargebackOutcomeSlots < 1) {
   throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
 }
+// W-deposit-05: the record of customer crypto deposits. A chain delivery to a customer address is booked here, not as a payment.
+const custodyDepositBook = new CustodyDepositBook({
+  sql,
+  postDeposit: (input) => userMoney.postCustodyDeposit(input),
+  registries: createRegistryReader(sql),
+  log: (msg, extra) => app.log.warn(extra ?? {}, msg),
+});
+
 const pay = new PayService(sql, ledger, rails, {
+  custodyDeposits: custodyDepositBook,
   disputeCases,
   chargebackOutcomeSlots,
   guards: payGuards,
@@ -728,6 +742,13 @@ registerPayStepUpGrantRoute(app, {
   findRole: (userId, merchantId) => roleOnMerchantForUser(sql, userId, merchantId),
 });
 
+registerRestoreWatermarkRoute(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  read: () => readPayWatermark(sql),
+});
+
 registerOwnerPayScopeRoute(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   s2s: doorS2s,
@@ -761,6 +782,16 @@ registerClosureCheckRoute(app, {
   s2s: doorS2s,
   installRawBody: false,
   check: (input) => runPayClosureCheck(sql, input),
+});
+
+const custodyDeposits = new CustodyDepositService({ sql, chain, registries: createRegistryReader(sql) });
+registerCustodyDepositRoutes(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  s2s: doorS2s,
+  installRawBody: false,
+  catalogue: () => custodyDeposits.catalogue(),
+  address: (input) => custodyDeposits.address(input),
+  records: (input) => custodyDepositBook.records(input),
 });
 
 registerSubscriptionCycleRoutes(app, {
@@ -1015,17 +1046,41 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
     maxDeliveryAttempts: env.PAY_CRYPTO_WATCHER_MAX_DELIVERY_ATTEMPTS,
     log: (msg, extra) => app.log.info(extra ?? {}, msg),
     onAlive: () => cryptoRail.noteAlive(),
+    // Confirmation progress and the crediting of rows waiting on a setting; the finalized delivery still comes by webhook.
+    onObserved: async (items) => {
+      for (const item of items) {
+        try {
+          await custodyDepositBook.receive({
+            address: item.address,
+            txHash: item.transfer.txHash,
+            outputIndex: item.logIndex,
+            assetId: item.transfer.assetId,
+            amount: item.transfer.amount,
+            confirmations: item.transfer.confirmations,
+          });
+        } catch (err) {
+          app.log.warn(
+            { err: err instanceof Error ? err.message : String(err), txHash: item.transfer.txHash },
+            'custody deposit not recorded',
+          );
+        }
+      }
+      await custodyDepositBook.settleOpen();
+    },
   });
-  // The watch set is in memory: put every payment still waiting for a deposit back before the first poll.
+  // The watch set is in memory: put every payment still waiting for a deposit, and every deposit address already issued to a
+  // customer, back before the first poll.
   const restored = await restoreOpenDepositWatches(
     chain,
-    async () =>
-      (
+    async () => [
+      ...(
         await sql<Array<{ id: string; currency: string }>>`
           SELECT id, currency FROM pay.payments
            WHERE rail_adapter = 'crypto-native' AND rail_ref IS NOT NULL AND status IN ('created', 'authorized')
         `
       ).map((row) => ({ paymentId: row.id, assetId: row.currency })),
+      ...(await listIssuedDepositWatches(sql)),
+    ],
     (msg, extra) => app.log.warn(extra ?? {}, msg),
   );
   app.log.info({ restored }, 'crypto deposit watches restored');

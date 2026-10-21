@@ -19,9 +19,18 @@ export const subaccount = z.object({
   label: z.string().min(1).max(64),
   purpose: z.string().max(200).nullable(),
   revoked: z.boolean(),
+  frozen: z.boolean(),
+  kind: z.enum(['standard', 'managed', 'derivatives', 'spot']),
+  nickname: z.string().nullable(),
   createdAt: subaccountInstant,
 });
 export type Subaccount = z.infer<typeof subaccount>;
+export const KIND_KEYS: Readonly<Record<Subaccount['kind'], string>> = {
+  standard: 'kindStandard',
+  managed: 'kindManaged',
+  derivatives: 'kindDerivatives',
+  spot: 'kindSpot',
+};
 export function subaccountsIn(limit: number) {
   return z
     .array(subaccount)
@@ -33,7 +42,16 @@ export function subaccountsIn(limit: number) {
     );
 }
 export function sameSubaccount(a: Subaccount, b: Subaccount) {
-  return a.id === b.id && a.label === b.label && a.purpose === b.purpose && a.revoked === b.revoked && a.createdAt === b.createdAt;
+  return (
+    a.id === b.id &&
+    a.label === b.label &&
+    a.purpose === b.purpose &&
+    a.revoked === b.revoked &&
+    a.frozen === b.frozen &&
+    a.kind === b.kind &&
+    a.nickname === b.nickname &&
+    a.createdAt === b.createdAt
+  );
 }
 export type SubaccountKind = 'create' | 'revoke';
 export const subaccountRecord = z

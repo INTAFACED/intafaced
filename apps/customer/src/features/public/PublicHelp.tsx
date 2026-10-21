@@ -386,6 +386,15 @@ export function PublicHelp() {
           {readyNull && (
             <>
               <p className="muted help__measure">{t('notReturnedBody')}</p>
+              {!session && (
+                <section className="help__card help__measure" role="status" data-testid="help-sign-in">
+                  <h2>{t('signInTitle')}</h2>
+                  <p className="muted">{t('signInBody')}</p>
+                  <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+                    {t('signInAction')}
+                  </a>
+                </section>
+              )}
               {selection.version !== undefined && (
                 <a href={helpHref(selection.id)} className="help__link text-link">
                   {t('readLatest')}

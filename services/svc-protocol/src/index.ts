@@ -94,6 +94,7 @@ const relay = new SessionRelay(chain);
 let relayEnabled = env.PROTOCOL_RELAY_ENABLED;
 
 export const appRouter = createProtocolRouter({
+  opsWindowSeconds: () => env.PROTOCOL_OPS_WINDOW_SECONDS,
   chain,
   registry,
   relay,

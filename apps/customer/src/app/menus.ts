@@ -169,13 +169,6 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
   return all.map((tab) => ({ ...tab, items: tab.items.filter((item) => !isHiddenPath(pathOf(item.href))) }));
 }
 
-export const accountMenu: ReadonlyArray<{ href: string; title: PlainKey }> = [
-  { href: '/uc/account', title: 'Account' },
-  { href: '/uc/safe', title: 'Security' },
-  { href: '/verification', title: 'Verification' },
-  { href: '/view', title: 'Settings' },
-];
-
 /** The words of a row: its own, or those of the room its link opens. */
 export function menuItemWords(item: MenuItem, t: (key: PlainKey) => string, locale?: UiLocale): { title: string; description: string } {
   if (item.title && item.description) return { title: t(item.title), description: t(item.description) };

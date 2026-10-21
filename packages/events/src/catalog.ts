@@ -931,6 +931,79 @@ export const coreOpsAlertResolved = defineEvent(
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
 );
 
+// ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
+
+export const coreOpsComplianceCaseCreated = defineEvent(
+  'core-ops',
+  'compliance_case',
+  'created',
+  1,
+  z.object({
+    caseId: z.string().min(1).max(128),
+    inboxId: z.string().min(1).max(128),
+    kind: z.enum(['screening_hit', 'kyc_review', 'network_flag', 'manual']),
+    /** Opaque subject id. Never a PII payload. */
+    subjectId: z.string().min(1).max(128),
+    createdAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance case was stored in svc-ops. Business key is the case id; consumers are idempotent on it.',
+);
+
+export const coreOpsComplianceInboxUpdated = defineEvent(
+  'core-ops',
+  'compliance_inbox',
+  'updated',
+  1,
+  z.object({
+    inboxId: z.string().min(1).max(128),
+    /** Definitions are versioned; business key compliance:queue:<name>:<version>. */
+    version: z.number().int().min(1),
+    change: z.enum(['defined', 'favourited', 'unfavourited']),
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A compliance inbox was defined or its favourite flag changed.',
+);
+
+// ── core-ops: joint restore (OPS-ledger-desk-05) ─────────────────────────────
+
+const restoreBase = {
+  restoreNo: z.string().min(1).max(128),
+  actor: z.string().min(1),
+};
+
+export const coreOpsRestoreStarted = defineEvent(
+  'core-ops',
+  'restore',
+  'started',
+  1,
+  z.object({ ...restoreBase, cutOff: z.string().datetime({ offset: true }), startedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was begun in svc-ops. Business key ops:restore:started:<restoreNo>.',
+);
+
+export const coreOpsRestoreCompleted = defineEvent(
+  'core-ops',
+  'restore',
+  'completed',
+  1,
+  z.object({ ...restoreBase, approverId: z.string().min(1), completedAt: z.string().datetime({ offset: true }) }),
+  'A joint restore was finalised with a second approver after every step existed as a row. Business key ops:restore:completed:<restoreNo>.',
+);
+
+export const coreOpsRestoreFailed = defineEvent(
+  'core-ops',
+  'restore',
+  'failed',
+  1,
+  z.object({
+    ...restoreBase,
+    step: z.enum(['restore_clean', 'validate', 'preview', 'finalize']),
+    code: z.string().min(1).max(128),
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A joint restore step failed or was refused; nothing was finalised. Business key ops:restore:failed:<restoreNo>:<step>.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -945,6 +1018,11 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsComplianceCaseCreated,
+  coreOpsComplianceInboxUpdated,
+  coreOpsRestoreStarted,
+  coreOpsRestoreCompleted,
+  coreOpsRestoreFailed,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -1118,18 +1196,6 @@ export const WIRING_SOCKETS = [
       'Publisher waits on a buyback ledger recipe. svc-token refuse-closes recordBuyback with token.buyback_tokens_unmoved rather than emit buybackExecuted for a buy that did not happen — no existing ledger-client recipe books tokensBought (burn spends fee-funded engine; mintEmission prints supply). Nothing observes a buy that did not happen; the recipe PR owns the publisher.',
   },
 
-  {
-    event: 'supportTicketResolved',
-    missing: 'publisher',
-    /**
-     * CLASS A. The in-app rating prompt does not depend on this subject: it reads the request's own status.
-     * Only the emailed rating request does, and that already refuses until a mail sender is configured.
-     */
-    class: 'A',
-    reason:
-      'Declared first, as the events-then-service rule asks. svc-support publishes it when a request is resolved, in the next PR of SP-csat-01. The in-app rating prompt reads the request status and does not wait on it.',
-  },
-
   // ── no subscriber ──────────────────────────────────────────────────────────
   //
   // `xpEarned` was here, and was Class B: PUBLISHED INTO THE VOID by svc-p2p and
@@ -1223,6 +1289,76 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when the case store lands (OPS-cases-01, next PR). A case is a durable row that the inbox list reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops publishes it when an inbox is defined or favourited (OPS-cases-01, next PR). The inbox is a durable versioned row that the case list reads.',
+  },
+  {
+    event: 'coreOpsComplianceCaseCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the case is a durable row and the admin inbox reads it. The subject exists so a later routing or notification consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsComplianceInboxUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the inbox definition is a durable row. The subject exists so the audit trail and a later consumer can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreStarted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreCompleted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes the restore step rows first and publishes this event once its bus is wired. The restore record is the durable truth that /restore reads, so nothing depends on the event existing yet.',
+  },
+  {
+    event: 'coreOpsRestoreFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No consumer is owed: the restore record is durable and the admin /restore room reads it. The subject exists so the audit trail and a later notice can follow without polling.',
   },
   {
     event: 'projectionUpdated',
@@ -1401,17 +1537,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
-  },
-  {
-    event: 'supportTicketResolved',
-    missing: 'subscriber',
-    /**
-     * CLASS A. svc-notify consumes it in the PR after the publisher; until then nothing depends on it, since
-     * the in-app prompt reads the request status.
-     */
-    class: 'A',
-    reason:
-      'svc-notify turns it into the rating request (an inbox row, and an email where an address is confirmed and the email gateway is configured) in the last PR of SP-csat-01. Nothing derives state from it before then; the in-app rating prompt reads the request status.',
   },
 ] satisfies readonly WiringSocket[];
 

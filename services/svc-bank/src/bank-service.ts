@@ -16,6 +16,7 @@ import { PortfolioService, type PortfolioServiceOptions } from './portfolio/port
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
+import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
@@ -23,6 +24,7 @@ import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
+import { GlobalHoldService } from './personal-pay/holds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
 
 /**
@@ -49,6 +51,7 @@ export interface BankServices {
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
+  readonly accountDetails: AccountDetailsService;
   readonly loans: LoanService;
   readonly cards: CardService;
   readonly ramps: RampService;
@@ -57,6 +60,7 @@ export interface BankServices {
   readonly business: BusinessService;
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
+  readonly globalHolds: GlobalHoldService;
   /**
    * Operator transfer reads. The same connection the services use.
    * The procedures only SELECT. They do not post.
@@ -108,6 +112,11 @@ export interface BankServiceOptions {
    */
   deposits?: DepositServiceOptions;
   /**
+   * Account details and the eligibility statement (BK-acct-03). The currencies and the rule set are the owner's and have no
+   * default; the banking partner is not wired today, so details refuse `rail.bank`.
+   */
+  accountDetails?: AccountDetailsOptions;
+  /**
    * Auto-invest wiring: optional convert port for DCA.
    *
    * Not defaulted. Absent convert = every DCA create/run refuses
@@ -152,6 +161,14 @@ export interface BankServiceOptions {
    * Travel-rule `decision()` null means Nitro/Phantom have not decided.
    */
   global?: GlobalPorts;
+  /** Owner-published purpose, source-of-funds and reference rules for a global send (JSON). Blank refuses. */
+  sendFieldRules?: string | undefined;
+  /** Owner-published payee controls (JSON). Blank refuses every global send. */
+  payeeControls?: string | undefined;
+  /** Owner-published exchange payment allowance (JSON). Blank refuses every global send. */
+  exchangeAllowance?: string | undefined;
+  /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
+  proofLimits?: string | undefined;
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
@@ -171,6 +188,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
   const statements = new StatementService(activity, options.activity?.cursorSecret);
+  // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
+  const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
@@ -198,7 +217,16 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   );
 
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
-  const globalSend = new GlobalSendService(sql, ledger, spaces, options.global ?? emptyGlobalPorts());
+  const globalSend = new GlobalSendService(
+    sql,
+    ledger,
+    spaces,
+    options.global ?? emptyGlobalPorts(),
+    options.sendFieldRules,
+    options.payeeControls,
+    options.exchangeAllowance,
+  );
+  const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
 
   return {
     spaces,
@@ -210,6 +238,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activity,
     activityRecords,
     statements,
+    accountDetails,
     loans,
     cards,
     ramps,
@@ -218,6 +247,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     business,
     bills,
     globalSend,
+    globalHolds,
     transferOps: { sql, handles: options.handles },
   };
 }

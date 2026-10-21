@@ -4,6 +4,7 @@ import {
   bankMarginCalled,
   personalRequestCreated,
   personalRequestSettled,
+  supportTicketResolved,
   fillSettled,
   kycApproved,
   ledgerFreezeUpdated,
@@ -715,6 +716,25 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'ledgerFreezeUpdated', ledgerFreezeUpdated.subject, 'notify-ledger-freeze-updated', async (payload) => {
       // Reason and actor stay behind: a customer notice says only that postings paused or resumed.
       await noticeFreezeChange(notify, { frozen: payload.frozen, changedAt: payload.changedAt });
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'supportTicketResolved', supportTicketResolved.subject, 'notify-support-ticket-resolved', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'support.rate_request',
+          titleKey: 'notify.support.rate_request.title',
+          bodyKey: 'notify.support.rate_request.body',
+          params: { ticketId: payload.ticketId },
+          href: '/support',
+          severity: 'info',
+          sourceSubject: supportTicketResolved.subject,
+          // One ask per request: svc-support publishes it once, on the first resolve.
+          sourceIdempotencyKey: payload.ticketId,
+        }),
+      );
     }),
   );
 

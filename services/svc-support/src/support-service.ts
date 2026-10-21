@@ -1,10 +1,23 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
+  SUPPORT_ATTACHMENT_KEYS,
+  SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
+  kbAudienceVisibleTo,
+  SUPPORT_BULK_CAP_KEY,
+  supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
+  type SupportAttachmentDownload,
+  type SupportAttachmentKey,
+  type SupportAttachmentLimits,
+  type SupportBulkChange,
+  type SupportBulkPolicy,
+  type SupportBulkResult,
+  type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
   type SupportTicketLifecycle,
@@ -20,6 +33,8 @@ import type {
   SupportComment,
   SupportContract,
   SupportKbArticle,
+  SupportKbAudience,
+  SupportKbViewer,
   SupportTicket,
   SupportTicketEvent,
   SupportTicketStatus,
@@ -35,7 +50,15 @@ import {
 } from './desk-staff.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { buildCaseFile, citeAccountState, citeComment, citeKbArticle, groundingFor } from './case-file.js';
-import { UNCONFIGURED_ATTACHMENTS, decodeAttachmentBody, missingAttachmentKey, type AttachmentDesk } from './attachments.js';
+import {
+  ATTACHMENT_MAX_COUNT_KEY,
+  UNCONFIGURED_ATTACHMENTS,
+  decodeAttachmentBody,
+  missingAttachmentKey,
+  type AttachmentDesk,
+  type ScanVerdict,
+} from './attachments.js';
+import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
 import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
 import { isTerminal } from './lifecycle.js';
 import {
@@ -57,6 +80,7 @@ import {
   type TicketOrderSource,
 } from './ticket-order.js';
 import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
+import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
 import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
@@ -72,6 +96,9 @@ function parseEnumField<T extends string>(
   const parsed = schema.safeParse(value);
   return parsed.success ? (parsed.data as T) : INVALID;
 }
+
+const heldKey = (storeKey: string): string => `held/${storeKey}`;
+const scanRefused = (): SupportError => new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
 
 export class SupportError extends Error {
   constructor(
@@ -162,6 +189,17 @@ export function assertListCommentsLimit(limit: number | undefined): number {
   return Math.min(LIST_COMMENTS_LIMIT_MAX, n);
 }
 
+/** ticketAttachments page size unpublished. Blank is not 100. */
+export const LIST_ATTACHMENTS_LIMIT_UNSET = 'support.list_attachments_limit_unset' as const;
+
+/** Owner-published ticketAttachments page size. Blank / non-finite / <1 refuses. Never invent 100. */
+export function assertListAttachmentsLimit(limit: number | undefined): number {
+  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit) || Math.floor(limit) < 1) {
+    throw new SupportError('ticketAttachments limit unset', LIST_ATTACHMENTS_LIMIT_UNSET);
+  }
+  return Math.min(LIST_COMMENTS_LIMIT_MAX, Math.floor(limit));
+}
+
 /** events / listTicketEvents page size unpublished. Blank is not 100. */
 export const LIST_EVENTS_LIMIT_UNSET = 'support.list_events_limit_unset' as const;
 
@@ -178,6 +216,17 @@ export function assertListEventsLimit(limit: number | undefined): number {
     throw new SupportError('listTicketEvents limit unset', LIST_EVENTS_LIMIT_UNSET);
   }
   return Math.min(LIST_EVENTS_LIMIT_MAX, n);
+}
+
+/** setKbAudience got something outside public, signed_in and staff. */
+export const KB_AUDIENCE_INVALID = 'support.kb_audience_invalid' as const;
+
+/** The reader of a public help door when the caller did not say: a signed-out visitor sees public articles only. */
+const ANONYMOUS_KB_VIEWER: SupportKbViewer = { signedIn: false, staff: false };
+
+/** The audiences a reader may see: public always, signed_in once signed in, staff for the desk. */
+function audiencesFor(viewer: SupportKbViewer): SupportKbAudience[] {
+  return SUPPORT_KB_AUDIENCES.filter((audience) => kbAudienceVisibleTo(audience, viewer));
 }
 
 /** listKb page size unpublished. Blank is not 100. */
@@ -236,6 +285,12 @@ export class SupportService implements SupportContract {
     private readonly properties: PropertiesBook = new MemoryPropertiesBook(),
     /** Who a ticket waits on, the first public reply and the follow-up link, kept beside the ticket. */
     private readonly lifecycle: LifecycleBook = new MemoryLifecycleBook(),
+    /** The ask to rate a resolved request, recorded once per ticket and published to the bus. */
+    private readonly ratingRequests: RatingRequestOutbox = new RatingRequestOutbox(new MemoryRatingRequestBook(), async () => null),
+    /** The owner's size, type and count limits for an attachment. Blank until set; the deployment desk's own values win. */
+    private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+    /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
+    private readonly bulkCap: number | null = null,
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -545,6 +600,13 @@ export class SupportService implements SupportContract {
       if (result.ticket.status === 'resolved' || result.ticket.status === 'closed') {
         await this.lifecycle.setWaiting(result.ticket.id, null, result.ticket.updatedAt);
       }
+      if (result.ticket.status === 'resolved') {
+        // Never fails or waits on the status change: the ask is a row first and a message second.
+        void this.ratingRequests
+          .record({ ticketId: result.ticket.id, userId: result.ticket.userId, resolvedAt: result.ticket.updatedAt })
+          .then(() => this.ratingRequests.flush())
+          .catch(() => undefined);
+      }
       return result.ticket;
     });
   }
@@ -771,36 +833,81 @@ export class SupportService implements SupportContract {
     return this.store.latestCaseFile(ticket.id);
   }
 
-  async listKb(options: { limit?: number } = {}): Promise<SupportKbArticle[]> {
+  async listKb(options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
-    return (await this.store.listPublishedKb({ limit })).map(toPublicKb);
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
+    // The store applies the audience before the page, so a hidden article takes no place in it and shows in no count.
+    const page = await this.store.listPublishedKb({ limit, audiences: audiencesFor(viewer) });
+    return this.visibleKb(page, viewer).map(toPublicKb);
   }
 
   /**
    * Search published KB by id/key fragment, then page.
    * Empty query → published catalog, then slice. Blank limit refuses
    * (`support.list_kb_limit_unset`) — never invent 100 / catalog.length.
+   * Only articles the viewer's audience allows are searched.
    */
-  async searchKb(query: string, options: { limit?: number } = {}): Promise<SupportKbArticle[]> {
+  async searchKb(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
-    const hits = searchKb(query, await this.store.listPublishedKb());
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
+    const hits = searchKb(query, this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer));
     return [...hits].slice(0, limit).map(toPublicKb);
   }
 
-  async getKbArticle(idOrQuery: string | { id: string; version?: number }): Promise<SupportKbArticle | null> {
+  /** A hidden article answers exactly like a missing one: null, never a refusal that names it. */
+  async getKbArticle(
+    idOrQuery: string | { id: string; version?: number },
+    options: { viewer?: SupportKbViewer } = {},
+  ): Promise<SupportKbArticle | null> {
     const query = typeof idOrQuery === 'string' ? { id: idOrQuery } : idOrQuery;
+    const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
     if (query.version === undefined) {
       const article = await this.store.getPublishedKb(query.id);
-      return article ? toPublicKb(article) : null;
+      return article && kbAudienceVisibleTo(article.audience, viewer) ? toPublicKb(article) : null;
     }
     try {
       const history = await this.store.listKbVersions(query.id);
+      // The head decides first, so an unknown version of a hidden article is not told apart from a missing one.
+      const head = history[history.length - 1];
+      if (head && !kbAudienceVisibleTo(head.audience, viewer)) return null;
       const article = getKb({ id: query.id, version: query.version }, history);
-      return article ? toPublicKb(article) : null;
+      return article && kbAudienceVisibleTo(article.audience, viewer) ? toPublicKb(article) : null;
     } catch (err) {
       if (err instanceof KbCatalogError) throw new SupportError(err.message, err.code);
       throw err;
     }
+  }
+
+  private visibleKb(articles: readonly SupportKbArticle[], viewer: SupportKbViewer): SupportKbArticle[] {
+    return articles.filter((article) => kbAudienceVisibleTo(article.audience, viewer));
+  }
+
+  /**
+   * Operator change of who may read an article. Stale `baseRevision` refuses `support.kb.revision_stale`;
+   * an unknown article is `support.kb_invalid`. The same audience again changes nothing and writes no audit row.
+   */
+  async setKbAudience(input: {
+    operatorId: string;
+    id: string;
+    baseRevision: number;
+    audience: SupportKbAudience;
+  }): Promise<SupportKbArticle> {
+    return withSupportSpan('support.setKbAudience', { op: 'setKbAudience' }, async () => {
+      if (!(SUPPORT_KB_AUDIENCES as readonly string[]).includes(input.audience)) {
+        throw new SupportError('audience must be public, signed_in or staff', KB_AUDIENCE_INVALID);
+      }
+      const result = await this.store.setKbAudience({
+        id: input.id,
+        baseRevision: input.baseRevision,
+        audience: input.audience,
+        actorId: input.operatorId,
+      });
+      if (result.status === 'refuse') {
+        if (result.reason === 'revision_stale') throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
+        throw new SupportError('KB article refused', 'support.kb_invalid');
+      }
+      return toPublicKb(result.article);
+    });
   }
 
   /**
@@ -1160,6 +1267,103 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /** What a bulk change may hold: the owner's batch size, or `null` and the key it is missing while it is not set. */
+  bulkPolicy(): SupportBulkPolicy {
+    return this.bulkCap === null ? { cap: null, missing: SUPPORT_BULK_CAP_KEY } : { cap: this.bulkCap, missing: null };
+  }
+
+  /**
+   * One change applied to several requests, each through the path a single change takes and under its own key
+   * (`bulk:<batchKey>:<ticketId>`), so each writes its own trail row and a replayed batch changes nothing twice.
+   * A request the change does not apply to is reported `refused` with its typed code and the rest still run; one
+   * already at the asked status is `unchanged`. A blank cap refuses the whole batch `support.bulk_cap_unset`, a batch
+   * over the cap refuses `support.bulk_too_large`, and neither touches a request. Assigning needs a lead, so it is
+   * refused once up front and not once per request.
+   */
+  async bulkUpdate(input: {
+    operatorId: string;
+    batchKey: string;
+    ticketIds: readonly string[];
+    change: SupportBulkChange;
+    reason?: string;
+  }): Promise<SupportBulkResult> {
+    return withSupportSpan('support.bulkUpdate', { op: 'bulkUpdate' }, async (span) => {
+      if (this.bulkCap === null) {
+        throw new SupportError('the bulk batch size is not set', 'support.bulk_cap_unset', SUPPORT_BULK_CAP_KEY);
+      }
+      const ticketIds = [...new Set(input.ticketIds)];
+      if (ticketIds.length > this.bulkCap) {
+        throw new SupportError('the batch is larger than the desk allows', 'support.bulk_too_large');
+      }
+      if (input.change.kind === 'assign') {
+        const actor = await this.staff.get(input.operatorId);
+        if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      }
+      span.setAttribute('intafaced.support.bulk_size', ticketIds.length);
+      const results: SupportBulkResult['results'] = [];
+      for (const ticketId of ticketIds) {
+        const key = supportBulkKey(input.batchKey, ticketId);
+        try {
+          await this.bulkOne({ operatorId: input.operatorId, ticketId, key, change: input.change, reason: input.reason });
+          results.push({ ticketId, outcome: 'changed', code: null });
+        } catch (err) {
+          if (!(err instanceof SupportError)) throw err;
+          const unchanged = input.change.kind === 'status' && err.code === 'support.transition_same_status';
+          results.push({ ticketId, outcome: unchanged ? 'unchanged' : 'refused', code: unchanged ? null : err.code });
+        }
+      }
+      return { batchKey: input.batchKey, results };
+    });
+  }
+
+  private async bulkOne(input: {
+    operatorId: string;
+    ticketId: string;
+    key: string;
+    change: SupportBulkChange;
+    reason: string | undefined;
+  }): Promise<void> {
+    const { operatorId, ticketId, key, change, reason } = input;
+    if (change.kind === 'status') {
+      // Only an answer is kept: a request that was changed, or found already at the status. A refusal changed nothing,
+      // so a retry judges it afresh and never meets a half-recorded key.
+      const stateKey = `bulk-status:${key}`;
+      const fingerprint = `${operatorId}:${ticketId}:${change.status}`;
+      try {
+        await this.staff.begin(stateKey, fingerprint);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
+      const prior = await this.staff.read<{ outcome: 'changed' | 'unchanged' }>(stateKey);
+      if (prior?.outcome === 'changed') return;
+      if (prior?.outcome === 'unchanged') {
+        throw new SupportError('the request is already at that status', 'support.transition_same_status');
+      }
+      try {
+        await this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) });
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.transition_same_status') {
+          await this.staff.save(stateKey, { outcome: 'unchanged' });
+        }
+        throw err;
+      }
+      await this.staff.save(stateKey, { outcome: 'changed' });
+    } else if (change.kind === 'assign') {
+      await this.assignTo({ operatorId, ticketId, assigneeId: change.assigneeId, idempotencyKey: key });
+    } else {
+      await this.setTicketProperties({
+        operatorId,
+        ticketId,
+        priority: change.priority,
+        ...(reason ? { reason } : {}),
+        clientRequestId: key,
+      });
+    }
+  }
+
   /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
   async assignTo(input: { operatorId: string; assigneeId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
     return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
@@ -1230,34 +1434,75 @@ export class SupportService implements SupportContract {
     contentType: string;
     bodyBase64: string;
   }): Promise<AttachmentMeta> {
+    return this.attachFile(input);
+  }
+
+  /**
+   * Operator attach. The assigned operator adds a file to the ticket for its owner: the file belongs to the owner, who
+   * sees it like a comment, and `uploadedBy` names the operator. Same limits, scanner and store as the owner's attach; a
+   * ticket that is not the operator's answers like no ticket.
+   */
+  async attachAsOperator(input: {
+    operatorId: string;
+    ticketId: string;
+    clientRequestId: string;
+    contentType: string;
+    bodyBase64: string;
+  }): Promise<AttachmentMeta> {
+    const ticket = await this.store.findById(input.ticketId);
+    if (!ticket || ticket.assigneeId !== input.operatorId) throw ticketNotFound();
+    const { operatorId, ...rest } = input;
+    return this.attachFile({ ...rest, userId: ticket.userId, operatorId });
+  }
+
+  private async attachFile(input: {
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    contentType: string;
+    bodyBase64: string;
+    operatorId?: string;
+  }): Promise<AttachmentMeta> {
     return withSupportSpan('support.attach', { op: 'attach', ticketId: input.ticketId }, async () => {
       this.requireClientRequestId(input.clientRequestId);
-      const missing = missingAttachmentKey(this.attachments);
+      const desk = await this.attachmentDesk();
+      const missing = missingAttachmentKey(desk);
       if (missing) {
         throw new SupportError('attachments are not configured', 'support.attachments_unconfigured', missing);
       }
-      const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
-      if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
-        return (replay as { attachment: AttachmentMeta }).attachment;
+      if (desk.maxCount == null) {
+        throw new SupportError('attachment count is not set', 'support.attachment_count_unset', ATTACHMENT_MAX_COUNT_KEY);
       }
-
       const bytes = decodeAttachmentBody(input.bodyBase64);
       if (!bytes) throw new SupportError('attachment body is not base64', 'support.attachment_body_invalid');
-      const maxBytes = this.attachments.maxBytes!;
+      const actor = input.operatorId ?? input.userId;
+      const replay = await this.store.readReceipt('support.attach', actor, input.clientRequestId);
+      if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
+        // A reply that was lost is answered from the file as it now stands, never scanned or counted a second time.
+        const first = (replay as { attachment: AttachmentMeta }).attachment;
+        const live = await this.store.readAttachment({ userId: actor, attachmentId: first.id, asOperator: input.operatorId !== undefined });
+        const meta = live.status === 'ok' ? live.attachment : first;
+        if (meta.scanState === 'clean') return meta;
+        if (meta.scanState === 'blocked') throw scanRefused();
+        // A held file is scanned from the bytes this retry carries, so they must be the bytes it was first sent with.
+        if (bytes.byteLength !== meta.byteLength) {
+          throw new SupportError('attachment body is not the one first sent', 'support.attachment_body_invalid');
+        }
+        return this.settleScan(desk, meta, bytes);
+      }
+
+      const maxBytes = desk.maxBytes!;
       if (bytes.byteLength > maxBytes) {
         throw new SupportError('attachment exceeds the configured size', 'support.attachment_too_large');
       }
-      const allowed = this.attachments.allowedTypes!;
+      const allowed = desk.allowedTypes!;
       if (!allowed.includes(input.contentType)) {
         throw new SupportError('attachment type is not in the configured list', 'support.attachment_type_refused');
-      }
-      const verdict = await this.attachments.scanner!.scan(bytes);
-      if (verdict !== 'clean') {
-        throw new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
       }
 
       const id = randomUUID();
       const storeKey = `${input.ticketId}/${id}`;
+      // The row is written first, as `scanning`: whatever happens after this, the file is on record and is not served.
       const recorded = await this.store.recordAttachment({
         id,
         userId: input.userId,
@@ -1266,12 +1511,176 @@ export class SupportService implements SupportContract {
         storeKey,
         contentType: input.contentType,
         byteLength: bytes.byteLength,
+        maxCount: desk.maxCount,
+        ...(input.operatorId !== undefined ? { operatorId: input.operatorId } : {}),
       });
-      if (recorded.status === 'refuse') throw ticketNotFound();
-      if (!recorded.replay) {
-        await this.attachments.store!.put({ key: storeKey, bytes, contentType: input.contentType });
+      if (recorded.status === 'refuse') {
+        if (recorded.reason === 'count_reached') {
+          throw new SupportError('the request already holds its limit of files', 'support.attachment_count_reached');
+        }
+        throw ticketNotFound();
       }
-      return recorded.attachment;
+      if (recorded.attachment.scanState === 'clean') return recorded.attachment;
+      if (recorded.attachment.scanState === 'blocked') throw scanRefused();
+      return this.settleScan(desk, recorded.attachment, bytes);
+    });
+  }
+
+  /**
+   * Scans a file that is `scanning` and records the answer. The final key is written only after a clean verdict, so
+   * infected bytes are never stored under it. When the scanner cannot answer, the bytes wait under a held key
+   * (`held/<storeKey>`) that nothing serves, the row stays `scanning`, and the caller is told
+   * `support.attachment_scan_unknown`. A clean verdict writes the final key, drops the held copy, and marks the row; if the
+   * row was blocked in the meantime, the final key is purged and the file is refused. An infected verdict blocks the row
+   * and purges any held copy. A crash between the write and the mark leaves a `scanning` row that a later pass settles.
+   */
+  private async settleScan(desk: AttachmentDesk, meta: AttachmentMeta, bytes: Uint8Array): Promise<AttachmentMeta> {
+    let verdict: ScanVerdict;
+    try {
+      verdict = await desk.scanner!.scan(bytes);
+    } catch {
+      verdict = 'unknown';
+    }
+    const held = heldKey(meta.storeKey);
+    if (verdict === 'infected') {
+      await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'blocked' });
+      await desk.store!.delete(held);
+      await desk.store!.delete(meta.storeKey);
+      throw scanRefused();
+    }
+    if (verdict !== 'clean') {
+      await desk.store!.put({ key: held, bytes, contentType: meta.contentType });
+      throw new SupportError('the scanner could not say whether the attachment is safe', 'support.attachment_scan_unknown');
+    }
+    await desk.store!.put({ key: meta.storeKey, bytes, contentType: meta.contentType });
+    const settled = await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'clean' });
+    if (!settled) {
+      await desk.store!.delete(meta.storeKey);
+      throw ticketNotFound();
+    }
+    if (settled.scanState === 'blocked') {
+      await desk.store!.delete(meta.storeKey);
+      await desk.store!.delete(held);
+      throw scanRefused();
+    }
+    await desk.store!.delete(held);
+    return settled;
+  }
+
+  /**
+   * Scans again the files a crash or a scanner outage left `scanning`, oldest first, at most `limit`. A file whose bytes are
+   * not in the store (the crash came before they were written) is left held: nothing here can invent them, and the owner's
+   * retry under the same request id writes them. Returns how many files were settled.
+   */
+  async rescanHeldAttachments(limit: number): Promise<{ clean: number; blocked: number; held: number }> {
+    const out = { clean: 0, blocked: 0, held: 0 };
+    const desk = await this.attachmentDesk();
+    if (missingAttachmentKey(desk)) return out;
+    for (const meta of await this.store.listScanningAttachments(limit)) {
+      // Bytes a crash left under the final key were never marked clean, so they are scanned again like held ones.
+      const object = (await desk.store!.get(heldKey(meta.storeKey))) ?? (await desk.store!.get(meta.storeKey));
+      if (!object) {
+        out.held += 1;
+        continue;
+      }
+      try {
+        const settled = await this.settleScan(desk, meta, object.bytes);
+        if (settled.scanState === 'clean') out.clean += 1;
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.attachment_scan_refused') out.blocked += 1;
+        else if (err instanceof SupportError && err.code === 'support.attachment_scan_unknown') out.held += 1;
+        else throw err;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * One stored file's bytes, to its owner or to the operator the ticket is assigned to, and only when the scanner said
+   * clean. Someone else's file answers exactly like no file. A file that is still scanning is held with
+   * `support.attachment_scan_unknown`, a blocked file is never served, and the content type is fixed here, never the uploader's.
+   */
+  async attachmentDownload(input: { userId: string; attachmentId: string; asOperator?: boolean }): Promise<SupportAttachmentDownload> {
+    return withSupportSpan('support.attachmentDownload', { op: 'attachmentDownload' }, async () => {
+      const result = await this.store.readAttachment({
+        userId: input.userId,
+        attachmentId: input.attachmentId,
+        asOperator: input.asOperator === true,
+      });
+      if (result.status === 'refuse') throw ticketNotFound();
+      const meta = result.attachment;
+      if (meta.scanState === 'blocked') throw scanRefused();
+      if (meta.scanState !== 'clean') {
+        throw new SupportError('the attachment has not been scanned yet', 'support.attachment_scan_unknown');
+      }
+      const desk = await this.attachmentDesk();
+      const missing = missingAttachmentKey(desk);
+      if (missing) throw new SupportError('attachments are not configured', 'support.attachments_unconfigured', missing);
+      const object = await desk.store!.get(meta.storeKey);
+      if (!object) throw ticketNotFound();
+      return {
+        id: meta.id,
+        contentType: SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
+        disposition: 'attachment',
+        byteLength: object.bytes.byteLength,
+        bodyBase64: Buffer.from(object.bytes).toString('base64'),
+      };
+    });
+  }
+
+  /**
+   * The desk an attach runs against: the deployment's store and scanner, and each limit from the deployment when it
+   * supplied one and otherwise from the owner's settings. A limit neither has stays blank.
+   */
+  private async attachmentDesk(): Promise<AttachmentDesk & { maxCount: number | null }> {
+    const limits = await this.attachmentSettings.get();
+    return {
+      store: this.attachments.store,
+      scanner: this.attachments.scanner,
+      maxBytes: this.attachments.maxBytes ?? limits.maxBytes,
+      allowedTypes: this.attachments.allowedTypes ?? limits.allowedTypes,
+      maxCount: this.attachments.maxCount ?? limits.maxCount,
+    };
+  }
+
+  /** The limits as a customer or an operator reads them, with the first piece an attach is missing. */
+  async attachmentLimits(): Promise<SupportAttachmentLimits> {
+    const desk = await this.attachmentDesk();
+    const limits = await this.attachmentSettings.get();
+    return {
+      maxBytes: desk.maxBytes,
+      allowedTypes: desk.allowedTypes === null ? null : [...desk.allowedTypes],
+      maxCount: desk.maxCount,
+      missing: (missingAttachmentKey(desk) ??
+        (desk.maxCount == null ? ATTACHMENT_MAX_COUNT_KEY : null)) as SupportAttachmentLimits['missing'],
+      revision: limits.revision,
+      updatedAt: limits.updatedAt,
+    };
+  }
+
+  /** Each of the five pieces an attach needs and whether it is set, in the order it needs them. */
+  async attachmentStatus(): Promise<SupportAttachmentStatus> {
+    const limits = await this.attachmentLimits();
+    const desk = await this.attachmentDesk();
+    const set: Record<SupportAttachmentKey, boolean> = {
+      'support.attachment_store': desk.store != null,
+      'support.malware_scanner': desk.scanner != null,
+      'support.attachment_max_bytes': limits.maxBytes !== null,
+      'support.attachment_allowed_types': limits.allowedTypes !== null,
+      'support.attachment_max_count': limits.maxCount !== null,
+    };
+    return { pieces: SUPPORT_ATTACHMENT_KEYS.map((key) => ({ key, set: set[key] })), limits };
+  }
+
+  /**
+   * The files on one ticket with their scan state, to its owner or to an operator who may see the ticket. A ticket the
+   * caller may not see answers as no such ticket. The page size is the caller's and a blank one refuses.
+   */
+  async listAttachments(input: { userId: string; ticketId: string; asOperator?: boolean; limit?: number }): Promise<AttachmentMeta[]> {
+    return withSupportSpan('support.ticketAttachments', { op: 'ticketAttachments', ticketId: input.ticketId }, async () => {
+      const limit = assertListAttachmentsLimit(input.limit);
+      await this.getTicket({ userId: input.userId, ticketId: input.ticketId, asOperator: input.asOperator });
+      return this.store.listAttachmentsFor(input.ticketId, limit);
     });
   }
 
@@ -1289,9 +1698,20 @@ export class SupportService implements SupportContract {
   }
 
   /** One vote per account per published version. A repeat returns the first vote and updates nothing. */
-  async kbFeedback(input: { userId: string; id: string; helpful: boolean; clientRequestId: string }): Promise<KbFeedbackVote> {
+  async kbFeedback(input: {
+    userId: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+  }): Promise<KbFeedbackVote> {
     return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
       this.requireClientRequestId(input.clientRequestId);
+      // A vote on an article the reader may not see answers like a vote on a missing one.
+      const article = await this.store.getPublishedKb(input.id);
+      if (article && !kbAudienceVisibleTo(article.audience, input.viewer ?? ANONYMOUS_KB_VIEWER)) {
+        throw new SupportError('article is not published', 'support.kb.not_published');
+      }
       const result = await this.store.recordKbFeedback({
         userId: input.userId,
         articleId: input.id,
@@ -1304,9 +1724,9 @@ export class SupportService implements SupportContract {
   }
 
   /** Published articles sharing a category or tag. Never the article itself. */
-  async kbRelated(input: { id: string }): Promise<SupportKbArticle[]> {
+  async kbRelated(input: { id: string; viewer?: SupportKbViewer }): Promise<SupportKbArticle[]> {
     return withSupportSpan('support.kbRelated', { op: 'kbRelated' }, async () => {
-      const catalog = await this.store.listPublishedKb();
+      const catalog = this.visibleKb(await this.store.listPublishedKb(), input.viewer ?? ANONYMOUS_KB_VIEWER);
       return relatedPublished(input.id, catalog);
     });
   }

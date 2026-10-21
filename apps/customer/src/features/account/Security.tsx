@@ -11,6 +11,8 @@ import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
 import { Devices } from './Devices';
+import { CloseAccount } from './CloseAccount';
+import { FreezeAccount } from './FreezeAccount';
 import { securityCopy as copy } from './security-copy';
 import {
   credentialId,
@@ -691,6 +693,8 @@ export function Security() {
           <PasskeyNames />
           <Authenticator />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
+          <FreezeAccount />
+          <CloseAccount />
           <section className="security__sessions security__card">
             {sessionBlocked && (
               <p className="muted">

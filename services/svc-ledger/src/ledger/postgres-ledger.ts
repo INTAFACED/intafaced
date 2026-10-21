@@ -35,6 +35,7 @@ import {
   type HistoryRange,
 } from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
+import type { FeeRevenueRow } from './fee-revenue.js';
 
 /**
  * THE LEDGER, on Postgres.
@@ -393,6 +394,51 @@ export class PostgresLedger implements LedgerClient {
       direction: r.direction,
       amount: parseStoredAmount(r.amount, 'ledger_entries.amount'),
       postedAt: r.posted_at,
+    }));
+  }
+
+  /**
+   * Where this ledger stands, for the joint restore (OPS-ledger-desk-05). A READ:
+   * no lock and no write, so it can never delay a post. The position is the
+   * chain tip's `seq` and the integrity is its hash; `lastWriteAt` is the newest
+   * `posted_at`, so a post after the operator's cut-off is visible.
+   */
+  async restoreWatermark(): Promise<{ position: string; integrity: string | null; lastWriteAt: Date | null }> {
+    const [tip] = await this.sql<Array<{ seq: string; hash: string | null }>>`
+      SELECT seq::text AS seq, hash FROM chain_tip WHERE id = true`;
+    if (!tip) throw new LedgerError('chain_tip is missing: the ledger is not initialised', 'ledger.uninitialised');
+    const [last] = await this.sql<Array<{ at: Date | null }>>`SELECT MAX(posted_at) AS at FROM ledger_tx`;
+    return { position: tip.seq, integrity: tip.hash, lastWriteAt: last?.at ?? null };
+  }
+
+  /**
+   * Fee revenue per asset over one window (see `fee-revenue.ts`). A READ: no lock,
+   * no write, no path into `post()`. Debits to `fees:*` house accounts are fees
+   * collected, credits out of them are fees returned. One row per asset that had
+   * a movement; an asset with none is absent. The sums run in the database, so
+   * nothing is buffered and no row cap can clip the answer.
+   */
+  async feeRevenue(range: HistoryRange): Promise<FeeRevenueRow[]> {
+    const rows = await this.sql<Array<{ asset_id: string; collected: string; returned: string }>>`
+      SELECT a.asset_id,
+             COALESCE(SUM(e.amount) FILTER (WHERE e.direction = 'debit'), 0)::text  AS collected,
+             COALESCE(SUM(e.amount) FILTER (WHERE e.direction = 'credit'), 0)::text AS returned
+        FROM ledger_entries e
+        JOIN accounts a   ON a.id = e.account_id
+        JOIN ledger_tx t  ON t.id = e.tx_id
+       WHERE a.owner_type = 'house'::owner_type
+         AND a.kind       = 'available'::account_kind
+         AND a.purpose    = ''
+         AND a.owner_id LIKE 'fees:%'
+         AND t.posted_at >= ${range.from}
+         AND t.posted_at <  ${range.to}
+       GROUP BY a.asset_id
+       ORDER BY a.asset_id
+    `;
+    return rows.map((r) => ({
+      assetId: r.asset_id,
+      collected: parseStoredAmount(r.collected, 'ledger_entries.amount'),
+      returned: parseStoredAmount(r.returned, 'ledger_entries.amount'),
     }));
   }
 

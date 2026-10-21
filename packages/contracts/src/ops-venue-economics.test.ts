@@ -58,4 +58,27 @@ describe('venue economics contract', () => {
     };
     expect(opsVenueEconomicsSchema.parse(report)).toEqual(report);
   });
+
+  it('accepts a net by asset and a ledger fee revenue block, and refuses a number', () => {
+    const base = {
+      asOf: '2026-11-02T00:00:00Z',
+      period: '2026-10',
+      revenue: { status: 'unavailable', code: 'ops.warehouse_unwired', message: 'x' },
+      costs: [],
+      completeness: { status: 'complete' },
+      costTotals: { partial: false, byAsset: [] },
+    };
+    const ok = {
+      ...base,
+      feeRevenue: { status: 'ok', assets: [{ assetId: 'USDT', collected: '12.5', returned: '0.5', net: '12' }] },
+      net: { status: 'ok', byAsset: [{ asset: 'USDT', revenue: '12', costs: '15', net: '-3' }] },
+    };
+    expect(opsVenueEconomicsSchema.safeParse(ok).success).toBe(true);
+    expect(opsVenueEconomicsSchema.safeParse({ ...base, net: { status: 'unavailable', reason: 'costs_incomplete' } }).success).toBe(true);
+    expect(
+      opsVenueEconomicsSchema.safeParse({ ...ok, net: { status: 'ok', byAsset: [{ asset: 'USDT', revenue: 12, costs: '1', net: '11' }] } })
+        .success,
+    ).toBe(false);
+    expect(opsVenueEconomicsSchema.safeParse({ ...base, net: { status: 'unavailable', reason: 'guess' } }).success).toBe(false);
+  });
 });

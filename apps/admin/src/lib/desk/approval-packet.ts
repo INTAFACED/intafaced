@@ -1,4 +1,5 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
+import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 
 /**
  * The request a founder hands to the other founder.
@@ -34,7 +35,30 @@ export type DeskRequest =
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
-  | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string };
+  | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
+  | {
+      readonly kind: 'ops.venue_cost.record';
+      readonly period: string;
+      readonly category: CostCategory;
+      readonly amount: string;
+      readonly asset: string;
+      readonly reason: string;
+    }
+  /**
+   * Protocol listing decisions (svc-ops `protocolListing`). A hide or delist carries an owner-published reason code and a free-text
+   * reason, both signed by the approver; a restore carries neither. A hide is a listing decision, not an on-chain pause.
+   */
+  | {
+      readonly kind: 'protocol.pool.hide';
+      readonly chainId: number;
+      readonly poolAddress: string;
+      readonly reasonCode: string;
+      readonly reason: string;
+    }
+  | { readonly kind: 'protocol.pool.restore'; readonly chainId: number; readonly poolAddress: string }
+  | { readonly kind: 'protocol.market.delist'; readonly symbol: string; readonly reasonCode: string; readonly reason: string }
+  | { readonly kind: 'protocol.market.restore'; readonly symbol: string };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -44,6 +68,10 @@ export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
 /** svc-identity's signing-key id, and the sorted comma list of ids a remove-old names (`auth-key-ring.ts`). */
 const AUTH_KEY_ID = /^[a-z0-9][a-z0-9._-]{0,31}$/;
+const POOL_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
+/** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
+const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export type DeskRequestKind = DeskRequest['kind'];
@@ -143,7 +171,55 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       return null;
     return { kind: 'identity.auth_key.remove_old', keyIds: raw.keyIds };
   }
+  // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
+  if (raw.kind === 'ops.venue_cost.record') {
+    if (keys !== 'amount,asset,category,kind,period,reason') return null;
+    if (typeof raw.period !== 'string' || !PERIOD.test(raw.period)) return null;
+    if (!isCategory(raw.category)) return null;
+    if (typeof raw.amount !== 'string' || !COST_AMOUNT.test(raw.amount)) return null;
+    if (typeof raw.asset !== 'string' || !COST_ASSET.test(raw.asset) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'ops.venue_cost.record',
+      period: raw.period,
+      category: raw.category,
+      amount: raw.amount,
+      asset: raw.asset,
+      reason: raw.reason,
+    };
+  }
+  if (raw.kind === 'protocol.pool.hide') {
+    if (keys !== 'chainId,kind,poolAddress,reason,reasonCode') return null;
+    if (!isChainId(raw.chainId) || typeof raw.poolAddress !== 'string' || !POOL_ADDRESS.test(raw.poolAddress)) return null;
+    if (typeof raw.reasonCode !== 'string' || !REASON_CODE.test(raw.reasonCode) || !validReason(raw.reason)) return null;
+    return {
+      kind: 'protocol.pool.hide',
+      chainId: raw.chainId,
+      poolAddress: raw.poolAddress,
+      reasonCode: raw.reasonCode,
+      reason: raw.reason,
+    };
+  }
+  if (raw.kind === 'protocol.pool.restore') {
+    if (keys !== 'chainId,kind,poolAddress') return null;
+    if (!isChainId(raw.chainId) || typeof raw.poolAddress !== 'string' || !POOL_ADDRESS.test(raw.poolAddress)) return null;
+    return { kind: 'protocol.pool.restore', chainId: raw.chainId, poolAddress: raw.poolAddress };
+  }
+  if (raw.kind === 'protocol.market.delist') {
+    if (keys !== 'kind,reason,reasonCode,symbol') return null;
+    if (typeof raw.symbol !== 'string' || !MARKET_SYMBOL.test(raw.symbol)) return null;
+    if (typeof raw.reasonCode !== 'string' || !REASON_CODE.test(raw.reasonCode) || !validReason(raw.reason)) return null;
+    return { kind: 'protocol.market.delist', symbol: raw.symbol, reasonCode: raw.reasonCode, reason: raw.reason };
+  }
+  if (raw.kind === 'protocol.market.restore') {
+    if (keys !== 'kind,symbol') return null;
+    if (typeof raw.symbol !== 'string' || !MARKET_SYMBOL.test(raw.symbol)) return null;
+    return { kind: 'protocol.market.restore', symbol: raw.symbol };
+  }
   return null;
+}
+
+function isChainId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
 
 export function isApprovalId(value: unknown): value is string {
@@ -236,6 +312,16 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'ops.venue_cost.record':
+      return `RECORD COST ${request.category} ${request.period}`;
+    case 'protocol.pool.hide':
+      return `HIDE POOL ${request.poolAddress.slice(0, 10)}`;
+    case 'protocol.pool.restore':
+      return `RESTORE POOL ${request.poolAddress.slice(0, 10)}`;
+    case 'protocol.market.delist':
+      return `DELIST ${request.symbol}`;
+    case 'protocol.market.restore':
+      return `RELIST ${request.symbol}`;
   }
 }
 
@@ -276,6 +362,16 @@ export function describeRequest(request: DeskRequest): string {
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'ops.venue_cost.record':
+      return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
+    case 'protocol.pool.hide':
+      return `Hide pool ${request.poolAddress} on chain ${request.chainId} (reason code ${request.reasonCode}: "${request.reason}"). It leaves INTAFACED's routing and default pool list and shows "Hidden by INTAFACED". This is a listing decision only: the pool has no admin and no pause, and stays usable by a direct call.`;
+    case 'protocol.pool.restore':
+      return `Restore pool ${request.poolAddress} on chain ${request.chainId}: it is listed and routed again. Nothing on chain changes.`;
+    case 'protocol.market.delist':
+      return `Delist market ${request.symbol} (reason code ${request.reasonCode}: "${request.reason}"). The DEX stops quoting it. This is a listing decision only; nothing on chain changes.`;
+    case 'protocol.market.restore':
+      return `Relist market ${request.symbol}: the DEX quotes it again.`;
   }
 }
 
@@ -287,6 +383,8 @@ export function requestReason(request: DeskRequest): string | null {
     case 'academy.residency.decide':
     case 'identity.auth_key.rotate':
     case 'identity.auth_key.remove_old':
+    case 'protocol.pool.restore':
+    case 'protocol.market.restore':
       return null;
     default:
       return request.reason;

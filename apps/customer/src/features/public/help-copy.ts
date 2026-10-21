@@ -51,6 +51,10 @@ export const helpCopy = defineCopy(
     retryCatalogue: 'Trying again reloads the same list of answers.',
     notReturned: 'No answer found',
     notReturnedBody: 'We couldn’t find a published article at this address. You can browse other answers or open support.',
+    signInTitle: 'This answer may be for signed-in customers',
+    signInBody:
+      'Some answers are only shown after you sign in. Sign in and this address opens again, or browse the answers open to everyone.',
+    signInAction: 'Sign in',
     invalid: 'This Help address is invalid',
     invalidBody: 'Use a link to a published answer, or browse the available answers.',
     actionRequiredTitle: 'Action required',
@@ -116,6 +120,10 @@ export const helpCopy = defineCopy(
       retryCatalogue: 'Al intentarlo de nuevo se vuelve a cargar la misma lista de respuestas.',
       notReturned: 'No se encontró ninguna respuesta',
       notReturnedBody: 'No encontramos un artículo publicado en esta dirección. Puedes ver otras respuestas o abrir el soporte.',
+      signInTitle: 'Esta respuesta puede ser para clientes con sesión iniciada',
+      signInBody:
+        'Algunas respuestas solo se muestran después de iniciar sesión. Inicia sesión y esta dirección se abre de nuevo, o consulta las respuestas abiertas a todos.',
+      signInAction: 'Iniciar sesión',
       invalid: 'Esta dirección de Ayuda no es válida',
       invalidBody: 'Usa un enlace a una respuesta publicada o consulta las respuestas disponibles.',
       actionRequiredTitle: 'Acción requerida',
@@ -182,6 +190,10 @@ export const helpCopy = defineCopy(
       notReturned: 'Aucune réponse trouvée',
       notReturnedBody:
         'Nous n’avons pas trouvé d’article publié à cette adresse. Vous pouvez parcourir d’autres réponses ou ouvrir l’assistance.',
+      signInTitle: 'Cette réponse peut être réservée aux clients connectés',
+      signInBody:
+        'Certaines réponses ne s’affichent qu’après connexion. Connectez-vous et cette adresse s’ouvre de nouveau, ou parcourez les réponses ouvertes à tous.',
+      signInAction: 'Se connecter',
       invalid: 'Cette adresse d’Aide est invalide',
       invalidBody: 'Utilisez un lien vers une réponse publiée ou parcourez les réponses disponibles.',
       actionRequiredTitle: 'Action requise',

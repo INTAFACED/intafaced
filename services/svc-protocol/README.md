@@ -294,3 +294,11 @@ Constant-product pools under `contracts/amm/`. Permissionless tRPC: `amm.quoteEx
 ### Networks, deployments and capabilities
 
 `networks.list` serves the owner-published registry in `deployments/networks.json`: a network is `testnet`, `local` or `unconfirmed`, and every field the owner has not published is null (a registry that names `mainnet` or `intachain` refuses to load with `protocol.network_kind_forbidden`). `deployments.list({chainId})` serves `deployments/base-sepolia.json` plus the router versions in `deployments/router-versions.json` (owner-set `sunsetAt`, null = none); a chain with no record is `NOT_FOUND`. `capabilities({chainId})` probes the configured chain's node for the pending tag and the bundler (`PROTOCOL_BUNDLER_URL` within `PROTOCOL_PEER_TIMEOUT_MS`; unset means not probed) and never reports preconfirmations as offered. There is no faucet drip: this plane holds no key.
+
+## Protocol ops desk reads (`protocol.ops`)
+
+Founder and compliance reads for the Protocol ops desk (D-order-controls-04): `ops.metrics` (`admin:read`) and `ops.labels` (`admin:compliance`).
+
+The hide, delist and restore WRITES are not here. This plane holds no platform credential, so it cannot consume `svc-identity`'s four-eyes approval; those actions live in `svc-ops`, and this service and `svc-dex` read the resulting hide list read-only.
+
+Metrics: quote counts, refusal counts by code and distinct quote wallets are svc-dex's to count and read `could_not_load` (`protocol.ops_source_unavailable`) until svc-dex publishes them; a source that fails is never shown as zero. `PROTOCOL_OPS_WINDOW_SECONDS` is the window when the caller names none; blank refuses `owner.decision`. `ops.labels` covers what this service serves (network names and kinds, the configured chain label, the audited flag); the admin app adds the customer and admin copy and runs the same `labelVerdict`.

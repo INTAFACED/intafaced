@@ -1,0 +1,73 @@
+/* Custody approvals. One column on a phone; two from 56rem. Tokens only. */
+.co-page {
+  display: grid;
+  gap: 16px;
+  padding: 12px;
+  max-width: 72rem;
+  margin: 0 auto;
+}
+.co-grid {
+  display: grid;
+  gap: 16px;
+}
+@media (min-width: 56rem) {
+  .co-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.co-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.co-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--if-border);
+  border-radius: var(--if-radius-md);
+  background: var(--if-surface);
+}
+.co-card[aria-current='true'] {
+  border-color: var(--if-phosphor);
+}
+.co-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.co-facts {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.co-facts dt {
+  color: var(--if-text-muted);
+}
+.co-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--if-font-mono);
+}
+.co-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.co-actions .adm-btn {
+  min-height: 44px;
+}
+.co-hash {
+  font-family: var(--if-font-mono);
+  overflow-wrap: anywhere;
+}
+.co-form {
+  display: grid;
+  gap: 8px;
+}

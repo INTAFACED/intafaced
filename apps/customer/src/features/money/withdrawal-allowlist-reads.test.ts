@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../../shared/api';
 import { createAllowlistReads, requestedChange } from './withdrawal-allowlist-reads';
 
@@ -113,5 +113,49 @@ describe('withdrawal allowlist reads', () => {
     expect(result.ok).toBe(true);
     expect(bodies[0]).toContain('allowlist.cancel');
     expect(bodies[0]).toContain(`"changeId":"${id}"`);
+  });
+});
+
+describe('the owner calls that need the withdrawal token', () => {
+  const ownerId = '11111111-1111-4111-8111-111111111111';
+  const changeRow = {
+    id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    userId: ownerId,
+    op: 'add',
+    entryId: null,
+    subject: {},
+    requestHash: 'a'.repeat(64),
+    teamAccountId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    requiredApprovals: 2,
+    approvalCount: 0,
+    approvedByMe: false,
+    status: 'waiting',
+    failureCode: null,
+    createdAt: '2026-10-20T09:20:00Z',
+    decidedAt: null,
+  };
+  const make = () => {
+    const mutate = vi.fn().mockResolvedValue({ ok: true, data: changeRow });
+    return { mutate, reads: createAllowlistReads({ mutate } as never, ownerId, () => true) };
+  };
+
+  it('sends each one with the confirmation token as its own bearer and the request reference', async () => {
+    const { mutate, reads } = make();
+    await reads.proposeAdd({ group: 'external_wallet', assetId: 'USDT', address: '0xabc', label: 'Cold', clientRef: 'r1' }, 'tok');
+    await reads.proposeDelete('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'r2', 'tok');
+    await reads.proposePolicy({ enabled: true, assetId: 'USDT', maxAmount: '10', clientRef: 'r3' }, 'tok');
+    expect(mutate.mock.calls.map((c: unknown[]) => c[1])).toEqual([
+      'allowlist.proposeAdd',
+      'allowlist.proposeDelete',
+      'allowlist.proposePolicy',
+    ]);
+    for (const call of mutate.mock.calls) expect(call[4]).toEqual({ bearer: 'tok' });
+  });
+
+  it('sends nothing when the account changed', async () => {
+    const mutate = vi.fn();
+    const reads = createAllowlistReads({ mutate } as never, ownerId, () => false);
+    expect(await reads.setMode(true, 'r', 'tok')).toMatchObject({ ok: false });
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

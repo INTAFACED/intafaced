@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   getKbArticleInputSchema,
   publicKbArticleOrNull,
+  kbAudienceVisibleTo,
+  setKbAudienceInputSchema,
+  supportKbAudienceSchema,
   publishedKbArticles,
   createTicketInputSchema,
   searchKbInputSchema,
@@ -235,5 +238,33 @@ describe('ticket lifecycle (SP-tickets-04)', () => {
   it('the owner-read ticket schema carries no desk lifecycle fact', () => {
     const shape = Object.keys((supportTicketSchema as unknown as { shape: Record<string, unknown> }).shape);
     for (const key of ['waitingOn', 'waitingSince', 'firstPublicReplyAt']) expect(shape).not.toContain(key);
+  });
+});
+
+describe('help article audiences (SP-help-centre-02)', () => {
+  const visitor = { signedIn: false, staff: false };
+  const customer = { signedIn: true, staff: false };
+  const desk = { signedIn: true, staff: true };
+
+  it('shows each audience to exactly the readers it names', () => {
+    expect(kbAudienceVisibleTo('public', visitor)).toBe(true);
+    expect(kbAudienceVisibleTo(undefined, visitor)).toBe(true);
+    expect(kbAudienceVisibleTo('signed_in', visitor)).toBe(false);
+    expect(kbAudienceVisibleTo('signed_in', customer)).toBe(true);
+    expect(kbAudienceVisibleTo('staff', visitor)).toBe(false);
+    expect(kbAudienceVisibleTo('staff', customer)).toBe(false);
+    expect(kbAudienceVisibleTo('staff', desk)).toBe(true);
+  });
+
+  it('closes the audience list and parses an article without one as before', () => {
+    expect(supportKbAudienceSchema.safeParse('everyone').success).toBe(false);
+    expect(supportKbArticleSchema.safeParse({ id: 'a', titleKey: 't', bodyKey: 'b' }).success).toBe(true);
+    expect(supportKbArticleSchema.safeParse({ id: 'a', titleKey: 't', bodyKey: 'b', audience: 'staff' }).success).toBe(true);
+  });
+
+  it('setKbAudience needs a positive base revision and a known audience', () => {
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'signed_in' }).success).toBe(true);
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 0, audience: 'signed_in' }).success).toBe(false);
+    expect(setKbAudienceInputSchema.safeParse({ id: 'a', baseRevision: 1, audience: 'all' }).success).toBe(false);
   });
 });

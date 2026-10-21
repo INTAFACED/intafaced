@@ -240,6 +240,12 @@ export class VenueExecutionRefused extends Error {
  * not reach the venue" — an empty book is a real market state (nothing resting)
  * and conflating the two turns an outage into a silent no-liquidity answer.
  */
+/** A pool is named by chain and address, the same pair the hide list uses. */
+export interface PoolRef {
+  readonly chainId: number;
+  readonly address: string;
+}
+
 export interface QuoteVenue extends LiquiditySource {
   /**
    * Taker fee in basis points. A protocol/venue parameter, not a market
@@ -255,6 +261,11 @@ export interface QuoteVenue extends LiquiditySource {
    * nobody can audit.
    */
   readonly settlementCost: Amount;
+  /**
+   * The pool this venue quotes, when it is one. A pool INTAFACED has hidden is dropped from routing; a venue with no `pool` cannot
+   * be hidden by pool.
+   */
+  readonly pool?: PoolRef;
 
   /** The book, plus when we read it. Throws `VenueUnavailableError`. */
   depth(symbol: string, limit: number): Promise<TimestampedBook>;

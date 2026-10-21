@@ -1,10 +1,12 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import type { PayCustodyDepositStatus } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
 import {
   unsetCustodyDepositPort,
   type CustodyDepositAddress,
   type CustodyDepositPort,
+  type CustodyDepositRecord,
   type CustodyPendingDeposit,
   type DepositAsset,
   type DepositNetwork,
@@ -44,7 +46,7 @@ export interface PendingDepositView {
   networkId: string;
   amount: string;
   confirmations: number;
-  confirmationsRequired: number;
+  confirmationsRequired: number | null;
 }
 
 interface AddressRow {
@@ -126,6 +128,35 @@ export class DepositService {
       throw new BankError('Deposit address was not stored', 'bank.deposit_custody_unset');
     }
     return toAddress(raced[0]);
+  }
+
+  /** The customer's own deposit history, newest first. A page, with the true total so no row is dropped silently. */
+  async list(
+    userId: string,
+    filters: {
+      assetId?: string;
+      networkId?: string;
+      status?: PayCustodyDepositStatus;
+      txId?: string;
+      address?: string;
+      offset: number;
+      limit: number;
+    },
+  ): Promise<{ items: CustodyDepositRecord[]; total: number }> {
+    const page = this.custody.records
+      ? await this.custody.records({
+          userId,
+          assetId: filters.assetId,
+          networkId: filters.networkId,
+          statuses: filters.status ? [filters.status] : undefined,
+          txHash: filters.txId,
+          address: filters.address,
+          offset: filters.offset,
+          limit: filters.limit,
+        })
+      : null;
+    if (page === null) refuseCustody('Deposit history is not published');
+    return { items: [...page.items], total: page.total };
   }
 
   async pending(userId: string): Promise<{ items: PendingDepositView[] }> {
@@ -258,7 +289,7 @@ function validatePending(row: CustodyPendingDeposit): PendingDepositView {
   if (!Number.isInteger(row.confirmations) || row.confirmations < 0) {
     throw new BankError('Custody pending confirmations are not a non-negative integer', 'bank.deposit_catalogue_invalid');
   }
-  if (!Number.isInteger(row.confirmationsRequired) || row.confirmationsRequired < 0) {
+  if (row.confirmationsRequired !== null && (!Number.isInteger(row.confirmationsRequired) || row.confirmationsRequired < 0)) {
     throw new BankError('Custody pending confirmation target is not a non-negative integer', 'bank.deposit_catalogue_invalid');
   }
   return {

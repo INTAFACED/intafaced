@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
@@ -32,6 +33,9 @@ export default async function LedgerOpsPage() {
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
+      <p>
+        <Link href="/restore">Joint restore</Link>
+      </p>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
+import Link from 'next/link';
 import { OpsDesk } from '@/components/ops-desk';
 import { DESKS } from '@/lib/ops-desk/catalog';
 import { loadDesk } from '@/lib/ops-desk/server';
@@ -11,5 +12,12 @@ import { loadDesk } from '@/lib/ops-desk/server';
 export default async function Page() {
   requireModulePage('more-ops');
   const founder = await requireFounderPage();
-  return <OpsDesk spec={DESKS.more} initial={await loadDesk(founder, 'more')} userId={founder.session.userId} />;
+  return (
+    <>
+      <nav aria-label="More modules rooms">
+        <Link href="/more-ops/venue-economics">Venue unit economics</Link>
+      </nav>
+      <OpsDesk spec={DESKS.more} initial={await loadDesk(founder, 'more')} userId={founder.session.userId} />
+    </>
+  );
 }

@@ -56,6 +56,29 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+describe('an article the reader may not see', () => {
+  const asNull = () => {
+    world.query = async (_module, procedure) => (procedure === 'getKb' ? { ok: true, data: null } : { ok: true, data: [] });
+  };
+  it('a signed-out reader gets the sign-in prompt, which names no article text', async () => {
+    asNull();
+    history.replaceState(null, '', '/helpdetail?id=kb-staff-only');
+    await mount();
+    const prompt = host.querySelector('[data-testid="help-sign-in"]');
+    expect(prompt).not.toBeNull();
+    expect(prompt?.querySelector('a')?.getAttribute('href')).toBe('/login?redirect=%2Fhelpdetail%3Fid%3Dkb-staff-only');
+    expect(prompt?.textContent).not.toContain('kb-staff-only');
+  });
+  it('a signed-in reader reads it as not found, with no sign-in prompt', async () => {
+    world.signedIn = true;
+    asNull();
+    history.replaceState(null, '', '/helpdetail?id=kb-staff-only');
+    await mount();
+    expect(host.querySelector('[data-testid="help-sign-in"]')).toBeNull();
+    expect(host.textContent).toContain('No answer found');
+  });
+});
+
 describe('the help centre front door', () => {
   it('a signed-out visitor who presses the request button sees the sign-in prompt, and the search text is kept', async () => {
     await mount();

@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { createApiClient } from '../../shared/api';
 import { deskCopy } from './support-desk-copy';
-import { attachFile, closeRequest, rateRequest, readRating, readRelated, sendArticleFeedback } from './support-calls';
+import {
+  attachFile,
+  closeRequest,
+  downloadFile,
+  rateRequest,
+  readAttachLimits,
+  readRating,
+  readRelated,
+  readTicketFiles,
+  sendArticleFeedback,
+} from './support-calls';
 
 const ME = '11111111-1111-4111-8111-111111111111';
 const OTHER = '99999999-9999-4999-8999-999999999999';
@@ -124,7 +134,7 @@ describe('attach', () => {
     ownerId: ME,
     contentType: 'image/png',
     byteLength: 3,
-    storeKey: 'k',
+    scanState: 'clean',
     createdAt: '2026-10-17T02:00:00.000Z',
     ...over,
   });
@@ -184,5 +194,52 @@ describe('help article feedback and related articles', () => {
     const { api, calls } = harness(ok([{ id: 'kb-b', titleKey: 't', bodyKey: 'b', version: 1 }]));
     expect(await readRelated(api, 'kb-a')).toMatchObject({ ok: true, data: [{ id: 'kb-b' }] });
     expect(calls[0]!.url).toBe(`/api/support/trpc/kbRelated?input=${encodeURIComponent('{"id":"kb-a"}')}`);
+  });
+});
+
+describe('attachment limits, files and download', () => {
+  const FILE = '44444444-4444-4444-8444-444444444444';
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: FILE,
+    ticketId: T1,
+    ownerId: ME,
+    contentType: 'image/png',
+    byteLength: 3,
+    scanState: 'scanning',
+    createdAt: '2026-10-17T02:00:00.000Z',
+    ...over,
+  });
+  const blank = { maxBytes: null, allowedTypes: null, maxCount: null, missing: 'support.attachment_store', revision: 0, updatedAt: null };
+
+  it('reads blank limits as null and refuses a shape with extra or missing keys', async () => {
+    expect(await readAttachLimits(harness(ok(blank)).api)).toMatchObject({ ok: true, data: { maxBytes: null, allowedTypes: null } });
+    expect(await readAttachLimits(harness(ok({ ...blank, extra: 1 })).api)).toMatchObject({ ok: false });
+    expect(await readAttachLimits(harness(ok({ maxBytes: 5 })).api)).toMatchObject({ ok: false });
+  });
+
+  it('asks for a page size, and believes only files of this request and this person', async () => {
+    const { api, calls } = harness(ok([row(), row({ id: '55555555-5555-4555-8555-555555555555', scanState: 'clean' })]));
+    const got = await readTicketFiles(api, T1, ME, 100);
+    expect(got).toMatchObject({ ok: true });
+    expect(calls[0]!.url).toContain('/api/support/trpc/ticketAttachments');
+    expect(decodeURIComponent(calls[0]!.url)).toContain('"limit":100');
+    expect(await readTicketFiles(harness(ok([row({ ticketId: T2 })])).api, T1, ME, 100)).toMatchObject({ ok: false });
+    expect(await readTicketFiles(harness(ok([row({ ownerId: OTHER })])).api, T1, ME, 100)).toMatchObject({ ok: false });
+    expect(await readTicketFiles(harness(ok([row({ storeKey: 'k' })])).api, T1, ME, 100)).toMatchObject({ ok: false });
+  });
+
+  it('downloads by id and refuses a file that is held in plain words', async () => {
+    const body = { id: FILE, contentType: 'application/octet-stream', disposition: 'attachment', byteLength: 3, bodyBase64: 'aGkh' };
+    const { api, calls } = harness(ok(body));
+    expect(await downloadFile(api, FILE)).toMatchObject({ ok: true, data: { bodyBase64: 'aGkh' } });
+    expect(decodeURIComponent(calls[0]!.url)).toContain(FILE);
+    expect(await downloadFile(harness(ok({ ...body, contentType: 'text/html' })).api, FILE)).toMatchObject({ ok: false });
+    const refused = await downloadFile(
+      harness(() =>
+        Response.json({ error: { message: 'support.attachment_scan_unknown', data: { code: 'PRECONDITION_FAILED' } } }, { status: 412 }),
+      ).api,
+      FILE,
+    );
+    expect(refused).toMatchObject({ ok: false, message: deskCopy.t('refuseAttachHeld') });
   });
 });

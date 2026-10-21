@@ -11,7 +11,12 @@ const MAX_SUB_ACCOUNTS = 100;
 
 export type ClosureBlocker = { code: string; count: number };
 
-export type ClosureCheckBody = { userId: string; subAccountIds: string[] };
+export type ClosureCheckBody = {
+  userId: string;
+  subAccountIds: string[];
+  /** `sub_accounts` answers for the listed sub-accounts only, leaving the main account out. */
+  scope: 'account' | 'sub_accounts';
+};
 
 /** The verified calling service, or null when the credentials are missing or bad. */
 function callerOf(req: FastifyRequest, secret: string, s2s?: { verifier: ServiceVerifier; mode: ServiceAuthMode }): string | null {
@@ -25,7 +30,9 @@ function callerOf(req: FastifyRequest, secret: string, s2s?: { verifier: Service
 
 export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return null;
-  const row = body as { userId?: unknown; subAccountIds?: unknown };
+  const row = body as { userId?: unknown; subAccountIds?: unknown; scope?: unknown };
+  if (row.scope !== undefined && row.scope !== 'account' && row.scope !== 'sub_accounts') return null;
+  const scope = row.scope === 'sub_accounts' ? 'sub_accounts' : 'account';
   if (typeof row.userId !== 'string' || !UUID.test(row.userId)) return null;
   if (!Array.isArray(row.subAccountIds)) return null;
   if (row.subAccountIds.length > MAX_SUB_ACCOUNTS) return null;
@@ -35,19 +42,28 @@ export function parseClosureCheckBody(body: unknown): ClosureCheckBody | null {
     const lower = id.toLowerCase();
     if (!subAccountIds.includes(lower)) subAccountIds.push(lower);
   }
-  return { userId: row.userId.toLowerCase(), subAccountIds };
+  // A sub-account-only question naming no real sub-account (none, or only the user's own id) must not read as "nothing open".
+  const userId = row.userId.toLowerCase();
+  if (scope === 'sub_accounts' && subAccountIds.every((id) => id === userId)) return null;
+  return { userId, subAccountIds, scope };
 }
 
 export async function runTradeClosureCheck(sql: Sql, input: ClosureCheckBody): Promise<{ asOf: string; blockers: ClosureBlocker[] }> {
   const subs = input.subAccountIds.filter((id) => id !== input.userId);
   const orderRows =
-    subs.length === 0
+    input.scope === 'sub_accounts'
       ? await sql<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM trade.orders
+          WHERE status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
+            AND (user_id = ANY(${subs}::uuid[]) OR sub_account_id = ANY(${subs}::uuid[]))
+        `
+      : subs.length === 0
+        ? await sql<{ n: number }[]>`
           SELECT count(*)::int AS n FROM trade.orders
           WHERE status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
             AND user_id = ${input.userId}::uuid
         `
-      : await sql<{ n: number }[]>`
+        : await sql<{ n: number }[]>`
           SELECT count(*)::int AS n FROM trade.orders
           WHERE status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
             AND (
@@ -57,13 +73,19 @@ export async function runTradeClosureCheck(sql: Sql, input: ClosureCheckBody): P
             )
         `;
   const positionRows =
-    subs.length === 0
+    input.scope === 'sub_accounts'
       ? await sql<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM trade.positions
+          WHERE status IN ('open', 'closing')
+            AND user_id = ANY(${subs}::text[])
+        `
+      : subs.length === 0
+        ? await sql<{ n: number }[]>`
           SELECT count(*)::int AS n FROM trade.positions
           WHERE status IN ('open', 'closing')
             AND user_id = ${input.userId}
         `
-      : await sql<{ n: number }[]>`
+        : await sql<{ n: number }[]>`
           SELECT count(*)::int AS n FROM trade.positions
           WHERE status IN ('open', 'closing')
             AND (user_id = ${input.userId} OR user_id = ANY(${subs}::text[]))
