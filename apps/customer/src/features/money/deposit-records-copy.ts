@@ -37,6 +37,8 @@ const en = {
   reason_unknown_asset: 'This is not the asset the address was issued for, so it was not credited.',
   reason_minimum_unset: 'Waiting: this network has no minimum deposit set.',
   reason_confirmations_unset: 'Waiting: this network has no confirmation count published.',
+  reason_chain_reorg: 'The network rewrote the block this deposit was in, so the credit was taken back.',
+  reason_reversal_unfunded: 'The network rewrote this deposit, but the funds are already spent, so support is reviewing it.',
 } as const;
 
 const es = {
@@ -76,6 +78,8 @@ const es = {
   reason_unknown_asset: 'No es el activo para el que se emitió la dirección; no se acreditó.',
   reason_minimum_unset: 'En espera: esta red no tiene un depósito mínimo fijado.',
   reason_confirmations_unset: 'En espera: esta red no tiene un número de confirmaciones publicado.',
+  reason_chain_reorg: 'La red reescribió el bloque de este depósito, así que se retiró el abono.',
+  reason_reversal_unfunded: 'La red reescribió este depósito, pero los fondos ya se gastaron, así que soporte lo está revisando.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -115,6 +119,8 @@ const fr = {
   reason_unknown_asset: 'Ce n’est pas l’actif pour lequel l’adresse a été émise ; non crédité.',
   reason_minimum_unset: 'En attente : ce réseau n’a pas de dépôt minimum fixé.',
   reason_confirmations_unset: 'En attente : ce réseau n’a pas de nombre de confirmations publié.',
+  reason_chain_reorg: 'Le réseau a réécrit le bloc de ce dépôt, le crédit a donc été repris.',
+  reason_reversal_unfunded: 'Le réseau a réécrit ce dépôt, mais les fonds sont déjà dépensés ; le support l’examine.',
 } satisfies Record<keyof typeof en, string>;
 
 export const depositRecordsCopy = defineCopy('customer.bank.deposit.records', en, { es, fr });
