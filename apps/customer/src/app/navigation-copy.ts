@@ -74,6 +74,8 @@ const messages = {
   'Transaction details': 'Transaction details',
   Markets: 'Markets',
   'Prices for every market': 'Prices for every market',
+  Charts: 'Charts',
+  'Linked charts for one market': 'Linked charts for one market',
   'Buy and sell': 'Buy and sell',
   'Buy crypto in a few steps': 'Buy crypto in a few steps',
   Intafaced: 'Intafaced',
