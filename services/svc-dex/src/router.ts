@@ -6,6 +6,7 @@ import type { QuoteVenue } from './quote/venue.js';
 import { dexDoorHonestySchema, dexHealthHonesty } from './quote/door-honesty.js';
 import { QuoteRefusedError, sourceQuote } from './quote/quote-service.js';
 import { InternalBookFeeUnconfiguredError } from './quote/venue-set.js';
+import { assertMarketListed, HideListRefusedError, MARKET_HIDDEN, HIDE_LIST_UNSET, type HideListReader } from './quote/hide-list.js';
 import { withRouteSpan } from './tracing.js';
 
 /**
@@ -148,6 +149,11 @@ export interface DexRouterDeps {
   readonly maxAgeMs?: number;
   /** Unset → `dex.quote.depth_unset`. Never invent 50. */
   readonly depth?: number;
+  /**
+   * Where the hide list is read (svc-ops `protocolListing.hidden`). Unset → `dex.quote.hide_list_unset`: with no list to
+   * read, a delisted market cannot be told from a listed one, so nothing is quoted.
+   */
+  readonly hideList?: HideListReader;
   /** Injected in tests. */
   readonly now?: () => Date;
   /**
@@ -217,6 +223,8 @@ export function createDexRouter(deps: DexRouterDeps) {
       .output(sourcedQuoteSchema)
       .query(async ({ input, ctx }) => {
         try {
+          // After the owner settings (which refuse first when blank), before any venue is read.
+          if (deps.maxAgeMs !== undefined && deps.depth !== undefined) await assertMarketListed(deps.hideList, input.symbol);
           const venues = deps.venues(ctx.region);
           return await withRouteSpan('dex.quote', { side: input.side, venues: venues.length }, async () => {
             const quoted = await sourceQuote(
@@ -230,6 +238,13 @@ export function createDexRouter(deps: DexRouterDeps) {
           });
         } catch (err) {
           if (err instanceof QuoteRefusedError) throw toTrpcError(err);
+          if (err instanceof HideListRefusedError) {
+            throw new TRPCError({
+              code: err.code === MARKET_HIDDEN ? 'NOT_FOUND' : err.code === HIDE_LIST_UNSET ? 'PRECONDITION_FAILED' : 'SERVICE_UNAVAILABLE',
+              message: `${err.code} — ${err.message}`,
+              cause: err,
+            });
+          }
           if (err instanceof InternalBookFeeUnconfiguredError) {
             throw new TRPCError({
               code: 'SERVICE_UNAVAILABLE',

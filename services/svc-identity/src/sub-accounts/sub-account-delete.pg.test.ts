@@ -260,4 +260,27 @@ if (!available) {
     expect(await caller.subAccounts.revoke({ subAccountId: id })).toEqual({ revoked: true });
     expect(await revokedOf(id)).toBe(true);
   });
+
+  it('assets lists what the sub-account holds by asset, an empty list when it holds nothing, and refuses when unreadable', async () => {
+    const user = await register();
+    const other = await register();
+    const caller = await callerOf(user);
+    const { id } = await auth.createSubAccount(user.userId, 'desk', undefined);
+    const theirs = await auth.createSubAccount(other.userId, 'theirs', undefined);
+
+    expect(await caller.subAccounts.assets({ subAccountId: id })).toEqual({ balances: [] });
+    bankResult = { ok: true, blockers: [{ code: 'balance_remaining', count: 1 }], balances: [{ assetId: 'USDT', amount: '1.50' }] };
+    expect(await caller.subAccounts.assets({ subAccountId: id })).toEqual({ balances: [{ assetId: 'USDT', amount: '1.50' }] });
+    expect(asked.at(-1)).toMatchObject({ scope: 'sub_accounts', subAccountIds: [id] });
+
+    // A revoked sub-account is still read through the bank: funds can land after a revoke.
+    await db.sql`UPDATE sub_accounts SET revoked = true WHERE id = ${id}`;
+    expect(await caller.subAccounts.assets({ subAccountId: id })).toEqual({ balances: [{ assetId: 'USDT', amount: '1.50' }] });
+
+    bankResult = { ok: false };
+    expect((await refusal(caller.subAccounts.assets({ subAccountId: id }))).code).toBe('identity.sub_account_check_unavailable');
+    expect((await refusal(caller.subAccounts.assets({ subAccountId: theirs.id }))).code).toBe('identity.sub_account_not_found');
+    const keyed = await callerOf(user, { kid: 'key-1' });
+    expect((await refusal(keyed.subAccounts.assets({ subAccountId: id }))).code).toBe('identity.sub_account_delete_delegated');
+  });
 }

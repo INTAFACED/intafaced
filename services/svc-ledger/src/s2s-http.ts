@@ -245,6 +245,11 @@ export async function handleS2sFeeRevenue(ledger: LedgerService, body: unknown) 
   return serializeFeeRevenue(range, await ledger.feeRevenue(range));
 }
 
+/** The ledger's `restore.watermark.read`: chain tip position and hash, for svc-ops alone. A read. */
+export async function handleS2sRestoreWatermark(ledger: LedgerService) {
+  return ledger.restoreWatermark();
+}
+
 const txByKeyInput = z.object({ idempotencyKey: z.string().min(1).max(512) });
 
 /**
@@ -524,6 +529,10 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
   // Fee revenue per asset. Same `guarded` door; the caller list names svc-ops alone.
   app.post('/trpc/feeRevenue', guarded('feeRevenue', handleS2sFeeRevenue));
+  app.post(
+    '/trpc/restoreWatermark',
+    guarded('restoreWatermark', (_svc, _body) => handleS2sRestoreWatermark(ledger)),
+  );
   app.post(
     '/trpc/portfolio',
     guarded('portfolio', (svc, body) => handleS2sPortfolio(svc, body, { url: options.indexerUrl, fetch: options.indexerFetch })),

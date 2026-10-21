@@ -58,6 +58,19 @@ export class SubAccountDeleteService {
     return this.read(input.userId, input.subAccountId);
   }
 
+  /**
+   * What one live sub-account holds, by asset, read from the book through svc-bank. Never valued here: identity has no prices.
+   * An unreadable service refuses; it never reads as "holds nothing".
+   */
+  async assets(input: Actor & { subAccountId: string }): Promise<{ balances: ClosureBalance[] }> {
+    this.assertSession(input);
+    // A revoked sub-account can still hold funds (they can land after a revoke), so it is read like a live one.
+    await this.owned(input.userId, input.subAccountId);
+    const bank = await this.deps.bank.check({ userId: input.userId, subAccountIds: [input.subAccountId], scope: 'sub_accounts' });
+    if (!bank.ok) throw new SubAccountDeleteError('identity.sub_account_check_unavailable');
+    return { balances: [...bank.balances] };
+  }
+
   /** For the plain revoke door: refuse unless the money services show this sub-account empty. Not the caller's, or already revoked: nothing to read, the revoke answers false. */
   async assertEmpty(userId: string, subAccountId: string): Promise<void> {
     const rows = await this.deps.sql<Array<{ revoked: boolean }>>`

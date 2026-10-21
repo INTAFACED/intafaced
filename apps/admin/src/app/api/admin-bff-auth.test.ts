@@ -11,7 +11,7 @@ import { GET as payOpsPageGet } from './pay-ops/page/route.js';
 import { GET as p2pOpsGet } from './p2p-ops/route.js';
 import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
-import { GET as protocolOpsGet } from './protocol-ops/route.js';
+import { GET as protocolOpsGet, POST as protocolOpsPost } from './protocol-ops/route.js';
 import { GET as custodyOpsGet, POST as custodyOpsPost } from './custody-ops/route.js';
 import { GET as identityKeysGet, POST as identityKeysPost } from './identity-ops/keys/route.js';
 import { GET as identityOauthGet, POST as identityOauthPost } from './identity-ops/oauth/route.js';
@@ -45,6 +45,7 @@ const routes = [
   ['GET /api/more-ops', moreOpsGet, 'GET'],
   ['POST /api/more-ops', moreOpsPost, 'POST'],
   ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
+  ['POST /api/protocol-ops', protocolOpsPost, 'POST'],
   ['GET /api/custody-ops', custodyOpsGet, 'GET'],
   ['POST /api/custody-ops', custodyOpsPost, 'POST'],
   ['GET /api/identity-ops/keys', identityKeysGet, 'GET'],

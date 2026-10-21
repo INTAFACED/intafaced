@@ -28,6 +28,11 @@ const schema = baseEnvSchema
       /** Read models. Quotes are served from projections, never from a chain call. */
       // 4013 = svc-indexer (4012 is svc-protocol). Matching listens on 4005.
       INDEXER_URL: z.string().url().default('http://localhost:4013'),
+      /**
+       * svc-ops, read-only: `protocolListing.hidden` is the list of markets INTAFACED does not list. Blank / unset →
+       * quote refuses `dex.quote.hide_list_unset`. No default: a guessed host would read a list that is not ours.
+       */
+      OPS_URL: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().url().optional()),
       /** The internal CLOB, quoted as one venue among several. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),
 

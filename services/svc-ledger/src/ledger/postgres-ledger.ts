@@ -398,6 +398,20 @@ export class PostgresLedger implements LedgerClient {
   }
 
   /**
+   * Where this ledger stands, for the joint restore (OPS-ledger-desk-05). A READ:
+   * no lock and no write, so it can never delay a post. The position is the
+   * chain tip's `seq` and the integrity is its hash; `lastWriteAt` is the newest
+   * `posted_at`, so a post after the operator's cut-off is visible.
+   */
+  async restoreWatermark(): Promise<{ position: string; integrity: string | null; lastWriteAt: Date | null }> {
+    const [tip] = await this.sql<Array<{ seq: string; hash: string | null }>>`
+      SELECT seq::text AS seq, hash FROM chain_tip WHERE id = true`;
+    if (!tip) throw new LedgerError('chain_tip is missing: the ledger is not initialised', 'ledger.uninitialised');
+    const [last] = await this.sql<Array<{ at: Date | null }>>`SELECT MAX(posted_at) AS at FROM ledger_tx`;
+    return { position: tip.seq, integrity: tip.hash, lastWriteAt: last?.at ?? null };
+  }
+
+  /**
    * Fee revenue per asset over one window (see `fee-revenue.ts`). A READ: no lock,
    * no write, no path into `post()`. Debits to `fees:*` house accounts are fees
    * collected, credits out of them are fees returned. One row per asset that had

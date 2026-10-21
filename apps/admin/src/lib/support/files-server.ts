@@ -2,7 +2,15 @@ import 'server-only';
 import { founderCall, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type Part, type PartLabels } from '@/lib/desk/part';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY } from './refusal';
-import { FILES_PAGE, readFileDownload, readTicketFiles, type FileDownload, type TicketFile } from './files';
+import {
+  FILES_PAGE,
+  readFileDownload,
+  readTicketFile,
+  readTicketFiles,
+  type FileDownload,
+  type TicketFile,
+  type UploadParams,
+} from './files';
 
 export interface TicketFilesView {
   readonly asOf: string;
@@ -29,4 +37,27 @@ export function downloadTicketFile(ctx: FounderCallContext, attachmentId: string
     const got = readFileDownload(raw);
     return got && got.id === attachmentId ? got : null;
   });
+}
+
+/**
+ * Add a file for the ticket's owner, as the signed-in operator. svc-support takes the operator from the verified session,
+ * requires the ticket to be assigned to them, scans the bytes and stores them only once clean.
+ */
+export function uploadTicketFile(ctx: FounderCallContext, params: UploadParams, bytes: Uint8Array): Promise<FounderCallResult<TicketFile>> {
+  return founderCall(
+    ctx,
+    'support',
+    'attachOps',
+    'POST',
+    {
+      ticketId: params.ticketId,
+      clientRequestId: params.clientRequestId,
+      contentType: params.contentType,
+      bodyBase64: Buffer.from(bytes).toString('base64'),
+    },
+    (raw) => {
+      const file = readTicketFile(raw);
+      return file && file.ticketId === params.ticketId && file.uploadedBy !== null ? file : null;
+    },
+  );
 }

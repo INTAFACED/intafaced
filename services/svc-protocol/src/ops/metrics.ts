@@ -3,6 +3,8 @@ import type { BlockerSource, ProtocolOpsMetricsOutput, DexHealth, IndexerStatus 
 /**
  * Metrics for the Protocol ops desk. A source that cannot be read is `could_not_load` with the time tried, never a zero.
  *
+ * Sections this call does not probe (audit, blockers, contracts, labels) read `unknown`, never `ok`.
+ *
  * Quote counts, refusal counts by code and distinct quote wallets are svc-dex's to count, and svc-dex publishes no such read
  * yet, so they read `protocol.ops_source_unavailable` here. Indexer lag and per-section health come from the peers this
  * service already reads for `blockers`.
@@ -42,13 +44,13 @@ export function buildMetrics(input: {
     indexerLagBlocks: lag,
     sections: [
       health('chain', input.chainReachable === null ? 'unknown' : input.chainReachable ? 'ok' : 'down'),
-      health('audit', 'ok'),
+      health('audit', 'unknown'),
       health('indexer', peerHealth(input.indexer)),
       health('dex', peerHealth(input.dex)),
-      health('blockers', 'ok'),
-      health('contracts', 'ok'),
+      health('blockers', 'unknown'),
+      health('contracts', 'unknown'),
       health('metrics', 'ok'),
-      health('labels', 'ok'),
+      health('labels', 'unknown'),
     ],
   };
 }

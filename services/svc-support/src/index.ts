@@ -13,6 +13,8 @@ import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { eventRatingRequestSink, RatingRequestOutbox, SqlRatingRequestBook } from './rating-request.js';
 import { SqlStaffBook } from './desk-staff.js';
+import { UNCONFIGURED_ATTACHMENTS } from './attachments.js';
+import { openLocalTestAttachments } from './local-test-attachments.js';
 import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
@@ -72,6 +74,10 @@ await sql`SELECT scan_state FROM support.ticket_attachments LIMIT 1`.catch(() =>
   throw new Error('support.ticket_attachments.scan_state is missing — apply migration 0024 before starting svc-support');
 });
 
+await sql`SELECT uploaded_by FROM support.ticket_attachments LIMIT 1`.catch(() => {
+  throw new Error('support.ticket_attachments.uploaded_by is missing — apply migration 0025 before starting svc-support');
+});
+
 await sql`SELECT 1 FROM support.attachment_settings_log LIMIT 1`.catch(() => {
   throw new Error('support.attachment_settings_log is missing — apply migration 0023 before starting svc-support');
 });
@@ -121,11 +127,17 @@ const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMo
 const accounts = createAccountStateClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey);
 // Order status is READ from svc-trade per request. Unset TRADE_URL stays unknown.
 const orders = env.TRADE_URL ? createTicketOrderClient(env.TRADE_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : new DarkTicketOrderSource();
-// Third argument is the attachment desk and stays blank (attach refuses). Staff is fourth, orders fifth, then the blank-by-default staff heartbeat window.
+// Both adapters stay blank unless a LOCAL-TEST name is set, and that is refused outside dev and test (attach then refuses).
+const testAttachments = openLocalTestAttachments({
+  appEnv: process.env.APP_ENV,
+  store: env.SUPPORT_ATTACHMENT_STORE,
+  scanner: env.SUPPORT_MALWARE_SCANNER,
+});
+// Third argument is the attachment desk; its size and type limits come from the owner's settings. Staff is fourth, orders fifth, then the blank-by-default staff heartbeat window.
 const support = new SupportService(
   store,
   accounts,
-  undefined,
+  { ...UNCONFIGURED_ATTACHMENTS, store: testAttachments.store, scanner: testAttachments.scanner },
   new SqlStaffBook(sql),
   orders,
   env.STAFF_HEARTBEAT_WINDOW_SECONDS ?? null,
@@ -136,6 +148,7 @@ const support = new SupportService(
   new SqlLifecycleBook(sql),
   ratingRequests,
   attachmentSettings,
+  env.SUPPORT_BULK_CAP ?? null,
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql), attachmentSettings);

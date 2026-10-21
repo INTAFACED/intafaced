@@ -6,12 +6,17 @@ import {
   SUPPORT_KB_AUDIENCES,
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
+  SUPPORT_BULK_CAP_KEY,
+  supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
   supportTicketTypeSchema,
   type SupportAttachmentDownload,
   type SupportAttachmentKey,
   type SupportAttachmentLimits,
+  type SupportBulkChange,
+  type SupportBulkPolicy,
+  type SupportBulkResult,
   type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
@@ -92,6 +97,7 @@ function parseEnumField<T extends string>(
   return parsed.success ? (parsed.data as T) : INVALID;
 }
 
+const heldKey = (storeKey: string): string => `held/${storeKey}`;
 const scanRefused = (): SupportError => new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
 
 export class SupportError extends Error {
@@ -283,6 +289,8 @@ export class SupportService implements SupportContract {
     private readonly ratingRequests: RatingRequestOutbox = new RatingRequestOutbox(new MemoryRatingRequestBook(), async () => null),
     /** The owner's size, type and count limits for an attachment. Blank until set; the deployment desk's own values win. */
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+    /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
+    private readonly bulkCap: number | null = null,
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -1259,6 +1267,103 @@ export class SupportService implements SupportContract {
     });
   }
 
+  /** What a bulk change may hold: the owner's batch size, or `null` and the key it is missing while it is not set. */
+  bulkPolicy(): SupportBulkPolicy {
+    return this.bulkCap === null ? { cap: null, missing: SUPPORT_BULK_CAP_KEY } : { cap: this.bulkCap, missing: null };
+  }
+
+  /**
+   * One change applied to several requests, each through the path a single change takes and under its own key
+   * (`bulk:<batchKey>:<ticketId>`), so each writes its own trail row and a replayed batch changes nothing twice.
+   * A request the change does not apply to is reported `refused` with its typed code and the rest still run; one
+   * already at the asked status is `unchanged`. A blank cap refuses the whole batch `support.bulk_cap_unset`, a batch
+   * over the cap refuses `support.bulk_too_large`, and neither touches a request. Assigning needs a lead, so it is
+   * refused once up front and not once per request.
+   */
+  async bulkUpdate(input: {
+    operatorId: string;
+    batchKey: string;
+    ticketIds: readonly string[];
+    change: SupportBulkChange;
+    reason?: string;
+  }): Promise<SupportBulkResult> {
+    return withSupportSpan('support.bulkUpdate', { op: 'bulkUpdate' }, async (span) => {
+      if (this.bulkCap === null) {
+        throw new SupportError('the bulk batch size is not set', 'support.bulk_cap_unset', SUPPORT_BULK_CAP_KEY);
+      }
+      const ticketIds = [...new Set(input.ticketIds)];
+      if (ticketIds.length > this.bulkCap) {
+        throw new SupportError('the batch is larger than the desk allows', 'support.bulk_too_large');
+      }
+      if (input.change.kind === 'assign') {
+        const actor = await this.staff.get(input.operatorId);
+        if (actor?.role !== 'lead') throw new SupportError('only a lead can assign a ticket', 'support.not_lead');
+      }
+      span.setAttribute('intafaced.support.bulk_size', ticketIds.length);
+      const results: SupportBulkResult['results'] = [];
+      for (const ticketId of ticketIds) {
+        const key = supportBulkKey(input.batchKey, ticketId);
+        try {
+          await this.bulkOne({ operatorId: input.operatorId, ticketId, key, change: input.change, reason: input.reason });
+          results.push({ ticketId, outcome: 'changed', code: null });
+        } catch (err) {
+          if (!(err instanceof SupportError)) throw err;
+          const unchanged = input.change.kind === 'status' && err.code === 'support.transition_same_status';
+          results.push({ ticketId, outcome: unchanged ? 'unchanged' : 'refused', code: unchanged ? null : err.code });
+        }
+      }
+      return { batchKey: input.batchKey, results };
+    });
+  }
+
+  private async bulkOne(input: {
+    operatorId: string;
+    ticketId: string;
+    key: string;
+    change: SupportBulkChange;
+    reason: string | undefined;
+  }): Promise<void> {
+    const { operatorId, ticketId, key, change, reason } = input;
+    if (change.kind === 'status') {
+      // Only an answer is kept: a request that was changed, or found already at the status. A refusal changed nothing,
+      // so a retry judges it afresh and never meets a half-recorded key.
+      const stateKey = `bulk-status:${key}`;
+      const fingerprint = `${operatorId}:${ticketId}:${change.status}`;
+      try {
+        await this.staff.begin(stateKey, fingerprint);
+      } catch (err) {
+        if (err instanceof Error && err.message === 'support.idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
+        throw err;
+      }
+      const prior = await this.staff.read<{ outcome: 'changed' | 'unchanged' }>(stateKey);
+      if (prior?.outcome === 'changed') return;
+      if (prior?.outcome === 'unchanged') {
+        throw new SupportError('the request is already at that status', 'support.transition_same_status');
+      }
+      try {
+        await this.setStatus({ operatorId, ticketId, status: change.status, ...(reason ? { note: reason } : {}) });
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.transition_same_status') {
+          await this.staff.save(stateKey, { outcome: 'unchanged' });
+        }
+        throw err;
+      }
+      await this.staff.save(stateKey, { outcome: 'changed' });
+    } else if (change.kind === 'assign') {
+      await this.assignTo({ operatorId, ticketId, assigneeId: change.assigneeId, idempotencyKey: key });
+    } else {
+      await this.setTicketProperties({
+        operatorId,
+        ticketId,
+        priority: change.priority,
+        ...(reason ? { reason } : {}),
+        clientRequestId: key,
+      });
+    }
+  }
+
   /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
   async assignTo(input: { operatorId: string; assigneeId: string; ticketId: string; idempotencyKey: string }): Promise<SupportTicket> {
     return this.withIdempotency(`assign:${input.idempotencyKey}`, `${input.operatorId}:${input.assigneeId}:${input.ticketId}`, async () => {
@@ -1329,6 +1434,35 @@ export class SupportService implements SupportContract {
     contentType: string;
     bodyBase64: string;
   }): Promise<AttachmentMeta> {
+    return this.attachFile(input);
+  }
+
+  /**
+   * Operator attach. The assigned operator adds a file to the ticket for its owner: the file belongs to the owner, who
+   * sees it like a comment, and `uploadedBy` names the operator. Same limits, scanner and store as the owner's attach; a
+   * ticket that is not the operator's answers like no ticket.
+   */
+  async attachAsOperator(input: {
+    operatorId: string;
+    ticketId: string;
+    clientRequestId: string;
+    contentType: string;
+    bodyBase64: string;
+  }): Promise<AttachmentMeta> {
+    const ticket = await this.store.findById(input.ticketId);
+    if (!ticket || ticket.assigneeId !== input.operatorId) throw ticketNotFound();
+    const { operatorId, ...rest } = input;
+    return this.attachFile({ ...rest, userId: ticket.userId, operatorId });
+  }
+
+  private async attachFile(input: {
+    userId: string;
+    ticketId: string;
+    clientRequestId: string;
+    contentType: string;
+    bodyBase64: string;
+    operatorId?: string;
+  }): Promise<AttachmentMeta> {
     return withSupportSpan('support.attach', { op: 'attach', ticketId: input.ticketId }, async () => {
       this.requireClientRequestId(input.clientRequestId);
       const desk = await this.attachmentDesk();
@@ -1341,11 +1475,12 @@ export class SupportService implements SupportContract {
       }
       const bytes = decodeAttachmentBody(input.bodyBase64);
       if (!bytes) throw new SupportError('attachment body is not base64', 'support.attachment_body_invalid');
-      const replay = await this.store.readReceipt('support.attach', input.userId, input.clientRequestId);
+      const actor = input.operatorId ?? input.userId;
+      const replay = await this.store.readReceipt('support.attach', actor, input.clientRequestId);
       if (replay && typeof replay === 'object' && replay !== null && 'attachment' in replay) {
         // A reply that was lost is answered from the file as it now stands, never scanned or counted a second time.
         const first = (replay as { attachment: AttachmentMeta }).attachment;
-        const live = await this.store.readAttachment({ userId: input.userId, attachmentId: first.id, asOperator: false });
+        const live = await this.store.readAttachment({ userId: actor, attachmentId: first.id, asOperator: input.operatorId !== undefined });
         const meta = live.status === 'ok' ? live.attachment : first;
         if (meta.scanState === 'clean') return meta;
         if (meta.scanState === 'blocked') throw scanRefused();
@@ -1377,6 +1512,7 @@ export class SupportService implements SupportContract {
         contentType: input.contentType,
         byteLength: bytes.byteLength,
         maxCount: desk.maxCount,
+        ...(input.operatorId !== undefined ? { operatorId: input.operatorId } : {}),
       });
       if (recorded.status === 'refuse') {
         if (recorded.reason === 'count_reached') {
@@ -1391,10 +1527,12 @@ export class SupportService implements SupportContract {
   }
 
   /**
-   * Scans a file that is `scanning` and records the answer. Clean bytes are written to the store before the row is marked
-   * clean, so a crash between the two leaves a held file that a later pass scans again; it is never marked clean without a
-   * verdict. Infected bytes are never stored. When the scanner cannot answer, the bytes are kept so the file can be scanned
-   * again, the row stays `scanning`, and the caller is told `support.attachment_scan_unknown`.
+   * Scans a file that is `scanning` and records the answer. The final key is written only after a clean verdict, so
+   * infected bytes are never stored under it. When the scanner cannot answer, the bytes wait under a held key
+   * (`held/<storeKey>`) that nothing serves, the row stays `scanning`, and the caller is told
+   * `support.attachment_scan_unknown`. A clean verdict writes the final key, drops the held copy, and marks the row; if the
+   * row was blocked in the meantime, the final key is purged and the file is refused. An infected verdict blocks the row
+   * and purges any held copy. A crash between the write and the mark leaves a `scanning` row that a later pass settles.
    */
   private async settleScan(desk: AttachmentDesk, meta: AttachmentMeta, bytes: Uint8Array): Promise<AttachmentMeta> {
     let verdict: ScanVerdict;
@@ -1403,17 +1541,29 @@ export class SupportService implements SupportContract {
     } catch {
       verdict = 'unknown';
     }
+    const held = heldKey(meta.storeKey);
     if (verdict === 'infected') {
       await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'blocked' });
+      await desk.store!.delete(held);
+      await desk.store!.delete(meta.storeKey);
       throw scanRefused();
     }
-    await desk.store!.put({ key: meta.storeKey, bytes, contentType: meta.contentType });
     if (verdict !== 'clean') {
+      await desk.store!.put({ key: held, bytes, contentType: meta.contentType });
       throw new SupportError('the scanner could not say whether the attachment is safe', 'support.attachment_scan_unknown');
     }
+    await desk.store!.put({ key: meta.storeKey, bytes, contentType: meta.contentType });
     const settled = await this.store.setAttachmentScanState({ attachmentId: meta.id, state: 'clean' });
-    if (!settled) throw ticketNotFound();
-    if (settled.scanState === 'blocked') throw scanRefused();
+    if (!settled) {
+      await desk.store!.delete(meta.storeKey);
+      throw ticketNotFound();
+    }
+    if (settled.scanState === 'blocked') {
+      await desk.store!.delete(meta.storeKey);
+      await desk.store!.delete(held);
+      throw scanRefused();
+    }
+    await desk.store!.delete(held);
     return settled;
   }
 
@@ -1427,7 +1577,8 @@ export class SupportService implements SupportContract {
     const desk = await this.attachmentDesk();
     if (missingAttachmentKey(desk)) return out;
     for (const meta of await this.store.listScanningAttachments(limit)) {
-      const object = await desk.store!.get(meta.storeKey);
+      // Bytes a crash left under the final key were never marked clean, so they are scanned again like held ones.
+      const object = (await desk.store!.get(heldKey(meta.storeKey))) ?? (await desk.store!.get(meta.storeKey));
       if (!object) {
         out.held += 1;
         continue;

@@ -95,6 +95,18 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
       );
     case 'bank.payee_blocked':
       return new PersonalPayError('This payment cannot be sent to that recipient. Nothing was posted.', code, 'PRECONDITION_FAILED');
+    case 'bank.exchange_allowance_unset':
+      return new PersonalPayError(
+        'The owner has not published the exchange payment allowance, so no send can be checked against it. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.exchange_allowance_exceeded':
+      return new PersonalPayError(
+        'This payment is above what can be sent to that recipient right now. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+      );
     case 'bank.transfer_settled':
       return new PersonalPayError('This send has already left, so it can no longer be held.', code, 'PRECONDITION_FAILED');
     case 'bank.transfer_not_holdable':

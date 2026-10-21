@@ -508,6 +508,11 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .output(
           z.object({
             payeeControls: z.object({ state: z.enum(['unset', 'published']), blockedCount: z.number() }),
+            exchangeAllowance: z.object({
+              state: z.enum(['unset', 'published']),
+              windowDays: z.number().nullable(),
+              exchangeCount: z.number(),
+            }),
             proofLimits: z.object({
               state: z.enum(['unset', 'published']),
               allowedTypes: z.array(z.string()),
@@ -515,7 +520,11 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
             }),
           }),
         )
-        .query(() => ({ payeeControls: bank.globalSend.payeeControlsStatus(), proofLimits: bank.globalHolds.proofLimitsStatus() })),
+        .query(() => ({
+          payeeControls: bank.globalSend.payeeControlsStatus(),
+          exchangeAllowance: bank.globalSend.exchangeAllowanceStatus(),
+          proofLimits: bank.globalHolds.proofLimitsStatus(),
+        })),
       summary: scopedProcedure('admin:read', { module: 'bank' })
         .output(
           z.object({

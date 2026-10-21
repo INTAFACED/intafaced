@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { serviceOfRequest } from './s2s-door.js';
+import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -677,6 +678,16 @@ registerNavigatorSessionRoutes(app, {
  * Authenticated by the shared service secret — same control as bank jobs (#62).
  * Previously unauthenticated (full audit L2-3).
  */
+/**
+ * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
+ */
+app.get('/internal/restore/watermark', async (req, reply) => {
+  const caller = serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service;
+  if (caller === null) return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  if (caller !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'identity.caller_forbidden' });
+  return readIdentityWatermark(sql);
+});
+
 app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (req, reply) => {
   if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });

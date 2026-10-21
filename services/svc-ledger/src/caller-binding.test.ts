@@ -396,7 +396,7 @@ describe('every door names its callers', () => {
     const source = readFileSync(join(ROOT, 'services/svc-ledger/src/s2s-http.ts'), 'utf8');
     const served = [...source.matchAll(/'\/trpc\/([A-Za-z]+)'/g)].map((match) => match[1]).sort();
     expect(Object.keys(LEDGER_DOOR_CALLERS).sort()).toEqual([...new Set(served)]);
-    expect(served).toHaveLength(14);
+    expect(served).toHaveLength(15);
   });
 
   it('refuses a key-verified service that a read door does not list', async () => {
