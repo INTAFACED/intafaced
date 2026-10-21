@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { MarketDataSource, type MarketDataSourceOptions } from './market-data-source.js';
-import type { TimestampedBook, VenueKind } from './venue.js';
+import type { PoolRef, TimestampedBook, VenueKind } from './venue.js';
 import { VenueUnavailableError } from './venue.js';
 import { getJson, parseLevels, type HttpVenueOptions } from './wire.js';
 
@@ -93,6 +93,11 @@ export const externalVenueConfigSchema = z
     bidsField: z.string().optional(),
     asksField: z.string().optional(),
     sequencePath: z.string().optional(),
+    /** The pool this venue quotes. Needed for a hidden pool to be dropped from routing. */
+    pool: z
+      .object({ chainId: z.number().int().positive(), address: z.string().regex(/^0x[0-9a-fA-F]{40}$/) })
+      .strict()
+      .optional(),
   })
   .superRefine((row, ctx) => {
     const kind = row.kind ?? 'external-cex';
@@ -139,6 +144,8 @@ export interface ExternalVenueConfig {
   readonly asksField?: string;
   /** Dotted path to the venue's own update sequence, if it publishes one. */
   readonly sequencePath?: string;
+  /** The pool this venue quotes (chain and address). A hide of that pool drops the venue from routing. */
+  readonly pool?: PoolRef;
 }
 
 const DELIMITERS = /[-/_:]/g;
@@ -182,6 +189,7 @@ export class ExternalQuoteVenue extends MarketDataSource {
   readonly kind: VenueKind;
   readonly feeBps: number;
   readonly settlementCost: Amount;
+  readonly pool?: PoolRef;
 
   readonly #config: ExternalVenueConfig;
   readonly #http: HttpVenueOptions;
@@ -194,6 +202,7 @@ export class ExternalQuoteVenue extends MarketDataSource {
     this.id = config.id;
     this.kind = config.kind ?? 'external-cex';
     this.feeBps = config.feeBps;
+    if (config.pool) this.pool = config.pool;
     // CEX/OTC: no chain gas. Protocol kinds are refused by the schema above
     // rather than defaulting settlement to '0'.
     this.settlementCost = parseAmount(config.settlementCost ?? '0');

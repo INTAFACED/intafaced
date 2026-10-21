@@ -1,5 +1,10 @@
 import { unwrapTrpcData } from '@intafaced/contracts';
-import { marketTargetId, protocolOpsHiddenOutputSchema, type ProtocolOpsHiddenOutput } from '@intafaced/contracts/protocol-ops';
+import {
+  marketTargetId,
+  poolTargetId,
+  protocolOpsHiddenOutputSchema,
+  type ProtocolOpsHiddenOutput,
+} from '@intafaced/contracts/protocol-ops';
 
 /**
  * THE HIDE LIST, READ-ONLY (D-order-controls-04).
@@ -15,10 +20,11 @@ import { marketTargetId, protocolOpsHiddenOutputSchema, type ProtocolOpsHiddenOu
 export const HIDE_LIST_UNSET = 'dex.quote.hide_list_unset' as const;
 export const HIDE_LIST_UNAVAILABLE = 'dex.quote.hide_list_unavailable' as const;
 export const MARKET_HIDDEN = 'dex.quote.market_hidden' as const;
+export const POOL_HIDDEN = 'dex.quote.pool_hidden' as const;
 
 export class HideListRefusedError extends Error {
   constructor(
-    readonly code: typeof HIDE_LIST_UNSET | typeof HIDE_LIST_UNAVAILABLE | typeof MARKET_HIDDEN,
+    readonly code: typeof HIDE_LIST_UNSET | typeof HIDE_LIST_UNAVAILABLE | typeof MARKET_HIDDEN | typeof POOL_HIDDEN,
     message: string,
   ) {
     super(message);
@@ -67,8 +73,11 @@ export function createHideListReader(options: HideListOptions): HideListReader {
   };
 }
 
-/** Throws unless the market was read as visible. `reader` undefined means no source is published at all. */
-export async function assertMarketListed(reader: HideListReader | undefined, symbol: string): Promise<void> {
+/**
+ * Throws unless the market was read as visible, and returns the list that was read so the caller can drop hidden pools without a
+ * second fetch. `reader` undefined means no source is published at all.
+ */
+export async function assertMarketListed(reader: HideListReader | undefined, symbol: string): Promise<ProtocolOpsHiddenOutput> {
   if (!reader) {
     throw new HideListRefusedError(
       HIDE_LIST_UNSET,
@@ -80,4 +89,14 @@ export async function assertMarketListed(reader: HideListReader | undefined, sym
   if (list.markets.some((m) => marketTargetId(m.symbol) === wanted)) {
     throw new HideListRefusedError(MARKET_HIDDEN, `${wanted} is hidden by INTAFACED and is not quoted`);
   }
+  return list;
+}
+
+/** The venues left once every venue quoting a hidden pool is dropped. A venue with no `pool` is kept: it cannot be named. */
+export function withoutHiddenPools<T extends { readonly pool?: { readonly chainId: number; readonly address: string } }>(
+  venues: readonly T[],
+  list: ProtocolOpsHiddenOutput,
+): readonly T[] {
+  const hidden = new Set(list.pools.map((p) => poolTargetId(p.chainId, p.poolAddress)));
+  return venues.filter((v) => !v.pool || !hidden.has(poolTargetId(v.pool.chainId, v.pool.address)));
 }

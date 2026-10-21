@@ -6,7 +6,15 @@ import type { QuoteVenue } from './quote/venue.js';
 import { dexDoorHonestySchema, dexHealthHonesty } from './quote/door-honesty.js';
 import { QuoteRefusedError, sourceQuote } from './quote/quote-service.js';
 import { InternalBookFeeUnconfiguredError } from './quote/venue-set.js';
-import { assertMarketListed, HideListRefusedError, MARKET_HIDDEN, HIDE_LIST_UNSET, type HideListReader } from './quote/hide-list.js';
+import {
+  assertMarketListed,
+  HideListRefusedError,
+  MARKET_HIDDEN,
+  POOL_HIDDEN,
+  HIDE_LIST_UNSET,
+  withoutHiddenPools,
+  type HideListReader,
+} from './quote/hide-list.js';
 import { withRouteSpan } from './tracing.js';
 
 /**
@@ -224,8 +232,15 @@ export function createDexRouter(deps: DexRouterDeps) {
       .query(async ({ input, ctx }) => {
         try {
           // After the owner settings (which refuse first when blank), before any venue is read.
-          if (deps.maxAgeMs !== undefined && deps.depth !== undefined) await assertMarketListed(deps.hideList, input.symbol);
-          const venues = deps.venues(ctx.region);
+          const hidden =
+            deps.maxAgeMs !== undefined && deps.depth !== undefined ? await assertMarketListed(deps.hideList, input.symbol) : undefined;
+          // A pool INTAFACED has hidden leaves routing; so does nothing else. Without a read list (owner settings refuse below) nothing is dropped.
+          const built = deps.venues(ctx.region);
+          const venues = hidden ? withoutHiddenPools(built, hidden) : built;
+          // Every venue was a hidden pool: that is a listing decision, not an unwired service.
+          if (built.length > 0 && venues.length === 0) {
+            throw new HideListRefusedError(POOL_HIDDEN, 'every pool that quotes this market is hidden by INTAFACED; no quote is given');
+          }
           return await withRouteSpan('dex.quote', { side: input.side, venues: venues.length }, async () => {
             const quoted = await sourceQuote(
               { venues, maxAgeMs: deps.maxAgeMs, depth: deps.depth, ...(deps.now ? { now: deps.now } : {}) },
@@ -240,7 +255,12 @@ export function createDexRouter(deps: DexRouterDeps) {
           if (err instanceof QuoteRefusedError) throw toTrpcError(err);
           if (err instanceof HideListRefusedError) {
             throw new TRPCError({
-              code: err.code === MARKET_HIDDEN ? 'NOT_FOUND' : err.code === HIDE_LIST_UNSET ? 'PRECONDITION_FAILED' : 'SERVICE_UNAVAILABLE',
+              code:
+                err.code === MARKET_HIDDEN || err.code === POOL_HIDDEN
+                  ? 'NOT_FOUND'
+                  : err.code === HIDE_LIST_UNSET
+                    ? 'PRECONDITION_FAILED'
+                    : 'SERVICE_UNAVAILABLE',
               message: `${err.code} — ${err.message}`,
               cause: err,
             });
