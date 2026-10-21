@@ -67,3 +67,4 @@ export * from './quant-disclosure.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
 export * from './support-bulk.js';
+export * from './support-merge.js';
