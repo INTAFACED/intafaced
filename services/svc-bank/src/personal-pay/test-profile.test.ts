@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseExchangeAllowance, parsePayeeControls, parseProofLimits } from './payee-controls';
+import { parseExchangeAllowance, parsePayeeControls, parseProofLimits } from './payee-controls.js';
 
 const profile = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values.json', import.meta.url), 'utf8')) as {
   values: Record<string, { service: string; value: string }>;
