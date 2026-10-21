@@ -131,6 +131,16 @@ describe('custody deposit reorg reversal (real Postgres, memory ledger)', () => 
     expect(await balance()).toBe(parseAmount('25'));
   });
 
+  it('the same transaction seen at a new index is never credited a second time', async () => {
+    await book().receive(seen());
+    const outcome = await book().receive(seen({ outputIndex: 7, blockHash: HASH_B, blockHeight: 101n }));
+    expect(outcome).toMatchObject({ state: 'recorded' });
+    expect(await balance()).toBe(parseAmount('25'));
+    expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
+    const rows = await db.sql<Array<{ status: string }>>`SELECT status FROM pay.custody_deposits WHERE output_index = 7`;
+    expect(rows[0]?.status).not.toBe('credited');
+  });
+
   it('a transfer the chain no longer reports is reversed once, also twice and after a restart', async () => {
     await book().receive(seen());
     expect(await book().dropped(gone())).toBe(1);

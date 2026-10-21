@@ -339,7 +339,7 @@ describe('EvmLiveChain block hash (W-deposit-06)', () => {
     expect(port.droppedInbound()).toEqual([]);
   });
 
-  it('a native transfer re-mined at another transaction index is gone at the old index', async () => {
+  it('a native transfer re-mined at another transaction index is the same money, not a drop', async () => {
     const port = new EvmLiveChain({
       rpcUrl: 'http://127.0.0.1:9',
       chainId: 31337,
@@ -364,8 +364,8 @@ describe('EvmLiveChain block hash (W-deposit-06)', () => {
     index = 9;
     await port.refresh();
     await port.refresh();
-    expect(port.observedInbound()).toEqual([]);
-    expect(port.droppedInbound()).toHaveLength(1);
+    expect(port.observedInbound()).toHaveLength(1);
+    expect(port.droppedInbound()).toEqual([]);
   });
 
   it('a node that errors or times out is never taken as "the transfer is gone"', async () => {

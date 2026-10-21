@@ -28,11 +28,10 @@ import type { RegistryReader } from '../../registries/read-api.js';
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` is W-deposit-06 (holds, still to come).
  * - REORG (W-deposit-06). A row is one transfer at one index of one transaction. If the chain positively says that transfer is gone
- *   (the node answered "no such receipt" on several refreshes in a row, the transaction reverted, or the transfer now sits at a
- *   different index), the credit is taken back once through the reversal post (`deposit.reverse:<network>:<tx>:<index>`) and the
- *   row is `reversed`. A node that did not answer proves nothing. A transfer re-mined in another block at the SAME index keeps its
- *   credit and its stored block is updated; a transfer re-mined at a NEW index is a new row that credits after its own
- *   confirmations, while the old row is reversed. `reversal_started_at` is written before the ledger is asked, so a crash between
+ *   (the node answered "no such receipt" on several refreshes in a row, the transaction reverted), the credit is taken back once through the reversal post
+ *   (`deposit.reverse:<network>:<tx>:<index>`) and the row is `reversed`. A node that did not answer proves nothing. A transfer re-mined in another block keeps its
+ *   credit, at the same index or another (the money is the same); the stored block is updated. A row at a new index for a
+ *   transaction that already holds a credit is never credited (no double credit); it waits for a person. `reversal_started_at` is written before the ledger is asked, so a crash between
  *   the two is finished on the next pass under the same key. If the customer has already spent the funds the ledger refuses, and
  *   the row is `needs_review` with `reversal_unfunded` and an alert: the balance never goes negative and a person decides. A
  *   reversed row is never credited again by this book. KNOWN GAP: a transfer that vanishes while no process is watching is not
@@ -366,7 +365,31 @@ export class CustodyDepositBook {
       return waiting[0] ?? (await this.reload(row.id));
     }
 
+    if (await this.siblingHoldsCredit(row)) {
+      this.deps.log?.('custody deposit not credited: another row of the same transaction already holds a credit', {
+        alert: true,
+        depositId: row.id,
+        txHash: row.tx_hash,
+      });
+      return row;
+    }
     return this.credit(row, required, minimum);
+  }
+
+  /**
+   * One on-chain transfer must not be credited twice because a re-mine gave it another index. A row of the same transaction to the
+   * same address and asset that holds a credit read from another block (a re-mine) blocks the new one until a person looks. Several
+   * outputs of one transaction share a block and are all credited.
+   */
+  private async siblingHoldsCredit(row: Row): Promise<boolean> {
+    const found = await this.deps.sql<{ id: string }[]>`
+      SELECT id FROM pay.custody_deposits
+       WHERE network_id = ${row.network_id} AND tx_hash = ${row.tx_hash} AND lower(address) = ${row.address.toLowerCase()}
+         AND asset_id = ${row.asset_id} AND id <> ${row.id}
+         AND (status IN ('credited', 'needs_review') OR credit_started_at IS NOT NULL AND status <> 'reversed')
+         AND block_hash IS NOT NULL AND ${row.block_hash}::text IS NOT NULL AND block_hash <> ${row.block_hash}::text
+       LIMIT 1`;
+    return found.length > 0;
   }
 
   /** Mark the credit started (with the judging figures), post under the business key, then flip. Retried as it is after a crash. */

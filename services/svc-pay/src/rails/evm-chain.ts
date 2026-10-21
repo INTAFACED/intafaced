@@ -106,6 +106,8 @@ interface ObservedInbound extends ConfirmedTransfer {
  * record counts changed hashes; this chain counts "no such receipt" answers. A node that errors or times out says nothing and
  * counts for neither side.
  */
+/** Confirmations after which a seen transfer is no longer re-read from the node. */
+export const DEEP_FINAL_CONFIRMATIONS = 5000;
 export const REORG_CONFIRM_REFRESHES = 2;
 
 /**
@@ -521,6 +523,8 @@ export class EvmLiveChain implements CryptoChainPort {
 
   private async recomputeConfirmations(): Promise<void> {
     for (const [key, observed] of [...this.observed.entries()]) {
+      // Far past any reorg: stop asking. A pruned node answering "no such receipt" for an old transfer must not read as a drop.
+      if (observed.inReceipt && observed.confirmations >= DEEP_FINAL_CONFIRMATIONS) continue;
       const answer = await this.receiptFor(observed.txHash as Hex);
       if (answer.kind === 'unavailable') {
         // The node said nothing. Not confirmed this refresh, and not evidence of a drop either.
@@ -579,13 +583,12 @@ export class EvmLiveChain implements CryptoChainPort {
     if (!asset) return false;
     if (asset.kind === 'native') {
       if (receipt.to && getAddress(receipt.to).toLowerCase() !== observed.address.toLowerCase()) return false;
-      // The index is part of the deposit's identity. A transaction re-mined at another index is a new deposit; this one is gone.
-      if (typeof receipt.transactionIndex === 'number' && receipt.transactionIndex !== observed.logIndex) return false;
+      // A transaction re-mined at another index is the same money: it is not evidence of a drop, so the credit stays.
       return true;
     }
     for (const log of receipt.logs) {
       if (log.address.toLowerCase() !== asset.address.toLowerCase()) continue;
-      if (log.logIndex !== observed.logIndex) continue;
+      // The log index may differ after a re-mine; the same transfer at another index is still the same money.
       if (!log.transactionHash || log.transactionHash.toLowerCase() !== observed.txHash.toLowerCase()) continue;
       if (log.topics[0]?.toLowerCase() !== ERC20_TRANSFER_TOPIC.toLowerCase()) continue;
       const toTopic = log.topics[2];
