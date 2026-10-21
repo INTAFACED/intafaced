@@ -54,7 +54,7 @@ export const ticketEvents = schema.table(
       .references(() => tickets.id, { onDelete: 'restrict' }),
     /** 1-based, dense per ticket. The gap is the evidence a row was lost. */
     sequence: integer('sequence').notNull(),
-    kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated'>().notNull(),
+    kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated' | 'merged'>().notNull(),
     actorId: text('actor_id').notNull(),
     actorRole: text('actor_role').$type<'user' | 'operator'>().notNull(),
     fromStatus: text('from_status').$type<'open' | 'pending' | 'resolved' | 'closed'>(),
@@ -68,6 +68,24 @@ export const ticketEvents = schema.table(
     index('ticket_events_ticket_occurred_idx').on(t.ticketId, t.occurredAt),
   ],
 );
+
+/**
+ * A duplicate request folded into another (SP-tickets-07). One row per source: the merged-into link and the stored result a
+ * replay of (source, survivor) returns. Rows are never removed with a ticket (no cascade).
+ */
+export const ticketMerges = schema.table('ticket_merges', {
+  sourceId: uuid('source_id')
+    .primaryKey()
+    .references(() => tickets.id, { onDelete: 'restrict' }),
+  survivorId: uuid('survivor_id')
+    .notNull()
+    .references(() => tickets.id, { onDelete: 'restrict' }),
+  actorId: text('actor_id').notNull(),
+  reason: text('reason').notNull(),
+  commentsMoved: integer('comments_moved').notNull(),
+  attachmentsMoved: integer('attachments_moved').notNull(),
+  mergedAt: timestamp('merged_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
 
 /**
  * The context an escalation carries. Immutable once written (trigger, 0001;
