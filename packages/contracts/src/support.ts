@@ -31,6 +31,8 @@ export const supportTicketSchema = z.object({
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).nullable().optional(),
   status: supportTicketStatusSchema,
   assigneeId: z.string().uuid().nullable(),
+  /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
+  mergedInto: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -177,6 +179,8 @@ export const supportTicketEventKindSchema = z.enum([
   'grounding_read',
   /** Escalated with a case file. */
   'escalated',
+  /** Merged: this request absorbed a duplicate, or was folded into another. Note names the other request. */
+  'merged',
 ]);
 export type SupportTicketEventKind = z.infer<typeof supportTicketEventKindSchema>;
 

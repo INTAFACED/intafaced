@@ -58,6 +58,10 @@
       "types": "./dist/support-bulk.d.ts",
       "default": "./dist/support-bulk.js"
     },
+    "./support-merge": {
+      "types": "./dist/support-merge.d.ts",
+      "default": "./dist/support-merge.js"
+    },
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
