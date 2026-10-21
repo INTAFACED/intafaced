@@ -58,6 +58,28 @@ describe('pay custody deposit contract', () => {
     expect(parse({ ...halted, extra: 1 })).toBe(false);
   });
 
+  it('names the reorg reasons so a reversed record parses', () => {
+    const record = {
+      id: 'r1',
+      assetId: 'USDT',
+      networkId: 'TEST-net',
+      address: '0xabc',
+      txHash: '0xdef',
+      outputIndex: 0,
+      amount: '5',
+      confirmations: 3,
+      confirmationsRequired: 3,
+      status: 'reversed',
+      reason: 'chain_reorg',
+      minimumDeposit: '1',
+      detectedAt: '2026-10-21T00:00:00.000Z',
+      creditedAt: '2026-10-21T00:01:00.000Z',
+    };
+    expect(payCustodyDepositRecordSchema.safeParse(record).success).toBe(true);
+    expect(payCustodyDepositRecordSchema.safeParse({ ...record, status: 'needs_review', reason: 'reversal_unfunded' }).success).toBe(true);
+    expect(payCustodyDepositRecordSchema.safeParse({ ...record, reason: 'made_up' }).success).toBe(false);
+  });
+
   it('refuses an address with whitespace and a reply with an invented state', () => {
     expect(payCustodyDepositAddressReplySchema.safeParse(issued).success).toBe(true);
     expect(
