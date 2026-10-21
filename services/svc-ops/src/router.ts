@@ -64,6 +64,7 @@ import type { ComplianceStore } from './compliance/store.js';
 import type { AlertRules } from './alerts/rules.js';
 import type { AlertStateStore } from './alerts/state-store.js';
 import { stampFingerprint, type RestoreStampStore } from './restore-store.js';
+import type { RestoreDesk } from './restore/desk.js';
 import { costFingerprint, type VenueCostStore } from './venue-cost-store.js';
 import { composeVenueEconomics, parseCostEntry, parseCostPeriod, periodWindow, readRevenue } from './venue-economics.js';
 
@@ -165,6 +166,13 @@ async function readFeeRevenue(port: FeeRevenuePort | undefined, period: string):
   return port.read(periodWindow(period));
 }
 
+function requireRestoreDesk(desk: RestoreDesk | undefined): RestoreDesk {
+  if (!desk) {
+    throw new OpsError(OPS_RESTORE_STORAGE_UNCONFIGURED, 'No durable storage is configured for restore runs. Nothing was read or started.');
+  }
+  return desk;
+}
+
 function requireVenueCosts(store: VenueCostStore | undefined): VenueCostStore {
   if (!store) {
     throw new OpsError(
@@ -195,6 +203,8 @@ export interface OperatorDeskConfig {
   readonly approvals?: ApprovalConsumer;
   /** Durable joint-restore stamps. Absent means stamping refuses `ops.restore_storage_unconfigured`. */
   readonly restoreStamps?: RestoreStampStore;
+  /** The joint restore saga: runs, steps, gates. Absent means every run call refuses `ops.restore_storage_unconfigured`. */
+  readonly restoreDesk?: RestoreDesk;
   /** Durable venue cost entries. Absent means the venue economics calls refuse `ops.cost_storage_unconfigured`. */
   readonly venueCosts?: VenueCostStore;
   /** The ledger's fee revenue read. Absent means the report says `ops.fee_revenue_unconfigured` and gives no net. */
@@ -589,6 +599,67 @@ export function createOpsRouter(
               : { ...read, watermarks: null, storage: { configured: false, code: OPS_RESTORE_STORAGE_UNCONFIGURED } };
           } catch (err) {
             mapError(err);
+          }
+        }),
+      // The archive is not probed, so the list is empty and says why. Nothing is invented as a backup.
+      backups: scopedProcedure('admin:read', guards).query(() => {
+        const archive = archivePosture(desks.restoreArchiveUrl);
+        return { asOf: now(), archive, backups: [] as never[], reason: archive.code };
+      }),
+      runs: scopedProcedure('admin:read', guards).query(async () => {
+        try {
+          return { asOf: now(), runs: [...(await requireRestoreDesk(desks.restoreDesk).list())] };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+      run: scopedProcedure('admin:read', guards)
+        .input(z.object({ restoreNo: z.string().min(1).max(128) }))
+        .query(async ({ input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).get(input.restoreNo);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      start: scopedProcedure('admin:treasury', guards)
+        .input(z.object({ restoreNo: z.string().min(1).max(128), cutOff: z.string(), idempotencyKey: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).start({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
+      step: scopedProcedure('admin:treasury', guards)
+        .input(
+          z.object({
+            restoreNo: z.string().min(1).max(128),
+            step: z.enum(['restore_clean', 'validate', 'preview']),
+            idempotencyKey: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).step({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
+          }
+        }),
+      finalize: scopedProcedure('admin:treasury', guards)
+        .input(
+          z.object({
+            restoreNo: z.string().min(1).max(128),
+            idempotencyKey: z.string(),
+            approvalId: z.string(),
+            operationId: z.string(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await requireRestoreDesk(desks.restoreDesk).finalize({ ...input, actor: ctx.principal.userId });
+          } catch (err) {
+            deskError(err);
           }
         }),
       record: scopedProcedure('admin:treasury', guards)
