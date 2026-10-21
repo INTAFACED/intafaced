@@ -594,6 +594,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
     custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
     purchaseHolds: { sql },

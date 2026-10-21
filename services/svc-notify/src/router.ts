@@ -29,9 +29,11 @@ import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.j
 import { AlertValidationError } from './alerts/store.js';
 import {
   ALERT_CONDITIONS,
+  ALERT_FREQUENCIES,
   AlertKindUnpublishedError,
   type AlertCondition,
   type AlertExtra,
+  type AlertFrequency,
   EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
   directionOfCondition,
@@ -421,6 +423,8 @@ const alertExtras = {
   message: z.string().max(2000).optional(),
   /** ISO time. Omitted: open-ended. */
   expiresAt: z.string().datetime({ offset: true }).optional(),
+  /** `once` (the default) or a repeating frequency the owner allows; a repeating alert must be a crossing. */
+  frequency: z.enum(ALERT_FREQUENCIES).optional(),
   /** Added level conditions on the same market; all must hold with the main one. */
   extras: z
     .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
@@ -444,6 +448,10 @@ const priceAlertOutput = z.object({
   expiresAt: z.string().nullable(),
   updatedAt: z.string(),
   extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
+  frequency: z.enum(ALERT_FREQUENCIES),
+  /** Times a repeating alert has triggered; zero for a one-shot alert. */
+  fireCount: z.number().int(),
+  lastFiredAt: z.string().nullable(),
 });
 
 /**
@@ -499,6 +507,9 @@ function priceAlertToWire(row: PriceAlert) {
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
+    frequency: row.frequency,
+    fireCount: row.fireCount,
+    lastFiredAt: row.lastFiredAt ? row.lastFiredAt.toISOString() : null,
   };
 }
 
@@ -1515,6 +1526,7 @@ export function createNotifyRouter(
               message?: string;
               expiresAt?: string;
               extras?: AlertExtra[];
+              frequency?: AlertFrequency;
             };
             const condition = extras.condition;
             // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
@@ -1532,6 +1544,7 @@ export function createNotifyRouter(
               message: extras.message,
               expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
               ...(extras.extras ? { extras: extras.extras } : {}),
+              ...(extras.frequency ? { frequency: extras.frequency } : {}),
             });
             return {
               alert: priceAlertToWire(row),
@@ -1588,6 +1601,7 @@ export function createNotifyRouter(
               message: input.message,
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
               ...(input.extras ? { extras: input.extras } : {}),
+              ...(input.frequency ? { frequency: input.frequency } : {}),
             });
             return { alerts: rows.map(priceAlertToWire), evaluation: alerts.evaluationStatus() };
           } catch (err) {
@@ -1620,6 +1634,7 @@ export function createNotifyRouter(
             message: z.string().max(2000).nullable().optional(),
             expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
             extras: alertExtras.extras,
+            frequency: alertExtras.frequency,
           }),
         )
         .output(z.object({ alert: priceAlertOutput }))
@@ -1633,6 +1648,7 @@ export function createNotifyRouter(
               ...(input.message !== undefined ? { message: input.message } : {}),
               ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt) } : {}),
               ...(input.extras !== undefined ? { extras: input.extras } : {}),
+              ...(input.frequency !== undefined ? { frequency: input.frequency } : {}),
             });
             if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
             return { alert: priceAlertToWire(row) };
@@ -1677,6 +1693,8 @@ export function createNotifyRouter(
             items: z.array(
               z.object({
                 alertId: z.string().uuid(),
+                /** Which trigger of the alert this is, from 1. */
+                seq: z.number().int(),
                 marketId: z.string(),
                 condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']),
                 targetPrice: z.string(),
@@ -1698,6 +1716,7 @@ export function createNotifyRouter(
               retentionDays: log.retentionDays,
               items: log.triggers.map((t) => ({
                 alertId: t.alertId,
+                seq: t.seq,
                 marketId: t.marketId,
                 condition: t.condition,
                 targetPrice: t.targetPrice,

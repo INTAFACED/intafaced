@@ -7,6 +7,7 @@ import { QrCode } from '../../screens/pay/QrCode';
 import type { Resource } from '../../shared/resource';
 import { depositCopy } from './deposit-copy';
 import { DepthPanel, Fact } from './DepthParts';
+import './deposit-methods.css';
 import { createDepositReads, type DepositAddressView, type DepositCatalogue, type DepositNetworkView } from './deposit-reads';
 
 /** The networks custody published for one asset. Empty when the asset is not published at all. */
@@ -106,6 +107,31 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
   );
 }
 
+/** What the service published about one network, as written, plus the standard wrong-network line. Empty lists add nothing. */
+export function NetworkNotes({ asset, network }: { asset: string; network: DepositNetworkView }) {
+  const { t } = depositCopy.useCopy();
+  const groups = [
+    { key: 'requirements', title: t('notesRequirements'), items: network.requirements ?? [] },
+    { key: 'unsupported', title: t('notesUnsupported'), items: network.unsupported ?? [] },
+    { key: 'warnings', title: t('notesWarnings'), items: network.warnings ?? [] },
+  ].filter((group) => group.items.length > 0);
+  return (
+    <div className="bd-notes" role="note" data-testid="deposit-notes">
+      <p>{t('wrongNetwork', { asset, network: network.label })}</p>
+      {groups.map((group) => (
+        <section key={group.key} data-notes={group.key}>
+          <h4>{group.title}</h4>
+          <ul>
+            {group.items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 type Issue = { kind: 'idle' } | { kind: 'loading' } | { kind: 'failed' } | { kind: 'issued'; value: DepositAddressView };
 
 export function IssuedAddress({
@@ -153,11 +179,13 @@ export function IssuedAddress({
       </div>
     );
   }
+  const hasNotes = [network.requirements, network.unsupported, network.warnings].some((list) => (list?.length ?? 0) > 0);
   return (
     <div className="bd-address">
+      <NetworkNotes asset={asset} network={network} />
       <label className="field">
         <input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />
-        <span>{t('ackLabel', { asset, network: network.label })}</span>
+        <span>{t(hasNotes ? 'ackLabelNotes' : 'ackLabel', { asset, network: network.label })}</span>
       </label>
       <Button variant="primary" disabled={!acknowledged || state.kind === 'loading'} onClick={() => void show()}>
         {t('showAddress')}

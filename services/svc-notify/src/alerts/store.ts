@@ -15,6 +15,7 @@ import {
   type AlertCondition,
   type AlertEditState,
   type AlertExtra,
+  type AlertFrequency,
   type AlertDirection,
   type AlertSide,
   type AlertStatus,
@@ -82,6 +83,12 @@ export interface AlertStore {
   expireDue(at: Date): Promise<number>;
   /** Remember which side of the target a crossing watch was last seen on. No-op for a watch that is not active. */
   setLastSide(userId: string, id: string, side: AlertSide): Promise<void>;
+  /**
+   * Count one more trigger of a repeating alert that stays active, and remember the side it triggered on so the next crossing is
+   * a new one. Only applies while the stored fire count is still `fireCount`, so a retried sweep counts the same trigger once.
+   * Returns the alert, or `null` when it was not active or had already counted this trigger.
+   */
+  recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null>;
 }
 
 function sourcedKind(input: CreatePriceAlertInput): SourcedAlertKind {
@@ -146,6 +153,9 @@ export class MemoryAlertStore implements AlertStore {
       lastSide: null,
       extras: input.extras ?? [],
       updatedAt: createdAt,
+      frequency: input.frequency ?? 'once',
+      fireCount: 0,
+      lastFiredAt: null,
     };
     this.byId.set(row.id, row);
     return row;
@@ -245,6 +255,14 @@ export class MemoryAlertStore implements AlertStore {
     const row = await this.get(userId, id);
     if (row && row.status === 'active') this.byId.set(id, { ...row, lastSide: side });
   }
+
+  async recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null> {
+    const row = await this.get(userId, id);
+    if (!row || row.status !== 'active' || row.fireCount !== fireCount) return null;
+    const next: PriceAlert = { ...row, fireCount: fireCount + 1, lastFiredAt: at, lastSide: side ?? row.lastSide };
+    this.byId.set(id, next);
+    return next;
+  }
 }
 
 /**
@@ -258,10 +276,11 @@ export class PostgresAlertStore implements AlertStore {
     const kind = assertCreate(input);
     const id = randomUUID();
     const insert = (sql: Sql) => sql<AlertRow[]>`
-      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions)
+      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency)
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
-        ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)})
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+        ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)},
+        ${input.frequency ?? 'once'})
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
     `;
     if (input.maxOpen === undefined) return mapRow((await insert(this.sql))[0]!);
     const maxOpen = input.maxOpen;
@@ -293,10 +312,11 @@ export class PostgresAlertStore implements AlertStore {
       const rows: PriceAlert[] = [];
       for (const input of inputs) {
         const [row] = await tx<AlertRow[]>`
-          INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions)
+          INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency)
           VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
-            ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)})
-          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+            ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
+            ${input.frequency ?? 'once'})
+          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
         `;
         rows.push(mapRow(row!));
       }
@@ -316,13 +336,13 @@ export class PostgresAlertStore implements AlertStore {
     const rows =
       limit == null
         ? await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
           `
         : await this.sql<AlertRow[]>`
-            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+            SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
             FROM notify.price_alerts
             WHERE user_id = ${userId}
             ORDER BY created_at DESC
@@ -333,7 +353,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async get(userId: string, id: string): Promise<PriceAlert | null> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
       FROM notify.price_alerts
       WHERE user_id = ${userId} AND id = ${id}
       LIMIT 1
@@ -343,7 +363,7 @@ export class PostgresAlertStore implements AlertStore {
 
   async listActiveByMarket(marketId: string): Promise<readonly PriceAlert[]> {
     const rows = await this.sql<AlertRow[]>`
-      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      SELECT id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
       FROM notify.price_alerts
       WHERE market_id = ${marketId} AND status = 'active'
     `;
@@ -365,7 +385,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'fired', fired_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -375,7 +395,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = 'cancelled', updated_at = now()
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -386,9 +406,9 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET direction = ${next.direction}, target_price = ${next.targetPrice}, condition = ${next.condition}, name = ${next.name},
           message = ${next.message}, expires_at = ${next.expiresAt}, extra_conditions = ${this.sql.json(next.extras as never)},
-          last_side = NULL, updated_at = ${at}
+          frequency = ${next.frequency}, last_side = NULL, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status IN ('active', 'stopped')
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
     `;
     return rows[0] ? mapRow(rows[0]) : null;
   }
@@ -400,7 +420,7 @@ export class PostgresAlertStore implements AlertStore {
       UPDATE notify.price_alerts
       SET status = ${to}, last_side = NULL, updated_at = ${at}
       WHERE user_id = ${userId} AND id = ${id} AND status = ${from}
-      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
     `;
     if (rows[0]) return mapRow(rows[0]);
     return this.get(userId, id);
@@ -428,6 +448,16 @@ export class PostgresAlertStore implements AlertStore {
       WHERE user_id = ${userId} AND id = ${id} AND status = 'active'
     `;
   }
+
+  async recordRepeat(userId: string, id: string, fireCount: number, at: Date, side: AlertSide | null): Promise<PriceAlert | null> {
+    const rows = await this.sql<AlertRow[]>`
+      UPDATE notify.price_alerts
+      SET fire_count = fire_count + 1, last_fired_at = ${at}, last_side = COALESCE(${side}, last_side)
+      WHERE user_id = ${userId} AND id = ${id} AND status = 'active' AND fire_count = ${fireCount}
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at
+    `;
+    return rows[0] ? mapRow(rows[0]) : null;
+  }
 }
 
 type AlertRow = {
@@ -447,6 +477,9 @@ type AlertRow = {
   last_side: AlertSide | null;
   extra_conditions: AlertExtra[] | null;
   updated_at: Date;
+  frequency: AlertFrequency;
+  fire_count: number;
+  last_fired_at: Date | null;
 };
 
 function mapRow(r: AlertRow): PriceAlert {
@@ -467,5 +500,8 @@ function mapRow(r: AlertRow): PriceAlert {
     lastSide: r.last_side,
     extras: r.extra_conditions ?? [],
     updatedAt: r.updated_at,
+    frequency: r.frequency === 'every_crossing' ? 'every_crossing' : 'once',
+    fireCount: r.fire_count,
+    lastFiredAt: r.last_fired_at,
   };
 }

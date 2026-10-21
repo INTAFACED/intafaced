@@ -248,19 +248,27 @@ export const priceAlerts = schema.table('price_alerts', {
     .$type<{ condition: 'greater_than' | 'less_than'; targetPrice: string }[]>()
     .notNull()
     .default([]),
+  frequency: text('frequency').$type<'once' | 'every_crossing'>().notNull().default('once'),
+  fireCount: integer('fire_count').notNull().default(0),
+  lastFiredAt: timestamp('last_fired_at', { withTimezone: true, mode: 'date' }),
 });
 
-/** One row each time an alert fired (C-alerts-scan-02). See drizzle/0021_notify_alert_triggers.sql. */
-export const alertTriggers = schema.table('alert_triggers', {
-  alertId: uuid('alert_id').primaryKey(),
-  userId: text('user_id').notNull(),
-  marketId: text('market_id').notNull(),
-  condition: text('condition').notNull(),
-  targetPrice: text('target_price').notNull(),
-  markPrice: text('mark_price').notNull(),
-  firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }).notNull(),
-  notificationId: text('notification_id'),
-});
+/** One row each time an alert fired, keyed by alert and fire number. See drizzle/0022_notify_alert_frequency.sql (it replaced alert_triggers). */
+export const alertTriggers = schema.table(
+  'alert_fires',
+  {
+    alertId: uuid('alert_id').notNull(),
+    seq: integer('seq').notNull().default(1),
+    userId: text('user_id').notNull(),
+    marketId: text('market_id').notNull(),
+    condition: text('condition').notNull(),
+    targetPrice: text('target_price').notNull(),
+    markPrice: text('mark_price').notNull(),
+    firedAt: timestamp('fired_at', { withTimezone: true, mode: 'date' }).notNull(),
+    notificationId: text('notification_id'),
+  },
+  (t) => [primaryKey({ columns: [t.alertId, t.seq] })],
+);
 
 export type NotificationRow = typeof notifications.$inferSelect;
 export type ChannelTargetRow = typeof channelTargets.$inferSelect;

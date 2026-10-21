@@ -206,7 +206,11 @@ describe('watchlist alert', () => {
 
   it('refuses a batch past the cap as a precondition and creates none of it', async () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
-    const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify, undefined, { ...TEST_ALERT_LIMITS, maxActivePrice: 2 });
+    const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify, undefined, {
+      ...TEST_ALERT_LIMITS,
+      maxActivePrice: 2,
+      repeatFrequencies: [],
+    });
     const caller = createNotifyRouter(notify, alerts).createCaller(signed());
     await expect(
       caller.notify.createAlerts({ marketIds: ['BTC-USD', 'ETH-USD', 'SOL-USD'], direction: 'above', targetPrice: '100' }),

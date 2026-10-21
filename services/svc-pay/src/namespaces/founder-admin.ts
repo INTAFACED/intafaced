@@ -61,6 +61,7 @@ import { createFounderControlRouter, founderApprovalProcedures, founderChangePro
 import { founderProcedure, type FounderContext } from './founder-procedure.js';
 import { readMerchantDrilldown } from './merchant-drilldown.js';
 import { guarded } from './control-errors.js';
+import { createDepositSettingsRouter, type DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
@@ -97,6 +98,8 @@ export interface FounderAdminMounts {
   metrics?: MetricsRuntime;
   /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
   registries?: RegistriesMountDeps;
+  /** W-deposit-04: the owner's customer deposit settings. Mounted only when supplied. */
+  depositSettings?: DepositSettingsMountDeps;
   /** W-withdraw-05: owner-set withdrawal limits (`founderAdmin.limits.*`). Mounted only when supplied. */
   limits?: WithdrawalLimitsMountDeps;
   /** W-custody-ops-01: the custody account model (`founderAdmin.custody.*`). Mounted only when supplied. */
@@ -169,6 +172,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
   const {
     metrics,
     registries,
+    depositSettings,
     limits,
     custody,
     purchaseHolds,
@@ -198,6 +202,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     founderAdmin: router({
       // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
       ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
+      ...(depositSettings ? { depositSettings: createDepositSettingsRouter({ founderAuthority, ...depositSettings }) } : {}),
       // W-withdraw-05: owner-set withdrawal limits per KYC tier and asset (src/limits). Mounted only when its deps are supplied.
       ...(limits ? { limits: createWithdrawalLimitsRouter({ founderAuthority, ...limits }) } : {}),
       // W-custody-ops-01: custody entities, vaults and wallets (src/custody). Mounted only when its deps are supplied.
