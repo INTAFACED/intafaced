@@ -15,8 +15,8 @@ import type { ListingDecision, ListingDecisionDraft, ListingKind, ListingStore }
 export interface ListingDeskDeps {
   readonly store: ListingStore;
   readonly approvals: ApprovalConsumer | undefined;
-  /** The owner-published reason codes. Blank (null or empty) refuses `owner.decision`; nothing is invented. */
-  readonly reasonCodes: () => readonly string[] | null;
+  /** The reason codes in force right now (admin edit, setting or default). An empty list refuses `owner.decision`. */
+  readonly reasonCodes: () => Promise<readonly string[]>;
   readonly now: () => string;
 }
 
@@ -75,12 +75,12 @@ export class ProtocolListingDesk {
   ): Promise<ProtocolOpsActionResult> {
     const needsReason = move.to === 'hidden';
     if (needsReason) {
-      const codes = this.deps.reasonCodes();
-      if (!codes || codes.length === 0) {
-        throw new OpsError(OPS_PROTOCOL_REASON_CODES_UNSET, 'the owner has not published the reason codes for hiding a listing.');
+      const codes = await this.deps.reasonCodes();
+      if (codes.length === 0) {
+        throw new OpsError(OPS_PROTOCOL_REASON_CODES_UNSET, 'there is no reason code to hide a listing under.');
       }
       if (!input.reasonCode || !codes.includes(input.reasonCode)) {
-        throw new OpsError(OPS_PROTOCOL_REASON_CODE_UNKNOWN, `"${input.reasonCode ?? ''}" is not a published reason code.`);
+        throw new OpsError(OPS_PROTOCOL_REASON_CODE_UNKNOWN, `"${input.reasonCode ?? ''}" is not a reason code in force.`);
       }
     }
     const key = protocolOpsIdempotencyKey(move.action, targetId, input.approvalId.trim());
