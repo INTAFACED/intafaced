@@ -195,3 +195,28 @@ describe('CryptoChainWatcher — dead letter', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('CryptoChainWatcher — dropped inbounds (W-deposit-06)', () => {
+  it('reports what the chain no longer shows, and a throwing report does not stop delivery', async () => {
+    const delivered = inbound(A, '0xaa', 10n, 0);
+    const gone = inbound(B, '0xbb', 11n, 3);
+    const chain = { ...fakeChain([delivered]), droppedInbound: () => [gone] } as ChainWatcherChain & { marked: string[] };
+    const seen: string[] = [];
+    const fetchImpl = vi.fn(async () => new Response('ok', { status: 200 }));
+    await watcherFor(chain, fetchImpl, {
+      onDropped: async (items) => {
+        seen.push(...items.map((i) => `${i.address}:${i.transfer.txHash}:${i.logIndex}`));
+        throw new Error('report failed');
+      },
+    }).tick();
+    expect(seen).toEqual([`${B}:0xbb:3`]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(chain.marked).toEqual([A]);
+  });
+
+  it('a chain without droppedInbound reports nothing', async () => {
+    const onDropped = vi.fn(async () => undefined);
+    await watcherFor(fakeChain([]), vi.fn(), { onDropped }).tick();
+    expect(onDropped).not.toHaveBeenCalled();
+  });
+});

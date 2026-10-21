@@ -313,6 +313,7 @@ if (chargebackOutcomeSlots < 1) {
 const custodyDepositBook = new CustodyDepositBook({
   sql,
   postDeposit: (input) => userMoney.postCustodyDeposit(input),
+  reverseDeposit: (input) => userMoney.postCustodyDepositReverse(input),
   registries: createRegistryReader(sql),
   log: (msg, extra) => app.log.warn(extra ?? {}, msg),
 });
@@ -1058,6 +1059,8 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
             assetId: item.transfer.assetId,
             amount: item.transfer.amount,
             confirmations: item.transfer.confirmations,
+            blockHeight: item.blockNumber,
+            blockHash: item.blockHash ?? null,
           });
         } catch (err) {
           app.log.warn(
@@ -1067,6 +1070,12 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
         }
       }
       await custodyDepositBook.settleOpen();
+      await custodyDepositBook.resumeReversals();
+    },
+    onDropped: async (items) => {
+      await custodyDepositBook.dropped(
+        items.map((item) => ({ address: item.address, txHash: item.transfer.txHash, outputIndex: item.logIndex })),
+      );
     },
   });
   // The watch set is in memory: put every payment still waiting for a deposit, and every deposit address already issued to a

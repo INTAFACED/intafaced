@@ -26,7 +26,13 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   and count the row was judged by, before the ledger is asked; a retry after a crash skips the judgment and posts under the
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
- *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
+ *   issued for is `rejected` and logged as an alert. `held_for_screening` is W-deposit-06 (holds, still to come).
+ * - REORG (W-deposit-06). The block (height, hash) a transfer was last read from is stored on its row. When a credited row is
+ *   seen again in a block with a different hash, or the chain no longer reports the transfer at all, the credit is taken back
+ *   once through the reversal post (`deposit.reverse:<network>:<tx>:<index>`) and the row is `reversed`. `reversal_started_at` is
+ *   written before the ledger is asked, so a crash between the two is finished on the next pass under the same key. If the
+ *   customer has already spent the funds the ledger refuses, and the row is `needs_review` with `reversal_unfunded` and an alert:
+ *   the balance never goes negative and a person decides. A reversed row is never credited again by this book.
  */
 
 /** One transfer to a watched address, as the chain saw it. */
@@ -37,6 +43,9 @@ export interface ChainDeposit {
   readonly assetId: string;
   readonly amount: Amount;
   readonly confirmations: number;
+  /** Block the transfer was last read from, when the node said. A different hash on a credited row is a reorg. */
+  readonly blockHeight?: bigint | null;
+  readonly blockHash?: string | null;
 }
 
 export type ChainDepositOutcome =
@@ -47,6 +56,15 @@ export interface CustodyDepositBookDeps {
   readonly sql: Sql;
   /** The one deposit engine (`UserMoneyService.postCustodyDeposit`): posts the ledger `deposit` under the business key. */
   readonly postDeposit: (input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }) => Promise<{ id: string }>;
+  /** The one deposit engine again (`UserMoneyService.postCustodyDepositReverse`): takes a credit back under its business key. */
+  readonly reverseDeposit: (input: {
     userId: string;
     assetId: string;
     amount: Amount;
@@ -75,10 +93,13 @@ interface Row {
   detected_at: Date;
   credited_at: Date | null;
   credit_started_at: Date | null;
+  block_height: string | null;
+  block_hash: string | null;
+  reversal_started_at: Date | null;
 }
 
 const COLUMNS =
-  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at';
+  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at, block_height, block_hash, reversal_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
 const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUSES);
 
@@ -91,7 +112,7 @@ export class CustodyDepositBook {
   /** Record (and, if it is due, credit) one transfer. `unmatched` means the address is not one issued to a customer. */
   async receive(input: ChainDeposit): Promise<ChainDepositOutcome> {
     const txHash = input.txHash.toLowerCase();
-    const memoKey = `${input.address.toLowerCase()}:${txHash}:${input.outputIndex}:${input.assetId}:${input.amount}`;
+    const memoKey = `${input.address.toLowerCase()}:${txHash}:${input.outputIndex}:${input.assetId}:${input.amount}:${input.blockHash ?? ''}`;
     const known = this.settled.get(memoKey);
     if (known) return known;
 
@@ -110,10 +131,103 @@ export class CustodyDepositBook {
         received: input.assetId,
       });
     }
+    if (row.status === 'credited' && (row.reversal_started_at || hashMoved(row.block_hash, input.blockHash))) {
+      const reversed = await this.reverse(row, 'the block this deposit was credited from was replaced');
+      return { state: 'recorded', status: reversed.status, reason: reversed.reason };
+    }
     const judged = await this.settle(row);
     const outcome: ChainDepositOutcome = { state: 'recorded', status: judged.status, reason: judged.reason };
     if (!OPEN.has(judged.status)) this.settled.set(memoKey, outcome);
     return outcome;
+  }
+
+  /**
+   * The chain no longer reports these transfers (dropped, replaced or reverted after they were seen). A credited row for one of
+   * them is reversed; any other row is left as it is, because nothing was posted for it. Returns how many credits were taken back.
+   */
+  async dropped(items: readonly Pick<ChainDeposit, 'address' | 'txHash' | 'outputIndex'>[]): Promise<number> {
+    let reversed = 0;
+    for (const item of items) {
+      const key = `${item.address.toLowerCase()}:${item.txHash.toLowerCase()}:${item.outputIndex}`;
+      try {
+        const rows = await this.deps.sql<Row[]>`
+          SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
+           WHERE lower(address) = ${item.address.toLowerCase()} AND tx_hash = ${item.txHash.toLowerCase()}
+             AND output_index = ${item.outputIndex} AND status = 'credited'`;
+        const row = rows[0];
+        if (row && (await this.reverse(row, 'the chain no longer reports the transfer')).status === 'reversed') reversed += 1;
+      } catch (err) {
+        this.deps.log?.('custody deposit reversal left pending', {
+          alert: true,
+          key,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return reversed;
+  }
+
+  /** Finish every reversal that was started and not recorded (a crash between the ledger post and the row flip). */
+  async resumeReversals(): Promise<number> {
+    const rows = await this.deps.sql<Row[]>`
+      SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
+       WHERE status = 'credited' AND reversal_started_at IS NOT NULL ORDER BY reversal_started_at, id LIMIT 200`;
+    let done = 0;
+    for (const row of rows) {
+      try {
+        if ((await this.reverse(row, 'finishing a reversal that was started')).status === 'reversed') done += 1;
+      } catch (err) {
+        this.deps.log?.('custody deposit reversal left pending', {
+          alert: true,
+          depositId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return done;
+  }
+
+  /**
+   * Take one credit back. Writes `reversal_started_at` first, posts under the business key, then flips the row. A ledger refusal
+   * for lack of funds is `needs_review`; any other error leaves the row credited with the start marked, and is rethrown.
+   */
+  private async reverse(row: Row, why: string): Promise<Row> {
+    const { sql } = this.deps;
+    if (row.status !== 'credited') return row;
+    await sql`UPDATE pay.custody_deposits SET reversal_started_at = COALESCE(reversal_started_at, now()), updated_at = now()
+               WHERE id = ${row.id} AND status = 'credited'`;
+    let txId: string;
+    try {
+      txId = (
+        await this.deps.reverseDeposit({
+          userId: row.user_id,
+          assetId: row.asset_id,
+          amount: parseAmount(row.amount),
+          networkId: row.network_id,
+          txHash: row.tx_hash,
+          outputIndex: row.output_index,
+        })
+      ).id;
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === 'ledger.insufficient_funds') {
+        const held = await sql<Row[]>`
+          UPDATE pay.custody_deposits SET status = 'needs_review', reason = 'reversal_unfunded', updated_at = now()
+           WHERE id = ${row.id} AND status = 'credited' RETURNING ${sql.unsafe(COLUMNS)}`;
+        this.deps.log?.('custody deposit reversal not covered: the funds are already spent', {
+          alert: true,
+          depositId: row.id,
+          why,
+        });
+        return held[0] ?? (await this.reload(row.id));
+      }
+      throw err;
+    }
+    const done = await sql<Row[]>`
+      UPDATE pay.custody_deposits
+         SET status = 'reversed', reason = 'chain_reorg', reversed_at = now(), reversal_ledger_tx_id = ${txId}, updated_at = now()
+       WHERE id = ${row.id} AND status = 'credited' RETURNING ${sql.unsafe(COLUMNS)}`;
+    this.deps.log?.('custody deposit reversed', { alert: true, depositId: row.id, why });
+    return done[0] ?? (await this.reload(row.id));
   }
 
   /**
@@ -170,11 +284,14 @@ export class CustodyDepositBook {
     const amount = formatAmount(input.amount);
     const conf = Math.max(0, Math.trunc(input.confirmations));
     const first = unknownAsset ? 'rejected' : conf > 0 ? 'confirming' : 'detected';
+    const blockHeight = input.blockHeight === null || input.blockHeight === undefined ? null : input.blockHeight.toString();
+    const blockHash = input.blockHash ? input.blockHash.toLowerCase() : null;
     return sql.begin(async (tx) => {
       const inserted = await tx<Row[]>`
-        INSERT INTO pay.custody_deposits (user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, status, reason)
+        INSERT INTO pay.custody_deposits
+          (user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, status, reason, block_height, block_hash)
         VALUES (${owner.user_id}, ${input.assetId}, ${owner.network_id}, ${owner.address}, ${input.txHash}, ${input.outputIndex},
-                ${amount}, ${conf}, ${first}, ${unknownAsset ? 'unknown_asset' : null})
+                ${amount}, ${conf}, ${first}, ${unknownAsset ? 'unknown_asset' : null}, ${blockHeight}, ${blockHash})
         ON CONFLICT (asset_id, network_id, tx_hash, output_index) DO NOTHING
         RETURNING ${sql.unsafe(COLUMNS)}`;
       if (inserted[0]) return inserted[0];
@@ -192,9 +309,12 @@ export class CustodyDepositBook {
         this.deps.log?.('custody deposit amount changed between sightings', { alert: true, depositId: existing.id });
         return flagged[0]!;
       }
-      if (conf <= existing.confirmations) return existing;
+      const blockMoved = blockHash !== null && blockHash !== existing.block_hash;
+      if (conf <= existing.confirmations && !blockMoved) return existing;
       const moved = await tx<Row[]>`
-        UPDATE pay.custody_deposits SET confirmations = ${conf}, status = 'confirming', updated_at = now()
+        UPDATE pay.custody_deposits
+           SET confirmations = ${conf}, status = 'confirming',
+               block_height = COALESCE(${blockHeight}, block_height), block_hash = COALESCE(${blockHash}, block_hash), updated_at = now()
          WHERE id = ${existing.id} RETURNING ${sql.unsafe(COLUMNS)}`;
       return moved[0]!;
     });
@@ -305,4 +425,9 @@ function toRecord(row: Row): PayCustodyDepositRecord {
     detectedAt: row.detected_at.toISOString(),
     creditedAt: row.credited_at ? row.credited_at.toISOString() : null,
   };
+}
+
+/** True when both sides name a block and they are different. A missing hash on either side proves nothing. */
+function hashMoved(stored: string | null, seen: string | null | undefined): boolean {
+  return stored !== null && typeof seen === 'string' && seen !== '' && stored.toLowerCase() !== seen.toLowerCase();
 }

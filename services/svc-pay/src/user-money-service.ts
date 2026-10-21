@@ -384,6 +384,44 @@ export class UserMoneyService {
   }
 
   /**
+   * The chain rewrote the block a customer deposit was credited from (W-deposit-06): take the credit back, once. The key is
+   * `deposit.reverse:<network>:<tx>:<index>`, the business key of the credit, so a repeat or a retry after a crash returns the
+   * first transaction. If the customer has already spent the funds the ledger refuses (`ledger.insufficient_funds`) and the
+   * error reaches the caller untouched: the deposit record turns that into a review case, never a negative balance.
+   */
+  async postCustodyDepositReverse(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }): Promise<{ id: string }> {
+    if (input.amount <= 0n) throw new PayError('Deposit reversal amount must be positive', 'pay.invalid_amount');
+    const rail = 'crypto-native';
+    if (!this.rails.has(rail)) throw new PayError(`No rail adapter "${rail}"`, 'pay.rail_unknown');
+    const railRef = `${input.networkId}:${input.txHash}:${input.outputIndex}`;
+    return withMoneySpan(
+      'pay.deposit_reverse',
+      { operation: 'deposit_reverse', rail, railRef, amount: formatAmount(input.amount) },
+      async () => {
+        const tx = await postPayLedger(
+          this.ledger,
+          recipes.depositReverse({
+            userId: input.userId,
+            assetId: input.assetId,
+            amount: input.amount,
+            rail,
+            railRef,
+            depositId: railRef,
+          }),
+        );
+        return { id: tx.id };
+      },
+    );
+  }
+
+  /**
    * Claim `(rail, railRef)`, or return the existing claim.
    *
    * A REPEAT THAT SAYS SOMETHING DIFFERENT IS REFUSED, and this is the branch

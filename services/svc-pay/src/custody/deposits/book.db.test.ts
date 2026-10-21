@@ -62,6 +62,9 @@ describe('custody deposit record (real Postgres)', () => {
         const { networkId, txHash, outputIndex, ...rest } = input;
         return ledger.post(recipes.deposit({ ...rest, rail: 'crypto-native', railRef: `${networkId}:${txHash}:${outputIndex}` }));
       },
+      reverseDeposit: async () => {
+        throw new Error('these suites never reverse a credit');
+      },
       registries: { listRoutableNetworks: async () => networks },
       log: (msg, extra) => logs.push({ msg, extra }),
     });

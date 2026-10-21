@@ -249,6 +249,8 @@ export interface ChainWatcherChain {
   markFinalizedEmitted(address: string): void;
   /** Every re-read inbound with its depth, for the deposit record's progress. Optional: a chain without it has no progress. */
   observedInbound?(): readonly FinalizedInbound[];
+  /** Inbounds that were seen and then no longer appear in a receipt (dropped, replaced or reverted). Optional. */
+  droppedInbound?(): readonly FinalizedInbound[];
 }
 
 export interface ChainWatcherOptions {
@@ -278,6 +280,11 @@ export interface ChainWatcherOptions {
    * it. A throw is logged and never stops delivery.
    */
   readonly onObserved?: (items: readonly FinalizedInbound[]) => Promise<void>;
+  /**
+   * Called each tick with every inbound that was seen and is no longer in a receipt. The deposit record reverses a credit it
+   * made for one of them. A throw is logged and never stops delivery.
+   */
+  readonly onDropped?: (items: readonly FinalizedInbound[]) => Promise<void>;
 }
 
 interface DeliveryResult {
@@ -377,11 +384,21 @@ export class CryptoChainWatcher {
   private async reportObserved(): Promise<void> {
     const observe = this.options.onObserved;
     const items = this.options.chain.observedInbound?.();
-    if (!observe || !items || items.length === 0) return;
-    try {
-      await observe(items);
-    } catch (err) {
-      this.log('chain watcher could not report observed inbounds', { err: err instanceof Error ? err.message : String(err) });
+    if (observe && items && items.length > 0) {
+      try {
+        await observe(items);
+      } catch (err) {
+        this.log('chain watcher could not report observed inbounds', { err: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const drop = this.options.onDropped;
+    const dropped = this.options.chain.droppedInbound?.();
+    if (drop && dropped && dropped.length > 0) {
+      try {
+        await drop(dropped);
+      } catch (err) {
+        this.log('chain watcher could not report dropped inbounds', { err: err instanceof Error ? err.message : String(err) });
+      }
     }
   }
 

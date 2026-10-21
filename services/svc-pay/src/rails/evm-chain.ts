@@ -78,6 +78,8 @@ export interface FinalizedInbound {
   readonly blockNumber: bigint;
   /** EVM log index, or transaction index for native value transfers. */
   readonly logIndex: number;
+  /** Hash of the block the transfer was last read from, when the node gave one. A different hash later is a reorg. */
+  readonly blockHash?: string | null;
 }
 
 interface AddressBookEntry {
@@ -91,6 +93,7 @@ interface ObservedInbound extends ConfirmedTransfer {
   readonly address: Address;
   readonly blockNumber: bigint;
   readonly logIndex: number;
+  readonly blockHash: string | null;
   /** True only after this refresh re-read a receipt that still contains the transfer. */
   readonly inReceipt: boolean;
 }
@@ -327,6 +330,7 @@ export class EvmLiveChain implements CryptoChainPort {
           amount: fromChainUnits(tx.value, asset.decimals),
           blockNumber: block.number,
           logIndex: typeof tx.transactionIndex === 'number' ? tx.transactionIndex : 0,
+          blockHash: typeof block.hash === 'string' ? block.hash : null,
         });
       }
     }
@@ -373,6 +377,24 @@ export class EvmLiveChain implements CryptoChainPort {
         transfer: toTransfer(observed),
         blockNumber: observed.blockNumber,
         logIndex: observed.logIndex,
+        blockHash: observed.blockHash,
+      }));
+  }
+
+  /**
+   * Inbounds this refresh could NOT re-read in a receipt: the transaction was dropped, replaced or reverted after it was seen.
+   * The deposit record reverses a credit it made for one of these. Nothing here moves money.
+   */
+  droppedInbound(): FinalizedInbound[] {
+    return [...this.observed.values()]
+      .filter((observed) => !observed.inReceipt)
+      .sort(compareObserved)
+      .map((observed) => ({
+        address: getAddress(observed.address),
+        transfer: toTransfer(observed),
+        blockNumber: observed.blockNumber,
+        logIndex: observed.logIndex,
+        blockHash: observed.blockHash,
       }));
   }
 
@@ -414,6 +436,7 @@ export class EvmLiveChain implements CryptoChainPort {
     amount: Amount;
     blockNumber: bigint;
     logIndex: number;
+    blockHash: string | null;
   }): void {
     // Same tx and same log updates that one row. A different log index is a
     // second inbound — its amount stays. A different txHash is recorded too.
@@ -428,6 +451,7 @@ export class EvmLiveChain implements CryptoChainPort {
       confirmations: confirmations < 0 ? 0 : confirmations,
       blockNumber: input.blockNumber,
       logIndex: input.logIndex,
+      blockHash: input.blockHash,
       inReceipt: false,
     };
     this.observed.set(key, next);
@@ -479,6 +503,7 @@ export class EvmLiveChain implements CryptoChainPort {
           amount: fromChainUnits(value, asset.decimals),
           blockNumber: log.blockNumber ?? 0n,
           logIndex: typeof log.logIndex === 'number' ? log.logIndex : 0,
+          blockHash: typeof log.blockHash === 'string' ? log.blockHash : null,
         });
       }
     }
@@ -497,6 +522,7 @@ export class EvmLiveChain implements CryptoChainPort {
       this.observed.set(key, {
         ...observed,
         blockNumber,
+        blockHash: typeof receipt.blockHash === 'string' ? receipt.blockHash : observed.blockHash,
         inReceipt: true,
         confirmations: confirmations < 0 ? 0 : confirmations,
       });

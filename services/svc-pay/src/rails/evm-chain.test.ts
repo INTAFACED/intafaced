@@ -70,6 +70,7 @@ type ReceiptStub = {
   status: 'success' | 'reverted';
   transactionHash: Hex;
   blockNumber?: bigint;
+  blockHash?: string;
   to?: string | null;
   logs: readonly Erc20Log[];
 };
@@ -284,6 +285,9 @@ describe('EvmLiveChain inbound identity', () => {
     expect(drained.map((item) => item.transfer.txHash)).not.toContain(txDropped);
     expect(drained.map((item) => item.transfer.amount)).not.toContain(amountD);
     expect(drained).toHaveLength(3);
+    // The dropped transfer is reported as dropped (the deposit record reverses a credit it made for it) and never as observed.
+    expect(port.droppedInbound().map((item) => item.transfer.txHash)).toEqual([txDropped]);
+    expect(port.observedInbound().map((item) => item.transfer.txHash)).not.toContain(txDropped);
     const drainedSame = drained.filter((item) => item.transfer.txHash === txSame);
     expect(drainedSame).toHaveLength(2);
     expect(drainedSame.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountA, amountB]));
@@ -299,6 +303,37 @@ describe('EvmLiveChain inbound identity', () => {
     expect(still.map((item) => item.transfer.amount)).toEqual(expect.arrayContaining([amountB, amountC]));
     expect(still.map((item) => item.transfer.amount)).not.toContain(amountA);
     expect(still.map((item) => item.transfer.txHash)).not.toContain(txDropped);
+  });
+});
+
+describe('EvmLiveChain block hash (W-deposit-06)', () => {
+  it('carries the hash of the block the receipt names, and a later refresh shows a different one', async () => {
+    const token = '0x00000000000000000000000000000000000000a1';
+    const port = new EvmLiveChain({
+      rpcUrl: 'http://127.0.0.1:9',
+      chainId: 31337,
+      deposits: TestnetDepositAddresses.fromFixturePhrase(MNEMONIC),
+      signer: TestnetSigner.fromFixtureKey(HOT_KEY),
+      assets: parseEvmAssets(`USDC:${token}:6`),
+      broadcasts: new MemoryBroadcastStore(),
+      minConfirmations: 1,
+    });
+    const address = await port.acceptanceAddress('block-hash', 'USDC');
+    const txHash = `0x${'c'.repeat(64)}` as Hex;
+    const log = erc20Log({ token, to: address, value: 1_000_000n, txHash, logIndex: 2, blockNumber: 5n });
+    let blockHash = `0x${'1'.repeat(64)}`;
+    installRpc(port, {
+      getBlockNumber: async () => 5n,
+      getBlock: async ({ blockNumber }) => block(blockNumber),
+      getLogs: async ({ fromBlock }) => (fromBlock !== undefined && fromBlock <= 5n ? [log] : []),
+      getTransactionReceipt: async () => ({ status: 'success', transactionHash: txHash, blockNumber: 5n, blockHash, logs: [log] }),
+    });
+    await port.refresh();
+    expect(port.observedInbound()[0]).toMatchObject({ blockNumber: 5n, blockHash });
+    blockHash = `0x${'2'.repeat(64)}`;
+    await port.refresh();
+    expect(port.observedInbound()[0]).toMatchObject({ blockHash });
+    expect(port.droppedInbound()).toEqual([]);
   });
 });
 
