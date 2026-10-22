@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { SocialSignIn } from './SocialSignIn';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
@@ -564,6 +565,7 @@ export function AuthForm({ register }: { register: boolean }) {
             </a>
           )}
         </form>
+        {!register && <SocialSignIn />}
       </div>
     </section>
   );

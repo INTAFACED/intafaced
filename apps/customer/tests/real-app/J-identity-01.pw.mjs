@@ -69,6 +69,21 @@ test(`${J} #2 a too-short password is refused with the rule in words before any 
   expect(mailedCodes(who.email)).toHaveLength(0);
 });
 
+test(`${J} #3 a social or wallet sign-in button says it needs an outside provider that is switched off, with the code`, async ({
+  page,
+}) => {
+  for (const path of ['/register', '/login']) {
+    for (const name of ['Continue with a social account', 'Continue with a wallet']) {
+      await page.goto(path);
+      await page.getByRole('button', { name }).click();
+      const alert = page.getByRole('alert').filter({ hasText: 'outside sign-in provider' });
+      await expect(alert).toContainText('switched off in this build');
+      await expect(alert).toContainText('idp.social');
+      await expect(page).toHaveURL(new RegExp(`${path}$`));
+    }
+  }
+});
+
 test(`${J} #4 "check your email" reads the same for a known address, and an early resend says the seconds left`, async ({ page }) => {
   const who = run.read().account;
   // The account made in #5 does not exist yet, so use a second TEST person who signs up fully first.
