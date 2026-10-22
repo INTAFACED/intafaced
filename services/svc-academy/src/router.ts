@@ -1,6 +1,18 @@
 import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
-import { router, publicProcedure, scopedProcedure, TRPCError, rankPerksSchema } from '@intafaced/contracts';
+import {
+  academyCoursePermissionSchema,
+  academyCourseScopeSchema,
+  academyCustomRoleSchema,
+  academyPermissionSchema,
+  academyRoleHolderSchema,
+  academyRolesCatalogueSchema,
+  router,
+  publicProcedure,
+  scopedProcedure,
+  TRPCError,
+  rankPerksSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
@@ -785,16 +797,10 @@ const operatorApprovalIds = {
   operationId: z.string().max(128).nullish(),
 };
 
-const roleHolderOut = z.object({
-  courseScope: z.string(),
-  accountId: z.string(),
-  role: z.string(),
-  activation: z.number().int(),
-  active: z.boolean(),
-});
+const roleHolderOut = academyRoleHolderSchema;
 
 const roleChangeIn = z.object({
-  courseScope: z.string().min(1).max(64),
+  courseScope: academyCourseScopeSchema,
   accountId: z.string().uuid(),
   role: z.string().min(1).max(80),
   reason: z.string().max(500),
@@ -2459,11 +2465,7 @@ export function createAcademyRouter(
       // ── AC-roles-01: course team roles, custom roles and the permission query ──
       academyRoles: scopedProcedure('admin:read', { module: 'academy' })
         .output(
-          z.object({
-            permissions: z.array(z.string()),
-            builtin: z.array(z.object({ id: z.string(), permissions: z.array(z.string()) })),
-            custom: z.array(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() })),
-          }),
+          academyRolesCatalogueSchema,
         )
         .query(() =>
           guard(async () => ({
@@ -2474,7 +2476,7 @@ export function createAcademyRouter(
         ),
 
       roleHolders: scopedProcedure('admin:read', { module: 'academy' })
-        .input(z.object({ courseScope: z.string().min(1).max(64) }))
+        .input(z.object({ courseScope: academyCourseScopeSchema }))
         .output(z.array(roleHolderOut))
         .query(({ input, ctx }) =>
           guard(async () => {
@@ -2484,8 +2486,8 @@ export function createAcademyRouter(
         ),
 
       coursePermission: scopedProcedure('admin:read', { module: 'academy' })
-        .input(z.object({ accountId: z.string().uuid(), courseScope: z.string().min(1).max(64), permission: z.enum(ACADEMY_PERMISSIONS) }))
-        .output(z.object({ allowed: z.boolean() }))
+        .input(z.object({ accountId: z.string().uuid(), courseScope: academyCourseScopeSchema, permission: academyPermissionSchema }))
+        .output(academyCoursePermissionSchema)
         .query(({ input }) =>
           guard(async () => ({
             allowed: (await roles().permissionsOf(input.accountId, input.courseScope)).has(input.permission),
@@ -2502,7 +2504,7 @@ export function createAcademyRouter(
             ...operatorApprovalIds,
           }),
         )
-        .output(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() }))
+        .output(academyCustomRoleSchema)
         .mutation(({ input, ctx }) =>
           guard(async () => {
             const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.create', {
@@ -2516,7 +2518,7 @@ export function createAcademyRouter(
 
       setCustomRoleActive: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ roleId: z.string().min(1).max(80), active: z.boolean(), reason: z.string().max(500), ...operatorApprovalIds }))
-        .output(z.object({ id: z.string(), label: z.string(), permissions: z.array(z.string()), active: z.boolean() }))
+        .output(academyCustomRoleSchema)
         .mutation(({ input, ctx }) =>
           guard(async () => {
             const approver = await consumeOperatorApproval(ctx.principal, approvals, input, 'academy.role.activate', {

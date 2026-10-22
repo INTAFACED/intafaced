@@ -5,26 +5,14 @@
  * ledger-client recipe path of AC-commerce-01 and never runs in role code;
  * nothing in roles/** imports the ledger client.
  */
+import { academyBuiltinRoleSchema, academyPermissionSchema } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 
-export const ACADEMY_PERMISSIONS = [
-  'publish',
-  'delete',
-  'edit_content',
-  'view_progress',
-  'grade',
-  'enrol',
-  'moderate',
-  'reports',
-  'certificates',
-  'refund',
-  'financial_view',
-  'comments',
-  'coaching',
-] as const;
+/** Published list lives in @intafaced/contracts (academy-roles.ts); no local copy. */
+export const ACADEMY_PERMISSIONS = academyPermissionSchema.options;
 export type AcademyPermission = (typeof ACADEMY_PERMISSIONS)[number];
 
-export const BUILTIN_ROLES = ['instructor', 'staff', 'limited_staff', 'admin', 'data_researcher', 'author'] as const;
+export const BUILTIN_ROLES = academyBuiltinRoleSchema.options;
 export type BuiltinRole = (typeof BUILTIN_ROLES)[number];
 
 const ALL: readonly AcademyPermission[] = ACADEMY_PERMISSIONS;
