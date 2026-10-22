@@ -73,10 +73,10 @@ describe('M-catalogue-01 product records (Postgres)', () => {
     const a = await catalog.create(c, { ...base, requestId, productRef: 'box-1' });
     const b = await catalog.create(c, { ...base, requestId, productRef: 'box-1' });
     expect(b).toEqual(a);
-    const [{ n }] = await sql<
+    const [count] = await sql<
       Array<{ n: number }>
     >`SELECT count(*)::int AS n FROM pay.catalog_products WHERE merchant_id = ${c.merchantId}`;
-    expect(n).toBe(1);
+    expect(count?.n).toBe(1);
   });
 
   it('the same requestId with other fields is refused', async () => {
