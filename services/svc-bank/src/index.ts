@@ -1,3 +1,4 @@
+import { scheduleRetryApprovalConsumer } from './transfers/schedule-retry-approval.js';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -227,6 +228,8 @@ const bank = createBankServices(sql, ledger, history, {
   /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
   payeeControls: env.BANK_PAYEE_CONTROLS_JSON,
   exchangeAllowance: env.BANK_EXCHANGE_ALLOWANCE_JSON,
+  // BK-xfer-10 review #7: shared-secret mode; blank IDENTITY_URL or secret refuses every operator retry.
+  scheduleRetryApprovals: scheduleRetryApprovalConsumer(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET),
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {

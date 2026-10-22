@@ -172,11 +172,41 @@ export class ScheduleRunRetry {
     scheduleId: string;
     occurrence: number;
     now?: Date;
+    /** Runs inside the retry's transaction with the outcome, so the audit row commits with the settle (or not at all). */
+    audit?: (
+      tx: Sql,
+      outcome: { status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean; rejectionCode?: string },
+    ) => Promise<void>;
   }): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean; rejectionCode?: string }> {
     const now = input.now ?? new Date();
     return transaction(
       this.sql,
       async (tx) => {
+        const out = await this.retryIn(tx, input, now);
+        if (input.audit) await input.audit(tx, out);
+        return out;
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** Reads the run a retry would act on (for the approval payload); null when absent. */
+  async runFor(scheduleId: string, occurrence: number): Promise<{ status: string; amount: string; scheduleStatus: string } | null> {
+    const rows = await this.sql<Array<{ status: string; amount: string; scheduleStatus: string }>>`
+      SELECT e.status, e.amount::text AS amount, s.status::text AS "scheduleStatus"
+        FROM bank.transfer_executions e JOIN bank.scheduled_transfers s ON s.id = e.schedule_id
+       WHERE e.schedule_id = ${scheduleId} AND e.occurrence = ${occurrence}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async retryIn(
+    tx: Sql,
+    input: { scheduleId: string; occurrence: number },
+    now: Date,
+  ): Promise<{ status: 'settled' | 'rejected'; ledgerTxId: string | null; adopted: boolean; rejectionCode?: string }> {
+    {
+      {
         const sched = await tx<Array<{ from_space_id: string; to_space_id: string; status: string }>>`
           SELECT from_space_id, to_space_id, status FROM bank.scheduled_transfers WHERE id = ${input.scheduleId} FOR UPDATE
         `;
@@ -251,8 +281,7 @@ export class ScheduleRunRetry {
            WHERE id = ${run.id}
         `;
         return { status: 'settled' as const, ledgerTxId, adopted };
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
+      }
+    }
   }
 }

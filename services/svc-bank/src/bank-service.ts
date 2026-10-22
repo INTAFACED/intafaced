@@ -1,3 +1,4 @@
+import { ScheduleRetryDesk, type ScheduleRetryApprovalConsumer } from './transfers/schedule-retry-approval.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
@@ -50,6 +51,8 @@ export interface BankServices {
   readonly scheduleEdits?: ScheduleEditor;
   /** BK-xfer-10 operator retry of one rejected run (adopts the existing key and stored amount). */
   readonly scheduleRetry?: ScheduleRunRetry;
+  /** BK-xfer-10 review #7: the four-eyes, audited operator door onto `scheduleRetry`. */
+  readonly scheduleRetryDesk?: ScheduleRetryDesk;
   readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
@@ -177,6 +180,8 @@ export interface BankServiceOptions {
   payeeControls?: string | undefined;
   /** Owner-published exchange payment allowance (JSON). Blank refuses every global send. */
   exchangeAllowance?: string | undefined;
+  /** BK-xfer-10 review #7: identity approval consumer for the operator retry; absent refuses the retry. */
+  scheduleRetryApprovals?: ScheduleRetryApprovalConsumer | null;
   /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
   proofLimits?: string | undefined;
 }
@@ -238,11 +243,13 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   );
   const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
 
+  const scheduleRetry = new ScheduleRunRetry(sql, ledger, spaces);
   return {
     spaces,
     transfers,
     scheduleEdits: new ScheduleEditor(sql, { editCutoffMinutes: options.scheduleEditCutoffMinutes }),
-    scheduleRetry: new ScheduleRunRetry(sql, ledger, spaces),
+    scheduleRetry,
+    scheduleRetryDesk: new ScheduleRetryDesk(scheduleRetry, options.scheduleRetryApprovals ?? null),
     personalPay,
     earn,
     analytics,

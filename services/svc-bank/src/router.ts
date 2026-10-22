@@ -325,10 +325,12 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.insufficient_funds':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
+      case 'bank.schedule_retry_approval_refused':
       case 'bank.not_owner':
       case 'bank.personal_request_not_payer':
       case 'bank.personal_request_not_payee':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+      case 'bank.schedule_retry_approval_unwired':
       case 'bank.pool_underfunded':
       case 'bank.earn_principal_mismatch':
         // Not the caller's fault and not something a retry fixes — the pool
@@ -2693,7 +2695,11 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const ops = router({
     /** BK-xfer-10: operator retry of ONE rejected standing-order run; adopts the existing post (same key, stored amount). */
     retryScheduleRun: scopedProcedure('admin:write')
-      .input(bankScheduleRetryRunInputSchema)
+      .input(
+        // Four-eyes (review #7): the identity approval for this exact payload. TODO(contracts): move these two fields
+        // into bankScheduleRetryRunInputSchema on feat/contracts-BK-xfer-10.
+        bankScheduleRetryRunInputSchema.extend({ approvalId: z.string().min(1).max(128), operationId: z.string().min(1).max(128) }),
+      )
       .output(
         z.object({
           status: z.enum(['settled', 'rejected']),
@@ -2702,10 +2708,17 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           rejectionCode: z.string().optional(),
         }),
       )
-      .mutation(async ({ input }) =>
+      .mutation(async ({ ctx, input }) =>
         guard(async () => {
-          if (!bank.scheduleRetry) throw new BankError('Schedule retry is not wired', 'bank.schedule_not_found');
-          return bank.scheduleRetry.retry({ scheduleId: input.scheduleId, occurrence: input.occurrence });
+          if (!bank.scheduleRetryDesk) throw new BankError('Schedule retry is not wired', 'bank.schedule_retry_approval_unwired');
+          return bank.scheduleRetryDesk.retry({
+            scheduleId: input.scheduleId,
+            occurrence: input.occurrence,
+            reason: input.reason,
+            actorId: ctx.principal.userId,
+            approvalId: input.approvalId,
+            operationId: input.operationId,
+          });
         }),
       ),
     /**

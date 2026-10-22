@@ -27,6 +27,8 @@ export type BankErrorCode =
   | 'bank.schedule_revision_conflict'
   /** BK-xfer-10: an edit while a claimed run of this schedule has not settled. */
   | 'bank.schedule_run_pending'
+  | 'bank.schedule_retry_approval_unwired'
+  | 'bank.schedule_retry_approval_refused'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'
