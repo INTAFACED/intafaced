@@ -6,7 +6,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Address, Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
-import { badgeClaimKey, badgeClaimMessage, claimBadge, type BadgeDeps, type BadgeMinter } from './founding-badge.js';
+import {
+  badgeClaimKey,
+  badgeClaimMessage,
+  BadgeMintNotSentError,
+  claimBadge,
+  resolveStuckBadgeMint,
+  type BadgeDeps,
+  type BadgeMinter,
+} from './founding-badge.js';
 import { PostgresBadgeStore } from './founding-badge.pg.js';
 
 /**
@@ -22,7 +30,9 @@ const sql: Sql | null = URL && available ? postgres(URL, { max: 6, onnotice: () 
 const RACER = 'bad9e000-4444-4444-8444-444444444444';
 const ALPHA = 'bad9e000-5555-4555-8555-555555555555';
 const BETA = 'bad9e000-6666-4666-8666-666666666666';
-const IDS = [RACER, ALPHA, BETA];
+const STUCK = 'bad9e000-8888-4888-8888-888888888888';
+const IDS = [RACER, ALPHA, BETA, STUCK];
+const STUCK_ADDR = '0x00000000000000000000000000000000000000C3' as Address;
 const RACER_ADDR = '0x00000000000000000000000000000000000000C1' as Address;
 const SHARED_ADDR = '0x00000000000000000000000000000000000000C2' as Address;
 const CHAIN_ID = 31337;
@@ -30,11 +40,12 @@ const NET = { chainId: CHAIN_ID, mainnet: false };
 const OWNER_KEY = privateKeyToAccount(`0x${'44'.repeat(32)}`);
 const WINDOW = { opensAt: new Date('2026-10-01T00:00:00Z'), closesAt: new Date('2026-11-01T00:00:00Z') };
 
-function harness(mintDelayMs = 25) {
+function harness(mintDelayMs = 25, fail?: Error) {
   const mints: Array<{ to: Address; key: string }> = [];
   const minter: BadgeMinter = {
     signerFor: () => ({
       mint: async (to, key) => {
+        if (fail) throw fail;
         mints.push({ to, key });
         await new Promise((r) => setTimeout(r, mintDelayMs)); // a mint in flight
         return `0x${'cd'.repeat(31)}${String(mints.length).padStart(2, '0')}` as Hex;
@@ -61,7 +72,7 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     await sql!`CREATE SCHEMA IF NOT EXISTS protocol`;
     await sql!.unsafe(readFileSync(migration, 'utf8'));
     await cleanup();
-    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA})`;
+    await sql!`INSERT INTO protocol.founding_badge_list (account_id) VALUES (${RACER}), (${ALPHA}), (${BETA}), (${STUCK})`;
   });
   afterAll(async () => {
     await cleanup();
@@ -94,5 +105,28 @@ describe.skipIf(!sql)('founding badge single-flight mint (Postgres)', () => {
     expect(String(refused[0]!.reason)).toMatch(/badge\.already_claimed/);
     expect(mints).toHaveLength(1);
     expect(await sql!`SELECT 1 FROM protocol.founding_badge_claims WHERE account_id IN ${sql!([ALPHA, BETA])}`).toHaveLength(1);
+  });
+
+  it('stuck pending: an untyped error keeps the slot (mintingSince set, retry pending, no mint); typed error frees it', async () => {
+    const key = badgeClaimKey(STUCK);
+    await expect(claimAs(harness(0, new BadgeMintNotSentError('refused')).deps, STUCK, STUCK_ADDR)).rejects.toBeInstanceOf(
+      BadgeMintNotSentError,
+    );
+    expect((await sql!`SELECT minting_at FROM protocol.founding_badge_claims WHERE key = ${key}`)[0]!.minting_at).toBeNull();
+
+    await expect(claimAs(harness(0, new Error('rpc timeout')).deps, STUCK, STUCK_ADDR)).rejects.toThrow(/rpc timeout/);
+    const ok = harness();
+    const pending = await claimAs(ok.deps, STUCK, STUCK_ADDR);
+    expect(pending.txHash).toBeNull();
+    expect(pending.mintingSince).toBeInstanceOf(Date);
+    expect(ok.mints).toHaveLength(0);
+
+    // Operator clear needs chain evidence; "not_minted" frees the slot and the next claim mints once.
+    const store = new PostgresBadgeStore(sql!);
+    const cleared = await resolveStuckBadgeMint(store, STUCK, { kind: 'not_minted', attestedBy: 'ops:test', checkedAt: new Date() });
+    expect(cleared).toMatchObject({ txHash: null, mintingSince: null });
+    expect((await claimAs(ok.deps, STUCK, STUCK_ADDR)).txHash).not.toBeNull();
+    expect(ok.mints).toHaveLength(1);
+    expect(await resolveStuckBadgeMint(store, STUCK, { kind: 'minted', txHash: `0x${'11'.repeat(32)}` as Hex })).toBeNull();
   });
 });

@@ -1,10 +1,16 @@
 import type { Sql } from 'postgres';
 import { getAddress as toChecksum } from 'viem';
 import type { Address, Hex } from 'viem';
-import { BADGE_ALREADY_CLAIMED, BadgeRefusedError, type BadgeClaimRecord, type BadgeStore } from './founding-badge.js';
+import {
+  BADGE_ALREADY_CLAIMED,
+  BadgeRefusedError,
+  type BadgeClaimRecord,
+  type BadgeStore,
+  type BadgeStuckMintEvidence,
+} from './founding-badge.js';
 
 /** Postgres `BadgeStore` over `protocol.founding_badge_list` and `protocol.founding_badge_claims` (0001). */
-type Row = { key: string; account_id: string; chain_id: number; to_address: string; tx_hash: string | null };
+type Row = { key: string; account_id: string; chain_id: number; to_address: string; tx_hash: string | null; minting_at: Date | null };
 
 function toRecord(r: Row): BadgeClaimRecord {
   return {
@@ -13,6 +19,7 @@ function toRecord(r: Row): BadgeClaimRecord {
     chainId: r.chain_id,
     to: toChecksum(r.to_address),
     txHash: (r.tx_hash as Hex | null) ?? null,
+    mintingSince: r.minting_at ?? null,
   };
 }
 
@@ -26,13 +33,13 @@ export class PostgresBadgeStore implements BadgeStore {
 
   async findClaim(key: string): Promise<BadgeClaimRecord | null> {
     const rows = await this.sql<Row[]>`
-      SELECT key, account_id, chain_id, to_address, tx_hash FROM protocol.founding_badge_claims WHERE key = ${key}`;
+      SELECT key, account_id, chain_id, to_address, tx_hash, minting_at FROM protocol.founding_badge_claims WHERE key = ${key}`;
     return rows[0] ? toRecord(rows[0]) : null;
   }
 
   async findClaimByAddress(chainId: number, to: Address): Promise<BadgeClaimRecord | null> {
     const rows = await this.sql<Row[]>`
-      SELECT key, account_id, chain_id, to_address, tx_hash FROM protocol.founding_badge_claims
+      SELECT key, account_id, chain_id, to_address, tx_hash, minting_at FROM protocol.founding_badge_claims
       WHERE chain_id = ${chainId} AND to_address = ${toChecksum(to)}`;
     return rows[0] ? toRecord(rows[0]) : null;
   }
@@ -69,10 +76,24 @@ export class PostgresBadgeStore implements BadgeStore {
       WHERE key = ${key} AND tx_hash IS NULL`;
   }
 
+  async clearStuckMint(key: string, evidence: BadgeStuckMintEvidence): Promise<BadgeClaimRecord | null> {
+    const rows =
+      evidence.kind === 'minted'
+        ? await this.sql<Row[]>`
+            UPDATE protocol.founding_badge_claims SET tx_hash = ${evidence.txHash}, minting_at = NULL, updated_at = now()
+            WHERE key = ${key} AND tx_hash IS NULL AND minting_at IS NOT NULL
+            RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`
+        : await this.sql<Row[]>`
+            UPDATE protocol.founding_badge_claims SET minting_at = NULL, updated_at = now()
+            WHERE key = ${key} AND tx_hash IS NULL AND minting_at IS NOT NULL
+            RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`;
+    return rows[0] ? toRecord(rows[0]) : null;
+  }
+
   async setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord> {
     const rows = await this.sql<Row[]>`
       UPDATE protocol.founding_badge_claims SET tx_hash = COALESCE(tx_hash, ${txHash}), minting_at = NULL, updated_at = now()
-      WHERE key = ${key} RETURNING key, account_id, chain_id, to_address, tx_hash`;
+      WHERE key = ${key} RETURNING key, account_id, chain_id, to_address, tx_hash, minting_at`;
     if (!rows[0]) throw new Error('protocol.founding_badge_claims update found no row');
     return toRecord(rows[0]);
   }

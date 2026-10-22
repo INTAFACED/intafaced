@@ -918,7 +918,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
               { chainId: chain.config.chainId, mainnet: b.mainnet() },
               input?.signature ?? null,
             );
-            return { key: r.key, chainId: r.chainId, to: r.to, txHash: r.txHash, label: r.label, audited: r.audited };
+            return {
+              key: r.key,
+              chainId: r.chainId,
+              to: r.to,
+              txHash: r.txHash,
+              label: r.label,
+              audited: r.audited,
+              mintingSince: r.txHash ? null : (r.mintingSince?.toISOString() ?? null),
+            };
           } catch (err) {
             throw toTrpcError(err);
           }

@@ -59,6 +59,8 @@ export interface BadgeClaimRecord {
   to: Address;
   /** Null between "claim stored" and "mint submitted". */
   txHash: Hex | null;
+  /** When the current mint slot was taken; null/absent when no mint is in flight. Stays set if a mint got stuck. */
+  mintingSince?: Date | null;
 }
 
 export interface BadgeStore {
@@ -76,14 +78,38 @@ export interface BadgeStore {
   claimMintSlot(key: string): Promise<boolean>;
   /** Give the slot back after the signer threw before returning a tx hash, so a later retry can mint. */
   releaseMintSlot(key: string): Promise<void>;
+  /**
+   * Operator clear of a stuck slot (tx hash null, slot set). `minted` stores the hash; `not_minted` frees the slot.
+   * Returns null when there is nothing stuck to clear.
+   */
+  clearStuckMint(key: string, evidence: BadgeStuckMintEvidence): Promise<BadgeClaimRecord | null>;
   /** Stores the tx hash (first one wins) and clears the mint slot. */
   setTxHash(key: string, txHash: Hex): Promise<BadgeClaimRecord>;
 }
 
+/**
+ * Thrown by a signer only when it is certain nothing was broadcast (e.g. it refused before signing). Only this
+ * error gives the mint slot back; any other error keeps the slot, because the mint may be on chain.
+ */
+export class BadgeMintNotSentError extends Error {
+  constructor(detail: string) {
+    super(`badge mint not sent: ${detail}`);
+    this.name = 'BadgeMintNotSentError';
+  }
+}
+
 export interface BadgeMinter {
-  /** Null when no signer is configured for this network. */
+  /**
+   * Null when no signer is configured for this network.
+   *
+   * `mint(to, key)` MUST be idempotent on `key`: a second call with the same key must not mint a second badge
+   * (e.g. a keyed mint the contract refuses to repeat). It throws `BadgeMintNotSentError` only when nothing was sent.
+   */
   signerFor(chainId: number): { mint(to: Address, key: string): Promise<Hex> } | null;
 }
+
+/** Chain evidence an operator must give to clear a stuck mint slot. */
+export type BadgeStuckMintEvidence = { kind: 'minted'; txHash: Hex } | { kind: 'not_minted'; attestedBy: string; checkedAt: Date };
 
 export interface BadgeDeps {
   store: BadgeStore;
@@ -223,11 +249,34 @@ export async function claimBadge(
   try {
     txHash = await signer.mint(stored.to, key);
   } catch (err) {
-    await deps.store.releaseMintSlot(key);
+    // Only a typed "nothing sent" error frees the slot; anything else may have reached the chain, so the claim stays
+    // pending until an operator clears it with chain evidence (resolveStuckBadgeMint).
+    if (err instanceof BadgeMintNotSentError) await deps.store.releaseMintSlot(key);
     throw err;
   }
   const done = await deps.store.setTxHash(key, txHash);
   return { ...done, label: 'TEST', audited: false };
+}
+
+/**
+ * Operator-only (not mounted on any customer route): clear a claim stuck pending after a crash mid-mint. Requires
+ * chain evidence: the tx hash that did mint, or an explicit named "not minted" attestation. Refuses blank evidence.
+ */
+export async function resolveStuckBadgeMint(
+  store: BadgeStore,
+  accountId: string,
+  evidence: BadgeStuckMintEvidence,
+): Promise<BadgeClaimRecord | null> {
+  if (evidence.kind === 'minted') {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(evidence.txHash)) throw new Error('resolveStuckBadgeMint: minted needs a tx hash');
+  } else if (evidence.kind === 'not_minted') {
+    if (!evidence.attestedBy?.trim() || !(evidence.checkedAt instanceof Date) || Number.isNaN(evidence.checkedAt.getTime())) {
+      throw new Error('resolveStuckBadgeMint: not_minted needs a named attester and a check time');
+    }
+  } else {
+    throw new Error('resolveStuckBadgeMint: evidence is required');
+  }
+  return store.clearStuckMint(badgeClaimKey(accountId), evidence);
 }
 
 /** Founder setting to window; either side blank = null (`badge.window_unset`). */

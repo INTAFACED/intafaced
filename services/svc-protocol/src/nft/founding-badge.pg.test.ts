@@ -9,7 +9,7 @@ import type { Principal } from '@intafaced/auth';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createProtocolRouter, type ProtocolRouterDeps } from '../router.js';
-import { badgeClaimKey, badgeClaimMessage, type BadgeMinter } from './founding-badge.js';
+import { badgeClaimKey, badgeClaimMessage, BadgeMintNotSentError, type BadgeMinter } from './founding-badge.js';
 import { PostgresBadgeStore } from './founding-badge.pg.js';
 
 /**
@@ -61,7 +61,7 @@ function build(opts: { window?: typeof WINDOW | null; mainnet?: boolean; signer?
         ? null
         : {
             mint: async (to, key) => {
-              if (opts.failMint) throw new Error('crash after claim stored');
+              if (opts.failMint) throw new BadgeMintNotSentError('crash after claim stored');
               mints.push({ to, key });
               return `0x${'ab'.repeat(31)}${String(mints.length).padStart(2, '0')}` as Hex;
             },

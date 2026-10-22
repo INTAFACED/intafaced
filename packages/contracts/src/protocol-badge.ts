@@ -37,5 +37,7 @@ export const protocolBadgeClaimOutputSchema = z.object({
     .nullable(),
   label: z.literal('TEST'),
   audited: z.literal(false),
+  /** Set while a mint is in flight (or stuck after a crash mid-mint) and no tx hash is stored; ISO time. */
+  mintingSince: z.string().datetime().nullable(),
 });
 export type ProtocolBadgeClaim = z.infer<typeof protocolBadgeClaimOutputSchema>;
