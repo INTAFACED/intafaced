@@ -67,4 +67,11 @@ describe('trade signal webhook contracts', () => {
     expect(TRADE_SIGNAL_WEBHOOK_LIST_PROCEDURE).toBe('signals.webhook.list');
     expect(root.TRADE_SIGNAL_ERROR_CODES).toBe(TRADE_SIGNAL_ERROR_CODES);
   });
+
+  it('list items accept offset timestamps like the other contracts, and refuse a non-timestamp', () => {
+    const ok = { items: [{ ...WEBHOOK, createdAt: '2026-10-22T16:00:00.000+08:00' }] };
+    expect(tradeSignalWebhookListOutputSchema.safeParse(ok).success).toBe(true);
+    const bad = { items: [{ ...WEBHOOK, createdAt: '22 Oct 2026' }] };
+    expect(tradeSignalWebhookListOutputSchema.safeParse(bad).success).toBe(false);
+  });
 });

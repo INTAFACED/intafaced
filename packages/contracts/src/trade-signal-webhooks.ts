@@ -54,7 +54,7 @@ export const TRADE_SIGNAL_WEBHOOK_STATES = ['active', 'revoked'] as const;
 
 /** Market symbol as the customer sees it. Bounded, not pattern-matched (a dated symbol has a colon). */
 const symbol = z.string().min(1).max(64);
-const timestamp = z.string().datetime();
+const timestamp = z.string().datetime({ offset: true });
 
 export const tradeSignalWebhookCreateInputSchema = z
   .object({
