@@ -21,6 +21,8 @@ import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
+import { parseSignalLimits } from './signals/signal-config.js';
+import { SignalWebhookService } from './signals/signal-service.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
@@ -417,6 +419,13 @@ export const appRouter = createTradeRouter(
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
+  // Placement is deliberately NOT wired yet: intake needs the owner's real principal (tier, jurisdiction) and there is no
+  // reviewed source for it on this service. Until then intake refuses SERVICE_UNAVAILABLE before writing anything.
+  new SignalWebhookService({
+    sql,
+    limits: parseSignalLimits(env),
+    loadMarket: (symbol) => trade.marketBySymbol(symbol),
+  }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

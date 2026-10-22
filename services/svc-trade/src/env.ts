@@ -690,6 +690,15 @@ const schema = serviceEnvSchema
        */
       TRADE_FEE_SCHEDULE: z.string().default(''),
 
+      /**
+       * Signal webhook owner values (CB-bots-api-signal-01). No defaults: blank refuses intake with
+       * trade.signal_latency_unset / trade.signal_body_cap_unset / trade.signal_rate_limit_unset. Never invent numbers.
+       * Shapes: whole milliseconds; whole bytes; `<count>/<seconds>`.
+       */
+      TRADE_SIGNAL_LATENCY_MAX_MS: z.string().default(''),
+      TRADE_SIGNAL_BODY_CAP_BYTES: z.string().default(''),
+      TRADE_SIGNAL_RATE_LIMIT: z.string().default(''),
+
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),
     }),

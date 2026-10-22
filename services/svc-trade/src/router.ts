@@ -61,6 +61,8 @@ import { tradeOpsAdminRouter } from './admin/router.js';
 import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { supportTradeSummaryRouter } from './support/router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
+import { signalsRouter } from './signals/router.js';
+import type { SignalWebhookService } from './signals/signal-service.js';
 import type { TradeOpsAdmin } from './admin/service.js';
 import { ALGO_STOP_REASONS, algoStopReason, type AlgoStopReasonCode } from './algo/stop-reason.js';
 
@@ -787,6 +789,7 @@ export function createTradeRouter(
   admin?: TradeOpsAdmin,
   insuranceTopups?: InsuranceTopupAdmin,
   supportSummary?: SupportTradeSummaryReader,
+  signals?: SignalWebhookService,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   return router({
@@ -794,6 +797,8 @@ export function createTradeRouter(
     admin: mergeRouters(tradeOpsAdminRouter(admin), insuranceAdminRouter(insuranceTopups)),
     /** `support.tradeSummary`: read-only, svc-support only (D-ops-06). The case check is svc-support's; this door audits the read. */
     support: supportTradeSummaryRouter(supportSummary),
+    /** `signals.webhook.create/list` (customer) and `signals.intake` (svc-edge only), CB-bots-api-signal-01. */
+    signals: signalsRouter(signals),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),
