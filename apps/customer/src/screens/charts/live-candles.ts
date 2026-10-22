@@ -5,7 +5,7 @@
  * alone draws the chart and the page says so. A frame is state, not an event: the newest frame for a bar replaces
  * the one before it, so a dropped frame is repaired by the next. Prices stay decimal strings.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Candle } from '../../data/types';
 import type { ChartInterval } from '../trade/chart/candles';
 
@@ -166,5 +166,7 @@ export function useCandleStream(symbol: string, interval: ChartInterval, open: O
     };
   }, [symbol, interval]);
   // A frame held from another symbol or interval (the effect resets after the first render with new props) is never shown.
-  return held.symbol === symbol && held.interval === interval ? { mode: held.mode, live: held.live } : { mode: 'poll', live: null };
+  // One object per state, so the chart's memo on this value holds between ticks.
+  const current = held.symbol === symbol && held.interval === interval;
+  return useMemo(() => (current ? { mode: held.mode, live: held.live } : { mode: 'poll', live: null }), [current, held]);
 }

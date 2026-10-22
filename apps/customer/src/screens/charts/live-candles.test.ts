@@ -100,6 +100,8 @@ describe('useCandleStream', () => {
   let host: HTMLDivElement;
   let sockets: FakeSocket[];
   let seen: CandleStream;
+  /** Every value the hook returned, render by render, with the interval it was rendered for. */
+  let rendered: { interval: string; state: CandleStream }[] = [];
   const open = (url: string) => {
     expect(url).toMatch(/^wss?:\/\/.+\/ws\/stream$/);
     const socket = new FakeSocket();
@@ -108,6 +110,7 @@ describe('useCandleStream', () => {
   };
   function Probe({ symbol, interval }: { symbol: string; interval: '1m' | '3m' }) {
     const state = useCandleStream(symbol, interval, open);
+    rendered.push({ interval, state });
     useEffect(() => {
       seen = state;
     });
@@ -193,7 +196,13 @@ describe('useCandleStream', () => {
     await say(sockets[0]!, JSON.stringify({ op: 'ack', for: 'subscribe', results: [{ i: 0, ok: true, market: 'm1' }] }));
     await say(sockets[0]!, frame(60_000, '2.5'));
     expect(seen.live?.c).toBe('2.5');
+    rendered = [];
     await act(async () => root.render(createElement(Probe, { symbol: 'BTC/USDT', interval: '3m' })));
+    // Not even the first render for 3m (before the effect resets) may draw the 1m bar.
+    expect(rendered.filter((row) => row.interval === '3m').map((row) => row.state)).not.toContainEqual(
+      expect.objectContaining({ mode: 'stream' }),
+    );
+    expect(rendered.filter((row) => row.interval === '3m').every((row) => row.state.live === null)).toBe(true);
     expect(seen).toEqual({ mode: 'poll', live: null });
     expect(sockets[0]!.closedByUs).toBe(true);
   });
