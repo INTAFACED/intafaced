@@ -41,6 +41,9 @@ export const publicAuthCopy = defineCopy(
     frozen: 'This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze, so contact them to ask why.',
     closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
     stateHelp: 'Contact support',
+    needCode: 'Your password is right. Now enter the six-digit code from your authenticator app, or one of your recovery codes.',
+    codeMismatch:
+      'That code did not work. Each code works once and changes every 30 seconds. Enter a new code from your app, or a recovery code.',
   } as const,
   {
     es: {
@@ -85,6 +88,10 @@ export const publicAuthCopy = defineCopy(
         'Esta cuenta está congelada. El acceso y las operaciones con dinero están en pausa. Solo el soporte puede levantar un congelamiento: contáctalo para saber el motivo.',
       closed: 'Esta cuenta está cerrada. Una cuenta cerrada no se puede reabrir. Contacta con el soporte si tienes alguna pregunta.',
       stateHelp: 'Contactar con el soporte',
+      needCode:
+        'Tu contraseña es correcta. Ahora introduce el código de seis dígitos de tu aplicación de autenticación o uno de tus códigos de recuperación.',
+      codeMismatch:
+        'Ese código no funcionó. Cada código sirve una sola vez y cambia cada 30 segundos. Introduce un código nuevo de tu aplicación o un código de recuperación.',
     },
     fr: {
       after: 'Après la connexion',
@@ -130,6 +137,10 @@ export const publicAuthCopy = defineCopy(
         'Ce compte est gelé. La connexion et les opérations d’argent sont suspendues. Seul le support peut lever un gel : contactez-le pour en connaître la raison.',
       closed: 'Ce compte est fermé. Un compte fermé ne peut pas être rouvert. Contactez le support si vous avez une question.',
       stateHelp: 'Contacter le support',
+      needCode:
+        'Votre mot de passe est correct. Saisissez maintenant le code à six chiffres de votre application d’authentification, ou l’un de vos codes de récupération.',
+      codeMismatch:
+        'Ce code n’a pas fonctionné. Chaque code ne sert qu’une fois et change toutes les 30 secondes. Saisissez un nouveau code de votre application, ou un code de récupération.',
     },
   },
 );

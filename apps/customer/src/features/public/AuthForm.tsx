@@ -545,6 +545,11 @@ export function AuthForm({ register }: { register: boolean }) {
                     ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
                     : t('lockedPlain')}
                 </p>
+              ) : (result.code === 'auth.mfa_required' || result.code === 'auth.mfa_invalid') && result.reason !== 'uncertain' ? (
+                // The second step, on the page that asks for it. A wrong code and a used one read the same.
+                <p className="failure" role="alert" lang={languageFor(result.code === 'auth.mfa_required' ? 'needCode' : 'codeMismatch')}>
+                  {t(result.code === 'auth.mfa_required' ? 'needCode' : 'codeMismatch')}
+                </p>
               ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                 // Sent only after the password verified: name the state and the one way forward.
                 <div className="failure" role="alert">
