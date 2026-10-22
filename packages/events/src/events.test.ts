@@ -934,6 +934,9 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
     rankUpdated: { userId: uid(), rank: 2, previousRank: 1, xp: '100' },
     userCreated: { userId: uid(), handle: 'sovereign' },
     kycApproved: { userId: uid(), tier: 'basic', jurisdiction: 'SG' },
+    kycSubmitted: { userId: uid(), caseId: uid(), version: 1, previousCaseId: null, submittedAt: ts() },
+    kycRejected: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'doc_blurry', rejectedAt: ts() },
+    kycInfoRequested: { userId: uid(), caseId: uid(), version: 2, reasonCode: 'need_address', requestedAt: ts() },
     ledgerTxPosted: {
       txId: uid(),
       module: 'trade',

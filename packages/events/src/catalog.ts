@@ -118,6 +118,61 @@ export const kycApproved = defineEvent(
   'Verification tier granted — limits and module access change on this signal.',
 );
 
+/**
+ * I-kyc-compliance-01. The KYC case lifecycle beside kycApproved. Published by svc-identity from an
+ * outbox row after the transition commits, business key identity.kyc.<verb>:<caseId>:<version>. No
+ * document, image or personal detail rides on the bus: consumers re-read the case through contracts.
+ */
+const kycCaseIdSchema = z.string().uuid();
+
+export const kycSubmitted = defineEvent(
+  'identity',
+  'kyc',
+  'submitted',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    /** The case version after the transition; part of the business key. */
+    version: z.number().int().min(1),
+    /** The rejected case this resubmission follows, or null for a first submission. */
+    previousCaseId: kycCaseIdSchema.nullable(),
+    submittedAt: z.string().datetime({ offset: true }),
+  }),
+  'A KYC case was opened for review. A resubmission after a reject opens a new case linked to the old one.',
+);
+
+export const kycRejected = defineEvent(
+  'identity',
+  'kyc',
+  'rejected',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    version: z.number().int().min(1),
+    /** A code from the owner reason list; the reason and fix-guidance text live with the list, not on the bus. */
+    reasonCode: z.string().min(1).max(64),
+    rejectedAt: z.string().datetime({ offset: true }),
+  }),
+  'A KYC case was rejected with a listed reason code. svc-notify sends the reason and a resubmit link (flow kyc_resubmit) where vendor.email is configured.',
+);
+
+export const kycInfoRequested = defineEvent(
+  'identity',
+  'kyc_info',
+  'requested',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    version: z.number().int().min(1),
+    reasonCode: z.string().min(1).max(64),
+    requestedAt: z.string().datetime({ offset: true }),
+  }),
+  'Compliance asked for more information on a KYC case. The case waits for the customer; nothing is approved or rejected.',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -1011,6 +1066,9 @@ export const EVENT_CATALOG = {
   rankUpdated,
   userCreated,
   kycApproved,
+  kycSubmitted,
+  kycRejected,
+  kycInfoRequested,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -1153,6 +1211,48 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'kycSubmitted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycSubmitted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: the review queue reads the case table; no other service needs the event yet. No publisher exists yet either, so no customer is promised a notice.',
+  },
+  {
+    event: 'kycRejected',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycRejected',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: svc-notify writes the reject notice with the reason and resubmit link in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+  },
+  {
+    event: 'kycInfoRequested',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycInfoRequested',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: svc-notify writes the information-request notice in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+  },
   {
     event: 'spreadFilled',
     missing: 'subscriber',
