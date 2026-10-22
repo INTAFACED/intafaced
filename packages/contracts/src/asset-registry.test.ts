@@ -3,14 +3,15 @@ import {
   ASSET_AMOUNT_EXCEEDS_PRECISION,
   ASSET_DEFAULT_NETWORK_NOT_LISTED,
   ASSET_EDIT_INVALID,
-  ASSET_EDIT_NOT_PENDING,
-  ASSET_EDIT_SAME_APPROVER,
+  ASSET_AMOUNT_INVALID,
+  ASSET_EDIT_ACTION_TYPE,
+  ASSET_EDIT_TARGET_SERVICE,
   ASSET_PRECISION_INVALID,
   ASSET_PRECISION_UNSET,
   assetAllows,
   assetsListInputSchema,
   assetsListOutputSchema,
-  checkAssetEditApproval,
+  assetApplyEditInputSchema,
   parseAssetEdit,
   registryAssetSchema,
   toAssetUnits,
@@ -74,20 +75,21 @@ describe('parseAssetEdit', () => {
   });
 });
 
-describe('checkAssetEditApproval (four-eyes)', () => {
-  it('waits for a second operator: the proposer cannot approve their own edit', () => {
-    expect(checkAssetEditApproval({ proposedBy: 'op-1', status: 'pending_approval' }, 'op-1')).toMatchObject({
-      ok: false,
-      code: ASSET_EDIT_SAME_APPROVER,
+describe('founder approval through action approval', () => {
+  it('is a ledger.* action consumed by svc-ledger (founder-only in svc-identity)', () => {
+    expect(ASSET_EDIT_ACTION_TYPE).toBe('ledger.asset_edit');
+    expect(ASSET_EDIT_ACTION_TYPE.startsWith('ledger.')).toBe(true);
+    expect(ASSET_EDIT_TARGET_SERVICE).toBe('svc-ledger');
+  });
+
+  it('applyEdit carries only the approval and operation ids, never the edit itself', () => {
+    expect(assetApplyEditInputSchema.parse({ approvalId: 'appr-1', operationId: 'op-1' })).toEqual({
+      approvalId: 'appr-1',
+      operationId: 'op-1',
     });
-  });
-
-  it('accepts a different operator on a pending edit', () => {
-    expect(checkAssetEditApproval({ proposedBy: 'op-1', status: 'pending_approval' }, 'op-2')).toEqual({ ok: true, value: true });
-  });
-
-  it.each([['applied'], ['rejected']] as const)('refuses to decide a proposal that is already %s', (status) => {
-    expect(checkAssetEditApproval({ proposedBy: 'op-1', status }, 'op-2')).toMatchObject({ ok: false, code: ASSET_EDIT_NOT_PENDING });
+    expect(assetApplyEditInputSchema.safeParse({ approvalId: 'appr-1' }).success).toBe(false);
+    expect(assetApplyEditInputSchema.safeParse({ approvalId: '', operationId: 'op-1' }).success).toBe(false);
+    expect(assetApplyEditInputSchema.safeParse({ approvalId: 'appr-1', operationId: 'op-1', precision: 8 }).success).toBe(false);
   });
 });
 
@@ -137,7 +139,7 @@ describe('toAssetUnits', () => {
 
   it('refuses a malformed amount and an out-of-range precision', () => {
     for (const bad of ['-1', '1e3', '', '01', '1.']) {
-      expect(toAssetUnits(bad, 8)).toMatchObject({ ok: false, code: ASSET_EDIT_INVALID });
+      expect(toAssetUnits(bad, 8)).toMatchObject({ ok: false, code: ASSET_AMOUNT_INVALID });
     }
     expect(toAssetUnits('1', 19)).toMatchObject({ ok: false, code: ASSET_PRECISION_INVALID });
   });

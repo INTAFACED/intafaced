@@ -8,8 +8,10 @@ import { z } from 'zod';
  * `assets.list` and `assets.get` return these rows, so a deposit screen and a withdraw screen cannot disagree about an
  * asset's precision or its networks.
  *
- * Writes are founder-ops edits under four-eyes approval: one operator proposes, a DIFFERENT operator approves, and only
- * then does the row change. Nothing here is defaulted. A blank precision refuses with `ledger.asset_precision_unset`; it is
+ * Writes are founder edits under svc-identity's existing action approval (`actionApproval.propose` / `approve`):
+ * action type `ledger.asset_edit` (a `ledger.*` action, so founder-only there), target `svc-ledger`, payload the
+ * `AssetEditInput` bound by hash. svc-ledger applies it once through `assets.applyEdit { approvalId, operationId }`,
+ * consuming the approval the same way `matching.open` is consumed. No second approval mechanism lives here. Nothing here is defaulted. A blank precision refuses with `ledger.asset_precision_unset`; it is
  * never read as 18, or as the precision of some other asset. A retired asset stays listed with its state so history that
  * names it still resolves.
  *
@@ -20,8 +22,7 @@ import { z } from 'zod';
 export const ASSET_REGISTRY_PROCEDURES = {
   list: 'assets.list',
   get: 'assets.get',
-  proposeEdit: 'assets.proposeEdit',
-  approveEdit: 'assets.approveEdit',
+  applyEdit: 'assets.applyEdit',
 } as const;
 
 /** Typed refusals. */
@@ -30,8 +31,7 @@ export const ASSET_PRECISION_INVALID = 'ledger.asset_precision_invalid' as const
 export const ASSET_NOT_FOUND = 'ledger.asset_not_found' as const;
 export const ASSET_DEFAULT_NETWORK_NOT_LISTED = 'ledger.asset_default_network_not_listed' as const;
 export const ASSET_EDIT_INVALID = 'ledger.asset_edit_invalid' as const;
-export const ASSET_EDIT_SAME_APPROVER = 'ledger.asset_edit_same_approver' as const;
-export const ASSET_EDIT_NOT_PENDING = 'ledger.asset_edit_not_pending' as const;
+export const ASSET_AMOUNT_INVALID = 'ledger.asset_amount_invalid' as const;
 export const ASSET_AMOUNT_EXCEEDS_PRECISION = 'ledger.asset_amount_exceeds_precision' as const;
 
 export type AssetRegistryRefusal =
@@ -40,8 +40,7 @@ export type AssetRegistryRefusal =
   | typeof ASSET_NOT_FOUND
   | typeof ASSET_DEFAULT_NETWORK_NOT_LISTED
   | typeof ASSET_EDIT_INVALID
-  | typeof ASSET_EDIT_SAME_APPROVER
-  | typeof ASSET_EDIT_NOT_PENDING
+  | typeof ASSET_AMOUNT_INVALID
   | typeof ASSET_AMOUNT_EXCEEDS_PRECISION;
 
 /** Mirrors `ledger.asset_kind`. */
@@ -130,32 +129,26 @@ export type AssetsListOutput = z.infer<typeof assetsListOutputSchema>;
 export const assetsGetInputSchema = z.object({ assetId: registryAssetIdSchema }).strict();
 export type AssetsGetInput = z.infer<typeof assetsGetInputSchema>;
 
-/** A founder-ops edit. Creates or replaces one row once a second operator approves it. */
+/** A founder edit: the action-approval payload for `ledger.asset_edit`. Creates or replaces one row once applied. */
 export const assetEditInputSchema = z
   .object({ ...assetBodyShape, reason: z.string().trim().min(1).max(500) })
   .strict()
   .superRefine(checkBody);
 export type AssetEditInput = z.infer<typeof assetEditInputSchema>;
 
-export const ASSET_EDIT_STATUSES = ['pending_approval', 'applied', 'rejected'] as const;
-export const assetEditStatusSchema = z.enum(ASSET_EDIT_STATUSES);
-export type AssetEditStatus = z.infer<typeof assetEditStatusSchema>;
+/** The action-approval type for an asset edit. `ledger.*`, so svc-identity makes it founder-only. */
+export const ASSET_EDIT_ACTION_TYPE = 'ledger.asset_edit' as const;
+/** The service that consumes the approval. */
+export const ASSET_EDIT_TARGET_SERVICE = 'svc-ledger' as const;
 
-export const assetEditProposalSchema = z
+/** svc-ledger applies an approved edit once, consuming the approval under the caller's operation id. */
+export const assetApplyEditInputSchema = z
   .object({
-    proposalId: z.string().uuid(),
-    edit: assetEditInputSchema,
-    proposedBy: z.string().min(1).max(128),
-    approvedBy: z.string().min(1).max(128).nullable(),
-    status: assetEditStatusSchema,
-    createdAt: z.string().datetime(),
-    decidedAt: z.string().datetime().nullable(),
+    approvalId: z.string().min(1).max(128),
+    operationId: z.string().min(1).max(128),
   })
   .strict();
-export type AssetEditProposal = z.infer<typeof assetEditProposalSchema>;
-
-export const assetApproveEditInputSchema = z.object({ proposalId: z.string().uuid(), decision: z.enum(['approve', 'reject']) }).strict();
-export type AssetApproveEditInput = z.infer<typeof assetApproveEditInputSchema>;
+export type AssetApplyEditInput = z.infer<typeof assetApplyEditInputSchema>;
 
 export type AssetRegistryResult<T> = { ok: true; value: T } | { ok: false; code: AssetRegistryRefusal; message: string };
 
@@ -188,20 +181,6 @@ export function parseAssetEdit(input: unknown): AssetRegistryResult<AssetEditInp
   return { ok: true, value: parsed.data };
 }
 
-/** Four-eyes: the approver must be a different operator, and the proposal must still be pending. */
-export function checkAssetEditApproval(
-  proposal: Pick<AssetEditProposal, 'proposedBy' | 'status'>,
-  approverId: string,
-): AssetRegistryResult<true> {
-  if (proposal.status !== 'pending_approval') {
-    return { ok: false, code: ASSET_EDIT_NOT_PENDING, message: `proposal is ${proposal.status}` };
-  }
-  if (approverId === proposal.proposedBy) {
-    return { ok: false, code: ASSET_EDIT_SAME_APPROVER, message: 'a second operator must approve this edit' };
-  }
-  return { ok: true, value: true };
-}
-
 /** Whether an asset may be used for an action right now. Halted and retired assets allow nothing new. */
 export function assetAllows(asset: Pick<RegistryAsset, 'state' | 'allowedActions'>, action: AssetAction): boolean {
   return asset.state === 'active' && asset.allowedActions.includes(action);
@@ -217,7 +196,7 @@ export function toAssetUnits(amount: string, precision: number): AssetRegistryRe
   }
   const match = /^(0|[1-9]\d{0,29})(?:\.(\d{1,18}))?$/.exec(amount);
   if (!match) {
-    return { ok: false, code: ASSET_EDIT_INVALID, message: 'amount must be a non-negative decimal string' };
+    return { ok: false, code: ASSET_AMOUNT_INVALID, message: 'amount must be a non-negative decimal string' };
   }
   const whole = match[1] as string;
   const fraction = match[2] ?? '';
