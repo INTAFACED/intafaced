@@ -2,6 +2,7 @@ import { Wordmark } from '@intafaced/ui';
 import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
+import { SignUp } from './SignUp';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -60,8 +61,10 @@ export function PublicRoutes({ path }: { path: string }) {
       <main id="main">
         {path === '/' ? (
           <Home />
+        ) : path === '/register' ? (
+          <SignUp />
         ) : auth ? (
-          <AuthForm register={path === '/register'} />
+          <AuthForm register={false} />
         ) : path === '/invite' ? (
           <Invitation />
         ) : path === '/help' || path === '/helpdetail' ? (

@@ -378,6 +378,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.paper_fill_refused': { ccxt: 'NotSupported', status: 403 },
   'trade.hold_uncovered': { ccxt: 'ExchangeError', status: 500 },
+  /** Raised on the bus cancel path only, never on a request: the fill settles first, then the cancel is redelivered. */
+  'trade.cancel_ahead_of_fill': { ccxt: 'ExchangeNotAvailable', status: 503 },
   /**
    * Funded engine-miss whose fills do not prove no fill. Hold stays.
    * Not retryable by the caller — operator break, not a bot backoff loop.
@@ -477,6 +479,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.algo_mark_invalid': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_mark_policy_unset': { ccxt: 'InvalidOrder', status: 400 },
   'trade.algo_insufficient_balance': { ccxt: 'InsufficientFunds', status: 400 },
+  'trade.bots_verification_level_not_set': { ccxt: 'PermissionDenied', status: 403 },
+  'trade.bots_verification_insufficient': { ccxt: 'PermissionDenied', status: 403 },
   'trade.algo_balance_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.algo_child_refused': { ccxt: 'InvalidOrder', status: 400 },
   /**

@@ -22,8 +22,12 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { reportOptions, zonedFilters } from './merchant-disp-bill-rep-report-options.js';
+import { merchantRiskPolicy } from './merchant-disp-bill-rep-risk-policy.js';
+import { DISPUTE_REASON_CATEGORIES, DisputeEvidenceDraft, disputeGuidance } from './merchant-disp-bill-rep-evidence-draft.js';
 import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
@@ -137,6 +141,21 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.list(await callerOf(ctx), input))),
         summary: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().disputes.summary(await callerOf(ctx)))),
+        /** M-disp-02: what a contest would send now, what is missing, and the rail's due date. Writes nothing. */
+        reviewDraft: read
+          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
+          .query(({ ctx, input }) =>
+            wrapOps(async () =>
+              new DisputeEvidenceDraft(need().sql, need().disputeStore).reviewDraft(await callerOf(ctx), input.disputeId),
+            ),
+          ),
+        /** M-disp-02: plain-words meaning and recommended evidence for a reason category. Static; no merchant data. */
+        guidance: read.input(z.object({ reason: z.enum(DISPUTE_REASON_CATEGORIES) })).query(({ ctx, input }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return disputeGuidance(input.reason);
+          }),
+        ),
         /** M-disp-01: where the money is. Reads the chargeback posts by their dispute keys; posts nothing. */
         funds: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
@@ -236,6 +255,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         send: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.send(await callerOf(ctx), input))),
+        /** M-bill-07: copy a draft into a new draft (same lines, no link, payer email not copied). */
+        duplicate: write
+          .input(z.object({ requestId: id, invoiceId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.duplicate(await callerOf(ctx), input))),
         void: write
           .input(z.object({ requestId: id, invoiceId: id }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().invoices.void(await callerOf(ctx), input))),
@@ -327,6 +350,33 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         ),
       }),
 
+      /** M-plat-org-03: the built-in roles and what each can do, read from the role table. Built-in roles have no write. */
+      permissions: router({
+        catalogue: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return permissionCatalogue();
+          }),
+        ),
+        /** Mounted on the read scope on purpose: a read-only caller gets the named refusal too, not a scope error. It never writes. */
+        updateRole: read.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return refuseBuiltInRoleEdit();
+          }),
+        ),
+      }),
+
+      /** M-disp-05: the default risk rules in plain words, from fraud-policy.ts. Read only; enforces nothing. */
+      risk: router({
+        policy: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return merchantRiskPolicy();
+          }),
+        ),
+      }),
+
       kyb: router({
         current: onboardOrRead
           .input(z.object({}).strict())
@@ -350,16 +400,30 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
                 .array(z.string().regex(/^[a-z_]{1,64}$/))
                 .max(32)
                 .optional(),
+              /** M-rep-01: local days in a time zone; the server computes the UTC boundaries. Not combined with filters.from/to. */
+              period: z
+                .object({
+                  fromDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  toDay: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+                  timeZone: z.string().trim().min(1).max(64),
+                })
+                .strict()
+                .optional(),
             }),
           )
           .mutation(({ ctx, input }) =>
             wrapOps(async () => {
               const p = need();
-              const result = await p.exports.create(await callerOf(ctx), input);
+              const caller = await callerOf(ctx);
+              const { period, ...rest } = input;
+              const filters = period ? zonedFilters(rest.filters, period, new Date()) : rest.filters;
+              const result = await p.exports.create(caller, { ...rest, filters });
               if (result.created) kick(result.job.jobId, () => p.exports.process(result.job.jobId));
               return result.job;
             }),
           ),
+        /** M-rep-01: per kind, the date basis and the columns this caller's role may pick; formats offered. */
+        options: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => reportOptions(await callerOf(ctx)))),
         list: read
           .input(
             z.object({

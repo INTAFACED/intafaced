@@ -50,9 +50,10 @@ import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { createExposedApiKeyRouter } from './ops/exposed-api-keys-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { createMembershipRouter } from './membership/membership-router.js';
 import { OAuthService } from './oauth/oauth.js';
 import { createOAuthRouter } from './oauth/oauth-router.js';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
 import { createAuthKeysRouter } from './auth-keys-router.js';
@@ -66,6 +67,8 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
 import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
@@ -95,6 +98,7 @@ import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -344,6 +348,16 @@ auth.useEmailConfirmation({
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
 });
+// Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
+auth.useSignUpPolicy({
+  minAgeYears: env.IDENTITY_SIGNUP_MIN_AGE_YEARS,
+  codeTtlSeconds: env.IDENTITY_SIGNUP_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_SIGNUP_RESEND_SECONDS,
+  requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
+  closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -451,6 +465,7 @@ const tradeClosureCheck = httpClosureChecker({
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
+const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -475,6 +490,8 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // The code-less register door is for the dev and test stacks' own tools only.
+    directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
@@ -496,6 +513,7 @@ export const appRouter = mergeRouters(
     closure,
     subAccountDelete,
     subAccountFeatures,
+    subAccountEdit,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -518,6 +536,7 @@ export const appRouter = mergeRouters(
   createOperatorOpsRouter(sql),
   createExposedApiKeyRouter(sql, bus),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),
@@ -547,6 +566,7 @@ export const appRouter = mergeRouters(
     securityStepUp,
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
+  createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.

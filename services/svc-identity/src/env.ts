@@ -5,6 +5,8 @@ import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
+import { parseMembershipTiers } from './membership/membership-offer.js';
+import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -257,6 +259,36 @@ const schema = serviceEnvSchema
        * nothing is listed: an account can only keep "no choice" (USD is shown) and the
        * display page says the list is not set. Malformed → fail boot.
        */
+      /**
+       * W-balances-04. Owner-published membership tiers (JSON list of { id, name, price, assetId,
+       * periodDays, perks }). Blank / unset → "Membership is not offered". Never defaulted.
+       */
+      IDENTITY_MEMBERSHIP_TIERS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseMembershipTiers(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
+      /**
+       * W-security-accounts-03. Owner-set wait, in seconds, from a self-freeze to when the owner may lift it.
+       * Blank / unset → the lift refuses (`identity.self_freeze_lift_wait_unset`). Zero is a published "no wait".
+       */
+      IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseSelfFreezeLiftWait(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
       IDENTITY_DISPLAY_CURRENCIES: z
         .string()
         .optional()
@@ -387,6 +419,75 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
+      /**
+       * Owner-published minimum age to open an account (I-kyc-compliance-06). NO DEFAULT: blank / unset refuses
+       * every sign-up (`identity.age_rule_unset`). Never invent 18.
+       */
+      IDENTITY_SIGNUP_MIN_AGE_YEARS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(25).optional()),
+      /**
+       * Owner-published lifetime of a sign-up code, in seconds. NO DEFAULT: blank / unset refuses every sign-up
+       * (`identity.signup_unwired`), as do the four sign-up numbers below. One day is the ceiling.
+       */
+      IDENTITY_SIGNUP_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong codes allowed per sign-up before it locks. NO DEFAULT (`identity.signup_unwired`).
+       * The ceiling is 5.
+       */
+      IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Owner-published seconds before another sign-up code may be sent. NO DEFAULT (`identity.signup_unwired`).
+       */
+      IDENTITY_SIGNUP_RESEND_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published sign-ups and resends per address per window. NO DEFAULT (`identity.signup_unwired`).
+       * The ceiling is technical, not a default budget.
+       */
+      IDENTITY_SIGNUP_REQUEST_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      /**
+       * The window for IDENTITY_SIGNUP_REQUEST_MAX, in seconds. NO DEFAULT (`identity.signup_unwired`).
+       */
+      IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * The owner's per-country off switch for sign-up: comma-separated ISO country codes. Blank closes none,
+       * because sign-up is open everywhere the sanctions screening allows (owner decision 2026-10-22). A code
+       * that is not two letters refuses boot.
+       */
+      IDENTITY_SIGNUP_CLOSED_COUNTRIES: z.preprocess(
+        (v) =>
+          typeof v === 'string'
+            ? v
+                .split(',')
+                .map((c) => c.trim().toUpperCase())
+                .filter(Boolean)
+            : v === undefined || v === null
+              ? []
+              : v,
+        z.array(z.string().regex(/^[A-Z]{2}$/)),
+      ),
       /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop

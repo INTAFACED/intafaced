@@ -137,6 +137,61 @@ export const kycApproved = defineEvent(
   'Verification tier granted — limits and module access change on this signal.',
 );
 
+/**
+ * I-kyc-compliance-01. The KYC case lifecycle beside kycApproved. Published by svc-identity from an
+ * outbox row after the transition commits, business key identity.kyc.<verb>:<caseId>:<version>. No
+ * document, image or personal detail rides on the bus: consumers re-read the case through contracts.
+ */
+const kycCaseIdSchema = z.string().uuid();
+
+export const kycSubmitted = defineEvent(
+  'identity',
+  'kyc',
+  'submitted',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    /** The case version after the transition; part of the business key. */
+    version: z.number().int().min(1),
+    /** The rejected case this resubmission follows, or null for a first submission. */
+    previousCaseId: kycCaseIdSchema.nullable(),
+    submittedAt: z.string().datetime({ offset: true }),
+  }),
+  'A KYC case was opened for review. A resubmission after a reject opens a new case linked to the old one.',
+);
+
+export const kycRejected = defineEvent(
+  'identity',
+  'kyc',
+  'rejected',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    version: z.number().int().min(1),
+    /** A code from the owner reason list; the reason and fix-guidance text live with the list, not on the bus. */
+    reasonCode: z.string().min(1).max(64),
+    rejectedAt: z.string().datetime({ offset: true }),
+  }),
+  'A KYC case was rejected with a listed reason code. svc-notify sends the reason and a resubmit link (flow kyc_resubmit) where vendor.email is configured.',
+);
+
+export const kycInfoRequested = defineEvent(
+  'identity',
+  'kyc_info',
+  'requested',
+  1,
+  z.object({
+    userId: userIdSchema,
+    caseId: kycCaseIdSchema,
+    version: z.number().int().min(1),
+    reasonCode: z.string().min(1).max(64),
+    requestedAt: z.string().datetime({ offset: true }),
+  }),
+  'Compliance asked for more information on a KYC case. The case waits for the customer; nothing is approved or rejected.',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -797,32 +852,39 @@ export const p2pTradeDisputed = defineEvent(
   'p2p',
   'trade',
   'disputed',
-  1,
+  2,
   z.object({
     tradeId: z.string().uuid(),
     disputeId: z.string().uuid(),
     openedBy: userIdSchema,
+    /**
+     * Version 2 (P-trade-orders-23): both parties ride on the payload so svc-notify can tell the
+     * counterparty, not only the opener. Optional until svc-p2p fills them (its own PR); a consumer
+     * that needs them skips a payload without them rather than guessing a recipient.
+     */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     reason: z.string(),
     moderatorDeadline: z.string().datetime({ offset: true }),
   }),
-  'A trade is contested. Escrow stays locked until a moderator rules or the backstop fires.',
+  'A trade is contested. Escrow stays locked until a moderator rules.',
 );
 
 export const p2pDisputeResolved = defineEvent(
   'p2p',
   'dispute',
   'resolved',
-  1,
+  2,
   z.object({
     disputeId: z.string().uuid(),
     tradeId: z.string().uuid(),
+    /** Version 2 (P-trade-orders-23): both parties get the ruling. Optional until svc-p2p fills them. */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     /**
-     * NOT a user id. The dispute backstop rules as a named system principal
-     * (`system:p2p-backstop`) precisely so an automatic resolution is never
-     * anonymous in the audit trail. Constraining this to a UUID would make the
-     * backstop unable to publish — and since the decision commits before the
-     * ledger post, a failed publish rolls the whole resolution back and leaves
-     * escrow locked. Which is exactly what happened when this was `userIdSchema`.
+     * Who ruled. Kept a non-empty string rather than a user id so a ruling by a named
+     * principal stays publishable; the former `system:p2p-backstop` timer is gone
+     * (svc-p2p `state.ts` header), so in practice this is the moderator's id.
      */
     moderatorId: z.string().min(1),
     resolution: z.enum(['release', 'refund']),
@@ -837,13 +899,81 @@ export const p2pTradeExpired = defineEvent(
   'p2p',
   'trade',
   'expired',
-  1,
+  2,
   z.object({
     tradeId: z.string().uuid(),
+    /** Version 2 (P-trade-orders-23): both parties get the expiry notice. Optional until svc-p2p fills them. */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     from: z.string(),
     outcome: z.enum(['released', 'refunded', 'voided', 'disputed']),
   }),
   'A deadline passed and the timeout path acted. Every live state has a clock, and every clock acts.',
+);
+
+/**
+ * P-trade-orders-23. The spec names these `p2p.trade.fiat_sent` and `p2p.chat.message`; the subject
+ * law is <service>.<entity>.<verb> with a closed verb list, so they are spelled with the verb last
+ * (`sent`, added to VERBS with `escalated`). No message text rides on the bus: the chat body stays in
+ * svc-p2p, and a notice only says a message is waiting.
+ */
+export const p2pTradeFiatSent = defineEvent(
+  'p2p',
+  'trade_fiat',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().uuid(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    markedAt: z.string().datetime({ offset: true }),
+  }),
+  'The buyer marked the fiat payment as sent. The seller must check and release; consumers dedupe by event id.',
+);
+
+export const p2pChatMessageSent = defineEvent(
+  'p2p',
+  'chat_message',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().uuid(),
+    messageId: z.string().uuid(),
+    senderId: userIdSchema,
+    recipientId: userIdSchema,
+    sentAt: z.string().datetime({ offset: true }),
+  }),
+  'A trade chat message was sent. Carries no message text; the recipient reads it in the order chat.',
+);
+
+/** Shared with P-order-02. Appeal-status notices go to both parties. */
+export const p2pDisputeEscalated = defineEvent(
+  'p2p',
+  'dispute',
+  'escalated',
+  1,
+  z.object({
+    disputeId: z.string().uuid(),
+    tradeId: z.string().uuid(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    escalatedBy: z.string().min(1),
+    escalatedAt: z.string().datetime({ offset: true }),
+  }),
+  'A dispute was escalated to the next review level. Escrow stays locked; both parties are told.',
+);
+
+export const p2pQuoteExpired = defineEvent(
+  'p2p',
+  'quote',
+  'expired',
+  1,
+  z.object({
+    quoteId: z.string().uuid(),
+    userId: userIdSchema,
+    expiredAt: z.string().datetime({ offset: true }),
+  }),
+  'A P2P quote passed its firm window unaccepted. Nothing is bound; the requester is told to re-quote.',
 );
 
 export const projectionUpdated = defineEvent(
@@ -894,6 +1024,69 @@ export const personalRequestSettled = defineEvent(
     ledgerTxId: z.string().min(1).max(128),
   }),
   'A personal request was paid by transfers.toUser. svc-notify writes pay.request_paid for the payee.',
+);
+
+/**
+ * PP-send-request-18. Receipts and mandatory notices. One fact per event: svc-notify writes
+ * pay.transfer_sent for the sender and pay.transfer_received for the recipient from the same
+ * posted transfer, so neither party can get a receipt the other does not. Published by svc-bank
+ * through its outbox in the same transaction as `posted`; a lost consumer ack never changes money.
+ */
+export const personalTransferPosted = defineEvent(
+  'bank',
+  'personal_transfer',
+  'posted',
+  1,
+  z.object({
+    transferId: z.string().min(1).max(128),
+    senderUserId: userIdSchema,
+    recipientUserId: userIdSchema,
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    ledgerTxId: z.string().min(1).max(128),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal send posted. svc-notify writes pay.transfer_sent for the sender and pay.transfer_received for the recipient.',
+);
+
+export const personalRefundPosted = defineEvent(
+  'bank',
+  'personal_refund',
+  'posted',
+  1,
+  z.object({
+    refundId: z.string().min(1).max(128),
+    /** The transfer being refunded; the refund ledger key is refund:<origTransferId>:<refundId>. */
+    origTransferId: z.string().min(1).max(128),
+    /** Who sends the money back (the original recipient) and who gets it (the original sender). */
+    refunderUserId: userIdSchema,
+    refundeeUserId: userIdSchema,
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    ledgerTxId: z.string().min(1).max(128),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal refund posted. svc-notify writes pay.refund_posted for both parties.',
+);
+
+export const personalDisputeUpdated = defineEvent(
+  'bank',
+  'personal_dispute',
+  'updated',
+  1,
+  z.object({
+    disputeId: z.string().min(1).max(128),
+    activityId: z.string().min(1).max(128),
+    userId: userIdSchema,
+    /** Null when the counterparty is not a platform user (for example an unclaimed link). */
+    counterpartyUserId: userIdSchema.nullable(),
+    /** svc-bank's dispute state after the change, as svc-bank names it. Opaque to consumers. */
+    status: z.string().min(1).max(32),
+    /** Monotonic per dispute; consumers dedupe on (disputeId, sequence) as well as the event id. */
+    sequence: z.number().int().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'A personal Pay dispute changed state. svc-notify writes pay.dispute_changed for the opener and the counterparty.',
 );
 
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
@@ -948,6 +1141,58 @@ export const coreOpsAlertResolved = defineEvent(
     resolvedAt: z.string().datetime({ offset: true }),
   }),
   'A platform alert instance returned to normal. Carries the ruleId, instance and epoch of the opened event it closes. Its own business key is ops:alert:resolved:<ruleId>:<instance>:<epoch>, so the bus never drops it as a duplicate of the open.',
+);
+
+// ── core-ops: on-call alert groups (OPS-oncall-01) ───────────────────────────
+
+/** An alert group id as svc-ops stores it. Acknowledge, resolve and silence are idempotent on ops:alert-group:<group>:<action>:<n>. */
+const alertGroupIdSchema = z.string().min(1).max(128);
+
+export const coreOpsAlertGroupOpened = defineEvent(
+  'core-ops',
+  'alert_group',
+  'opened',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    /** The escalation chain that starts for this group; null when none is attached (the group still shows as firing). */
+    chainId: z.string().min(1).max(128).nullable(),
+    labels: z.array(z.string().min(1).max(128)),
+    openedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group started firing. Its escalation chain, if any, starts now.',
+);
+
+export const coreOpsAlertGroupUpdated = defineEvent(
+  'core-ops',
+  'alert_group',
+  'updated',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    action: z.enum(['acknowledged', 'silenced', 'unsilenced', 'restarted', 'escalated']),
+    /** The per-group action counter n of the business key ops:alert-group:<group>:<action>:<n>. */
+    sequence: z.number().int().min(1),
+    /** The signed operator, or the chain step id for an escalation. */
+    actor: z.string().min(1),
+    changedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group was acknowledged, silenced, unsilenced, restarted or escalated a step. An acknowledgement stops the chain.',
+);
+
+export const coreOpsAlertGroupResolved = defineEvent(
+  'core-ops',
+  'alert_group',
+  'resolved',
+  1,
+  z.object({
+    groupId: alertGroupIdSchema,
+    sequence: z.number().int().min(1),
+    /** The signed operator, or `auto` when every alert in the group returned to normal. */
+    actor: z.string().min(1),
+    resolvedAt: z.string().datetime({ offset: true }),
+  }),
+  'An on-call alert group was resolved. Its chain stops; a new firing opens a new group.',
 );
 
 // ── core-ops: compliance cases (OPS-cases-01) ────────────────────────────────
@@ -1078,6 +1323,9 @@ export const EVENT_CATALOG = {
   userCreated,
   apiKeyExposureCreated,
   kycApproved,
+  kycSubmitted,
+  kycRejected,
+  kycInfoRequested,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -1085,6 +1333,9 @@ export const EVENT_CATALOG = {
   coreOpsAlertRuleUpdated,
   coreOpsAlertOpened,
   coreOpsAlertResolved,
+  coreOpsAlertGroupOpened,
+  coreOpsAlertGroupUpdated,
+  coreOpsAlertGroupResolved,
   coreOpsComplianceCaseCreated,
   coreOpsComplianceInboxUpdated,
   coreOpsRestoreStarted,
@@ -1097,6 +1348,9 @@ export const EVENT_CATALOG = {
   supportTicketResolved,
   personalRequestCreated,
   personalRequestSettled,
+  personalTransferPosted,
+  personalRefundPosted,
+  personalDisputeUpdated,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,
@@ -1120,6 +1374,10 @@ export const EVENT_CATALOG = {
   p2pTradeDisputed,
   p2pDisputeResolved,
   p2pTradeExpired,
+  p2pTradeFiatSent,
+  p2pChatMessageSent,
+  p2pDisputeEscalated,
+  p2pQuoteExpired,
   projectionUpdated,
 } as const;
 
@@ -1221,6 +1479,48 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'kycSubmitted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycSubmitted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: the review queue reads the case table; no other service needs the event yet. No publisher exists yet either, so no customer is promised a notice.',
+  },
+  {
+    event: 'kycRejected',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycRejected',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: svc-notify writes the reject notice with the reason and resubmit link in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+  },
+  {
+    event: 'kycInfoRequested',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the I-kyc-compliance-01 events PR. svc-identity publishes it from an outbox row after the case transition commits (svc-identity PR, next). The case is a durable row that /verification and the compliance queue read.',
+  },
+  {
+    event: 'kycInfoRequested',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'No subscriber yet: svc-notify writes the information-request notice in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+  },
   {
     event: 'spreadFilled',
     missing: 'subscriber',
@@ -1364,6 +1664,48 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'Same as the opened event: the resolving consumer is OPS-alerts-02. The alert row carries the resolved state, which /alerts reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupOpened',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
+  },
+  {
+    event: 'coreOpsAlertGroupUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
+  },
+  {
+    event: 'coreOpsAlertGroupResolved',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the OPS-oncall-01 events PR. svc-ops publishes it when the alert group store lands (svc-ops PR, next). The group is a durable row that /oncall reads.',
+  },
+  {
+    event: 'coreOpsAlertGroupResolved',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
     event: 'coreOpsComplianceCaseCreated',
@@ -1612,6 +1954,104 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       "Same reason as p2pDisputeResolved and recorded in svc-notify's wiring comment: the payload names a trade and an outcome, not a user, so nothing can address a notification from it. The outcome it reports is also published on a subject that does carry both parties, so no user-visible fact depends on a consumer here.",
+  },
+  {
+    event: 'personalTransferPosted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalTransferPosted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the sent and received receipts in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'personalRefundPosted',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalRefundPosted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the refund notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'personalDisputeUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the PP-send-request-18 events PR. svc-bank publishes it through its outbox in the same transaction as the state change (svc-bank PR, next). Money state never waits on it.',
+  },
+  {
+    event: 'personalDisputeUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'p2pTradeFiatSent',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pTradeFiatSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the buyer-paid notice to the seller in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pChatMessageSent',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pChatMessageSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the chat-waiting notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pDisputeEscalated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pDisputeEscalated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the appeal-status notice to both parties in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pQuoteExpired',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pQuoteExpired',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
   },
   {
     event: 'payCustodyAuditCreated',

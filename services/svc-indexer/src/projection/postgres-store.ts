@@ -20,6 +20,23 @@ import {
   type StoredBlock,
   type UnwindOutcome,
 } from './store.js';
+import type { ExplorerBlockFact } from '../explorer/blocks.js';
+
+interface ExplorerFactRow {
+  height: string;
+  hash: string;
+  gas_consumed: string;
+  gas_limit: string;
+  base_fee_per_gas: string | null;
+  miner: string;
+  tx_count: number;
+  size: number;
+  block_time: Date;
+  status: string;
+}
+const EXPLORER_COLS =
+  'b.height, b.hash, f.gas_consumed::text AS gas_consumed, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
+const EXPLORER_FROM = 'FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash';
 
 /**
  * Postgres-backed `ProjectionStore`.
@@ -73,6 +90,58 @@ export class PostgresProjectionStore implements ProjectionStore {
   }
 
   // ── Projection ────────────────────────────────────────────────────────────
+
+  // ── Explorer (D-explorer-01) ─────────────────────────────────────────────
+
+  /** WHERE height < cursor ORDER BY height DESC LIMIT limit + 1 (canonical first). */
+  async explorerBlocks(q: { cursor?: number; limit: number }): Promise<ExplorerBlockFact[]> {
+    const rows = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} ${q.cursor === undefined ? this.sql`` : this.sql`AND b.height < ${q.cursor}`}
+      ORDER BY b.height DESC, (b.status = 'orphaned') ASC, b.hash ASC
+      LIMIT ${q.limit + 1}
+    `;
+    return rows.map((r) => this.#fact(r));
+  }
+
+  /** Every row at one height, canonical first. */
+  async explorerAtHeight(height: number): Promise<ExplorerBlockFact[]> {
+    const rows = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} AND b.height = ${height}
+      ORDER BY (b.status = 'orphaned') ASC, b.hash ASC
+    `;
+    return rows.map((r) => this.#fact(r));
+  }
+
+  /** By hash, or by height (canonical first). null when not stored. */
+  async explorerBlock(q: { height: number } | { hash: string }): Promise<ExplorerBlockFact | null> {
+    const where = 'hash' in q ? this.sql`AND b.hash = ${q.hash}` : this.sql`AND b.height = ${q.height}`;
+    const [row] = await this.sql<ExplorerFactRow[]>`
+      SELECT ${this.sql.unsafe(EXPLORER_COLS)} ${this.sql.unsafe(EXPLORER_FROM)}
+      WHERE f.chain_id = ${this.chainId} ${where}
+      ORDER BY (b.status = 'orphaned') ASC
+      LIMIT 1
+    `;
+    return row ? this.#fact(row) : null;
+  }
+
+  #fact(r: ExplorerFactRow): ExplorerBlockFact {
+    return {
+      chainId: this.chainId,
+      height: Number(r.height),
+      hash: r.hash,
+      gasUsed: BigInt(r.gas_consumed),
+      gasLimit: BigInt(r.gas_limit),
+      baseFeePerGas: r.base_fee_per_gas === null ? null : BigInt(r.base_fee_per_gas),
+      miner: r.miner,
+      txCount: r.tx_count,
+      size: r.size,
+      timestamp: Math.floor(new Date(r.block_time).getTime() / 1000),
+      // LEFT: the real orphan reason is not stored yet (see PR "Still left").
+      orphaned: r.status === 'orphaned' ? { reason: 'reorg' } : null,
+    };
+  }
 
   /**
    * One transaction for the block record and every event it carries.
@@ -185,6 +254,18 @@ export class PostgresProjectionStore implements ProjectionStore {
         ON CONFLICT (chain_id, hash) DO UPDATE
           SET status = 'canonical', event_count = EXCLUDED.event_count
       `;
+
+      // D-explorer-01: header facts in the SAME transaction, so a block is
+      // never stored with half its facts.
+      if (block.header) {
+        const h = block.header;
+        await tx`
+          INSERT INTO explorer_block_facts (chain_id, hash, gas_consumed, gas_limit, base_fee_per_gas, miner, tx_count, size)
+          VALUES (${this.chainId}, ${block.hash}, ${h.gasUsed.toString()}, ${h.gasLimit.toString()},
+                  ${h.baseFeePerGas === null ? null : h.baseFeePerGas.toString()}, ${h.miner}, ${h.txCount}, ${h.size})
+          ON CONFLICT (chain_id, hash) DO NOTHING
+        `;
+      }
 
       for (const event of block.events) {
         switch (event.kind) {

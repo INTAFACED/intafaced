@@ -18,7 +18,12 @@ permissions: {}
 jobs:
   signoff:
     name: Review sign-off
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    # Only a comment that can sign off takes a runner: every other PR comment queued a job here and, on the free plan's
+    # 20 concurrent jobs, held up CI. `contains` ignores case, like MARKER; the script still judges the comment in full,
+    # and the seal (review-marker.mjs) reads the PASS comment itself, so skipping other comments changes no verdict.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, 'Independent review: PASS'))
     runs-on: ubuntu-latest
     timeout-minutes: 5 # healthy run: seconds
     permissions:

@@ -8,6 +8,7 @@
  * `bankTransfer` has no fee leg, and a second post could succeed without the
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
+import { grantedLimits } from './limit-requests.js';
 import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
@@ -58,6 +59,24 @@ export interface TransferQuote {
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
   readonly withinPerTransfer: boolean;
   readonly withinDaily: boolean;
+}
+
+/**
+ * One published personal-send fee row (PP-money-balance-04). `free` is true only for a published zero:
+ * zero is not blank, and an asset with no terms row is absent, never listed as free.
+ */
+export interface FeeScheduleEntry {
+  readonly assetId: string;
+  readonly fee: string;
+  readonly free: boolean;
+  readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
+  readonly publishedAt: string;
+}
+
+/** The published schedule. `published: false` (no rows) means the page says no schedule is published. */
+export interface FeeSchedule {
+  readonly published: boolean;
+  readonly entries: FeeScheduleEntry[];
 }
 
 export interface PersonalRequestView {
@@ -330,17 +349,41 @@ export class PersonalPayService {
     }
     const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
     const fee = parseAmount(terms.fee);
+    // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
+    const grants = await grantedLimits(this.sql, actorUserId, assetId);
+    const per = grants.perTransfer ?? parseAmount(terms.per_transfer_limit);
+    const daily = grants.daily ?? parseAmount(terms.daily_limit);
     return {
       assetId,
       amount: formatAmount(amount),
-      perTransferLimit: formatAmount(parseAmount(terms.per_transfer_limit)),
-      dailyLimit: formatAmount(parseAmount(terms.daily_limit)),
+      perTransferLimit: formatAmount(per),
+      dailyLimit: formatAmount(daily),
       spentToday: formatAmount(spent),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
-      withinPerTransfer: amount <= parseAmount(terms.per_transfer_limit),
-      withinDaily: spent + amount <= parseAmount(terms.daily_limit),
+      withinPerTransfer: amount <= per,
+      withinDaily: spent + amount <= daily,
     };
+  }
+
+  /** The published personal-send fee schedule. Reads the operator terms only; never seeds or invents a fee. */
+  async feeSchedule(): Promise<FeeSchedule> {
+    const rows = await this.sql<Array<{ asset_id: string; fee: string; published_at: Date }>>`
+      SELECT asset_id, fee::text, published_at
+        FROM bank.personal_transfer_terms
+       ORDER BY asset_id
+    `;
+    const entries = rows.map((row) => {
+      const fee = parseAmount(row.fee);
+      return {
+        assetId: row.asset_id,
+        fee: formatAmount(fee),
+        free: fee === 0n,
+        feeBlocker: fee > 0n ? ('bank.personal_transfer_fee_unwired' as const) : null,
+        publishedAt: row.published_at.toISOString(),
+      };
+    });
+    return { published: entries.length > 0, entries };
   }
 
   async factsFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>> {
@@ -681,7 +724,8 @@ export class PersonalPayService {
         'bank.personal_transfer_fee_unwired',
       );
     }
-    const per = parseAmount(terms.per_transfer_limit);
+    const grants = await grantedLimits(tx, userId, assetId);
+    const per = grants.perTransfer ?? parseAmount(terms.per_transfer_limit);
     if (amount > per) {
       throw new BankError(
         `Amount is above the per-transfer limit of ${formatAmount(per)} ${assetId} (bank.personal_transfer_limit_exceeded)`,
@@ -689,7 +733,7 @@ export class PersonalPayService {
       );
     }
     const spent = await this.spentToday(tx, userId, assetId, utcDayStart(now));
-    const daily = parseAmount(terms.daily_limit);
+    const daily = grants.daily ?? parseAmount(terms.daily_limit);
     if (spent + amount > daily) {
       throw new BankError(
         `Amount would pass the daily limit of ${formatAmount(daily)} ${assetId} (bank.personal_transfer_daily_limit_exceeded)`,

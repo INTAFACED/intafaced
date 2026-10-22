@@ -136,16 +136,21 @@ and has no opinion about what it is worth.
 
 **Consumes**
 
-| Subject                              | Consumer (durable) | Effect                                         |
-| ------------------------------------ | ------------------ | ---------------------------------------------- |
-| `intafaced.matching.order.filled`    | `trade-fills`      | `tradeFill` recipe, then close out both orders |
-| `intafaced.matching.order.cancelled` | `trade-cancels`    | release the remainder of that order's hold     |
+| Subject                              | Consumer (durable) | Effect                                                                 |
+| ------------------------------------ | ------------------ | ---------------------------------------------------------------------- |
+| `intafaced.matching.order.filled`    | `trade-fills`      | `tradeFill` recipe, then close out both orders                         |
+| `intafaced.matching.order.cancelled` | `trade-cancels`    | release the remainder of that order's hold, once its fills are settled |
 
 These are the **recovery path**. A submission settles its own fills inline from the engine's response; the engine
 also publishes every match to NATS regardless, so a process that died between the engine printing a fill and this
 service settling it heals when the event is delivered. Both handlers are idempotent twice over — `idempotent()`
 around the handler, and business keys underneath — because at-least-once is the only delivery there is, and a
 redelivered fill that settled twice would pay a counterparty out of a hold that only funded one trade.
+
+The two subjects are separate durables, so a cancel can arrive before the fill it follows. The cancel names the
+remaining quantity; while `trade.fills` holds less than the engine filled, it refuses (`trade.cancel_ahead_of_fill`)
+and is redelivered. If the fill never settles within the delivery budget the cancel is abandoned and the hold stays
+with the order, where it can be found, instead of going back while a fill is still owed.
 
 ---
 
