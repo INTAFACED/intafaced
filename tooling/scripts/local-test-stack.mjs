@@ -111,6 +111,7 @@ const PORTS = {
   quant: 14515,
   execution: 14516,
   tax: 14517,
+  'mining-pool': 14518,
   customer: 3210,
   admin: 3100,
 };
@@ -139,7 +140,11 @@ const SCHEMAS = [
   'market',
   'blueprint',
   'quant',
+  'mining_pool',
 ];
+// A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
+const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
+const serviceOfSchema = (s) => SCHEMA_SERVICE[s] ?? s;
 const STREAM_PREFIX = 'LOCAL_TEST';
 const BANNER_TEXT = 'LOCAL TEST STACK — TEST PRICES · TEST FUNDS · not real money';
 const FUND_RAIL = 'local-test';
@@ -509,6 +514,7 @@ const BACKEND_PKGS = [
   'svc-quant',
   'svc-execution',
   'svc-tax',
+  'svc-mining-pool',
 ];
 
 function gitHead() {
@@ -707,7 +713,9 @@ function ensureBuilt(rebuild) {
 
 function migrate(secrets, schemas = SCHEMAS) {
   for (const s of schemas) {
-    runPnpm(['--filter', `@intafaced/svc-${s}`, 'db:migrate'], `migrate-${s}`, { DATABASE_URL: dbUrl(`svc_${s}`, secrets) });
+    runPnpm(['--filter', `@intafaced/svc-${serviceOfSchema(s)}`, 'db:migrate'], `migrate-${s}`, {
+      DATABASE_URL: dbUrl(`svc_${s}`, secrets),
+    });
   }
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
@@ -774,12 +782,11 @@ const EDGE_UPSTREAMS = {
   EXECUTION_URL: 'execution',
   QUANT_URL: 'quant',
   TAX_URL: 'tax',
+  MINING_POOL_URL: 'mining-pool',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  MINING_POOL_URL:
-    'svc-mining-pool hard-codes listen on 0.0.0.0 (services/svc-mining-pool/src/server.ts), which breaks the loopback-only rule. The Mining room is a static "unavailable" page; only its health probe answers 502.',
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
@@ -1105,6 +1112,17 @@ function serviceDefs(secrets) {
       env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
     },
     {
+      // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and
+      // stay unset (the service refuses by name), and MINING_PAYOUT_INTERVAL_MS stays unset, so no epoch job pays anything.
+      name: 'mining-pool',
+      entry: 'server.js', // dist/index.js only re-exports; server.js listens
+      env: () => ({
+        ...c('svc-mining-pool', PORTS['mining-pool']),
+        DATABASE_URL: dbUrl('svc_mining_pool', secrets),
+        LEDGER_URL: urlOf('ledger'),
+      }),
+    },
+    {
       name: 'edge',
       env: () => {
         const env = {
@@ -1226,7 +1244,7 @@ async function startNodeService(def) {
   if (await portOpen(port)) fail(`port ${port} (${def.name}) is in use by a process this script did not start`);
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
-  const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', 'index.js');
+  const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
   await waitHealthy(def.name, url, pid);
 }
@@ -1360,7 +1378,7 @@ async function healthTable({ gateMarket = false } = {}) {
   // The test market maker is not a service of the stack, but its prices freeze silently when it dies (it did, twice).
   const mk = marketStatus();
   rows.push(['market-maker', '-', mk.pid ?? '-', mk.text]);
-  const w = [14, 12, 8];
+  const w = [17, 12, 8];
   say(`  ${'SERVICE'.padEnd(w[0])}${'PORT'.padEnd(w[1])}${'PID'.padEnd(w[2])}HEALTH`);
   for (const r of rows) say(`  ${String(r[0]).padEnd(w[0])}${String(r[1]).padEnd(w[1])}${String(r[2]).padEnd(w[2])}${r[3]}`);
   const marketBad = mk.state === 'down' || mk.state === 'stale';
@@ -1422,7 +1440,7 @@ async function cmdStart(flags) {
   const toStart = wanted.filter((d) => !ownedAlive(readProcs()[d.name]));
   migrate(
     secrets,
-    SCHEMAS.filter((s) => toStart.some((d) => d.name === s)),
+    SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
   await startNats();
   ensureStreams();
@@ -1524,7 +1542,7 @@ function cmdPlan(flags) {
     name: d.name,
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
-    schema: SCHEMAS.includes(d.name) ? d.name : null,
+    schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
     running: ownedAlive(procs[d.name]),
   }));
   const edgeEnv = defs.find((d) => d.name === 'edge').env();
