@@ -209,7 +209,7 @@ function fracDigits(v: string): number {
 }
 function toScaled(v: string, scale: number): bigint {
   const [w, f = ''] = v.split('.');
-  return BigInt(w! + f.padEnd(scale, '0'));
+  return BigInt(w! + f) * 10n ** BigInt(scale - f.length);
 }
 function fromScaled(n: bigint, scale: number): string {
   if (scale === 0) return n.toString();
