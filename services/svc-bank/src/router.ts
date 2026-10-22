@@ -430,6 +430,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
       case 'bank.limit_request_decided':
@@ -510,6 +511,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.activity_filter_name_invalid':
+      case 'bank.activity_filter_empty':
+      case 'bank.activity_filter_limit_unset':
       case 'bank.limit_request_reason_too_short':
       case 'bank.limit_request_list_limit_unset':
       case 'bank.limit_grant_unset':
