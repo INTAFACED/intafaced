@@ -74,7 +74,7 @@ import {
   UnattendedListLimitUnsetError,
 } from './ems-list-limit.js';
 import { scanOmsExternalArb } from './oms-arbitrage.js';
-import { readArbOpportunities, type ArbOpportunityFeed } from './arb-opportunities.js';
+import { ArbOpportunityError, readArbOpportunities, type ArbOpportunityFeed } from './arb-opportunities.js';
 import { planOmsArbAtomicLegs } from './oms-arb-plan-legs.js';
 import { executeOmsArbAtomicLegs } from './oms-arb-execute-legs.js';
 import { describeExecutionSpine } from './oms-spine.js';
@@ -1695,11 +1695,35 @@ export function createExecutionRouter(
          * No feed attached answers NotConnected `feed.market`; blanks come back as refused rows.
          */
         opportunities: scopedProcedure('trade:read')
-          .input(z.object({ symbol: z.string().min(1).max(64), amount: decimalString }).strict())
+          // Blank symbol/amount reach the read so they refuse with a typed code, not a schema message.
+          .input(
+            z
+              .object({
+                symbol: z.string().max(64),
+                amount: z.union([decimalString, z.string().max(64).regex(/^\s*$/)]),
+              })
+              .strict(),
+          )
           .query(async ({ input }) =>
-            withExecutionSpan('execution.arb.opportunities', input.symbol, async () =>
-              readArbOpportunities({ feed: arbOpportunityFeed, symbol: input.symbol, amount: input.amount, nowMs: Date.now() }),
-            ),
+            withExecutionSpan('execution.arb.opportunities', input.symbol, async () => {
+              try {
+                return await readArbOpportunities({
+                  feed: arbOpportunityFeed,
+                  symbol: input.symbol,
+                  amount: input.amount,
+                  nowMs: Date.now(),
+                });
+              } catch (err) {
+                if (err instanceof ArbOpportunityError) {
+                  throw new TRPCError({
+                    code: err.retryable ? 'SERVICE_UNAVAILABLE' : 'PRECONDITION_FAILED',
+                    message: `${err.code} — ${err.message}`,
+                    cause: err,
+                  });
+                }
+                throw err;
+              }
+            }),
           ),
         scan: omsWriteProcedure.input(omsArbScanInput).mutation(async ({ input }) => {
           return withExecutionSpan('execution.arb.scan', input.symbol, async () => scanOmsExternalArb(input));

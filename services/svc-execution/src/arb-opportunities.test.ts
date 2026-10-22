@@ -69,10 +69,20 @@ describe('readArbOpportunities (CB-execution-06)', () => {
     if (out.status !== 'ok') throw new Error('expected ok');
     const spread = out.rows.find((r) => r.scanClass === 'spread')!;
     expect(spread.opportunities).toHaveLength(1);
-    expect(spread.opportunities[0]).toMatchObject({ buyVenueId: 'binance', sellVenueId: 'bybit', buyAllIn: '100.05' });
+    expect(spread.opportunities[0]).toEqual({
+      legs: [
+        { side: 'buy', kind: 'external-cex' },
+        { side: 'sell', kind: 'external-cex' },
+      ],
+      amount: '1',
+      edgePerUnit: expect.stringMatching(/^\d+(\.\d+)?$/),
+    });
     const funding = out.rows.find((r) => r.scanClass === 'funding')!;
-    expect(funding.opportunities).toEqual([]);
-    expect(funding.refused[0]?.detail).toMatch(/funding class needs a caller-supplied rate/);
+    expect(funding).toEqual({
+      scanClass: 'funding',
+      opportunities: [],
+      refused: [{ code: 'funding_rate_unset', label: 'Funding rate not set' }],
+    });
   });
 
   it('treats a whitespace funding rate as blank', async () => {
@@ -87,11 +97,16 @@ describe('readArbOpportunities (CB-execution-06)', () => {
   });
 
   it('refuses every row on an empty book and lists nothing', async () => {
-    const out = await readArbOpportunities({ feed: feedOf(testRead(NOW, { quotes: [] })), symbol: 'BTC/USDT', amount: '1', nowMs: NOW });
+    const out = await readArbOpportunities({
+      feed: feedOf(testRead(NOW, { quotes: [], fundingRate: '0.0001' })),
+      symbol: 'BTC/USDT',
+      amount: '1',
+      nowMs: NOW,
+    });
     if (out.status !== 'ok') throw new Error('expected ok');
     for (const row of out.rows) {
       expect(row.opportunities).toEqual([]);
-      expect(row.refused[0]?.detail).toMatch(/empty book/);
+      expect(row.refused).toEqual([{ code: 'empty_book', label: 'No order book to compare' }]);
     }
   });
 
@@ -103,7 +118,62 @@ describe('readArbOpportunities (CB-execution-06)', () => {
       nowMs: NOW,
     });
     if (out.status !== 'ok') throw new Error('expected ok');
-    expect(out.rows.every((r) => r.opportunities.length === 0 && r.refused.length > 0)).toBe(true);
+    const spread = out.rows.find((r) => r.scanClass === 'spread')!;
+    expect(spread.opportunities).toEqual([]);
+    expect(spread.refused.map((r) => r.code)).toContain('stale_quote');
+  });
+
+  it('never sends staff fields: no venue ids, cost bps, all-in prices or scanner text', async () => {
+    const out = await readArbOpportunities({
+      feed: feedOf(testRead(NOW, { fundingRate: '0.0001' })),
+      symbol: 'BTC/USDT',
+      amount: '1',
+      nowMs: NOW,
+    });
+    const wire = JSON.stringify(out);
+    for (const staff of [
+      'buyVenueId',
+      'sellVenueId',
+      'buyCostBps',
+      'sellCostBps',
+      'buyAllIn',
+      'sellAllIn',
+      'detail',
+      'binance',
+      'bybit',
+      '100.05',
+    ]) {
+      expect(wire).not.toContain(staff);
+    }
+  });
+
+  it('refuses a blank symbol and a blank amount with typed codes before any feed read', async () => {
+    let reads = 0;
+    const feed: ArbOpportunityFeed = { read: async () => (reads++, testRead(NOW)) };
+    await expect(readArbOpportunities({ feed, symbol: '', amount: '1', nowMs: NOW })).rejects.toMatchObject({
+      code: 'execution.arb.symbol_unset',
+    });
+    await expect(readArbOpportunities({ feed, symbol: 'BTC/USDT', amount: '', nowMs: NOW })).rejects.toMatchObject({
+      code: 'execution.arb.amount_unset',
+    });
+    await expect(readArbOpportunities({ feed, symbol: 'BTC/USDT', amount: '  ', nowMs: NOW })).rejects.toMatchObject({
+      code: 'execution.arb.amount_unset',
+    });
+    expect(reads).toBe(0);
+  });
+
+  it('answers a typed retryable error when the feed throws', async () => {
+    const feed: ArbOpportunityFeed = { read: async () => Promise.reject(new Error('socket closed')) };
+    await expect(readArbOpportunities({ feed, symbol: 'BTC/USDT', amount: '1', nowMs: NOW })).rejects.toMatchObject({
+      code: 'execution.arb.feed_unavailable',
+      retryable: true,
+    });
+  });
+
+  it('passes amount 0 through as a deliberate value: nothing lists', async () => {
+    const out = await readArbOpportunities({ feed: feedOf(testRead(NOW)), symbol: 'BTC/USDT', amount: '0', nowMs: NOW });
+    if (out.status !== 'ok') throw new Error('expected ok');
+    expect(out.rows.every((r) => r.opportunities.length === 0)).toBe(true);
   });
 });
 
