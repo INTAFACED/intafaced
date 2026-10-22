@@ -359,6 +359,55 @@ test('client refusals: below the smallest order; finer than the lot or tick cann
   expect(m.requests('POST', 'orders')).toHaveLength(0);
 });
 
+test("the pair's rules are on the ticket: steps, smallest order, price band and open-order cap as published", async ({ page }) => {
+  await mount(page);
+  await ready(page);
+  const rules = page.locator('details.dk-rules');
+  await expect(rules.locator('summary')).toHaveText('BTC/USDT rules');
+  await rules.locator('summary').click();
+  await expect(rules).toContainText('Price step');
+  await expect(rules).toContainText('0.01 USDT');
+  await expect(rules).toContainText('Within 10% of the middle price');
+  await expect(rules).toContainText('Up to 20 on this market');
+  await shotBoth(page, 'desk-ticket-rules', { full: true });
+});
+
+test('a pair with no band or cap published reads "Not published", never a default', async ({ page }) => {
+  const exchange = new Exchange();
+  for (const market of exchange.opts.markets) {
+    market.pairRules = {
+      ...market.pairRules,
+      protection: { ...market.pairRules.protection, collar: 'not set', openOrdersPerMarket: 'not set' },
+    };
+  }
+  await mount(page, exchange);
+  await ready(page);
+  const rules = page.locator('details.dk-rules');
+  await rules.locator('summary').click();
+  const row = (name) => rules.locator('dl > div').filter({ has: page.locator('dt', { hasText: new RegExp(`^${name}$`) }) });
+  await expect(row('Price band').locator('dd')).toHaveText('Not published');
+  await expect(row('Open orders').locator('dd')).toHaveText('Not published');
+});
+
+test('refused: a price outside the band names the edges; too many open orders names the cap and the count', async ({ page }) => {
+  const exchange = new Exchange();
+  exchange.opts.refusal = { code: 'trade.price_band', message: 'raw words', data: { low: '58500', high: '71500', collar: '0.1' } };
+  const m = await mount(page, exchange);
+  await ready(page);
+  await fillBuy(page, { price: '80000', amount: '0.0001' });
+  const note = buyForm(page).locator('.dk-note--bad');
+  await expect(note).toContainText('Price is outside the allowed range');
+  await expect(note).toContainText('buy prices up to 71,500.00 and sell prices down to 58,500.00');
+  await expect(buyForm(page)).not.toContainText('trade.price_band');
+  await expect(buyButton(page)).toBeDisabled();
+  exchange.opts.refusal = { code: 'trade.operator_throttle', message: 'raw words', data: { cap: '20', open: '20' } };
+  await fillBuy(page, { price: '63999.9', amount: '0.0002' });
+  await expect(note).toContainText('Too many open orders');
+  await expect(note).toContainText('You have 20 open orders here and this market allows 20.');
+  await expect(buyButton(page)).toBeDisabled();
+  expect(m.requests('POST', 'orders')).toHaveLength(0);
+});
+
 test('refused: an account that is not verified gets words and the Verify path, never a raw code', async ({ page }) => {
   const exchange = new Exchange();
   exchange.opts.refusal = { code: 'tier.insufficient', message: 'raw words from the service' };

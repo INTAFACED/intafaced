@@ -97,6 +97,19 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('trade.protection_unset').title).toBe('Price protection isn’t set');
     expect(refusalCopy('trade.protection_unset').body).toContain('Use a limit order instead.');
   });
+  it('price band: the edges when the screen has them, the rule in words when it does not', () => {
+    expect(refusalCopy('trade.price_band', { low: '90.00', high: '110.00' })).toEqual({
+      title: 'Price is outside the allowed range',
+      body: 'This market takes buy prices up to 110.00 and sell prices down to 90.00 right now. Change the price and try again.',
+    });
+    expect(refusalCopy('trade.price_band').body).toContain('near the middle of its book');
+  });
+  it('open-order cap: the cap and the count', () => {
+    expect(refusalCopy('trade.operator_throttle', { cap: '20', open: '20' }).body).toBe(
+      'You have 20 open orders here and this market allows 20. Cancel one to place another.',
+    );
+    expect(refusalCopy('trade.limit_max_open_orders').title).toBe('Too many open orders');
+  });
   it('no book', () => {
     expect(refusalCopy('trade.no_book').title).toBe('No one is trading this market right now');
     expect(refusalCopy('trade.no_book').body).toBe('Prices will show when the first orders arrive.');

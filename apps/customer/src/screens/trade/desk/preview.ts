@@ -6,7 +6,7 @@
 import type { ApiResult } from '../../../shared/api';
 import type { Preview } from '../../../features/trade/trade-api';
 import { parseAmount } from '../../../shared/money';
-import { refusalCopy } from '../../../data';
+import { fmtPrice, refusalCopy } from '../../../data';
 import type { RefusalContext } from '../../../data';
 import type { RefusalCopy } from '../../../data/types';
 
@@ -27,6 +27,24 @@ export function previewIsOrderable(preview: Preview): boolean {
 /** The first refusal code the preview carries, or null when it has none. */
 export function previewRefusalCode(preview: Preview): string | null {
   return preview.refusals[0]?.code ?? null;
+}
+
+/**
+ * The preview's first refusal as words, with the numbers it names (a price band's edges, an open-order cap and count)
+ * filled in. Prices read on the market's tick.
+ */
+export function previewFailure(preview: Preview, context: RefusalContext, tickSize?: string): Failure {
+  const first = preview.refusals[0];
+  const data = first?.data ?? {};
+  const price = (value: string | undefined) => (value === undefined ? undefined : tickSize ? fmtPrice(value, tickSize) : value);
+  const named: RefusalContext = {
+    ...context,
+    ...(data.low !== undefined ? { low: price(data.low) } : {}),
+    ...(data.high !== undefined ? { high: price(data.high) } : {}),
+    ...(data.cap !== undefined ? { cap: data.cap } : {}),
+    ...(data.open !== undefined ? { open: data.open } : {}),
+  };
+  return refusalFailure(first?.code ?? null, named);
 }
 
 export function refusalFailure(code: string | null | undefined, context: RefusalContext): Failure {

@@ -675,9 +675,10 @@ export type TradeErrorCode =
   | 'trade.auth_attribution_missing'
   /** Operator fat-finger notional is set and this order is past it. */
   | 'trade.operator_fat_finger'
-  /** Operator collar (max price) is set and this order is past it. */
-  | 'trade.operator_collar'
-  /** Operator throttle is set and this account is already at it. */
+  /** Operator price band (collar, a fraction of the mid) is set and this order is priced outside it. */
+  | 'trade.price_band'
+  /** A price band is set and the book shows no bid or ask to centre it on. */
+  /** Operator open-order cap (throttle) is set and this account is already at it on this market. */
   | 'trade.operator_throttle'
   /** Operator circuit breaker is set and no reference mark is configured. */
   | 'trade.circuit_breaker_reference_unset'

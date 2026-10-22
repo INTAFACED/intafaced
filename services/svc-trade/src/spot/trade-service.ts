@@ -71,7 +71,7 @@ import { resolveOptionsListing } from './options-listing.js';
 import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
 import { resolveFuturesFamily } from '../futures/contract-family.js';
 import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
-import { assertOperatorRiskOnPlace, operatorSlippageCapBps } from '../admin/risk.js';
+import { assertOperatorRiskOnPlace, operatorSlippageCapBps, type Touch } from '../admin/risk.js';
 import { recordMarketStatusTransition } from '../admin/status-history.js';
 import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
 import {
@@ -1723,7 +1723,18 @@ export class TradeService {
       return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
     }
     assertQty(market, input.qty);
-    await assertOperatorRiskOnPlace(this.sql, market.id, principal.userId, { price: input.price ?? null, qty: input.qty });
+    await assertOperatorRiskOnPlace(
+      this.sql,
+      market,
+      principal.userId,
+      {
+        side: input.side,
+        price: input.price ?? null,
+        qty: input.qty,
+        rests: orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null,
+      },
+      () => this.touch(market.id),
+    );
 
     // SD-5: seed/mm is liquidity provision only — never take liquidity (no
     // market orders, force post-only so the engine refuses unfair crosses).
@@ -5563,6 +5574,14 @@ export class TradeService {
     const depth = await this.matching.depth(marketId, 1);
     const best = depth.asks[0];
     return best ? parseAmount(best[0]) : null;
+  }
+
+  /** Best bid and ask in one depth read, for the operator price band. */
+  private async touch(marketId: string): Promise<Touch> {
+    const depth = await this.matching.depth(marketId, 1);
+    const bid = depth.bids[0];
+    const ask = depth.asks[0];
+    return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
   }
 
   private async bestBid(marketId: string): Promise<Amount | null> {

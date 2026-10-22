@@ -69,7 +69,8 @@ import { bpsToRatio, exitFeeLines, feeRate, gateSubmit, holdShort, sizeFor } fro
 import { CONFLICT_CODE, resendOrder, resendOutcome } from './resend';
 import { clearOrdersPaused, markOrdersPaused } from './orders-paused';
 import { scaleLockStays } from './ticket/scale-flow';
-import { failureOf, isLedgerFrozen, previewIsOrderable, previewRefusalCode, refusalFailure, type Failure } from './preview';
+import { TicketRules } from './MarketRules';
+import { failureOf, isLedgerFrozen, previewFailure, previewIsOrderable, refusalFailure, type Failure } from './preview';
 import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
@@ -294,7 +295,14 @@ function SideForm({
   const key = draft
     ? `${draft.symbol}|${draft.side}|${draft.type}|${draft.amount}|${draft.price ?? ''}|${draft.stopPrice ?? ''}|${tif}|${draft.expireAt ?? ''}`
     : 'none';
-  const { live, retry } = useLivePreview(api, draft && !review ? draft : null, key, context, () => env.poller.recordExternalRequest());
+  const { live, retry } = useLivePreview(
+    api,
+    draft && !review ? draft : null,
+    key,
+    context,
+    () => env.poller.recordExternalRequest(),
+    market.tickSize,
+  );
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
@@ -373,7 +381,7 @@ function SideForm({
       else if (previewIsOrderable(result.data) && holdShort(result.data, spendAsset, available))
         setFailure(refusalFailure('ledger.insufficient_funds', context));
       else if (previewIsOrderable(result.data)) setReview({ draft: parsed.data, preview: result.data, changed: false });
-      else setFailure(refusalFailure(previewRefusalCode(result.data), context));
+      else setFailure(previewFailure(result.data, context, market.tickSize));
     }
     setBusy(false);
     busyRef.current = false;
@@ -462,7 +470,7 @@ function SideForm({
         if (previewIsOrderable(result.preview)) setReview({ draft: sending, preview: result.preview, changed: true });
         else {
           setReview(null);
-          setFailure(refusalFailure(previewRefusalCode(result.preview), context));
+          setFailure(previewFailure(result.preview, context, market.tickSize));
         }
       }
     } else if (result.reason === 'uncertain') {
@@ -1215,6 +1223,7 @@ export const OrderPanel = memo(function OrderPanel({
           <TagField value={tagText} onChange={setTagText} />
         </div>
       ) : null}
+      <TicketRules market={market} />
       {!market.open ? (
         <div className="dk-order-body">
           <StateBlock kind="refused" title={t('Market closed title')} body={t('Market closed body')} />

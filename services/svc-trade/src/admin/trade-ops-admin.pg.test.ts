@@ -141,8 +141,17 @@ describe('trade operator procedures', () => {
     bindTradingRestrictApprovals(null);
   });
 
-  function allow(input: { approvalId: string; actionType: string; targetId: string; expectedVersion: string; body: unknown }): void {
+  function allow(input: {
+    approvalId: string;
+    actionType: string;
+    targetId: string;
+    expectedVersion: string;
+    body: unknown;
+    /** Identity mints one per four-eyes proposal; its consume refuses any other. */
+    operationId?: string;
+  }): void {
     book.put({
+      ...(input.operationId ? { operationId: input.operationId } : {}),
       approvalId: input.approvalId,
       actionType: input.actionType,
       targetService: 'svc-trade',
@@ -344,6 +353,7 @@ describe('trade operator procedures', () => {
         expectedVersion: '0',
         reason,
         approvalId: 'none',
+        operationId: 'op-none',
       }),
     ).rejects.toMatchObject({ code: 'approval_missing' });
     expect(await admin.riskHistory(operator(), marketId)).toEqual([]);
@@ -351,33 +361,68 @@ describe('trade operator procedures', () => {
     allow({
       approvalId: 'risk-1',
       actionType: 'trade.risk_set',
+      operationId: 'op-risk-1',
       targetId: marketId,
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    const first = await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-1' });
+    // The approval's own operation id, never its approval id: identity mints a separate one and refuses any other.
+    await expect(
+      admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'risk-1',
+        operationId: 'risk-1',
+      }),
+    ).rejects.toMatchObject({ code: 'approval_mismatch' });
+    const first = await admin.riskSet(operatorWriter(), {
+      market: marketId,
+      limits,
+      expectedVersion: '0',
+      reason,
+      approvalId: 'risk-1',
+      operationId: 'op-risk-1',
+    });
     expect(first.version).toBe('1');
     expect(first.fatFinger).toBe('50');
     expect(first.collar).toBeNull();
     allow({
       approvalId: 'risk-stale',
       actionType: 'trade.risk_set',
+      operationId: 'op-risk-stale',
       targetId: marketId,
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
     await expect(
-      admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-stale' }),
+      admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'risk-stale',
+        operationId: 'op-risk-stale',
+      }),
     ).rejects.toMatchObject({ code: 'risk_limit_stale' });
     const next = { ...BLANK_LIMITS, fatFinger: '80' };
     allow({
       approvalId: 'risk-2',
       actionType: 'trade.risk_set',
+      operationId: 'op-risk-2',
       targetId: marketId,
       expectedVersion: '1',
       body: { actionType: 'trade.risk_set', market: marketId, limits: next, expectedVersion: '1', reason },
     });
-    await admin.riskSet(operatorWriter(), { market: marketId, limits: next, expectedVersion: '1', reason, approvalId: 'risk-2' });
+    await admin.riskSet(operatorWriter(), {
+      market: marketId,
+      limits: next,
+      expectedVersion: '1',
+      reason,
+      approvalId: 'risk-2',
+      operationId: 'op-risk-2',
+    });
     const history = await admin.riskHistory(operator(), marketId);
     expect(history.map((row) => row.version)).toEqual(['1', '2']);
     expect(history.every((row) => row.operatorId === OP && row.approverId === APPROVER)).toBe(true);
@@ -390,11 +435,19 @@ describe('trade operator procedures', () => {
     allow({
       approvalId: 'risk-order',
       actionType: 'trade.risk_set',
+      operationId: 'op-risk-order',
       targetId: marketId,
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'risk-order' });
+    await admin.riskSet(operatorWriter(), {
+      market: marketId,
+      limits,
+      expectedVersion: '0',
+      reason,
+      approvalId: 'risk-order',
+      operationId: 'op-risk-order',
+    });
     await fund(ALICE, '1000');
     await expect(
       trade.placeOrder(principalFor(ALICE), {
@@ -513,11 +566,19 @@ describe('trade operator procedures', () => {
     allow({
       approvalId: 'feed-risk',
       actionType: 'trade.risk_set',
+      operationId: 'op-feed-risk',
       targetId: marketId,
       expectedVersion: '0',
       body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion: '0', reason },
     });
-    await admin.riskSet(operatorWriter(), { market: marketId, limits, expectedVersion: '0', reason, approvalId: 'feed-risk' });
+    await admin.riskSet(operatorWriter(), {
+      market: marketId,
+      limits,
+      expectedVersion: '0',
+      reason,
+      approvalId: 'feed-risk',
+      operationId: 'op-feed-risk',
+    });
     const scope = `market:${marketId}|account:`;
     const cancelReason = 'clear nothing';
     allow({
@@ -721,6 +782,7 @@ describe('trade operator procedures', () => {
         expectedVersion: '0',
         reason: 'read only',
         approvalId: 'x',
+        operationId: 'op-x',
       }),
     ).rejects.toBeInstanceOf(AuthError);
     await expect(

@@ -21,7 +21,7 @@ export const plain = (value) => {
 };
 const mulFloor = (a, b) => (a * b) / SCALE;
 
-const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true }) => ({
+const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true, band = 'not set', cap = 'not set' }) => ({
   id: `${base}/${quote}`,
   symbol: `${base}/${quote}`,
   base,
@@ -60,10 +60,30 @@ const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true })
     leverage: { min: null, max: null },
   },
   lifecycle: { state: open ? 'OPEN' : 'REFUSED' },
+  pairRules: {
+    tick,
+    lot,
+    minQty: minAmount,
+    minNotional: minCost,
+    maxQty: 'not set',
+    protection: { collar: band, fatFinger: 'not set', slippageCapBps: 'not set', openOrdersPerMarket: cap },
+    riskVersion: band === 'not set' && cap === 'not set' ? '0' : '1',
+  },
 });
 
 export const markets = ({ btcOpen = true } = {}) => [
-  wireMarket({ base: 'BTC', quote: 'USDT', tick: '0.01', lot: '0.00001', minAmount: '0.00001', minCost: '5', open: btcOpen }),
+  wireMarket({
+    base: 'BTC',
+    quote: 'USDT',
+    tick: '0.01',
+    lot: '0.00001',
+    minAmount: '0.00001',
+    minCost: '5',
+    open: btcOpen,
+    // TEST values: a fixture-fed band and cap, not anything published.
+    band: '0.1',
+    cap: '20',
+  }),
   wireMarket({ base: 'ETH', quote: 'USDT', tick: '0.01', lot: '0.0001', minAmount: '0.0001', minCost: '5' }),
   wireMarket({ base: 'IFC', quote: 'USDT', tick: '0.0001', lot: '0.01', minAmount: '0.01', minCost: '5' }),
   wireMarket({ base: 'BTC', quote: 'USDC', tick: '0.01', lot: '0.00001', minAmount: '0.00001', minCost: '5' }),
@@ -274,7 +294,9 @@ export class Exchange {
       feeBps: Number((rate * 10000n) / SCALE),
       feeRole: draft.postOnly ? 'maker' : 'taker',
       orderable: !refused,
-      refusals: refused ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused' }] : [],
+      refusals: refused
+        ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused', ...(refused.data ? { data: refused.data } : {}) }]
+        : [],
     };
   }
 

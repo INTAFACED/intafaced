@@ -8,7 +8,7 @@ import { localStackState } from '../../../../tooling/scripts/local-test-state.mj
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';
-const ORIGIN = 'http://127.0.0.1:3210';
+export const ORIGIN = 'http://127.0.0.1:3210';
 // The stack's own rule for its state folder (LOCAL_STACK_STATE, else per user, else /var/lib as root).
 const STATE = localStackState();
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
