@@ -172,6 +172,14 @@ function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
     listOfferBoard: async () => ({ offers: [], nextCursor: null }),
     releasedTradeCounts: async () => new Map<string, number>(),
     tradesInWindow: async () => 0,
+    completionRatesOf: async () => ({
+      completionRate30d: '0.00',
+      completionRateTotal: '0.00',
+      completed30d: 0,
+      counted30d: 0,
+      completedTotal: 0,
+      countedTotal: 0,
+    }),
     ...overrides,
   } as unknown as P2pService;
 }

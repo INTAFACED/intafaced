@@ -1136,6 +1136,9 @@ describe('svc-p2p payment instruments', () => {
         // Operator-only late settlement queue — no instrument fields; stranger refuses.
         'ops.lateSettlements': { limit: 100 },
         'reputation.get': { userId: SELLER },
+        // P-trade-orders-21: the caller's own appeal row; no instrument join.
+        'reputation.myAppeal': {},
+        'reputation.appeal': { tradeId: trade.id, reason: 'probing' },
         'instruments.methods.list': { limit: 50 },
         'instruments.methods.register': { methodId: 'probe', country: 'DE', label: 'p', fields: [{ key: 'a', label: 'A' }] },
         'instruments.methods.setEnabled': { methodId: METHOD, country: ANY_COUNTRY, enabled: false },

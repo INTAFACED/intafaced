@@ -73,6 +73,11 @@ const schema = serviceEnvSchema
           .regex(/^(unlimited|\d+(\.\d+)?)$/i, 'P2P_OFFER_MAX_STANDARD must be a non-negative decimal string or the literal unlimited')
           .optional(),
       ),
+      /** P-trade-orders-21: hours support has to review a completion appeal. Empty is unset → appeal refuses p2p.config_unset. */
+      P2P_APPEAL_REVIEW_HOURS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
       P2P_OFFER_MAX_MERCHANT: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
         z

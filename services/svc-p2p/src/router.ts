@@ -36,6 +36,7 @@ import {
   type OfferLimitPolicy,
 } from './merchant-limits.js';
 import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
+import { COMPLETION_DEFINITION } from './completion-rate.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
@@ -244,6 +245,19 @@ const disputeOutput = z.object({
   lastSeenByModeratorAt: z.string().nullable(),
 });
 
+const appealOutput = z.object({
+  id: z.string().uuid(),
+  userId: z.string(),
+  tradeId: z.string().uuid(),
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submittedAt: z.string(),
+  reviewDueAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+});
+
 const reputationOutput = z.object({
   tradesTotal: z.number().int(),
   completed: z.number().int(),
@@ -263,6 +277,10 @@ const reputationOutput = z.object({
   }),
   /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
   trades30d: z.number().int().nonnegative(),
+  /** P-trade-orders-21: decimal-string percents ("95.24"); "0.00" with no history. Definition in `completionDefinition`. */
+  completionRate30d: z.string().regex(/^\d{1,3}\.\d{2}$/),
+  completionRateTotal: z.string().regex(/^\d{1,3}\.\d{2}$/),
+  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string() }),
   /**
    * Merchant standing, as a counterparty may see it (TRK-p2p.merchants Stage 2).
    *
@@ -384,6 +402,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_list_limit_unset':
       case 'p2p.late_settlements_list_limit_unset':
       case 'p2p.trade_list_limit_unset':
+      case 'p2p.config_unset':
       case 'p2p.ops_offers_limit_unset':
       case 'p2p.ops_trades_limit_unset':
       case 'p2p.ops_count_invalid':
@@ -425,10 +444,13 @@ function toTrpcError(err: unknown): TRPCError {
       // out of a database it could honestly report on, wrote nothing, and the
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
+      case 'p2p.appeal_used':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.reason_required':
+      case 'p2p.appeal_not_eligible':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
@@ -2365,6 +2387,18 @@ export function createP2pRouter(
     }),
 
     reputation: router({
+      /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
+      myAppeal: merchantApiProcedure('p2p:read')
+        .output(appealOutput.nullable())
+        .query(async ({ ctx }) => guard(async () => p2p.myCompletionAppeal(requireUser(ctx)))),
+
+      appeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().uuid(), reason: z.string().max(2000) }))
+        .output(appealOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
+        ),
+
       /**
        * §6.2 → §4.1. The numbers a counterparty sees before they trade with
        * you, and the same numbers that feed the XP graph raising limits
@@ -2377,11 +2411,19 @@ export function createP2pRouter(
           guard(async () => {
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
-            const door = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const door = {
+              ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
+              completionRate30d: '',
+              completionRateTotal: '',
+              completionDefinition: COMPLETION_DEFINITION,
+            };
             const trades30d = await p2p.tradesInWindow(input.userId);
+            const rates = await p2p.completionRatesOf(input.userId);
             if (!publicProfile) {
               return {
                 ...door,
+                completionRate30d: rates.completionRate30d,
+                completionRateTotal: rates.completionRateTotal,
                 handle: null,
                 memberSince: null,
                 profile: { status: 'unwired' as const, code: 'p2p.public_profile_unwired' as const },
@@ -2392,6 +2434,8 @@ export function createP2pRouter(
             if (!found) {
               return {
                 ...door,
+                completionRate30d: rates.completionRate30d,
+                completionRateTotal: rates.completionRateTotal,
                 handle: null,
                 memberSince: null,
                 profile: { status: 'absent' as const, code: 'p2p.public_profile_absent' as const },
@@ -2400,6 +2444,8 @@ export function createP2pRouter(
             }
             return {
               ...door,
+              completionRate30d: rates.completionRate30d,
+              completionRateTotal: rates.completionRateTotal,
               handle: found.handle,
               memberSince: found.memberSince,
               profile: { status: 'found' as const, code: 'p2p.public_profile_found' as const },
