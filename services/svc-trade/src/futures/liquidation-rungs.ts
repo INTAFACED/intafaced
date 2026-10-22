@@ -88,6 +88,14 @@ export interface RungPlan {
   markPrice?: Amount;
   /** A liquidation fee the writer recorded. Absent means no fee was recorded. */
   fee?: Amount;
+  /**
+   * D-margin-07: the fee decision recorded when the rung was planned. `fee_unset`: the owner fraction was
+   * blank, nothing is charged. `ledger_job_pending`: a fee was planned (`plannedFee`) but nothing is charged
+   * until ledger owner job J-3 grants a fee recipe. Absent on rungs planned before this field.
+   */
+  feeState?: 'fee_unset' | 'ledger_job_pending';
+  /** The planned (NOT charged) fee when `feeState` is `ledger_job_pending`. */
+  plannedFee?: Amount;
 }
 
 export interface RungRecord {
@@ -210,6 +218,9 @@ export interface EncodedRungPlan {
   markPrice?: string;
   /** Scaled integer string. Omitted when the writer did not record a fee. */
   fee?: string;
+  feeState?: string;
+  /** Scaled integer string. */
+  plannedFee?: string;
 }
 
 export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
@@ -230,6 +241,8 @@ export function encodeRungPlan(plan: RungPlan): EncodedRungPlan {
     marginAsset: plan.marginAsset,
     ...(plan.markPrice != null ? { markPrice: plan.markPrice.toString() } : {}),
     ...(plan.fee != null ? { fee: plan.fee.toString() } : {}),
+    ...(plan.feeState != null ? { feeState: plan.feeState } : {}),
+    ...(plan.plannedFee != null ? { plannedFee: plan.plannedFee.toString() } : {}),
   };
 }
 
@@ -250,6 +263,8 @@ export function decodeRungPlan(encoded: EncodedRungPlan): RungPlan {
     marginAsset: encoded.marginAsset,
     ...(encoded.markPrice != null ? { markPrice: BigInt(encoded.markPrice) } : {}),
     ...(encoded.fee != null ? { fee: BigInt(encoded.fee) } : {}),
+    ...(encoded.feeState === 'fee_unset' || encoded.feeState === 'ledger_job_pending' ? { feeState: encoded.feeState } : {}),
+    ...(encoded.plannedFee != null ? { plannedFee: BigInt(encoded.plannedFee) } : {}),
   };
 }
 

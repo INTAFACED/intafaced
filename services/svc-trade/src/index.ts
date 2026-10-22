@@ -98,6 +98,7 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
@@ -443,6 +444,8 @@ if (env.TRADE_VENUE_MARK_VENUE.trim() && !venueMarkConfigured) {
   );
 }
 const fundingMarketIds = parseFundingMarketIds(env.TRADE_FUTURES_FUNDING_MARKET_IDS);
+// D-margin-07: invalid owner fee fraction fails boot; blank is fee unset (nothing is charged, J-3).
+const liquidationFeeFraction = loadLiquidationFeeFraction(process.env);
 const fundingMaxAbsRate = resolveFundingMaxAbsRateForBoot({ fundingMarketIds, maxAbsRateRaw: env.TRADE_FUTURES_FUNDING_MAX_ABS_RATE });
 if (fundingMaxAbsRate) {
   app.log.info({ fundingMaxAbsRate }, 'futures funding |rate| bound is configured');
@@ -460,6 +463,7 @@ const futuresJobs = startFuturesJobs({
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    liquidationFeeFraction,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
     fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
