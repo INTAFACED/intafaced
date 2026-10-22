@@ -36,7 +36,7 @@ describe('termsVerdict', () => {
     expect(termsVerdict({ kind: 'ready', quote: quote({ amount: '25.0' }) }, '25').kind).toBe('ok');
   });
 
-  it('refuses over the per-payment limit first, then over today, then a fee that cannot be collected', () => {
+  it('refuses a fee that cannot be collected first, then over the per-payment limit, then over today', () => {
     expect(termsVerdict({ kind: 'ready', quote: quote({ withinPerTransfer: false, withinDaily: false }) }, '25')).toEqual({
       kind: 'overPayment',
       limit: '1000',
@@ -49,7 +49,9 @@ describe('termsVerdict', () => {
       kind: 'overDaily',
       left: '0',
     });
-    expect(termsVerdict({ kind: 'ready', quote: quote({ fee: '1', feeBlocker: 'bank.personal_transfer_fee_unwired' }) }, '25')).toEqual({
+    const unwired = { fee: '1', feeBlocker: 'bank.personal_transfer_fee_unwired' };
+    expect(termsVerdict({ kind: 'ready', quote: quote(unwired) }, '25')).toEqual({ kind: 'feeUnwired' });
+    expect(termsVerdict({ kind: 'ready', quote: quote({ ...unwired, withinPerTransfer: false, withinDaily: false }) }, '25')).toEqual({
       kind: 'feeUnwired',
     });
   });

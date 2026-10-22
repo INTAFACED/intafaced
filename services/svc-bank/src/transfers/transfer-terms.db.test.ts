@@ -188,7 +188,7 @@ describe('ops.publishTransferTerms (PP-send-request-07)', () => {
     expect(await stored()).toHaveLength(0);
   });
 
-  it('refuses zero, negative or inverted limits before spending the approval', async () => {
+  it('refuses zero, negative or inverted limits, or an asset code sends would never match, before spending the approval', async () => {
     const bank = services();
     const approvals = deskApprovals();
     for (const bad of [terms({ perTransferLimit: '0' }), terms({ dailyLimit: '0' }), terms({ perTransferLimit: '1001' })]) {
@@ -199,6 +199,12 @@ describe('ops.publishTransferTerms (PP-send-request-07)', () => {
     }
     await expect(
       compliance(bank, approvals).ops.publishTransferTerms({ ...terms({ fee: '-1' }), ...approvals.issue(terms({ fee: '-1' })) }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(
+      compliance(bank, approvals).ops.publishTransferTerms({
+        ...terms({ assetId: 'usdt' }),
+        ...approvals.issue(terms({ assetId: 'usdt' })),
+      }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
     expect(approvals.consumed).toBe(0);
     expect(await stored()).toHaveLength(0);

@@ -275,6 +275,18 @@ describe('personal send and request (Postgres)', () => {
       withinDaily: true,
     });
 
+    // A reservation still in flight counts; one old enough for the next send to release it does not.
+    await db.sql`
+      INSERT INTO bank.personal_transfers (transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, status, created_at)
+      VALUES ('send-in-flight', ${ADA}, ${from.id}, ${BOB}, 'USDT', 5, 'reserved', now()),
+             ('send-stale', ${ADA}, ${from.id}, ${BOB}, 'USDT', 70, 'reserved', now() - interval '16 minutes')
+    `;
+    expect(await ada.transfers.quote({ assetId: 'USDT', amount: '10' })).toMatchObject({
+      spentToday: '25',
+      withinDaily: true,
+    });
+    await db.sql`DELETE FROM bank.personal_transfers WHERE transfer_id IN ('send-in-flight', 'send-stale')`;
+
     await db.sql`UPDATE bank.personal_transfer_terms SET fee = 1.5 WHERE asset_id = 'USDT'`;
     expect(await ada.transfers.quote({ assetId: 'USDT', amount: '1' })).toMatchObject({
       fee: '1.5',

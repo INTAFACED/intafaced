@@ -349,7 +349,10 @@ export class PersonalPayService {
     const now = this.now(at);
     const terms = await this.terms(assetId);
     if (!terms) throw termsUnset(assetId);
-    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
+    // A reservation older than the stale cutoff is released by the next send before it checks the limits, so the
+    // quote does not count it either: the screen must not refuse what the send would accept.
+    const reservedSince = new Date(now.getTime() - STALE_RESERVATION_MS);
+    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now), reservedSince);
     const fee = parseAmount(terms.fee);
     // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
     const grants = await grantedLimits(this.sql, actorUserId, assetId);
@@ -753,12 +756,19 @@ export class PersonalPayService {
     return rows[0] ?? null;
   }
 
-  private async spentToday(tx: Sql | TransactionSql, userId: string, assetId: string, start: Date): Promise<Amount> {
+  /** Posted today plus reserved today; `reservedSince` leaves out reservations older than it (a quote's view of stale ones). */
+  private async spentToday(
+    tx: Sql | TransactionSql,
+    userId: string,
+    assetId: string,
+    start: Date,
+    reservedSince: Date = start,
+  ): Promise<Amount> {
     const rows = await tx<Array<{ spent: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS spent
         FROM bank.personal_transfers
        WHERE from_user_id = ${userId} AND asset_id = ${assetId} AND created_at >= ${start}
-         AND status IN ('reserved', 'posted')
+         AND (status = 'posted' OR (status = 'reserved' AND created_at >= ${reservedSince}))
     `;
     return parseAmount(rows[0]?.spent ?? '0');
   }

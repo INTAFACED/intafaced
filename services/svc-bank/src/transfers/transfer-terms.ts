@@ -23,7 +23,11 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must be an u
 export const PUBLISH_TRANSFER_TERMS_ACTION = 'bank.ops.publishTransferTerms';
 
 const termsInput = z.object({
-  assetId: z.string().trim().min(1).max(16),
+  /** The ledger's asset code exactly as sends read it: `usdt` would publish a row no send ever finds. */
+  assetId: z
+    .string()
+    .trim()
+    .regex(/^[A-Z0-9]{2,16}$/, 'asset code in capitals, as the ledger names it'),
   perTransferLimit: amountString,
   dailyLimit: amountString,
   fee: amountString,
@@ -81,7 +85,7 @@ export async function publishTransferTerms(
     RETURNING asset_id, per_transfer_limit::text, daily_limit::text, fee::text, published_at
   `;
   const row = rows[0];
-  if (!row) throw new BankError(`Terms for ${assetId} were not written`, 'bank.personal_transfer_terms_unset');
+  if (!row) throw new Error(`The terms row for ${assetId} came back empty from its upsert`);
   return {
     assetId: row.asset_id,
     perTransferLimit: formatAmount(parseAmount(row.per_transfer_limit)),

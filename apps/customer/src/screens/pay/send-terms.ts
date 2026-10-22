@@ -66,7 +66,7 @@ export function useSendTerms(pay: PersonalPayApi, assetId: string | null, amount
   return [answer.key === key ? answer.terms : { kind: 'checking' }, retry];
 }
 
-/** Reads a quote the way the service applies it: per payment first, then what is left of today, then the fee. */
+/** Reads a quote in the order the service refuses a send: the fee, then the per-payment limit, then what is left of today. */
 export function termsVerdict(terms: SendTerms, amount: string | null): TermsVerdict {
   if (terms.kind === 'idle') return { kind: 'none' };
   if (terms.kind !== 'ready') return { kind: terms.kind };
@@ -75,9 +75,9 @@ export function termsVerdict(terms: SendTerms, amount: string | null): TermsVerd
   const daily = parseAmount(quote.dailyLimit);
   const spent = parseAmount(quote.spentToday);
   const left = daily > spent ? daily - spent : 0n;
+  if (quote.feeBlocker !== null) return { kind: 'feeUnwired' };
   if (!quote.withinPerTransfer) return { kind: 'overPayment', limit: quote.perTransferLimit };
   if (!quote.withinDaily) return { kind: 'overDaily', left: formatAmount(left) };
-  if (quote.feeBlocker !== null) return { kind: 'feeUnwired' };
   const after = left - parseAmount(quote.amount);
   return {
     kind: 'ok',
