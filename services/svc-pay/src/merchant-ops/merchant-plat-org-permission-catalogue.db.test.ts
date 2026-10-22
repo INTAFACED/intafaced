@@ -107,8 +107,12 @@ describe('M-plat-org-03 merchantOps.permissions (Postgres)', () => {
   });
 
   it('nobody, not even the owner, can edit a built-in role: named refusal', async () => {
-    for (const user of [owner, viewer]) {
-      expect(await refusal(() => as(user).merchantOps.permissions.updateRole({ role: 'viewer', grants: ['team.manage'] }))).toEqual({
+    const callers: Array<[string, Partial<Principal>]> = [
+      [owner, {}],
+      [viewer, { scopes: ['pay:read'] }],
+    ];
+    for (const [user, over] of callers) {
+      expect(await refusal(() => as(user, over).merchantOps.permissions.updateRole({ role: 'viewer', grants: ['team.manage'] }))).toEqual({
         code: 'FORBIDDEN',
         message: 'pay.team_builtin_role_immutable',
       });

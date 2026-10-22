@@ -326,7 +326,8 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             return permissionCatalogue();
           }),
         ),
-        updateRole: write.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
+        /** Mounted on the read scope on purpose: a read-only caller gets the named refusal too, not a scope error. It never writes. */
+        updateRole: read.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
           wrapOps(async () => {
             await callerOf(ctx);
             return refuseBuiltInRoleEdit();
