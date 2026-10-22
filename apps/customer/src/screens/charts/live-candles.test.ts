@@ -15,8 +15,10 @@ import {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const bar = (t: number, c: string): Candle => ({ t, o: '1', h: '3', l: '1', c, v: '5', filled: false });
+// The door's real shape (services/svc-ws/src/mux/session.ts #sinkFor): the hub frame sits in `data` of a channel envelope.
+const envelope = (data: object, market = 'm1', interval = '1m') => JSON.stringify({ ch: 'candles', market, interval, data });
 const frame = (t: number, c: string, extra: object = {}) =>
-  JSON.stringify({ type: 'candle', marketId: 'm1', interval: '1m', t, o: '1', h: '3', l: '1', c, v: '5', closed: false, ...extra });
+  envelope({ type: 'candle', marketId: 'm1', interval: '1m', t, o: '1', h: '3', l: '1', c, v: '5', closed: false, ...extra });
 
 describe('parseIncoming', () => {
   it('reads a candle frame as decimal strings and nothing else', () => {
@@ -31,12 +33,17 @@ describe('parseIncoming', () => {
       },
     });
   });
+  it('ignores a candle frame that is not inside the channel envelope, as the door never sends one', () => {
+    expect(
+      parseIncoming(JSON.stringify({ type: 'candle', marketId: 'm1', interval: '1m', t: 1, o: '1', h: '1', l: '1', c: '1', v: '1' })),
+    ).toEqual({ kind: 'other' });
+  });
   it('drops frames that are not JSON, not objects, or carry a price that is not a decimal', () => {
     expect(parseIncoming('nope')).toEqual({ kind: 'other' });
     expect(parseIncoming('[]')).toEqual({ kind: 'other' });
     expect(parseIncoming(frame(1, '1e9'))).toEqual({ kind: 'other' });
     expect(parseIncoming(frame(1, 'NaN'))).toEqual({ kind: 'other' });
-    expect(parseIncoming(JSON.stringify({ type: 'candle', marketId: 'm1' }))).toEqual({ kind: 'other' });
+    expect(parseIncoming(envelope({ type: 'candle', marketId: 'm1' }))).toEqual({ kind: 'other' });
   });
   it('reads the acknowledgement, a refusal and the unavailable notice', () => {
     expect(parseIncoming(JSON.stringify({ op: 'ack', for: 'subscribe', results: [{ i: 0, ok: true, market: 'm1' }] }))).toEqual({
@@ -50,7 +57,9 @@ describe('parseIncoming', () => {
       marketId: null,
     });
     expect(parseIncoming(JSON.stringify({ op: 'error', code: 'unavailable' }))).toEqual({ kind: 'ack', ok: false, marketId: null });
-    expect(parseIncoming(JSON.stringify({ type: 'status', code: 'candles.unavailable' }))).toEqual({ kind: 'unavailable' });
+    expect(parseIncoming(envelope({ type: 'status', code: 'candles.unavailable', marketId: 'm1', interval: '1m' }))).toEqual({
+      kind: 'unavailable',
+    });
   });
 });
 
@@ -175,8 +184,18 @@ describe('useCandleStream', () => {
     await say(sockets[0]!, JSON.stringify({ op: 'ack', for: 'subscribe', results: [{ i: 0, ok: true, market: 'm1' }] }));
     await say(sockets[0]!, frame(60_000, '2.5'));
     expect(seen.mode).toBe('stream');
-    await say(sockets[0]!, JSON.stringify({ type: 'status', code: 'candles.unavailable' }));
+    await say(sockets[0]!, envelope({ type: 'status', code: 'candles.unavailable', marketId: 'm1', interval: '1m' }));
     expect(seen.mode).toBe('poll');
+  });
+
+  it('never shows a frame held from the interval before a change', async () => {
+    const root = await mount();
+    await say(sockets[0]!, JSON.stringify({ op: 'ack', for: 'subscribe', results: [{ i: 0, ok: true, market: 'm1' }] }));
+    await say(sockets[0]!, frame(60_000, '2.5'));
+    expect(seen.live?.c).toBe('2.5');
+    await act(async () => root.render(createElement(Probe, { symbol: 'BTC/USDT', interval: '3m' })));
+    expect(seen).toEqual({ mode: 'poll', live: null });
+    expect(sockets[0]!.closedByUs).toBe(true);
   });
 
   it('opens no socket for an interval the stream does not serve', async () => {
