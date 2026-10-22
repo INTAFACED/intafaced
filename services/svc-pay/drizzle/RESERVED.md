@@ -61,7 +61,8 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0120      | KYB documents (I-kyc-compliance-22)                   | used                                            |
 | 0122      | wallet lane (custody sweeps)                          | used                                            |
 | 0123      | invoice duplicate action (M-bill-07)                  | used                                            |
-| 0124+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0127      | catalog products (M-catalogue-01)                     | used                                            |
+| 0128+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
 
 ## Why gaps are safe
 

@@ -1,3 +1,4 @@
+import { CATALOG_PRODUCT_TYPES, CatalogProductService } from '../catalog/product-service.js';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
@@ -96,6 +97,7 @@ function makeParts(deps: MerchantOpsDeps) {
         payouts: new PayoutList(sql),
         webhooks: new WebhookOps(sql, { allowLocalHttp: deps.webhooksAllowLocalHttp === true, retry: deps.webhookRetry }),
         notes: new OperatorNotes(sql),
+        catalog: new CatalogProductService(sql),
       }
     : null;
   /** Without a database every procedure refuses closed; none answers empty. */
@@ -120,7 +122,54 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
   /** Resolve once per call: the merchant and role of whoever is calling. */
   const callerOf = (ctx: { principal: { userId: string; kid?: string | undefined; mfa?: boolean; sub_account?: string | undefined } }) =>
     resolveMerchantCaller(need().sql, ctx.principal);
+  const productFields = {
+    name: z.string().trim().min(1).max(120),
+    description: z.string().max(2000).nullish(),
+    imageRef: z.string().max(500).nullish(),
+    taxCode: z.string().max(64).nullish(),
+    statementDescriptor: z.string().max(200).nullish(),
+    unitLabel: z.string().max(32).nullish(),
+    type: z.enum(CATALOG_PRODUCT_TYPES),
+    typeFields: z.record(z.string().max(64), z.string().max(500)).optional(),
+    category: z.string().max(80).nullish(),
+    sku: z.string().max(64).nullish(),
+  };
+  const productRefIn = z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9._-]{1,64}$/);
   return router({
+    /** M-catalogue-01: product records. No price lives here. catalog.read: every role; catalog.write: owner and admin. */
+    catalog: router({
+      product: router({
+        create: write
+          .input(z.object({ requestId: id, productRef: productRefIn.nullish(), ...productFields }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input))),
+        get: read
+          .input(z.object({ productId: id }).strict())
+          .query(({ ctx, input }) => wrapOps(async () => need().catalog.get(await callerOf(ctx), input.productId))),
+        list: read
+          .input(
+            z
+              .object({
+                limit: z.number().int().min(1).max(100).default(25),
+                archived: z.boolean().optional(),
+                cursor: z.string().max(500).optional(),
+              })
+              .strict(),
+          )
+          .query(({ ctx, input }) => wrapOps(async () => need().catalog.list(await callerOf(ctx), input))),
+        update: write
+          .input(z.object({ requestId: id, productId: id, ...productFields }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.update(await callerOf(ctx), input))),
+        archive: write
+          .input(z.object({ requestId: id, productId: id }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.archive(await callerOf(ctx), input))),
+        unarchive: write
+          .input(z.object({ requestId: id, productId: id }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.unarchive(await callerOf(ctx), input))),
+      }),
+    }),
     merchantOps: router({
       disputes: router({
         list: read
