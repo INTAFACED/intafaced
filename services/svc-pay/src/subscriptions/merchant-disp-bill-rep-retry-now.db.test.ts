@@ -228,9 +228,15 @@ describe('M-bill-04 retryNow and final action (Postgres)', () => {
     const owner = router.createCaller(await ctx(MERCHANT_USER, ['pay:read', 'pay:write']));
     expect(await owner.subscription.retryNow({ executionId, attempt: 2 })).toMatchObject({ outcome: 'reissued', attempt: 2 });
     const stranger = router.createCaller(await ctx('33333333-3333-4333-8333-333333333333', ['pay:write']));
-    await expect(stranger.subscription.retryNow({ executionId, attempt: 3 })).rejects.toThrow(
-      /subscription_retry_attempt_not_found|not_found|not found/i,
-    );
+    await expect(stranger.subscription.retryNow({ executionId, attempt: 3 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringMatching(/^pay\.subscription_retry_attempt_not_found: /),
+    });
+    // Byte-identical to an execution that does not exist (no existence leak).
+    await expect(owner.subscription.retryNow({ executionId: '00000000-0000-4000-8000-000000000000', attempt: 2 })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      message: expect.stringMatching(/^pay\.subscription_retry_attempt_not_found: /),
+    });
     expect(await owner.subscription.eventTypes()).toContain('subscription.recovered');
   });
 
