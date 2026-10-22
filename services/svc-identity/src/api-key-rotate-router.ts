@@ -3,7 +3,8 @@ import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
-import { rotateApiKey, RotateApiKeyError } from './auth/rotate-api-key.js';
+import { RotateApiKeyError } from './auth/rotate-api-key.js';
+import { rotateApiKeyAfterPasskey } from './auth/rotate-api-key-passkey.js';
 
 /**
  * Top-level rotate (not nested under apiKeys) so mergeRouters cannot
@@ -25,7 +26,7 @@ export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter) {
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
-          return await rotateApiKey(minter, sql, {
+          return await rotateApiKeyAfterPasskey(minter, sql, {
             userId: ctx.principal.userId,
             keyId: input.keyId,
             grantorScopes: ctx.principal.scopes,
