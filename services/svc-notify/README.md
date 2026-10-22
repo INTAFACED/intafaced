@@ -56,6 +56,8 @@ Four channels, one interface (`NotificationChannel`, Doctrine §0.4).
 | `push`  | authenticated POST to a configured URL | `NOTIFY_PUSH_GATEWAY_URL` + `NOTIFY_PUSH_GATEWAY_TOKEN`   |
 | `sms`   | authenticated POST to a configured URL | `NOTIFY_SMS_GATEWAY_URL` + `NOTIFY_SMS_GATEWAY_TOKEN`     |
 
+`NOTIFY_PUSH_PUBLIC_KEY` (owner value, no default) is the push gateway's **public** application key. The signed-out `notify.channelsPolicy` read returns it as `pushPublicKey` so devices can subscribe; blank returns `null` (not configured, the device prompt shows the `vendor.push` notice). The gateway token is never on that read.
+
 ### Mountain vs §13 sockets (D26-P1-O5)
 
 | Tracker id            | Plane                 | What it means                                                                                                                               |

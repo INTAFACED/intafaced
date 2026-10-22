@@ -15,10 +15,21 @@ import { OUT_OF_APP_CHANNELS } from './channels/channel.js';
 
 export type ChannelsPolicySummary = ReturnType<typeof describeChannelsPolicy>;
 
+/** The only push gateway value this public read may carry. The gateway token is never read here. */
+export type ChannelsPolicyEnv = { readonly NOTIFY_PUSH_PUBLIC_KEY?: string | undefined };
+
+/** Blank or absent is "not configured" (null), not a refusal (HM-notifications-02). */
+export function pushPublicKeyOf(env: ChannelsPolicyEnv): string | null {
+  const key = env.NOTIFY_PUSH_PUBLIC_KEY?.trim();
+  return key ? key : null;
+}
+
 /** Public honesty board for ops.notifications channel split. */
-export function describeChannelsPolicy() {
+export function describeChannelsPolicy(env: ChannelsPolicyEnv = process.env) {
   const card = mountainVsSocketsBoardCard();
   return {
+    /** Push gateway public application key for device subscription; null when the owner has not set it. */
+    pushPublicKey: pushPublicKeyOf(env),
     mountainId: FANOUT_MOUNTAIN_ID,
     outOfAppChannels: [...OUT_OF_APP_CHANNELS],
     socketIds: [...NOTIFY_CHANNEL_SOCKET_IDS],

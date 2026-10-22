@@ -122,6 +122,13 @@ const schema = serviceEnvSchema
       /** Push gateway. */
       NOTIFY_PUSH_GATEWAY_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_PUSH_GATEWAY_TOKEN: blankAsAbsent(z.string().min(16).optional()),
+      /**
+       * The push gateway's PUBLIC application key (HM-notifications-02), handed to
+       * devices on the signed-out channels policy read so they can subscribe.
+       * Owner value, no default. Blank means not configured: the read returns
+       * null and the device prompt shows the vendor.push notice. Never the token.
+       */
+      NOTIFY_PUSH_PUBLIC_KEY: blankAsAbsent(z.string().min(16).max(512).optional()),
 
       /** SMS gateway. */
       NOTIFY_SMS_GATEWAY_URL: blankAsAbsent(z.string().url().optional()),
