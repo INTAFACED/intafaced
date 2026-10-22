@@ -14,7 +14,14 @@ import type { MarkSource } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
 const LATER = new Date('2026-10-20T13:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3, triggerLogDays: null };
+const LIMITS: AlertLimits = {
+  maxExpiryDays: 30,
+  textMaxLength: 40,
+  maxConditions: 3,
+  triggerLogDays: null,
+  maxActivePrice: 20,
+  repeatFrequencies: [],
+};
 const base = { userId: 'u1', marketId: 'BTC-USD', direction: 'above' as const, targetPrice: '100' };
 
 function rig(limits: AlertLimits = LIMITS, price = '90') {
@@ -53,7 +60,14 @@ describe('edit', () => {
     expect((await alerts.get('u1', row.id))!.targetPrice).toBe('100');
   });
   it('is checked like a create: blank owner settings refuse, values outside a set one refuse', async () => {
-    const blank = rig({ maxExpiryDays: null, textMaxLength: null, maxConditions: null, triggerLogDays: null });
+    const blank = rig({
+      maxExpiryDays: null,
+      textMaxLength: null,
+      maxConditions: null,
+      triggerLogDays: null,
+      maxActivePrice: 20,
+      repeatFrequencies: [],
+    });
     const row = await blank.create(base, NOW);
     await expect(blank.edit('u1', row.id, { message: 'hi' }, LATER)).rejects.toMatchObject({ code: 'notify.alert_text_limit_unset' });
     await expect(blank.edit('u1', row.id, { expiresAt: new Date(NOW.getTime() + 1e8) }, LATER)).rejects.toMatchObject({

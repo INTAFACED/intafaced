@@ -21,6 +21,15 @@ const en = {
   expiresInvalid: 'Enter a real date and time.',
   reviewName: 'Name',
   reviewMessage: 'Message',
+  repeatLabel: 'Repeat every time the price crosses the level again',
+  reviewRepeat: 'How often',
+  repeatEvery: 'Every time it crosses',
+  repeatOnce: 'Once',
+  repeatList: 'Repeats at every crossing. Triggered so far: {count}',
+  repeatLast: 'last {when}',
+  refusedRepeatOff:
+    'Repeating alerts are switched off on this platform. Turn off repeating and save the alert to trigger once. Nothing was changed.',
+  refusedRepeatRejected: 'Only an alert that watches a crossing can repeat. Choose a crossing, or turn off repeating. Nothing was changed.',
   reviewExpires: 'Stops watching',
   refusedTextRejected: 'The name or message was not accepted: it is too long or uses a placeholder we do not know. Nothing was changed.',
   refusedExpiryRejected: 'That stop time was not accepted: it must be in the future and within the allowed range. Nothing was changed.',
@@ -186,6 +195,33 @@ const en = {
   logRow: '{side} {price}. Price when it triggered: {mark}',
   logWhen: 'Triggered {when}',
   logKept: 'Kept for {days} days.',
+  quotaUsed: '{used} of {max} price alerts in use.',
+  quotaFull: '{used} of {max} price alerts in use. You are at the limit. Cancel or delete an alert to make room.',
+  quotaOff: 'The number of price alerts you can hold has not been set on this platform, so new alerts cannot be saved.',
+  reasonQuotaOff: 'Switched off: the number of price alerts you can hold has not been set on this platform.',
+  reasonQuotaFull: 'Switched off: you are at your limit of price alerts. Cancel or delete one to make room.',
+  refusedQuotaOff:
+    'The number of price alerts you can hold has not been set on this platform, so this alert was not saved. Nothing was changed.',
+  refusedQuotaReached: 'You are at your limit of price alerts. Cancel or delete one, then try again. Nothing was changed.',
+  watchTitle: 'Watch a list',
+  watchIntro: 'Save one alert on each market you choose from your favourites. Each alert triggers once and is managed on its own.',
+  watchEmpty: 'You have no favourite markets on this device that can be watched. Star markets on the trade screen, then come back here.',
+  watchMarkets: 'Markets',
+  watchAll: 'Choose all',
+  watchNone: 'Choose none',
+  watchLeftOut: 'Favourites that are not markets you can watch are left out ({count}).',
+  watchSame: 'The same price is used for every market you choose.',
+  watchNeedOne: 'Choose at least one market.',
+  watchTooMany: 'That is {count} alerts, and you have room for {room}. Choose fewer, or cancel or delete some alerts.',
+  watchReviewTitle: 'Review your list alert',
+  watchReviewMarkets: 'Markets',
+  watchReviewCount: 'Alerts saved',
+  watchOnce: 'Each market gets its own alert. They are saved together, or not at all. Nothing places an order.',
+  watchSave: 'Save {count} alerts',
+  watchSaved: 'Your list alert was saved. Each market now has its own alert in your list.',
+  watchUnsureTitle: 'We could not confirm whether your list alert was saved',
+  watchUnsureBody:
+    'The answer did not reach us, so some or all of it may have been saved. Your list has been refreshed. Check it below before saving again.',
 } as const;
 
 const es = {
@@ -208,6 +244,16 @@ const es = {
   expiresInvalid: 'Introduce una fecha y hora reales.',
   reviewName: 'Nombre',
   reviewMessage: 'Mensaje',
+  repeatLabel: 'Repetir cada vez que el precio vuelva a cruzar el nivel',
+  reviewRepeat: 'Con qué frecuencia',
+  repeatEvery: 'Cada vez que cruce',
+  repeatOnce: 'Una vez',
+  repeatList: 'Se repite en cada cruce. Activaciones hasta ahora: {count}',
+  repeatLast: 'última {when}',
+  refusedRepeatOff:
+    'Las alertas repetidas están desactivadas en esta plataforma. Desactiva la repetición y guarda la alerta para que se active una vez. No se cambió nada.',
+  refusedRepeatRejected:
+    'Solo una alerta que vigila un cruce puede repetirse. Elige un cruce o desactiva la repetición. No se cambió nada.',
   reviewExpires: 'Deja de vigilar',
   refusedTextRejected: 'No se aceptó el nombre o el mensaje: es demasiado largo o usa un marcador desconocido. No se cambió nada.',
   refusedExpiryRejected: 'No se aceptó esa hora de fin: debe ser futura y estar dentro del rango permitido. No se cambió nada.',
@@ -367,6 +413,34 @@ const es = {
   logRow: '{side} {price}. Precio al activarse: {mark}',
   logWhen: 'Activada {when}',
   logKept: 'Se conserva {days} días.',
+  quotaUsed: '{used} de {max} alertas de precio en uso.',
+  quotaFull: '{used} de {max} alertas de precio en uso. Has llegado al límite. Cancela o elimina una alerta para hacer sitio.',
+  quotaOff: 'En esta plataforma no se ha fijado cuántas alertas de precio puedes tener, así que no se pueden guardar alertas nuevas.',
+  reasonQuotaOff: 'Desactivado: en esta plataforma no se ha fijado cuántas alertas de precio puedes tener.',
+  reasonQuotaFull: 'Desactivado: has llegado a tu límite de alertas de precio. Cancela o elimina una para hacer sitio.',
+  refusedQuotaOff:
+    'En esta plataforma no se ha fijado cuántas alertas de precio puedes tener, así que esta alerta no se guardó. No se cambió nada.',
+  refusedQuotaReached: 'Has llegado a tu límite de alertas de precio. Cancela o elimina una y vuelve a intentarlo. No se cambió nada.',
+  watchTitle: 'Vigilar una lista',
+  watchIntro: 'Guarda una alerta en cada mercado que elijas de tus favoritos. Cada alerta se activa una vez y se gestiona por separado.',
+  watchEmpty:
+    'No tienes mercados favoritos en este dispositivo que se puedan vigilar. Marca mercados con estrella en la pantalla de trading y vuelve aquí.',
+  watchMarkets: 'Mercados',
+  watchAll: 'Elegir todos',
+  watchNone: 'No elegir ninguno',
+  watchLeftOut: 'Los favoritos que no son mercados vigilables se dejan fuera ({count}).',
+  watchSame: 'Se usa el mismo precio en todos los mercados que elijas.',
+  watchNeedOne: 'Elige al menos un mercado.',
+  watchTooMany: 'Son {count} alertas y tienes sitio para {room}. Elige menos, o cancela o elimina algunas alertas.',
+  watchReviewTitle: 'Revisa tu alerta de lista',
+  watchReviewMarkets: 'Mercados',
+  watchReviewCount: 'Alertas que se guardan',
+  watchOnce: 'Cada mercado tiene su propia alerta. Se guardan todas juntas o ninguna. Nada hace una orden.',
+  watchSave: 'Guardar {count} alertas',
+  watchSaved: 'Tu alerta de lista se guardó. Cada mercado tiene ahora su propia alerta en tu lista.',
+  watchUnsureTitle: 'No pudimos confirmar si tu alerta de lista se guardó',
+  watchUnsureBody:
+    'La respuesta no nos llegó, así que puede haberse guardado en parte o del todo. Tu lista se ha actualizado. Revísala abajo antes de guardar de nuevo.',
 } as const;
 
 const fr = {
@@ -389,6 +463,16 @@ const fr = {
   expiresInvalid: 'Saisissez une vraie date et heure.',
   reviewName: 'Nom',
   reviewMessage: 'Message',
+  repeatLabel: 'Répéter chaque fois que le prix traverse à nouveau le niveau',
+  reviewRepeat: 'Fréquence',
+  repeatEvery: 'À chaque traversée',
+  repeatOnce: 'Une fois',
+  repeatList: 'Se répète à chaque traversée. Déclenchements jusqu’ici : {count}',
+  repeatLast: 'dernier {when}',
+  refusedRepeatOff:
+    'Les alertes répétées sont désactivées sur cette plateforme. Désactivez la répétition et enregistrez l’alerte pour qu’elle se déclenche une fois. Rien n’a été modifié.',
+  refusedRepeatRejected:
+    'Seule une alerte qui surveille une traversée peut se répéter. Choisissez une traversée ou désactivez la répétition. Rien n’a été modifié.',
   reviewExpires: 'Fin de surveillance',
   refusedTextRejected: 'Le nom ou le message n’a pas été accepté : trop long ou avec un marqueur inconnu. Rien n’a été modifié.',
   refusedExpiryRejected:
@@ -553,6 +637,39 @@ const fr = {
   logRow: '{side} {price}. Prix au déclenchement : {mark}',
   logWhen: 'Déclenchée {when}',
   logKept: 'Conservé {days} jours.',
+  quotaUsed: '{used} alertes de prix sur {max} utilisées.',
+  quotaFull:
+    '{used} alertes de prix sur {max} utilisées. Vous avez atteint la limite. Annulez ou supprimez une alerte pour faire de la place.',
+  quotaOff:
+    'Le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme, les nouvelles alertes ne peuvent donc pas être enregistrées.',
+  reasonQuotaOff: 'Désactivé : le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme.',
+  reasonQuotaFull: 'Désactivé : vous avez atteint votre limite d’alertes de prix. Annulez ou supprimez-en une pour faire de la place.',
+  refusedQuotaOff:
+    'Le nombre d’alertes de prix que vous pouvez avoir n’a pas été fixé sur cette plateforme, cette alerte n’a donc pas été enregistrée. Rien n’a été modifié.',
+  refusedQuotaReached:
+    'Vous avez atteint votre limite d’alertes de prix. Annulez ou supprimez-en une, puis réessayez. Rien n’a été modifié.',
+  watchTitle: 'Surveiller une liste',
+  watchIntro:
+    'Enregistrez une alerte sur chaque marché choisi parmi vos favoris. Chaque alerte se déclenche une fois et se gère séparément.',
+  watchEmpty:
+    'Vous n’avez aucun marché favori sur cet appareil qui puisse être surveillé. Mettez des marchés en favori sur l’écran de trading, puis revenez ici.',
+  watchMarkets: 'Marchés',
+  watchAll: 'Tout choisir',
+  watchNone: 'Ne rien choisir',
+  watchLeftOut: 'Les favoris qui ne sont pas des marchés surveillables sont laissés de côté ({count}).',
+  watchSame: 'Le même prix est utilisé pour chaque marché choisi.',
+  watchNeedOne: 'Choisissez au moins un marché.',
+  watchTooMany:
+    'Cela fait {count} alertes, et vous avez de la place pour {room}. Choisissez-en moins, ou annulez ou supprimez des alertes.',
+  watchReviewTitle: 'Vérifiez votre alerte de liste',
+  watchReviewMarkets: 'Marchés',
+  watchReviewCount: 'Alertes enregistrées',
+  watchOnce: 'Chaque marché a sa propre alerte. Elles sont enregistrées ensemble, ou pas du tout. Rien ne passe d’ordre.',
+  watchSave: 'Enregistrer {count} alertes',
+  watchSaved: 'Votre alerte de liste est enregistrée. Chaque marché a maintenant sa propre alerte dans votre liste.',
+  watchUnsureTitle: 'Nous n’avons pas pu confirmer si votre alerte de liste a été enregistrée',
+  watchUnsureBody:
+    'La réponse ne nous est pas parvenue, elle a donc pu être enregistrée en partie ou en totalité. Votre liste a été actualisée. Vérifiez-la ci-dessous avant de réenregistrer.',
 } as const;
 
 export const alertsCopy = defineCopy('notifications.alerts', en, { es, fr });

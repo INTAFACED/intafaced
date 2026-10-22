@@ -9,6 +9,8 @@ import {
   OPS_COST_CATEGORY_INVALID,
   OPS_COST_PERIOD_INVALID,
   OPS_COST_STORAGE_UNCONFIGURED,
+  OPS_FEE_REVENUE_UNAVAILABLE,
+  OPS_FEE_REVENUE_UNCONFIGURED,
   OPS_IDEMPOTENCY_CONFLICT,
   OPS_WAREHOUSE_UNWIRED,
 } from './codes.js';
@@ -22,7 +24,8 @@ import {
   trimDecimal,
   type VenueCostStore,
 } from './venue-cost-store.js';
-import { addDecimalStrings, composeVenueEconomics } from './venue-economics.js';
+import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
+import { addDecimalStrings, composeVenueEconomics, periodWindow, subtractCosts } from './venue-economics.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -94,11 +97,14 @@ const body = (over: Record<string, string> = {}) => ({
   ...over,
 });
 
-async function api(opts: { store?: VenueCostStore; approver?: ReturnType<typeof approvals>; scopes?: string[] } = {}) {
+async function api(
+  opts: { store?: VenueCostStore; approver?: ReturnType<typeof approvals>; scopes?: string[]; feeRevenue?: FeeRevenuePort } = {},
+) {
   const approver = opts.approver ?? approvals();
   const caller = createOpsRouter(new OpsService(), undefined, {
     now: () => '2026-10-20T10:00:00.000Z',
     ...(opts.store ? { venueCosts: opts.store } : {}),
+    ...(opts.feeRevenue ? { feeRevenue: opts.feeRevenue } : {}),
     approvals: approver,
   }).createCaller(await signed(opts.scopes ?? ['admin:read', 'admin:write']));
   return { caller, approver };
@@ -263,6 +269,112 @@ describe('ops.venueEconomics and ops.recordVenueCost', () => {
     await caller.recordVenueCost(body());
     const other = await caller.venueEconomics({ period: '2026-09' });
     expect(other.costs.every((c) => c.status === 'not_entered')).toBe(true);
+  });
+});
+
+describe('net per asset from ledger fee revenue', () => {
+  const fees = (...assets: Array<[string, string, string]>): FeeRevenueRead => ({
+    ok: true,
+    value: {
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-11-01T00:00:00.000Z',
+      assets: assets.map(([assetId, collected, returned]) => ({
+        assetId,
+        collected,
+        returned,
+        net: subtractCosts(collected, returned),
+      })),
+    },
+  });
+  const unwired = { ok: false as const, code: OPS_WAREHOUSE_UNWIRED, message: 'unwired' };
+  const entry = (category: (typeof OPS_COST_CATEGORIES)[number], amount: string, asset = 'USD') => ({
+    key: `venue-cost:2026-10:${category}:1`,
+    period: '2026-10',
+    category,
+    version: 1,
+    amount,
+    asset,
+    sourceNote: 'TEST',
+    enteredBy: 'a',
+    approverId: 'b',
+    enteredAt: '2026-10-20T00:00:00.000Z',
+  });
+  const all = (amount: string) => OPS_COST_CATEGORIES.map((c) => entry(c, amount));
+
+  it('works the net per asset when the ledger answered and all seven lines are in, negative included', () => {
+    const report = composeVenueEconomics('t', '2026-10', unwired, all('1.5'), fees(['USD', '20.25', '0.25'], ['BTC', '0.001', '0']));
+    expect(report.feeRevenue).toEqual({
+      status: 'ok',
+      assets: [
+        { assetId: 'USD', collected: '20.25', returned: '0.25', net: '20' },
+        { assetId: 'BTC', collected: '0.001', returned: '0', net: '0.001' },
+      ],
+    });
+    expect(report.net).toEqual({
+      status: 'ok',
+      byAsset: [
+        { asset: 'BTC', revenue: '0.001', costs: '0', net: '0.001' },
+        { asset: 'USD', revenue: '20', costs: '10.5', net: '9.5' },
+      ],
+    });
+    const loss = composeVenueEconomics('t', '2026-10', unwired, all('4'), fees(['USD', '20', '0']));
+    expect(loss.net).toEqual({ status: 'ok', byAsset: [{ asset: 'USD', revenue: '20', costs: '28', net: '-8' }] });
+  });
+
+  it('shows an asset that has costs and no fee movement as revenue zero, once the ledger answered', () => {
+    const report = composeVenueEconomics('t', '2026-10', unwired, all('1'), fees());
+    expect(report.net).toEqual({ status: 'ok', byAsset: [{ asset: 'USD', revenue: '0', costs: '7', net: '-7' }] });
+  });
+
+  it('gives no net while any cost line is missing, and says so', () => {
+    const six = OPS_COST_CATEGORIES.slice(0, 6).map((c) => entry(c, '1'));
+    const report = composeVenueEconomics('t', '2026-10', unwired, six, fees(['USD', '20', '0']));
+    expect(report.net).toEqual({ status: 'unavailable', reason: 'costs_incomplete' });
+    expect(report.feeRevenue).toMatchObject({ status: 'ok' });
+  });
+
+  it('gives no net and the typed code when the ledger could not be asked', () => {
+    const down: FeeRevenueRead = { ok: false, code: OPS_FEE_REVENUE_UNAVAILABLE, message: 'down' };
+    const report = composeVenueEconomics('t', '2026-10', unwired, all('1'), down);
+    expect(report.net).toEqual({ status: 'unavailable', reason: 'revenue_unavailable' });
+    expect(report.feeRevenue).toEqual({ status: 'unavailable', code: OPS_FEE_REVENUE_UNAVAILABLE, message: 'down' });
+  });
+
+  it('subtracts exactly on decimals, with no float and no stray sign on zero', () => {
+    expect(subtractCosts('0.3', '0.1')).toBe('0.2');
+    expect(subtractCosts('1', '0.000000000000000001')).toBe('0.999999999999999999');
+    expect(subtractCosts('5', '5')).toBe('0');
+    expect(subtractCosts('0.1', '0.3')).toBe('-0.2');
+    expect(subtractCosts('-2.5', '1.5')).toBe('-4');
+    expect(subtractCosts('99999999999999999999.999999999999999999', '0.000000000000000001')).toBe(
+      '99999999999999999999.999999999999999998',
+    );
+  });
+
+  it('turns a period into the UTC month window, December rolling to January', () => {
+    expect(periodWindow('2026-10')).toEqual({ from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-11-01T00:00:00Z') });
+    expect(periodWindow('2026-12')).toEqual({ from: new Date('2026-12-01T00:00:00Z'), to: new Date('2027-01-01T00:00:00Z') });
+  });
+
+  it('asks the ledger for the requested month through the router, and says unconfigured when it is not wired', async () => {
+    const asked: Array<{ from: Date; to: Date }> = [];
+    const port: FeeRevenuePort = {
+      configured: true,
+      read: async (window) => {
+        asked.push(window);
+        return { ok: true, value: { from: window.from.toISOString(), to: window.to.toISOString(), assets: [] } };
+      },
+    };
+    const wired = await api({ store: createMemoryVenueCostStore(), feeRevenue: port });
+    const report = await wired.caller.venueEconomics({ period: '2026-09' });
+    expect(asked).toEqual([{ from: new Date('2026-09-01T00:00:00Z'), to: new Date('2026-10-01T00:00:00Z') }]);
+    expect(report.feeRevenue).toEqual({ status: 'ok', assets: [] });
+    expect(report.net).toEqual({ status: 'unavailable', reason: 'costs_incomplete' });
+
+    const bare = await api({ store: createMemoryVenueCostStore() });
+    const unconfigured = await bare.caller.venueEconomics({ period: '2026-09' });
+    expect(unconfigured.feeRevenue).toMatchObject({ status: 'unavailable', code: OPS_FEE_REVENUE_UNCONFIGURED });
+    expect(unconfigured.net).toEqual({ status: 'unavailable', reason: 'revenue_unavailable' });
   });
 });
 

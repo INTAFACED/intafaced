@@ -359,6 +359,26 @@ describe('POST desk writes', () => {
     ]);
   });
 
+  it('sets who can read an article, quoting the revision, and says what svc-support answered', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(kbArticle({ revision: 3, audience: 'signed_in' })));
+    vi.stubGlobal('fetch', fn);
+    const res = await (await post({ action: 'kb_audience', id: 'kb-a', baseRevision: 2, audience: 'signed_in' })).json();
+    expect(res.summary).toBe('svc-support says kb-a is now readable by signed-in customers only. Its revision is now 3.');
+    expect(calls(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/setKbAudience', body: { id: 'kb-a', baseRevision: 2, audience: 'signed_in' } },
+    ]);
+  });
+
+  it('turns a stale audience change into plain words and says nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(409, 'support.kb.revision_stale')),
+    );
+    const res = await post({ action: 'kb_audience', id: 'kb-a', baseRevision: 1, audience: 'staff' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, refusal: { title: 'Someone changed this article first', changed: 'no' } });
+  });
+
   it('refuses a malformed write before the network', async () => {
     const fn = vi.fn();
     vi.stubGlobal('fetch', fn);
@@ -370,6 +390,8 @@ describe('POST desk writes', () => {
       { action: 'escalate', ticketId: T1, reason: 'other', summary: '' },
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: -1 },
       { action: 'kb_unpublish', id: 'a', baseRevision: 0 },
+      { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'everyone' },
+      { action: 'kb_audience', id: 'a', baseRevision: 0, audience: 'staff' },
       { action: 'settle', ticketId: T1 },
     ]) {
       const res = await post(body);
@@ -385,6 +407,7 @@ describe('POST desk writes', () => {
     ['escalate', { action: 'escalate', ticketId: T1, reason: 'other', summary: 's' }],
     ['kb_publish', { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 0 }],
     ['kb_unpublish', { action: 'kb_unpublish', id: 'a', baseRevision: 1 }],
+    ['kb_audience', { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'staff' }],
   ])('%s: a founder without the permission is told so and nothing is shown as done', async (_name, body) => {
     vi.stubGlobal(
       'fetch',
@@ -769,5 +792,189 @@ describe('desk groups', () => {
     const res = await post({ action: 'group_member', op: 'add', groupId: GID, userId: U });
     expect(res.status).toBe(403);
     expect((await res.json()).refusal.title).toBe('Only a lead can do that');
+  });
+});
+
+describe('bulk change', () => {
+  const T2 = '44444444-4444-4444-8444-444444444444';
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+  const rows = [
+    { ticketId: T1, outcome: 'changed', code: null },
+    { ticketId: T2, outcome: 'refused', code: 'support.transition_illegal' },
+  ];
+
+  it('reads the owner batch size, and a blank one stays blank', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ cap: null, missing: 'support.bulk_cap' })),
+    );
+    expect((await (await get('?view=bulk')).json()).policy).toMatchObject({ kind: 'ok', data: { cap: null } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ cap: 25, missing: null })),
+    );
+    expect((await (await get('?view=bulk')).json()).policy).toMatchObject({ kind: 'ok', data: { cap: 25 } });
+  });
+
+  it('a batch size it cannot read is a failure, never a number', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ cap: 0, missing: null })),
+    );
+    expect((await (await get('?view=bulk')).json()).policy.kind).toBe('failed');
+  });
+
+  it('sends one batch under its key and returns every request as svc-support answered it', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'batch-1', results: rows }));
+    vi.stubGlobal('fetch', fn);
+    const res = await post({
+      action: 'bulk',
+      batchKey: 'batch-1',
+      ticketIds: [T1, T2],
+      change: { kind: 'status', status: 'resolved' },
+      reason: ' noise ',
+    });
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, action: 'bulk', results: rows });
+    expect(json.summary).toBe('svc-support changed 1, found 0 already there and refused 1 of 2 requests.');
+    expect(sent(fn)[0]!.url).toContain('/bulkUpdate');
+    expect(sent(fn)[0]!.body).toEqual({
+      batchKey: 'batch-1',
+      ticketIds: [T1, T2],
+      change: { kind: 'status', status: 'resolved' },
+      reason: 'noise',
+    });
+  });
+
+  it.each([
+    ['no requests', { ticketIds: [], change: { kind: 'status', status: 'resolved' } }],
+    ['a repeated request', { ticketIds: [T1, T1], change: { kind: 'status', status: 'resolved' } }],
+    ['a request that is not an id', { ticketIds: ['x'], change: { kind: 'status', status: 'resolved' } }],
+    ['an unknown status', { ticketIds: [T1], change: { kind: 'status', status: 'gone' } }],
+    ['an unknown priority', { ticketIds: [T1], change: { kind: 'priority', priority: 'asap' } }],
+    ['an assignee that is not an id', { ticketIds: [T1], change: { kind: 'assign', assigneeId: 'me' } }],
+    ['two changes at once', { ticketIds: [T1], change: { kind: 'status', status: 'open', priority: 'low' } }],
+  ])('refuses %s before the network', async (_name, body) => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    const res = await post({ action: 'bulk', batchKey: 'batch-1', ...body });
+    expect(res.status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('clears a priority with null', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok({ batchKey: 'b', results: [rows[0]] }));
+    vi.stubGlobal('fetch', fn);
+    await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'priority', priority: null } });
+    expect(sent(fn)[0]!.body.change).toEqual({ kind: 'priority', priority: null });
+  });
+
+  it('says the batch size is not set when svc-support refuses a blank cap, and that nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.bulk_cap_unset: the bulk batch size is not set')),
+    );
+    const res = await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.refusal).toMatchObject({ title: 'The batch size is not set', changed: 'no' });
+  });
+
+  it('an answer that leaves out a request, or names another, is an unknown outcome, not a success', async () => {
+    for (const results of [
+      [],
+      [rows[0]],
+      [rows[0], { ticketId: '55555555-5555-4555-8555-555555555555', outcome: 'changed', code: null }],
+    ]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ok({ batchKey: 'batch-1', results })),
+      );
+      const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+      const json = await res.json();
+      expect(json.ok).toBe(false);
+      expect(json.refusal.changed).toBe('unknown');
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ batchKey: 'someone-else', results: rows })),
+    );
+    const res = await post({ action: 'bulk', batchKey: 'batch-1', ticketIds: [T1, T2], change: { kind: 'status', status: 'resolved' } });
+    expect((await res.json()).ok).toBe(false);
+  });
+
+  it('an answer that is not a list of requests is an unknown outcome, not a success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ batchKey: 'b', results: [{ ticketId: T1 }] })),
+    );
+    const res = await post({ action: 'bulk', batchKey: 'b', ticketIds: [T1], change: { kind: 'status', status: 'resolved' } });
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.refusal.changed).toBe('unknown');
+  });
+});
+
+describe('merge duplicate requests', () => {
+  const B = '44444444-4444-4444-8444-444444444444';
+  const result = { sourceId: T1, survivorId: B, commentsMoved: 2, attachmentsMoved: 1, mergedAt: '2026-10-21T01:00:00.000Z' };
+  const previewData = {
+    sourceId: T1,
+    survivorId: B,
+    refusal: null,
+    commentsToMove: 2,
+    attachmentsToMove: 1,
+    staysOnSource: { rating: false, caseFile: true },
+    alreadyMerged: false,
+  };
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads the preview as the founder and returns it as svc-support answered', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(previewData));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=merge&id=${T1}&survivor=${B}`)).json();
+    expect(json.preview).toEqual(previewData);
+    expect(fn.mock.calls[0]![0]).toContain('previewMerge');
+  });
+
+  it('refuses a preview request without two ids before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    expect((await get(`?view=merge&id=${T1}&survivor=nope`)).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('sends the merge with the source, the survivor and the reason, and says what svc-support did', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) => ok(result));
+    vi.stubGlobal('fetch', fn);
+    const json = await (await post({ action: 'merge', ticketId: T1, survivorId: B, reason: ' same problem ' })).json();
+    expect(json).toMatchObject({ ok: true, action: 'merge' });
+    expect(json.summary).toContain('2 messages and 1 files');
+    expect(sent(fn)[0]!.body).toEqual({ sourceId: T1, survivorId: B, reason: 'same problem' });
+  });
+
+  it('refuses the same request, a missing reason and a bad id before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const body of [
+      { ticketId: T1, survivorId: T1, reason: 'r' },
+      { ticketId: T1, survivorId: B },
+      { ticketId: T1, survivorId: 'x', reason: 'r' },
+    ]) {
+      expect((await post({ action: 'merge', ...body })).status).toBe(400);
+    }
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('says why svc-support refused a merge, and that nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(412, 'support.merge_not_allowed')),
+    );
+    const json = await (await post({ action: 'merge', ticketId: T1, survivorId: B, reason: 'dup' })).json();
+    expect(json.ok).toBe(false);
+    expect(json.refusal).toMatchObject({ title: 'Those requests cannot be merged', changed: 'no' });
   });
 });

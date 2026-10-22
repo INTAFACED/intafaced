@@ -26,11 +26,14 @@ import {
   type AlertService,
 } from './alerts/service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
+import { AlertValidationError } from './alerts/store.js';
 import {
   ALERT_CONDITIONS,
+  ALERT_FREQUENCIES,
   AlertKindUnpublishedError,
   type AlertCondition,
   type AlertExtra,
+  type AlertFrequency,
   EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
   directionOfCondition,
@@ -48,7 +51,7 @@ import { PreferenceError } from './preferences/account.js';
 import { CategoryPrefError } from './preferences/categories.js';
 import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
-import { NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
+import { INCIDENT_PHASES, NOTICE_ASSET_PATTERN, NOTICE_NETWORK_PATTERN, NoticeError, NOTICES_LIST_LIMIT_MAX } from './notices/board.js';
 import { CHANGELOG_AREAS } from './notices/changelog.js';
 import { OpsConfigError } from './ops-config/four-eyes.js';
 import { RECIPIENT_STATES, RecipientHealthError } from './recipient-health.js';
@@ -381,8 +384,14 @@ const noticeWireOutput = z.object({
   startsAt: z.string().nullable(),
   endsAt: z.string().nullable(),
   version: z.number().int(),
+  asset: z.string().nullable(),
+  network: z.string().nullable(),
+  phase: z.enum(INCIDENT_PHASES).nullable(),
   changelog: changelogOutput.nullable(),
 });
+
+const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
+const noticeNetwork = z.string().regex(NOTICE_NETWORK_PATTERN);
 
 function operatorDeliveryToWire(d: DeliveryRecord) {
   return {
@@ -420,6 +429,8 @@ const alertExtras = {
   message: z.string().max(2000).optional(),
   /** ISO time. Omitted: open-ended. */
   expiresAt: z.string().datetime({ offset: true }).optional(),
+  /** `once` (the default) or a repeating frequency the owner allows; a repeating alert must be a crossing. */
+  frequency: z.enum(ALERT_FREQUENCIES).optional(),
   /** Added level conditions on the same market; all must hold with the main one. */
   extras: z
     .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
@@ -443,6 +454,10 @@ const priceAlertOutput = z.object({
   expiresAt: z.string().nullable(),
   updatedAt: z.string(),
   extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
+  frequency: z.enum(ALERT_FREQUENCIES),
+  /** Times a repeating alert has triggered; zero for a one-shot alert. */
+  fireCount: z.number().int(),
+  lastFiredAt: z.string().nullable(),
 });
 
 /**
@@ -473,7 +488,7 @@ function alertManagerError(err: unknown): unknown {
   if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertLimitError) {
     return new TRPCError({
-      code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+      code: err.code.startsWith('notify.') || err.code === 'alert.quota_reached' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
       message: err.message,
       cause: err,
     });
@@ -498,6 +513,9 @@ function priceAlertToWire(row: PriceAlert) {
     expiresAt: row.expiresAt ? row.expiresAt.toISOString() : null,
     updatedAt: row.updatedAt.toISOString(),
     extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
+    frequency: row.frequency,
+    fireCount: row.fireCount,
+    lastFiredAt: row.lastFiredAt ? row.lastFiredAt.toISOString() : null,
   };
 }
 
@@ -1161,6 +1179,31 @@ export function createNotifyRouter(
         }),
 
       /**
+       * Open funding incidents and maintenance for one asset on one network, for
+       * the deposit and withdraw banners. Signed-out. Another network of the same
+       * asset is not included. Each incident carries its newest entry and phase.
+       */
+      fundingNotices: publicProcedure
+        .input(z.object({ asset: noticeAsset, network: noticeNetwork }))
+        .output(
+          z.object({
+            asset: z.string(),
+            network: z.string(),
+            incidents: z.array(z.object({ root: noticeWireOutput, latest: noticeWireOutput })),
+            maintenance: z.array(noticeWireOutput),
+          }),
+        )
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            const read = await notify.notices.fundingNotices(input);
+            return { ...read, incidents: [...read.incidents], maintenance: [...read.maintenance] };
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
        * Machine-readable status. Signed-out. A component nothing measures reads
        * `unknown`. History is incident minutes per day with no uptime percentage.
        * `days` above the feed maximum is clamped to it.
@@ -1185,6 +1228,9 @@ export function createNotifyRouter(
             components: z.array(statusComponentId).max(3).nullable().optional(),
             parentId: z.string().uuid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
+            asset: noticeAsset.nullable().optional(),
+            network: noticeNetwork.nullable().optional(),
+            phase: z.enum(INCIDENT_PHASES).nullable().optional(),
             changelog: changelogInput.nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
@@ -1514,6 +1560,7 @@ export function createNotifyRouter(
               message?: string;
               expiresAt?: string;
               extras?: AlertExtra[];
+              frequency?: AlertFrequency;
             };
             const condition = extras.condition;
             // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
@@ -1531,6 +1578,7 @@ export function createNotifyRouter(
               message: extras.message,
               expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
               ...(extras.extras ? { extras: extras.extras } : {}),
+              ...(extras.frequency ? { frequency: extras.frequency } : {}),
             });
             return {
               alert: priceAlertToWire(row),
@@ -1547,12 +1595,52 @@ export function createNotifyRouter(
             if (err instanceof AlertLimitError) {
               throw new TRPCError({
                 // A blank owner setting is a precondition; a value outside a set one is the caller's to fix.
-                code: err.code.startsWith('notify.') ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+                code: err.code.startsWith('notify.') || err.code === 'alert.quota_reached' ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
                 message: err.message,
                 cause: err,
               });
             }
             throw err;
+          }
+        }),
+
+      /**
+       * A watchlist alert: the same price rule on each market named, one alert per market, all or none. Held to the price-alert
+       * quota as a whole (a batch that would pass it creates nothing), and checked like a single create in every other way.
+       */
+      createAlerts: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            marketIds: z.array(z.string().min(1).max(64)).min(1).max(100),
+            direction: z.enum(['above', 'below']),
+            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
+            targetPrice: z.string().max(64).optional(),
+            ...alertExtras,
+          }),
+        )
+        .output(z.object({ alerts: z.array(priceAlertOutput).min(1), evaluation: alertEvaluationOutput }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'alert.price_unavailable' });
+          if (input.condition && input.condition !== 'crossing' && directionOfCondition(input.condition) !== input.direction) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
+          }
+          try {
+            const rows = await alerts.createMany({
+              userId: ctx.principal.userId,
+              marketIds: input.marketIds,
+              direction: input.direction,
+              targetPrice: input.targetPrice,
+              ...(input.condition ? { condition: input.condition } : {}),
+              name: input.name,
+              message: input.message,
+              expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
+              ...(input.extras ? { extras: input.extras } : {}),
+              ...(input.frequency ? { frequency: input.frequency } : {}),
+            });
+            return { alerts: rows.map(priceAlertToWire), evaluation: alerts.evaluationStatus() };
+          } catch (err) {
+            if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+            throw alertManagerError(err);
           }
         }),
 
@@ -1580,6 +1668,7 @@ export function createNotifyRouter(
             message: z.string().max(2000).nullable().optional(),
             expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
             extras: alertExtras.extras,
+            frequency: alertExtras.frequency,
           }),
         )
         .output(z.object({ alert: priceAlertOutput }))
@@ -1593,6 +1682,7 @@ export function createNotifyRouter(
               ...(input.message !== undefined ? { message: input.message } : {}),
               ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt) } : {}),
               ...(input.extras !== undefined ? { extras: input.extras } : {}),
+              ...(input.frequency !== undefined ? { frequency: input.frequency } : {}),
             });
             if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
             return { alert: priceAlertToWire(row) };
@@ -1617,6 +1707,14 @@ export function createNotifyRouter(
           }
         }),
 
+      /** How many price alerts the person holds open and the cap the owner set. `max: null` is a blank setting: creates refuse. */
+      alertQuota: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() }))
+        .query(async ({ ctx }) => {
+          if (!alerts) return { kind: 'price' as const, used: 0, max: null };
+          return alerts.quota(ctx.principal.userId);
+        }),
+
       /**
        * The person's trigger log: each time an alert fired and the mark that fired it, newest first. The owner sets how long
        * rows are kept; blank refuses `notify.alert_trigger_log_retention_unset` rather than answering an empty list.
@@ -1629,6 +1727,8 @@ export function createNotifyRouter(
             items: z.array(
               z.object({
                 alertId: z.string().uuid(),
+                /** Which trigger of the alert this is, from 1. */
+                seq: z.number().int(),
                 marketId: z.string(),
                 condition: z.enum(['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than']),
                 targetPrice: z.string(),
@@ -1650,6 +1750,7 @@ export function createNotifyRouter(
               retentionDays: log.retentionDays,
               items: log.triggers.map((t) => ({
                 alertId: t.alertId,
+                seq: t.seq,
                 marketId: t.marketId,
                 condition: t.condition,
                 targetPrice: t.targetPrice,

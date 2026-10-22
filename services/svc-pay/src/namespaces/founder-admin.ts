@@ -61,12 +61,14 @@ import { createFounderControlRouter, founderApprovalProcedures, founderChangePro
 import { founderProcedure, type FounderContext } from './founder-procedure.js';
 import { readMerchantDrilldown } from './merchant-drilldown.js';
 import { guarded } from './control-errors.js';
+import { createDepositSettingsRouter, type DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
 import { createPurchaseHoldRouter, type PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import { createWithdrawalQuoteRouter, type WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
 import { createTravelRuleRouter, type TravelRuleMountDeps } from '../travel-rule/router.js';
 import { createWithdrawalReturnRouter, type WithdrawalReturnMountDeps } from '../withdrawals/returns/router.js';
+import { createAllowlistFounderRouter, type AllowlistMountDeps } from '../withdrawals/allowlist/router.js';
 import { createWithdrawalApprovalFounderRouter, type WithdrawalApprovalMountDeps } from '../withdrawals/approvals/router.js';
 import { createWithdrawalLimitsRouter, type WithdrawalLimitsMountDeps } from '../limits/change-router.js';
 import { createFounderMerchantReads } from './founder-merchant-reads.js';
@@ -96,6 +98,8 @@ export interface FounderAdminMounts {
   metrics?: MetricsRuntime;
   /** W16: editable venue, network and wallet-route registries. Mounted only when supplied. */
   registries?: RegistriesMountDeps;
+  /** W-deposit-04: the owner's customer deposit settings. Mounted only when supplied. */
+  depositSettings?: DepositSettingsMountDeps;
   /** W-withdraw-05: owner-set withdrawal limits (`founderAdmin.limits.*`). Mounted only when supplied. */
   limits?: WithdrawalLimitsMountDeps;
   /** W-custody-ops-01: the custody account model (`founderAdmin.custody.*`). Mounted only when supplied. */
@@ -110,6 +114,8 @@ export interface FounderAdminMounts {
   withdrawalReturns?: WithdrawalReturnMountDeps;
   /** W-withdraw-11: policy and the due sweep for multi-approval withdrawals (`founderAdmin.withdrawalApprovals.*`). Mounted only when supplied. */
   withdrawalApprovals?: WithdrawalApprovalMountDeps;
+  /** W-withdraw-10: quorum, reads and suspension for the withdrawal allowlist (`founderAdmin.allowlist.*`). Mounted only when supplied. */
+  allowlist?: AllowlistMountDeps;
   /** W15: operator notes (`founderAdmin.ops.*`). Always mounted; without a supplied router it runs with no database and refuses with `pay.not_built`. */
   ops?: FounderOpsRouter;
   /** W5: treasury exposure read (`founderAdmin.treasury.exposure`). Without it the procedure refuses with `pay.not_built`. */
@@ -166,6 +172,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
   const {
     metrics,
     registries,
+    depositSettings,
     limits,
     custody,
     purchaseHolds,
@@ -173,6 +180,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     withdrawalQuotes,
     withdrawalReturns,
     withdrawalApprovals,
+    allowlist,
     treasury,
     control,
     halts,
@@ -194,6 +202,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     founderAdmin: router({
       // W16: editable venue, network and wallet-route registries (src/registries). Mounted only when its deps are supplied.
       ...(registries ? { registries: createRegistriesRouter({ founderAuthority, ...registries }) } : {}),
+      ...(depositSettings ? { depositSettings: createDepositSettingsRouter({ founderAuthority, ...depositSettings }) } : {}),
       // W-withdraw-05: owner-set withdrawal limits per KYC tier and asset (src/limits). Mounted only when its deps are supplied.
       ...(limits ? { limits: createWithdrawalLimitsRouter({ founderAuthority, ...limits }) } : {}),
       // W-custody-ops-01: custody entities, vaults and wallets (src/custody). Mounted only when its deps are supplied.
@@ -209,6 +218,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(withdrawalApprovals
         ? { withdrawalApprovals: createWithdrawalApprovalFounderRouter({ founderAuthority, ...withdrawalApprovals }) }
         : {}),
+      // W-withdraw-10: the withdrawal allowlist (src/withdrawals/allowlist). Mounted only when its deps are supplied.
+      ...(allowlist ? { allowlist: createAllowlistFounderRouter({ founderAuthority, ...allowlist }) } : {}),
       // W15 operator notes. A router cannot be merged beside this one (tRPC rejects a second `founderAdmin`), so it is mounted here.
       ops,
       merchants: router({

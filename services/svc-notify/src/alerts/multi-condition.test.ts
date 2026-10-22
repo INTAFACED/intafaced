@@ -7,12 +7,20 @@ import { describe, expect, it } from 'vitest';
 import { NotifyService } from '../notify-service.js';
 import { MemoryNotifyStore } from '../store.js';
 import { evaluatePriceAlert } from './evaluate.js';
-import { AlertLimitError, AlertService, NO_ALERT_LIMITS, type AlertLimits } from './service.js';
+import { TEST_ALERT_LIMITS } from './test-limits.js';
+import { AlertLimitError, AlertService, type AlertLimits } from './service.js';
 import { MemoryAlertStore } from './store.js';
 import type { AlertExtra, MarkSource, PriceAlert } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: 3, triggerLogDays: null };
+const LIMITS: AlertLimits = {
+  maxExpiryDays: 30,
+  textMaxLength: 40,
+  maxConditions: 3,
+  triggerLogDays: null,
+  maxActivePrice: 20,
+  repeatFrequencies: [],
+};
 
 const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): PriceAlert => ({
   id: '00000000-0000-4000-8000-000000000001',
@@ -31,6 +39,9 @@ const watch = (extras: readonly AlertExtra[], patch: Partial<PriceAlert> = {}): 
   lastSide: null,
   extras,
   updatedAt: NOW,
+  frequency: 'once',
+  fireCount: 0,
+  lastFiredAt: null,
   ...patch,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
@@ -82,12 +93,12 @@ describe('creating an alert with added conditions', () => {
     expect(row.extras).toEqual([{ condition: 'less_than', targetPrice: '120' }]);
   });
   it('refuses with a typed code when the owner has not set the limit, and stores nothing', async () => {
-    const alerts = rig(NO_ALERT_LIMITS);
+    const alerts = rig(TEST_ALERT_LIMITS);
     await expect(alerts.create({ ...base, extras: range }, NOW)).rejects.toMatchObject({ code: 'notify.alert_conditions_limit_unset' });
     expect(await alerts.list('u1')).toHaveLength(0);
   });
   it('an alert with no added conditions needs no limit', async () => {
-    expect((await rig(NO_ALERT_LIMITS).create(base, NOW)).extras).toEqual([]);
+    expect((await rig(TEST_ALERT_LIMITS).create(base, NOW)).extras).toEqual([]);
   });
   it('counts the main condition toward the limit', async () => {
     const two: AlertExtra[] = [

@@ -217,6 +217,8 @@ services:
       # Wrong ports here were latent until dex starts calling them (audit L5-1/2).
       INDEXER_URL: http://svc-indexer:4013
       MATCHING_URL: http://svc-matching:4005
+      # Where the hide list is read (svc-ops protocolListing.hidden). Read-only; no credential.
+      OPS_URL: http://svc-ops:4022
       # Quote freshness + per-venue fetch timeout — pass-through, no compose default.
       # Host must set QUOTE_MAX_AGE_MS (explicit 2000 allowed). Never invent 2000.
       QUOTE_MAX_AGE_MS: ${QUOTE_MAX_AGE_MS:-}
@@ -388,6 +390,10 @@ services:
       # Live-partition cap — pass-through, no compose default. Blank stays refuse-closed.
       # Host must set IDENTITY_MAX_SUB_ACCOUNTS (explicit 25 allowed). Never invent 25.
       IDENTITY_MAX_SUB_ACCOUNTS: ${IDENTITY_MAX_SUB_ACCOUNTS:-}
+      # Where identity asks bank and trade what is still open before a sub-account is revoked or deleted, and before an account closes.
+      # Unset, those doors refuse (check unavailable); they never read as "nothing open".
+      IDENTITY_CLOSURE_BANK_URL: http://svc-bank:4009
+      IDENTITY_CLOSURE_TRADE_URL: http://svc-trade:4004
       # ops.affiliates: payout posts sweepFeesToRewards + rewardPay. Without this,
       # compose identity refuses affiliate.payout.ledger_unwired (env stays optional
       # and undefaulted — unset is still a legible refuse, not a localhost invent).
@@ -1565,8 +1571,10 @@ services:
       # OPS_DATABASE_POOL_MAX, which stays a blank pass-through: never invent a pool size.
       DATABASE_URL: postgres://svc_ops:svc_ops@postgres:5432/intafaced
       OPS_DATABASE_POOL_MAX: ${OPS_DATABASE_POOL_MAX:-}
-      # IDENTITY_URL / SUPPORT_URL blank → contacts name ops.identity_unwired /
-      # ops.support_unwired. Local CRM rows still write. No second contact book.
+      # The legacy warehouse/team contact sources stay hardcoded-absent (ops.identity_unwired / ops.support_unwired). IDENTITY_URL below
+      # is the founder authority and approval client. Local CRM rows still write. No second contact book.
+      # The venue report reads svc-ledger's feeRevenue door (svc-ops is the only caller it allows). Blank → ops.fee_revenue_unconfigured.
+      LEDGER_URL: http://svc-ledger:4001
       ANALYTICS_REPLICA_CONFIGURED: ${ANALYTICS_REPLICA_CONFIGURED:-}
       ANALYTICS_REPLICA_LAG_SECONDS: ${ANALYTICS_REPLICA_LAG_SECONDS:-}
       ANALYTICS_REPLICA_LEDGER_URL: ${ANALYTICS_REPLICA_LEDGER_URL:-}
@@ -1581,6 +1589,13 @@ services:
       # Joint-restore archive. Blank → ops.restore_archive_unconfigured.
       # Not the erasure archive. A set URL is not probed.
       OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
+      # Owner storage target for restored data. Blank → restore.start and restore.finalize refuse ops.restore_target_unset.
+      OPS_RESTORE_TARGET: ${OPS_RESTORE_TARGET:-}
+      # The restore.watermark.read doors. svc-ops is the only caller each allows. IDENTITY_URL is also the founder authority and
+      # the second-founder approval wiring (finalize, protocol listing, custody).
+      IDENTITY_URL: http://svc-identity:4002
+      BANK_URL: http://svc-bank:4009
+      PAY_URL: http://svc-pay:4006
       # Alert source. Blank → ops.alert_source_unconfigured. A set URL is not probed.
       OPS_ALERT_SOURCE_URL: ${OPS_ALERT_SOURCE_URL:-}
     expose: ['4022']

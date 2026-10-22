@@ -2,7 +2,7 @@ import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
-import type { WithdrawalApprovalService } from './withdrawals/approvals/service.js';
+import { AllowlistError, allowlistToTrpcError } from './withdrawals/allowlist/errors.js';
 import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.js';
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
@@ -42,7 +42,7 @@ import {
 } from '@intafaced/contracts';
 import { merchantPortalExtensions } from './merchant-portal/router.js';
 import { credentialAuthority } from './payment-authority.js';
-import { formatAmount, LedgerError, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, LedgerError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
 import {
   ActionApprovalConsumeError,
@@ -267,7 +267,7 @@ export function createPayRouter(
   /** W-withdraw-04: the fee quote store. Absent in unit stubs; `withdrawal.quote` then answers `withdrawal_quote.unwired`. */
   withdrawalQuotes: WithdrawalQuoteService | null = null,
   /** W-withdraw-11: the approval gate on the direct door. Absent in unit stubs; the direct door is then never gated. */
-  withdrawalApprovals: Pick<WithdrawalApprovalService, 'assertDirectAllowed'> | null = null,
+  withdrawalApprovals: { assertDirectAllowed: WithdrawalDirectGate } | null = null,
 ) {
   const fraudReviews =
     portalSql && typeof portalSql.unsafe === 'function' && typeof portalSql.json === 'function'
@@ -2113,6 +2113,7 @@ export function createPayRouter(
               assetId: input.assetId,
               amount: parseAmount(input.amount),
               clientRef: input.clientRef,
+              destination: input.destination,
             });
             return toWithdrawalOut(
               await userMoney.withdraw({
@@ -2428,6 +2429,15 @@ function toSettlementOut(row: Awaited<ReturnType<PayService['getSettlement']>>):
  * Collapsing both into INTERNAL_SERVER_ERROR is how a merchant's engineer spends
  * a day guessing.
  */
+/** What the direct withdrawal door asks before it claims: refuse with a typed error, or return. */
+export type WithdrawalDirectGate = (input: {
+  userId: string;
+  assetId: string;
+  amount: Amount;
+  clientRef: string;
+  destination?: { kind: string; ref: string };
+}) => Promise<void>;
+
 export function toTrpcError(err: unknown): unknown {
   /**
    * A guard seam refused (seams/guards.ts). Typed, so it never falls into the
@@ -2441,6 +2451,7 @@ export function toTrpcError(err: unknown): unknown {
   if (err instanceof ControlError) return controlToTrpcError(err);
   if (err instanceof WithdrawalQuoteError) return withdrawalQuoteToTrpcError(err);
   if (err instanceof WithdrawalApprovalError) return withdrawalApprovalToTrpcError(err);
+  if (err instanceof AllowlistError) return allowlistToTrpcError(err);
   if (err instanceof DualControlError || err instanceof ActionApprovalConsumeError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }

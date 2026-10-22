@@ -204,8 +204,13 @@ export const priceAlertSchema = z.object({
   expiresAt: date.nullable().optional(),
   // Added by C-alerts-scan-01b: further level conditions that must hold together with the main one.
   extras: z.array(z.object({ condition: z.enum(['greater_than', 'less_than']), targetPrice: z.string().min(1).max(64) })).optional(),
+  // Added by C-alerts-scan-01c: a repeating alert stays active and counts its triggers. A service that sends none means once.
+  frequency: z.enum(['once', 'every_crossing']).optional(),
+  fireCount: z.number().int().min(0).optional(),
+  lastFiredAt: date.nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
+export type AlertFrequency = 'once' | 'every_crossing';
 
 export const alertEvaluationSchema = z.object({
   markSource: z.enum(['dark', 'live']),
@@ -235,6 +240,8 @@ export interface AlertIntent {
   expiresAt?: string;
   /** Further level conditions on the same market; the alert triggers only when the main one and all of these hold. */
   extras?: AlertExtra[];
+  /** Left out, the alert triggers once. `every_crossing` is for a crossing condition only. */
+  frequency?: AlertFrequency;
 }
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
@@ -242,6 +249,9 @@ export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 /** The side a condition looks at. `crossing` looks at both, so it sends `above`, which the service ignores for it. */
 export const directionOfCondition = (condition: AlertCondition): AlertDirection =>
   condition === 'less_than' || condition === 'crossing_down' ? 'below' : 'above';
+/** True for the conditions that watch a crossing, the only ones that can repeat. */
+export const isCrossing = (condition: AlertCondition): boolean =>
+  condition === 'crossing' || condition === 'crossing_up' || condition === 'crossing_down';
 const levelOfDirection = (direction: AlertDirection): AlertCondition => (direction === 'above' ? 'greater_than' : 'less_than');
 
 /**
@@ -250,7 +260,7 @@ const levelOfDirection = (direction: AlertDirection): AlertCondition => (directi
  */
 export function isIntent(
   row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
-    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>>,
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency'>>,
   intent: AlertIntent,
 ): boolean {
   const wanted = intent.condition ?? levelOfDirection(intent.direction);
@@ -260,6 +270,7 @@ export function isIntent(
     row.marketId === intent.marketId &&
     stored === wanted &&
     canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+    (row.frequency ?? 'once') === (intent.frequency ?? 'once') &&
     (intent.name === undefined || (row.name ?? '') === intent.name) &&
     (intent.message === undefined || (row.message ?? '') === intent.message) &&
     (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
@@ -302,6 +313,7 @@ export function createPriceAlert(
       ...(intent.message ? { message: intent.message } : {}),
       ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
+      ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -389,6 +401,8 @@ export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<
   api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
 
 export const alertTriggerSchema = z.object({
+  /** Which trigger of the alert this is, from 1; a repeating alert has one row for each. A service that sends none means 1. */
+  seq: z.number().int().min(1).optional(),
   alertId: z.string().uuid(),
   marketId: z.string().min(1).max(64),
   condition: z.enum(ALERT_CONDITIONS),
@@ -416,3 +430,63 @@ export const listAlertTriggers = (
       signal,
     },
   );
+
+// ── How many alerts a person may hold (C-alerts-scan-03a) ───────────────────────────────────────────────────────
+
+const alertQuotaSchema = z.object({ kind: z.literal('price'), used: z.number().int().min(0), max: z.number().int().min(1).nullable() });
+export type AlertQuota = z.infer<typeof alertQuotaSchema>;
+
+/** The price alerts the person holds open and the cap the platform set. `max: null` means the cap is not set, and a create is refused. */
+export const readAlertQuota = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<AlertQuota>> =>
+  api.query('notify', 'notify.alertQuota', undefined, alertQuotaSchema, { signal });
+
+// ── A watchlist alert (C-alerts-scan-03c) ───────────────────────────────────────────────────────────────────────
+
+export interface WatchlistIntent {
+  marketIds: string[];
+  direction: AlertDirection;
+  condition: AlertCondition;
+  /** A positive decimal string, exactly as the person typed it (trimmed). One price for every market. */
+  targetPrice: string;
+}
+
+/**
+ * Save one alert per market, all or none. The answer must be this person's active alerts, one for each market asked and no
+ * others, each at the price asked, or it is not believed. No request id exists, so a lost answer is never retried here.
+ */
+export function createPriceAlerts(
+  api: ApiClient,
+  intent: WatchlistIntent,
+  userId: string,
+): Promise<ApiResult<{ alerts: PriceAlert[]; evaluation: AlertEvaluation }>> {
+  const wanted = [...new Set(intent.marketIds)].sort();
+  return api.mutate(
+    'notify',
+    'notify.createAlerts',
+    {
+      marketIds: intent.marketIds,
+      direction: intent.direction,
+      condition: intent.condition,
+      targetPrice: intent.targetPrice,
+    },
+    z.object({
+      alerts: z
+        .array(priceAlertSchema)
+        .min(1)
+        .refine(
+          (rows) =>
+            rows.every(
+              (row) =>
+                row.userId === userId &&
+                row.kind === 'price' &&
+                row.status === 'active' &&
+                row.firedAt === null &&
+                canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+                (row.condition ?? levelOfDirection(row.direction)) === intent.condition,
+            ) && JSON.stringify(rows.map((row) => row.marketId).sort()) === JSON.stringify(wanted),
+          'Returned alerts do not match',
+        ),
+      evaluation: alertEvaluationSchema,
+    }),
+  );
+}

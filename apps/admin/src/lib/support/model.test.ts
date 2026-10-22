@@ -186,6 +186,12 @@ describe('the strict action reader', () => {
       id: 'a',
       baseRevision: 3,
     });
+    expect(readActionRequest({ action: 'kb_audience', id: ' a ', baseRevision: 3, audience: 'staff' })).toEqual({
+      action: 'kb_audience',
+      id: 'a',
+      baseRevision: 3,
+      audience: 'staff',
+    });
   });
   it('turns anything else into null so nothing is sent', () => {
     const bad: Record<string, unknown>[] = [
@@ -203,6 +209,9 @@ describe('the strict action reader', () => {
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: 1.5 },
       { action: 'kb_publish', id: 'a', titleKey: 't', bodyKey: 'b', baseRevision: '0' },
       { action: 'kb_unpublish', id: 'a', baseRevision: 0 },
+      { action: 'kb_audience', id: 'a', baseRevision: 1, audience: 'everyone' },
+      { action: 'kb_audience', id: 'a', baseRevision: 1 },
+      { action: 'kb_audience', id: 'a', baseRevision: 0, audience: 'public' },
     ];
     for (const raw of bad) expect(readActionRequest(raw)).toBeNull();
   });

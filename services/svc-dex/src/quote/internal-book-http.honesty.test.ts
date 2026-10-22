@@ -75,6 +75,8 @@ async function mount(opts: { internalBookEnabled: boolean }): Promise<FastifyIns
     venues: () => (opts.internalBookEnabled ? [new InternalBookVenue()] : []),
     maxAgeMs: 2_000,
     depth: 50,
+    // A hide list that was read and is empty: every market is listed.
+    hideList: { read: async () => ({ asOf: NOW.toISOString(), pools: [], markets: [] }) },
     now: () => NOW,
     internalBookEnabled: opts.internalBookEnabled,
     ammVenueWired: false,

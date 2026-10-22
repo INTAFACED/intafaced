@@ -187,6 +187,29 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(100).optional()),
+      /**
+       * Owner setting: the sub-account kinds beyond `standard` that may be created, comma separated
+       * (managed, spot, derivatives). Blank = only standard is offered. Derivatives is also refused until the
+       * main account's derivatives eligibility can be read.
+       */
+      IDENTITY_SUB_ACCOUNT_KINDS: z.preprocess(
+        (v) =>
+          typeof v === 'string'
+            ? v
+                .split(',')
+                .map((k) => k.trim())
+                .filter(Boolean)
+            : undefined,
+        z.array(z.enum(['managed', 'derivatives', 'spot'])).optional(),
+      ),
+      /**
+       * Owner setting: which trading features each sub-account kind may have turned on. `kind:feature+feature`, kinds
+       * separated by commas, e.g. `standard:spot+convert,managed:spot`. Features: spot, convert, futures, algo, copy.
+       * NO DEFAULT. Blank, or any unknown kind or feature, offers nothing and `subAccounts.setFeatures` refuses
+       * (`identity.sub_account_features_unset`). Futures stays refused until the main account's derivatives eligibility
+       * can be read.
+       */
+      IDENTITY_SUB_ACCOUNT_FEATURES: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

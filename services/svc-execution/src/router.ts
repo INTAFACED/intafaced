@@ -74,6 +74,7 @@ import {
   UnattendedListLimitUnsetError,
 } from './ems-list-limit.js';
 import { scanOmsExternalArb } from './oms-arbitrage.js';
+import { ArbOpportunityError, readArbOpportunities, type ArbOpportunityFeed } from './arb-opportunities.js';
 import { planOmsArbAtomicLegs } from './oms-arb-plan-legs.js';
 import { executeOmsArbAtomicLegs } from './oms-arb-execute-legs.js';
 import { describeExecutionSpine } from './oms-spine.js';
@@ -381,6 +382,8 @@ export function createExecutionRouter(
   fetchImpl: typeof fetch | undefined = undefined,
   operatorApprovals?: { consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> },
   matchingS2s?: OmsMatchingS2s,
+  /** CB-execution-06: market inputs for the customer opportunity read. None wired: NotConnected `feed.market`. */
+  arbOpportunityFeed?: ArbOpportunityFeed,
 ) {
   const haltIdem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskFail = (err: unknown): never => {
@@ -1687,6 +1690,42 @@ export function createExecutionRouter(
       spine: scopedProcedure('admin:read', { module: 'execution' }).query(() => describeExecutionSpine()),
 
       arb: router({
+        /**
+         * CB-execution-06: customer read of funding and spread opportunities. Read only: places no order.
+         * No feed attached answers NotConnected `feed.market`. Blank symbol or amount refuse with typed codes, a failed
+         * feed read is retryable `execution.arb.feed_unavailable`, and scanner blanks come back as coded refused rows.
+         */
+        opportunities: scopedProcedure('trade:read')
+          // Blank symbol/amount reach the read so they refuse with a typed code, not a schema message.
+          .input(
+            z
+              .object({
+                symbol: z.string().max(64),
+                amount: z.union([decimalString, z.string().max(64).regex(/^\s*$/)]),
+              })
+              .strict(),
+          )
+          .query(async ({ input }) =>
+            withExecutionSpan('execution.arb.opportunities', input.symbol, async () => {
+              try {
+                return await readArbOpportunities({
+                  feed: arbOpportunityFeed,
+                  symbol: input.symbol,
+                  amount: input.amount,
+                  nowMs: Date.now(),
+                });
+              } catch (err) {
+                if (err instanceof ArbOpportunityError) {
+                  throw new TRPCError({
+                    code: err.retryable ? 'SERVICE_UNAVAILABLE' : 'PRECONDITION_FAILED',
+                    message: `${err.code} — ${err.message}`,
+                    cause: err,
+                  });
+                }
+                throw err;
+              }
+            }),
+          ),
         scan: omsWriteProcedure.input(omsArbScanInput).mutation(async ({ input }) => {
           return withExecutionSpan('execution.arb.scan', input.symbol, async () => scanOmsExternalArb(input));
         }),

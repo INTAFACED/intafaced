@@ -31,6 +31,8 @@ export const supportTicketSchema = z.object({
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).nullable().optional(),
   status: supportTicketStatusSchema,
   assigneeId: z.string().uuid().nullable(),
+  /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
+  mergedInto: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -66,6 +68,27 @@ export const createTicketInputSchema = z.object({
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
 
+/**
+ * Who may read a help article (SP-help-centre-02). `public` is everyone, including a signed-out visitor;
+ * `signed_in` needs a signed-in account; `staff` is the desk only (a `support:ops` principal).
+ */
+export const SUPPORT_KB_AUDIENCES = ['public', 'signed_in', 'staff'] as const;
+export const supportKbAudienceSchema = z.enum(SUPPORT_KB_AUDIENCES);
+export type SupportKbAudience = z.infer<typeof supportKbAudienceSchema>;
+
+/** The reader as the service knows them: from the signed principal, never from a request field. */
+export interface SupportKbViewer {
+  signedIn: boolean;
+  staff: boolean;
+}
+
+/** Whether `viewer` may read an article of `audience`. Omitted audience is public (rows written before audiences). */
+export function kbAudienceVisibleTo(audience: SupportKbAudience | undefined, viewer: SupportKbViewer): boolean {
+  if (audience === undefined || audience === 'public') return true;
+  if (audience === 'signed_in') return viewer.signedIn;
+  return viewer.staff;
+}
+
 export const supportKbArticleSchema = z.object({
   id: z.string().min(1),
   /** i18n catalog key — never raw third-party product names */
@@ -87,6 +110,8 @@ export const supportKbArticleSchema = z.object({
   category: z.string().min(1).max(200).optional(),
   /** Same list bound as escalateTicketInputSchema.citedArticleIds (20), each key-length 200. */
   tags: z.array(z.string().min(1).max(200)).max(20).optional(),
+  /** Who may read it. Omitted means public. A reader never receives an article their audience does not allow. */
+  audience: supportKbAudienceSchema.optional(),
 });
 export type SupportKbArticle = z.infer<typeof supportKbArticleSchema>;
 
@@ -109,6 +134,14 @@ export const getKbArticleInputSchema = z.object({
   version: z.number().int().positive().optional(),
 });
 export type GetKbArticleInput = z.infer<typeof getKbArticleInputSchema>;
+
+/** Router `setKbAudience` input (`support:ops`). `baseRevision` is the revision the desk read; a stale one is refused. */
+export const setKbAudienceInputSchema = z.object({
+  id: z.string().min(1).max(200),
+  baseRevision: z.number().int().positive(),
+  audience: supportKbAudienceSchema,
+});
+export type SetKbAudienceInput = z.infer<typeof setKbAudienceInputSchema>;
 
 /**
  * Public get: missing and unpublished are the same answer (`null`).
@@ -146,6 +179,8 @@ export const supportTicketEventKindSchema = z.enum([
   'grounding_read',
   /** Escalated with a case file. */
   'escalated',
+  /** Merged: this request absorbed a duplicate, or was folded into another. Note names the other request. */
+  'merged',
 ]);
 export type SupportTicketEventKind = z.infer<typeof supportTicketEventKindSchema>;
 

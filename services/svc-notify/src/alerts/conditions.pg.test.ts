@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
-import { PostgresAlertStore } from './store.js';
+import { AlertQuotaReachedError, PostgresAlertStore } from './store.js';
 import { PostgresAlertTriggerLog } from './trigger-log.js';
 
 /** The Postgres engine of alert conditions, expiry and the 0018 backfill, against a real database with fresh user ids. */
@@ -15,11 +15,21 @@ const here = dirname(fileURLToPath(import.meta.url));
 const migration = (f: string) => readFileSync(join(here, '..', '..', 'drizzle', f), 'utf8');
 const BEFORE = ['0000_notify_init.sql', '0006_notify_price_alerts.sql', '0007_notify_alert_kinds.sql', '0008_notify_whale_kind.sql'];
 
+const ALERT_MIGRATIONS = [
+  '0018_notify_alert_conditions.sql',
+  '0019_notify_alert_extra_conditions.sql',
+  '0020_notify_alert_stopped.sql',
+  '0021_notify_alert_triggers.sql',
+  '0022_notify_alert_frequency.sql',
+];
+
 const available = await postgresAvailable(URL);
 const sql = available ? postgres(URL, { max: 3, onnotice: () => undefined }) : null;
 if (available && sql) {
   await assertTestDatabase(sql, 'svc-notify alerts conditions.pg.test');
   for (const f of BEFORE) await sql.unsafe(migration(f)).catch(() => undefined);
+  // Every alert migration, in order, so each describe below finds the columns its engine reads. They are idempotent.
+  for (const f of ALERT_MIGRATIONS) await sql.unsafe(migration(f)).catch(() => undefined);
 }
 
 const mine: string[] = [];
@@ -80,6 +90,7 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
       message: null,
       expiresAt: null,
       extras: [{ condition: 'greater_than' as const, targetPrice: '80' }],
+      frequency: 'once' as const,
     };
     const edited = await store().replace(userId, row.id, next, NOW);
     expect(edited).toMatchObject({ ...next, lastSide: null, status: 'active' });
@@ -156,6 +167,7 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
       message: '{market} at {price}',
       lastSide: null,
       extras: [],
+      frequency: 'once' as const,
     });
     expect(row.expiresAt?.toISOString()).toBe('2026-10-20T14:00:00.000Z');
     const legacy = await store().create({ userId, marketId: 'BTC-USD', direction: 'below', targetPrice: '100' });
@@ -209,8 +221,9 @@ describe.skipIf(!available)('PostgresAlertTriggerLog and migration 0021', () => 
     const other = fresh();
     const a = randomUUID();
     const b = randomUUID();
-    const row = (alertId: string, uid: string, at: Date, markPrice: string) => ({
+    const row = (alertId: string, uid: string, at: Date, markPrice: string, seq = 1) => ({
       alertId,
+      seq,
       userId: uid,
       marketId: 'BTC-USD',
       condition: 'greater_than' as const,
@@ -223,12 +236,125 @@ describe.skipIf(!available)('PostgresAlertTriggerLog and migration 0021', () => 
     await log.record(row(a, userId, NOW, '999'));
     await log.record(row(b, userId, new Date(NOW.getTime() + 1000), '102'));
     await log.record(row(randomUUID(), other, NOW, '103'));
+    // A repeating alert keeps one row per trigger number, and the same number twice is one row.
+    await log.record(row(b, userId, new Date(NOW.getTime() + 2000), '104', 2));
+    await log.record(row(b, userId, new Date(NOW.getTime() + 3000), '999', 2));
     const mineRows = await log.list(userId, { since: new Date(0), limit: 10 });
-    expect(mineRows.map((r) => r.markPrice)).toEqual(['102', '101.5']);
+    expect(mineRows.map((r) => [r.seq, r.markPrice])).toEqual([
+      [2, '104'],
+      [1, '102'],
+      [1, '101.5'],
+    ]);
     expect(await log.list(userId, { alertId: a, since: new Date(0), limit: 10 })).toHaveLength(1);
-    expect(await log.list(userId, { since: new Date(NOW.getTime() + 500), limit: 10 })).toHaveLength(1);
+    expect(await log.list(userId, { since: new Date(NOW.getTime() + 500), limit: 10 })).toHaveLength(2);
     expect(await log.prune(new Date(NOW.getTime() + 500))).toBeGreaterThanOrEqual(2);
-    expect(await log.list(userId, { since: new Date(0), limit: 10 })).toHaveLength(1);
-    await sql!`DELETE FROM notify.alert_triggers WHERE user_id IN (${userId}, ${other})`;
+    expect(await log.list(userId, { since: new Date(0), limit: 10 })).toHaveLength(2);
+    await sql!`DELETE FROM notify.alert_fires WHERE user_id IN (${userId}, ${other})`;
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore quota', () => {
+  const input = (userId: string, targetPrice: string, maxOpen?: number) => ({
+    userId,
+    marketId: 'BTC-USD',
+    direction: 'above' as const,
+    targetPrice,
+    ...(maxOpen !== undefined ? { maxOpen } : {}),
+  });
+  it('counts active and paused alerts only, and refuses the create past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const a = await store.create(input(userId, '100', 2));
+    const b = await store.create(input(userId, '101', 2));
+    await expect(store.create(input(userId, '102', 2))).rejects.toBeInstanceOf(AlertQuotaReachedError);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.setStopped(userId, a.id, true, NOW);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+    await store.cancel(userId, b.id);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await expect(store.create(input(userId, '103', 2))).resolves.toMatchObject({ status: 'active' });
+  });
+  it('lets two creates racing for the last place through only once, and a create with no cap is unchecked', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled(['100', '101', '102', '103'].map((price) => store.create(input(userId, price, 1))));
+    expect(settled.filter((s) => s.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(1);
+    await store.create(input(userId, '104'));
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+  });
+  it('creates a batch as one step: all of it, or none of it past the cap', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const batch = (prices: string[]) => prices.map((price) => input(userId, price));
+    const made = await store.createMany(batch(['100', '101', '102']), 4);
+    expect(made).toHaveLength(3);
+    await expect(store.createMany(batch(['103', '104']), 4)).rejects.toMatchObject({ limit: 4, held: 3, wanted: 2 });
+    expect(await store.countOpen(userId, 'price')).toBe(3);
+    await expect(store.createMany(batch(['105']), 4)).resolves.toHaveLength(1);
+  });
+  it('lets two batches racing for the last places through only once', async () => {
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const settled = await Promise.allSettled([0, 1, 2].map((n) => store.createMany([input(userId, `${n}1`), input(userId, `${n}2`)], 2)));
+    expect(settled.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    expect(await store.countOpen(userId, 'price')).toBe(2);
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore frequency and migration 0022', () => {
+  it('runs twice, stores the frequency, and counts a repeating trigger once per count', async () => {
+    await sql!.unsafe(migration('0022_notify_alert_frequency.sql'));
+    await sql!.unsafe(migration('0022_notify_alert_frequency.sql'));
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const make = (frequency?: 'once' | 'every_crossing') =>
+      store.create({
+        userId,
+        marketId: 'BTC-USD',
+        direction: 'above',
+        targetPrice: '100',
+        condition: 'crossing',
+        ...(frequency ? { frequency } : {}),
+      });
+    const once = await make();
+    expect(once).toMatchObject({ frequency: 'once', fireCount: 0, lastFiredAt: null });
+    const repeating = await make('every_crossing');
+    expect(repeating.frequency).toBe('every_crossing');
+    const counted = await store.recordRepeat(userId, repeating.id, 0, NOW, 'at_or_above');
+    expect(counted).toMatchObject({ status: 'active', fireCount: 1, lastFiredAt: NOW, lastSide: 'at_or_above', firedAt: null });
+    // The same count cannot be taken twice, so a retried sweep adds one.
+    expect(await store.recordRepeat(userId, repeating.id, 0, NOW, 'below')).toBeNull();
+    expect((await store.get(userId, repeating.id))!.fireCount).toBe(1);
+    // Not a repeating alert that has stopped.
+    await store.setStopped(userId, repeating.id, true, NOW);
+    expect(await store.recordRepeat(userId, repeating.id, 1, NOW, null)).toBeNull();
+    const replaced = await store.replace(
+      userId,
+      repeating.id,
+      {
+        direction: 'above',
+        targetPrice: '100',
+        condition: 'crossing',
+        name: null,
+        message: null,
+        expiresAt: null,
+        extras: [],
+        frequency: 'once',
+      },
+      NOW,
+    );
+    expect(replaced?.frequency).toBe('once');
+  });
+  it('copies every earlier trigger as the first fire', async () => {
+    const alertId = randomUUID();
+    const userId = fresh();
+    await sql!`INSERT INTO notify.alert_triggers (alert_id, user_id, market_id, condition, target_price, mark_price, fired_at)
+               VALUES (${alertId}, ${userId}, 'BTC-USD', 'crossing', '100', '101', ${NOW})`;
+    await sql!.unsafe(migration('0022_notify_alert_frequency.sql'));
+    const copied = await sql!`SELECT seq, mark_price FROM notify.alert_fires WHERE alert_id = ${alertId}`;
+    expect(copied.map((r) => [r.seq, r.mark_price])).toEqual([[1, '101']]);
+    await sql!`DELETE FROM notify.alert_triggers WHERE user_id = ${userId}`;
+    await sql!`DELETE FROM notify.alert_fires WHERE user_id = ${userId}`;
   });
 });

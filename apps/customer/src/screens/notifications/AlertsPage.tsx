@@ -3,7 +3,7 @@ import './notifications.css';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
 import { stamp } from '../money/time';
-import { submitActive, submitCancel, submitCreate, submitDelete, submitEdit } from './alerts-actions';
+import { submitActive, submitCancel, submitCreate, submitDelete, submitEdit, submitWatchlist } from './alerts-actions';
 import { alertsCopy } from './alerts-copy';
 import {
   canEdit,
@@ -25,16 +25,20 @@ import {
 } from './alerts-model';
 import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
+import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
+import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
 import {
   ALERT_CONDITIONS,
   directionOfCondition,
+  isCrossing,
   listAlerts,
   type AlertCondition,
   type AlertExtra,
   type AlertIntent,
   type PriceAlert,
+  type WatchlistIntent,
 } from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
@@ -44,10 +48,11 @@ type Notice =
   | { kind: 'cancelled'; words: CancelWords }
   | { kind: 'active'; words: ActiveWords }
   | { kind: 'edited' }
+  | { kind: 'watchlistSaved' }
   | { kind: 'deleted'; gone: boolean }
   | { kind: 'refused'; refusal: Refusal }
   | { kind: 'cancelUnsure' }
-  | { kind: 'changeUnsure'; what: 'active' | 'edit' | 'delete' };
+  | { kind: 'changeUnsure'; what: 'active' | 'edit' | 'delete' | 'watchlist' };
 type Unsure = {
   intent: AlertIntent;
   before: ReadonlySet<string>;
@@ -63,11 +68,15 @@ const REFUSAL = {
   textRejected: 'refusedTextRejected',
   expiryRejected: 'refusedExpiryRejected',
   tooManyConditions: 'refusedTooManyConditions',
+  repeatOff: 'refusedRepeatOff',
+  repeatRejected: 'refusedRepeatRejected',
   optionNotOn: 'refusedOptionNotOn',
   tooMany: 'refusedTooMany',
   accountChanged: 'refusedAccountChanged',
   unpublished: 'refusedUnpublished',
   notEditable: 'refusedNotEditable',
+  quotaOff: 'refusedQuotaOff',
+  quotaReached: 'refusedQuotaReached',
   notFound: 'refusedNotFound',
   logOff: 'refusedLogOff',
   other: 'refusedOther',
@@ -89,6 +98,7 @@ const UNSURE = {
   active: ['activeUnsureTitle', 'activeUnsureBody'],
   edit: ['editUnsureTitle', 'editUnsureBody'],
   delete: ['deleteUnsureTitle', 'deleteUnsureBody'],
+  watchlist: ['watchUnsureTitle', 'watchUnsureBody'],
 } as const;
 const STATUS = {
   active: 'statusActive',
@@ -106,7 +116,15 @@ const CONDITION_KEY = {
 } as const satisfies Record<AlertCondition, string>;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
-const BACK_TO_FORM: ReadonlySet<Refusal> = new Set(['priceMissing', 'badRequest', 'textRejected', 'expiryRejected', 'tooManyConditions']);
+const BACK_TO_FORM: ReadonlySet<Refusal> = new Set([
+  'priceMissing',
+  'badRequest',
+  'textRejected',
+  'expiryRejected',
+  'tooManyConditions',
+  'repeatOff',
+  'repeatRejected',
+]);
 
 /**
  * Price alerts (`/notifications?view=alerts`): the person's alerts with their status, a form to add one that is reviewed
@@ -125,6 +143,7 @@ export default function AlertsPage() {
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
   const [expires, setExpires] = useState('');
+  const [repeat, setRepeat] = useState(false);
   const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
   const [price, setPrice] = useState('');
   const [touched, setTouched] = useState(false);
@@ -138,6 +157,7 @@ export default function AlertsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [view, setView] = useState<AlertView>(DEFAULT_VIEW);
   const triggers = useTriggers();
+  const quota = useAlertQuota();
   // One change at a time, even if a click lands twice before the screen redraws.
   const gate = useRef(createGate());
 
@@ -147,7 +167,17 @@ export default function AlertsPage() {
   const selected = marketOf(marketId);
   const problem = touched ? priceProblem(price) : null;
 
-  const blockedReason: Parameters<typeof copy.t>[0] | null =
+  // A quota that could not be read blocks nothing: the service refuses a create past the cap on its own.
+  const quotaState =
+    quota.state.status !== 'ready'
+      ? 'unknown'
+      : quota.state.quota.max === null
+        ? 'off'
+        : quota.state.quota.used >= quota.state.quota.max
+          ? 'full'
+          : 'room';
+
+  const blockedReason: BlockedReason | null =
     busy !== null
       ? 'reasonBusy'
       : unsure
@@ -162,7 +192,11 @@ export default function AlertsPage() {
                 ? 'reasonListLoading'
                 : state.status === 'failed'
                   ? 'reasonListFailed'
-                  : null;
+                  : quotaState === 'off'
+                    ? 'reasonQuotaOff'
+                    : quotaState === 'full'
+                      ? 'reasonQuotaFull'
+                      : null;
 
   if (mode !== 'Personal') {
     return (
@@ -200,6 +234,7 @@ export default function AlertsPage() {
       ...(message.trim() ? { message: message.trim() } : {}),
       ...(expiresAt ? { expiresAt } : {}),
       ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
+      ...(repeat && isCrossing(condition) ? { frequency: 'every_crossing' as const } : {}),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -235,6 +270,7 @@ export default function AlertsPage() {
         setMessage('');
         setExpires('');
         setExtras([]);
+        setRepeat(false);
         setTouched(false);
         reload();
       } else if (outcome.kind === 'refused') {
@@ -247,6 +283,8 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
     }
   }
 
@@ -265,6 +303,31 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
+    }
+  }
+
+  /** Save one alert on each chosen market, all or none. Sent at most once: the service takes no request id. */
+  async function saveWatchlist(intent: WatchlistIntent): Promise<'saved' | 'unknown' | 'refused'> {
+    if (!userId || busy !== null || unsure) return 'refused';
+    if (!gate.current.enter()) return 'refused';
+    setBusy('watchlist');
+    setNotice(null);
+    try {
+      const outcome = await submitWatchlist(api, intent, userId);
+      if (outcome.kind === 'saved') setNotice({ kind: 'watchlistSaved' });
+      else if (outcome.kind === 'refused') setNotice({ kind: 'refused', refusal: outcome.refusal });
+      else setNotice({ kind: 'changeUnsure', what: 'watchlist' });
+      if (outcome.kind !== 'refused') {
+        reload();
+        triggers.reload();
+      }
+      return outcome.kind === 'saved' ? 'saved' : outcome.kind === 'refused' ? 'refused' : 'unknown';
+    } finally {
+      gate.current.leave();
+      setBusy(null);
+      quota.reload();
     }
   }
 
@@ -300,6 +363,8 @@ export default function AlertsPage() {
     } finally {
       gate.current.leave();
       setBusy(null);
+      // Every change can move the count, and a refusal for the cap means the count on screen was old.
+      quota.reload();
     }
   }
 
@@ -316,6 +381,16 @@ export default function AlertsPage() {
       </div>
       <NotifyNav current="alerts" />
       <p className="nf-intro">{copy.t('intro')}</p>
+      {quota.state.status === 'ready' ? (
+        <p className={`nf-banner${quotaState === 'room' ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-quota">
+          {quota.state.quota.max === null
+            ? copy.t('quotaOff')
+            : copy.t(quotaState === 'full' ? 'quotaFull' : 'quotaUsed', {
+                used: String(quota.state.quota.used),
+                max: String(quota.state.quota.max),
+              })}
+        </p>
+      ) : null}
       {evaluation ? (
         <p className={`nf-banner${evaluation.canFire ? ' nf-banner--ok' : ''}`} role="note" data-testid="alerts-evaluation">
           {copy.t(evaluationNote(evaluation))}
@@ -334,6 +409,10 @@ export default function AlertsPage() {
         ) : notice?.kind === 'active' ? (
           <p className="nf-banner nf-banner--ok" role="status">
             {copy.t(ACTIVE[notice.words])}
+          </p>
+        ) : notice?.kind === 'watchlistSaved' ? (
+          <p className="nf-banner nf-banner--ok" role="status">
+            {copy.t('watchSaved')}
           </p>
         ) : notice?.kind === 'edited' ? (
           <p className="nf-banner nf-banner--ok" role="status">
@@ -416,6 +495,10 @@ export default function AlertsPage() {
                 </dd>
               </div>
             ))}
+            <div>
+              <dt>{copy.t('reviewRepeat')}</dt>
+              <dd>{copy.t(review.intent.frequency === 'every_crossing' ? 'repeatEvery' : 'repeatOnce')}</dd>
+            </div>
             {review.intent.name ? (
               <div>
                 <dt>{copy.t('reviewName')}</dt>
@@ -507,6 +590,17 @@ export default function AlertsPage() {
               ))}
             </select>
           </label>
+          {isCrossing(condition) ? (
+            <label className="nf-check" data-testid="alerts-repeat">
+              <input
+                type="checkbox"
+                checked={repeat}
+                disabled={blockedReason !== null}
+                onChange={(event) => setRepeat(event.target.checked)}
+              />
+              <span>{copy.t('repeatLabel')}</span>
+            </label>
+          ) : null}
           <label className="nf-field" htmlFor={priceId}>
             <span>{selected ? copy.t('priceLabel', { quote: selected.quote }) : copy.t('priceLabelNoMarket')}</span>
             <input
@@ -619,6 +713,19 @@ export default function AlertsPage() {
         </form>
       )}
 
+      <WatchlistAlert
+        markets={marketList}
+        userId={userId}
+        room={
+          quota.state.status === 'ready' && quota.state.quota.max !== null
+            ? Math.max(0, quota.state.quota.max - quota.state.quota.used)
+            : null
+        }
+        blockedReason={blockedReason}
+        busy={busy === 'watchlist'}
+        onSave={saveWatchlist}
+      />
+
       <section className="nf-card" aria-label={copy.t('listLabel')} aria-busy={state.status === 'loading' || undefined}>
         <div className="nf-listhead">
           <h2 className="nf-h2 nf-h2--flush">{copy.t('listTitle')}</h2>
@@ -704,6 +811,12 @@ export default function AlertsPage() {
                           </span>
                         ))}
                         {alert.message ? <span className="nf-body nf-body--wrap">{alert.message}</span> : null}
+                        {alert.frequency === 'every_crossing' ? (
+                          <span className="nf-body nf-body--wrap" data-testid="alert-repeats">
+                            {copy.t('repeatList', { count: String(alert.fireCount ?? 0) }) +
+                              (alert.lastFiredAt ? ` · ${copy.t('repeatLast', { when: stamp(alert.lastFiredAt, timeZone) })}` : '')}
+                          </span>
+                        ) : null}
                         <span className="nf-muted">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
                             (alert.firedAt ? ` · ${copy.t('firedAt', { when: stamp(alert.firedAt, timeZone) })}` : '') +

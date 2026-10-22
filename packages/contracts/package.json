@@ -26,6 +26,10 @@
       "types": "./dist/protocol-networks.d.ts",
       "default": "./dist/protocol-networks.js"
     },
+    "./protocol-ops": {
+      "types": "./dist/protocol-ops.d.ts",
+      "default": "./dist/protocol-ops.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -46,6 +50,18 @@
       "types": "./dist/quant-disclosure.d.ts",
       "default": "./dist/quant-disclosure.js"
     },
+    "./support-attachments": {
+      "types": "./dist/support-attachments.d.ts",
+      "default": "./dist/support-attachments.js"
+    },
+    "./support-bulk": {
+      "types": "./dist/support-bulk.d.ts",
+      "default": "./dist/support-bulk.js"
+    },
+    "./support-merge": {
+      "types": "./dist/support-merge.d.ts",
+      "default": "./dist/support-merge.js"
+    },
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
@@ -57,6 +73,10 @@
     "./oauth": {
       "types": "./dist/oauth.d.ts",
       "default": "./dist/oauth.js"
+    },
+    "./custody-approval-tasks": {
+      "types": "./dist/custody-approval-tasks.d.ts",
+      "default": "./dist/custody-approval-tasks.js"
     }
   },
   "scripts": {

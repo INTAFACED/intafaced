@@ -9,8 +9,10 @@ import { currentReturnLocation } from './location';
 import { doorLabel, safeReturnTo, type Door } from './navigation';
 import { isFeatureLive } from './feature-registry';
 import { ShellIcon } from './icons';
-import { accountMenu, menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
+import { menuItemWords, MOBILE_DOOR_ORDER, tabSpecs, type MenuItem, type TabSpec } from './menus';
 import { shellCopy } from './shell-copy';
+import { AccountMenuBody } from './AccountMenu';
+import { ProfileChip } from './ProfileChip';
 import { TopSearch } from './TopSearch';
 import { MerchantTopBar } from '../features/pay/portal/chrome/Chrome';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
@@ -182,29 +184,7 @@ function AccountButton({ onSignOut }: { onSignOut: () => void }) {
       </button>
       {open && (
         <div className="tb-popover tb-account-menu" id={id}>
-          <ul>
-            {accountMenu.map((item) => (
-              <li key={item.href}>
-                <a className="tb-account-item" href={item.href} onClick={() => setOpen(false)}>
-                  {t(item.title)}
-                </a>
-              </li>
-            ))}
-            {isFeatureLive('pro-mode-switch') && <ModeRow />}
-            <li className="tb-account-divider" role="separator" />
-            <li>
-              <button
-                type="button"
-                className="tb-account-item"
-                onClick={() => {
-                  setOpen(false);
-                  onSignOut();
-                }}
-              >
-                {t('Sign out')}
-              </button>
-            </li>
-          </ul>
+          <AccountMenuBody close={() => setOpen(false)} onSignOut={onSignOut} />
         </div>
       )}
     </div>
@@ -230,17 +210,6 @@ function ModeControl() {
         { value: 'pro', label: t('Pro') },
       ]}
     />
-  );
-}
-
-/** The same switch inside the account menu, shown only where the bar hides it (below 1000 px). */
-function ModeRow() {
-  const { t: tp } = proCopy.useCopy();
-  return (
-    <li className="tb-account-mode min-[1000px]:hidden">
-      <span className="tb-account-mode__label">{tp('Switch name')}</span>
-      <ModeControl />
-    </li>
   );
 }
 
@@ -305,6 +274,7 @@ export function TopBar({
             <>
               {isFeatureLive('pro-mode-switch') && <ModeSwitch />}
               {notificationsLive && <BellPopover path={path} />}
+              <ProfileChip />
               <AccountButton onSignOut={onSignOut} />
             </>
           ) : restoring ? (

@@ -42,6 +42,12 @@ Operator freeze/unfreeze is dual-control: the signed treasury principal plus a d
 
 Each door on the service port names the services that may call it (`src/door-callers.ts`), and the caller is the owner of the S2S v3 key that signed the request. A service not listed gets `403 ledger.caller_forbidden`; a door with no named caller (`portfolio`, `statementPnl`, `reportExport`, `custody`, `financeClose`, `resilience`) refuses everyone until one exists. Settings and the move off the shared secret: [`CALLER-BINDING.md`](CALLER-BINDING.md).
 
+### `feeRevenue` — fee revenue per asset, for one caller
+
+`POST /trpc/feeRevenue` takes a half-open ISO window (`from` inclusive, `to` exclusive) and answers, for each asset with a fee movement in it, the fees collected (debits to `fees:*` house accounts), the fees returned (credits out of them) and the signed net, as decimal strings. It reads sums over those accounts and nothing else: no user account, no insurance fund, no entries. An asset with no movement is absent, never a zero row. It is a READ with no path into `post()`.
+
+The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. svc-ops is named on no other door, and `fee-revenue-door.test.ts` proves every other door refuses it.
+
 ### `history` — a read, and the two ways it refuses
 
 The projection source for svc-bank's spend view (§8.1). That service keeps no `spent_this_month` counter — a second source of truth for money in everything but name — so it folds this window on demand instead. It is a READ: it takes no chain-tip lock, touches no balance, and has no path into `post()`.

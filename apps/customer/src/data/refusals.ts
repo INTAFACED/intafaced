@@ -141,6 +141,67 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
     title: 'Too many entries to check at once',
     body: 'This balance has a long history. Use the activity list for this coin instead.',
   },
+  noBankPartner: {
+    title: 'Account details need a banking partner',
+    body: 'Account numbers come from a banking partner, and none is connected in this build. No number is shown rather than a made-up one.',
+  },
+  detailsCurrenciesUnset: {
+    title: 'Which currencies have account details has not been published',
+    body: 'Which currencies have account details has not been published, so none are listed.',
+  },
+  eligibilityUnset: {
+    title: 'Who can open an account has not been published',
+    body: 'The countries, account types and product limits have not been published, so no statement is shown.',
+  },
+  globalOff: {
+    title: 'Sending abroad is switched off',
+    body: 'Sending abroad needs a payout partner and published settings, and this build has neither. Nothing was sent.',
+  },
+  globalNoRate: {
+    title: 'No exchange rate is available',
+    body: 'We never guess a rate, so there is no quote and nothing was sent. Try again later.',
+  },
+  globalPurpose: {
+    title: 'Say what this payment is for',
+    body: 'Sends to this currency need a purpose. Add it and send again. Nothing was sent.',
+  },
+  globalSource: {
+    title: 'Say where this money comes from',
+    body: 'A send of this size needs a source of funds. Add it and send again. Nothing was sent.',
+  },
+  globalReference: {
+    title: 'That reference is too long',
+    body: 'Shorten the reference and send again. Nothing was sent.',
+  },
+  globalRecipientInvalid: {
+    title: 'Check the bank details',
+    body: 'The account or bank code is not in a shape we can use. We only check the format, not the bank. Nothing was saved.',
+  },
+  globalPayoutRefused: { title: 'The payment was refused', body: 'The receiving side refused it. Nothing was taken from your balance.' },
+  globalCorridorUnknown: {
+    title: 'We do not send there',
+    body: 'That country, currency and delivery method are not on the list. Choose one from the list.',
+  },
+  globalDetailsMissing: {
+    title: 'More details are needed',
+    body: 'This send needs details about you or the recipient that were not included. Nothing was sent.',
+  },
+  globalNoSend: {
+    title: 'We can’t send this payment',
+    body: 'This payment can’t be sent to that recipient right now. Nothing was taken from your balance.',
+  },
+  proofOff: {
+    title: 'Uploads are switched off',
+    body: 'The file types and size we accept have not been published, so no upload is accepted. Nothing was sent.',
+  },
+  proofType: { title: 'We can’t take that kind of file', body: 'Choose a file of one of the types listed under the upload box.' },
+  proofSize: { title: 'That file is too big', body: 'Choose a smaller file, within the size shown under the upload box.' },
+  proofInvalid: { title: 'We couldn’t read that file', body: 'Choose the file again. If it keeps failing, try another copy of it.' },
+  proofNotAsked: {
+    title: 'No document is needed',
+    body: 'We haven’t asked for a document on this payment, so there is nothing to upload.',
+  },
+  proofDone: { title: 'We already have a document', body: 'A document was already uploaded for this payment and is being looked at.' },
   activitySortBounded: {
     title: 'Too many lines to sort oldest first',
     body: 'Narrow the dates, the account or the filters, then try again.',

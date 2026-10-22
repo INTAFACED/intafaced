@@ -323,8 +323,8 @@ describe('the desks cover what the product order asks for', () => {
     }
     expect(token.unavailable.map((u) => u.id)).toEqual(['token.supply']);
   });
-  it('protocol: chain, audit, indexer finality, DEX health and the blockers panel, read-only and never INTACHAIN or audited', () => {
-    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers']);
+  it('protocol: chain, audit, indexer finality, DEX health the blockers panel and the listing control link, never INTACHAIN or audited', () => {
+    expect(sections('protocol')).toEqual(['chain', 'audit', 'indexer', 'dex', 'blockers', 'listing']);
     expect(allReads(DESKS.protocol).map((r) => `${r.module}.${r.procedure}`)).toEqual([
       'protocol.chainStatus',
       'protocol.auditStatus',
@@ -339,6 +339,7 @@ describe('the desks cover what the product order asks for', () => {
     // The kind of the audit package is pinned too, so the page can only ever describe the internal review.
     expect(audit.columns.find((c) => c.key === 'kind')).toMatchObject({ mustBe: 'internal' });
     expect(DESKS.protocol.module).toBe('protocol-ops');
+    expect(DESKS.protocol.sections.find((s) => s.id === 'listing')!.links.map((l) => l.href)).toEqual(['/protocol-ops/listing']);
   });
   it('a figure a service cannot give is never also a read: nothing is listed both ways', () => {
     for (const id of DESK_IDS) {

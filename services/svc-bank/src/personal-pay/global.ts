@@ -7,6 +7,14 @@ import { classifyAccount, classifyBic, type AccountKind } from './account-format
 import { personalPayError, PSP_BLOCKER } from './errors.js';
 import type { Corridor, FxQuote, GlobalPorts } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
+import {
+  normalizeAccount,
+  parseExchangeAllowance,
+  parsePayeeControls,
+  type ExchangeAllowance,
+  type PayeeControls,
+} from './payee-controls.js';
+import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './send-fields.js';
 
 /**
  * Personal global send.
@@ -19,7 +27,7 @@ import { forwardKey, postToRail, reverseFromRail } from './post.js';
  * the bank exists.
  */
 
-const SEND_STATUSES = ['submitted', 'sent', 'on_the_way', 'arrived', 'failed'] as const;
+const SEND_STATUSES = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed'] as const;
 export type GlobalSendStatus = (typeof SEND_STATUSES)[number];
 
 export interface RecipientView {
@@ -106,7 +114,16 @@ const DEFINITE = new Set([
   'bank.global_payout_refused',
   'bank.global_travel_rule_undecided',
   'bank.global_travel_rule_incomplete',
+  'bank.send_field_rules_unset',
+  'bank.reference_rules_unset',
+  'bank.reference_too_long',
+  'bank.send_purpose_required',
+  'bank.source_of_funds_required',
   'bank.global_insufficient_funds',
+  'bank.payee_controls_unset',
+  'bank.payee_blocked',
+  'bank.exchange_allowance_unset',
+  'bank.exchange_allowance_exceeded',
 ]);
 
 export function canonicalCompliance(fields: Readonly<Record<string, string>> | undefined): string {
@@ -241,7 +258,33 @@ export class GlobalSendService {
     private readonly ledger: LedgerClient,
     private readonly spaces: SpaceService,
     private readonly ports: GlobalPorts,
-  ) {}
+    /** Owner-published purpose, source-of-funds and reference rules (`BANK_SEND_FIELD_RULES_JSON`). Blank refuses. */
+    fieldRulesJson?: string,
+    /** Owner-published payee controls (`BANK_PAYEE_CONTROLS_JSON`). Blank refuses every send. */
+    payeeControlsJson?: string,
+    /** Owner-published exchange payment allowance (`BANK_EXCHANGE_ALLOWANCE_JSON`). Blank refuses every send. */
+    exchangeAllowanceJson?: string,
+  ) {
+    this.fieldRules = parseSendFieldRules(fieldRulesJson);
+    this.payeeControls = parsePayeeControls(payeeControlsJson);
+    this.exchangeAllowance = parseExchangeAllowance(exchangeAllowanceJson);
+  }
+
+  private readonly fieldRules: SendFieldRules | null;
+  private readonly payeeControls: PayeeControls | null;
+  private readonly exchangeAllowance: ExchangeAllowance | null;
+
+  /** Whether the owner has published the exchange allowance, and its window; never the accounts or the limits. */
+  exchangeAllowanceStatus(): { state: 'unset' | 'published'; windowDays: number | null; exchangeCount: number } {
+    return this.exchangeAllowance
+      ? { state: 'published', windowDays: this.exchangeAllowance.windowDays, exchangeCount: this.exchangeAllowance.accounts.size }
+      : { state: 'unset', windowDays: null, exchangeCount: 0 };
+  }
+
+  /** Whether the owner has published the payee controls, and how many accounts they name (never which). */
+  payeeControlsStatus(): { state: 'unset' | 'published'; blockedCount: number } {
+    return this.payeeControls ? { state: 'published', blockedCount: this.payeeControls.blocked.size } : { state: 'unset', blockedCount: 0 };
+  }
 
   async corridors(): Promise<Corridor[]> {
     if (this.ports.corridors.status() !== 'live') throw personalPayError('bank.global_corridors_unset');
@@ -541,20 +584,66 @@ export class GlobalSendService {
       if (!supplied[field]?.trim()) return this.definite(row, 'bank.global_travel_rule_incomplete');
     }
 
+    if (!this.payeeControls) return this.definite(row, 'bank.payee_controls_unset');
+    const payee = await this.recipientById(row.recipient_id);
+    if (this.payeeControls.blocked.has(normalizeAccount(payee.account))) return this.definite(row, 'bank.payee_blocked');
+
+    if (!this.exchangeAllowance) return this.definite(row, 'bank.exchange_allowance_unset');
+    if (this.exchangeAllowance.accounts.has(normalizeAccount(payee.account))) {
+      const limit = this.exchangeAllowance.limits.get(row.asset_id.toUpperCase());
+      if (limit === undefined) return this.definite(row, 'bank.exchange_allowance_unset');
+      // Every send to an exchange since the window opened counts, in the order they were taken in, this one included: two
+      // sends made at the same moment cannot both fit a room that holds only one.
+      const accounts = [...this.exchangeAllowance.accounts];
+      const total = await this.sql<{ total: string | null }[]>`
+        SELECT sum(s.amount::numeric)::text AS total
+        FROM bank.global_sends me
+        JOIN bank.global_sends s ON s.user_id = me.user_id AND s.asset_id = me.asset_id
+        JOIN bank.global_recipients r ON r.id = s.recipient_id
+        WHERE me.id = ${row.id} AND s.status <> 'failed'
+          AND s.created_at > me.created_at - make_interval(days => ${this.exchangeAllowance.windowDays})
+          AND (s.created_at, s.id) <= (me.created_at, me.id)
+          AND upper(replace(r.account, ' ', '')) = ANY(${accounts})
+      `;
+      if (parseAmount(total[0]?.total ?? '0') > parseAmount(limit)) return this.definite(row, 'bank.exchange_allowance_exceeded');
+    }
+
+    const refusal = checkSendFields(this.fieldRules, {
+      assetId: row.asset_id,
+      amount: row.amount,
+      toCurrency: row.to_currency,
+      country: row.country,
+      deliveryMethod: row.delivery_method,
+      compliance: supplied,
+    });
+    if (refusal)
+      return this.definite(
+        row,
+        refusal.code,
+        'maxLength' in refusal ? `The reference can be at most ${refusal.maxLength} characters for this rail.` : undefined,
+      );
+
     const quote = await this.checkedQuote({ asset: row.asset_id, amount: row.amount, toCurrency: row.to_currency }, now);
     const railId = this.ports.payout.railId().trim();
     if (!railId || railId.length > 64) throw personalPayError('bank.global_payout_unusable');
     const account = accountForSpace(space);
     let txId = row.ledger_tx_id;
     if (!txId) {
+      // A hold placed while this send was being checked wins: nothing is posted for a held send.
+      const fresh = await this.sendById(row.id);
+      if (fresh && fresh.status !== 'submitted') return sendView(fresh);
       try {
         const existing = await this.ledger.getTxByKey(forwardKey(row.id));
         const tx = existing ?? (await postToRail(this.ledger, row.id, account, railId, amount));
         txId = tx.id;
         await this.sql`
           UPDATE bank.global_sends SET ledger_tx_id = ${txId}, updated_at = now()
-          WHERE id = ${row.id} AND status = 'submitted' AND ledger_tx_id IS NULL
+          WHERE id = ${row.id} AND status IN ('submitted', 'held') AND ledger_tx_id IS NULL
         `;
+        // A hold that landed while the forward entry was being posted stands: the debit is recorded on the held send and no
+        // payout is made until someone else releases it. Release then carries on from here without posting again.
+        const after = await this.sendById(row.id);
+        if (after && after.status !== 'submitted') return sendView(after);
       } catch (err) {
         if (err instanceof InsufficientFundsError) return this.definite(row, 'bank.global_insufficient_funds', err.message);
         throw err;
@@ -689,6 +778,23 @@ export class GlobalSendService {
     const row = rows[0];
     if (!row) throw personalPayError('bank.global_recipient_not_found');
     return row;
+  }
+
+  private async recipientById(id: string): Promise<RecipientRow> {
+    const rows = await this.sql<RecipientRow[]>`
+      SELECT id, user_id, idempotency_key, label, name, account, account_kind, bic, country, removed_at, created_at
+      FROM bank.global_recipients WHERE id = ${id}
+    `;
+    const row = rows[0];
+    if (!row) throw personalPayError('bank.global_recipient_not_found');
+    return row;
+  }
+
+  /** Carries on a send whose hold was released: the same steps, the same checks, the same keys. */
+  async resume(id: string, now: Date = new Date()): Promise<SendView> {
+    const row = await this.mustSend(id);
+    const space = await this.ownedSpace(row.user_id, row.from_space_id, now);
+    return this.drive(row, space, canonical(row.amount).amount, now);
   }
 
   private async recipientByKey(userId: string, idempotencyKey: string): Promise<RecipientRow> {

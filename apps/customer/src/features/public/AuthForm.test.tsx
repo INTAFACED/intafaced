@@ -168,3 +168,20 @@ describe('passkey identifier at the rendered form', () => {
     expect(nativeGet).not.toHaveBeenCalled();
   });
 });
+
+describe('language switcher on the sign-in page (RC-home-ia-05)', () => {
+  it('chooses Spanish before sign-in: kept in this browser, shown at once, and nothing is sent', async () => {
+    const before = fetcher.mock.calls.length;
+    const select = host.querySelector<HTMLSelectElement>('[data-language-menu] select')!;
+    expect(select).not.toBeNull();
+    expect(host.querySelector('[data-language-kept="browser"]')?.textContent).toBe('Saved in this browser only.');
+    await act(async () => {
+      select.value = 'es';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(JSON.parse(localStorage.getItem('intafaced.customer.view.v1')!)).toMatchObject({ language: 'es' });
+    expect(host.querySelector('[data-language-menu] label')?.textContent).toBe('Idioma');
+    expect(fetcher.mock.calls.length).toBe(before);
+    expect(localStorage.getItem(publicAuthKey)).toBeNull();
+  });
+});

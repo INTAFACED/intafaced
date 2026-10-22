@@ -82,6 +82,26 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-support only lets people on its staff list set availability. Your sign-in has the support permission, but nobody has appointed you.',
     next: 'Nothing was changed. A lead appoints staff.',
   },
+  'support.bulk_cap_unset': {
+    title: 'The batch size is not set',
+    body: 'The owner has not set how many requests can change at once (support.bulk_cap), so svc-support refuses bulk changes rather than guess a number.',
+    next: 'Nothing was changed. Change one request at a time, or ask the owner to set the batch size.',
+  },
+  'support.bulk_too_large': {
+    title: 'That is more requests than the desk allows at once',
+    body: 'svc-support caps how many requests one bulk change may touch, and this batch is over it.',
+    next: 'Nothing was changed. Tick fewer requests and send again.',
+  },
+  'support.merge_not_allowed': {
+    title: 'Those requests cannot be merged',
+    body: 'Both requests must be open, pending or on hold and belong to the same customer account. One of them is not, or the duplicate was already merged into another request.',
+    next: 'Nothing was changed. Check both ticket ids, then try again.',
+  },
+  'support.merge_same_ticket': {
+    title: 'A request cannot be merged into itself',
+    body: 'The request that stays must be a different request from the duplicate.',
+    next: 'Nothing was changed. Paste the id of the other request.',
+  },
   'support.not_lead': {
     title: 'Only a lead can do that',
     body: 'Setting another person’s availability, and making or changing desk groups, need the lead role. Anyone on the staff list can set their own availability.',
@@ -136,6 +156,11 @@ const BY_SUPPORT_CODE: Readonly<Record<string, Entry>> = {
     title: 'svc-support did not accept that article',
     body: 'The id or the text keys are not valid for the help library.',
     next: 'Check the id and both keys against the translation catalogue. Nothing was changed.',
+  },
+  'support.kb_audience_invalid': {
+    title: 'svc-support did not accept that audience',
+    body: 'The audience must be everyone, signed-in customers only, or staff only.',
+    next: 'Pick one of the three and try again. Nothing was changed.',
   },
   'support.kb_vendor_name': {
     title: 'Article keys may not name another company’s product',

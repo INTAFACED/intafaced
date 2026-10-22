@@ -75,6 +75,9 @@ const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
+  { name: 'payReceivedHold', fingerprint: 'd38b34fa6dff' },
+  { name: 'payReceivedRelease', fingerprint: '7d6896cf46f5' },
+  { name: 'payReceivedReturn', fingerprint: '8ccf8023ca20' },
 ];
 
 /**
@@ -92,6 +95,9 @@ const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new 
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
+  ['payReceivedHold', [RECIPE_GATE_CATALOG]],
+  ['payReceivedRelease', [RECIPE_GATE_CATALOG]],
+  ['payReceivedReturn', [RECIPE_GATE_CATALOG]],
 ]);
 
 describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
@@ -104,10 +110,10 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (70 = 65 live + 5 socket)', () => {
+  it('pins live vs §13 socket counts on tip (73 = 65 live + 8 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 65, socket: 5 });
-    expect(inventory.recipes).toHaveLength(70);
+    expect(counts).toEqual({ live: 65, socket: 8 });
+    expect(inventory.recipes).toHaveLength(73);
     expect(liveRecipeKeys(inventory)).toHaveLength(65);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });

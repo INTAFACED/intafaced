@@ -8,11 +8,15 @@ import {
   UNPUBLISHED_DMA_HIERARCHY_LAW,
   type DmaHierarchyLaw,
 } from './orgs/dma-hierarchy.js';
+import { getOrg, listOrgs, OrgAdminError, removeOrgMember, renameOrg } from './orgs/org-admin.js';
 
 const orgRoleSchema = z.enum(['admin', 'trader', 'auditor', 'risk-manager']);
 const dmaProductSchema = z.enum(['dma-broker', 'desk', 'shift']);
 
 function toOrgTrpc(err: unknown): never {
+  if (err instanceof OrgAdminError) {
+    throw new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+  }
   if (err instanceof DmaHierarchyRefuseError) {
     if (err.code === 'identity.dma.kind_required' || err.code === 'identity.dma.kind_invalid' || err.code === 'identity.dma.law_invalid') {
       throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -175,6 +179,58 @@ export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNP
             kind: input.kind,
             law: dmaHierarchyLaw,
           });
+        } catch (err) {
+          toOrgTrpc(err);
+        }
+      }),
+    /** I-account-lifecycle-05: the caller's organisations. */
+    listOrgs: scopedProcedure('identity:read')
+      .output(
+        z.object({ orgs: z.array(z.object({ id: z.string().uuid(), name: z.string(), role: orgRoleSchema, createdAt: z.string() })) }),
+      )
+      .query(async ({ ctx }) => {
+        try {
+          return await listOrgs(sql, ctx.principal.userId);
+        } catch (err) {
+          toOrgTrpc(err);
+        }
+      }),
+    /** One organisation and its members, to a member only; anyone else gets not found. */
+    getOrg: scopedProcedure('identity:read')
+      .input(z.object({ orgId: z.string().uuid() }))
+      .output(
+        z.object({
+          id: z.string().uuid(),
+          name: z.string(),
+          createdBy: z.string().uuid(),
+          createdAt: z.string(),
+          members: z.array(z.object({ userId: z.string().uuid(), handle: z.string(), role: orgRoleSchema, since: z.string() })),
+        }),
+      )
+      .query(async ({ ctx, input }) => {
+        try {
+          return await getOrg(sql, ctx.principal.userId, input.orgId);
+        } catch (err) {
+          toOrgTrpc(err);
+        }
+      }),
+    /** Admin removes a member, or a member leaves; the last admin cannot be removed. */
+    removeOrgMember: scopedProcedure('identity:write')
+      .input(z.object({ orgId: z.string().uuid(), memberId: z.string().uuid() }))
+      .output(z.object({ orgId: z.string().uuid(), userId: z.string().uuid(), removed: z.literal(true) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await removeOrgMember(sql, ctx.principal.userId, input.orgId, input.memberId);
+        } catch (err) {
+          toOrgTrpc(err);
+        }
+      }),
+    renameOrg: scopedProcedure('identity:write')
+      .input(z.object({ orgId: z.string().uuid(), name: z.string().max(256) }))
+      .output(z.object({ id: z.string().uuid(), name: z.string(), changed: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await renameOrg(sql, ctx.principal.userId, input.orgId, input.name);
         } catch (err) {
           toOrgTrpc(err);
         }

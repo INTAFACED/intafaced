@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { mergeRouters, s2sFromEnv } from '@intafaced/contracts';
 import { serviceOfRequest } from './s2s-door.js';
+import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
@@ -92,6 +93,8 @@ import { SqlCustomerStepUpStore } from './auth/customer-step-up-store.js';
 import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
+import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
@@ -267,6 +270,7 @@ const auth = new AuthService(
   env.IDENTITY_MAX_SUB_ACCOUNTS,
   env.REFRESH_REUSE_GRACE_SECONDS,
   env.REFRESH_RECOVERY_SECONDS,
+  env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
@@ -435,22 +439,26 @@ const account = new AccountChange({
   log: { warn() {} },
 });
 const closureSecret = env.INTERNAL_SERVICE_SECRET;
+const bankClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_BANK_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
+});
+const tradeClosureCheck = httpClosureChecker({
+  url: env.IDENTITY_CLOSURE_TRADE_URL,
+  secret: closureSecret,
+  ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
+});
+const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
+const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
   approvals: actionApprovals,
   enabled: env.IDENTITY_ACCOUNT_CLOSE_ENABLED,
   coolingOffDays: env.IDENTITY_ACCOUNT_CLOSE_COOLING_OFF_DAYS,
   founderUserIds: founderPair ?? [],
-  bank: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_BANK_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-bank' } } : {}),
-  }),
-  trade: httpClosureChecker({
-    url: env.IDENTITY_CLOSURE_TRADE_URL,
-    secret: closureSecret,
-    ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
-  }),
+  bank: bankClosureCheck,
+  trade: tradeClosureCheck,
   p2p: httpClosureChecker({
     url: env.IDENTITY_CLOSURE_P2P_URL,
     secret: closureSecret,
@@ -485,6 +493,8 @@ export const appRouter = mergeRouters(
     profile,
     account,
     closure,
+    subAccountDelete,
+    subAccountFeatures,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -668,6 +678,16 @@ registerNavigatorSessionRoutes(app, {
  * Authenticated by the shared service secret — same control as bank jobs (#62).
  * Previously unauthenticated (full audit L2-3).
  */
+/**
+ * The joint-restore position (OPS-ledger-desk-05). A read for svc-ops alone; any other service, or none, is refused.
+ */
+app.get('/internal/restore/watermark', async (req, reply) => {
+  const caller = serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service;
+  if (caller === null) return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  if (caller !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'identity.caller_forbidden' });
+  return readIdentityWatermark(sql);
+});
+
 app.get<{ Params: { userId: string } }>('/internal/rank/:userId/perks', async (req, reply) => {
   if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
     return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });

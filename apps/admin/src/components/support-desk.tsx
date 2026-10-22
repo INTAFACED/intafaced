@@ -8,10 +8,13 @@ import { fetchQueue, fetchTicket, fetchTicketExtras, postClaim, type ClaimReply 
 import { claimGate, formatAge, queueMetrics, type ClaimGate } from '@/lib/support/model';
 import type { QueueRead, SupportQueueView, SupportTicketView, TicketDetail, TicketExtrasView } from '@/lib/support/types';
 import { Failed } from './support-action-parts';
+import { SupportBulkBar } from './support-bulk-bar';
 import { TicketActions } from './support-ticket-actions';
 import { RatingsSummary } from './support-ratings-summary';
 import { TicketExtras } from './support-ticket-extras';
+import { TicketFiles } from './support-ticket-files';
 import { TicketLifecycle } from './support-ticket-lifecycle';
+import { TicketMerge } from './support-ticket-merge';
 import { TicketProperties } from './support-ticket-properties';
 import './desk.css';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
@@ -73,6 +76,13 @@ export interface DeskViewProps {
   readonly onClose: () => void;
   readonly onArm: (v: boolean) => void;
   readonly onClaim: () => void;
+  /** The ticked requests for a bulk change. Absent when the page offers no bulk bar. */
+  readonly bulk?: {
+    readonly selected: ReadonlySet<string>;
+    readonly onToggle: (id: string) => void;
+    readonly onToggleAll: (ids: readonly string[], on: boolean) => void;
+    readonly bar: ReactNode;
+  };
 }
 
 function TicketPanel(p: DeskViewProps) {
@@ -226,8 +236,10 @@ function TicketBody({ detail, ...p }: { detail: TicketDetail } & DeskViewProps) 
       )}
 
       <TicketExtras extras={p.extras} loading={p.loadingExtras} />
+      <TicketFiles key={t.id} ticketId={t.id} />
       <TicketLifecycle key={t.id} ticket={t} />
       <TicketProperties key={t.id} ticket={t} />
+      <TicketMerge key={t.id} ticket={t} onDone={p.onActionDone} />
       <TicketActions ticket={t} onDone={p.onActionDone} />
     </>
   );
@@ -263,6 +275,18 @@ export function SupportDeskView(p: DeskViewProps) {
               <table className="adm-table">
                 <thead>
                   <tr>
+                    {p.bulk && (
+                      <th>
+                        <input
+                          type="checkbox"
+                          aria-label="Tick every request shown"
+                          checked={q.queue.data.entries.every((e) => p.bulk!.selected.has(e.ticketId))}
+                          onChange={(e) =>
+                            p.bulk!.onToggleAll(q.queue.kind === 'ok' ? q.queue.data.entries.map((x) => x.ticketId) : [], e.target.checked)
+                          }
+                        />
+                      </th>
+                    )}
                     <th>Subject</th>
                     <th>Category</th>
                     <th>Status</th>
@@ -274,6 +298,16 @@ export function SupportDeskView(p: DeskViewProps) {
                 <tbody>
                   {q.queue.data.entries.map((e) => (
                     <tr key={e.ticketId} data-selected={p.ticketId === e.ticketId}>
+                      {p.bulk && (
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`Tick ${e.subject}`}
+                            checked={p.bulk.selected.has(e.ticketId)}
+                            onChange={() => p.bulk!.onToggle(e.ticketId)}
+                          />
+                        </td>
+                      )}
                       <td>{e.subject}</td>
                       <td>{e.category}</td>
                       <td>{e.status}</td>
@@ -297,6 +331,7 @@ export function SupportDeskView(p: DeskViewProps) {
           )}
         </>
       )}
+      {p.bulk && q && q.queue.kind === 'ok' && q.queue.data.entries.length > 0 && p.bulk.bar}
       <RatingsSummary />
       <TicketPanel {...p} />
       {p.children}
@@ -315,6 +350,7 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
   const [arming, setArming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [reply, setReply] = useState<ClaimReply | null>(null);
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const lock = useRef(false);
   const queueSeq = useRef(0);
   const ticketSeq = useRef(0);
@@ -327,6 +363,11 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
     if (mine === queueSeq.current) {
       setQueue(next);
       setLoadingQueue(false);
+      // A request that left the queue (changed, closed, taken) is no longer ticked.
+      if (next && next.queue.kind === 'ok') {
+        const here = new Set(next.queue.data.entries.map((e) => e.ticketId));
+        setTicked((t) => new Set([...t].filter((id) => here.has(id))));
+      }
     }
   }, []);
 
@@ -398,6 +439,17 @@ export function SupportDesk({ initial, userId, children }: { initial: SupportQue
       }}
       onArm={setArming}
       onClaim={() => void claim()}
+      bulk={{
+        selected: ticked,
+        onToggle: (id) =>
+          setTicked((t) => {
+            const next = new Set(t);
+            if (!next.delete(id)) next.add(id);
+            return next;
+          }),
+        onToggleAll: (ids, on) => setTicked(on ? new Set(ids) : new Set()),
+        bar: <SupportBulkBar selected={[...ticked]} onClear={() => setTicked(new Set())} onDone={() => void reloadQueue()} />,
+      }}
       extras={extras}
       loadingExtras={loadingExtras}
       onActionDone={() => {

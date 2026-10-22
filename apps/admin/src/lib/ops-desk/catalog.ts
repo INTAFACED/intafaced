@@ -251,6 +251,21 @@ const bankSections: readonly DeskSection[] = [
     links: [],
   },
   {
+    id: 'global-holds',
+    title: 'Global send holds',
+    intro: 'Sends held before they were debited: the queue, the owner settings behind it, and who may release.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/holds',
+        label: 'Global send holds',
+        why: 'The hold queue, release, information requests and the customer’s file are on their own page.',
+      },
+    ],
+  },
+  {
     id: 'customer-balances',
     title: 'Customer balances',
     intro:
@@ -2141,6 +2156,22 @@ const protocolSections: readonly DeskSection[] = [
     links: [],
     panel: 'protocol.blockers',
   },
+  {
+    id: 'listing',
+    title: 'Pool and market control',
+    intro:
+      'Hide or restore a pool, delist or relist a market. Each is a listing decision that two founders sign; nothing on chain changes. The DEX refuses to quote a delisted market.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/protocol-ops/listing',
+        label: 'Pool and market control',
+        why: 'What is hidden now, and the two-founder request to hide, restore, delist or relist.',
+      },
+    ],
+  },
 ];
 
 export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
@@ -2193,7 +2224,7 @@ export const DESKS: Readonly<Record<OpsDeskId, DeskSpec>> = {
     endpoint: '/api/protocol-ops',
     title: 'Protocol operations',
     intro:
-      'Chain, audit, indexer and DEX status as the protocol services report them, with the time each was read. Read-only. The network label comes from the chain id a service reports: nothing here is INTACHAIN until a service says so, and nothing is audited.',
+      'Chain, audit, indexer and DEX status as the protocol services report them, with the time each was read. The one write is the two-founder pool and market control. The network label comes from the chain id a service reports: nothing here is INTACHAIN until a service says so, and nothing is audited.',
     sections: protocolSections,
   },
 };

@@ -174,6 +174,11 @@ export async function consumeFounderApproval(
     readonly targetId: string;
     readonly fields: Record<string, string>;
     readonly requesterId: string;
+    /**
+     * Identity's idempotency key for this consume (1 to 128 characters). With it, a retry after a crash between the
+     * consume and the write returns the consumed row; without it a retry is refused `action_approval.consumed`.
+     */
+    readonly requestId?: string;
   },
 ): Promise<ActionApproval> {
   const approvalId = input.approvalId.trim();
@@ -191,6 +196,7 @@ export async function consumeFounderApproval(
       targetService: input.targetService,
       targetId: input.targetId,
       expectedVersion: '1',
+      ...(input.requestId ? { requestId: input.requestId } : {}),
     });
   } catch (err) {
     if (err instanceof OpsError) throw err;

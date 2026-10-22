@@ -90,6 +90,36 @@
       "service": "bank",
       "value": "USDT",
       "note": ""
+    },
+    "IDENTITY_SUB_ACCOUNT_FEATURES": {
+      "service": "identity",
+      "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
+      "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
+    },
+    "SUPPORT_ATTACHMENT_STORE": {
+      "service": "support",
+      "value": "local-test-memory",
+      "note": "Keeps attached files in the process memory, lost on restart. Not durable storage."
+    },
+    "SUPPORT_MALWARE_SCANNER": {
+      "service": "support",
+      "value": "local-test-eicar",
+      "note": "Blocks only the EICAR test string and calls every other file clean. Finds no real malware."
+    },
+    "SUPPORT_BULK_CAP": {
+      "service": "support",
+      "value": "25",
+      "note": "Batch size for a bulk change of support requests, so a journey can use the bulk bar. Not an owner decision."
+    },
+    "OPS_RESTORE_TARGET": {
+      "service": "ops",
+      "value": "test-restore-area",
+      "note": "TEST label for the restore storage target. It names no real storage; it only lets restore start and finalize run on the test stack."
+    },
+    "OPS_RESTORE_ARCHIVE_URL": {
+      "service": "ops",
+      "value": "http://archive.test.invalid/restore",
+      "note": "TEST joint-restore archive URL. Nothing is behind it and the archive is not probed, so no backup is listed; it only lets restore steps run on the test stack."
     }
   }
 }

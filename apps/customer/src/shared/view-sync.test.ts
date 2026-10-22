@@ -68,7 +68,14 @@ function accountServer(initial?: { version: number; value: UiViewValue }) {
 
 /** A device's own copy of the view, as the app keeps it. */
 function device(start: Partial<Preferences> = {}) {
-  let copy = { layoutMode: 'pro', hideBalances: false, displayCurrency: 'USD', theme: 'dark', ...start } as Preferences;
+  let copy = {
+    layoutMode: 'pro',
+    hideBalances: false,
+    displayCurrency: 'USD',
+    theme: 'dark',
+    activeProfile: 'personal',
+    ...start,
+  } as Preferences;
   return {
     get: () => copy,
     set: (patch: Partial<Preferences>) => {
@@ -114,6 +121,27 @@ describe('account view sync', () => {
       },
     ]);
     expect(server.record().version).toBe(3);
+  });
+
+  it('carries the profile in view: the account choice reaches this device, and a pick here is written back', async () => {
+    const server = accountServer({ version: 4, value: { activeProfile: 'business:acme' } });
+    const phone = device();
+    const view = sync(server, phone);
+    await view.pull();
+    expect(phone.get().activeProfile).toBe('business:acme');
+    phone.set({ activeProfile: 'personal' });
+    expect(await view.push()).toBe('synced');
+    expect(server.writes).toEqual([{ value: { activeProfile: 'personal' }, ifVersion: 4, clientRequestId: uiViewRequestId('U-9', 4) }]);
+  });
+
+  it('writes nothing for a profile this device never changed (Personal is the shipped default, not a choice)', async () => {
+    const server = accountServer();
+    const phone = device();
+    const view = sync(server, phone);
+    await view.pull();
+    phone.set({ theme: 'light' });
+    await view.push();
+    expect(server.writes.map((write) => write.value)).toEqual([{ theme: 'light' }]);
   });
 
   it('follows the account to a second device: a choice on one shows on the other after sign-in', async () => {

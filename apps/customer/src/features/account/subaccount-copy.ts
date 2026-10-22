@@ -24,6 +24,12 @@ export const subaccountCopy = defineCopy(
     purpose: 'Purpose (optional)',
     active: 'Active',
     revoked: 'Revoked',
+    frozen: 'Frozen',
+    nickname: 'Nickname {name}',
+    kindStandard: 'Standard',
+    kindManaged: 'Managed',
+    kindDerivatives: 'Derivatives',
+    kindSpot: 'Spot',
     noAction: 'No action',
     created: 'Created {time}',
     reviewRevoke: 'Review revoke',
@@ -65,6 +71,9 @@ export const subaccountCopy = defineCopy(
     separate: 'This response belongs to this request. Earlier unconfirmed requests remain separate.',
     refused: 'Creation was refused before insertion',
     refusedBody: 'The service refused this original creation. No strategy partition was inserted by this request.',
+    revokeRefused: 'Revoke was refused before any change',
+    revokeRefusedBody:
+      'Something is still open on this subaccount, or the open items could not be read. It was not revoked. Clear what is open, then try again.',
     retained: 'Known response received · local safeguard retained',
     retainedBody:
       'The service response is known, but its matching local safeguard could not be removed. The matching action stays blocked. You can finalize this local safeguard without sending the action again.',
@@ -95,6 +104,12 @@ export const subaccountCopy = defineCopy(
       purpose: 'Propósito (opcional)',
       active: 'Activa',
       revoked: 'Revocada',
+      frozen: 'Congelada',
+      nickname: 'Apodo {name}',
+      kindStandard: 'Estándar',
+      kindManaged: 'Gestionada',
+      kindDerivatives: 'Derivados',
+      kindSpot: 'Spot',
       noAction: 'Sin acción',
       boundary: 'Una partición de estrategia pertenece a tu cuenta Personal. Es independiente de una cuenta Business.',
       window:
@@ -143,6 +158,9 @@ export const subaccountCopy = defineCopy(
       separate: 'Esta respuesta pertenece a esta solicitud. Las solicitudes anteriores sin confirmar siguen separadas.',
       refused: 'Creación rechazada antes de la inserción',
       refusedBody: 'El servicio rechazó esta creación original. Esta solicitud no insertó ninguna partición de estrategia.',
+      revokeRefused: 'Revocación rechazada antes de cualquier cambio',
+      revokeRefusedBody:
+        'Algo sigue abierto en esta subcuenta, o no se pudo leer lo abierto. No se revocó. Cierra lo abierto e inténtalo de nuevo.',
       retained: 'Respuesta conocida recibida · protección local conservada',
       retainedBody:
         'La respuesta del servicio es conocida, pero no se pudo eliminar su protección local. La acción correspondiente sigue bloqueada. Puedes finalizar esta protección sin volver a enviar la acción.',
@@ -173,6 +191,12 @@ export const subaccountCopy = defineCopy(
       purpose: 'Objet (facultatif)',
       active: 'Actif',
       revoked: 'Révoqué',
+      frozen: 'Gelé',
+      nickname: 'Pseudo {name}',
+      kindStandard: 'Standard',
+      kindManaged: 'Géré',
+      kindDerivatives: 'Dérivés',
+      kindSpot: 'Comptant',
       noAction: 'Aucune action',
       boundary: 'Une partition de stratégie appartient à votre compte Personal. Elle est distincte d’un compte Business.',
       window:
@@ -221,6 +245,9 @@ export const subaccountCopy = defineCopy(
       separate: 'Cette réponse appartient à cette demande. Les demandes antérieures non confirmées restent distinctes.',
       refused: 'Création refusée avant l’insertion',
       refusedBody: 'Le service a refusé cette création initiale. Cette demande n’a inséré aucune partition de stratégie.',
+      revokeRefused: 'Révocation refusée avant tout changement',
+      revokeRefusedBody:
+        'Quelque chose reste ouvert sur ce sous-compte, ou ce qui est ouvert n’a pas pu être lu. Il n’a pas été révoqué. Clôturez ce qui est ouvert, puis réessayez.',
       retained: 'Réponse connue reçue · protection locale conservée',
       retainedBody:
         'La réponse du service est connue, mais sa protection locale n’a pas pu être supprimée. L’action correspondante reste bloquée. Vous pouvez finaliser cette protection sans renvoyer l’action.',

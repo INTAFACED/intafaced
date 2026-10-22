@@ -189,6 +189,9 @@ BANK_RAMP_MODE=none            # default — every ramp money path refuses bank.
 BANK_RAMP_MODE=crypto-ledger   # ledger half only; simulated: true always
 BANK_OFFRAMP_COOLING_HOURS=    # owner-set hours; blank → bank.offramp_cooling_unset (never 24h)
 BANK_ADDRESS_BOOK_CAP=         # owner-set saved addresses per customer; blank → bank.address_book_cap_unset
+BANK_ACCOUNT_DETAILS_CURRENCIES= # owner-published ISO-4217 list ("GBP,EUR"); blank → bank.account_details_currencies_unset
+BANK_ELIGIBILITY_JSON=         # owner-published who can open an account; blank → bank.eligibility_unset
+BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / reference rules of a global send; blank → bank.send_field_rules_unset
 ```
 
 ### `ops` — operator only

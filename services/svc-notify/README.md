@@ -286,24 +286,25 @@ _None._
 
 **Consumes**
 
-| Subject                                   | Consumer (durable)                | Effect                                                                  |
-| ----------------------------------------- | --------------------------------- | ----------------------------------------------------------------------- |
-| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                            |
-| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                        |
-| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                    |
-| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                         |
-| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                |
-| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                |
-| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)              |
-| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                             |
-| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                             |
-| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                        |
-| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                  |
-| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay             |
-| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                |
-| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                      |
-| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                            |
-| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared |
+| Subject                                   | Consumer (durable)                | Effect                                                                       |
+| ----------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                                 |
+| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                             |
+| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                         |
+| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                              |
+| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                     |
+| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                     |
+| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)                   |
+| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                                  |
+| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                                  |
+| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                             |
+| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                       |
+| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay                  |
+| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                     |
+| `intafaced.support.ticket.resolved`       | `notify-support-ticket-resolved`  | Inbox row `support.rate_request` asking the owner to rate a resolved request |
+| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                           |
+| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                                 |
+| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared      |
 
 ### Posting-freeze notice (audience `all`)
 
@@ -597,7 +598,27 @@ a row. A redelivery reuses the same key and cannot double-send.
   fired it, when, the inbox item) after the inbox has it and before the alert is marked fired, keyed by the alert so a retry
   after a crash writes it once. `notify.alertTriggers` reads the person's own rows, newest first, for all alerts or one. How long
   rows are kept is `NOTIFY_ALERT_TRIGGER_LOG_DAYS`; blank writes no log, the read refuses `notify.alert_trigger_log_retention_unset`,
-  and alerts still fire. The sweep prunes rows past the retention. Migration 0021.
+  and alerts still fire. The sweep prunes rows past the retention. Migration 0021; migration 0022 moved the log to `alert_fires`,
+  keyed by alert and fire number (`seq`).
+- Trigger frequency (C-alerts-scan-01c): `frequency` is `once` (the default: the alert triggers and is done) or `every_crossing`
+  (a crossing alert stays active and triggers each time the mark crosses the level again; `fireCount` and `lastFiredAt` say how
+  often). Only a crossing condition can repeat (`alert.frequency_needs_crossing`). Which repeating frequencies exist is
+  `NOTIFY_ALERT_FREQUENCIES`; no default: blank leaves every alert one-shot and refuses a repeating one
+  `notify.alert_frequency_unset`. Each trigger has its own inbox key (`<alertId>:n<fire number>`) and trigger-log row, and the count is
+  taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Known limit: a crash between the inbox write and the count, followed by the mark reversing before the retry, loses the
+  announcement of the next crossing (it reuses the same number); never a double send. Close-based
+  timing (once per candle close) needs the candle-close flag from svc-ws and is not built. Migration 0022.
+- Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
+  paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
+  `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
+  and an alert past its stop time is expired before the count. The count and the write happen under one per-person lock, so
+  two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank).
+  Other alert kinds have no quota setting and are not counted. Burst auto-stop (03b) needs repeating alerts (01c) and is not built.
+- Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
+  market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole
+  (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap
+  or price refuses as a single create does. The service holds no watchlist: the caller sends the list, so a market added to a
+  list later is not picked up (C-alerts-scan-03d needs the account-side list).
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

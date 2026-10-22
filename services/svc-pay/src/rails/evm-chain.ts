@@ -361,6 +361,22 @@ export class EvmLiveChain implements CryptoChainPort {
   }
 
   /**
+   * Every inbound whose transfer this refresh re-read in a receipt, finalized or not, delivered or not. The deposit record
+   * follows these for confirmation progress; it moves no money. Same order as the watcher cursor.
+   */
+  observedInbound(): FinalizedInbound[] {
+    return [...this.observed.values()]
+      .filter((observed) => observed.inReceipt)
+      .sort(compareObserved)
+      .map((observed) => ({
+        address: getAddress(observed.address),
+        transfer: toTransfer(observed),
+        blockNumber: observed.blockNumber,
+        logIndex: observed.logIndex,
+      }));
+  }
+
+  /**
    * Record successful webhook delivery for one inbound at this address.
    *
    * The watcher calls this once per drained item, in cursor order. Each call

@@ -41,13 +41,14 @@ it('shows every bill step with the controls off and the reason on screen', () =>
   expect(out).not.toMatch(/coming soon/i);
 });
 
-it('never shows a rate, a fee or an arrival time abroad', () => {
+it('shows no rate, fee or arrival abroad until the service gives a quote, and sends nothing before then', () => {
   const out = renderToString(<GlobalCard />);
-  expect(out).toContain('Sending abroad isn’t connected');
-  expect(out).toContain('We never estimate a rate');
+  expect(out).toContain('No rate. A rate appears here only when a live source is connected.');
   const quote = out.slice(out.indexOf('data-testid="global-quote"'), out.indexOf('</dl>', out.indexOf('data-testid="global-quote"')));
   expect(quote.match(/<dd>—<\/dd>/g)).toHaveLength(4);
   expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="global-review"|<button[^>]*data-testid="global-review"[^>]*disabled/);
+  expect(out).toMatch(/<button[^>]*disabled[^>]*data-testid="global-get-quote"|<button[^>]*data-testid="global-get-quote"[^>]*disabled/);
+  expect(out).not.toContain('data-testid="global-confirm"');
 });
 
 it('shows a QR code and a payment link for the customer’s handle', () => {

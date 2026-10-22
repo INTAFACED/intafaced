@@ -9,6 +9,9 @@ import {
   BANK_APPROVER_ELIGIBILITY_CALLERS,
   bankApproverEligibilityInputSchema,
   bankApproverEligibilitySchema,
+  PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT,
+  PAY_CUSTODY_DEPOSIT_STATUSES,
+  payCustodyDepositRecordSchema,
 } from '@intafaced/contracts';
 import { InsufficientFundsError, LedgerError, formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -19,6 +22,14 @@ import {
   type ActionApprovalConsumer,
 } from './action-approval-consume.js';
 import { BankError } from './errors.js';
+import {
+  FRAUD_BLOCK_STANCES,
+  FRAUD_PREVIEW_ACTIONS,
+  FRAUD_RISK_BANDS,
+  FRAUD_SIGNALS,
+  fraudPreview,
+  refuseFraudPreviewAction,
+} from './cards/fraud-preview.js';
 import { requireBankJobService } from './ops-job-hmac.js';
 import { accountForSpace, type SpaceRecord } from './spaces/space-service.js';
 import type { BankServices } from './bank-service.js';
@@ -29,6 +40,7 @@ import { BUSINESS_ROLES, describeBusinessPolicy } from './business/business-poli
 import { poolTotalsProcedure } from './ops/pool-totals.js';
 import { loanBookProcedure } from './ops/loan-book.js';
 import { cardProgrammeProcedure, setCardStatusProcedure } from './ops/card-programme.js';
+import { createLoanProductProcedure } from './ops/loan-products.js';
 import { rampHealthProcedure } from './ops/ramp-health.js';
 import { transferHealthProcedure } from './ops/transfer-health.js';
 import { failedTransfersProcedure } from './ops/failed-transfers.js';
@@ -37,6 +49,7 @@ import { transferDetailProcedure } from './ops/transfer-detail.js';
 import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
+import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -409,6 +422,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'bank.loan_product_conflict':
         return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
       case 'bank.same_space':
@@ -482,8 +496,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.transfer_health_window_unset':
       case 'bank.failed_transfers_window_unset':
       case 'bank.failed_transfers_limit_unset':
+      case 'bank.account_details_currency_unknown':
       case 'bank.failed_transfers_cursor_invalid':
       case 'bank.ops_business_approvals_limit_unset':
+      case 'bank.loan_params_invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -516,6 +532,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.destination_label_taken':
       case 'bank.address_book_full':
       case 'bank.address_book_cap_unset':
+      case 'rail.bank':
+      case 'bank.account_details_currencies_unset':
+      case 'bank.eligibility_unset':
       case 'bank.fx_rate_unset':
       case 'bank.dest_user_missing':
       case 'bank.recipient_cannot_receive':
@@ -574,6 +593,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.prices_unavailable':
       case 'bank.statement_unavailable':
       case 'bank.ops_audit_unavailable':
+      case 'bank.account_details_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       default: {
@@ -1942,6 +1962,36 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * one release. Overlapping releases share the loan row lock, so they cannot
      * each pass the product cap.
      */
+    /**
+     * Redeem-excess read (BK-loan-05): the most collateral `releaseExcess` would
+     * release now under the product's max LTV. Self-only. Posts nothing.
+     */
+    releasable: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ loanId: z.string().uuid() }))
+      .output(
+        z.object({
+          loanId: z.string(),
+          held: amountString,
+          releasable: amountString,
+          maxLtvBps: z.number().int(),
+          ltvBps: z.number().int(),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const loan = await bank.loans.loan(input.loanId);
+          assertSelf(ctx.principal.userId, loan.userId);
+          const read = await bank.loans.releasable(input.loanId);
+          return {
+            loanId: input.loanId,
+            held: formatAmount(read.held),
+            releasable: formatAmount(read.releasable),
+            maxLtvBps: read.maxLtvBps,
+            ltvBps: read.ltvBps,
+          };
+        }),
+      ),
+
     releaseExcess: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid(), eventId: z.string().uuid(), amount: amountString }))
       .output(z.object({ ledgerTxId: z.string(), sequence: z.number().int() }))
@@ -2578,6 +2628,40 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * not this door. Bank maker-checker is not this door.
    */
   const ops = router({
+    /**
+     * BK-cops-09 fraud preview (/bank-ops/cards/fraud). TEST rows only, labelled
+     * and blurred; no authorisation carries a score until an engine exists.
+     */
+    fraudPreview: scopedProcedure('admin:treasury')
+      .output(
+        z.object({
+          label: z.literal('Preview · sample data'),
+          engine: z.string(),
+          preview: z.literal(true),
+          blurred: z.literal(true),
+          stances: z.array(z.enum(FRAUD_BLOCK_STANCES)),
+          automaticBlocking: z.literal('unavailable'),
+          rows: z.array(
+            z.object({
+              testAuthorisationRef: z.string().startsWith('TEST-'),
+              test: z.literal(true),
+              band: z.enum(FRAUD_RISK_BANDS),
+              signals: z.array(z.enum(FRAUD_SIGNALS)),
+            }),
+          ),
+        }),
+      )
+      .query(() => {
+        const view = fraudPreview();
+        return { ...view, stances: [...view.stances], rows: view.rows.map((r) => ({ ...r, signals: [...r.signals] })) };
+      }),
+    /** Every engine action on the fraud preview returns the typed Preview refusal and changes nothing. */
+    fraudPreviewAction: scopedProcedure('admin:treasury')
+      .input(z.object({ action: z.enum(FRAUD_PREVIEW_ACTIONS) }))
+      .output(
+        z.object({ kind: z.literal('preview'), engine: z.string(), action: z.enum(FRAUD_PREVIEW_ACTIONS), changed: z.literal(false) }),
+      )
+      .mutation(({ input }) => refuseFraudPreviewAction(input.action)),
     runDueTransfers: jobProcedure
       .input(z.object({ limit: z.number().int().min(1).max(10_000).optional() }))
       .output(
@@ -3284,6 +3368,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
 
     poolTotals: poolTotalsProcedure(() => bank.earn.poolTotals(), guard),
     loanBook: loanBookProcedure(() => bank.loans.loanBook(), guard),
+    createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
@@ -4662,12 +4747,33 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 networkId: z.string(),
                 amount: amountString,
                 confirmations: z.number().int().nonnegative(),
-                confirmationsRequired: z.number().int().nonnegative(),
+                confirmationsRequired: z.number().int().nonnegative().nullable(),
               }),
             ),
           }),
         )
         .query(async ({ ctx }) => guard(async () => bank.deposits.pending(ctx.principal.userId))),
+
+      /**
+       * The customer's own deposit history with its state and reason (W-deposit-05). Filters: coin, network, status, tx id,
+       * address. A page with the true total. A blank port refuses `bank.deposit_custody_unset`.
+       */
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(
+          z
+            .object({
+              assetId: z.string().min(1).max(16).optional(),
+              networkId: z.string().min(1).max(32).optional(),
+              status: z.enum(PAY_CUSTODY_DEPOSIT_STATUSES).optional(),
+              txId: z.string().min(1).max(128).optional(),
+              address: z.string().min(1).max(256).optional(),
+              offset: z.number().int().min(0).max(1_000_000).default(0),
+              limit: z.number().int().min(1).max(PAY_CUSTODY_DEPOSIT_RECORDS_MAX_LIMIT).default(50),
+            })
+            .default({}),
+        )
+        .output(z.object({ items: z.array(payCustodyDepositRecordSchema), total: z.number().int().nonnegative() }))
+        .query(async ({ ctx, input }) => guard(async () => bank.deposits.list(ctx.principal.userId, input))),
     }),
     autoInvest,
     business,
@@ -4675,6 +4781,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     portfolio,
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
+    accountDetails: createAccountDetailsRouter(bank, guard),
+    eligibility: createEligibilityRouter(bank, guard),
     bills: createBillsRouter(bank, stepUp),
     global: createGlobalRouter(bank, stepUp),
     personalRequest: createPersonalRequestRouter(bank, guard),

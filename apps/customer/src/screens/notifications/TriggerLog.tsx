@@ -50,7 +50,7 @@ export function TriggerLog({
         <>
           <ul className="nf-list" data-testid="alerts-log-list">
             {state.page.items.map((row) => (
-              <li key={row.alertId} className="nf-alertrow" data-testid="alert-trigger">
+              <li key={`${row.alertId}:${row.seq ?? 1}`} className="nf-alertrow" data-testid="alert-trigger">
                 <div className="nf-text">
                   <span className="nf-title">{marketLabel(row.marketId)}</span>
                   <span className="nf-body nf-body--wrap">

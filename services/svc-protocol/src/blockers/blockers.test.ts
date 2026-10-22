@@ -135,15 +135,16 @@ describe('peers', () => {
   });
 
   it('reads the public procedure with the region header and no credential', async () => {
-    let seen: { url: string; headers: Record<string, string> } | undefined;
+    let seen: { url: string; headers: Record<string, string>; redirect: RequestInit['redirect'] } | undefined;
     const fetch = (async (url: string, init: RequestInit) => {
-      seen = { url, headers: init.headers as Record<string, string> };
+      seen = { url, headers: init.headers as Record<string, string>, redirect: init.redirect };
       return envelope(indexer);
     }) as unknown as typeof globalThis.fetch;
     const peers = createPeers({ indexer: { url: 'http://indexer.test/', timeoutMs: 500, fetch }, dex: { url: undefined, timeoutMs: 500 } });
     expect(await peers.indexer('DE')).toMatchObject({ status: 'ok' });
     expect(seen?.url).toBe('http://indexer.test/trpc/status');
     expect(seen?.headers).toEqual({ accept: 'application/json', 'x-intafaced-region': 'DE' });
+    expect(seen?.redirect).toBe('error');
   });
 
   it('reports an unreachable, refusing or malformed peer as down, never as ok', async () => {

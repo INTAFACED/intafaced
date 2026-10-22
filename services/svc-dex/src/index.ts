@@ -6,6 +6,7 @@ import { createDexRouter } from './router.js';
 import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
 import { venuesFor as venuesForEnv } from './quote/venue-set.js';
 import { clobCostsFromOptional } from './quote/clob-costs.js';
+import { createHideListReader } from './quote/hide-list.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -58,6 +59,10 @@ export const appRouter = createDexRouter({
   venues: venuesFor,
   maxAgeMs: env.QUOTE_MAX_AGE_MS,
   depth: env.DEX_QUOTE_DEPTH,
+  // The hide list is read with the same published bound as a venue fetch; unset bound or URL leaves quote refusing.
+  ...(env.OPS_URL && env.QUOTE_MAX_AGE_MS
+    ? { hideList: createHideListReader({ baseUrl: env.OPS_URL, timeoutMs: env.QUOTE_MAX_AGE_MS }) }
+    : {}),
   internalBookEnabled: env.DEX_INTERNAL_BOOK_ENABLED,
   ammVenueWired,
   externalVenueWired,

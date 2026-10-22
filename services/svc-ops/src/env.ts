@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PROTOCOL_OPS_REASON_CODE_PATTERN } from '@intafaced/contracts';
 import {
   baseEnvSchema,
   edgeEnvSchema,
@@ -16,7 +17,7 @@ import {
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
 
-const schema = baseEnvSchema
+export const opsEnvSchema = baseEnvSchema
   .merge(otelEnvSchema)
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
@@ -30,6 +31,8 @@ const schema = baseEnvSchema
       IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
       /** Env URL only. This process does not fetch; /ready names hardcoded-absent. */
       SUPPORT_URL: blankAsAbsent(z.string().url().optional()),
+      /** svc-ledger base URL for the fee revenue read. Blank → the venue report says ops.fee_revenue_unconfigured and gives no net. */
+      LEDGER_URL: blankAsAbsent(z.string().url().optional()),
       NOTIFY_URL: blankAsAbsent(z.string().url().optional()),
       /** Dedicated ops-to-guest ingress key; match NOTIFY_OPS_SERVICE_SECRET. */
       OPS_NOTIFY_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
@@ -49,12 +52,39 @@ const schema = baseEnvSchema
        */
       OPS_RESTORE_ARCHIVE_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * Owner storage target for restored data. Blank → restore.start and restore.finalize refuse
+       * ops.restore_target_unset. Never invented.
+       */
+      OPS_RESTORE_TARGET: blankAsAbsent(z.string().min(1).max(256).optional()),
+      /** svc-bank and svc-pay base URLs for the joint-restore watermark reads. Blank → that service reads as unavailable. */
+      BANK_URL: blankAsAbsent(z.string().url().optional()),
+      PAY_URL: blankAsAbsent(z.string().url().optional()),
+      /**
        * Alert source. Blank → alerts.list names ops.alert_source_unconfigured.
        * A set URL is not probed and acknowledge still refuses.
        */
       OPS_ALERT_SOURCE_URL: blankAsAbsent(z.string().url().optional()),
+      /**
+       * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
+       * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.
+       */
+      OPS_PROTOCOL_REASON_CODES: blankAsAbsent(
+        z
+          .string()
+          .optional()
+          .refine(
+            (value) =>
+              value === undefined ||
+              value
+                .split(',')
+                .map((code) => code.trim())
+                .filter(Boolean)
+                .every((code) => PROTOCOL_OPS_REASON_CODE_PATTERN.test(code)),
+            'OPS_PROTOCOL_REASON_CODES must be comma separated lower snake case codes (a-z, 0-9, _).',
+          ),
+      ),
     }),
   );
 
-export type OpsEnv = z.infer<typeof schema>;
-export const env: OpsEnv = loadEnv(schema);
+export type OpsEnv = z.infer<typeof opsEnvSchema>;
+export const env: OpsEnv = loadEnv(opsEnvSchema);

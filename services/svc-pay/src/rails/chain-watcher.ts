@@ -247,6 +247,8 @@ export interface ChainWatcherChain {
   refresh(): Promise<void>;
   drainFinalized(): readonly FinalizedInbound[];
   markFinalizedEmitted(address: string): void;
+  /** Every re-read inbound with its depth, for the deposit record's progress. Optional: a chain without it has no progress. */
+  observedInbound?(): readonly FinalizedInbound[];
 }
 
 export interface ChainWatcherOptions {
@@ -271,6 +273,11 @@ export interface ChainWatcherOptions {
   readonly maxDeliveryAttempts?: number;
   /** Where dead letters are recorded. Required for `maxDeliveryAttempts` to take effect. */
   readonly deadLetters?: ChainWatcherDeadLetterStore;
+  /**
+   * Called each tick, before delivery, with every re-read inbound (finalized or not). The deposit record keeps progress from
+   * it. A throw is logged and never stops delivery.
+   */
+  readonly onObserved?: (items: readonly FinalizedInbound[]) => Promise<void>;
 }
 
 interface DeliveryResult {
@@ -321,6 +328,7 @@ export class CryptoChainWatcher {
     try {
       await this.options.chain.refresh();
       this.options.onAlive?.();
+      await this.reportObserved();
       const cursor = await this.cursors.load(this.watcherId);
       const finalized = [...this.options.chain.drainFinalized()].sort((a, b) => compareChainWatcherCursor(cursorOf(a), cursorOf(b)));
       // One failed delivery blocks only its own address (the chain marks per address, earliest first, so a later
@@ -339,7 +347,7 @@ export class CryptoChainWatcher {
           continue;
         }
         const id = chainDeliveryId(item);
-        const result = await this.deliver(item.address, item.transfer, id);
+        const result = await this.deliver(item.address, item.transfer, item.logIndex, id);
         let handled = result.ok;
         if (!result.ok) {
           const attempts = (this.attempts.get(id) ?? 0) + 1;
@@ -363,6 +371,17 @@ export class CryptoChainWatcher {
       return 0;
     } finally {
       this.running = false;
+    }
+  }
+
+  private async reportObserved(): Promise<void> {
+    const observe = this.options.onObserved;
+    const items = this.options.chain.observedInbound?.();
+    if (!observe || !items || items.length === 0) return;
+    try {
+      await observe(items);
+    } catch (err) {
+      this.log('chain watcher could not report observed inbounds', { err: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -398,6 +417,7 @@ export class CryptoChainWatcher {
   private async deliver(
     address: string,
     transfer: { txHash: string; assetId: string; amount: bigint; from: string; confirmations: number },
+    logIndex: number,
     id: string,
   ): Promise<DeliveryResult> {
     const at = this.now();
@@ -409,6 +429,7 @@ export class CryptoChainWatcher {
       assetId: transfer.assetId,
       occurredAt: at.toISOString(),
       txHash: transfer.txHash,
+      logIndex,
       from: transfer.from,
       confirmations: transfer.confirmations,
     };

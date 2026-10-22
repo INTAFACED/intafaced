@@ -331,3 +331,54 @@ it('counts rows on a listed sub-account and ignores an unlisted one', async () =
   // Not listed: neither card is seen.
   expect((await codes(USER, [])).blockers).toEqual([]);
 });
+
+describe('scope sub_accounts leaves the main account out', () => {
+  const card = (owner: string, ref: string) => db.sql`
+    INSERT INTO bank.cards (user_id, asset_id, settlement_asset_id, issuer, issuer_ref, pan_tail, per_authorization_limit)
+    VALUES (${owner}, 'USDT', 'USDT', 'card-sim', ${ref}, '4242', '10')
+  `;
+
+  it('ignores a main-account card and counts the named sub-account card', async () => {
+    await card(USER, 'ref-main');
+    const sub = async () => {
+      const response = await post({ userId: USER, subAccountIds: [SUB], scope: 'sub_accounts' });
+      expect(response.statusCode).toBe(200);
+      return (response.json() as { blockers: unknown[] }).blockers;
+    };
+    expect(await sub()).toEqual([]);
+    await card(SUB, 'ref-sub');
+    expect(await sub()).toEqual([{ code: 'active_card', count: 1 }]);
+    // Without the scope the main account's card still counts too.
+    expect((await codes(USER, [SUB])).blockers).toEqual([{ code: 'active_card', count: 2 }]);
+  });
+
+  it('does not read the main account balance', async () => {
+    const mainLedger = new MemoryLedger();
+    await mainLedger.post(deposit({ userId: USER, assetId: 'BTC', amount: parseAmount('1'), rail: 'test', railRef: 'main-only' }));
+    const scoped = Fastify();
+    retainRawBody(scoped);
+    registerClosureCheck(scoped, { sql: db.sql, ledger: mainLedger, secret: SECRET });
+    const raw = JSON.stringify({ userId: USER, subAccountIds: [SUB], scope: 'sub_accounts' });
+    const response = await scoped.inject({
+      method: 'POST',
+      url: '/internal/closure-check',
+      payload: raw,
+      headers: { 'content-type': 'application/json', ...serviceAuthHeadersForBody('svc-identity', SECRET, raw) },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ blockers: [], balances: [] });
+    await scoped.close();
+  });
+
+  it('refuses a sub-account question that names no sub-account, and an unknown scope', async () => {
+    for (const body of [
+      { userId: USER, subAccountIds: [], scope: 'sub_accounts' },
+      { userId: USER, subAccountIds: [USER], scope: 'sub_accounts' },
+      { userId: USER, subAccountIds: [SUB], scope: 'everything' },
+    ]) {
+      const response = await post(body);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).not.toHaveProperty('blockers');
+    }
+  });
+});

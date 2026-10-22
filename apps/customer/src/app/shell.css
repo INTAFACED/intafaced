@@ -342,7 +342,71 @@
   .tb-account-menu {
     top: calc(100% + 8px);
     right: 0;
-    width: 200px;
+    width: 264px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+  }
+  .tb-account-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 12px;
+    min-height: 64px;
+    overflow-wrap: anywhere;
+  }
+  .tb-account-summary strong {
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--tb-fg);
+  }
+  .tb-account-summary small,
+  .tb-account-heading,
+  .tb-account-note {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg-2);
+  }
+  .tb-account-summary__skeleton {
+    display: block;
+    height: 20px;
+    width: 60%;
+    border-radius: 6px;
+    background: var(--tb-hover);
+  }
+  .tb-account-heading {
+    padding: 8px 12px 2px;
+  }
+  .tb-account-note {
+    padding: 6px 12px;
+  }
+  .tb-account-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--tb-fg);
+    text-decoration: underline;
+    font: inherit;
+    cursor: pointer;
+  }
+  .tb-account-item[aria-pressed='true']::after {
+    content: '✓';
+    float: right;
+  }
+  .tb-account-value {
+    float: right;
+    color: var(--tb-fg-2);
+  }
+  .tb-profile-chip {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--tb-line);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--tb-fg);
   }
   .tb-account-item {
     display: block;
@@ -556,4 +620,9 @@
       display: none;
     }
   }
+}
+
+.tb-account-language {
+  padding: 8px 12px;
+  list-style: none;
 }

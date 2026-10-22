@@ -363,6 +363,16 @@ export type BankErrorCode =
   | 'bank.withdraw_destination_missing'
   /** Another saved address of this customer already has this label (case ignored). */
   | 'bank.destination_label_taken'
+  /** No banking partner is wired, so there are no account details to show or request. The blocker is named `rail.bank`. */
+  | 'rail.bank'
+  /** The owner has not published which currencies have account details. Nothing is listed; no list is invented. */
+  | 'bank.account_details_currencies_unset'
+  /** The currency asked for is not one the owner publishes account details for. */
+  | 'bank.account_details_currency_unknown'
+  /** The banking partner did not answer. Nothing was changed. */
+  | 'bank.account_details_unavailable'
+  /** The owner has not published who can open an account. No eligibility statement is shown. */
+  | 'bank.eligibility_unset'
   /** The address book holds as many entries as the owner allows. */
   | 'bank.address_book_full'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
@@ -627,7 +637,11 @@ export type BankErrorCode =
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
-  | 'bank.ops_audit_unavailable';
+  | 'bank.ops_audit_unavailable'
+  /** Operator loan product terms are blank, out of range or out of LTV order (BK-loan-02). */
+  | 'bank.loan_params_invalid'
+  /** A product id was reused with different terms. */
+  | 'bank.loan_product_conflict';
 
 export class BankError extends Error {
   constructor(

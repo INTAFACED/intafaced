@@ -107,6 +107,14 @@ export const ALERT_CONDITIONS = [
   'less_than',
 ] as const satisfies readonly AlertCondition[];
 
+/**
+ * How often an alert may trigger. `once` is the original rule: the alert triggers and is done. `every_crossing` keeps a crossing
+ * alert active, so it triggers each time the mark crosses the level again. Which of the repeating ones a deployment allows is an
+ * owner setting (`NOTIFY_ALERT_FREQUENCIES`); `once` is always allowed.
+ */
+export type AlertFrequency = 'once' | 'every_crossing';
+export const ALERT_FREQUENCIES = ['once', 'every_crossing'] as const satisfies readonly AlertFrequency[];
+
 /** Which side of the target the mark was last seen on. At the target counts as `at_or_above`. */
 export type AlertSide = 'below' | 'at_or_above';
 
@@ -143,6 +151,11 @@ export type PriceAlert = {
   readonly expiresAt: Date | null;
   /** Internal state of a crossing watch; never on the wire. */
   readonly lastSide: AlertSide | null;
+  readonly frequency: AlertFrequency;
+  /** How many times a repeating alert has triggered. Zero for a one-shot alert, whose single trigger is `firedAt`. */
+  readonly fireCount: number;
+  /** When a repeating alert last triggered. */
+  readonly lastFiredAt: Date | null;
   /** Further level conditions on the same market. The alert fires only when the main condition AND every one of these holds. */
   readonly extras: readonly AlertExtra[];
   /** When the person last changed the alert (edit, stop, resume, cancel). The creation time until then. */
@@ -161,10 +174,14 @@ export type AlertEdit = {
   readonly message?: string | null;
   readonly expiresAt?: Date | null;
   readonly extras?: readonly AlertExtra[];
+  readonly frequency?: AlertFrequency;
 };
 
 /** The whole editable state, after an edit is merged and validated. */
-export type AlertEditState = Pick<PriceAlert, 'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>;
+export type AlertEditState = Pick<
+  PriceAlert,
+  'direction' | 'targetPrice' | 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency'
+>;
 
 export type CreatePriceAlertInput = {
   readonly userId: string;
@@ -177,6 +194,13 @@ export type CreatePriceAlertInput = {
   readonly message?: string | null;
   readonly expiresAt?: Date | null;
   readonly extras?: readonly AlertExtra[];
+  /** Omitted: `once`. */
+  readonly frequency?: AlertFrequency;
+  /**
+   * The most open (active or paused) alerts of this kind the person may hold, counting this one. The store checks it in the
+   * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
+   */
+  readonly maxOpen?: number;
 };
 
 /**
