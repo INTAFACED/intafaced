@@ -12,7 +12,7 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution) · svc-edge · a small Customer
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
  *   static server + reverse proxy on http://127.0.0.1:3210
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
@@ -41,6 +41,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
 import {
+  FOUNDER_VAULT_NAME,
+  enrolledFounderPair,
   ensureFounderVaultDraft,
   enrolTestStackFounders,
   founderIdentityEnv,
@@ -51,6 +53,7 @@ import {
 } from './local-test-founders.mjs';
 import {
   localStackState,
+  localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
   readProcessIdentity,
@@ -102,6 +105,7 @@ const PORTS = {
   blueprint: 14514,
   quant: 14515,
   execution: 14516,
+  tax: 14517,
   customer: 3210,
 };
 const HOST = '127.0.0.1';
@@ -142,8 +146,7 @@ const NATS_PRIOR =
   ) ?? '/tmp/intafaced-product-vitality-2026-10-10/account-test';
 const NATS_ZIP = 'nats-server-v2.10.24-darwin-arm64.zip';
 
-const PG_BIN =
-  process.env.LOCAL_STACK_PG_BIN ?? (fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin');
+const PG_BIN = localPgBin();
 const PNPM_PATH = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':');
 
 // ── Small helpers ───────────────────────────────────────────────────────────
@@ -238,17 +241,26 @@ const dbUrl = (role, secrets) => `postgres://${role}:${secrets.pgService}@${HOST
 const urlOf = (name) => `http://${HOST}:${PORTS[name]}`;
 const PLACEHOLDER_OPERATOR_IDS = '00000000-0000-4000-8000-0000000000a1,00000000-0000-4000-8000-0000000000b2';
 
-/** User ids of the two LOCAL TEST operators (comma-separated), or '' while they have not been created yet. */
+/**
+ * User ids of the two LOCAL TEST operators and, once enrolled, the two local founders (comma-separated), or '' while
+ * none exist yet. The founders approve founder-only actions such as opening a book, so matching must seat them too.
+ */
 function localOperatorIds() {
+  let ops = {};
   try {
-    const ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
-    return ['a', 'b']
-      .map((k) => ops[k]?.userId)
-      .filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id))
-      .join(',');
+    ops = JSON.parse(fs.readFileSync(path.join(STATE, 'operators.json'), 'utf8')).operators ?? {};
   } catch {
-    return '';
+    /* no operators yet */
   }
+  let vault = null;
+  try {
+    vault = readJson(path.join(STATE, FOUNDER_VAULT_NAME));
+  } catch {
+    /* no founder vault yet */
+  }
+  const founders = enrolledFounderPair(vault) ?? [];
+  const ids = [...['a', 'b'].map((k) => ops[k]?.userId), ...founders.map((f) => f.userId)];
+  return [...new Set(ids.filter((id) => typeof id === 'string' && /^[0-9a-zA-Z-]{8,64}$/.test(id)))].join(',');
 }
 
 // ── Process records (pid file + argv) ───────────────────────────────────────
@@ -443,6 +455,7 @@ const BACKEND_PKGS = [
   'svc-blueprint',
   'svc-quant',
   'svc-execution',
+  'svc-tax',
 ];
 
 function gitHead() {
@@ -688,6 +701,7 @@ const EDGE_UPSTREAMS = {
   MARKET_URL: 'market',
   EXECUTION_URL: 'execution',
   QUANT_URL: 'quant',
+  TAX_URL: 'tax',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -697,7 +711,6 @@ const EDGE_ABSENT = {
   PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
   DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
   INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
-  TAX_URL: 'Tax reporting; the Customer app never calls /api/tax.',
   OPS_URL: 'Back-office CRM and analytics for operators; not a customer door.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
@@ -999,6 +1012,12 @@ function serviceDefs(secrets) {
         EXECUTION_EMS_STORE_PATH: path.join(P.data, 'execution', 'ems-orders.ndjson'),
         // EXECUTION_VENUE_IDS empty: no outside venue, so nothing can route off-platform.
       }),
+    },
+    {
+      // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
+      // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
+      name: 'tax',
+      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger') }),
     },
     {
       name: 'edge',

@@ -33,6 +33,7 @@ import {
   operatorOwnerBalancesInputSchema,
   operatorOwnerBalancesOutputSchema,
 } from './ledger/operator-owner-balances.js';
+import { operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey, TraceInconsistentError } from './ledger/operator-trace.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
 
@@ -457,6 +458,24 @@ export function createLedgerRouter(
         try {
           return await operatorOwnerBalances(ledger, { actorId: ctx.principal.userId, requestId: ctx.requestId ?? null }, input);
         } catch (err) {
+          throw toTrpcError(err);
+        }
+      }),
+
+    /**
+     * Operator trace (OPS-ledger-desk-01): a business key to the transaction it booked, each posting with its balance
+     * after, or an honest `found: false`. A read, never a post; works while the posting freeze is on.
+     */
+    trace: scopedProcedure('admin:treasury')
+      .input(operatorTraceInputSchema)
+      .output(operatorTraceOutputSchema)
+      .query(async ({ input }) => {
+        try {
+          return await traceBusinessKey(ledger, input);
+        } catch (err) {
+          if (err instanceof TraceInconsistentError) {
+            throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.code, cause: err });
+          }
           throw toTrpcError(err);
         }
       }),
