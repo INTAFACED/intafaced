@@ -4,7 +4,7 @@ import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
 import { InvalidEntryError } from '../types.js';
 import { recipes } from './index.js';
-import { payReceivedHoldAccount } from './pay-received-hold.js';
+import { PayReceivedPartialError, payReceivedHoldAccount } from './pay-received-hold.js';
 
 const RECIPIENT = '11111111-1111-4111-8111-111111111111';
 const PAYER = '22222222-2222-4222-8222-222222222222';
@@ -22,9 +22,16 @@ async function funded(amount = '1000'): Promise<MemoryLedger> {
 
 const hold = (amount = '300', holdId = 'h1') => recipes.payReceivedHold({ holdId, userId: RECIPIENT, assetId: ASSET, amount: amt(amount) });
 const release = (amount = '300', holdId = 'h1') =>
-  recipes.payReceivedRelease({ holdId, userId: RECIPIENT, assetId: ASSET, amount: amt(amount) });
+  recipes.payReceivedRelease({ holdId, userId: RECIPIENT, assetId: ASSET, amount: amt(amount), heldAmount: amt(amount) });
 const giveBack = (amount = '300', holdId = 'h1') =>
-  recipes.payReceivedReturn({ holdId, userId: RECIPIENT, payerUserId: PAYER, assetId: ASSET, amount: amt(amount) });
+  recipes.payReceivedReturn({
+    holdId,
+    userId: RECIPIENT,
+    payerUserId: PAYER,
+    assetId: ASSET,
+    amount: amt(amount),
+    heldAmount: amt(amount),
+  });
 
 describe('holds on received funds (RH-1 to RH-4)', () => {
   it('hold moves recipient available into the per-hold pot under pay.recv.hold:<holdId>', async () => {
@@ -101,14 +108,65 @@ describe('holds on received funds (RH-1 to RH-4)', () => {
   it('refuses blank ids, non-positive amounts and a return to the recipient', () => {
     expect(() => recipes.payReceivedHold({ holdId: ' ', userId: RECIPIENT, assetId: ASSET, amount: amt('1') })).toThrow(InvalidEntryError);
     expect(() => recipes.payReceivedHold({ holdId: 'h1', userId: '', assetId: ASSET, amount: amt('1') })).toThrow(InvalidEntryError);
-    expect(() => recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: '', amount: amt('1') })).toThrow(InvalidEntryError);
-    expect(() => recipes.payReceivedHold({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: 0n })).toThrow(InvalidEntryError);
-    expect(() => recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: -1n })).toThrow(InvalidEntryError);
-    expect(() => recipes.payReceivedReturn({ holdId: 'h1', userId: RECIPIENT, payerUserId: '', assetId: ASSET, amount: amt('1') })).toThrow(
-      InvalidEntryError,
-    );
     expect(() =>
-      recipes.payReceivedReturn({ holdId: 'h1', userId: RECIPIENT, payerUserId: RECIPIENT, assetId: ASSET, amount: amt('1') }),
+      recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: '', amount: amt('1'), heldAmount: amt('1') }),
     ).toThrow(InvalidEntryError);
+    expect(() => recipes.payReceivedHold({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: 0n })).toThrow(InvalidEntryError);
+    expect(() =>
+      recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: -1n, heldAmount: amt('1') }),
+    ).toThrow(InvalidEntryError);
+    expect(() =>
+      recipes.payReceivedReturn({
+        holdId: 'h1',
+        userId: RECIPIENT,
+        payerUserId: '',
+        assetId: ASSET,
+        amount: amt('1'),
+        heldAmount: amt('1'),
+      }),
+    ).toThrow(InvalidEntryError);
+    expect(() =>
+      recipes.payReceivedReturn({
+        holdId: 'h1',
+        userId: RECIPIENT,
+        payerUserId: RECIPIENT,
+        assetId: ASSET,
+        amount: amt('1'),
+        heldAmount: amt('1'),
+      }),
+    ).toThrow(InvalidEntryError);
+  });
+
+  it('refuses a partial release with a typed error and moves nothing (RH-2)', async () => {
+    const ledger = await funded();
+    await ledger.post(hold('300'));
+    expect(() =>
+      recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: amt('100'), heldAmount: amt('300') }),
+    ).toThrow(PayReceivedPartialError);
+    expect(await bal(ledger, payReceivedHoldAccount(RECIPIENT, ASSET, 'h1'))).toBe('300');
+    expect(await bal(ledger, userAvailable(RECIPIENT, ASSET))).toBe('700');
+  });
+
+  it('refuses a partial return, and a partial release followed by a return of the rest (RH-2)', async () => {
+    const ledger = await funded();
+    await ledger.post(hold('300'));
+    expect(() =>
+      recipes.payReceivedReturn({
+        holdId: 'h1',
+        userId: RECIPIENT,
+        payerUserId: PAYER,
+        assetId: ASSET,
+        amount: amt('200'),
+        heldAmount: amt('300'),
+      }),
+    ).toThrow(PayReceivedPartialError);
+    expect(() =>
+      recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: amt('100'), heldAmount: amt('300') }),
+    ).toThrow(PayReceivedPartialError);
+    expect(() =>
+      recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: ASSET, amount: amt('300'), heldAmount: 0n }),
+    ).toThrow(InvalidEntryError);
+    expect(await bal(ledger, userAvailable(PAYER, ASSET))).toBe('0');
+    expect(await bal(ledger, payReceivedHoldAccount(RECIPIENT, ASSET, 'h1'))).toBe('300');
   });
 });

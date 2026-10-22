@@ -736,11 +736,11 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     },
     {
       name: 'payReceivedRelease',
-      post: recipes.payReceivedRelease({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT }),
+      post: recipes.payReceivedRelease({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
     {
       name: 'payReceivedReturn',
-      post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT }),
+      post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
     {
       name: 'marketPurchase',

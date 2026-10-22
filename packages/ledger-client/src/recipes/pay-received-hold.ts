@@ -14,8 +14,12 @@ import { userAvailable, userHold } from '../accounts.js';
  *   release  recipient hold      → recipient available    (release date or early by an agent)
  *   return   recipient hold      → payer available        (a ruling returns it to the payer)
  *
- * Release and return draw on the same pot, so once one has emptied it the other
- * is refused by the ledger's non-negative hold balance: one outcome per hold.
+ * One outcome per hold (RH-2): release and return each move the WHOLE hold.
+ * The caller passes the amount the hold was placed for (`heldAmount`) and the
+ * recipe refuses any other amount (`PayReceivedPartialError`), so a partial
+ * release can never leave a remainder for a return, and a retried remainder can
+ * never collapse onto the release key. Once one outcome has emptied the pot the
+ * other is refused by the ledger's non-negative hold balance.
  * Who may place a hold, the reason class and the release date are svc-bank's
  * (owner rule table); these recipes never choose an amount or a date.
  */
@@ -48,7 +52,26 @@ export interface PayReceivedHoldInput {
   amount: Amount;
 }
 
-export interface PayReceivedReturnInput extends PayReceivedHoldInput {
+/** A release or return must move exactly the amount the hold was placed for (RH-2). */
+export class PayReceivedPartialError extends InvalidEntryError {
+  constructor(action: 'release' | 'return') {
+    super(`pay.recv.partial_${action}: a hold on received funds is released or returned whole, never in part`);
+    this.name = 'PayReceivedPartialError';
+  }
+}
+
+export interface PayReceivedOutcomeInput extends PayReceivedHoldInput {
+  /** The amount `payReceivedHold` placed for this holdId. `amount` must equal it. */
+  heldAmount: Amount;
+}
+
+function requireWhole(action: 'release' | 'return', input: PayReceivedOutcomeInput): void {
+  requirePositive(`received-funds ${action} amount`, input.amount);
+  requirePositive('held amount', input.heldAmount);
+  if (input.amount !== input.heldAmount) throw new PayReceivedPartialError(action);
+}
+
+export interface PayReceivedReturnInput extends PayReceivedOutcomeInput {
   /** The payer the ruling returns the held funds to. */
   payerUserId: string;
 }
@@ -74,8 +97,8 @@ export function payReceivedHold(input: PayReceivedHoldInput): PostRequest {
 }
 
 /** Release a hold to the recipient: recipient hold → recipient available. */
-export function payReceivedRelease(input: PayReceivedHoldInput): PostRequest {
-  requirePositive('received-funds release amount', input.amount);
+export function payReceivedRelease(input: PayReceivedOutcomeInput): PostRequest {
+  requireWhole('release', input);
   const p = pots(input);
   return {
     idempotencyKey: `pay.recv.release:${p.holdId}`,
@@ -88,7 +111,7 @@ export function payReceivedRelease(input: PayReceivedHoldInput): PostRequest {
 
 /** A ruling returns held funds to the payer: recipient hold → payer available. */
 export function payReceivedReturn(input: PayReceivedReturnInput): PostRequest {
-  requirePositive('received-funds return amount', input.amount);
+  requireWhole('return', input);
   const p = pots(input);
   const payerUserId = requireText('payerUserId', input.payerUserId);
   if (payerUserId === p.userId) {

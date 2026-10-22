@@ -95,14 +95,29 @@ describe('holds on received funds on the real ledger', () => {
     await engine.post(hold('h2', '200'));
     expect(await bal(userAvailable(RECIPIENT, 'USDT'))).toBe('500');
 
-    const release = recipes.payReceivedRelease({ holdId: 'h1', userId: RECIPIENT, assetId: 'USDT', amount: amt('300') });
+    const release = recipes.payReceivedRelease({
+      holdId: 'h1',
+      userId: RECIPIENT,
+      assetId: 'USDT',
+      amount: amt('300'),
+      heldAmount: amt('300'),
+    });
     await engine.post(release);
     await engine.post(release);
     expect(await bal(userAvailable(RECIPIENT, 'USDT'))).toBe('800');
     expect(await bal(payReceivedHoldAccount(RECIPIENT, 'USDT', 'h1'))).toBe('0');
 
     await expect(
-      engine.post(recipes.payReceivedReturn({ holdId: 'h1', userId: RECIPIENT, payerUserId: PAYER, assetId: 'USDT', amount: amt('300') })),
+      engine.post(
+        recipes.payReceivedReturn({
+          holdId: 'h1',
+          userId: RECIPIENT,
+          payerUserId: PAYER,
+          assetId: 'USDT',
+          amount: amt('300'),
+          heldAmount: amt('300'),
+        }),
+      ),
     ).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await bal(userAvailable(PAYER, 'USDT'))).toBe('0');
     expect(await bal(payReceivedHoldAccount(RECIPIENT, 'USDT', 'h2'))).toBe('200');
@@ -110,7 +125,9 @@ describe('holds on received funds on the real ledger', () => {
 
   it('returns a hold to the payer once and never draws on another hold', async () => {
     await expect(
-      engine.post(recipes.payReceivedRelease({ holdId: 'h2', userId: RECIPIENT, assetId: 'USDT', amount: amt('201') })),
+      engine.post(
+        recipes.payReceivedRelease({ holdId: 'h2', userId: RECIPIENT, assetId: 'USDT', amount: amt('201'), heldAmount: amt('201') }),
+      ),
     ).rejects.toBeInstanceOf(InsufficientFundsError);
     const giveBack = recipes.payReceivedReturn({
       holdId: 'h2',
@@ -118,6 +135,7 @@ describe('holds on received funds on the real ledger', () => {
       payerUserId: PAYER,
       assetId: 'USDT',
       amount: amt('200'),
+      heldAmount: amt('200'),
     });
     await engine.post(giveBack);
     await engine.post(giveBack);
