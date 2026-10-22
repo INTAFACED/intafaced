@@ -166,6 +166,17 @@ type PendingEvent =
   | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'spreadFilled'; readonly payload: SpreadFillEvent; readonly key: string };
 
+/**
+ * Who asks for an emergency action (halt, resume, halt-all, resume-all, expire), who confirmed it, and its evidence.
+ * The engine reads the two operators; the rulebook wrapper (rulebook-refuse.ts) refuses one without evidence.
+ */
+export type EmergencyCmd = {
+  readonly operatorId?: string | null;
+  readonly confirmOperatorId?: string | null;
+  readonly evidence?: string | null;
+  readonly evidenceRefs?: readonly unknown[] | null;
+};
+
 export class MatchingEngine {
   private readonly books = new Map<MarketId, OrderBook>();
   private readonly journal: EngineJournal;
@@ -1097,10 +1108,7 @@ export class MatchingEngine {
     return this.submit(marketId, flattenCloseOrder(cmd, net), lifecycleProof);
   }
 
-  async halt(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async halt(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.halt', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1129,10 +1137,7 @@ export class MatchingEngine {
     });
   }
 
-  async resume(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async resume(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.resume', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1161,7 +1166,7 @@ export class MatchingEngine {
     });
   }
 
-  async haltAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async haltAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.halt_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1187,7 +1192,7 @@ export class MatchingEngine {
     });
   }
 
-  async resumeAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async resumeAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.resume_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1406,10 +1411,7 @@ export class MatchingEngine {
     });
   }
 
-  async expire(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketExpireResult> {
+  async expire(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketExpireResult> {
     return withEngineSpan('matching.expire', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
