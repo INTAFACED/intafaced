@@ -367,12 +367,14 @@ export const breakdownSchema = z.object({
 
 /** One coin of the main account with its locks told apart: orders on one side, everything else locked on the other. */
 export interface LockSplit {
+  /** What the main account holds of the coin, as the bank returned it. Absent on a coin the answer did not list. */
+  total?: Decimal;
   available: Decimal;
   /** Money set aside for open orders (the `hold` lock kind). */
   inOrders: Decimal;
   /** Escrow, stake and collateral together. */
   locked: Decimal;
-  /** Every lock with the claim behind it, as the bank named it. */
+  /** Every lock with the claim behind it, as the bank named it; the part of a lock no claim names has purpose ''. */
   claims: ReadonlyArray<{ kind: string; purpose: string; amount: Decimal }>;
 }
 
@@ -381,18 +383,27 @@ export function lockSplits(answer: z.infer<typeof breakdownSchema>): Record<stri
   const out: Record<string, LockSplit> = {};
   for (const asset of answer.assets) {
     // One amount that does not parse makes the whole answer unusable: never turn an unknown figure into a shown zero.
-    const amounts = [asset.available, ...asset.locked.flatMap((lock) => [lock.amount, ...lock.claims.map((claim) => claim.amount)])];
+    const amounts = [
+      asset.total,
+      asset.available,
+      ...asset.locked.flatMap((lock) => [lock.amount, ...lock.claims.map((claim) => claim.amount)]),
+    ];
     if (amounts.some((amount) => dec(amount) === null)) return null;
     const hold = asset.locked.filter((lock) => lock.kind === 'hold');
     const other = asset.locked.filter((lock) => lock.kind !== 'hold');
     const sum = (locks: typeof asset.locked) => sumOf(locks.map((lock) => dec(lock.amount)!));
     out[asset.assetId] = {
+      total: asset.total,
       available: asset.available,
       inOrders: str(sum(hold)),
       locked: str(sum(other)),
-      claims: asset.locked.flatMap((lock) =>
-        lock.claims.map((claim) => ({ kind: lock.kind, purpose: claim.purpose, amount: claim.amount })),
-      ),
+      claims: asset.locked.flatMap((lock) => {
+        const named = lock.claims.map((claim) => ({ kind: lock.kind, purpose: claim.purpose, amount: claim.amount }));
+        // A lock the bank did not itemise in full keeps its rest as one line with no purpose, so the lines add up to
+        // the lock amounts the In orders and Locked figures show.
+        const rest = sub(dec(lock.amount)!, sumOf(lock.claims.map((claim) => dec(claim.amount)!)));
+        return rest > 0n ? [...named, { kind: lock.kind, purpose: '', amount: str(rest) }] : named;
+      }),
     };
   }
   return out;
@@ -408,11 +419,16 @@ export function breakdownFetcher(env: DataEnv): Fetcher<Record<string, LockSplit
 }
 
 /**
- * The main account's balances with each lock told apart. Pro only. An older bank without the call (or one that cannot answer)
- * leaves the screen on the exchange balance's single "used" figure, which is not split by lock.
+ * The main account's balances with each lock told apart, for Pro's Money table and every coin's balance page. An older
+ * bank without the call (or one that cannot answer) leaves the Money table on the exchange balance's single "used" figure,
+ * which is not split by lock.
  */
 export function useLockSplits(enabled: boolean): Loadable<Record<string, LockSplit>> {
   const env = useDataEnv();
+  // Same as the balance: a value up to 15 s old could still list the hold of an order cancelled a moment ago.
+  useEffect(() => {
+    if (enabled && env.userId) env.poller.refresh(`bank-balance-breakdown:${env.userId}`);
+  }, [enabled, env]);
   return useSource(
     useMemo(
       () =>
