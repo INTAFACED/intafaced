@@ -272,6 +272,9 @@ export async function grantOrgRole(
     return transaction(sql, async (tx) => {
       const admins = await tx<Array<{ user_id: string }>>`
         SELECT user_id FROM organization_members WHERE org_id = ${org} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
+      // The actor's admin seat is re-checked under the lock: a seat demoted after the
+      // check above is stale and cannot demote anyone.
+      if (!admins.some((a) => a.user_id === actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
       if (!admins.some((a) => a.user_id === member)) throw new OrgError('Member not found', 'org.member_not_found');
       if (admins.length <= 1) throw new OrgError('An organization must keep at least one admin', 'org.last_admin');
       await tx`

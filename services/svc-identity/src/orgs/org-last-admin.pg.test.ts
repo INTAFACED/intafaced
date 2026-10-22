@@ -117,5 +117,76 @@ if (!available) {
         code: 'org.second_approver_required',
       });
     });
+
+    it('three admins: A demotes B while B demotes C, and at least one admin always remains', async () => {
+      const a = await register();
+      const b = await register();
+      const c = await register();
+      const org = await createOrg(db.sql, a.userId, 'Three admin desk');
+      for (const m of [b, c]) {
+        await addOrgMember(db.sql, a.userId, org.id, m.userId, 'trader');
+        await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${m.userId}`;
+      }
+      const results = await Promise.allSettled([
+        grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader'),
+        grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader'),
+      ]);
+      const admins = await db.sql<Array<{ user_id: string }>>`
+        SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin'`;
+      expect(admins.map((x) => x.user_id)).toContain(a.userId);
+      // B's demotion of C may only succeed if it committed before B lost the seat.
+      if (results[1].status === 'rejected') expect(results[1].reason).toMatchObject({ code: 'org.not_admin' });
+      expect(results[0].status).toBe('fulfilled');
+    });
+
+    it('refuses a stale actor whose admin seat was taken away after the first check (org.not_admin)', async () => {
+      const a = await register();
+      const b = await register();
+      const c = await register();
+      const org = await createOrg(db.sql, a.userId, 'Stale actor desk');
+      for (const m of [b, c]) {
+        await addOrgMember(db.sql, a.userId, org.id, m.userId, 'trader');
+        await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${m.userId}`;
+      }
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      // Another session locks the admin seats and demotes B, but has not committed yet.
+      const other = db.sql.begin(async (tx) => {
+        await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
+        await tx`UPDATE organization_members SET role = 'trader' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        await gate;
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      // B still reads as admin outside the lock, then waits on it.
+      const stale = grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader');
+      await new Promise((r) => setTimeout(r, 200));
+      release();
+      await other;
+      await expect(stale).rejects.toMatchObject({ code: 'org.not_admin' });
+      const [seat] = await db.sql<Array<{ role: string }>>`
+        SELECT role FROM organization_members WHERE org_id = ${org.id} AND user_id = ${c.userId}`;
+      expect(seat?.role).toBe('admin');
+    });
+
+    it('refuses with org.member_not_found when the target left after the first check', async () => {
+      const a = await register();
+      const b = await register();
+      const org = await createOrg(db.sql, a.userId, 'Gone member desk');
+      await addOrgMember(db.sql, a.userId, org.id, b.userId, 'trader');
+      await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const other = db.sql.begin(async (tx) => {
+        await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
+        await tx`DELETE FROM organization_members WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        await gate;
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const late = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader');
+      await new Promise((r) => setTimeout(r, 200));
+      release();
+      await other;
+      await expect(late).rejects.toMatchObject({ code: 'org.member_not_found' });
+    });
   });
 }
