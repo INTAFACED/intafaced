@@ -74,18 +74,18 @@ describe('P-ads-merchant-01 ad create rules', () => {
 
   it('m4: overflow, too many decimals, whitespace, unicode digits, Infinity all refuse', () => {
     const cases = [
-      ['overflow', '9'.repeat(400)],
-      ['too many decimals', '1.' + '1'.repeat(19)],
-      ['leading space', ' 1'],
-      ['trailing space', '1 '],
-      ['inner space', '1 0'],
-      ['arabic-indic digits', '\u0661\u0662'],
-      ['fullwidth digits', '\uFF11\uFF12'],
-      ['Infinity', 'Infinity'],
-      ['-Infinity', '-Infinity'],
+      ['overflow', '9'.repeat(400), 'p2p.insufficient_balance'],
+      ['too many decimals', '1.' + '1'.repeat(19), 'p2p.insufficient_balance'],
+      ['leading space', ' 1', 'p2p.invalid_input'],
+      ['trailing space', '1 ', 'p2p.invalid_input'],
+      ['inner space', '1 0', 'p2p.invalid_input'],
+      ['arabic-indic digits', '\u0661\u0662', 'p2p.invalid_input'],
+      ['fullwidth digits', '\uFF11\uFF12', 'p2p.invalid_input'],
+      ['Infinity', 'Infinity', 'p2p.invalid_input'],
+      ['-Infinity', '-Infinity', 'p2p.invalid_input'],
     ] as const;
-    for (const [, t] of cases) {
-      expect(['p2p.invalid_input', 'p2p.insufficient_balance']).toContain(code(() => assertAdvisoryBalance(t, '1' + '0'.repeat(500))));
+    for (const [, t, want] of cases) {
+      expect(code(() => assertAdvisoryBalance(t, '1' + '0'.repeat(500)))).toBe(want);
     }
     expect(code(() => assertAdvisoryBalance('1', '9'.repeat(400)))).toBe('p2p.insufficient_balance');
     expect(code(() => assertAdvisoryBalance('1', '1.' + '1'.repeat(19)))).toBe('p2p.insufficient_balance');

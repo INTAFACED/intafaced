@@ -15,6 +15,7 @@
  */
 
 import { compare, parseAmount } from '@intafaced/ledger-client';
+import { P2pError } from './p2p-service.js';
 
 export type AdCreateTermsCode =
   | 'p2p.config_unset'
@@ -90,4 +91,23 @@ export function assertAdvisoryBalance(total: string, available: string | null | 
   if (over) {
     throw new AdCreateTermsError('Total is above your available balance.', 'p2p.insufficient_balance', available);
   }
+}
+
+/**
+ * Typed refusal for the future mount (wiring pending owner ruling). A code
+ * that P2pError already carries maps to P2pError; the rest keep their exact
+ * `p2p.*` code with a tRPC status class, so nothing surfaces as a bare 500.
+ * Anything that is not an AdCreateTermsError is returned unchanged.
+ */
+export type AdCreateRefusal = {
+  code: AdCreateTermsCode;
+  status: 'PRECONDITION_FAILED' | 'BAD_REQUEST';
+  available?: string;
+};
+
+export function toP2pRefusal(e: unknown): P2pError | AdCreateRefusal | unknown {
+  if (!(e instanceof AdCreateTermsError)) return e;
+  if (e.code === 'p2p.config_unset') return new P2pError(e.message, 'p2p.config_unset');
+  const status = e.code === 'p2p.invalid_input' ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
+  return e.available === undefined ? { code: e.code, status } : { code: e.code, status, available: e.available };
 }
