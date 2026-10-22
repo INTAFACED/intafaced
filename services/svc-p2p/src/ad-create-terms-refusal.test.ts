@@ -8,20 +8,13 @@ describe('toP2pRefusal (P-ads-merchant-01 typed refusal)', () => {
     expect(r).toBeInstanceOf(P2pError);
     expect((r as P2pError).code).toBe('p2p.config_unset');
   });
-  it('the other codes keep exactly one p2p code and a status class', () => {
-    expect(toP2pRefusal(new AdCreateTermsError('x', 'p2p.terms_not_accepted'))).toEqual({
-      code: 'p2p.terms_not_accepted',
-      status: 'PRECONDITION_FAILED',
-    });
-    expect(toP2pRefusal(new AdCreateTermsError('x', 'p2p.invalid_input'))).toEqual({
-      code: 'p2p.invalid_input',
-      status: 'BAD_REQUEST',
-    });
-    expect(toP2pRefusal(new AdCreateTermsError('x', 'p2p.insufficient_balance', '5'))).toEqual({
-      code: 'p2p.insufficient_balance',
-      status: 'PRECONDITION_FAILED',
-      available: '5',
-    });
+  it('the other codes map to P2pError with exactly their code', () => {
+    for (const c of ['p2p.terms_not_accepted', 'p2p.invalid_input', 'p2p.insufficient_balance'] as const) {
+      const r = toP2pRefusal(new AdCreateTermsError('x', c, c === 'p2p.insufficient_balance' ? '5' : undefined));
+      expect(r).toBeInstanceOf(P2pError);
+      expect((r as P2pError).code).toBe(c);
+    }
+    expect((toP2pRefusal(new AdCreateTermsError('x', 'p2p.insufficient_balance', '5')) as P2pError).available).toBe('5');
   });
   it('a non-AdCreateTermsError passes through unchanged', () => {
     const e = new Error('boom');

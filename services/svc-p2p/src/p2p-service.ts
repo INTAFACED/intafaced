@@ -232,6 +232,9 @@ export type P2pErrorCode =
   | 'p2p.cursor_invalid'
   | 'p2p.filter_invalid'
   | 'p2p.config_unset'
+  | 'p2p.terms_not_accepted'
+  | 'p2p.insufficient_balance'
+  | 'p2p.invalid_input'
   | 'p2p.export_format_unbuilt'
   | 'p2p.export_range_too_large'
   | 'p2p.export_too_many_rows'
@@ -280,6 +283,8 @@ export class P2pError extends Error {
   constructor(
     message: string,
     readonly code: P2pErrorCode,
+    /** Exact decimal string; set only by `p2p.insufficient_balance` (ad create terms). */
+    readonly available?: string,
   ) {
     super(message);
     this.name = 'P2pError';

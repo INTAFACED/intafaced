@@ -94,20 +94,23 @@ export function assertAdvisoryBalance(total: string, available: string | null | 
 }
 
 /**
- * Typed refusal for the future mount (wiring pending owner ruling). A code
- * that P2pError already carries maps to P2pError; the rest keep their exact
- * `p2p.*` code with a tRPC status class, so nothing surfaces as a bare 500.
+ * Typed refusal for the future mount (wiring pending owner ruling). Every
+ * code maps to P2pError so the router's toTrpcError gives a typed tRPC code,
+ * never a bare 500. `available` is kept for `p2p.insufficient_balance`.
  * Anything that is not an AdCreateTermsError is returned unchanged.
  */
-export type AdCreateRefusal = {
-  code: AdCreateTermsCode;
-  status: 'PRECONDITION_FAILED' | 'BAD_REQUEST';
-  available?: string;
-};
-
-export function toP2pRefusal(e: unknown): P2pError | AdCreateRefusal | unknown {
+export function toP2pRefusal(e: unknown): unknown {
   if (!(e instanceof AdCreateTermsError)) return e;
-  if (e.code === 'p2p.config_unset') return new P2pError(e.message, 'p2p.config_unset');
-  const status = e.code === 'p2p.invalid_input' ? 'BAD_REQUEST' : 'PRECONDITION_FAILED';
-  return e.available === undefined ? { code: e.code, status } : { code: e.code, status, available: e.available };
+  switch (e.code) {
+    case 'p2p.config_unset':
+    case 'p2p.terms_not_accepted':
+    case 'p2p.invalid_input':
+      return new P2pError(e.message, e.code);
+    case 'p2p.insufficient_balance':
+      return new P2pError(e.message, e.code, e.available);
+    default: {
+      const never: never = e.code;
+      return never;
+    }
+  }
 }

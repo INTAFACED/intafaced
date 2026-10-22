@@ -313,7 +313,7 @@ type TradeOut = z.infer<typeof tradeOutput>;
  * after the escrow already reached a terminal state, and a client retrying a
  * timed-out call needs to be able to tell those apart.
  */
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   // Procedures throw TRPCError deliberately (L2-7 party filter on trades.get /
   // disputes.get → NOT_FOUND, not FORBIDDEN). `guard` funnels every throw
   // through this mapper; re-wrapping those would turn a clean NOT_FOUND into
@@ -429,6 +429,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_sla_unset':
       case 'p2p.dispute_escalation_recheck_unset':
       case 'p2p.sweep_interval_unset':
+      // Ad create terms (P-ads-merchant-01): the caller must accept the
+      // current terms or fund the account first.
+      case 'p2p.terms_not_accepted':
+      case 'p2p.insufficient_balance':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -437,6 +441,7 @@ function toTrpcError(err: unknown): TRPCError {
       // looking for a scope they already have.
       case 'p2p.merchant_ineligible':
       case 'p2p.merchant_reason_required':
+      case 'p2p.invalid_input':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
