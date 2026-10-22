@@ -58,12 +58,14 @@ async function bal(ledger: MemoryLedger, ref: Parameters<MemoryLedger['balance']
   return formatAmount((await ledger.balance(ref)).amount);
 }
 
-async function app(opts: {
-  law?: AccrualTierLaw;
-  ledger?: MemoryLedger | undefined;
-  frozen?: ReadonlySet<string>;
-  seed?: boolean;
-} = {}) {
+async function app(
+  opts: {
+    law?: AccrualTierLaw;
+    ledger?: MemoryLedger | undefined;
+    frozen?: ReadonlySet<string>;
+    seed?: boolean;
+  } = {},
+) {
   const store = new MemoryAccrualStore();
   if (opts.seed !== false) await store.saveRows([row()]);
   const ledger = 'ledger' in opts ? opts.ledger : await fundedLedger();
