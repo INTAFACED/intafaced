@@ -1,0 +1,167 @@
+diff --git a/services/svc-pay/src/payment-service.test.ts b/services/svc-pay/src/payment-service.test.ts
+index 4eaec22b..016dbad9 100644
+--- a/services/svc-pay/src/payment-service.test.ts
++++ b/services/svc-pay/src/payment-service.test.ts
+@@ -421,11 +421,31 @@ if (!available) {
+       expect(await clearingOf(m.id)).toBe('30');
+     });
+ 
+-    it('refuses to refund a payment that was never captured', async () => {
++    it('refuses when nothing is captured — nothing posted', async () => {
+       const m = await merchant();
+       const payment = await cardPayment(m.id, '100');
+-      await expect(pay.refund(payment.id, amt('10'))).rejects.toMatchObject({ code: 'pay.invalid_transition' });
+-      expect(ledger.journal()).toHaveLength(0);
++      const journalBefore = ledger.journal().map((tx) => tx.idempotencyKey);
++
++      await expect(pay.refund(payment.id, amt('10'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
++
++      expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
++      expect(formatAmount((await pay.getPayment(payment.id)).refundedAmount)).toBe('0');
++    });
++
++    it('refunds a captured payment through ledger-client', async () => {
++      const m = await merchant();
++      const payment = await cardPayment(m.id, '100');
++      await pay.capture(payment.id);
++
++      const refunded = await pay.refund(payment.id, amt('40'));
++
++      expect(formatAmount(refunded.refundedAmount)).toBe('40');
++      expect(refunded.status).toBe('captured');
++      expect(
++        ledger.journal().some((tx) => tx.idempotencyKey.startsWith(`payment.refund:${payment.id}:`)),
++      ).toBe(true);
++      expect(await clearingOf(m.id)).toBe('60');
++      expect(ledger.reconcile()).toEqual({ ok: true });
+     });
+ 
+     it('draws a post-settlement refund on the merchant, not on the clearing account', async () => {
+diff --git a/services/svc-pay/src/payment-service.ts b/services/svc-pay/src/payment-service.ts
+index c0f9ecc6..bfdcbf38 100644
+--- a/services/svc-pay/src/payment-service.ts
++++ b/services/svc-pay/src/payment-service.ts
+@@ -132,6 +132,8 @@ export type PayErrorCode =
+   | 'pay.capture_exceeds_authorized'
+   | 'pay.partial_capture_unsupported'
+   | 'pay.refund_exceeds_captured'
++  /** Refund refused — nothing was captured. Before ledger-client posts. */
++  | 'pay.nothing_captured'
+   | 'pay.refund_in_flight'
+   /**
+    * An explicit `refundId` already ran to `refund.reversed` (rail refused after
+@@ -1587,6 +1589,11 @@ export class PayService {
+   /**
+    * Refund, in full or in part. THE OUTBOUND MONEY PATH.
+    *
++   * Merchant refund of a captured payment through ledger-client
++   * (`recipes.paymentRefund`). Refuse `pay.nothing_captured` if nothing was
++   * captured — before the ledger posts. No PSP. No invented dest (crypto
++   * returns to the payer).
++   *
+    * The ledger moves FIRST, in its own committed transaction, and only then is
+    * the rail asked to send money out. That order is the whole design:
+    *
+@@ -1626,8 +1633,9 @@ export class PayService {
+ 
+         if (row.status !== 'captured' && row.status !== 'settled') {
+           throw new PayError(
+-            `Payment ${row.id} is ${row.status}; only a captured or settled payment can be refunded`,
+-            'pay.invalid_transition',
++            `Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`,
++            'pay.nothing_captured',
++            { paymentId: row.id, status: row.status },
+           );
+         }
+ 
+@@ -1656,6 +1664,13 @@ export class PayService {
+         }
+ 
+         const totals = await totalsFor(tx, row.id);
++        if (totals.captured <= 0n) {
++          throw new PayError(
++            `Payment ${row.id} has nothing captured — refund refused`,
++            'pay.nothing_captured',
++            { paymentId: row.id },
++          );
++        }
+ 
+         // A COMPLETED `refundId` IS A REPLAY, NOT A SECOND REFUND.
+         //
+diff --git a/services/svc-pay/src/public-rest.ts b/services/svc-pay/src/public-rest.ts
+index df18d540..6eb14ca1 100644
+--- a/services/svc-pay/src/public-rest.ts
++++ b/services/svc-pay/src/public-rest.ts
+@@ -307,6 +307,7 @@ function statusFor(code: string): number {
+     case 'pay.kyb_operator_required':
+       return 403;
+     case 'pay.invalid_transition':
++    case 'pay.nothing_captured':
+     case 'pay.capture_exceeds_authorized':
+     case 'pay.refund_exceeds_captured':
+     case 'pay.refund_in_flight':
+diff --git a/services/svc-pay/src/rails/crypto-native.ts b/services/svc-pay/src/rails/crypto-native.ts
+index ae99789e..e587546c 100644
+--- a/services/svc-pay/src/rails/crypto-native.ts
++++ b/services/svc-pay/src/rails/crypto-native.ts
+@@ -345,6 +345,18 @@ export class CryptoNativeAdapter implements RailAdapter {
+       });
+     }
+ 
++    const payer = transfer.from?.trim() ?? '';
++    if (!payer) {
++      return railFailure({
++        railRef: ref,
++        amount,
++        assetId: transfer.assetId,
++        failureCode: 'refund.destination_missing',
++        failureReason: 'On-chain refund requires the payer address — no invented dest',
++        at: this.now(),
++      });
++    }
++
+     if (amount <= 0n) {
+       return railFailure({
+         railRef: ref,
+@@ -384,7 +396,7 @@ export class CryptoNativeAdapter implements RailAdapter {
+ 
+     try {
+       const { txHash } = await this.chain.send({
+-        to: transfer.from,
++        to: payer,
+         assetId: transfer.assetId,
+         amount,
+         idempotencyKey,
+@@ -399,7 +411,7 @@ export class CryptoNativeAdapter implements RailAdapter {
+         amount,
+         assetId: transfer.assetId,
+         at: this.now(),
+-        raw: { txHash, to: transfer.from, refundedTotal: formatAmount(already + amount), idempotencyKey },
++        raw: { txHash, to: payer, refundedTotal: formatAmount(already + amount), idempotencyKey },
+       };
+       this.completedRefundKeys.set(idempotencyKey, ok);
+       return ok;
+diff --git a/services/svc-pay/src/router.test.ts b/services/svc-pay/src/router.test.ts
+index 55e1676c..0f7199a6 100644
+--- a/services/svc-pay/src/router.test.ts
++++ b/services/svc-pay/src/router.test.ts
+@@ -454,6 +454,7 @@ describe('a caller can tell the failures apart', () => {
+   it('maps an over-refund and a double-spend guard to CONFLICT', async () => {
+     for (const code of [
+       'pay.refund_exceeds_captured',
++      'pay.nothing_captured',
+       'pay.refund_in_flight',
+       'pay.settlement_in_flight',
+       'pay.settlement_desynced',
+diff --git a/services/svc-pay/src/router.ts b/services/svc-pay/src/router.ts
+index 4ae8b9be..381e091e 100644
+--- a/services/svc-pay/src/router.ts
++++ b/services/svc-pay/src/router.ts
+@@ -1502,6 +1502,7 @@ function toTrpcError(err: unknown): unknown {
+       case 'pay.payout_destination_missing':
+         return 'PRECONDITION_FAILED' as const;
+       case 'pay.invalid_transition':
++      case 'pay.nothing_captured':
+       case 'pay.capture_exceeds_authorized':
+       case 'pay.refund_exceeds_captured':
+       case 'pay.refund_in_flight':
