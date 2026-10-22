@@ -118,7 +118,7 @@ if (!available) {
       });
     });
 
-    it('three admins: A demotes B while B demotes C, and at least one admin always remains', async () => {
+    it('three admins: A demotes B while B demotes C, in a gated order; each outcome and the final admin set are exact', async () => {
       const a = await register();
       const b = await register();
       const c = await register();
@@ -127,16 +127,49 @@ if (!available) {
         await addOrgMember(db.sql, a.userId, org.id, m.userId, 'trader');
         await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${m.userId}`;
       }
-      const results = await Promise.allSettled([
-        grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader'),
-        grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader'),
-      ]);
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      // Hold the admin lock so both calls queue on it: A's demotion of B first, then B's demotion of C.
+      const holder = db.sql.begin(async (tx) => {
+        await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
+        await gate;
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const aDemotesB = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'trader');
+      await new Promise((r) => setTimeout(r, 150));
+      const bDemotesC = grantOrgRole(db.sql, b.userId, org.id, c.userId, 'trader');
+      await new Promise((r) => setTimeout(r, 150));
+      release();
+      await holder;
+      await expect(aDemotesB).resolves.toEqual({ orgId: org.id, userId: b.userId, role: 'trader' });
+      await expect(bDemotesC).rejects.toMatchObject({ code: 'org.not_admin' });
+      const admins = await db.sql<Array<{ user_id: string }>>`
+        SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' ORDER BY user_id`;
+      expect(admins.map((x) => x.user_id)).toEqual([a.userId, c.userId].sort());
+    });
+
+    it('takes the plain role change when the target was demoted concurrently (no member_not_found)', async () => {
+      const a = await register();
+      const b = await register();
+      const org = await createOrg(db.sql, a.userId, 'Concurrent demotion desk');
+      await addOrgMember(db.sql, a.userId, org.id, b.userId, 'trader');
+      await db.sql`UPDATE organization_members SET role = 'admin' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const other = db.sql.begin(async (tx) => {
+        await tx`SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin' FOR UPDATE`;
+        await tx`UPDATE organization_members SET role = 'trader' WHERE org_id = ${org.id} AND user_id = ${b.userId}`;
+        await gate;
+      });
+      await new Promise((r) => setTimeout(r, 100));
+      const change = grantOrgRole(db.sql, a.userId, org.id, b.userId, 'auditor');
+      await new Promise((r) => setTimeout(r, 200));
+      release();
+      await other;
+      await expect(change).resolves.toEqual({ orgId: org.id, userId: b.userId, role: 'auditor' });
       const admins = await db.sql<Array<{ user_id: string }>>`
         SELECT user_id FROM organization_members WHERE org_id = ${org.id} AND role = 'admin'`;
-      expect(admins.map((x) => x.user_id)).toContain(a.userId);
-      // B's demotion of C may only succeed if it committed before B lost the seat.
-      if (results[1].status === 'rejected') expect(results[1].reason).toMatchObject({ code: 'org.not_admin' });
-      expect(results[0].status).toBe('fulfilled');
+      expect(admins.map((x) => x.user_id)).toEqual([a.userId]);
     });
 
     it('refuses a stale actor whose admin seat was taken away after the first check (org.not_admin)', async () => {

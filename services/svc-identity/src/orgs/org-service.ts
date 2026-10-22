@@ -233,6 +233,26 @@ export async function addOrgMember(
 }
 
 /**
+ * Lock every admin seat of an organization (`FOR UPDATE`, stable order) and return their user ids.
+ * Call inside a transaction before any change that can remove an admin seat.
+ */
+export async function lockOrgAdmins(tx: Sql, orgId: string): Promise<string[]> {
+  const rows = await tx<Array<{ user_id: string }>>`
+    SELECT user_id FROM organization_members WHERE org_id = ${orgId} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
+  return rows.map((r) => r.user_id);
+}
+
+/**
+ * THE last-admin rule, in one place: refuse `org.last_admin` when `leavingUserId` is the only
+ * admin in `lockedAdminIds` (from `lockOrgAdmins`). Demotion and member removal both use it.
+ */
+export function requireAnotherAdmin(lockedAdminIds: readonly string[], leavingUserId: string): void {
+  if (lockedAdminIds.includes(leavingUserId) && lockedAdminIds.length <= 1) {
+    throw new OrgError('An organization must keep at least one admin', 'org.last_admin');
+  }
+}
+
+/**
  * Change an existing member's role. Granting admin needs a second distinct admin.
  * Demoting the organization's last admin refuses with `org.last_admin`.
  */
@@ -266,17 +286,17 @@ export async function grantOrgRole(
   }
 
   if (existing[0].role === 'admin' && grant !== 'admin') {
-    // Demoting an admin must never leave the organization without one. Lock every
-    // admin seat (as removeOrgMember does) so a concurrent demotion or removal
-    // cannot slip past the count, then write inside the same transaction.
+    // Demoting an admin must never leave the organization without one. Every admin
+    // seat is locked first, then the actor and the target are re-read under the lock.
     return transaction(sql, async (tx) => {
-      const admins = await tx<Array<{ user_id: string }>>`
-        SELECT user_id FROM organization_members WHERE org_id = ${org} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
-      // The actor's admin seat is re-checked under the lock: a seat demoted after the
-      // check above is stale and cannot demote anyone.
-      if (!admins.some((a) => a.user_id === actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
-      if (!admins.some((a) => a.user_id === member)) throw new OrgError('Member not found', 'org.member_not_found');
-      if (admins.length <= 1) throw new OrgError('An organization must keep at least one admin', 'org.last_admin');
+      const admins = await lockOrgAdmins(tx, org);
+      // A stale actor (demoted after the check above) cannot demote anyone.
+      if (!admins.includes(actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
+      const [target] = await tx<Array<{ role: string }>>`
+        SELECT role FROM organization_members WHERE org_id = ${org} AND user_id = ${member} FOR UPDATE`;
+      if (!target) throw new OrgError('Member not found', 'org.member_not_found');
+      // If the target was demoted meanwhile it is no longer an admin seat: plain role change.
+      if (target.role === 'admin') requireAnotherAdmin(admins, member);
       await tx`
         UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
       `;
