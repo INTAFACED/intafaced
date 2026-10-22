@@ -69,19 +69,19 @@ describe('escrow builders (RC-p2p-01)', () => {
   });
 
   it('refuses what the contract would revert on, and blanks, with typed codes', () => {
-    expect(code(() => buildOpen(base({ buyer: SELLER })))).toBe('escrow.parties_invalid');
-    expect(code(() => buildOpen(base({ buyer: '0x0000000000000000000000000000000000000000' })))).toBe('escrow.address_invalid');
-    expect(code(() => buildOpen(base({ escrow: 'nope' })))).toBe('escrow.address_invalid');
-    expect(code(() => buildOpen(base({ amount: '0' })))).toBe('escrow.amount_invalid');
-    expect(code(() => buildOpen(base({ amount: '1.1234567' })))).toBe('escrow.amount_invalid');
-    expect(code(() => buildOpen(base({ amount: 12.5 as unknown as string })))).toBe('escrow.amount_invalid');
-    expect(code(() => buildOpen(base({ amount: '1e3' })))).toBe('escrow.amount_invalid');
-    expect(code(() => buildOpen(base({ amount: (1n << 128n).toString(), tokenDecimals: 0 })))).toBe('escrow.amount_invalid');
-    expect(code(() => buildOpen(base({ feeBps: 10_001 })))).toBe('escrow.fee_invalid');
-    expect(code(() => buildOpen(base({ feeBps: 25, feeRecipient: null })))).toBe('escrow.fee_invalid');
-    expect(code(() => buildOpen(base({ disputeWindowSeconds: 0 })))).toBe('escrow.window_invalid');
-    expect(code(() => buildOpen(base({ dealRef: ' ' })))).toBe('escrow.deal_ref_required');
-    expect(code(() => buildOpen(base({ timeoutDisposition: 'maybe' as never })))).toBe('escrow.parties_invalid');
+    expect(code(() => buildOpen(base({ buyer: SELLER })))).toBe('protocol.escrow_parties_invalid');
+    expect(code(() => buildOpen(base({ buyer: '0x0000000000000000000000000000000000000000' })))).toBe('protocol.escrow_address_invalid');
+    expect(code(() => buildOpen(base({ escrow: 'nope' })))).toBe('protocol.escrow_address_invalid');
+    expect(code(() => buildOpen(base({ amount: '0' })))).toBe('protocol.escrow_amount_invalid');
+    expect(code(() => buildOpen(base({ amount: '1.1234567' })))).toBe('protocol.escrow_amount_invalid');
+    expect(code(() => buildOpen(base({ amount: 12.5 as unknown as string })))).toBe('protocol.escrow_amount_invalid');
+    expect(code(() => buildOpen(base({ amount: '1e3' })))).toBe('protocol.escrow_amount_invalid');
+    expect(code(() => buildOpen(base({ amount: (1n << 128n).toString(), tokenDecimals: 0 })))).toBe('protocol.escrow_amount_invalid');
+    expect(code(() => buildOpen(base({ feeBps: 10_001 })))).toBe('protocol.escrow_fee_invalid');
+    expect(code(() => buildOpen(base({ feeBps: 25, feeRecipient: null })))).toBe('protocol.escrow_fee_invalid');
+    expect(code(() => buildOpen(base({ disputeWindowSeconds: 0 })))).toBe('protocol.escrow_window_invalid');
+    expect(code(() => buildOpen(base({ dealRef: ' ' })))).toBe('protocol.escrow_deal_ref_required');
+    expect(code(() => buildOpen(base({ timeoutDisposition: 'maybe' as never })))).toBe('protocol.escrow_parties_invalid');
   });
 
   it.each([
@@ -96,8 +96,8 @@ describe('escrow builders (RC-p2p-01)', () => {
     const decoded = decodeFunctionData({ abi: sovereignEscrowAbi, data: call.data });
     expect(decoded.functionName).toBe(name);
     expect(decoded.args).toEqual([42n]);
-    expect(code(() => build(ESCROW, '-1'))).toBe('escrow.deal_id_invalid');
-    expect(code(() => build(ESCROW, '01'))).toBe('escrow.deal_id_invalid');
-    expect(code(() => build('0x0000000000000000000000000000000000000000', '1'))).toBe('escrow.address_invalid');
+    expect(code(() => build(ESCROW, '-1'))).toBe('protocol.escrow_deal_id_invalid');
+    expect(code(() => build(ESCROW, '01'))).toBe('protocol.escrow_deal_id_invalid');
+    expect(code(() => build('0x0000000000000000000000000000000000000000', '1'))).toBe('protocol.escrow_address_invalid');
   });
 });

@@ -18,13 +18,13 @@ export interface UnsignedEscrowCall {
 }
 
 export type EscrowBuildErrorCode =
-  | 'escrow.address_invalid'
-  | 'escrow.amount_invalid'
-  | 'escrow.fee_invalid'
-  | 'escrow.window_invalid'
-  | 'escrow.deal_id_invalid'
-  | 'escrow.deal_ref_required'
-  | 'escrow.parties_invalid';
+  | 'protocol.escrow_address_invalid'
+  | 'protocol.escrow_amount_invalid'
+  | 'protocol.escrow_fee_invalid'
+  | 'protocol.escrow_window_invalid'
+  | 'protocol.escrow_deal_id_invalid'
+  | 'protocol.escrow_deal_ref_required'
+  | 'protocol.escrow_parties_invalid';
 
 export class EscrowBuildError extends Error {
   constructor(
@@ -43,15 +43,15 @@ const UINT128_MAX = (1n << 128n) - 1n;
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 function addr(name: string, value: unknown, allowZero = false): Address {
-  if (typeof value !== 'string' || !isAddress(value)) throw new EscrowBuildError('escrow.address_invalid', `${name} is not an address`);
+  if (typeof value !== 'string' || !isAddress(value)) throw new EscrowBuildError('protocol.escrow_address_invalid', `${name} is not an address`);
   const a = getAddress(value);
-  if (!allowZero && a === ZERO) throw new EscrowBuildError('escrow.address_invalid', `${name} is the zero address`);
+  if (!allowZero && a === ZERO) throw new EscrowBuildError('protocol.escrow_address_invalid', `${name} is the zero address`);
   return a;
 }
 
 function dealIdOf(value: unknown): bigint {
   if (typeof value !== 'string' || !/^(0|[1-9]\d{0,76})$/.test(value))
-    throw new EscrowBuildError('escrow.deal_id_invalid', 'deal id is a non-negative integer string');
+    throw new EscrowBuildError('protocol.escrow_deal_id_invalid', 'deal id is a non-negative integer string');
   return BigInt(value);
 }
 
@@ -92,30 +92,30 @@ export function buildOpen(input: BuildOpenInput): BuildOpenResult {
   const escrow = addr('escrow', input.escrow);
   const seller = addr('seller', input.seller);
   const buyer = addr('buyer', input.buyer);
-  if (buyer === seller) throw new EscrowBuildError('escrow.parties_invalid', 'buyer and seller must differ');
+  if (buyer === seller) throw new EscrowBuildError('protocol.escrow_parties_invalid', 'buyer and seller must differ');
   const token = addr('token', input.token);
   const arbiter = addr('arbiter', input.arbiter);
   if (typeof input.dealRef !== 'string' || input.dealRef.trim() === '')
-    throw new EscrowBuildError('escrow.deal_ref_required', 'dealRef (the P2P trade id) is required');
+    throw new EscrowBuildError('protocol.escrow_deal_ref_required', 'dealRef (the P2P trade id) is required');
   if (!Number.isInteger(input.tokenDecimals) || input.tokenDecimals < 0 || input.tokenDecimals > 36) {
-    throw new EscrowBuildError('escrow.amount_invalid', 'token decimals must be an integer 0..36');
+    throw new EscrowBuildError('protocol.escrow_amount_invalid', 'token decimals must be an integer 0..36');
   }
   if (typeof input.amount !== 'string' || !/^(0|[1-9]\d*)(\.\d+)?$/.test(input.amount)) {
-    throw new EscrowBuildError('escrow.amount_invalid', 'amount is a decimal string');
+    throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount is a decimal string');
   }
   const frac = input.amount.split('.')[1] ?? '';
-  if (frac.length > input.tokenDecimals) throw new EscrowBuildError('escrow.amount_invalid', 'amount has more decimals than the token');
+  if (frac.length > input.tokenDecimals) throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount has more decimals than the token');
   const base = parseUnits(input.amount, input.tokenDecimals);
-  if (base <= 0n || base > UINT128_MAX) throw new EscrowBuildError('escrow.amount_invalid', 'amount must be positive and fit uint128');
+  if (base <= 0n || base > UINT128_MAX) throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount must be positive and fit uint128');
   if (!Number.isInteger(input.feeBps) || input.feeBps < 0 || input.feeBps > 10_000)
-    throw new EscrowBuildError('escrow.fee_invalid', 'feeBps is an integer 0..10000');
+    throw new EscrowBuildError('protocol.escrow_fee_invalid', 'feeBps is an integer 0..10000');
   const feeRecipient = input.feeRecipient === null ? (ZERO as Address) : addr('feeRecipient', input.feeRecipient);
-  if (input.feeBps > 0 && feeRecipient === ZERO) throw new EscrowBuildError('escrow.fee_invalid', 'a fee needs a fee recipient');
+  if (input.feeBps > 0 && feeRecipient === ZERO) throw new EscrowBuildError('protocol.escrow_fee_invalid', 'a fee needs a fee recipient');
   if (!Number.isInteger(input.disputeWindowSeconds) || input.disputeWindowSeconds <= 0 || input.disputeWindowSeconds > 0xffffffff) {
-    throw new EscrowBuildError('escrow.window_invalid', 'dispute window is a positive uint32 of seconds');
+    throw new EscrowBuildError('protocol.escrow_window_invalid', 'dispute window is a positive uint32 of seconds');
   }
   if (!(input.timeoutDisposition in TIMEOUT_DISPOSITION))
-    throw new EscrowBuildError('escrow.parties_invalid', 'unknown timeout disposition');
+    throw new EscrowBuildError('protocol.escrow_parties_invalid', 'unknown timeout disposition');
   const data = encodeFunctionData({
     abi: sovereignEscrowAbi,
     functionName: 'open',
