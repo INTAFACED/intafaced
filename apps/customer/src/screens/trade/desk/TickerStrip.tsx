@@ -3,7 +3,7 @@ import { Star } from 'lucide-react';
 import { deskCopy } from './copy';
 import { ChangeText, CoinIcon, direction as signOf, fmtAmount, Skeleton, type Loadable, type TickerRow } from './deps';
 import { useFlash, useTickDirection } from './hooks';
-import type { DeskMarket } from './market';
+import { tradingMode, type DeskMarket } from './market';
 import { changeLine, dollarPrice, partialWindowStart, placesOf, turnoverText } from './text';
 import { clockMinutes } from './time';
 import type { Preferences } from '../../../shared/preferences';
@@ -30,7 +30,7 @@ function Stat({ label, value, loading }: { label: string; value: string; loading
   );
 }
 
-/** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover. All from /ticker. */
+/** Ticker strip, 48 px (UI-SPEC 5.7): pair, last price, 24h change, low, high, volume, turnover from /ticker; the trading mode from the listing. */
 export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite, onToggleFavorite, zone, picker, status }: Props) {
   const { t } = deskCopy.useCopy();
   const row = ticker.status === 'ready' ? ticker.data : null;
@@ -43,6 +43,8 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
   const colour = direction ?? (sign === 'up' || sign === 'down' ? sign : null);
   const loading = ticker.status === 'loading';
   const pair = `${market.base}/${market.quote}`;
+  const mode = tradingMode(market.state);
+  const modeText = mode === null ? t('Mode unlisted') : mode === 'other' ? t('Mode other') : t(`Mode ${mode}`);
   return (
     <header className="dk-ticker" aria-label={t('Spot desk')}>
       <div className="dk-ticker-pair">
@@ -80,6 +82,8 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
         )}
       </div>
       <div className="dk-stats">
+        {/* First, so a narrow strip clips a volume figure before it hides that the market is halted. */}
+        <Stat label={t('Trading mode')} value={t('Trading mode value', { state: modeText })} loading={false} />
         <Stat
           label={since ? t('Low since', { time: since }) : t('24h low')}
           value={dollarPrice(row?.low24h ?? null, market)}

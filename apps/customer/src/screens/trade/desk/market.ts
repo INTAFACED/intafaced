@@ -24,6 +24,8 @@ export interface DeskMarket {
   minCost: string | null;
   /** Can be traded right now (listed, orderable, session open, state OPEN). */
   open: boolean;
+  /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
+  state: string | null;
 }
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
@@ -37,7 +39,17 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     minAmount: listing.limits.amount.min,
     minCost: listing.limits.cost.min,
     open: listing.orderable && listing.active && listing.sessionOpen && stateOpen,
+    state: listing.lifecycle?.state?.trim() || null,
   };
+}
+
+export const NAMED_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED'] as const;
+export type NamedMode = (typeof NAMED_MODES)[number];
+
+/** The trading mode the listing states: a named mode, 'other' for a state the desk has no words for (never shown raw), or null when none is listed. */
+export function tradingMode(state: string | null): NamedMode | 'other' | null {
+  if (state === null) return null;
+  return (NAMED_MODES as readonly string[]).includes(state) ? (state as NamedMode) : 'other';
 }
 
 /** Real spot markets only (no paper markets). */
