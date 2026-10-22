@@ -176,6 +176,51 @@ if (!available) {
     expect(await auditOf(id)).toEqual([{ enabled: true }, { enabled: false }]);
   });
 
+  it('a step-up approval id (also the operation id) is one-time and bound to its user and payload: replay and cross-user use refuse', async () => {
+    const user = await register();
+    const stranger = await register();
+    const secret = await enrolTotp(user.userId);
+    const caller = await callerOf(user);
+    const strangerCaller = await callerOf(stranger);
+    const { id } = await auth.createSubAccount(user.userId, 'desk', undefined);
+    const { id: theirs } = await auth.createSubAccount(stranger.userId, 'desk', undefined);
+    const c = randomUUID();
+    const a = await mint(user, id, true, c, secret);
+    await caller.subAccounts.setSignIn({ subAccountId: id, enabled: true, stepUpApprovalId: a, clientRequestId: c });
+    const d = randomUUID();
+    await caller.subAccounts.setSignIn({
+      subAccountId: id,
+      enabled: false,
+      stepUpApprovalId: await mint(user, id, false, d, secret),
+      clientRequestId: d,
+    });
+    // Replay of the spent id with the exact same payload: refused, nothing changes.
+    expect(
+      (await refusal(caller.subAccounts.setSignIn({ subAccountId: id, enabled: true, stepUpApprovalId: a, clientRequestId: c }))).code,
+    ).toBe('identity.step_up_used');
+    expect((await rowOf(id))?.signin_enabled).toBe(false);
+    // An unspent id of one user cannot be spent by another user, on their own sub-account or on this one.
+    const e = randomUUID();
+    const b = await mint(user, id, true, e, secret);
+    const cross = await refusal(
+      strangerCaller.subAccounts.setSignIn({ subAccountId: theirs, enabled: true, stepUpApprovalId: b, clientRequestId: e }),
+    );
+    expect(['identity.step_up_target', 'identity.step_up_not_yours']).toContain(cross.code);
+    expect(
+      (await refusal(strangerCaller.subAccounts.setSignIn({ subAccountId: id, enabled: true, stepUpApprovalId: b, clientRequestId: e })))
+        .code,
+    ).toBe('auth.not_found');
+    // Still unspent for its owner, exactly once.
+    await expect(
+      caller.subAccounts.setSignIn({ subAccountId: id, enabled: true, stepUpApprovalId: b, clientRequestId: e }),
+    ).resolves.toMatchObject({ changed: true });
+    expect(await db.sql`SELECT status FROM action_approvals WHERE approval_id IN (${a}, ${b})`).toEqual([
+      { status: 'CONSUMED' },
+      { status: 'CONSUMED' },
+    ]);
+    expect(await auditOf(id)).toEqual([{ enabled: true }, { enabled: false }, { enabled: true }]);
+  });
+
   it('setSignIn refuses a step-up for the other value, a missing one, a bad request id, a revoked or foreign sub-account and delegated callers', async () => {
     const user = await register();
     const stranger = await register();
