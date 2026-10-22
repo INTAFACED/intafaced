@@ -201,3 +201,38 @@ test(`${J} #5 the first authenticator code turns it on; recovery codes show once
   expect(stored).not.toContain(secret);
   await expect(page.locator('.security__authenticator')).toContainText('Start authenticator setup');
 });
+
+test(`${J}, part of #5: when the confirmation's answer is lost, the recovery codes still show, labelled as such`, async ({ page }) => {
+  test.setTimeout(120_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('ru');
+  await signUpInBrowser(page, who);
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
+  await page.getByRole('button', { name: 'Show setup key' }).click();
+  const secret = await page.getByLabel('Authenticator setup key').inputValue();
+
+  // Identity turns the authenticator on, then the answer never reaches the browser.
+  await page.route('**/totp.confirm**', async (route) => {
+    await route.fetch();
+    await route.abort('connectionreset');
+  });
+  await page.getByLabel('Six-digit authenticator code').fill(totp(secret));
+  await page.getByRole('button', { name: 'Confirm authenticator' }).click();
+
+  const recovery = page.locator('.security__recovery');
+  await expect(recovery).toContainText('We could not tell whether your authenticator was turned on');
+  await expect(recovery.locator('.recovery-codes li')).toHaveCount(10);
+  // The page no longer asks for the confirmation it may already have.
+  await expect(page.getByRole('button', { name: 'Confirm authenticator' })).toHaveCount(0);
+  await expect(page.locator('.security__authenticator')).not.toContainText('Confirmation is still required');
+  // It was on: the checklist says so.
+  const authenticatorRow = page
+    .locator('.security__checklist .security__row')
+    .filter({ has: page.getByText('An authenticator app', { exact: true }) });
+  await expect(authenticatorRow).toContainText('Done');
+  await recovery.getByLabel('I wrote these codes down or stored them somewhere safe').check();
+  await recovery.getByRole('button', { name: 'I saved them' }).click();
+  await expect(recovery).toHaveCount(0);
+});
