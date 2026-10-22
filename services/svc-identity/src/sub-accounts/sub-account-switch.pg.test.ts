@@ -260,6 +260,8 @@ if (!available) {
     const { id: other } = await auth.createSubAccount(user.userId, 'desk2', undefined);
     await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${user.userId}`;
     expect((await refusal(caller.subAccounts.switchTo({ subAccountId: other }))).code).toBe('auth.account_frozen');
+    // A refused issue is not a switch: nothing is recorded for the owner's interval.
+    expect(await db.sql`SELECT 1 FROM sub_account_switches WHERE sub_account_id = ${other}`).toHaveLength(0);
   });
 
   it("the edge's per-request authority read refuses a switch token once its sub-account is frozen or revoked", async () => {

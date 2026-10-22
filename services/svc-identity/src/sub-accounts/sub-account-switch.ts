@@ -82,7 +82,7 @@ export class SubAccountSwitchService {
   async switchTo(input: Actor & { subAccountId: string }): Promise<{ subAccountId: string; accessToken: string; expiresAt: string }> {
     this.assertSession(input);
     const now = (this.deps.now ?? (() => new Date()))();
-    await transaction(this.deps.sql, async (tx) => {
+    const switchId = await transaction(this.deps.sql, async (tx) => {
       // Serialise one user's switches so the interval check and the record agree.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${'identity.sub_account_switch:' + input.userId}))`;
       const row = await this.owned(tx, input.userId, input.subAccountId, false);
@@ -94,17 +94,25 @@ export class SubAccountSwitchService {
           SELECT at FROM sub_account_switches WHERE user_id = ${input.userId} ORDER BY at DESC LIMIT 1`;
         if (last && now.getTime() - last.at.getTime() < min * 1000) throw new SubAccountSwitchError('identity.sub_account_switch_too_soon');
       }
-      await tx`
+      const [rec] = await tx<Array<{ id: string }>>`
         INSERT INTO sub_account_switches (user_id, sub_account_id, session_id, at)
-        VALUES (${input.userId}, ${input.subAccountId}, ${input.sessionId}, ${now})`;
+        VALUES (${input.userId}, ${input.subAccountId}, ${input.sessionId}, ${now}) RETURNING id`;
+      return rec!.id;
     });
     // The issuer re-checks the main session and account status; a frozen main account refuses there.
-    const issued = await this.deps.issue({
-      userId: input.userId,
-      sessionId: input.sessionId,
-      subAccountId: input.subAccountId,
-      mfa: input.mfa,
-    });
+    let issued: Awaited<ReturnType<SwitchTokenIssuer>>;
+    try {
+      issued = await this.deps.issue({
+        userId: input.userId,
+        sessionId: input.sessionId,
+        subAccountId: input.subAccountId,
+        mfa: input.mfa,
+      });
+    } catch (err) {
+      // No token was issued, so this is not a switch: drop the record so it never counts toward the owner's interval.
+      await this.deps.sql`DELETE FROM sub_account_switches WHERE id = ${switchId}`;
+      throw err;
+    }
     return { subAccountId: input.subAccountId, accessToken: issued.accessToken, expiresAt: issued.expiresAt.toISOString() };
   }
 
