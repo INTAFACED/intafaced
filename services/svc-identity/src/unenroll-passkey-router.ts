@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { UnenrollPasskeyError } from './auth/unenroll-passkey.js';
-import { unenrollPasskeyAndRevokeKeys } from './auth/unenroll-passkey-keys.js';
+import { unenrollOneOfTwo } from './auth/unenroll-one-of-two.js';
 
 /**
  * Top-level unenroll (not nested under webauthn) so mergeRouters cannot replace
- * enroll/verify. identity:write. Drops the stored cred and revokes live seats
- * and live API keys. No invented challenge. No invented session or key ids.
+ * enroll/verify. identity:write. Drops one stored cred. Remaining creds keep
+ * live seats and live API keys. Last cred still revokes. No invented challenge.
  */
 export function createUnenrollPasskeyRouter(sql: Sql) {
   return router({
@@ -23,7 +23,7 @@ export function createUnenrollPasskeyRouter(sql: Sql) {
       )
       .mutation(async ({ ctx, input }) => {
         try {
-          return await unenrollPasskeyAndRevokeKeys(sql, ctx.principal.userId, input.credentialId);
+          return await unenrollOneOfTwo(sql, ctx.principal.userId, input.credentialId);
         } catch (err) {
           if (err instanceof UnenrollPasskeyError) {
             if (err.code === 'auth.not_found') {
