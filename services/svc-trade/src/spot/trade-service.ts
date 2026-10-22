@@ -1310,6 +1310,9 @@ export class TradeService {
           span.setAttribute('intafaced.fill_id', ids.fillId);
           return presentBoundConvertFill(stored.bound, { ...ids, settledAt: stored.settledAt });
         }
+        // A convert holds and swaps customer funds: same email-proof gate as an order (RC-identity-01),
+        // for the customer's accept and for a standing schedule alike. A settled replay returned above.
+        await assertEmailProved(this.emailProof, userId);
 
         if (input.symbol != null && input.symbol !== stored.quote.symbol) {
           throw new TradeError('convert accept must honour the quoted symbol', 'trade.convert_price_moved');
@@ -1666,6 +1669,8 @@ export class TradeService {
     const businessId = `order:${orderId}`;
     const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
     const original = await this.accountAdmission?.original(userId, businessId);
+    // An admitted original was granted only after the email-proof gate below passed,
+    // and a proof does not lapse, so finishing it here needs no second read.
     if (original) {
       const evidence = original.payload as Record<string, unknown>;
       if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');

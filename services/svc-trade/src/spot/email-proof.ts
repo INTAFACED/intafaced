@@ -13,6 +13,8 @@ import { TradeError } from './types.js';
  * answer about another user all refuse `trade.identity_unavailable` before
  * any hold. Cancel and reduce-only never come here, so nobody is trapped.
  */
+const READ_TIMEOUT_MS = 5_000;
+
 export interface EmailProofSource {
   /** Throws TradeError `trade.identity_unavailable` when the answer cannot be trusted. */
   get(userId: string): Promise<EmailProof['emailProof']>;
@@ -39,6 +41,8 @@ export function createEmailProofClient(
         response = await fetch(target, {
           method: 'GET',
           headers: { 'content-type': 'application/json', ...authHeaders(target) },
+          // A hung identity must refuse, not hold the order open.
+          signal: AbortSignal.timeout(READ_TIMEOUT_MS),
         });
       } catch (err) {
         throw new TradeError(`email proof unavailable: ${(err as Error).message}`, 'trade.identity_unavailable');

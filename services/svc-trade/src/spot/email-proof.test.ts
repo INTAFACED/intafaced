@@ -12,6 +12,11 @@ import {
 } from '@intafaced/contracts';
 import { assertEmailProved, createEmailProofClient } from './email-proof.js';
 import { StubEmailProof } from './testing.js';
+import type { Principal } from '@intafaced/auth';
+import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
+import { OtcDeskService } from '../controls/test-admission.js';
+import { FixedOtcStake } from '../otc/stake-source.js';
+import { createObservedOtcMidSource } from '../otc/mid-source.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -124,11 +129,44 @@ describe('assertEmailProved', () => {
   });
 });
 
+describe('OTC accept', () => {
+  it('refuses a new accept while the email is unproved, before anything is bound', async () => {
+    const ledger = new MemoryLedger();
+    await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: parseAmount('10'), seedId: 'ep-otc-btc' }));
+    await ledger.post(recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10000'), rail: 'test', railRef: 'ep-otc-u' }));
+    const now = new Date('2026-08-07T12:00:00.000Z');
+    const emailProof = new StubEmailProof();
+    const svc = new OtcDeskService(ledger, new FixedOtcStake(parseAmount('1000')), {
+      law: {
+        published: true,
+        spreadBps: 50,
+        minStake: parseAmount('500'),
+        counterparty: 'platform',
+        quoteTtlMs: 60_000,
+        maxMidAgeSeconds: 60,
+      },
+      midSource: createObservedOtcMidSource('BTC/USDT:200', () => now),
+      now: () => now,
+      emailProof,
+    });
+    const principal = { userId: USER } as Principal;
+    const quote = await svc.quote(principal, { side: 'buy', baseAsset: 'BTC', quoteAsset: 'USDT', qty: '1' });
+    emailProof.missing.add(USER);
+    await expect(svc.accept(principal, { quoteId: quote.quoteId })).rejects.toMatchObject({ code: 'trade.email_proof_required' });
+    emailProof.missing.delete(USER);
+    await expect(svc.accept(principal, { quoteId: quote.quoteId })).resolves.toBeTruthy();
+  });
+});
+
 describe('boot wiring', () => {
   it('index.ts builds the identity client and hands it to TradeService', () => {
     const index = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
     expect(index).toMatch(/const emailProof = createEmailProofClient\(env\.IDENTITY_URL, env\.INTERNAL_SERVICE_SECRET, outS2s\);/);
     const ctor = index.slice(index.indexOf('const trade = new TradeService('));
     expect(ctor.slice(0, ctor.indexOf('});'))).toMatch(/\n  emailProof,\n/);
+    for (const service of ['const positions = new PositionService(', 'const otc = new OtcDeskService(']) {
+      const opts = index.slice(index.indexOf(service));
+      expect(opts.slice(0, opts.indexOf('});'))).toMatch(/\n  emailProof,\n/);
+    }
   });
 });

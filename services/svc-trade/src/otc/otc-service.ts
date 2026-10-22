@@ -45,9 +45,12 @@ import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
 import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY, type OtcMakerDirectory } from './maker-directory.js';
 import { TradingControlError, type TradingAdmissionPort } from '../controls/trading-controls.js';
 import { businessPayload } from '../controls/business-payload.js';
+import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 
 export interface OtcDeskServiceOptions {
   accountAdmission?: TradingAdmissionPort;
+  /** Identity email-proof read (RC-identity-01). Unset refuses every new accept `trade.identity_unavailable`. */
+  emailProof?: EmailProofSource;
   law?: OtcDeskLaw;
   /** Platform counterparty id disclosed when law.counterparty === 'platform'. */
   platformCounterpartyId?: string;
@@ -68,6 +71,7 @@ export interface OtcDeskServiceOptions {
 
 export class OtcDeskService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
+  private readonly emailProof: EmailProofSource | undefined;
   private readonly store: OtcQuoteStore;
   private readonly convertBounds: OtcConvertBounds;
   private readonly law: OtcDeskLaw;
@@ -84,6 +88,7 @@ export class OtcDeskService {
     options: OtcDeskServiceOptions = {},
   ) {
     this.accountAdmission = options.accountAdmission;
+    this.emailProof = options.emailProof;
     this.law = options.law ?? UNPUBLISHED_OTC_DESK_LAW;
     this.platformCounterpartyId = options.platformCounterpartyId ?? 'platform:otc-desk';
     this.midSource = options.midSource ?? NO_OTC_MIDS;
@@ -279,6 +284,9 @@ export class OtcDeskService {
 
     if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
     const original = await this.accountAdmission.original(principal.userId, `otc:${stored.quote.quoteId}`);
+    // RC-identity-01: an accepted quote settles against customer funds, so a new accept
+    // needs a proved email. An admitted original was granted after this gate passed.
+    if (!original) await assertEmailProved(this.emailProof, principal.userId);
     const saved = (original?.payload as { bound?: Record<string, unknown> } | undefined)?.bound;
     const bound = saved
       ? ({

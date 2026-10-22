@@ -10,9 +10,11 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { TradeService } from '../controls/test-admission.js';
+import { PositionService, TradeService, readyTestAdmission } from '../controls/test-admission.js';
 import { TradeService as ProductionTradeService } from './trade-service.js';
-import { readyTestAdmission } from '../controls/test-admission.js';
+import { memoryMarkBook } from '../futures/mark-source.js';
+import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from '../futures/profit-source.js';
+import { TEST_MAX_LEVERAGE_AMOUNT } from '../futures/initial-margin.test-harness.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubEmailProof, StubMatching, StubPerks, principalFor } from './testing.js';
 import type { Market } from './types.js';
 
@@ -61,6 +63,9 @@ describe('email proof gate on new custodial orders (PG-hard)', () => {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       algoEnabled: true,
+      convertEnabled: true,
+      convertSpreadBps: 25,
+      convertQuoteTtlMs: 60_000,
       marketSlippageCapBps: 200,
       emailProof,
     });
@@ -150,6 +155,54 @@ describe('email proof gate on new custodial orders (PG-hard)', () => {
         clientAlgoId: 'ep-twap',
       }),
     ).rejects.toMatchObject({ code: 'trade.email_proof_required' });
+  });
+
+  it('refuses a convert accept before any money moves, and accepts the same quote once proved', async () => {
+    const { trade, ledger, matching, emailProof, market } = await setup();
+    matching.bids = [['99', '100']];
+    matching.asks = [['100', '100']];
+    await ledger.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('10'), seedId: 'ep-convert' }));
+    const quote = await trade.convertQuote(principalFor(ALICE, ['trade:read']), { symbol: market.symbol, side: 'buy', qty: amt('1') });
+    emailProof.missing.add(ALICE);
+    const journal = ledger.journal().length;
+    await expect(trade.convertExecute(alice, { quoteId: quote.quoteId })).rejects.toMatchObject({ code: 'trade.email_proof_required' });
+    expect(ledger.journal()).toHaveLength(journal);
+    emailProof.missing.delete(ALICE);
+    expect(await trade.convertExecute(alice, { quoteId: quote.quoteId })).toMatchObject({ quoteId: quote.quoteId });
+  });
+
+  it('refuses a new futures position before any margin is locked; reduce-only is never asked', async () => {
+    await db.sql`TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+    const MARKET = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const SYMBOL = 'BTC/USDT-PERP';
+    const now = new Date('2026-08-08T12:00:00.000Z');
+    await db.sql`
+      INSERT INTO trade.markets (id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+        maker_bps, taker_bps, status, display_name, listed_at)
+      VALUES (${MARKET}, ${SYMBOL}, 'BTC', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'BTC perpetual', now())
+    `;
+    const ledger = new MemoryLedger();
+    await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100000'), rail: 'test', railRef: 'ep:f' }));
+    const marks = memoryMarkBook();
+    marks.set({ marketId: MARKET, price: '50000', quality: 'mid', asOfMs: now.getTime() });
+    const emailProof = new StubEmailProof();
+    emailProof.missing.add(ALICE);
+    const positions = new PositionService(db.sql, ledger, {
+      marks: marks.source(),
+      profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),
+      maxLeverage: TEST_MAX_LEVERAGE_AMOUNT,
+      bus: null,
+      now: () => now,
+      emailProof,
+    });
+    const journal = ledger.journal().length;
+    const open = () =>
+      positions.open({ clientOpenId: 'ep-long', userId: ALICE, symbol: SYMBOL, side: 'long', size: amt('1'), leverage: amt('10') });
+    await expect(open()).rejects.toMatchObject({ code: 'trade.email_proof_required' });
+    expect(ledger.journal()).toHaveLength(journal);
+    expect(emailProof.lookedUp).toEqual([ALICE]);
+    emailProof.missing.delete(ALICE);
+    expect((await open()).status).toBe('open');
   });
 
   it('a production service with no email-proof source refuses every new live order', async () => {

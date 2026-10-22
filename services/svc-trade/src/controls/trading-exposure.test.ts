@@ -212,6 +212,7 @@ describe('Real exposure paths use owner admission (isolated PostgreSQL)', () => 
     const marks = memoryMarkBook();
     marks.set({ marketId, symbol, price: '100', quality: 'mid', asOfMs: now.getTime() });
     const positions = new PositionService(db.sql, ledger, {
+      emailProof: new StubEmailProof(),
       accountAdmission: controls,
       marks: marks.source(),
       profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),

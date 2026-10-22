@@ -301,6 +301,7 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
+  emailProof,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
@@ -507,6 +508,7 @@ const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
+  emailProof,
   marks: futuresJobs.marks,
   profitSource,
   bus,
