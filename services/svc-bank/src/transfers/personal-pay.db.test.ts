@@ -139,12 +139,17 @@ describe('personal send and request (Postgres)', () => {
     return router.createCaller(ctx);
   }
 
-  async function ready() {
+  /** Funded spaces, and TEST limits published for USDT unless a test is about blank terms. */
+  async function ready({ terms = true }: { terms?: boolean } = {}) {
     await bank.spaces.ensurePrimary(ADA, 'USDT');
     await bank.spaces.ensurePrimary(BOB, 'USDT');
     await ledger.post(
       recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: `ada-${Math.random()}` }),
     );
+    if (terms)
+      await db.sql`
+        INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) VALUES ('USDT', 1000, 10000, 0)
+      `;
   }
 
   async function available(userId: string) {
@@ -221,8 +226,21 @@ describe('personal send and request (Postgres)', () => {
     expect(ledger.journal().filter((tx) => tx.reason === 'bank.transfer.manual')).toHaveLength(0);
   });
 
+  it('refuses a send when no limits are published: nothing reserved, nothing posted', async () => {
+    await ready({ terms: false });
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const from = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const send = () => ada.transfers.toUser({ transferId: 'send-blank-terms-1', fromSpaceId: from.id, toUserId: BOB, amount: '10' });
+    await expect(send()).rejects.toMatchObject({ message: expect.stringContaining('bank.personal_transfer_terms_unset') });
+    await expect(send()).rejects.toMatchObject({ message: expect.stringContaining('bank.personal_transfer_terms_unset') });
+    expect(await db.sql`SELECT transfer_id FROM bank.personal_transfers`).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'bank.transfer.manual')).toHaveLength(0);
+    expect(await available(ADA)).toBe('100');
+    expect(await available(BOB)).toBe('0');
+  });
+
   it('quotes only a published zero fee and refuses an unpublished or unwired fee', async () => {
-    await ready();
+    await ready({ terms: false });
     const ada = await caller(ADA, ['bank:read', 'bank:write']);
     await expect(ada.transfers.quote({ assetId: 'USDT', amount: '10' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',

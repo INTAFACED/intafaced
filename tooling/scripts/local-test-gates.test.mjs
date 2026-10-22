@@ -17,6 +17,9 @@ import {
   lifecycleIsFresh,
   makeContext,
   matchingPayloadHash,
+  bankPayloadHash,
+  termsProposal,
+  TEST_TRANSFER_TERMS,
   needsFullTier,
   openProposal,
   openableMarkets,
@@ -161,6 +164,27 @@ const routerSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-matchi
 assert.ok(routerSrc.includes("'matching.open', { marketId }, `open:${marketId}`"), 'matching open recipe changed; update openProposal');
 const identityRouter = readFileSync(resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'router.ts'), 'utf8');
 assert.ok(identityRouter.includes("'kyc.approve', { recordId: input.recordId }"), 'kyc.approve recipe changed; update kycApproveProposal');
+
+// Bank ops: fields sorted by key, the same recipe as services/svc-bank/src/action-approval-consume.ts.
+assert.equal(
+  bankPayloadHash('bank.ops.publishTransferTerms', { fee: '0', assetId: 'USDT' }),
+  sha({ actionType: 'bank.ops.publishTransferTerms', fields: { assetId: 'USDT', fee: '0' } }),
+);
+const bankSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'action-approval-consume.ts'), 'utf8');
+assert.ok(bankSrc.includes('JSON.stringify({ actionType, fields: sortedCopy })'), 'bank hash recipe changed; update bankPayloadHash');
+const terms = termsProposal(TEST_TRANSFER_TERMS[0]);
+assert.deepEqual(
+  [terms.actionType, terms.targetService, terms.targetId, terms.expectedVersion, terms.policyVersion],
+  ['bank.ops.publishTransferTerms', 'svc-bank', 'bank.ops.publishTransferTerms', '1', 'local-test:v1'],
+);
+const termsSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-bank', 'src', 'transfers', 'transfer-terms.ts'), 'utf8');
+assert.ok(
+  termsSrc.includes("PUBLISH_TRANSFER_TERMS_ACTION = 'bank.ops.publishTransferTerms'"),
+  'terms action renamed; update termsProposal',
+);
+// The TEST figures are canonical decimals, so the hash the stack signs is the one svc-bank recomputes.
+for (const t of TEST_TRANSFER_TERMS)
+  for (const v of [t.perTransferLimit, t.dailyLimit, t.fee]) assert.match(v, /^(0|[1-9]\d*)(\.\d*[1-9])?$/, `${t.assetId} ${v}`);
 
 // Operators are labelled and distinct.
 const a = operatorIdentity('a');

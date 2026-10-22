@@ -31,6 +31,13 @@ const REFERENCE_MAX = 64;
 /** A reserved send the client never retried. Older than this, and with no ledger posting, it stops counting toward the daily cap. */
 const STALE_RESERVATION_MS = 15 * 60 * 1000;
 
+function termsUnset(assetId: string): BankError {
+  return new BankError(
+    `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
+    'bank.personal_transfer_terms_unset',
+  );
+}
+
 export type RequestStatus = 'open' | 'paid' | 'declined' | 'cancelled' | 'expired';
 
 export interface PersonalTransferView {
@@ -341,12 +348,7 @@ export class PersonalPayService {
   async quote(actorUserId: string, assetId: string, amount: Amount, at?: Date): Promise<TransferQuote> {
     const now = this.now(at);
     const terms = await this.terms(assetId);
-    if (!terms) {
-      throw new BankError(
-        `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
-        'bank.personal_transfer_terms_unset',
-      );
-    }
+    if (!terms) throw termsUnset(assetId);
     const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
     const fee = parseAmount(terms.fee);
     // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
@@ -716,7 +718,8 @@ export class PersonalPayService {
         FROM bank.personal_transfer_terms WHERE asset_id = ${assetId}
     `;
     const terms = rows[0];
-    if (!terms) return;
+    // Blank is not unlimited: with no published limits for the asset, nothing is reserved or posted.
+    if (!terms) throw termsUnset(assetId);
     const fee = parseAmount(terms.fee);
     if (fee > 0n) {
       throw new BankError(
