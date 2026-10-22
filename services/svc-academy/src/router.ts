@@ -1847,27 +1847,6 @@ export function createAcademyRouter(
      * success path that invents pool amounts. No amount fields on the output.
      * D26-P1-C3: unset start refuse is greppable on statusLine / blankStart.
      */
-    /**
-     * AC-order-02 — owner settings register: every class-a owner value with
-     * its state (set / not set) and the refusal shown while blank. State only:
-     * no value and no default ever leaves this read.
-     */
-    settingsStatus: scopedProcedure('admin:read', { module: 'academy' })
-      .output(
-        z.object({
-          rows: z.array(
-            z.object({
-              key: z.string(),
-              state: z.enum(['set', 'not_set']),
-              store: z.enum(['env', 'pending', 'refuse_closed']),
-              readOnly: z.boolean(),
-              refusalCode: z.string().nullable(),
-            }),
-          ),
-        }),
-      )
-      .query(() => ({ rows: [...settingsRegister(settings)] })),
-
     tournamentPrizePlane: scopedProcedure('admin:read', { module: 'academy' })
       .output(
         z.object({
@@ -2439,6 +2418,27 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      /**
+       * AC-order-02 — owner settings register: every class-a owner value with
+       * its state (set / not set) and the refusal shown while blank. State only:
+       * no value and no default ever leaves this read.
+       */
+      settingsStatus: scopedProcedure('admin:read', { module: 'academy' })
+        .output(
+          z.object({
+            rows: z.array(
+              z.object({
+                key: z.string(),
+                state: z.enum(['set', 'not_set']),
+                store: z.enum(['env', 'pending', 'refuse_closed']),
+                readOnly: z.boolean(),
+                refusalCode: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(() => ({ rows: [...settingsRegister(settings)] })),
+
       grantAudit: scopedProcedure('admin:read', { module: 'academy' })
         .input(
           z.object({

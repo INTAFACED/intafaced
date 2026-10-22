@@ -144,23 +144,23 @@ function signed(scopes: string[]) {
 const caller = (scopes: string[], env?: SettingsEnv) =>
   createAcademyRouter({} as AcademyService, {}, undefined, undefined, null, env).createCaller(signed(scopes));
 
-describe('academy.settingsStatus door (AC-order-02)', () => {
+describe('academy.admin.settingsStatus door (AC-order-02)', () => {
   it('admin:read gets the register from the wired env', async () => {
-    const out = await caller(['admin:read'], FULL).settingsStatus();
+    const out = await caller(['admin:read'], FULL).admin.settingsStatus();
     expect(out.rows).toEqual(settingsRegister(FULL));
   });
 
   it('unwired router reports every row not_set', async () => {
-    const out = await caller(['admin:read']).settingsStatus();
+    const out = await caller(['admin:read']).admin.settingsStatus();
     expect(out.rows.every((r) => r.state === 'not_set')).toBe(true);
   });
 
   it('a learner session without admin:read is refused', async () => {
-    await expect(caller(['academy:read', 'academy:write']).settingsStatus()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(caller(['academy:read', 'academy:write']).admin.settingsStatus()).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('an unauthenticated call is refused', async () => {
     const anon = createAcademyRouter({} as AcademyService).createCaller(edgeContext({ headers: {}, id: 'anon' }));
-    await expect(anon.settingsStatus()).rejects.toBeTruthy();
+    await expect(anon.admin.settingsStatus()).rejects.toBeTruthy();
   });
 });
