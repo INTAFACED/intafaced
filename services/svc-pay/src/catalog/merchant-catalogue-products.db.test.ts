@@ -165,6 +165,9 @@ describe('M-catalogue-01 product records (Postgres)', () => {
     expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: 'not-a-date', id: randomUUID() }) }))).toBe(
       'pay.catalog_cursor_invalid',
     );
+    expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: '2026-02-30T00:00:00.000Z', id: randomUUID() }) }))).toBe(
+      'pay.catalog_cursor_invalid',
+    );
     expect(await codeOf(catalog.list(c, { limit: 5, cursor: forge({ at: new Date().toISOString(), id: 'nope' }) }))).toBe(
       'pay.catalog_cursor_invalid',
     );
@@ -185,5 +188,33 @@ describe('M-catalogue-01 product records (Postgres)', () => {
     const api = createMerchantOpsRouter({ sql } as unknown as MerchantOpsDeps).createCaller(ctx);
     const made = await api.merchantOps.catalog.product.create({ requestId: randomUUID(), name: 'Route box', type: 'good' });
     expect((await api.merchantOps.catalog.product.get({ productId: made.id })).name).toBe('Route box');
+  });
+  it('route: a viewer session reads products but create is FORBIDDEN', async () => {
+    const c = await owner();
+    const viewerId = randomUUID();
+    await sql`
+      INSERT INTO pay.merchant_team_members (merchant_id, user_id, role, status, invited_by, activated_at)
+      VALUES (${c.merchantId}, ${viewerId}, 'viewer', 'active', ${c.userId}, now())`;
+    const authConfig = {
+      secret: 'a-test-signing-secret-that-is-long-enough',
+      issuer: 'intafaced',
+      audience: 'intafaced.api',
+      accessTtlSeconds: 900,
+    };
+    const { token } = await issueAccessToken(
+      { userId: viewerId, sessionId: randomUUID(), scopes: ['pay:read', 'pay:write'], tier: 'full', mfa: true },
+      authConfig,
+    );
+    const ctx = {
+      principal: await verifyAccessToken(token, authConfig),
+      service: null,
+      region: 'DE',
+      requestId: 'req-cat-viewer',
+    } as Context;
+    const api = createMerchantOpsRouter({ sql } as unknown as MerchantOpsDeps).createCaller(ctx);
+    expect((await api.merchantOps.catalog.product.list({ limit: 5 })).items).toEqual([]);
+    await expect(api.merchantOps.catalog.product.create({ requestId: randomUUID(), name: 'Nope', type: 'good' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
   });
 });

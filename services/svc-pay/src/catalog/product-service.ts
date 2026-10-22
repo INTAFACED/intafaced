@@ -219,12 +219,14 @@ export class CatalogProductService {
       } catch {
         throw new MerchantOpsError('pay.catalog_cursor_invalid', 'bad_request');
       }
+      // Round-trip: only a cursor this service minted (Date#toISOString of a real instant) is accepted.
+      const at = after && typeof after.at === 'string' ? new Date(after.at) : null;
       if (
         !after ||
-        typeof after.at !== 'string' ||
         typeof after.id !== 'string' ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(after.at) ||
-        Number.isNaN(Date.parse(after.at)) ||
+        !at ||
+        Number.isNaN(at.getTime()) ||
+        at.toISOString() !== after.at ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(after.id)
       )
         throw new MerchantOpsError('pay.catalog_cursor_invalid', 'bad_request');
