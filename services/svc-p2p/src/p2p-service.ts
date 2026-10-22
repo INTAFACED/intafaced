@@ -3372,6 +3372,7 @@ export class P2pService {
     rows: number;
     format: 'csv';
     totals: Array<{ asset: string; fiatCurrency: string; amount: string; fiatAmount: string }>;
+    totalsByRole?: Array<{ role: 'buyer' | 'seller'; asset: string; fiatCurrency: string; amount: string; fiatAmount: string }>;
   }> {
     try {
       const format = assertFormatBuilt(input.format ?? 'csv');
@@ -3392,12 +3393,26 @@ export class P2pService {
       const file = await this.renderTradesCsv({ userId: input.userId, from: input.from, to: input.to });
       // Rows can land between the count and the file query; the cap holds on what is served.
       assertRowsWithinCap(file.rows, maxRows);
+      // Settled amounts only: a cancelled or open trade moved no money.
       const totals = await this.sql<Array<{ asset: string; fiat_currency: string; amount: string; fiat_amount: string }>>`
         SELECT asset, fiat_currency, sum(amount)::text AS amount, sum(fiat_amount)::text AS fiat_amount
           FROM p2p.p2p_trades
          WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
+           AND status = 'released'
            AND created_at >= ${from} AND created_at <= ${to}
          GROUP BY asset, fiat_currency ORDER BY asset, fiat_currency
+      `;
+      // Additive: the same released totals split by the caller's side.
+      const byRole = await this.sql<
+        Array<{ role: 'buyer' | 'seller'; asset: string; fiat_currency: string; amount: string; fiat_amount: string }>
+      >`
+        SELECT CASE WHEN seller_id = ${input.userId} THEN 'seller' ELSE 'buyer' END AS role,
+               asset, fiat_currency, sum(amount)::text AS amount, sum(fiat_amount)::text AS fiat_amount
+          FROM p2p.p2p_trades
+         WHERE (seller_id = ${input.userId} OR buyer_id = ${input.userId})
+           AND status = 'released'
+           AND created_at >= ${from} AND created_at <= ${to}
+         GROUP BY 1, asset, fiat_currency ORDER BY 1, asset, fiat_currency
       `;
       await this.sql`
         INSERT INTO p2p.export_audit (user_id, kind, format, range_from, range_to, row_count)
@@ -3407,6 +3422,13 @@ export class P2pService {
         ...file,
         format,
         totals: totals.map((t) => ({
+          asset: t.asset,
+          fiatCurrency: t.fiat_currency,
+          amount: formatAmount(parseAmount(t.amount)),
+          fiatAmount: formatAmount(parseAmount(t.fiat_amount)),
+        })),
+        totalsByRole: byRole.map((t) => ({
+          role: t.role,
           asset: t.asset,
           fiatCurrency: t.fiat_currency,
           amount: formatAmount(parseAmount(t.amount)),
