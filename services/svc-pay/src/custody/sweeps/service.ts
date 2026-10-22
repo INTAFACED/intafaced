@@ -255,17 +255,23 @@ export class CustodySweepService {
     return row;
   }
 
-  /** Whether the pair's trigger fires now, from credited deposits that have no sweep yet. Reads only. */
+  /**
+   * Whether the pair's trigger fires now, from credited deposits with no live sweep intent (a failed or canceled intent
+   * does not count, so that deposit is due again). `last` ignores failed and canceled intents. Reads only.
+   */
   async due(networkId: string, assetId: string): Promise<SweepDueView> {
     const policy = await this.policy(networkId, assetId);
     const [agg] = await this.deps.sql<Array<{ n: number; total: string; last: Date | null }>>`
       SELECT (SELECT count(*)::int FROM pay.custody_deposits d
                WHERE d.network_id = ${networkId} AND d.asset_id = ${assetId} AND d.status = 'credited'
-                 AND NOT EXISTS (SELECT 1 FROM pay.custody_sweeps s WHERE s.deposit_id = d.id)) AS n,
+                 AND NOT EXISTS (SELECT 1 FROM pay.custody_sweeps s
+                                 WHERE s.deposit_id = d.id AND s.status NOT IN ('failed', 'canceled'))) AS n,
              (SELECT COALESCE(SUM(d.amount::numeric), 0)::text FROM pay.custody_deposits d
                WHERE d.network_id = ${networkId} AND d.asset_id = ${assetId} AND d.status = 'credited'
-                 AND NOT EXISTS (SELECT 1 FROM pay.custody_sweeps s WHERE s.deposit_id = d.id)) AS total,
-             (SELECT MAX(created_at) FROM pay.custody_sweeps WHERE network_id = ${networkId} AND asset_id = ${assetId}) AS last`;
+                 AND NOT EXISTS (SELECT 1 FROM pay.custody_sweeps s
+                                 WHERE s.deposit_id = d.id AND s.status NOT IN ('failed', 'canceled'))) AS total,
+             (SELECT MAX(created_at) FROM pay.custody_sweeps
+               WHERE network_id = ${networkId} AND asset_id = ${assetId} AND status NOT IN ('failed', 'canceled')) AS last`;
     const n = agg!.n;
     const total = parseAmount(agg!.total);
     let due = false;

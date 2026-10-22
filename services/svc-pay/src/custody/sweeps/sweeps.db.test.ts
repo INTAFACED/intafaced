@@ -284,6 +284,19 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     expect((await sweeps().due(pair)).due).toBe(true);
   });
 
+  it('a deposit whose intent failed is due again, and create gives intent 2', async () => {
+    await setPolicy(policyBody({ trigger: 'count', thresholdCount: 1 }));
+    const depositId = await deposit('credited', '2');
+    const s = await sweeps().create({ depositId });
+    expect(await sweeps().due(pair)).toMatchObject({ due: false, unsweptCount: 0 });
+    next = async () => ({ state: 'failed', error: 'TEST insufficient gas' });
+    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({ status: 'failed' });
+    expect(await sweeps().due(pair)).toMatchObject({ due: true, unsweptCount: 1, unsweptAmount: '2', lastSweepAt: null });
+    const again = await sweeps().create({ depositId });
+    expect(again).toMatchObject({ intentNo: 2, status: 'pending', idempotencyKey: `sweep:${depositId}:treasury:2` });
+    expect(await sweeps().due(pair)).toMatchObject({ due: false, unsweptCount: 0 });
+  });
+
   it('only a credited deposit is swept; create is idempotent on sweep:<depositId>:treasury', async () => {
     await setPolicy(policyBody());
     const pending = await deposit('confirming');
