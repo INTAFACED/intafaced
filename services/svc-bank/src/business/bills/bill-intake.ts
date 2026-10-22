@@ -185,6 +185,19 @@ const ACTIVE_TYPES = new Set([
   'application/javascript',
 ]);
 const ACTIVE_PREFIX = /^\s*(<\?xml|<!doctype|<html|<svg|<script)/i;
+/** Leading byte-order marks (UTF-8, UTF-16 LE/BE) a browser skips before sniffing markup. */
+const BOM = /^(\u00ef\u00bb\u00bf|\u00ff\u00fe|\u00fe\u00ff)+/;
+/** Markup a browser would render anywhere in the head of an unsigned file: a leading tag or comment, or an active tag. */
+const MARKUP = /(^\s*<[!?a-z/])|<(html|head|body|iframe|frame|script|svg|object|embed|meta|link|style|img|a)[\s/>]|<!--/i;
+
+function looksLikeMarkup(bytes: Buffer): boolean {
+  const head = bytes
+    .subarray(0, 1024)
+    .toString('latin1')
+    .replace(BOM, '')
+    .replace(/\u0000/g, '');
+  return ACTIVE_PREFIX.test(head) || MARKUP.test(head);
+}
 
 /**
  * The type the server stores and serves, from the bytes, not the client's word. Bytes with a known signature are stored
@@ -199,5 +212,9 @@ export function sniffBillType(declared: string, bytes: Buffer): string {
   }
   const sniffed = SIGNATURES.find((s) => s.magic.every((b, i) => bytes[i] === b));
   if (sniffed && sniffed.type !== type) throw new BankError('The bill file does not match its declared type.', 'bank.bill_file_type');
+  // Unsigned bytes that a browser would render as markup (BOM-prefixed or not) refuse whatever type is declared.
+  if (!sniffed && looksLikeMarkup(bytes)) {
+    throw new BankError('That file type is not accepted for bills.', 'bank.bill_file_type');
+  }
   return sniffed?.type ?? type;
 }
