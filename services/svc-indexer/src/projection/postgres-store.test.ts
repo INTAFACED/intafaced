@@ -395,7 +395,7 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         ).map((r) => r.table_name);
 
       const before = await tableNames();
-      expect(before).toEqual(['blocks', 'book_levels', 'fills', 'positions']);
+      expect(before).toEqual(['blocks', 'book_levels', 'explorer_block_facts', 'fills', 'positions']);
 
       for (const body of [...downFiles].reverse()) {
         await db.sql.unsafe(rewriteSchemaSql(body, 'indexer', db.schema));
