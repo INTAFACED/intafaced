@@ -351,6 +351,8 @@ export interface PositionRow {
   contract_size: string | null;
   /** Last posted futuresMarginAdd/Release sequence; close residual uses 1. */
   margin_adjust_seq: number;
+  /** Bumped by trigger on every UPDATE (0085). The publish key's row version. */
+  row_version: number | string;
   margin_adjust_request: string | null;
 }
 
@@ -1199,6 +1201,7 @@ export class PositionService {
       }),
     );
 
+    let inserted: PositionRow | undefined;
     try {
       /**
        * THE BREAKER IS ARMED FROM BIRTH.
@@ -1214,7 +1217,10 @@ export class PositionService {
        * nothing to realise; the only way to profit from a jump is to make it
        * after entry, and that is precisely what this number now catches.
        */
-      await this.sql`
+      // The row as this INSERT wrote it (row_version included), so the open publish keys on the
+      // state this write produced rather than a later re-read that a funding tick may already have moved.
+      [inserted] = await this.sql<PositionRow[]>`
+        WITH ins AS (
         INSERT INTO trade.positions (
           id, user_id, market_id, side, status, margin_mode,
           size, entry_price, leverage, margin_initial, margin_current, margin_asset, funding_paid,
@@ -1237,6 +1243,9 @@ export class PositionService {
           ${at},
           ${input.clientOpenId}
         )
+        RETURNING *
+        )
+        SELECT ins.*, m.symbol, m.contract_size FROM ins JOIN trade.markets m ON m.id = ins.market_id
       `;
     } catch (err) {
       /**
@@ -1270,12 +1279,18 @@ export class PositionService {
       throw err;
     }
 
-    const [row] = await this.sql<PositionRow[]>`
-      SELECT p.*, m.symbol, m.contract_size
-      FROM trade.positions p
-      JOIN trade.markets m ON m.id = p.market_id
-      WHERE p.id = ${positionId}
-    `;
+    // Real Postgres always returns the inserted row (a conflict throws above). The re-read is only a
+    // fallback for drivers or doubles that return nothing from the INSERT.
+    const row =
+      inserted ??
+      (
+        await this.sql<PositionRow[]>`
+          SELECT p.*, m.symbol, m.contract_size
+          FROM trade.positions p
+          JOIN trade.markets m ON m.id = p.market_id
+          WHERE p.id = ${positionId}
+        `
+      )[0];
     await this.sql`
       INSERT INTO trade.futures_open_requests (user_id, market_id, client_open_id, reduce_only)
       VALUES (${input.userId}, ${m.id}, ${input.clientOpenId}, false)
@@ -1393,15 +1408,22 @@ export class PositionService {
         if (currentLeverage === input.leverage) {
           // The claim stored this adjustment at sequence + 1. Nothing posts, but the counter still moves past it,
           // so the next real adjustment cannot be given a sequence a completed row already holds.
-          await tx`UPDATE trade.positions
-            SET margin_adjust_seq = GREATEST(margin_adjust_seq, ${Number(row.margin_adjust_seq) + 1}),
+          // RETURNING: publish the row as this write left it (new row_version), never the stale FOR UPDATE
+          // read, or the event would reuse a key consumers already deduped and be dropped for good.
+          const [bumped] = await tx<PositionRow[]>`UPDATE trade.positions p
+            SET margin_adjust_seq = GREATEST(p.margin_adjust_seq, ${Number(row.margin_adjust_seq) + 1}),
                 margin_adjust_request = NULL, updated_at = now()
-            WHERE id = ${row.id} AND margin_adjust_request = ${adjustmentId}`;
-          const result = presentPosition(row);
+            FROM trade.markets m
+            WHERE p.id = ${row.id} AND p.margin_adjust_request = ${adjustmentId} AND m.id = p.market_id
+            RETURNING p.*, m.symbol, m.contract_size`;
+          if (!bumped) {
+            throw new FuturesError('position changed underneath this leverage update', 'trade.position_not_open', 409);
+          }
+          const result = presentPosition(bumped);
           await tx`UPDATE trade.position_margin_adjustments
             SET status = 'completed', result = ${tx.json(result)}, completed_at = now()
             WHERE position_id = ${row.id} AND client_adjustment_id = ${adjustmentId} AND status = 'pending'`;
-          return row;
+          return bumped;
         }
 
         const size = parseAmount(row.size);
@@ -2202,9 +2224,10 @@ export class PositionService {
         closingReason: row.status === 'closing' ? (row.closing_reason ?? null) : null,
         ts,
       },
-      // Business key, never the clock (AGENTS.md Money 4): a retry of the same
-      // transition must dedupe. `ts` stays in the payload only.
-      { idempotencyKey: `trade.position.updated:${row.id}:${row.status}:${row.margin_adjust_seq}` },
+      // Business key, never the clock (AGENTS.md Money 4). `row_version` is bumped by a DB trigger on
+      // EVERY UPDATE of trade.positions (drizzle/0085), so any write (margin, funding, rung, ADL, close)
+      // yields a new key, while a retry publishing the same DB state dedupes. `ts` stays in the payload only.
+      { idempotencyKey: `trade.position.updated:${row.id}:${row.status}:v${row.row_version}` },
     );
   }
 

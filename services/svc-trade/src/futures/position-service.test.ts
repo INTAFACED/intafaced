@@ -434,7 +434,7 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
     expect(bus.emitted('positionUpdated')).toHaveLength(2);
   });
 
-  it('positionUpdated idempotency key is the business state, not the wall clock', async () => {
+  it('positionUpdated idempotency key is the row version: a retry of the same DB state keeps it, the clock does not move it', async () => {
     feed('50000');
     const pos = await positions.open({
       clientOpenId: 't-open-position-service.test-idem-key',
@@ -444,9 +444,12 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
       size: amt('1'),
       leverage: amt('10'),
     });
+    const openKey = bus.emitted('positionUpdated').at(-1)!.idempotencyKey;
     const [row] = await sql`
       SELECT p.*, m.symbol, m.contract_size FROM trade.positions p
       JOIN trade.markets m ON m.id = p.market_id WHERE p.id = ${pos.id!}`;
+    // The open publish used the row its own INSERT returned, which is the same DB state as this re-read.
+    expect(openKey).toBe(`trade.position.updated:${pos.id}:open:v${row!.row_version}`);
     bus.reset();
     const publish = (r: unknown) =>
       (positions as unknown as { publishPositionUpdated(r: unknown): Promise<void> }).publishPositionUpdated(r);
@@ -459,15 +462,47 @@ describe('svc-trade position-service (H8a PG-hard)', () => {
       const [a, b] = bus.emitted('positionUpdated');
       expect(a!.payload.ts).not.toEqual(b!.payload.ts);
       expect(a!.idempotencyKey).toBe(b!.idempotencyKey);
-      expect(a!.idempotencyKey).toBe(`trade.position.updated:${pos.id}:open:${row!.margin_adjust_seq}`);
-      // A real change of state yields a new key.
-      await publish({ ...row, margin_adjust_seq: Number(row!.margin_adjust_seq) + 1 });
-      await publish({ ...row, status: 'closed' });
-      const keys = bus.emitted('positionUpdated').map((e) => e.idempotencyKey);
-      expect(new Set(keys).size).toBe(3);
+      expect(a!.idempotencyKey).toBe(openKey);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a real funding change then a no-op set-leverage publishes a NEW key (no permanent dedupe of the update)', async () => {
+    feed('50000');
+    const pos = await positions.open({
+      clientOpenId: 't-open-idem-key-funding-noop',
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      side: 'long',
+      size: amt('1'),
+      leverage: amt('10'),
+    });
+    const openKey = bus.emitted('positionUpdated').at(-1)!.idempotencyKey;
+    const [before] = await sql`SELECT margin_adjust_seq, row_version FROM trade.positions WHERE id = ${pos.id!}`;
+
+    // A real funding settlement through the production applier. It does not touch margin_adjust_seq.
+    await sqlFundingMarginApplier(sql).applyFundingNets([{ positionId: pos.id!, paid: amt('1') }], 'idem-key-period-1');
+    const [funded] = await sql`SELECT margin_adjust_seq, row_version, funding_paid FROM trade.positions WHERE id = ${pos.id!}`;
+    expect(Number(funded!.margin_adjust_seq)).toBe(Number(before!.margin_adjust_seq));
+    expect(Number(funded!.row_version)).toBeGreaterThan(Number(before!.row_version));
+    expect(Number(funded!.funding_paid)).toBe(1);
+
+    bus.reset();
+    const same = await positions.setLeverage({
+      userId: ALICE,
+      symbol: 'BTC/USDT-PERP',
+      positionId: pos.id!,
+      leverage: amt('10'),
+      clientAdjustmentId: 'idem-key-noop-1',
+    });
+    expect(same.leverage).toBe('10');
+    const events = bus.emitted('positionUpdated');
+    expect(events).toHaveLength(1);
+    const [after] = await sql`SELECT row_version FROM trade.positions WHERE id = ${pos.id!}`;
+    // Published from the no-op's own RETURNING row, not the stale FOR UPDATE read.
+    expect(events[0]!.idempotencyKey).toBe(`trade.position.updated:${pos.id}:open:v${after!.row_version}`);
+    expect(events[0]!.idempotencyKey).not.toBe(openKey);
   });
 
   // ── D-S-01: a price that moves money is never supplied by the party it pays ──
