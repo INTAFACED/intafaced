@@ -5,6 +5,7 @@ const messages = {
   social: 'Continue with a social account',
   wallet: 'Continue with a wallet',
   starting: 'Opening…',
+  unsafe: 'The sign-in provider answered with an address that is not secure, so we did not open it. Use your email instead.',
   'idp.social':
     'Social and wallet sign-in need an outside sign-in provider, which is switched off in this build. Use your email instead; nothing was created.',
   'identity.social_provider_config_incomplete':

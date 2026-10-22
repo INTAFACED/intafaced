@@ -31,15 +31,15 @@ export function SocialSignIn() {
     setBusy(kind);
     setRefusal(null);
     const answer = await api.mutate('identity', 'auth.oauthStart', { provider: kind }, startedSchema);
-    running.current = false;
-    setBusy(null);
-    if (!answer.ok) {
-      setRefusal(answer);
+    const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
+    if (target?.protocol === 'https:') {
+      // The buttons stay busy while the browser leaves, so a second press cannot start a second flow.
+      location.assign(target.href);
       return;
     }
-    const target = new URL(answer.data.authorizationUrl);
-    if (target.protocol === 'https:') location.assign(target.href);
-    else setRefusal({ ok: false, reason: 'error', message: t('idp.social'), code: 'idp.social' });
+    running.current = false;
+    setBusy(null);
+    setRefusal(answer.ok ? { ok: false, reason: 'error', message: t('unsafe') } : answer);
   }
 
   const code = (WORDED as readonly string[]).includes(refusal?.code ?? '') ? (refusal!.code as (typeof WORDED)[number]) : undefined;
