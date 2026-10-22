@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestDb, postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { operatorOwnerBalances, recordOperatorAccess } from './operator-owner-balances.js';
 
@@ -71,14 +71,8 @@ const migrations = readdirSync(drizzleDir)
   .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   .sort()
   .map((f) => (schema: string) => rewriteSchemaSql(readFileSync(join(drizzleDir, f), 'utf8'), 'ledger', schema));
-const available = await postgresAvailable(URL);
-
-if (!available) {
-  if (process.env.REQUIRE_POSTGRES === '1') throw new Error('REQUIRE_POSTGRES=1 but Postgres is unreachable');
-  describe.skip('operator_access_log (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// PG-hard: no skip. The access log is the audit of who read whose balances; a run without Postgres fails here.
+{
   describe('operator_access_log (0024)', () => {
     let db: TestDb;
     beforeAll(async () => {
