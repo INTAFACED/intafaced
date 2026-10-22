@@ -1,6 +1,4 @@
 import { TRPCError } from '@intafaced/contracts';
-import { ActionApprovalConsumeError } from '../../action-approval-consume.js';
-import { DualControlError } from '../../dual-control.js';
 
 export type CustodySweepErrorCode =
   | 'custody_sweep.policy_unset'
@@ -8,6 +6,7 @@ export type CustodySweepErrorCode =
   | 'custody_sweep.deposit_not_found'
   | 'custody_sweep.deposit_not_credited'
   | 'custody_sweep.sweep_not_found'
+  | 'custody_sweep.in_flight'
   | 'rail.crypto';
 
 const KIND: Record<CustodySweepErrorCode, TRPCError['code']> = {
@@ -16,6 +15,7 @@ const KIND: Record<CustodySweepErrorCode, TRPCError['code']> = {
   'custody_sweep.deposit_not_found': 'NOT_FOUND',
   'custody_sweep.deposit_not_credited': 'PRECONDITION_FAILED',
   'custody_sweep.sweep_not_found': 'NOT_FOUND',
+  'custody_sweep.in_flight': 'CONFLICT',
   'rail.crypto': 'SERVICE_UNAVAILABLE',
 };
 
@@ -34,9 +34,6 @@ export function custodySweepToTrpcError(error: unknown): unknown {
   if (error instanceof TRPCError) return error;
   if (error instanceof CustodySweepError) {
     return new TRPCError({ code: KIND[error.code], message: `${error.code}: ${error.message}`, cause: error });
-  }
-  if (error instanceof DualControlError || error instanceof ActionApprovalConsumeError) {
-    return new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message, cause: error });
   }
   return error;
 }

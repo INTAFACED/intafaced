@@ -6,7 +6,6 @@ import { SESSION_SCOPES, type Principal } from '@intafaced/auth';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { stubApprovalConsumer } from '../../action-approval-consume.js';
 import { MerchantControlError } from '../../merchant-account-controls.js';
 import { createPayNamespaces } from '../../namespaces/index.js';
 import type { SweepBroadcaster, SweepBroadcastResult } from './service.js';
@@ -54,7 +53,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let api: any;
   let apiNoRail: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-  let apiSelfApproved: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  let founder = 'founder-a';
   const sweeps = () => api.founderAdmin.custody.sweeps;
 
   beforeAll(async () => {
@@ -63,7 +62,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     db = await createTestDatabase({ service: 'pay', url: admin.url, migrations });
     const founderAuthority = async () => {
       if (!founderOk) throw new MerchantControlError('operator.denied');
-      return 'founder-a';
+      return founder;
     };
     const broadcaster: SweepBroadcaster = {
       send: async (input) => {
@@ -82,14 +81,8 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       expiresAt: new Date(Date.now() + 3_600_000),
     };
     const ctx = { principal, service: null, region: 'DE', requestId: 'r' };
-    // TEST identity stand-ins: a second founder approves; or the proposer approves their own change.
-    const approvals = stubApprovalConsumer('founder-b');
-    api = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster, approvals } }).createCaller(ctx);
+    api = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster } }).createCaller(ctx);
     apiNoRail = createPayNamespaces({ founderAuthority, custody: { sql: db.sql } }).createCaller(ctx);
-    apiSelfApproved = createPayNamespaces({
-      founderAuthority,
-      custody: { sql: db.sql, approvals: stubApprovalConsumer('founder-a') },
-    }).createCaller(ctx);
   }, 120_000);
 
   afterAll(async () => {
@@ -102,7 +95,25 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     sent.length = 0;
     next = async () => ({ state: 'broadcast', txHash: '0xTESTTX' });
     await db.sql.unsafe(`TRUNCATE pay.custody_sweeps, pay.custody_sweep_policy_events, pay.custody_deposits RESTART IDENTITY CASCADE`);
+    // The existing custody approval quorum (W-custody-ops-06): one registered approver other than the initiator. TEST values.
+    await db.sql.unsafe(`TRUNCATE pay.custody_task_quorum_events, pay.custody_approver_events RESTART IDENTITY CASCADE`);
+    founder = 'owner';
+    await api.founderAdmin.custody.approvalSettings.setQuorum({ kind: 'config', requiredApprovals: 1, expirySeconds: 600 });
+    await api.founderAdmin.custody.approvers.register({ userId: 'founder-b', label: 'TEST approver', role: 'founder' });
+    founder = 'founder-a';
   }, 30_000);
+
+  const config = () => api.founderAdmin.custody.config;
+  /** founder-a proposes the validated payload as a `policy` config task; founder-b approves it, which runs the applier. */
+  async function setPolicy(body: Record<string, unknown>) {
+    founder = 'founder-a';
+    const payload = await sweeps().policy.validate(body);
+    const task = await config().propose({ scope: 'policy', title: 'TEST sweep policy', payload, clientRef: `sweep-${randomUUID()}` });
+    founder = 'founder-b';
+    await config().approve({ taskId: task.id, payloadHash: task.payloadHash });
+    founder = 'founder-a';
+    return task;
+  }
 
   /** A TEST deposit row as W-deposit-05 leaves it. */
   async function deposit(status: 'credited' | 'confirming', amount = '2', n = randomUUID().slice(0, 8)): Promise<string> {
@@ -123,8 +134,6 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     scheduleMinutes: null,
     treasuryAddress: TREASURY,
     reason: 'TEST policy',
-    approvalId: 'appr-test',
-    operationId: 'op-test',
     ...o,
   });
   const pair = { networkId: 'testnet-evm', assetId: 'USDT' };
@@ -147,48 +156,79 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       { trigger: 'immediate', thresholdCount: 3 },
       { treasuryAddress: '  ' },
     ]) {
-      expect((await refused(sweeps().policy.set(policyBody(bad)))).message).toMatch(/custody_sweep\.policy_invalid/);
+      expect((await refused(sweeps().policy.validate(policyBody(bad)))).message).toMatch(/custody_sweep\.policy_invalid/);
     }
-    await sweeps().policy.set(policyBody());
-    await sweeps().policy.set(policyBody({ trigger: 'amount', thresholdAmount: '5.50' }));
+    await setPolicy(policyBody());
+    await setPolicy(policyBody({ trigger: 'amount', thresholdAmount: '5.50' }));
     expect(await sweeps().policy.get(pair)).toMatchObject({
       trigger: 'amount',
       thresholdAmount: '5.5',
       setBy: 'founder-a',
-      approvedBy: 'founder-b',
+      approvedBy: ['founder-b'],
     });
   });
 
-  it('a policy (and so the treasury address) needs a second founder through identity action approval', async () => {
-    const { approvalId: _a, operationId: _o, ...plain } = policyBody();
-    const preview = await sweeps().policy.preview(plain);
-    expect(preview.actionType).toBe('pay.custody_sweep_policy_set');
-    expect(preview.payloadHash).toMatch(/^sha256:/);
-    expect((await sweeps().policy.preview({ ...plain, treasuryAddress: '0xTESTother' })).payloadHash).not.toBe(preview.payloadHash);
-    expect((await refused(apiNoRail.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(/IDENTITY_URL/);
-    expect((await refused(apiSelfApproved.founderAdmin.custody.sweeps.policy.set(policyBody()))).message).toMatch(/distinct/);
-    expect((await refused(sweeps().policy.set(policyBody({ approvalId: null, operationId: null })))).code).toBe('PRECONDITION_FAILED');
+  it('a policy (and so the treasury address) changes only through an approved custody config task', async () => {
+    const payload = await sweeps().policy.validate(policyBody());
+    expect(payload).toMatchObject({ kind: 'sweep_policy', treasuryAddress: TREASURY, trigger: 'immediate' });
+    // Proposed but not approved: nothing stored.
+    const task = await config().propose({ scope: 'policy', title: 'TEST', payload, clientRef: `sweep-${randomUUID()}` });
     expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
+    // The initiator cannot approve their own task.
+    expect(await refused(config().approve({ taskId: task.id, payloadHash: task.payloadHash }))).toBeTruthy();
+    expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
+    // A second registered approver carries it; the stored row names the proposer, the approver and the task.
+    founder = 'founder-b';
+    await config().approve({ taskId: task.id, payloadHash: task.payloadHash });
+    founder = 'founder-a';
+    expect(await sweeps().policy.get(pair)).toMatchObject({ setBy: 'founder-a', approvedBy: ['founder-b'], approvalTaskId: task.id });
+    // A policy task of an unknown kind fails and stores nothing.
+    const bad = await config().propose({ scope: 'policy', title: 'TEST', payload: { kind: 'nope' }, clientRef: `sweep-${randomUUID()}` });
+    founder = 'founder-b';
+    await config()
+      .approve({ taskId: bad.id, payloadHash: bad.payloadHash })
+      .catch(() => undefined);
+    founder = 'founder-a';
+    expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(1);
+  });
+
+  it('two concurrent executes: exactly one asks the rail; the other is refused in flight', async () => {
+    await setPolicy(policyBody());
+    const depositId = await deposit('credited');
+    const s = await sweeps().create({ depositId });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    next = async () => {
+      await gate;
+      return { state: 'broadcast', txHash: '0xTESTTX' };
+    };
+    const first = sweeps().execute({ sweepId: s.id });
+    await new Promise((r) => setTimeout(r, 50));
+    const second = await refused(sweeps().execute({ sweepId: s.id }));
+    expect(second.message).toMatch(/custody_sweep\.in_flight/);
+    release();
+    expect(await first).toMatchObject({ status: 'broadcast', attempts: 1 });
+    expect(sent).toHaveLength(1);
   });
 
   it('due follows each trigger over credited deposits with no sweep yet', async () => {
     await deposit('credited', '2');
     await deposit('credited', '3');
     await deposit('confirming', '100');
-    await sweeps().policy.set(policyBody({ trigger: 'amount', thresholdAmount: '5' }));
+    await setPolicy(policyBody({ trigger: 'amount', thresholdAmount: '5' }));
     expect(await sweeps().due(pair)).toMatchObject({ due: true, unsweptCount: 2, unsweptAmount: '5', lastSweepAt: null });
-    await sweeps().policy.set(policyBody({ trigger: 'amount', thresholdAmount: '5.000000000000000001' }));
+    await setPolicy(policyBody({ trigger: 'amount', thresholdAmount: '5.000000000000000001' }));
     expect((await sweeps().due(pair)).due).toBe(false);
-    await sweeps().policy.set(policyBody({ trigger: 'count', thresholdCount: 3 }));
+    await setPolicy(policyBody({ trigger: 'count', thresholdCount: 3 }));
     expect((await sweeps().due(pair)).due).toBe(false);
-    await sweeps().policy.set(policyBody({ trigger: 'count', thresholdCount: 2 }));
+    await setPolicy(policyBody({ trigger: 'count', thresholdCount: 2 }));
     expect((await sweeps().due(pair)).due).toBe(true);
-    await sweeps().policy.set(policyBody({ trigger: 'schedule', scheduleMinutes: 60 }));
+    await setPolicy(policyBody({ trigger: 'schedule', scheduleMinutes: 60 }));
     expect((await sweeps().due(pair)).due).toBe(true);
   });
 
   it('only a credited deposit is swept; create is idempotent on sweep:<depositId>:treasury', async () => {
-    await sweeps().policy.set(policyBody());
+    await setPolicy(policyBody());
     const pending = await deposit('confirming');
     expect((await refused(sweeps().create({ depositId: pending }))).message).toMatch(/deposit_not_credited/);
     expect((await refused(sweeps().create({ depositId: randomUUID() }))).message).toMatch(/deposit_not_found/);
@@ -207,7 +247,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   });
 
   it('no broadcaster: execute refuses rail.crypto and the intent row stays pending', async () => {
-    await sweeps().policy.set(policyBody());
+    await setPolicy(policyBody());
     const s = await sweeps().create({ depositId: await deposit('credited') });
     const err = await refused(apiNoRail.founderAdmin.custody.sweeps.execute({ sweepId: s.id }));
     expect(err.message).toMatch(/rail\.crypto: Sweeping to treasury needs rail\.crypto\. It is switched off in this build\./);
@@ -215,7 +255,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   });
 
   it('a failed send leaves balances alone and the retry reuses the same key; broadcast is final', async () => {
-    await sweeps().policy.set(policyBody());
+    await setPolicy(policyBody());
     const depositId = await deposit('credited');
     const before = await db.sql`SELECT * FROM pay.custody_deposits ORDER BY id`;
     const s = await sweeps().create({ depositId });
@@ -240,7 +280,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   });
 
   it('an unknown outcome keeps the intent row and the retry asks again with the original key', async () => {
-    await sweeps().policy.set(policyBody());
+    await setPolicy(policyBody());
     const depositId = await deposit('credited');
     const s = await sweeps().create({ depositId });
     next = async () => {

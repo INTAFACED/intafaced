@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Sweeps to treasury (W-custody-ops-05). Amounts are decimal strings; nothing here is a customer balance. */
 export const SWEEP_TRIGGERS = ['immediate', 'amount', 'count', 'schedule'] as const;
-export const SWEEP_STATUSES = ['pending', 'unknown', 'failed', 'broadcast'] as const;
+export const SWEEP_STATUSES = ['pending', 'broadcasting', 'unknown', 'failed', 'broadcast'] as const;
 
 const id = z.string().trim().min(1).max(64);
 const pair = { networkId: id, assetId: id };
@@ -18,13 +18,20 @@ export const sweepPolicySetInputSchema = z
     scheduleMinutes: z.number().int().nullable(),
     treasuryAddress: z.string().max(256),
     reason: z.string().trim().min(1).max(500),
-    /** Identity-issued second-founder approval bound to this exact policy (see `policy.preview`). */
-    approvalId: z.string().max(128).nullish(),
-    operationId: z.string().max(128).nullish(),
   })
   .strict();
-export const sweepPolicyPreviewInputSchema = sweepPolicySetInputSchema.omit({ approvalId: true, operationId: true });
-export const sweepPolicyPreviewViewSchema = z.object({ actionType: z.string(), payloadHash: z.string() });
+/** The payload to propose as a custody `config` task with scope `policy`. */
+export const sweepPolicyPayloadViewSchema = z.object({
+  kind: z.literal('sweep_policy'),
+  networkId: z.string(),
+  assetId: z.string(),
+  trigger: z.enum(SWEEP_TRIGGERS),
+  thresholdAmount: z.string().nullable(),
+  thresholdCount: z.number().int().nullable(),
+  scheduleMinutes: z.number().int().nullable(),
+  treasuryAddress: z.string(),
+  reason: z.string(),
+});
 export type SweepPolicySetInput = z.infer<typeof sweepPolicySetInputSchema>;
 
 export const sweepPolicyViewSchema = z.object({
@@ -37,7 +44,8 @@ export const sweepPolicyViewSchema = z.object({
   treasuryAddress: z.string(),
   reason: z.string(),
   setBy: z.string(),
-  approvedBy: z.string(),
+  approvedBy: z.array(z.string()),
+  approvalTaskId: z.string(),
   setAt: z.string(),
 });
 export type SweepPolicyView = z.infer<typeof sweepPolicyViewSchema>;

@@ -8,8 +8,7 @@ import {
   sweepExecuteInputSchema,
   sweepListInputSchema,
   sweepPairInputSchema,
-  sweepPolicyPreviewInputSchema,
-  sweepPolicyPreviewViewSchema,
+  sweepPolicyPayloadViewSchema,
   sweepPolicySetInputSchema,
   sweepPolicyViewSchema,
   sweepViewSchema,
@@ -24,7 +23,10 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** `founderAdmin.custody.sweeps.*` (W-custody-ops-05). Founder-only: built from the custody router's founder procedure. */
+/**
+ * `founderAdmin.custody.sweeps.*` (W-custody-ops-05). Founder-only: built from the custody router's founder procedure.
+ * There is no direct policy write: propose `policy.validate`'s payload as a custody `config` task with scope `policy`.
+ */
 export function createCustodySweepRouters(
   founder: ReturnType<typeof founderProcedure>,
   service: CustodySweepService,
@@ -37,14 +39,10 @@ export function createCustodySweepRouters(
           .input(sweepPairInputSchema)
           .output(sweepPolicyViewSchema)
           .query(({ input }) => wrap(() => service.getPolicy(input.networkId, input.assetId))),
-        preview: founder
-          .input(sweepPolicyPreviewInputSchema)
-          .output(sweepPolicyPreviewViewSchema)
-          .query(({ input }) => wrap(async () => service.previewPolicy(input))),
-        set: founder
+        validate: founder
           .input(sweepPolicySetInputSchema)
-          .output(sweepPolicyViewSchema)
-          .mutation(({ ctx, input }) => wrap(() => service.setPolicy(actorOf(ctx), input))),
+          .output(sweepPolicyPayloadViewSchema)
+          .query(({ input }) => wrap(async () => service.validatePolicy(input))),
       }),
       due: founder
         .input(sweepPairInputSchema)
