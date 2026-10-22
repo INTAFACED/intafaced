@@ -48,7 +48,7 @@ Review: the author checks their own change, and an independent reviewer checks t
 
 Do not open PRs whose only job is status or a board update.
 
-Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
+Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and, for a money, security or gate-file change, the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
 
 ---
 
