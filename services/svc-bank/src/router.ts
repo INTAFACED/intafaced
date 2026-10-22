@@ -304,6 +304,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_not_found':
       case 'bank.business_approval_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
+      case 'bank.insufficient_funds':
+        return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
       case 'bank.not_owner':
       case 'bank.personal_request_not_payer':
       case 'bank.personal_request_not_payee':
@@ -1106,8 +1108,10 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
               note: input.note ?? null,
               reference: input.reference ?? null,
             })
-            .catch((err: unknown) => {
-              throw gate.mayDescribe ? err : hideDestinationDetail(err);
+            .catch(async (err: unknown) => {
+              const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
+              // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
+              throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
             });
           return { ledgerTxId: result.ledgerTxId, amount: result.amount };
         }),
