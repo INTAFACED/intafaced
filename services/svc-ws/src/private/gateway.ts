@@ -7,6 +7,7 @@ import { CLOSE_GOING_AWAY, type DepthSink, type HubLogger } from '../depth/hub.j
 import { type PrivateOrderHub, type PrivateStreamChannel } from './hub.js';
 import { EMPTY_PRIVATE_BOOK, type PrivateBookPort } from './book.js';
 import { CodController, type CodLeaseRange, type TradeCancelPort } from './cod.js';
+import { assertLiveCredential, type LiveCredentialPort } from './live-credential.js';
 
 /**
  * Authenticated private stream (orders, fills, positions).
@@ -88,10 +89,17 @@ export interface PrivateWebSocketGatewayOptions {
   readonly tradeCancel?: TradeCancelPort | null;
   readonly now?: () => number;
   readonly scheduleCod?: (fn: () => void, delayMs: number) => () => void;
+  /**
+   * Injected live session/key check. Omitted/null = JWT `exp` only.
+   * Production does not wire this — svc-ws must not hold INTERNAL_SERVICE_SECRET.
+   */
+  readonly liveCredential?: LiveCredentialPort | null;
 }
 
 export interface PrivateWebSocketGateway {
   readonly connections: number;
+  /** COD leases on this replica. Revoke must drop to 0 without `cod.fired`. */
+  readonly armedCount: number;
   close(reason: string): Promise<void>;
 }
 
@@ -114,7 +122,20 @@ function closeUnauthorized(socket: WebSocket): void {
   }
 }
 
-function sinkFor(socket: WebSocket, seat: { expiresAtMs: number }): DepthSink {
+type PrivateSeat = {
+  token: string;
+  expiresAtMs: number;
+  userId: string;
+  hasWrite: boolean;
+  sessionId: string;
+  apiKeyId?: string;
+};
+
+function sinkFor(
+  socket: WebSocket,
+  seat: PrivateSeat,
+  live?: { assert: () => Promise<void>; onDead: () => void },
+): DepthSink {
   return {
     get bufferedBytes() {
       return socket.bufferedAmount;
@@ -124,7 +145,21 @@ function sinkFor(socket: WebSocket, seat: { expiresAtMs: number }): DepthSink {
         closeUnauthorized(socket);
         return;
       }
-      socket.send(frame);
+      if (!live) {
+        socket.send(frame);
+        return;
+      }
+      void live.assert().then(
+        () => {
+          if (socket.readyState === socket.OPEN && Date.now() < seat.expiresAtMs) {
+            socket.send(frame);
+          }
+        },
+        () => {
+          live.onDead();
+          closeUnauthorized(socket);
+        },
+      );
     },
     close(code: number, reason: string) {
       socket.close(code, closeReason(reason));
@@ -212,6 +247,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
     tradeCancel = null,
     now = () => Date.now(),
     scheduleCod = defaultCodSchedule,
+    liveCredential = null,
   } = options;
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1_024, perMessageDeflate: false });
   const cod = new CodController({ range: codRange ?? null, now, schedule: scheduleCod, cancel: tradeCancel ?? null });
@@ -228,7 +264,7 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
    * closes at `exp` so a quiet seat cannot stay OPEN until the next heartbeat.
    * Outbound send and heartbeat re-check as a second gate.
    */
-  const seats = new WeakMap<WebSocket, { token: string; expiresAtMs: number; userId: string; hasWrite: boolean }>();
+  const seats = new WeakMap<WebSocket, PrivateSeat>();
   const expiryTimers = new Set<ReturnType<typeof setTimeout>>();
 
   function armExpiry(ws: WebSocket, expiresAtMs: number): ReturnType<typeof setTimeout> {
@@ -286,6 +322,8 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         let userId: string;
         let expiresAtMs: number;
         let hasWrite: boolean;
+        let sessionId: string;
+        let apiKeyId: string | undefined;
         try {
           const principal = await verifyAccessToken(raw, tokens);
           if (!principal.userId) {
@@ -299,9 +337,20 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
           userId = principal.userId;
           expiresAtMs = principal.expiresAt.getTime();
           hasWrite = principal.scopes.includes('trade:write');
+          sessionId = principal.sid;
+          apiKeyId = principal.kid;
         } catch {
           reject(socket, 401, 'Unauthorized');
           return;
+        }
+
+        if (liveCredential) {
+          try {
+            await assertLiveCredential(liveCredential, { userId, sessionId, apiKeyId });
+          } catch {
+            reject(socket, 401, 'Unauthorized');
+            return;
+          }
         }
 
         const channelSel = parsePrivateChannel(url.searchParams.get('channel'));
@@ -312,13 +361,28 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
 
         wss.handleUpgrade(req, socket, head, (ws) => {
           const attachChannel = channelSel === 'all' ? null : channelSel;
-          const seat = {
+          const seat: PrivateSeat = {
             token: raw,
             expiresAtMs,
             userId,
             hasWrite,
+            sessionId,
+            apiKeyId,
           };
-          const sink = sinkFor(ws, seat);
+          const live = liveCredential
+            ? {
+                assert: () =>
+                  assertLiveCredential(liveCredential, {
+                    userId: seat.userId,
+                    sessionId: seat.sessionId,
+                    apiKeyId: seat.apiKeyId,
+                  }).then(() => undefined),
+                onDead: () => {
+                  cod.drop(ws);
+                },
+              }
+            : undefined;
+          const sink = sinkFor(ws, seat, live);
           const detach = hub.attach(userId, sink, attachChannel, { holdUntilSnapshot: true });
           // Capacity refuse closes the sink inside attach — never announce ready
           // for a subscription the hub did not take (fail-closed, no false start).
@@ -359,6 +423,19 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
               } catch {
                 closeUnauthorized(ws);
                 return;
+              }
+              if (liveCredential) {
+                try {
+                  await assertLiveCredential(liveCredential, {
+                    userId: seat.userId,
+                    sessionId: seat.sessionId,
+                    apiKeyId: seat.apiKeyId,
+                  });
+                } catch {
+                  cod.drop(ws);
+                  closeUnauthorized(ws);
+                  return;
+                }
               }
               cod.handleText(ws, text, {
                 userId: seat.userId,
@@ -429,6 +506,21 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
         closeUnauthorized(ws);
         continue;
       }
+      if (seat && liveCredential) {
+        void assertLiveCredential(liveCredential, {
+          userId: seat.userId,
+          sessionId: seat.sessionId,
+          apiKeyId: seat.apiKeyId,
+        }).then(
+          () => undefined,
+          () => {
+            if (ws.readyState === ws.OPEN || ws.readyState === ws.CONNECTING) {
+              cod.drop(ws);
+              closeUnauthorized(ws);
+            }
+          },
+        );
+      }
       if (seat && tokens) {
         void verifyAccessToken(seat.token, tokens).then(
           (principal) => {
@@ -455,6 +547,9 @@ export function createPrivateWebSocketGateway(options: PrivateWebSocketGatewayOp
   return {
     get connections() {
       return wss.clients.size;
+    },
+    get armedCount() {
+      return cod.armedCount;
     },
     async close(reason: string) {
       draining = true;
