@@ -1076,7 +1076,10 @@ export class AuthService {
       // scoped to the user so it uses sessions_user_idx.
       await clearPredecessorSeal(tx, session.user_id, session.id);
       const nextToken = generateToken(48);
-      const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
+      // Absolute lifetime of the family (I-signin-sessions-06, ENGINE X-8): a rotation never extends the expiry the
+      // family's first login was given, so refreshing cannot keep a family alive forever. The owner's own absolute
+      // lifetime setting is not published, so the refresh TTL measured from the first login is the bound.
+      const expiresAt = new Date(Math.min(Date.now() + this.tokens.refreshTtlSeconds * 1000, session.expires_at.getTime()));
       const nextSession = await tx<
         Array<{ id: string }>
       >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
