@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { CATALOGUE_ASSETS } from '@intafaced/contracts';
 import { BankError } from '../../errors.js';
 import type { ProofLimits } from '../../personal-pay/payee-controls.js';
 
@@ -136,6 +137,7 @@ export function applyReviewEdit(
   if (edit.payee.trim() === '' || edit.assetId.trim() === '')
     throw new BankError('Payee and asset are required.', 'bank.bill_input_invalid');
   if (edit.amount <= 0n) throw new BankError('The bill amount must be above zero.', 'bank.bill_input_invalid');
+  const assetId = normBillAsset(edit.assetId);
   if (!isCalendarDate(edit.dueDate)) {
     throw new BankError('The due date must be a calendar date.', 'bank.bill_input_invalid');
   }
@@ -144,8 +146,58 @@ export function applyReviewEdit(
     payee: edit.payee.trim(),
     reference: edit.reference?.trim() || null,
     amount: edit.amount,
-    assetId: edit.assetId.trim(),
+    assetId,
     dueDate: edit.dueDate,
     status: 'reviewed',
   };
+}
+
+/**
+ * The bill's asset, checked against the instrument catalogue and upper-cased, so `usdt` and `USDT` are one asset for the
+ * duplicate flag. Amounts are already a scaled bigint, so `1.0` and `1.00` are the same amount. An asset outside the
+ * catalogue refuses (`bank.bill_input_invalid`).
+ */
+export function normBillAsset(raw: string): string {
+  const id = raw.trim().toUpperCase();
+  if (!CATALOGUE_ASSETS.includes(id)) throw new BankError('The bill asset is not a known asset.', 'bank.bill_input_invalid');
+  return id;
+}
+
+/** Decoded byte length of a padded base64 string, without decoding it. */
+export function base64DecodedLength(b64: string): number {
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return (b64.length / 4) * 3 - pad;
+}
+
+const SIGNATURES: ReadonlyArray<{ type: string; magic: readonly number[] }> = [
+  { type: 'application/pdf', magic: [0x25, 0x50, 0x44, 0x46, 0x2d] },
+  { type: 'image/png', magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+  { type: 'image/jpeg', magic: [0xff, 0xd8, 0xff] },
+  { type: 'image/gif', magic: [0x47, 0x49, 0x46, 0x38] },
+];
+const ACTIVE_TYPES = new Set([
+  'image/svg+xml',
+  'text/html',
+  'application/xhtml+xml',
+  'text/xml',
+  'application/xml',
+  'text/javascript',
+  'application/javascript',
+]);
+const ACTIVE_PREFIX = /^\s*(<\?xml|<!doctype|<html|<svg|<script)/i;
+
+/**
+ * The type the server stores and serves, from the bytes, not the client's word. Bytes with a known signature are stored
+ * as that type, and a declared type that disagrees refuses. Markup that a browser would render (SVG, HTML, XML, script)
+ * refuses whatever is declared, even if the owner allow-lists it. Bytes with no known signature keep the declared,
+ * allow-listed type.
+ */
+export function sniffBillType(declared: string, bytes: Buffer): string {
+  const type = declared.trim().toLowerCase();
+  if (ACTIVE_TYPES.has(type) || ACTIVE_PREFIX.test(bytes.subarray(0, 256).toString('latin1'))) {
+    throw new BankError('That file type is not accepted for bills.', 'bank.bill_file_type');
+  }
+  const sniffed = SIGNATURES.find((s) => s.magic.every((b, i) => bytes[i] === b));
+  if (sniffed && sniffed.type !== type) throw new BankError('The bill file does not match its declared type.', 'bank.bill_file_type');
+  return sniffed?.type ?? type;
 }

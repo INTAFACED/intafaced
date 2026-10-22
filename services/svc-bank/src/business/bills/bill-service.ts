@@ -8,10 +8,12 @@ import { parseProofLimits, type ProofLimits } from '../../personal-pay/payee-con
 import type { BusinessService } from '../business-service.js';
 import {
   applyReviewEdit,
+  base64DecodedLength,
   billIntakeKey,
   checkBillFile,
   findDuplicates,
   normBillText,
+  sniffBillType,
   type BillRecord,
   type BillSource,
   type BillStatus,
@@ -153,8 +155,11 @@ export class BusinessBillService {
     if (!BASE64.test(input.contentBase64) || input.contentBase64.length % 4 !== 0) {
       throw new BankError('The bill file could not be read.', 'bank.bill_input_invalid');
     }
+    // Size from the base64 length first, so an oversized upload is refused before it is decoded into memory.
+    checkBillFile({ mimeType: input.type, sizeBytes: base64DecodedLength(input.contentBase64) }, this.limits);
     const bytes = Buffer.from(input.contentBase64, 'base64');
-    const type = input.type.trim().toLowerCase();
+    checkBillFile({ mimeType: input.type, sizeBytes: bytes.length }, this.limits);
+    const type = sniffBillType(input.type, bytes);
     checkBillFile({ mimeType: type, sizeBytes: bytes.length }, this.limits);
     const key = billIntakeKey(input.accountId, bytes);
     const sha = createHash('sha256').update(bytes).digest('hex');

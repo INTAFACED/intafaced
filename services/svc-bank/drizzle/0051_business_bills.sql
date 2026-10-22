@@ -6,7 +6,7 @@
 -- hold the trimmed, lower-cased text the duplicate check compares (normalised in src/business/bills/bill-intake.ts).
 -- An admin's "not a duplicate" is one row per pair, smaller id first.
 --
--- Reversal: 0049_business_bills.down.sql
+-- Reversal: 0051_business_bills.down.sql
 
 CREATE TABLE IF NOT EXISTS "bank"."business_bills" (
   "id" uuid PRIMARY KEY,
