@@ -15,7 +15,7 @@ export function subAccountEditToTrpc(err: unknown): never {
         ? 'FORBIDDEN'
         : err.code === 'auth.not_found'
           ? 'NOT_FOUND'
-          : err.code === 'identity.sub_account_label_invalid'
+          : err.code === 'identity.sub_account_label_invalid' || err.code === 'identity.client_request_id_invalid'
             ? 'BAD_REQUEST'
             : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${userCopy(err.code)} [${err.code}]`, cause: err });
@@ -32,10 +32,11 @@ export function createSubAccountEditProcedures(service: SubAccountEditService | 
         z
           .object({
             subAccountId: z.string().uuid(),
-            label: z.string().min(1).max(64).optional(),
-            purpose: z.string().max(200).nullable().optional(),
+            // Wide wire bounds only; the service checks the real limits and answers identity.sub_account_label_invalid.
+            label: z.string().max(4096),
+            purpose: z.string().max(4096).nullable(),
             stepUpApprovalId: z.string().uuid(),
-            clientRequestId: z.string().min(1).max(128),
+            clientRequestId: z.string().max(4096),
           })
           .strict(),
       )
@@ -43,7 +44,7 @@ export function createSubAccountEditProcedures(service: SubAccountEditService | 
       .mutation(async ({ ctx, input }) => {
         const principal = ctx.principal as Principal;
         try {
-          if (!service) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.sub_account_edit_unavailable' });
+          if (!service) throw new SubAccountEditError('identity.sub_account_edit_unavailable');
           return await service.update({
             userId: principal.userId,
             sessionId: principal.sid,

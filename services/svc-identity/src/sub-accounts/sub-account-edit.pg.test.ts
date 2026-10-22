@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { issueAccessToken as _unused, verifyAccessToken } from '@intafaced/auth';
-import { mergeRouters, type Context, type TRPCError } from '@intafaced/contracts';
+import { customerStepUpPayloadHash, mergeRouters, type Context, type TRPCError } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
@@ -79,6 +79,7 @@ if (!available) {
   const stepUps = new CustomerStepUpService(db.sql, new SqlCustomerStepUpStore(db.sql), auth);
   const subAccountEdit = new SubAccountEditService({ sql: db.sql, approvals });
   const api = mergeRouters(createIdentityRouter(auth, rank, { registrationOpen: true, subAccountEdit }), createStepUpRouter(stepUps));
+  const bare = mergeRouters(createIdentityRouter(auth, rank, { registrationOpen: true }), createStepUpRouter(stepUps));
 
   let n = 0;
   const unique = () => `se${process.pid}x${++n}`;
@@ -142,13 +143,17 @@ if (!available) {
     )[0];
   const auditOf = async (id: string) =>
     db.sql<Array<{ old_label: string; new_label: string; old_purpose: string | null; new_purpose: string | null }>>`
-      SELECT old_label, new_label, old_purpose, new_purpose FROM sub_account_label_audit WHERE sub_account_id = ${id} ORDER BY at`;
-
-  it('changes the label and purpose, keeps the same id, audits old and new text, and a repeat answers changed:false', async () => {
+      SELECT old_label, new_label, old_purpose, new_purpose FROM sub_account_label_audit WHERE sub_account_id = ${id} ORDER BY at, id`;
+  async function setup() {
     const user = await register();
     const secret = await enrolTotp(user.userId);
     const caller = await callerOf(user);
     const { id } = await auth.createSubAccount(user.userId, 'Desk 1', 'scalping');
+    return { user, secret, caller, id };
+  }
+
+  it('changes the label and purpose, keeps the same id, audits old and new text, and a repeat answers changed:false', async () => {
+    const { user, secret, caller, id } = await setup();
     const clientRequestId = randomUUID();
     const approval = await mint(user, id, 'Desk 2', 'hedging', clientRequestId, secret);
     expect(
@@ -170,37 +175,143 @@ if (!available) {
         subAccountId: id,
         label: 'Desk 2',
         purpose: 'hedging',
-        stepUpApprovalId: approval,
+        stepUpApprovalId: randomUUID(),
         clientRequestId,
       }),
     ).toEqual({ id, changed: false });
     expect(await auditOf(id)).toHaveLength(1);
   });
 
-  it('refuses without a step-up bound to these exact values', async () => {
-    const user = await register();
-    const secret = await enrolTotp(user.userId);
-    const caller = await callerOf(user);
-    const { id } = await auth.createSubAccount(user.userId, 'Desk 1', undefined);
-    const clientRequestId = randomUUID();
-    const approval = await mint(user, id, 'Desk 2', '', clientRequestId, secret);
+  it('edits only the label, keeping the purpose sent as it is', async () => {
+    const { user, secret, caller, id } = await setup();
+    const c = randomUUID();
+    const approval = await mint(user, id, 'Desk 9', 'scalping', c, secret);
+    expect(
+      await caller.subAccounts.update({
+        subAccountId: id,
+        label: 'Desk 9',
+        purpose: 'scalping',
+        stepUpApprovalId: approval,
+        clientRequestId: c,
+      }),
+    ).toEqual({ id, changed: true });
+    expect(await rowOf(id)).toEqual({ id, label: 'Desk 9', purpose: 'scalping' });
+  });
+
+  it('edits only the purpose, and an empty purpose clears it', async () => {
+    const { user, secret, caller, id } = await setup();
+    const c = randomUUID();
+    const approval = await mint(user, id, 'Desk 1', 'arbitrage', c, secret);
+    expect(
+      await caller.subAccounts.update({
+        subAccountId: id,
+        label: 'Desk 1',
+        purpose: 'arbitrage',
+        stepUpApprovalId: approval,
+        clientRequestId: c,
+      }),
+    ).toEqual({ id, changed: true });
+    expect(await rowOf(id)).toEqual({ id, label: 'Desk 1', purpose: 'arbitrage' });
+    const d = randomUUID();
+    const cleared = await mint(user, id, 'Desk 1', '', d, secret);
+    expect(
+      await caller.subAccounts.update({ subAccountId: id, label: 'Desk 1', purpose: '', stepUpApprovalId: cleared, clientRequestId: d }),
+    ).toEqual({ id, changed: true });
+    expect((await rowOf(id))?.purpose).toBeNull();
+    expect(await auditOf(id)).toHaveLength(2);
+  });
+
+  it('concurrent edits run one after the other: both audited, last writer wins', async () => {
+    const { user, secret, caller, id } = await setup();
+    const a = randomUUID();
+    const b = randomUUID();
+    const first = await mint(user, id, 'Desk A', 'scalping', a, secret);
+    const second = await mint(user, id, 'Desk B', 'scalping', b, secret);
+    const results = await Promise.all([
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk A', purpose: 'scalping', stepUpApprovalId: first, clientRequestId: a }),
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk B', purpose: 'scalping', stepUpApprovalId: second, clientRequestId: b }),
+    ]);
+    expect(results.every((r) => r.id === id && r.changed)).toBe(true);
+    const audit = await auditOf(id);
+    expect(audit).toHaveLength(2);
+    expect(audit[1]?.old_label).toBe(audit[0]?.new_label);
+    expect((await rowOf(id))?.label).toBe(audit[1]?.new_label);
+  });
+
+  it("refuses a step-up bound to other values, a missing one, an expired one, a used one and someone else's", async () => {
+    const { user, secret, caller, id } = await setup();
+    const c = randomUUID();
+    const approval = await mint(user, id, 'Desk 2', 'scalping', c, secret);
     const other = await refusal(
-      caller.subAccounts.update({ subAccountId: id, label: 'Desk 3', stepUpApprovalId: approval, clientRequestId }),
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk 3', purpose: 'scalping', stepUpApprovalId: approval, clientRequestId: c }),
     );
     expect(other.code).toBe('identity.step_up_target');
     const missing = await refusal(
-      caller.subAccounts.update({ subAccountId: id, label: 'Desk 3', stepUpApprovalId: randomUUID(), clientRequestId }),
+      caller.subAccounts.update({
+        subAccountId: id,
+        label: 'Desk 3',
+        purpose: 'scalping',
+        stepUpApprovalId: randomUUID(),
+        clientRequestId: c,
+      }),
     );
     expect(missing.code).toBe('identity.step_up_required');
+
+    const e = randomUUID();
+    const expiring = await mint(user, id, 'Desk 4', 'scalping', e, secret);
+    await db.sql`UPDATE action_approvals SET expires_at = now() - interval '1 minute' WHERE approval_id = ${expiring}`;
+    const expired = await refusal(
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk 4', purpose: 'scalping', stepUpApprovalId: expiring, clientRequestId: e }),
+    );
+    expect(expired.code).toBe('identity.step_up_expired');
+
+    // Used: spend it on Desk 2, move back to Desk 1, then try Desk 2 again with the spent approval.
+    await caller.subAccounts.update({
+      subAccountId: id,
+      label: 'Desk 2',
+      purpose: 'scalping',
+      stepUpApprovalId: approval,
+      clientRequestId: c,
+    });
+    const back = randomUUID();
+    await caller.subAccounts.update({
+      subAccountId: id,
+      label: 'Desk 1',
+      purpose: 'scalping',
+      stepUpApprovalId: await mint(user, id, 'Desk 1', 'scalping', back, secret),
+      clientRequestId: back,
+    });
+    const used = await refusal(
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk 2', purpose: 'scalping', stepUpApprovalId: approval, clientRequestId: c }),
+    );
+    expect(used.code).toBe('identity.step_up_used');
+
+    const stranger = await register();
+    const strangerSecret = await enrolTotp(stranger.userId);
+    const s = randomUUID();
+    const theirs = await mint(stranger, id, 'Desk 5', 'scalping', s, strangerSecret);
+    // Give the stranger's approval this caller's exact payload, so only the requester check can refuse it.
+    const mine = customerStepUpPayloadHash(SCOPE, {
+      actor: user.userId,
+      subAccountId: id,
+      label: 'Desk 5',
+      purpose: 'scalping',
+      clientRequestId: s,
+    });
+    await db.sql`UPDATE action_approvals SET payload_hash = ${mine} WHERE approval_id = ${theirs}`;
+    const notYours = await refusal(
+      caller.subAccounts.update({ subAccountId: id, label: 'Desk 5', purpose: 'scalping', stepUpApprovalId: theirs, clientRequestId: s }),
+    );
+    expect(notYours.code).toBe('identity.step_up_not_yours');
     expect((await rowOf(id))?.label).toBe('Desk 1');
-    expect(await auditOf(id)).toHaveLength(0);
+    expect(await auditOf(id)).toHaveLength(2);
   });
 
-  it("refuses a sub-account principal, an API key, another user's sub-account, a revoked one and a 65-character label", async () => {
+  it("refuses a sub-account principal, an API key, another user's sub-account and a revoked one", async () => {
     const user = await register();
     const stranger = await register();
     const { id } = await auth.createSubAccount(user.userId, 'Desk 1', undefined);
-    const input = { subAccountId: id, label: 'Desk 2', stepUpApprovalId: randomUUID(), clientRequestId: randomUUID() };
+    const input = { subAccountId: id, label: 'Desk 2', purpose: null, stepUpApprovalId: randomUUID(), clientRequestId: randomUUID() };
 
     const asSub = await refusal((await callerOf(user, { sub_account: id })).subAccounts.update(input));
     expect(asSub).toMatchObject({ trpc: 'FORBIDDEN', code: 'identity.sub_account_edit_delegated' });
@@ -209,15 +320,50 @@ if (!available) {
     const notYours = await refusal((await callerOf(stranger)).subAccounts.update(input));
     expect(notYours).toMatchObject({ trpc: 'NOT_FOUND', code: 'auth.not_found' });
 
-    const caller = await callerOf(user);
-    const tooLong = await refusal(caller.subAccounts.update({ ...input, label: 'x'.repeat(65) }));
-    expect(tooLong.trpc).toBe('BAD_REQUEST');
-    const control = await refusal(caller.subAccounts.update({ ...input, label: 'Desk\u00072' }));
-    expect(control).toMatchObject({ trpc: 'BAD_REQUEST', code: 'identity.sub_account_label_invalid' });
-
     await db.sql`UPDATE sub_accounts SET revoked = true WHERE id = ${id}`;
-    const revoked = await refusal(caller.subAccounts.update(input));
+    const revoked = await refusal((await callerOf(user)).subAccounts.update(input));
     expect(revoked.code).toBe('identity.sub_account_revoked');
     expect((await rowOf(id))?.label).toBe('Desk 1');
+  });
+
+  it('refuses bad text and a malformed request id with typed codes', async () => {
+    const user = await register();
+    const caller = await callerOf(user);
+    const { id } = await auth.createSubAccount(user.userId, 'Desk 1', undefined);
+    const input = { subAccountId: id, label: 'Desk 2', purpose: null, stepUpApprovalId: randomUUID(), clientRequestId: randomUUID() };
+    for (const bad of [
+      { label: 'x'.repeat(65) },
+      { label: '' },
+      { label: '   ' },
+      { label: 'Desk\u00072' },
+      { purpose: 'y'.repeat(201) },
+      { purpose: 'line\nbreak' },
+    ]) {
+      expect(await refusal(caller.subAccounts.update({ ...input, ...bad }))).toMatchObject({
+        trpc: 'BAD_REQUEST',
+        code: 'identity.sub_account_label_invalid',
+      });
+    }
+    expect(await refusal(caller.subAccounts.update({ ...input, clientRequestId: '-bad id' }))).toMatchObject({
+      trpc: 'BAD_REQUEST',
+      code: 'identity.client_request_id_invalid',
+    });
+    expect((await rowOf(id))?.label).toBe('Desk 1');
+  });
+
+  it('refuses identity.sub_account_edit_unavailable when the service is not wired', async () => {
+    const user = await register();
+    const { id } = await auth.createSubAccount(user.userId, 'Desk 1', undefined);
+    const caller = bare.createCaller(await ctxOf(user));
+    const off = await refusal(
+      caller.subAccounts.update({
+        subAccountId: id,
+        label: 'Desk 2',
+        purpose: null,
+        stepUpApprovalId: randomUUID(),
+        clientRequestId: randomUUID(),
+      }),
+    );
+    expect(off).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'identity.sub_account_edit_unavailable' });
   });
 }

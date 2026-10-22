@@ -1,7 +1,8 @@
 /**
  * Edit the label and purpose of one of the caller's own sub-accounts (RC-identity-14, TRD-0707).
  * Display fields only: the row id (the ledger owner id) is never touched, no money moves, and freeze is separate.
- * Session only, parent only, step-up `identity.step_up.sub_account_edit`. Every change writes an audit row with the
+ * Session only, parent only, step-up `identity.step_up.sub_account_edit` (the spec's `subaccount_edit`, named like `sub_account_delete`).
+ * The step-up is spent inside the transaction, after the row lock and the same-value check. Every change writes an audit row with the
  * old and new text in the same transaction; a repeat with the same values answers `changed: false` and spends nothing.
  */
 import { customerStepUpPayloadHash } from '@intafaced/contracts';
@@ -21,6 +22,8 @@ export type SubAccountEditCode =
   | 'auth.not_found'
   | 'identity.sub_account_revoked'
   | 'identity.sub_account_label_invalid'
+  | 'identity.client_request_id_invalid'
+  | 'identity.sub_account_edit_unavailable'
   | 'identity.step_up_required'
   | 'identity.step_up_expired'
   | 'identity.step_up_used'
@@ -45,10 +48,10 @@ export type SubAccountEditInput = {
   apiKey: boolean;
   subAccount: boolean;
   subAccountId: string;
-  /** Omitted: keep the current label. */
-  label?: string;
-  /** Omitted: keep the current purpose; null or empty clears it. */
-  purpose?: string | null;
+  /** Always sent, so the step-up is minted over exactly the text that is saved. */
+  label: string;
+  /** Always sent; null or empty clears it. */
+  purpose: string | null;
   stepUpApprovalId: string;
   clientRequestId: string;
 };
@@ -64,20 +67,15 @@ export class SubAccountEditService {
 
   async update(input: SubAccountEditInput): Promise<{ id: string; changed: boolean }> {
     if (input.apiKey || input.subAccount) throw new SubAccountEditError('identity.sub_account_edit_delegated');
-    if (!CLIENT_ID.test(input.clientRequestId)) throw new SubAccountEditError('identity.step_up_target');
-    const current = await this.owned(this.deps.sql, input.userId, input.subAccountId);
-    const next = {
-      label: input.label ?? current.label,
-      purpose: input.purpose === undefined ? current.purpose : input.purpose === '' ? null : input.purpose,
-    };
+    if (!CLIENT_ID.test(input.clientRequestId)) throw new SubAccountEditError('identity.client_request_id_invalid');
+    const next = { label: input.label, purpose: input.purpose === '' ? null : input.purpose };
     if (!validSubAccountLabel(next.label, next.purpose)) throw new SubAccountEditError('identity.sub_account_label_invalid');
-    // Same values again: the same answer, no step-up spent, no audit row.
-    if (current.label === next.label && current.purpose === next.purpose) return { id: input.subAccountId, changed: false };
-    await this.consume(input, next);
     return transaction(this.deps.sql, async (tx) => {
       // Row lock: concurrent edits run one after the other, last writer wins, one audit row each.
-      const locked = await this.owned(tx, input.userId, input.subAccountId, true);
+      const locked = await this.owned(tx, input.userId, input.subAccountId);
+      // Same values again: the same answer, no step-up spent, no audit row.
       if (locked.label === next.label && locked.purpose === next.purpose) return { id: input.subAccountId, changed: false };
+      await this.consume(input, next);
       await tx`UPDATE sub_accounts SET label = ${next.label}, purpose = ${next.purpose} WHERE id = ${input.subAccountId} AND parent_user_id = ${input.userId}`;
       await tx`
         INSERT INTO sub_account_label_audit (sub_account_id, user_id, session_id, old_label, new_label, old_purpose, new_purpose)
@@ -87,12 +85,9 @@ export class SubAccountEditService {
     });
   }
 
-  private async owned(q: Sql, userId: string, subAccountId: string, lock = false): Promise<{ label: string; purpose: string | null }> {
-    const rows = lock
-      ? await q<Array<{ label: string; purpose: string | null; revoked: boolean }>>`
-          SELECT label, purpose, revoked FROM sub_accounts WHERE id = ${subAccountId} AND parent_user_id = ${userId} LIMIT 1 FOR UPDATE`
-      : await q<Array<{ label: string; purpose: string | null; revoked: boolean }>>`
-          SELECT label, purpose, revoked FROM sub_accounts WHERE id = ${subAccountId} AND parent_user_id = ${userId} LIMIT 1`;
+  private async owned(q: Sql, userId: string, subAccountId: string): Promise<{ label: string; purpose: string | null }> {
+    const rows = await q<Array<{ label: string; purpose: string | null; revoked: boolean }>>`
+      SELECT label, purpose, revoked FROM sub_accounts WHERE id = ${subAccountId} AND parent_user_id = ${userId} LIMIT 1 FOR UPDATE`;
     const row = rows[0];
     if (!row) throw new SubAccountEditError('auth.not_found');
     if (row.revoked) throw new SubAccountEditError('identity.sub_account_revoked');

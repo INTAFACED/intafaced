@@ -457,6 +457,7 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
   {
     scope: 'identity.step_up.sub_account_edit',
     purpose: 'account.subAccount.edit',
+    // label and purpose are always both sent and hashed as sent (purpose '' clears it), never filled in from the row.
     clientFields: ['subAccountId', 'label', 'purpose', 'clientRequestId'],
     targetField: 'subAccountId',
     targetRequired: true,
