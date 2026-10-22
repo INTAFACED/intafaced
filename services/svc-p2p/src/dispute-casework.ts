@@ -47,6 +47,17 @@ function requireSeconds(v: number | null | undefined, what: string): number {
   return v;
 }
 
+function validTime(d: Date | null | undefined): d is Date {
+  return d instanceof Date && Number.isFinite(d.getTime());
+}
+
+/** `now + secs`, refusing `p2p.config_unset` when the result would be an Invalid Date (huge seconds). */
+function addSeconds(now: Date, secs: number, what: string): Date {
+  const at = new Date(now.getTime() + secs * 1000);
+  if (!validTime(now) || !validTime(at)) throw new CaseworkError(`${what} is out of range.`, 'p2p.config_unset');
+  return at;
+}
+
 /** Open a request: the dispute moves to waiting_on_party. Blank expiry refuses. */
 export function openInfoRequest(input: {
   id: string;
@@ -74,7 +85,7 @@ export function openInfoRequest(input: {
       disputeId: input.disputeId,
       addresseeId: input.addresseeId,
       status: 'open',
-      expiresAt: new Date(input.now.getTime() + secs * 1000),
+      expiresAt: addSeconds(input.now, secs, 'Information request expiry'),
       returnStage: input.stage === 'under_investigation' ? 'under_investigation' : 'under_review',
     },
   };
@@ -83,13 +94,18 @@ export function openInfoRequest(input: {
 /** Answer: only the addressee, only while open and unexpired. Returns the stage to go back to. */
 export function answerInfoRequest(req: InfoRequest, userId: string, now: Date): { request: InfoRequest; stage: DisputeStage } {
   if (!userId || userId !== req.addresseeId) throw new CaseworkError('This request is not addressed to you.', 'p2p.not_the_addressee');
-  if (req.status !== 'open' || now >= req.expiresAt) throw new CaseworkError('This request has expired or closed.', 'p2p.request_expired');
+  if (req.status !== 'open' || !validTime(req.expiresAt) || !validTime(now) || now >= req.expiresAt)
+    throw new CaseworkError('This request has expired or closed.', 'p2p.request_expired');
   return { request: { ...req, status: 'answered' }, stage: req.returnStage };
 }
 
 /** Sweeper: an open request past expiry expires and the case returns to review (moderator is told by the caller). */
 export function expireInfoRequest(req: InfoRequest, now: Date): { request: InfoRequest; stage: DisputeStage } | null {
-  if (req.status !== 'open' || now < req.expiresAt) return null;
+  if (req.status !== 'open') return null;
+  if (!validTime(req.expiresAt) || !validTime(now)) {
+    throw new CaseworkError('Information request expiry is invalid.', 'p2p.config_unset');
+  }
+  if (now < req.expiresAt) return null;
   return { request: { ...req, status: 'expired' }, stage: req.returnStage };
 }
 
@@ -98,9 +114,15 @@ export interface Assignment {
   leaseUntil: Date | null;
 }
 
-/** A lease that has run out counts as unassigned. */
+/**
+ * A lease that has run out counts as unassigned. Fail-closed: an agent with an
+ * invalid (or missing) lease time or an invalid clock still counts as holding
+ * the case; it is never read as unheld.
+ */
 export function currentAgent(a: Assignment, now: Date): string | null {
-  return a.agentId && a.leaseUntil && now < a.leaseUntil ? a.agentId : null;
+  if (!a.agentId) return null;
+  if (!validTime(a.leaseUntil) || !validTime(now)) return a.agentId;
+  return now < a.leaseUntil ? a.agentId : null;
 }
 
 /**
@@ -112,10 +134,23 @@ export function decideClaim(a: Assignment, agentId: string, leaseSeconds: number
   if (!agentId) throw new CaseworkError('An agent is required.', 'p2p.case_claimed');
   const holder = currentAgent(a, now);
   if (holder && holder !== agentId) throw new CaseworkError('Another agent holds this case.', 'p2p.case_claimed');
-  return { agentId, leaseUntil: new Date(now.getTime() + secs * 1000) };
+  return { agentId, leaseUntil: addSeconds(now, secs, 'Case lease') };
 }
 
-/** The single atomic statement the claim must use once the table exists (no read-then-write). */
+/**
+ * Required claim statement for the repo/mount slice: an upsert, so the first
+ * claim works without a pre-existing row and 0 rows unambiguously means held
+ * (`p2p.case_claimed`). The database clock (`now()`) is the only authority;
+ * `decideClaim`'s caller-supplied `now` is for tests and display only.
+ * UNPROVEN until the Postgres concurrency test runs.
+ */
+export const CLAIM_UPSERT_SQL_SHAPE =
+  'INSERT INTO p2p.p2p_dispute_assignments (dispute_id, agent_id, lease_until) VALUES ($id, $agent, now() + $lease) ' +
+  'ON CONFLICT (dispute_id) DO UPDATE SET agent_id = EXCLUDED.agent_id, lease_until = EXCLUDED.lease_until ' +
+  'WHERE p2p_dispute_assignments.agent_id IS NULL OR p2p_dispute_assignments.lease_until <= now() ' +
+  'OR p2p_dispute_assignments.agent_id = EXCLUDED.agent_id RETURNING agent_id';
+
+/** Superseded by CLAIM_UPSERT_SQL_SHAPE (UPDATE-only needs an existing row). The single atomic statement the claim must use once the table exists (no read-then-write). */
 export const CLAIM_SQL_SHAPE =
   'UPDATE p2p.p2p_dispute_assignments SET agent_id = $agent, lease_until = $until ' +
   'WHERE dispute_id = $id AND (agent_id IS NULL OR lease_until <= now() OR agent_id = $agent) RETURNING agent_id';
