@@ -30,7 +30,7 @@ export function parseExplorerListLimit(raw: string | undefined): ListLimit {
   return { ok: true, limit: n };
 }
 
-/** gas_used / gas_limit as a decimal string (6 dp, trailing zeros trimmed); null when the limit is 0. */
+/** gasUsed / gasLimit as a decimal string (6 dp, trailing zeros trimmed); null when the limit is 0. */
 export function utilisation(gasUsed: bigint, gasLimit: bigint): string | null {
   if (gasLimit <= 0n) return null;
   const scaled = (gasUsed * 1_000_000n) / gasLimit;

@@ -25,7 +25,7 @@ import type { ExplorerBlockFact } from '../explorer/blocks.js';
 interface ExplorerFactRow {
   height: string;
   hash: string;
-  gas_used: string;
+  gas_consumed: string;
   gas_limit: string;
   base_fee_per_gas: string | null;
   miner: string;
@@ -35,7 +35,7 @@ interface ExplorerFactRow {
   status: string;
 }
 const EXPLORER_COLS =
-  'b.height, b.hash, f.gas_used::text AS gas_used, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
+  'b.height, b.hash, f.gas_consumed::text AS gas_consumed, f.gas_limit::text AS gas_limit, f.base_fee_per_gas::text AS base_fee_per_gas, f.miner, f.tx_count, f.size, b.block_time, b.status';
 const EXPLORER_FROM = 'FROM explorer_block_facts f JOIN blocks b ON b.chain_id = f.chain_id AND b.hash = f.hash';
 
 /**
@@ -131,7 +131,7 @@ export class PostgresProjectionStore implements ProjectionStore {
       chainId: this.chainId,
       height: Number(r.height),
       hash: r.hash,
-      gasUsed: BigInt(r.gas_used),
+      gasUsed: BigInt(r.gas_consumed),
       gasLimit: BigInt(r.gas_limit),
       baseFeePerGas: r.base_fee_per_gas === null ? null : BigInt(r.base_fee_per_gas),
       miner: r.miner,
@@ -260,7 +260,7 @@ export class PostgresProjectionStore implements ProjectionStore {
       if (block.header) {
         const h = block.header;
         await tx`
-          INSERT INTO explorer_block_facts (chain_id, hash, gas_used, gas_limit, base_fee_per_gas, miner, tx_count, size)
+          INSERT INTO explorer_block_facts (chain_id, hash, gas_consumed, gas_limit, base_fee_per_gas, miner, tx_count, size)
           VALUES (${this.chainId}, ${block.hash}, ${h.gasUsed.toString()}, ${h.gasLimit.toString()},
                   ${h.baseFeePerGas === null ? null : h.baseFeePerGas.toString()}, ${h.miner}, ${h.txCount}, ${h.size})
           ON CONFLICT (chain_id, hash) DO NOTHING

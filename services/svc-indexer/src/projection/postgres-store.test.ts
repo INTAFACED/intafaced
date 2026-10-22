@@ -261,7 +261,7 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       expect(await store.explorerBlock({ height: 3 })).toBeNull();
       expect(await store.explorerBlock({ height: 999_999_999 })).toBeNull();
       await expect(
-        db.sql`INSERT INTO explorer_block_facts (chain_id, hash, gas_used, gas_limit, miner, tx_count, size) VALUES (${CHAIN_ID}, ${hash(0x99)}, 1, 1, ${header.miner}, 0, 0)`,
+        db.sql`INSERT INTO explorer_block_facts (chain_id, hash, gas_consumed, gas_limit, miner, tx_count, size) VALUES (${CHAIN_ID}, ${hash(0x99)}, 1, 1, ${header.miner}, 0, 0)`,
       ).rejects.toThrow(/foreign key/);
     });
 

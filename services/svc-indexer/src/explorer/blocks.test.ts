@@ -2,7 +2,7 @@
  * Unit card — D-explorer-01 explorer blocks list window + block facts (BE core)
  *
  * 1. Promise: blank/unset INDEXER_EXPLORER_LIST_LIMIT refuses
- *    `indexer.explorer_list_limit_unset`; utilisation is gas_used/gas_limit as a
+ *    `indexer.explorer_list_limit_unset`; utilisation is gasUsed/gasLimit as a
  *    decimal string; orphaned blocks stay listed with badge + reason; list is
  *    descending from the head and bounded by the owner limit.
  * 2. Break: an invented default limit, a float utilisation, hidden orphans.
