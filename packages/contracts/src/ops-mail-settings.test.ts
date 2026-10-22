@@ -1,18 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   OPS_MAIL_ALIAS_REFUSED,
+  OPS_MAIL_FREE_MAIL_DOMAINS_UNSET,
   OPS_MAIL_NOT_CONNECTED_COPY,
   OPS_MAIL_SCOPE_INVALID,
+  companyLinkDomain,
   isAliasAddress,
   mailSettingsRefusal,
   mailSettingsSaveInputSchema,
   mailSettingsSchema,
   resolveMailSharing,
 } from './ops-mail-settings.js';
+import type { MailCompanyLinking } from './ops-mail-settings.js';
 
 /** TEST data only. */
 const save = {
   slotId: '11111111-1111-4111-8111-111111111111',
+  expectedRevision: null,
   connection: {
     address: 'ops@example.test',
     signInMethod: 'incoming_mail',
@@ -21,6 +25,7 @@ const save = {
     calendarProtocol: 'caldav',
   },
   contactCreation: 'sent_only',
+  companyLinking: { mode: 'by_domain', suppressedDomains: ['mail.test'] },
   scope: { inbox: true, sent: true, customFolders: ['TEST deals'], exclusions: ['spam', 'trash'], cadenceMinutes: 15 },
 };
 
@@ -89,16 +94,51 @@ describe('read back', () => {
       connection: save.connection,
       ...resolveMailSharing({}),
       contactCreation: 'never',
+      companyLinking: { mode: 'off' },
       scope: save.scope,
+      revision: 1,
       syncState: 'off_draft',
       updatedAt: '2026-10-22T00:00:00.000Z',
     };
     expect(mailSettingsSchema.parse(row).syncState).toBe('off_draft');
     expect(mailSettingsSchema.safeParse({ ...row, syncState: 'live' }).success).toBe(false);
     expect(mailSettingsSchema.safeParse({ ...row, accessToken: 'TEST' }).success).toBe(false);
+    const { revision: _r, ...noRevision } = row;
+    expect(mailSettingsSchema.safeParse(noRevision).success).toBe(false);
   });
 
   it('names the parked notice', () => {
     expect(OPS_MAIL_NOT_CONNECTED_COPY).toMatch(/switched off in this build/);
+  });
+});
+
+describe('company linking by email domain', () => {
+  it('a blank suppressed-domain list refuses with ops.mail.free_mail_domains_unset, never links every domain', () => {
+    const r = mailSettingsSaveInputSchema.safeParse({ ...save, companyLinking: { mode: 'by_domain', suppressedDomains: [] } });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(mailSettingsRefusal(r.error)).toBe(OPS_MAIL_FREE_MAIL_DOMAINS_UNSET);
+  });
+  it('refuses a missing choice, bad and duplicate domains', () => {
+    const { companyLinking: _c, ...missing } = save;
+    expect(mailSettingsSaveInputSchema.safeParse(missing).success).toBe(false);
+    for (const suppressedDomains of [['not a domain'], ['mail.test', 'MAIL.test']])
+      expect(mailSettingsSaveInputSchema.safeParse({ ...save, companyLinking: { mode: 'by_domain', suppressedDomains } }).success).toBe(
+        false,
+      );
+  });
+  it('a free-mail domain links no company; off links nothing; others link their domain', () => {
+    const linking: MailCompanyLinking = { mode: 'by_domain', suppressedDomains: ['mail.test'] };
+    expect(companyLinkDomain('a@mail.test', linking)).toBeNull();
+    expect(companyLinkDomain('a@Firm.Test', linking)).toBe('firm.test');
+    expect(companyLinkDomain('a@firm.test', { mode: 'off' })).toBeNull();
+  });
+});
+
+describe('revision', () => {
+  it('first save carries null, later saves a positive revision; missing refuses', () => {
+    expect(mailSettingsSaveInputSchema.safeParse({ ...save, expectedRevision: 3 }).success).toBe(true);
+    expect(mailSettingsSaveInputSchema.safeParse({ ...save, expectedRevision: 0 }).success).toBe(false);
+    const { expectedRevision: _e, ...missing } = save;
+    expect(mailSettingsSaveInputSchema.safeParse(missing).success).toBe(false);
   });
 });

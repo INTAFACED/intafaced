@@ -14,7 +14,16 @@ import { z } from 'zod';
 export const OPS_MAIL_ALIAS_REFUSED = 'ops.mail.alias_refused' as const;
 export const OPS_MAIL_PROVIDER_UNSET = 'ops.mail.provider_unset' as const;
 export const OPS_MAIL_SCOPE_INVALID = 'ops.mail.scope_invalid' as const;
-export type OpsMailRefusal = typeof OPS_MAIL_ALIAS_REFUSED | typeof OPS_MAIL_PROVIDER_UNSET | typeof OPS_MAIL_SCOPE_INVALID;
+/** Company linking by domain is on but the suppressed (free-mail) domain list is blank: refused, never "link every domain". */
+export const OPS_MAIL_FREE_MAIL_DOMAINS_UNSET = 'ops.mail.free_mail_domains_unset' as const;
+/** The save's `expectedRevision` is not the stored revision (another operator or tab saved first). */
+export const OPS_MAIL_REVISION_CONFLICT = 'ops.mail.revision_conflict' as const;
+export type OpsMailRefusal =
+  | typeof OPS_MAIL_ALIAS_REFUSED
+  | typeof OPS_MAIL_PROVIDER_UNSET
+  | typeof OPS_MAIL_SCOPE_INVALID
+  | typeof OPS_MAIL_FREE_MAIL_DOMAINS_UNSET
+  | typeof OPS_MAIL_REVISION_CONFLICT;
 
 /** NotConnected for the Connect press: the code proposed by the spec, and its copy. */
 export const OPS_MAIL_NOT_CONNECTED_CODE = 'owner.decision' as const;
@@ -41,6 +50,42 @@ export const DEFAULT_CALENDAR_SHARING_LEVEL: CalendarSharingLevel = 'date_and_pa
 export const MAIL_CONTACT_CREATION = ['sent_and_received', 'sent_only', 'never'] as const;
 export const mailContactCreationSchema = z.enum(MAIL_CONTACT_CREATION);
 export type MailContactCreation = z.infer<typeof mailContactCreationSchema>;
+
+const emailDomain = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, 'Expected a domain name');
+
+/**
+ * Company linking by email domain. `off` links nothing. `by_domain` links a contact to the company of its email domain,
+ * except the suppressed (free-mail) domains, which never create or link a company. The list is the owner's; an empty list
+ * refuses with `ops.mail.free_mail_domains_unset`.
+ */
+export const mailCompanyLinkingSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('off') }).strict(),
+  z
+    .object({
+      mode: z.literal('by_domain'),
+      suppressedDomains: z
+        .array(emailDomain)
+        .max(5_000)
+        .superRefine((list, ctx) => {
+          if (list.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: OPS_MAIL_FREE_MAIL_DOMAINS_UNSET });
+          if (new Set(list).size !== list.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duplicate domains' });
+        }),
+    })
+    .strict(),
+]);
+export type MailCompanyLinking = z.infer<typeof mailCompanyLinkingSchema>;
+
+/** The domain a contact's address links to, or null when linking is off or the domain is suppressed. */
+export function companyLinkDomain(address: string, linking: MailCompanyLinking): string | null {
+  if (linking.mode === 'off') return null;
+  const domain = (address.split('@')[1] ?? '').trim().toLowerCase();
+  if (!domain || linking.suppressedDomains.includes(domain)) return null;
+  return domain;
+}
 
 export const MAIL_EXCLUSIONS = ['spam', 'trash', 'internal_mail', 'group_lists', 'private_events'] as const;
 export const mailExclusionSchema = z.enum(MAIL_EXCLUSIONS);
@@ -99,10 +144,13 @@ export type MailSyncScope = z.infer<typeof mailSyncScopeSchema>;
 export const mailSettingsSaveInputSchema = z
   .object({
     slotId: z.string().uuid(),
+    /** Revision the operator read; null only for the first save of a slot. A mismatch refuses `ops.mail.revision_conflict`. */
+    expectedRevision: z.number().int().positive().safe().nullable(),
     connection: mailConnectionSettingsSchema,
     mailSharing: mailSharingLevelSchema.optional(),
     calendarSharing: calendarSharingLevelSchema.optional(),
     contactCreation: mailContactCreationSchema,
+    companyLinking: mailCompanyLinkingSchema,
     scope: mailSyncScopeSchema,
   })
   .strict();
@@ -119,7 +167,9 @@ export const mailSettingsSchema = z
     calendarSharing: calendarSharingLevelSchema,
     calendarSharingDefaulted: z.boolean(),
     contactCreation: mailContactCreationSchema,
+    companyLinking: mailCompanyLinkingSchema,
     scope: mailSyncScopeSchema,
+    revision: z.number().int().positive().safe(),
     syncState: z.enum(['off_draft', 'off_provider_unset']),
     updatedAt: z.string().datetime({ offset: true }),
   })
@@ -146,5 +196,6 @@ export function mailSettingsRefusal(error: z.ZodError): OpsMailRefusal | null {
   const messages = error.issues.map((i) => i.message);
   if (messages.includes(OPS_MAIL_ALIAS_REFUSED)) return OPS_MAIL_ALIAS_REFUSED;
   if (messages.includes(OPS_MAIL_SCOPE_INVALID)) return OPS_MAIL_SCOPE_INVALID;
+  if (messages.includes(OPS_MAIL_FREE_MAIL_DOMAINS_UNSET)) return OPS_MAIL_FREE_MAIL_DOMAINS_UNSET;
   return null;
 }
