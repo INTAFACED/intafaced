@@ -49,7 +49,10 @@ export function resolveEscrowTarget(
   const deployments = sources.deployments !== undefined ? sources.deployments : deploymentsFor(chainId);
   const entry = deployments?.contracts.find((c) => c.name === 'SovereignEscrow');
   if (!entry) {
-    throw new EscrowTargetError('protocol.escrow_not_deployed', `SovereignEscrow is not in the deployments registry for chain ${chainId} (${network.name}).`);
+    throw new EscrowTargetError(
+      'protocol.escrow_not_deployed',
+      `SovereignEscrow is not in the deployments registry for chain ${chainId} (${network.name}).`,
+    );
   }
   return {
     chainId,

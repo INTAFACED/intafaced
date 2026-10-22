@@ -43,7 +43,8 @@ const UINT128_MAX = (1n << 128n) - 1n;
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 function addr(name: string, value: unknown, allowZero = false): Address {
-  if (typeof value !== 'string' || !isAddress(value)) throw new EscrowBuildError('protocol.escrow_address_invalid', `${name} is not an address`);
+  if (typeof value !== 'string' || !isAddress(value))
+    throw new EscrowBuildError('protocol.escrow_address_invalid', `${name} is not an address`);
   const a = getAddress(value);
   if (!allowZero && a === ZERO) throw new EscrowBuildError('protocol.escrow_address_invalid', `${name} is the zero address`);
   return a;
@@ -104,9 +105,11 @@ export function buildOpen(input: BuildOpenInput): BuildOpenResult {
     throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount is a decimal string');
   }
   const frac = input.amount.split('.')[1] ?? '';
-  if (frac.length > input.tokenDecimals) throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount has more decimals than the token');
+  if (frac.length > input.tokenDecimals)
+    throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount has more decimals than the token');
   const base = parseUnits(input.amount, input.tokenDecimals);
-  if (base <= 0n || base > UINT128_MAX) throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount must be positive and fit uint128');
+  if (base <= 0n || base > UINT128_MAX)
+    throw new EscrowBuildError('protocol.escrow_amount_invalid', 'amount must be positive and fit uint128');
   if (!Number.isInteger(input.feeBps) || input.feeBps < 0 || input.feeBps > 10_000)
     throw new EscrowBuildError('protocol.escrow_fee_invalid', 'feeBps is an integer 0..10000');
   const feeRecipient = input.feeRecipient === null ? (ZERO as Address) : addr('feeRecipient', input.feeRecipient);
