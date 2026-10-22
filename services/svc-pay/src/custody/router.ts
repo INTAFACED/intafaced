@@ -31,6 +31,8 @@ import { CustodyStuckService, type DroppedReverser, type NonceChain, type TxRepl
 import { createCustodyTxRouters } from './tx/router.js';
 import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
+import { createCustodyPolicyRouters } from './policy/router.js';
+import { CustodyPolicyService } from './policy/service.js';
 import { CustodyFeesService, type FeeEstimator } from './fees/service.js';
 import { CustodyService } from './service.js';
 import { createCustodyUtxoRouters } from './utxo/router.js';
@@ -85,6 +87,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     new CustodyUtxoService({ sql: deps.sql, node: deps.utxoNode, estimator: deps.feeEstimator }),
     actorOf,
   );
+  const policyRouters = createCustodyPolicyRouters(founder, new CustodyPolicyService({ sql: deps.sql }), actorOf);
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
   const stuckRouters = createCustodyStuckRouters(
     founder,
@@ -105,6 +108,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
   return router({
     ...approvalRouters,
     ...feeRouters,
+    ...policyRouters,
     ...utxoRouters,
     ...txRouters,
     ...stuckRouters,
