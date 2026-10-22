@@ -11,6 +11,7 @@ import {
   GuardError,
   MARKERS,
   assertLocalTarget,
+  bookProposal,
   buildLifecyclePublication,
   identityPayloadHash,
   kycApproveProposal,
@@ -36,6 +37,10 @@ const state = join(home, '.intafaced', 'local-test-stack');
 const ports = { edge: 14500, ledger: 14501, identity: 14502, trade: 14504, matching: 14505, customer: 3210 };
 const marker = (extra = {}) => JSON.stringify({ kind: 'intafaced-local-test-stack', ports, ...extra });
 const refuses = (fn, re) => assert.throws(fn, (e) => e instanceof GuardError && re.test(e.message));
+// The guards read the stack's folder from LOCAL_STACK_STATE when it is set (a cloud container sets it), which would
+// point them at the real stack instead of this test's empty home. These checks are about that home only.
+const shellState = process.env.LOCAL_STACK_STATE;
+delete process.env.LOCAL_STACK_STATE;
 try {
   // Guard 1: no state directory, no marker, wrong marker, unreadable marker.
   refuses(() => assertLocalTarget({ home }), /state directory .* not found/);
@@ -76,6 +81,7 @@ try {
   rmSync(nothing, { recursive: true, force: true });
 } finally {
   rmSync(home, { recursive: true, force: true });
+  if (shellState !== undefined) process.env.LOCAL_STACK_STATE = shellState;
 }
 console.log('local-test-gates: guard checks passed');
 
@@ -162,6 +168,17 @@ assert.deepEqual(
 );
 const routerSrc = readFileSync(resolve(here, '..', '..', 'services', 'svc-matching', 'src', 'router.ts'), 'utf8');
 assert.ok(routerSrc.includes("'matching.open', { marketId }, `open:${marketId}`"), 'matching open recipe changed; update openProposal');
+// Halt and resume use the same recipe as open, one action word apart.
+for (const action of ['halt', 'resume']) {
+  const p = bookProposal(action, 'm-1');
+  assert.deepEqual([p.actionType, p.targetId], [`matching.${action}`, `${action}:m-1`]);
+  assert.equal(p.payloadHash, matchingPayloadHash(`matching.${action}`, { marketId: 'm-1' }));
+  assert.ok(
+    routerSrc.includes(`'matching.${action}', { marketId }, \`${action}:\${marketId}\``),
+    `matching ${action} recipe changed; update bookProposal`,
+  );
+}
+assert.throws(() => bookProposal('delete', 'm-1'));
 const identityRouter = readFileSync(resolve(here, '..', '..', 'services', 'svc-identity', 'src', 'router.ts'), 'utf8');
 assert.ok(identityRouter.includes("'kyc.approve', { recordId: input.recordId }"), 'kyc.approve recipe changed; update kycApproveProposal');
 

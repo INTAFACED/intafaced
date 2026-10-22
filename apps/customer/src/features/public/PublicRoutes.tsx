@@ -3,6 +3,7 @@ import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
+import { ConfirmEmail } from './ConfirmEmail';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -63,6 +64,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Home />
         ) : path === '/register' ? (
           <SignUp />
+        ) : path === '/confirm-email' ? (
+          <ConfirmEmail />
         ) : auth ? (
           <AuthForm register={false} />
         ) : path === '/invite' ? (

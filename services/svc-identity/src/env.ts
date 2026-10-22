@@ -255,11 +255,6 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(3600).optional()),
       /**
-       * Owner-published display currencies, comma-separated codes. Blank / unset →
-       * nothing is listed: an account can only keep "no choice" (USD is shown) and the
-       * display page says the list is not set. Malformed → fail boot.
-       */
-      /**
        * W-balances-04. Owner-published membership tiers (JSON list of { id, name, price, assetId,
        * periodDays, perks }). Blank / unset → "Membership is not offered". Never defaulted.
        */
@@ -289,6 +284,11 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+      /**
+       * Owner-published display currencies, comma-separated codes. Blank / unset →
+       * nothing is listed: an account can only keep "no choice" (USD is shown) and the
+       * display page says the list is not set. Malformed → fail boot.
+       */
       IDENTITY_DISPLAY_CURRENCIES: z
         .string()
         .optional()

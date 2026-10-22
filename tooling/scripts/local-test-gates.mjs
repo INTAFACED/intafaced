@@ -8,6 +8,8 @@
  *   node tooling/scripts/local-test-gates.mjs open       open the books in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
  * What this stands in for, and nothing else:
@@ -15,6 +17,7 @@
  *   2. the compliance officer who accepts the local test sanctions list (the stack env, not this file),
  *   3. the operator who verifies test accounts,
  *   4. the two people who publish personal transfer limits (Pay sends refuse while none are published).
+ *   5. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -185,16 +188,20 @@ export function identityPayloadHash(targetId, fields = {}) {
     .digest('hex')}`;
 }
 
-export function openProposal(marketId) {
+/** A four-eyes proposal for one book in matching: `open`, `halt` or `resume` (services/svc-matching/src/router.ts). */
+export function bookProposal(action, marketId) {
+  if (!['open', 'halt', 'resume'].includes(action)) throw new Error(`no book action ${action}`);
   return {
-    actionType: 'matching.open',
+    actionType: `matching.${action}`,
     targetService: 'svc-matching',
-    targetId: `open:${marketId}`,
+    targetId: `${action}:${marketId}`,
     expectedVersion: '1',
-    payloadHash: matchingPayloadHash('matching.open', { marketId }),
+    payloadHash: matchingPayloadHash(`matching.${action}`, { marketId }),
     policyVersion: MARKERS.policyVersion,
   };
 }
+
+export const openProposal = (marketId) => bookProposal('open', marketId);
 
 export function kycApproveProposal(recordId) {
   return {
@@ -698,6 +705,33 @@ export async function publishTransferTerms(ctx) {
   return out;
 }
 
+/**
+ * Halt (or resume) one book, through the door an operator uses: operator A proposes, operator B approves, and the
+ * call is signed as svc-trade (the only caller matching accepts on this route). Resting orders stay; matching refuses
+ * new submits on a halted book with `market_halted`, and cancels still work.
+ */
+export async function setBookHalt(ctx, symbol, halted) {
+  const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`no market ${symbol}`);
+  const action = halted ? 'halt' : 'resume';
+  const sessions = await approverSessions(ctx);
+  const ids = await twoPerson(ctx, sessions, bookProposal(action, market.id));
+  const raw = JSON.stringify({ operatorId: sessions.a.op.userId, approvalId: ids.approvalId, operationId: ids.operationId });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await fetch(`${ctx.url('matching')}/markets/${encodeURIComponent(market.id)}/${action}`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status !== 200 || body.accepted !== true || body.halted !== halted)
+    throw new Error(`matching ${action} for ${symbol} refused (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  ctx.log(`matching ${action} ${symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label})`);
+  return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
+}
+
 // ── 3. Verification tier ────────────────────────────────────────────────────
 
 /** Accounts whose credentials this stack holds (it created them), keyed by handle. */
@@ -857,10 +891,18 @@ async function main() {
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+    } else if (cmd === 'halt' || cmd === 'resume') {
+      const symbol = process.argv[3];
+      if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
+      const r = await setBookHalt(ctx, symbol, cmd === 'halt');
+      say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
-      die('usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | verify | status', 2);
+      die(
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        2,
+      );
     }
   } catch (err) {
     die(String(err.message ?? err));

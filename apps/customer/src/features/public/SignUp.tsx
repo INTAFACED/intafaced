@@ -17,6 +17,7 @@ import {
   type Channel,
 } from './sign-up';
 import { signUpCopy } from './sign-up-copy';
+import { SocialSignIn } from './SocialSignIn';
 import './public-pages.css';
 import './sign-up.css';
 
@@ -258,6 +259,7 @@ export function SignUp() {
               </Button>
             </form>
           )}
+          {!pending && <SocialSignIn />}
         </li>
         <li className={`pub-step pub-step--${pending ? 'current' : 'upcoming'}`} aria-current={pending ? 'step' : undefined}>
           <span className="pub-step__number">{t('stepNumber', { number: 2 })}</span>

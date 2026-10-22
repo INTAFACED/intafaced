@@ -98,14 +98,16 @@ describe('refusalCopy: the spec table (UI-SPEC §4.3)', () => {
     expect(refusalCopy('trade.no_book').body).toBe('Prices will show when the first orders arrive.');
   });
   it('market not open', () => {
-    for (const code of [
-      'trade.lifecycle_authority_unavailable',
-      'trade.market_closed',
-      'trade.market_halted',
-      'edge.venue_halted',
-      'trade.venue_halted',
-    ]) {
+    for (const code of ['trade.lifecycle_authority_unavailable', 'trade.market_closed']) {
       expect(refusalCopy(code)).toEqual({ title: "This market isn't open", body: "You can't trade it right now." });
+    }
+  });
+  it('an operator halt says halted, and that open orders can still be cancelled', () => {
+    for (const code of ['trade.market_halted', 'edge.venue_halted', 'trade.venue_halted']) {
+      expect(refusalCopy(code)).toEqual({
+        title: 'Trading is halted',
+        body: 'An operator has paused new orders. Your open orders stay, and you can still cancel them.',
+      });
     }
   });
   it('insufficient balance fills the blanks, and stays honest without them', () => {
