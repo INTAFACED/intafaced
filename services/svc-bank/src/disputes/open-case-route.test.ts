@@ -4,10 +4,11 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
+import { ActivityNotFoundError } from '../activity/activity-service.js';
 
 /**
  * PP-disputes-safety-01 DR6 major: the route `activity.dispute.openCase` maps the fail-closed refusals to a definite HTTP
- * class (router.ts mapping), not a 500: `pay.dispute_line_facts_unset` and `pay.dispute_unwired` are both BAD_REQUEST,
+ * class (router.ts mapping), not a 500: `pay.dispute_line_facts_unset` is BAD_REQUEST and `pay.dispute_unwired` is PRECONDITION_FAILED (DR3),
  * and the code survives in the message for the screen. Also covers the `order:` refusal and a foreign linked id.
  */
 const EDGE = 'a-bank-dispute-route-edge-secret-long-enough';
@@ -39,7 +40,7 @@ function caller(bank: Partial<BankServices>) {
 const ownLine = { item: { id: 'tx-1:0', kind: 'transfer' } };
 const activity = {
   async get(_userId: string, id: string) {
-    if (id === 'tx-foreign:0') throw new BankError('not yours', 'bank.activity_not_found' as never);
+    if (id === 'tx-foreign:0') throw new ActivityNotFoundError();
     return ownLine;
   },
 };
@@ -55,12 +56,16 @@ describe('activity.dispute.openCase route mapping (DR6)', () => {
     };
     await expect(caller({ activity, disputeCases } as never).activity.dispute.openCase(input as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
+      cause: { code: 'pay.dispute_line_facts_unset' },
     });
   });
 
-  it('pay.dispute_unwired (no dispute service) maps to BAD_REQUEST', async () => {
+  it('pay.dispute_unwired (no dispute service) maps to PRECONDITION_FAILED with the pay code', async () => {
     expect.assertions(1);
-    await expect(caller({ activity } as never).activity.dispute.openCase(input as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(caller({ activity } as never).activity.dispute.openCase(input as never)).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'pay.dispute_unwired' },
+    });
   });
 
   it('an order: id and a statement with a control character are BAD_REQUEST before any case is opened', async () => {
@@ -74,9 +79,11 @@ describe('activity.dispute.openCase route mapping (DR6)', () => {
     const api = caller({ activity, disputeCases } as never);
     await expect(api.activity.dispute.openCase({ ...input, activityId: 'order:abc' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
+      message: expect.stringContaining('bank.activity_line_required'),
     });
     await expect(api.activity.dispute.openCase({ ...input, statement: 'bad\u0007bell' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
+      message: expect.stringContaining('pay.dispute_statement_invalid'),
     });
     expect(opened).toBe(0);
   });
@@ -91,7 +98,7 @@ describe('activity.dispute.openCase route mapping (DR6)', () => {
     };
     await expect(
       caller({ activity, disputeCases } as never).activity.dispute.openCase({ ...input, linkedActivityIds: ['tx-foreign:0'] } as never),
-    ).rejects.toBeDefined();
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', cause: { code: 'bank.activity_not_found' } });
     expect(opened).toBe(0);
   });
 });

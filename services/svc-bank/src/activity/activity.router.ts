@@ -287,7 +287,10 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
             // Linked lines must be the caller's own (review minor 3): activity.get refuses another user's line.
             for (const linked of input.linkedActivityIds) await bank.activity.get(ctx.principal.userId, linked);
             if (!plainWords.safeParse(input.statement).success) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: 'The statement has a control character' });
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: 'The statement has a control character (pay.dispute_statement_invalid)',
+              });
             }
             return await bank.disputeCases.open(ctx.principal.userId, item, {
               reasonCode: input.reasonCode,

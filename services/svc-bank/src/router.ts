@@ -328,6 +328,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.personal_request_not_payer':
       case 'bank.personal_request_not_payee':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+      case 'pay.dispute_unwired':
       case 'bank.pool_underfunded':
       case 'bank.earn_principal_mismatch':
         // Not the caller's fault and not something a retry fixes — the pool
@@ -393,7 +394,6 @@ function toTrpcError(err: unknown): TRPCError {
       case 'pay.dispute_ineligible':
       case 'pay.dispute_reasons_unset':
       case 'pay.dispute_line_facts_unset':
-      case 'pay.dispute_unwired':
       case 'pay.dispute_transition_refused':
       case 'bank.loan_product_closed':
       case 'bank.auto_invest_inactive':

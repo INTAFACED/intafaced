@@ -139,9 +139,7 @@ async function lineFact(read: () => LineFact | Promise<LineFact>, what: 'card' |
   try {
     return await read();
   } catch (err) {
-    throw new BankError(
-      `The ${what} lookup for this line failed: ${(err as Error)?.message ?? 'unknown error'}`,
-      'pay.dispute_line_facts_unset',
-    );
+    // DR3: a fixed sentence to the caller; the adapter's detail stays in `cause`, never in the message.
+    throw Object.assign(new BankError(`The ${what} lookup for this line is unavailable`, 'pay.dispute_line_facts_unset'), { cause: err });
   }
 }
