@@ -57,3 +57,24 @@ describe('bank.spaces.create name conflict (Postgres)', () => {
     await expect(spaces.create({ userId: BOB, assetId: 'USDT', name: 'Holiday' })).resolves.toMatchObject({ name: 'Holiday' });
   });
 });
+
+describe('bank.spaces.create rethrows any other insert error unchanged (stub sql)', () => {
+  function rejectingSql(err: unknown): ConstructorParameters<typeof SpaceService>[0] {
+    const fn = () => Promise.reject(err);
+    return fn as unknown as ConstructorParameters<typeof SpaceService>[0];
+  }
+
+  it('a 23505 on another constraint is rethrown as the same object, not bank.space_name_taken', async () => {
+    const pgErr = Object.assign(new Error('duplicate key'), { code: '23505', constraint_name: 'other_idx' });
+    const spaces = new SpaceService(rejectingSql(pgErr), new MemoryLedger());
+    const err = await spaces.create({ userId: ALICE, assetId: 'USDT', name: 'Holiday' }).catch((e: unknown) => e);
+    expect(err).toBe(pgErr);
+  });
+
+  it('a different error code (23503) is rethrown as the same object', async () => {
+    const pgErr = Object.assign(new Error('fk violation'), { code: '23503', constraint_name: 'spaces_user_asset_name_idx' });
+    const spaces = new SpaceService(rejectingSql(pgErr), new MemoryLedger());
+    const err = await spaces.create({ userId: ALICE, assetId: 'USDT', name: 'Holiday' }).catch((e: unknown) => e);
+    expect(err).toBe(pgErr);
+  });
+});
