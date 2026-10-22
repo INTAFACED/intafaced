@@ -15,7 +15,7 @@ const KEY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 const LIVE: OwnershipSnapshot = { id: SESSION, userId: USER, revoked: false };
 const LIVE_KEY: OwnershipSnapshot = { id: KEY, userId: USER, revoked: false };
-const ACTIVE: AccountStatusSnapshot = { userId: USER, status: 'active' };
+const ACTIVE: AccountStatusSnapshot = { userId: USER, status: 'active', lastVerifiedAt: '2026-08-25T00:00:00.000Z' };
 
 function port(opts: {
   session?: OwnershipSnapshot | null;

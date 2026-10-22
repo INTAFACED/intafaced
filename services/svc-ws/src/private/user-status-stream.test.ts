@@ -30,7 +30,9 @@ function accountPort(status: AccountStatusSnapshot['status'] | null): LiveCreden
       return key;
     },
     async getAccount() {
-      return status === null ? null : { userId: USER, status };
+      return status === null
+        ? null
+        : { userId: USER, status, ...(status === 'active' ? { lastVerifiedAt: '2026-08-25T00:00:00.000Z' } : {}) };
     },
   };
 }
@@ -150,7 +152,7 @@ describe('private stream drops when the user is frozen', () => {
         return { id: KEY, userId: USER, revoked: false };
       },
       async getAccount() {
-        return { userId: USER, status };
+        return { userId: USER, status, ...(status === 'active' ? { lastVerifiedAt: '2026-08-25T00:00:00.000Z' } : {}) };
       },
     };
     const { port: listen } = await boot(flipping, 40);

@@ -16,6 +16,13 @@ import { apiKeyProductAllowed, STREAM_PRODUCT } from './key-product.js';
 import { assertKeyNotExpired, optionalExpiresAt, KeyExpiresError } from './key-expires.js';
 import { assertApiKeyAccount, optionalAccountIdFromBody, KeyAccountError } from './key-account.js';
 import { assertUserActive, UserStatusError, type UserStatus } from './user-status.js';
+import {
+  assertSessionPasskey,
+  SessionPasskeyError,
+  optionalLastVerifiedAt,
+  optionalPasskeyCreds,
+  optionalPasskeyVerified,
+} from './session-passkey.js';
 
 export { optionalExpiresAt } from './key-expires.js';
 export { optionalAccountIdFromBody } from './key-account.js';
@@ -40,6 +47,10 @@ export type OwnershipSnapshot = {
 export type AccountStatusSnapshot = {
   readonly userId: string;
   readonly status: UserStatus;
+  /** Identity extras. Omitted means identity did not send them. Never invent. */
+  readonly lastVerifiedAt?: string;
+  readonly webauthnCreds?: unknown[];
+  readonly passkeyVerified?: boolean;
 };
 
 export type LiveCredentialErrorCode =
@@ -55,7 +66,9 @@ export type LiveCredentialErrorCode =
   | 'auth.account_mismatch'
   | 'auth.account_frozen'
   | 'auth.session_denied'
-  | 'auth.session_revoked';
+  | 'auth.session_revoked'
+  | 'auth.passkey_missing'
+  | 'auth.passkey_verify_unavailable';
 
 export class LiveCredentialError extends Error {
   constructor(
@@ -99,7 +112,7 @@ function unavailable(cause?: unknown): LiveCredentialError {
   return err;
 }
 
-async function load(read: () => Promise<OwnershipSnapshot | null>): Promise<OwnershipSnapshot | null> {
+async function load<T>(read: () => Promise<T>): Promise<T> {
   try {
     return await read();
   } catch (err) {
@@ -125,6 +138,7 @@ function denySession(): never {
  * Past expiresAt → `auth.api_key_expired`. Missing clock → `auth.clock_missing`.
  * Bound key + missing/wrong presented account → `auth.account_required` / `auth.account_mismatch`.
  * Frozen/closed/missing identity status → `auth.account_frozen`. Never invent `active`.
+ * Session without enrolled+verified passkey extras → `auth.passkey_missing` / `auth.passkey_verify_unavailable`.
  * Port `unavailable` propagates (fail-closed).
  */
 export async function assertLiveCredential(port: LiveCredentialPort, input: LiveCredentialInput): Promise<OwnershipSnapshot> {
@@ -187,6 +201,16 @@ export async function assertLiveCredential(port: LiveCredentialPort, input: Live
       }
       throw err;
     }
+    if (input.apiKeyId === undefined) {
+      try {
+        assertSessionPasskey(state);
+      } catch (err) {
+        if (err instanceof SessionPasskeyError) {
+          throw new LiveCredentialError(err.message, err.code);
+        }
+        throw err;
+      }
+    }
   }
 
   return snapshot;
@@ -238,12 +262,13 @@ export function optionalProductAllowlist(body: unknown): readonly string[] | und
  * An `expiresAt` / `expires_at` on the key body is kept locally.
  * An `accountId` / `account_id` on the key body is kept locally.
  * Account `status` is identity `users.status` — never a second freeze store.
+ * Passkey extras (`lastVerifiedAt` / `webauthnCreds` / `passkeyVerified`) on the account body are kept locally.
  */
 export function createIdentityOwnershipClient(options: IdentityOwnershipClientOptions): LiveCredentialPort {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
 
-  async function get(path: string, parse: (body: unknown) => OwnershipSnapshot): Promise<OwnershipSnapshot | null> {
+  async function get<T>(path: string, parse: (body: unknown) => T): Promise<T | null> {
     let response: Response;
     try {
       response = await fetchImpl(`${baseUrl}${path}`, { headers: options.headers });
@@ -298,7 +323,16 @@ export function createIdentityOwnershipClient(options: IdentityOwnershipClientOp
         if (parsed.userId !== userId) {
           throw new Error('account userId mismatch');
         }
-        return { userId: parsed.userId, status: parsed.status };
+        const lastVerifiedAt = optionalLastVerifiedAt(body);
+        const webauthnCreds = optionalPasskeyCreds(body);
+        const passkeyVerified = optionalPasskeyVerified(body);
+        return {
+          userId: parsed.userId,
+          status: parsed.status,
+          ...(lastVerifiedAt === undefined ? {} : { lastVerifiedAt }),
+          ...(webauthnCreds === undefined ? {} : { webauthnCreds }),
+          ...(passkeyVerified === undefined ? {} : { passkeyVerified }),
+        };
       });
     },
   };
