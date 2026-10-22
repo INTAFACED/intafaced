@@ -62,6 +62,12 @@ export type BankErrorCode =
    * from a stale column.
    */
   | 'bank.earn_principal_mismatch'
+  // ── Dispute cases (PP-disputes-safety-01) ────────────────────────────
+  | 'pay.dispute_ineligible'
+  | 'pay.dispute_reasons_unset'
+  | 'pay.dispute_reason_unknown'
+  | 'pay.dispute_transition_refused'
+  | 'pay.dispute_conflict'
   | 'bank.not_owner'
   // ── Loans (§8.1) ───────────────────────────────────────────────────────
   | 'bank.loan_product_not_found'

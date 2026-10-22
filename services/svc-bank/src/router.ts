@@ -390,6 +390,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_closed':
       case 'bank.position_locked':
       case 'bank.position_pending':
+      case 'pay.dispute_ineligible':
+      case 'pay.dispute_reasons_unset':
+      case 'pay.dispute_transition_refused':
       case 'bank.loan_product_closed':
       case 'bank.auto_invest_inactive':
       case 'bank.auto_invest_invalid_threshold':
@@ -434,6 +437,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.activity_note_conflict':
       case 'bank.activity_dispute_conflict':
       case 'bank.activity_dispute_exists':
+      case 'pay.dispute_conflict':
       case 'bank.activity_filter_conflict':
       case 'bank.limit_request_open':
       case 'bank.limit_request_conflict':
@@ -449,6 +453,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.business_request_id_required':
       case 'bank.event_id_required':
       case 'bank.below_minimum':
+      case 'pay.dispute_reason_unknown':
       case 'bank.native_asset_not_earnable':
       case 'bank.ltv_exceeded':
       /** Borrower short of collateral at open — same class as ltv_exceeded. */

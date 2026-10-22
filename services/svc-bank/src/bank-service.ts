@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
+import { DisputeCases } from './disputes/case.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
@@ -45,6 +46,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
 export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
+  /** PP-disputes-safety-01 dispute cases. Optional so partial test doubles still type. */
+  readonly disputeCases?: DisputeCases;
   readonly personalPay: PersonalPayService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
@@ -234,6 +237,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   return {
     spaces,
     transfers,
+    disputeCases: new DisputeCases(sql),
     personalPay,
     earn,
     analytics,

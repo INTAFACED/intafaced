@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { payDisputeOpenInputSchema, payDisputeOpenResultSchema, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { throwBankProcedure } from '../bank-procedure.js';
 import { BankError } from '../errors.js';
@@ -141,7 +141,7 @@ export function assetPageOf(lines: ReadonlyArray<{ purchase?: true; asset: strin
   return bought && /^[A-Za-z0-9_-]{1,16}$/.test(bought.asset) ? `/coin/${encodeURIComponent(bought.asset)}` : null;
 }
 
-export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords'>) {
+export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'activityRecords' | 'disputeCases'>) {
   const savedFilters = () => bank.activityRecords.savedFilters;
   return router({
     /** Named sets of `activity.list` filters, self-only (BK-acct-07). */
@@ -265,6 +265,32 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
     }),
 
     dispute: router({
+      /**
+       * PP-disputes-safety-01: open a case with a published reason. The case id is server-derived from
+       * `dispute:<userId>:<activityId>`; the caller sends no id. A card line routes to the issuer with no case.
+       */
+      openCase: scopedProcedure('bank:write', { module: 'bank' })
+        .input(payDisputeOpenInputSchema)
+        .output(payDisputeOpenResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            if (input.activityId.startsWith('order:')) {
+              throw new TRPCError({
+                code: 'BAD_REQUEST',
+                message: 'A dispute is opened on one activity line (bank.activity_line_required)',
+              });
+            }
+            if (!bank.disputeCases) throw new BankError('Dispute cases are not wired', 'pay.dispute_reasons_unset');
+            const { item } = await bank.activity.get(ctx.principal.userId, input.activityId);
+            return await bank.disputeCases.open(ctx.principal.userId, item, {
+              reasonCode: input.reasonCode,
+              statement: input.statement,
+              linkedActivityIds: input.linkedActivityIds,
+            });
+          } catch (err) {
+            activityFailure(err);
+          }
+        }),
       open: scopedProcedure('bank:write', { module: 'bank' })
         .input(
           z
