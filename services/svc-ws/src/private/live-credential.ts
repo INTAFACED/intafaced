@@ -16,11 +16,7 @@ export type OwnershipSnapshot = {
 };
 
 export type LiveCredentialErrorCode =
-  | 'unavailable'
-  | 'auth.api_key_denied'
-  | 'auth.api_key_revoked'
-  | 'auth.session_denied'
-  | 'auth.session_revoked';
+  'unavailable' | 'auth.api_key_denied' | 'auth.api_key_revoked' | 'auth.session_denied' | 'auth.session_revoked';
 
 export class LiveCredentialError extends Error {
   constructor(
