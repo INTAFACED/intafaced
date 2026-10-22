@@ -188,6 +188,27 @@ export function conflictProfile(
   return { displayName, locale, region, version };
 }
 
+const SPEND_DECIMAL = /^-?\d{1,40}(\.\d{1,18})?$/;
+const SPEND_ASSET = /^[A-Z0-9._-]{1,16}$/;
+
+/**
+ * Figures on `bank.insufficient_funds` (RC-wallet-09): the caller's own
+ * available, held and in-Earn amounts for the refused asset. Decimal strings
+ * only; `inEarn` may be null (earn read failed, unknown rather than zero). Any
+ * malformed field drops the lot, so a sentence cannot ride out on this field.
+ */
+export function spendFiguresOf(cause: unknown): { assetId: string; available: string; onHold: string; inEarn: string | null } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'bank.insufficient_funds') return undefined;
+  const raw = (cause as { data?: unknown }).data;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { assetId, available, onHold, inEarn } = raw as Record<string, unknown>;
+  if (typeof assetId !== 'string' || !SPEND_ASSET.test(assetId)) return undefined;
+  if (typeof available !== 'string' || !SPEND_DECIMAL.test(available)) return undefined;
+  if (typeof onHold !== 'string' || !SPEND_DECIMAL.test(onHold)) return undefined;
+  if (!(inEarn === null || (typeof inEarn === 'string' && SPEND_DECIMAL.test(inEarn)))) return undefined;
+  return { assetId, available, onHold, inEarn };
+}
+
 const t = initTRPC.context<Context>().create({
   errorFormatter({ shape, error, ctx }) {
     const cause = error.cause;
@@ -196,6 +217,7 @@ const t = initTRPC.context<Context>().create({
     const blockers = errorBlockersOf(cause);
     const algo = algoRefusalDetails(cause);
     const allowance = withdrawalAllowanceOf(cause);
+    const spend = spendFiguresOf(cause);
     return {
       ...shape,
       data: {
@@ -220,6 +242,8 @@ const t = initTRPC.context<Context>().create({
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.
         ...(allowance ? { allowance } : {}),
+        // Only on `bank.insufficient_funds`.
+        ...(spend ? { spend } : {}),
       },
     };
   },
