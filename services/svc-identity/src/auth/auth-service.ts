@@ -31,6 +31,16 @@ import {
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
+  confirmSignUp,
+  resendSignUp,
+  startSignUp,
+  type AccountType,
+  type SignUpAccepted,
+  type SignUpDeps,
+  type SignUpPolicy,
+  type SignUpStart,
+} from './sign-up.js';
+import {
   completePasswordReset,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
@@ -609,6 +619,56 @@ export class AuthService {
   /** Test clock for confirmation expiry. Production uses the real clock. */
   useEmailConfirmationClock(now: () => Date): void {
     this.emailConfirmNow = now;
+  }
+
+  /** Owner numbers for sign-up (sign-up.ts). The mail port, the flow key and the clock are the recovery flows' own. */
+  useSignUpPolicy(policy: SignUpPolicy): void {
+    this.signUpPolicy = policy;
+  }
+
+  private signUpPolicy: SignUpPolicy = {};
+
+  private signUpDeps(): SignUpDeps {
+    return {
+      ...this.signUpPolicy,
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** Sign-up step 1: eligibility, then a code by email. No account and no session yet. */
+  async signUpStart(input: SignUpStart): Promise<SignUpAccepted> {
+    return startSignUp(this.signUpDeps(), input);
+  }
+
+  /** Sign-up step 1b: a new code once the resend interval has passed. */
+  async signUpResend(input: { flowId: string }): Promise<SignUpAccepted> {
+    return resendSignUp(this.signUpDeps(), input);
+  }
+
+  /** Sign-up step 2: the right code makes the account (email proved) and opens its first session. */
+  async signUpConfirm(input: {
+    flowId: string;
+    code: string;
+    device?: string;
+    ip?: string;
+  }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
+    const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
+      this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
+    );
+    const session = await this.finishRegistration(userId, {
+      handle: draft.handle,
+      email: draft.email,
+      password: '',
+      region: draft.country,
+      ...(input.device ? { device: input.device } : {}),
+      ...(input.ip ? { ip: input.ip } : {}),
+    });
+    return { session, accountType: draft.accountType, referrerId: draft.referrerId };
   }
 
   private emailConfirmDeps() {

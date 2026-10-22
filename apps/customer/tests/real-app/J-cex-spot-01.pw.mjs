@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool } from './stack.mjs';
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
@@ -42,11 +42,8 @@ test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
   const handle = `jt${Date.now().toString(36)}`;
   // A fresh TEST password per run, kept only in the run file (mode 600).
   const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
-  await page.goto('/register');
-  await page.fill('input[name=handle]', handle);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: 'Create account' }).click();
+  // Sign-up is J-identity-01's own journey: details, then the code the stack mails to its outbox file.
+  await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   run.reset({ account: who });
   // Signed in, and the way to Verify is shown.

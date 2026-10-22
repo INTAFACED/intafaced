@@ -65,7 +65,7 @@ if (!available) {
   const rank = new RankService(db.sql, bus);
   const keyMaterial = randomBytes(32).toString('base64');
   const auth = new AuthService(db.sql, bus, rank, tokenConfig, webauthnConfig, keyMaterial, undefined, undefined, 25);
-  const router = createIdentityRouter(auth, rank, { registrationOpen: true, actionApprovals: stubActionApprovals() });
+  const router = createIdentityRouter(auth, rank, { registrationOpen: true, directRegister: true, actionApprovals: stubActionApprovals() });
   const anon = () => router.createCaller(anonContext);
 
   const sent: Array<{ email: string; code: string; expiresAt: Date; purpose?: string; handle?: string }> = [];

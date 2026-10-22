@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own
 // run file; these helpers take the account they act as.
@@ -13,15 +13,12 @@ export async function signIn(page, who) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** A fresh TEST account, signed up in the browser with a TEST password kept only in the run file (mode 600). */
+/** A fresh TEST account, signed up in the browser (details, then the code the stack mails to its outbox file), with a
+ * TEST password kept only in the run file (mode 600). */
 export async function signUp(page, prefix) {
   const handle = `${prefix}${Date.now().toString(36)}`;
   const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
-  await page.goto('/register');
-  await page.fill('input[name=handle]', handle);
-  await page.fill('input[name=identifier]', who.email);
-  await page.fill('input[name=password]', who.password);
-  await page.getByRole('button', { name: 'Create account' }).click();
+  await signUpInBrowser(page, who);
   await expect(page).not.toHaveURL(/\/register/);
   return who;
 }
