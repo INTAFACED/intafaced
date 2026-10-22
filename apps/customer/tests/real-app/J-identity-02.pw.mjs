@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, signUpInBrowser, staffFreeze } from './stack.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
 // build serves, titled "J-identity-02 #<n>". Every person here is a TEST person on the local stack, signed up through
@@ -102,62 +103,6 @@ test(`${J} #7 a frozen account is named after the right password, with the way t
   await page.getByRole('alert').getByRole('link', { name: 'Contact support' }).click();
   await expect(page).toHaveURL(/\/help/);
 });
-
-// Passkeys belong to the stack's relying party, `localhost` (an IP address cannot be one), so these steps use the
-// customer app at http://localhost:3210 and Chromium's virtual authenticator in place of a device.
-const PASSKEY_ORIGIN = 'http://localhost:3210';
-
-async function virtualAuthenticator(page) {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('WebAuthn.enable');
-  await cdp.send('WebAuthn.addVirtualAuthenticator', {
-    options: {
-      protocol: 'ctap2',
-      transport: 'internal',
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-}
-
-/** Adds a passkey from Security, as the signed-in person would. */
-async function addPasskey(page) {
-  await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Add passkey' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
-  await expect(page.locator('.security__passkeys')).toContainText('Added');
-}
-
-/** Sets up an authenticator app from Security; returns its key and the 30-second step its confirming code used. */
-async function addAuthenticator(page, totp) {
-  await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
-  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
-  await page.getByRole('button', { name: 'Show setup key' }).click();
-  const secret = await page.getByLabel('Authenticator setup key').inputValue();
-  const step = Math.floor(Date.now() / 30_000);
-  await page.getByLabel('Six-digit authenticator code').fill(totp(secret));
-  await page.getByRole('button', { name: 'Confirm authenticator' }).click();
-  await expect(page.locator('.security__authenticator')).toContainText('accepted');
-  return { secret, step };
-}
-
-/** A code from a 30-second step after `step`: identity refuses a step it has already seen. */
-async function nextCode(totp, secret, step) {
-  while (Math.floor(Date.now() / 30_000) <= step) await new Promise((resolve) => setTimeout(resolve, 1000));
-  return { code: totp(secret), step: Math.floor(Date.now() / 30_000) };
-}
-
-/** Ends this browser's sign-in without touching the passkey on its authenticator. */
-async function forgetSession(page) {
-  await page.context().clearCookies();
-  await page.evaluate(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-  });
-}
 
 test.describe('passkeys', () => {
   test.use({ baseURL: PASSKEY_ORIGIN });

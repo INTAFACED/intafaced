@@ -14,6 +14,7 @@ import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { securityCopy as copy } from './security-copy';
+import { refusalCopy } from '../../data/refusals';
 import {
   credentialId,
   familyBlocked,
@@ -736,7 +737,21 @@ export function Security() {
             )
           ) : (
             <div lang="und">
-              <Failure result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer} />
+              {!currentResponse.unconfirmed && currentResponse.answer.code === 'auth.mfa_required' ? (
+                // The factor gate refused before any change: this session has not passed a second factor. A sign-in
+                // with the code or a passkey gives one, and comes back here.
+                <div className="failure" role="status">
+                  <h3>{refusalCopy('auth.mfa_required').title}</h3>
+                  <p>{refusalCopy('auth.mfa_required').body}</p>
+                  <a className="text-link" href={`/login?redirect=${encodeURIComponent('/uc/safe')}`}>
+                    {refusalCopy('auth.mfa_required').action?.label}
+                  </a>
+                </div>
+              ) : (
+                <Failure
+                  result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
+                />
+              )}
               {currentResponse.answer.code && (
                 <p className="security__ref" lang="zxx">
                   {currentResponse.answer.code}
