@@ -97,11 +97,15 @@ describe('support.tradeSummary', () => {
     return id;
   }
 
+  // An insurance figure no random UUID (hex, no dots) or ISO timestamp
+  // (".000Z") can contain by chance, so the leak check below cannot flake.
+  const INSURANCE_SENTINEL = '0.000000000000271828';
+
   async function rung(positionId: string, state: string, createdAt: string): Promise<string> {
     const id = randomUUID();
     await db.sql`
       INSERT INTO trade.liquidation_rungs (rung_id, position_id, liquidation_id, kind, from_size, from_margin, plan, state, created_at, updated_at)
-      VALUES (${id}, ${positionId}, ${`liq:${id}`}, 'closing', '1', '5000', ${db.sql.json({ fromInsurance: '777' } as never)}, ${state},
+      VALUES (${id}, ${positionId}, ${`liq:${id}`}, 'closing', '1', '5000', ${db.sql.json({ fromInsurance: INSURANCE_SENTINEL } as never)}, ${state},
         ${createdAt}, ${createdAt})`;
     return id;
   }
@@ -265,7 +269,7 @@ describe('support.tradeSummary', () => {
       truncated: false,
     });
     // No amount from the rung's plan (the insurance figure) is on the wire.
-    expect(res.text).not.toContain('777');
+    expect(res.text).not.toContain(INSURANCE_SENTINEL);
     expect(res.text).not.toContain('fromInsurance');
 
     expect(summary.orders.items).toEqual([
