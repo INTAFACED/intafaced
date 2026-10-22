@@ -272,6 +272,12 @@ export class TransferService {
     toUserId: string;
     amount: Amount;
     now?: Date;
+    /**
+     * PP-money-balance-03: a Pay send to a person who holds no balance in this asset opens their primary balance for
+     * it (an empty space, no money moved) instead of refusing. Only after identity says the recipient can receive, so
+     * unknown, frozen and closed still get the one uniform refusal. Off for every other caller.
+     */
+    openRecipientBalance?: boolean;
   }): Promise<TransferResult> {
     const now = input.now ?? new Date();
     return withMoneySpan(
@@ -280,7 +286,15 @@ export class TransferService {
       async () => {
         const destUserId = input.toUserId.trim();
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-        const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
+        let dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
+        if (!dest && destUserId && input.openRecipientBalance === true && destUserId !== from.userId) {
+          // Identity first: an unknown, frozen or closed id refuses exactly as before and no space is opened for it.
+          await this.spaces.assertCanReceive(destUserId);
+          // Idempotent under the one-primary unique index: a retry or a race opens one space.
+          const opened = await this.spaces.ensurePrimary(destUserId, from.assetId);
+          // An archived primary is not reopened by a payment: the uniform refusal below stands.
+          dest = opened.archivedAt === null ? opened : null;
+        }
         if (!dest) {
           // One code and one message for "no such account", frozen and closed:
           // the caller must not be able to tell them apart.

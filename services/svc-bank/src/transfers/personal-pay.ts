@@ -273,6 +273,7 @@ export class PersonalPayService {
         toUserId,
         amount: input.amount,
         now,
+        openRecipientBalance: true,
       });
       ledgerTxId = posted.ledgerTxId;
     } catch (err) {
