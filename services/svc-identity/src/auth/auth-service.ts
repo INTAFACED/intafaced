@@ -420,7 +420,10 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
   await tx.unsafe(query.text, query.values);
 }
 
-/** A password-policy refusal at registration answers the typed `auth.password_policy`, as change and reset do. */
+/**
+ * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
+ * `auth.password_policy`, as change and reset do, before any hashing.
+ */
 function policyRefusal(check: () => void): void {
   try {
     check();
@@ -759,7 +762,10 @@ export class AuthService {
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
     return this.finishRegistration(userId, input);
@@ -837,7 +843,10 @@ export class AuthService {
     const usedError = () => new AuthError('That invite code has already been used', 'auth.invite_used');
     if (await this.founderInviteSpent(this.sql, hash)) throw usedError();
 
-    policyRefusal(() => assertPasswordNotIdentity(input.password, input));
+    policyRefusal(() => {
+      assertPasswordShape(input.password);
+      assertPasswordNotIdentity(input.password, input);
+    });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
     try {
