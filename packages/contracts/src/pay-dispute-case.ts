@@ -84,5 +84,7 @@ export const PAY_DISPUTE_CODES = [
   'pay.dispute_line_facts_unset',
   /** The dispute service is not wired in this deployment. */
   'pay.dispute_unwired',
+  /** The statement carries a control character (DR3). */
+  'pay.dispute_statement_invalid',
 ] as const;
 export type PayDisputeCode = (typeof PAY_DISPUTE_CODES)[number];
