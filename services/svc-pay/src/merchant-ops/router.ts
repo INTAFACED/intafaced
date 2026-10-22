@@ -22,8 +22,10 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
 import { MerchantSecurity } from './security.js';
+import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
@@ -56,6 +58,8 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** Chargeback transactions by key, for the read-only dispute funds card. Absent: that read refuses. */
+  readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
   readonly teamEmailInvite?: TeamEmailInviteLimit;
   /**
@@ -77,6 +81,7 @@ function makeParts(deps: MerchantOpsDeps) {
         sql,
         team: new TeamService(sql, deps.teamEmailInvite),
         security: new MerchantSecurity(sql),
+        disputeStore: deps.disputes ?? defaultDisputeCaseStore,
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
@@ -135,6 +140,12 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.list(await callerOf(ctx), input))),
         summary: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().disputes.summary(await callerOf(ctx)))),
+        /** M-disp-01: where the money is. Reads the chargeback posts by their dispute keys; posts nothing. */
+        funds: read
+          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
+          .query(({ ctx, input }) =>
+            wrapOps(async () => readDisputeFunds(await callerOf(ctx), need().disputeStore, deps.disputeFundsLedger, input.disputeId)),
+          ),
         get: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.get(await callerOf(ctx), input.disputeId))),
@@ -323,6 +334,23 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           wrapOps(async () => {
             if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
             return need().team.declineInvite(ctx.principal.userId, input.memberId);
+          }),
+        ),
+      }),
+
+      /** M-plat-org-03: the built-in roles and what each can do, read from the role table. Built-in roles have no write. */
+      permissions: router({
+        catalogue: read.input(z.object({}).strict()).query(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return permissionCatalogue();
+          }),
+        ),
+        /** Mounted on the read scope on purpose: a read-only caller gets the named refusal too, not a scope error. It never writes. */
+        updateRole: read.input(z.object({ role: z.string().trim().min(1).max(32) }).passthrough()).mutation(({ ctx }) =>
+          wrapOps(async () => {
+            await callerOf(ctx);
+            return refuseBuiltInRoleEdit();
           }),
         ),
       }),

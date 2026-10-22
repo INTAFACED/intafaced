@@ -22,6 +22,7 @@ const window = { kind: 'preset', preset: 'today' } as const;
 /** One valid input per procedure. A new procedure with no entry here fails the coverage test below. */
 const CALLS: Record<string, { founder: boolean; input: unknown }> = {
   'merchantControl.get': { founder: false, input: { merchantId } },
+  'merchantControl.reserve': { founder: false, input: { merchantId } },
   'merchantControl.approvals.list': { founder: false, input: { merchantId, limit: 10 } },
   'merchantControl.approvals.decide': {
     founder: false,

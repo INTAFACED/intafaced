@@ -528,6 +528,7 @@ export const MERCHANT_PROCS: MerchantProc[] = [
   // W1 merchant control room. Reads first; the actions that consume the owner's approval (decide, cancel) come last.
   { path: 'merchantControl.get', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   { path: 'merchantControl.usage', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
+  { path: 'merchantControl.reserve', scope: 'pay:read', own: 'ok', input: (i) => ({ merchantId: i.merchantId }) },
   {
     path: 'merchantControl.pricing.preview',
     scope: 'pay:read',
