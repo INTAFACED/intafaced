@@ -6,10 +6,12 @@
 import type { Sql } from 'postgres';
 import {
   INCIDENT_IMPACTS,
+  INCIDENT_PHASES,
   NOTICE_KINDS,
   NoticeError,
   STATUS_COMPONENTS,
   type IncidentImpact,
+  type IncidentPhase,
   type NoticeKind,
   type NoticeRow,
   type NoticeStore,
@@ -31,6 +33,9 @@ type NoticePg = {
   components: string[];
   parent_id: string | null;
   resolves: boolean;
+  asset: string | null;
+  network: string | null;
+  phase: string | null;
   changelog: unknown;
   author_id: string;
   client_request_id: string;
@@ -48,6 +53,12 @@ function asImpact(value: string | null): IncidentImpact | null {
   if (value === null) return null;
   if (!(INCIDENT_IMPACTS as readonly string[]).includes(value)) throw new NoticeError('notify.notice_incident_fields_invalid');
   return value as IncidentImpact;
+}
+
+function asPhase(value: string | null): IncidentPhase | null {
+  if (value === null) return null;
+  if (!(INCIDENT_PHASES as readonly string[]).includes(value)) throw new NoticeError('notify.notice_phase_invalid');
+  return value as IncidentPhase;
 }
 
 function asComponents(values: string[]): StatusComponent[] {
@@ -79,6 +90,9 @@ function fromPg(row: NoticePg): NoticeRow {
     components: asComponents(row.components),
     parentId: row.parent_id,
     resolves: row.resolves,
+    asset: row.asset,
+    network: row.network,
+    phase: asPhase(row.phase),
     changelog: asChangelog(row.changelog),
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
@@ -90,7 +104,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves, changelog,
+  impact, components, parent_id, resolves, asset, network, phase, changelog,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -101,11 +115,12 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        impact, components, parent_id, resolves, changelog, author_id, client_request_id
+        impact, components, parent_id, resolves, asset, network, phase, changelog, author_id, client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
         ${row.impact}, ${row.components as string[]}, ${row.parentId}, ${row.resolves},
+        ${row.asset}, ${row.network}, ${row.phase},
         ${row.changelog ? this.sql.json(row.changelog as never) : null},
         ${row.authorId}, ${row.clientRequestId}
       )
