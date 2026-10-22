@@ -15,6 +15,7 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import type { PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 
 /**
@@ -55,6 +56,8 @@ export interface PublicRestDeps {
   marketBySymbol(symbol: string): Promise<Market | null>;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /** SP-order-entry-03: pair rules with blanks as "not set". Absent means `pairRules: null` on the wire. */
+  pairRulesForMarket?(market: Market): Promise<PairRules>;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -338,6 +341,7 @@ export function presentCcxtMarket(
     readonly futuresOrderable?: boolean;
     readonly futuresMaxLeverage?: string | null;
     readonly lifecycle?: MarketStateSnapshot | null;
+    readonly pairRules?: PairRules | null;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -435,6 +439,8 @@ export function presentCcxtMarket(
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
     lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
+    /** SP-order-entry-03 pair rules in words; null when this mount has no risk reader. */
+    pairRules: flags.pairRules ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),
     contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
@@ -695,6 +701,7 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
+          pairRules: deps.pairRulesForMarket ? await deps.pairRulesForMarket(m) : null,
         }),
       ),
     );
