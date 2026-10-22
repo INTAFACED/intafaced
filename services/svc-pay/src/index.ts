@@ -23,6 +23,7 @@ import {
 import { createPayRouter } from './router.js';
 import { MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
+import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { MerchantStateService } from './merchant-state-service.js';
 import { createMerchantStateRouter } from './merchant-state-router.js';
 import { KybService } from './kyb-service.js';
@@ -177,6 +178,7 @@ const pay = new PayService(sql, ledger, rails, {
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
   maxOpenSessionsPerLink: env.PAY_CHECKOUT_MAX_OPEN_SESSIONS,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
+  affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET) : undefined,
   afterPaymentEvent: async (event) => {
     await merchantWebhooks.enqueue(event);
     // Watch half of invoice-and-watch (SPEC §4): capture settles the execution.

@@ -34,6 +34,7 @@ import { settlementLedgerPlan } from './settlement-ledger.js';
 import { withMoneySpan, withRailSpan } from './tracing.js';
 import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
+import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -444,6 +445,12 @@ export interface PayServiceOptions {
   readonly affiliateAccrue?: AffiliateAccruePort;
 
   /**
+   * Identity affiliate payout after accrue. Default noop. Failures must not
+   * unwind settlement. Body is `{ feeEventId }` only.
+   */
+  readonly affiliatePayout?: AffiliatePayoutPort;
+
+  /**
    * Persisted merchant payout destinations. Crypto-native payout requires a
    * stored EVM dest before withdrawHold. Default refuses closed (no invented ref).
    */
@@ -586,6 +593,7 @@ export class PayService {
       }) => void | Promise<void>)
     | undefined;
   private readonly affiliateAccrue: AffiliateAccruePort;
+  private readonly affiliatePayout: AffiliatePayoutPort;
   private readonly payoutDestinations: MerchantPayoutDestinations;
 
   constructor(
@@ -607,6 +615,7 @@ export class PayService {
     this.now = options.now ?? (() => new Date());
     this.afterPaymentEvent = options.afterPaymentEvent;
     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
+    this.affiliatePayout = options.affiliatePayout ?? new NoopAffiliatePayout();
     this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
   }
 
@@ -2258,6 +2267,7 @@ export class PayService {
       { isolation: 'read committed', maxAttempts: 5 },
     );
     await this.notifyPayAffiliateAccrue(posted, merchant.userId);
+    await this.notifyPayAffiliatePayout(posted, merchant.userId);
     return posted;
   }
 
@@ -2266,6 +2276,20 @@ export class PayService {
     if (posted.status !== 'posted') return;
     await fireAffiliateAccrue(
       this.affiliateAccrue,
+      affiliateLegAfterPaySettlement({
+        settlementId: posted.id,
+        merchantUserId,
+        feeAmount: posted.fees,
+        feeAsset: posted.assetId,
+      }),
+    );
+  }
+
+  /** Best-effort payout after accrue; never throws. Settlement already committed. */
+  private async notifyPayAffiliatePayout(posted: SettlementRecord, merchantUserId: string): Promise<void> {
+    if (posted.status !== 'posted') return;
+    await fireAffiliatePayout(
+      this.affiliatePayout,
       affiliateLegAfterPaySettlement({
         settlementId: posted.id,
         merchantUserId,
