@@ -104,4 +104,71 @@ describe('holds on received funds: the svc-bank caller', () => {
     await expect(holds.place('h1')).rejects.toBeInstanceOf(LedgerError);
     expect(store.rows[0]!.state).toBe('pending');
   });
+
+  it('a release and a return racing on one hold: exactly one claims and posts, the other is refused before posting', async () => {
+    const { ledger, store, holds } = await setup();
+    await holds.place('h1');
+    const results = await Promise.allSettled([holds.release('h1'), holds.return('h1')]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason).toMatchObject({ code: 'bank.received_hold_state' });
+    const released = store.rows[0]!.state === 'released';
+    expect(['released', 'returned']).toContain(store.rows[0]!.state);
+    expect(await bal(ledger, payReceivedHoldAccount(RECIPIENT, A, 'h1'))).toBe('0');
+    expect(await bal(ledger, userAvailable(PAYER, A))).toBe(released ? '0' : '300');
+    expect(await bal(ledger, userAvailable(RECIPIENT, A))).toBe(released ? '1000' : '700');
+  });
+
+  it('a crash after the release post: the return is refused, and a release retry finishes without a second post', async () => {
+    const { ledger, store } = await setup();
+    await new ReceivedHoldService(ledger, store).place('h1');
+    // The ledger posts, then the process dies before the state write.
+    let crashed = false;
+    const crashing = {
+      ...ledger,
+      post: async (req: Parameters<LedgerClient['post']>[0]) => {
+        await ledger.post(req);
+        crashed = true;
+        throw new Error('process died after the post');
+      },
+    } as unknown as LedgerClient;
+    await expect(new ReceivedHoldService(crashing, store).release('h1')).rejects.toThrow('process died');
+    expect(crashed).toBe(true);
+    expect(store.rows[0]!.state).toBe('releasing');
+
+    const holds = new ReceivedHoldService(ledger, store);
+    await expect(holds.return('h1')).rejects.toMatchObject({ code: 'bank.received_hold_state' });
+    expect(await bal(ledger, userAvailable(PAYER, A))).toBe('0');
+    await holds.release('h1');
+    expect(store.rows[0]!.state).toBe('released');
+    expect(await bal(ledger, userAvailable(RECIPIENT, A))).toBe('1000');
+    expect(await bal(ledger, payReceivedHoldAccount(RECIPIENT, A, 'h1'))).toBe('0');
+  });
+
+  it('a lost state move is refused: a claim the store does not grant never posts', async () => {
+    const { ledger, store } = await setup();
+    await new ReceivedHoldService(ledger, store).place('h1');
+    let posts = 0;
+    const counting = {
+      ...ledger,
+      post: async (r: Parameters<LedgerClient['post']>[0]) => (posts++, ledger.post(r)),
+    } as unknown as LedgerClient;
+    const losing = { ...store, setState: async () => false };
+    const holds = new ReceivedHoldService(counting, losing);
+    await expect(holds.release('h1')).rejects.toMatchObject({ code: 'bank.received_hold_state' });
+    await expect(holds.return('h1')).rejects.toMatchObject({ code: 'bank.received_hold_state' });
+    expect(posts).toBe(0);
+  });
+
+  it('a settle write that is lost after the post is refused, not reported as done', async () => {
+    const { ledger, store } = await setup();
+    let calls = 0;
+    const flaky = {
+      ...store,
+      setState: async (id: string, from: ReceivedHoldRow['state'], to: ReceivedHoldRow['state']) =>
+        ++calls === 2 ? false : store.setState(id, from, to),
+    };
+    await expect(new ReceivedHoldService(ledger, flaky).place('h1')).rejects.toMatchObject({ code: 'bank.received_hold_state' });
+    expect(store.rows[0]!.state).toBe('placing');
+  });
 });

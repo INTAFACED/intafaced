@@ -21,7 +21,11 @@ import { BankError } from '../errors.js';
  * hold is shown as placed, released or returned when the ledger did not post.
  */
 
-export type ReceivedHoldState = 'pending' | 'held' | 'released' | 'returned';
+/**
+ * `placing`, `releasing` and `returning` are claims: the row moves into one with a conditional state write BEFORE the
+ * ledger post, so two callers can never both post an outcome. A retry may only finish the step already claimed.
+ */
+export type ReceivedHoldState = 'pending' | 'placing' | 'held' | 'releasing' | 'released' | 'returning' | 'returned';
 
 export interface ReceivedHoldRow {
   readonly holdId: string;
@@ -48,18 +52,23 @@ export class ReceivedHoldService {
   ) {}
 
   async place(holdId: string): Promise<LedgerTx> {
-    const row = await this.row(holdId);
-    if (row.state !== 'pending') throw new BankError('The hold is not waiting to be placed', 'bank.received_hold_state');
-    const tx = await this.post(
+    const row = await this.claim(holdId, 'pending', 'placing');
+    return this.finish(
+      row,
+      'pending',
+      'placing',
+      'held',
       recipes.payReceivedHold({ holdId: row.holdId, userId: row.recipientUserId, assetId: row.assetId, amount: row.amount }),
     );
-    await this.store.setState(row.holdId, 'pending', 'held');
-    return tx;
   }
 
   async release(holdId: string): Promise<LedgerTx> {
-    const row = await this.held(holdId);
-    const tx = await this.post(
+    const row = await this.claim(holdId, 'held', 'releasing');
+    return this.finish(
+      row,
+      'held',
+      'releasing',
+      'released',
       recipes.payReceivedRelease({
         holdId: row.holdId,
         userId: row.recipientUserId,
@@ -68,13 +77,15 @@ export class ReceivedHoldService {
         heldAmount: row.amount,
       }),
     );
-    await this.store.setState(row.holdId, 'held', 'released');
-    return tx;
   }
 
   async return(holdId: string): Promise<LedgerTx> {
-    const row = await this.held(holdId);
-    const tx = await this.post(
+    const row = await this.claim(holdId, 'held', 'returning');
+    return this.finish(
+      row,
+      'held',
+      'returning',
+      'returned',
       recipes.payReceivedReturn({
         holdId: row.holdId,
         userId: row.recipientUserId,
@@ -84,7 +95,49 @@ export class ReceivedHoldService {
         heldAmount: row.amount,
       }),
     );
-    await this.store.setState(row.holdId, 'held', 'returned');
+  }
+
+  /**
+   * Claim the step before any post. From `from`, the conditional move to `claimed` must win; a lost move (another
+   * caller claimed first) refuses. A row already in `claimed` is a retry of this same step and may finish it; any
+   * other state (including the other outcome's claim) refuses.
+   */
+  private async claim(holdId: string, from: ReceivedHoldState, claimed: ReceivedHoldState): Promise<ReceivedHoldRow> {
+    const row = await this.row(holdId);
+    if (row.state === claimed) return row;
+    if (row.state !== from || !(await this.store.setState(row.holdId, from, claimed))) {
+      throw new BankError(
+        'The hold already has its outcome, another one is in progress, or it was never placed',
+        'bank.received_hold_state',
+      );
+    }
+    return { ...row, state: claimed };
+  }
+
+  /**
+   * Post under the claim, then settle it. A typed ledger refusal means nothing posted, so the claim is handed back
+   * (`claimed` -> `from`). Any other failure leaves the claim: the outcome is unknown and only this step may retry,
+   * under the same recipe key, which the ledger collapses.
+   */
+  private async finish(
+    row: ReceivedHoldRow,
+    from: ReceivedHoldState,
+    claimed: ReceivedHoldState,
+    done: ReceivedHoldState,
+    request: Parameters<LedgerClient['post']>[0],
+  ): Promise<LedgerTx> {
+    let tx: LedgerTx;
+    try {
+      tx = await this.post(request);
+    } catch (err) {
+      if (err instanceof LedgerError || (err instanceof BankError && err.code === 'bank.received_hold_not_granted')) {
+        await this.store.setState(row.holdId, claimed, from);
+      }
+      throw err;
+    }
+    if (!(await this.store.setState(row.holdId, claimed, done))) {
+      throw new BankError('The hold moved while its step was posting', 'bank.received_hold_state');
+    }
     return tx;
   }
 
@@ -92,12 +145,6 @@ export class ReceivedHoldService {
     if (typeof holdId !== 'string' || holdId.trim() === '') throw new BankError('A hold id is required', 'bank.received_hold_not_found');
     const row = await this.store.get(holdId.trim());
     if (!row) throw new BankError('No such hold', 'bank.received_hold_not_found');
-    return row;
-  }
-
-  private async held(holdId: string): Promise<ReceivedHoldRow> {
-    const row = await this.row(holdId);
-    if (row.state !== 'held') throw new BankError('The hold already has its outcome or was never placed', 'bank.received_hold_state');
     return row;
   }
 
