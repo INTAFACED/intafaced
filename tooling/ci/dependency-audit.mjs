@@ -83,6 +83,12 @@ const KNOWN = {
     module: '@vitest/mocker',
     note: 'vitest > @vitest/mocker. Test/dev-server tooling; never runs in a service. Patch is vitest 4.1.11.',
   },
+  // Owner approved 2026-10-22: known until vitest is upgraded.
+  'GHSA-qxg6-89mg-rqv8': {
+    severity: 'moderate',
+    module: '@vitest/mocker',
+    note: 'vitest > @vitest/mocker. Test/dev-server tooling; never runs in a service. Patch is vitest 4.1.12.',
+  },
   'GHSA-2883-xcg3-v3hh': {
     severity: 'high',
     module: 'js-yaml',
