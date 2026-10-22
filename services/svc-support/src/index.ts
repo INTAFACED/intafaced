@@ -12,6 +12,7 @@ import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { eventRatingRequestSink, RatingRequestOutbox, SqlRatingRequestBook } from './rating-request.js';
+import { eventRequestEventSink, RequestEventOutbox, SqlRequestEventBook } from './request-events.js';
 import { SqlStaffBook } from './desk-staff.js';
 import { UNCONFIGURED_ATTACHMENTS } from './attachments.js';
 import { openLocalTestAttachments } from './local-test-attachments.js';
@@ -86,9 +87,14 @@ await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.event_outbox LIMIT 1`.catch(() => {
+  throw new Error('support.event_outbox is missing — apply migration 0028 before starting svc-support');
+});
+
 /**
  * `ownedStreams: ['support']` — this process creates `INTAFACED_SUPPORT`. The one subject
- * on it says a request was resolved, so svc-notify can ask the customer to rate it. The bus
+ * on it says a request was resolved, so svc-notify can ask the customer to rate it.
+ * SP-email-01 adds opened, status-changed and new-message subjects from support.event_outbox. The bus
  * is connected on first need and again on each sweep until it answers: a bus that cannot be
  * reached leaves the asks pending in `support.rating_requests`, the desk still serves, and
  * they go out once it is back, with no restart.
@@ -117,6 +123,11 @@ const attachmentSettings = new SqlAttachmentSettingsBook(sql);
 const ratingRequests = new RatingRequestOutbox(new SqlRatingRequestBook(sql), async () => {
   const connected = await connectBus();
   return connected ? eventRatingRequestSink(connected) : null;
+});
+// Request notifications (SP-email-01): rows are written by triggers with the ticket or message; this only publishes them.
+const requestEvents = new RequestEventOutbox(new SqlRequestEventBook(sql), async () => {
+  const connected = await connectBus();
+  return connected ? eventRequestEventSink(connected) : null;
 });
 
 const store = new PostgresSupportStore(sql);
@@ -171,7 +182,10 @@ await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 app.log.info({ port: env.HTTP_PORT }, 'svc-support ready');
 
 // Publish asks a crash or a bus outage left pending: once now, then each minute.
-const sweep = (): void => void ratingRequests.flush().catch((err: unknown) => app.log.warn({ err }, 'rating request sweep failed'));
+const sweep = (): void => {
+  void ratingRequests.flush().catch((err: unknown) => app.log.warn({ err }, 'rating request sweep failed'));
+  void requestEvents.flush().catch((err: unknown) => app.log.warn({ err }, 'request event sweep failed'));
+};
 sweep();
 const sweepTimer = setInterval(sweep, 60_000);
 sweepTimer.unref();

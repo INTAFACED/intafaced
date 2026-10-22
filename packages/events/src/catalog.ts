@@ -370,6 +370,65 @@ export const supportTicketResolved = defineEvent(
   'A support request was resolved. The owner can now rate it; svc-notify turns this into the rating request.',
 );
 
+/** Request statuses as svc-support stores them (support.tickets tickets_status_ck). */
+const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
+
+/**
+ * A support request was opened (SP-email-01). Written to svc-support's outbox in the same
+ * transaction as the ticket row; the business key is the ticket (`support.ticket.opened:<ticketId>`).
+ * Carries no request text: the consumer reads what it may show through contracts.
+ */
+export const supportTicketOpened = defineEvent(
+  'support',
+  'ticket',
+  'opened',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    /** The person who raised the request. */
+    userId: userIdSchema,
+    openedAt: z.string().datetime({ offset: true }),
+  }),
+  'A support request was opened. Published by svc-support from its outbox for request notifications (SP-email-01).',
+);
+
+/**
+ * A support request changed status (SP-email-01). One per status change, keyed
+ * `support.ticket.updated:<ticketId>:<eventRowId>`. Carries no note text.
+ */
+export const supportTicketUpdated = defineEvent(
+  'support',
+  'ticket',
+  'updated',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    userId: userIdSchema,
+    status: supportTicketStatusSchema,
+    updatedAt: z.string().datetime({ offset: true }),
+  }),
+  'A support request changed status. Published by svc-support from its outbox for request notifications (SP-email-01).',
+);
+
+/**
+ * A message was added to a support request (SP-email-01). Keyed by the message id.
+ * `userId` is the request owner; `authorRole` says who wrote it. Carries no message text.
+ */
+export const supportMessageCreated = defineEvent(
+  'support',
+  'message',
+  'created',
+  1,
+  z.object({
+    ticketId: z.string().uuid(),
+    messageId: z.string().uuid(),
+    userId: userIdSchema,
+    authorRole: z.enum(['user', 'operator']),
+    createdAt: z.string().datetime({ offset: true }),
+  }),
+  'A message was added to a support request. Published by svc-support from its outbox for request notifications (SP-email-01).',
+);
+
 // ── blueprint (§7.1) ─────────────────────────────────────────────────────────
 //
 // Doctrine §0.7 governs these payloads as much as any UI string: nothing here
@@ -1251,6 +1310,9 @@ export const EVENT_CATALOG = {
   buybackExecuted,
   bankMarginCalled,
   supportTicketResolved,
+  supportTicketOpened,
+  supportTicketUpdated,
+  supportMessageCreated,
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
@@ -1380,6 +1442,27 @@ export interface WiringSocket {
 }
 
 export const WIRING_SOCKETS = [
+  {
+    event: 'supportTicketOpened',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Declared by the SP-email-01 events and svc-support publisher PR. The svc-notify consumer (template and rule table, email held pending until a sender is configured) is the next PR. The outbox row in support.event_outbox is the durable record; no user is promised an email yet.',
+  },
+  {
+    event: 'supportTicketUpdated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Declared by the SP-email-01 events and svc-support publisher PR. The svc-notify consumer (template and rule table, email held pending until a sender is configured) is the next PR. The outbox row in support.event_outbox is the durable record; no user is promised an email yet.',
+  },
+  {
+    event: 'supportMessageCreated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Declared by the SP-email-01 events and svc-support publisher PR. The svc-notify consumer (template and rule table, email held pending until a sender is configured) is the next PR. The outbox row in support.event_outbox is the durable record; no user is promised an email yet.',
+  },
   {
     event: 'kycSubmitted',
     missing: 'publisher',

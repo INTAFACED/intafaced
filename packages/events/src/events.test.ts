@@ -1311,6 +1311,9 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       userId: uid(),
       resolvedAt: ts(),
     },
+    supportTicketOpened: { ticketId: uid(), userId: uid(), openedAt: ts() },
+    supportTicketUpdated: { ticketId: uid(), userId: uid(), status: 'pending', updatedAt: ts() },
+    supportMessageCreated: { ticketId: uid(), messageId: uid(), userId: uid(), authorRole: 'operator', createdAt: ts() },
     projectionUpdated: {
       marketId: 'IFC-USD',
       sequence: 1,
