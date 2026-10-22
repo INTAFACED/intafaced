@@ -1,4 +1,4 @@
-import { MODULE_IDS, type ModuleId } from '@intafaced/config';
+import type { ModuleId } from '@intafaced/config';
 import { formatDuration } from '@/lib/ops-desk/model';
 import { readSpecFor } from '@/lib/ops-desk/catalog';
 import type { OpsDeskId, ReadData, ReadOutcome, ReadSpec } from '@/lib/ops-desk/types';
@@ -74,30 +74,26 @@ export type HealthRow =
 
 // ─── Reading figures out of a read ─────────────────────────────────────────────────────────────────────────────────
 
-/** A whole count from a record cell: an int, or a decimal string of digits (some services send counts as text). */
-function count(data: ReadData, key: string): bigint | null {
-  if (data.shape !== 'record') return null;
-  const value = data.cells.find((c) => c.key === key)?.value;
+/** A whole count: an int, or a decimal string of digits (some services send counts as text). Anything else is unknown. */
+function parseCount(value: unknown): bigint | null {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
   if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
   return null;
 }
 
-/** Sum of known counts; null when none is known. */
-function sum(values: readonly (bigint | null)[]): bigint | null {
-  const known = values.filter((v): v is bigint => v !== null);
-  return known.length === 0 ? null : known.reduce((a, b) => a + b, 0n);
+function count(data: ReadData, key: string): bigint | null {
+  return data.shape === 'record' ? parseCount(data.cells.find((c) => c.key === key)?.value) : null;
 }
 
+/** Sum of counts, or null if ANY is unknown: a total with a part missing is not given, never shown as complete. */
+function sum(values: readonly (bigint | null)[]): bigint | null {
+  return values.some((v) => v === null) ? null : (values as bigint[]).reduce((a, b) => a + b, 0n);
+}
+
+/** Sum of one column over a list's rows (an empty list is a real zero); null if any row's value is unknown. */
 function listSum(data: ReadData, key: string): { total: bigint | null; pageFull: boolean } {
   if (data.shape !== 'list') return { total: null, pageFull: false };
-  const values = data.rows.map((row) => {
-    const value = row.cells.find((c) => c.key === key)?.value;
-    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
-    if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
-    return null;
-  });
-  return { total: data.rows.length === 0 ? 0n : sum(values), pageFull: data.pageFull };
+  return { total: sum(data.rows.map((row) => parseCount(row.cells.find((c) => c.key === key)?.value))), pageFull: data.pageFull };
 }
 
 const fig = (value: bigint | null, note: string, missing: string): Figure =>
@@ -196,6 +192,7 @@ export const HEALTH_ROWS: readonly HealthRowSpec[] = [
           count(read('pay.oneoff-24h'), 'oneOff.oldestPendingAgeSeconds'),
           count(read('pay.bills-24h'), 'bills.oldestPendingAgeSeconds'),
         ].filter((v): v is bigint => v !== null);
+        // svc-bank gives a null age when nothing created in the window is still pending, so a null is "none", not "unknown".
         if (ages.length === 0) return notGiven('nothing created in the last 24 hours is still pending');
         const oldest = ages.reduce((a, b) => (a > b ? a : b));
         return { value: formatDuration(Number(oldest)), note: 'oldest transfer still pending, of those created in the last 24 hours' };
@@ -247,8 +244,12 @@ export const HEALTH_ROWS: readonly HealthRowSpec[] = [
         return fig(total, 'shares submitted, every window', 'svc-mining-pool gave no share counts');
       },
       failures: (read) =>
-        fig(listSum(read('mining.shares'), 'rejectedCount').total, 'shares refused, every window', 'svc-mining-pool gave no refused count'),
-      oldest: () => notGiven('nothing waits in a queue: no window is paid until emission is published'),
+        fig(
+          listSum(read('mining.shares'), 'rejectedCount').total,
+          'shares refused, every window, where the miner could be identified (others are not counted)',
+          'svc-mining-pool gave no refused count',
+        ),
+      oldest: () => notGiven('svc-mining-pool gives no age for a waiting item; its payout windows are on the Mining desk'),
     },
   },
   unwired('agents', 'Agents', { href: '/more-ops', label: 'More modules' }),
@@ -321,6 +322,3 @@ export function buildBoard(outcomes: Readonly<Record<string, ReadOutcome>>, rows
     };
   });
 }
-
-/** Every platform module has a row (checked by the test), in the platform's own order. */
-export const BOARD_MODULES: readonly ModuleId[] = MODULE_IDS;

@@ -87,6 +87,23 @@ describe('module health board', () => {
     if (row.state === 'read') expect(row.oldest.note).toContain('3 open now, 1 overdue');
   });
 
+  it('a total with a part the service did not give is "not given", never a partial number shown as complete', () => {
+    const counts = { ...P2P_COUNTS, trades: { ...P2P_COUNTS.trades, fiat_sent: 'n/a' } };
+    const data = readData(specOf('p2p.counts'), counts);
+    // The read itself refuses a wrong-typed count, so the whole row refuses rather than sum five of six.
+    expect(data).toBeNull();
+    const outcomes = Object.fromEntries(
+      ['pay.standing-24h', 'pay.oneoff-24h', 'pay.bills-24h'].map((id) => [
+        id,
+        id === 'pay.oneoff-24h'
+          ? { ...ok(id, transfer()), part: { kind: 'ok' as const, data: { shape: 'record' as const, cells: [] } } }
+          : ok(id, transfer()),
+      ]),
+    );
+    const row = buildBoard(outcomes).find((r) => r.module === 'bank')!;
+    expect(row).toMatchObject({ state: 'read', volume: { value: null }, failures: { value: '4' } });
+  });
+
   it('a read that was not made refuses the row rather than show a guess', () => {
     expect(buildBoard({}).find((r) => r.module === 'mining-pool')).toMatchObject({ state: 'refused' });
   });

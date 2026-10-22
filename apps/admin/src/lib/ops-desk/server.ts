@@ -118,7 +118,6 @@ export async function loadPage(ctx: FounderCallContext, deskId: OpsDeskId, readI
   return loadRead(ctx, { ...spec, input: { ...spec.input, cursor } });
 }
 
-/** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
 /** Any set of reads, in parallel, one call per distinct procedure and input; keyed by read id. */
 export async function loadReads(
   ctx: FounderCallContext,
@@ -134,6 +133,7 @@ export async function loadReads(
   return Object.fromEntries(outcomes.map((o) => [o.id, o]));
 }
 
+/** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
 export async function loadDesk(
   ctx: FounderCallContext,
   deskId: OpsDeskId,
