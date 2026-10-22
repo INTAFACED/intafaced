@@ -163,18 +163,26 @@ export function assertPermission(caller: MerchantCaller, permission: MerchantPer
  * Resolve the calling principal to its merchant and role: the merchant it owns,
  * else the one team it is an ACTIVE member of. A principal that is neither is
  * refused as `pay.merchant_ops_not_merchant`; it learns nothing about any merchant.
+ * A member of a merchant whose owner turned on require-MFA, calling from a
+ * session without a second step, is refused `pay.merchant_mfa_required`.
  */
 export async function resolveMerchantCaller(sql: Sql, principal: CallerPrincipal): Promise<MerchantCaller> {
   const viaApiKey = principal.kid !== undefined;
   const interactive = isInteractivePrincipal(principal);
   const owned = await sql<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE user_id = ${principal.userId} LIMIT 1`;
   if (owned[0]) return { merchantId: owned[0].id, userId: principal.userId, role: 'owner', viaApiKey, interactive };
-  const member = await sql<Array<{ merchant_id: string; role: TeamRole }>>`
-    SELECT m.merchant_id, m.role
+  const member = await sql<Array<{ merchant_id: string; role: TeamRole; require_mfa: boolean }>>`
+    SELECT m.merchant_id, m.role, mc.require_mfa
       FROM pay.merchant_team_members m
+      JOIN pay.merchants mc ON mc.id = m.merchant_id
      WHERE m.user_id = ${principal.userId} AND m.status = 'active'
      LIMIT 1`;
   if (!member[0]) throw new MerchantOpsError('pay.merchant_ops_not_merchant', 'forbidden');
+  // Team-wide two-step rule (M-plat-org-06): a member's session must have passed MFA.
+  // API keys keep their own step-up, so the rule reads interactive sessions only.
+  if (member[0].require_mfa && !viaApiKey && principal.mfa !== true) {
+    throw new MerchantOpsError('pay.merchant_mfa_required', 'forbidden');
+  }
   return { merchantId: member[0].merchant_id, userId: principal.userId, role: member[0].role, viaApiKey, interactive };
 }
 
