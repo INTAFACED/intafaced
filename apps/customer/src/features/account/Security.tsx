@@ -14,6 +14,7 @@ import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { securityCopy as copy } from './security-copy';
+import { refusalCopy } from '../../data/refusals';
 import {
   credentialId,
   familyBlocked,
@@ -469,6 +470,7 @@ export function Security() {
   const kindLabel = (kind: SecurityKind) =>
     kind === 'remove' ? 'removeKind' : kind === 'confirm' ? 'confirmKind' : kind === 'logout' ? 'logoutKind' : kind;
   const currentResponse = response && sameActor(response.original) ? response : null;
+  const secondFactor = refusalCopy('auth.mfa_required');
   const sessionBlocked = familyBlocked(journal, 'sessions');
   const uncertainty = journal.records.filter((row) => row.state === 'sent');
   return (
@@ -736,7 +738,23 @@ export function Security() {
             )
           ) : (
             <div lang="und">
-              <Failure result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer} />
+              {currentResponse.answer.code === 'auth.mfa_required' &&
+              currentResponse.record &&
+              isPreEffectRefusal(currentResponse.record.kind, currentResponse.answer) ? (
+                // The factor gate refused before any change: this session has not passed a second factor. A sign-in
+                // with the code or a passkey gives one, and comes back here.
+                <div className="failure" role="status">
+                  <h3>{secondFactor.title}</h3>
+                  <p>{secondFactor.body}</p>
+                  <a className="text-link" href={`${secondFactor.action?.href ?? '/login'}?redirect=${encodeURIComponent('/uc/safe')}`}>
+                    {secondFactor.action?.label}
+                  </a>
+                </div>
+              ) : (
+                <Failure
+                  result={currentResponse.unconfirmed ? { ...currentResponse.answer, reason: 'uncertain' } : currentResponse.answer}
+                />
+              )}
               {currentResponse.answer.code && (
                 <p className="security__ref" lang="zxx">
                   {currentResponse.answer.code}
