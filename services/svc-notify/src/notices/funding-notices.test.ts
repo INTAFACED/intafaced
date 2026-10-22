@@ -168,6 +168,25 @@ describe('funding incident notices (W-compliance-notices-01)', () => {
     ).toBe('notify.notice_incident_fields_invalid');
   });
 
+  it('publishes a scoped incident only on a second operator: the author alone is refused and nothing shows', async () => {
+    class SameOperator implements NoticeApprovalConsumer {
+      async consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> {
+        return { ...(await new Approvals().consume(input)), approverId: AUTHOR };
+      }
+    }
+    const board = new NoticeBoard(
+      new MemoryNoticeStore(),
+      new SameOperator(),
+      new MemoryCommandLog(),
+      () => new Date('2026-10-22T03:00:00.000Z'),
+    );
+    const draft = await board.draft(AUTHOR, incident('so-1', { ...usdtEth, phase: 'investigating' }));
+    expect(await refusal(board.publish(AUTHOR, { id: draft.id, clientRequestId: 'so-p', approvalId: 'so-a', operationId: 'so-o' }))).toBe(
+      'notify.notice_publish_same_operator',
+    );
+    expect((await board.fundingNotices(usdtEth)).incidents).toEqual([]);
+  });
+
   it('refuses a malformed scope on the read', async () => {
     const h = harness('2026-10-22T03:00:00.000Z');
     expect(await refusal(h.board.fundingNotices({ asset: '', network: 'ethereum' }))).toBe('notify.notice_scope_invalid');

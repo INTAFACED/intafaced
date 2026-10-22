@@ -485,7 +485,12 @@ export class NoticeBoard {
       .filter(onScope)
       .map((root) => {
         const entries = published.filter((row) => row.id === root.id || row.parentId === root.id);
-        const latest = entries.reduce((a, b) => (b.publishedAt!.getTime() > a.publishedAt!.getTime() ? b : a));
+        // Newest by publish time; ties broken by creation time, then id, so the read is deterministic.
+        const later = (x: NoticeRow, y: NoticeRow) =>
+          x.publishedAt!.getTime() - y.publishedAt!.getTime() ||
+          x.createdAt.getTime() - y.createdAt.getTime() ||
+          (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+        const latest = entries.reduce((a, b) => (later(b, a) > 0 ? b : a));
         return { root: toNoticeWire(root), latest: toNoticeWire(latest) };
       });
     const maintenance = published.filter((row) => row.kind === 'maintenance' && onScope(row) && noticeIsOpen(row, at)).map(toNoticeWire);
