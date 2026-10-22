@@ -294,7 +294,15 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
   it('a missing approval book refuses even when an approval id is sent', async () => {
     const published: FundingRateEntry[] = [];
     const app = appWith(published, [], null);
-    const res = await post(app, { marketId: 'm1', rate: '0.0001', periodId: 'm1:p0', approvalId: 'apr-1' });
+    const res = await post(app, {
+      marketId: 'm1',
+      rate: '0.0001',
+      periodId: 'm1:p0',
+      approvals: [
+        { approvalId: 'apr-1', operationId: 'apr-1' },
+        { approvalId: 'apr-2', operationId: 'apr-2' },
+      ],
+    });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
     await app.close();
@@ -314,7 +322,22 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       requesterId: 'same-person',
       approverId: 'same-person',
     });
-    const res = await post(app, { ...body, approvalId: 'apr-self' });
+    bind(book, {
+      approvalId: 'apr-good',
+      marketId: 'm1',
+      periodId: 'm1:p0',
+      rate: '0.0001',
+      markPrice: '50000',
+      requesterId: 'requester-1',
+      approverId: 'approver-3',
+    });
+    const res = await post(app, {
+      ...body,
+      approvals: [
+        { approvalId: 'apr-good', operationId: 'apr-good' },
+        { approvalId: 'apr-self', operationId: 'apr-self' },
+      ],
+    });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
     await app.close();
@@ -333,12 +356,24 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       requesterId: 'requester-1',
       approverId: 'approver-2',
     });
+    bind(book, {
+      approvalId: 'apr-good',
+      marketId: 'm1',
+      periodId: 'm1:p0',
+      rate: '0.0001',
+      markPrice: '50000',
+      requesterId: 'requester-1',
+      approverId: 'approver-3',
+    });
     const res = await post(app, {
       marketId: 'm1',
       rate: '0.0001',
       periodId: 'm1:p0',
       markPrice: '50000',
-      approvalId: 'apr-other-rate',
+      approvals: [
+        { approvalId: 'apr-good', operationId: 'apr-good' },
+        { approvalId: 'apr-other-rate', operationId: 'apr-other-rate' },
+      ],
     });
     expect(res.statusCode).toBe(403);
     expect(published).toEqual([]);
@@ -360,13 +395,34 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       requesterId: 'requester-1',
       approverId: 'approver-2',
     });
-    const stored = await post(app, { ...body, approvalId: 'apr-ok' });
+    bind(book, {
+      approvalId: 'apr-ok-2',
+      marketId: 'm1',
+      periodId: 'm1:p1',
+      rate: '0.0001',
+      markPrice: '50000',
+      requesterId: 'requester-1',
+      approverId: 'approver-3',
+    });
+    const stored = await post(app, {
+      ...body,
+      approvals: [
+        { approvalId: 'apr-ok', operationId: 'apr-ok' },
+        { approvalId: 'apr-ok-2', operationId: 'apr-ok-2' },
+      ],
+    });
     expect(stored.statusCode).toBe(200);
-    expect(stored.json().approverId).toBe('approver-2');
+    expect(stored.json().approverIds).toEqual(['approver-2', 'approver-3']);
     expect(published).toHaveLength(1);
     expect(history).toEqual([expect.objectContaining({ markPrice: '50000', fundingRate: '0.0001', periodId: 'm1:p1' })]);
 
-    const replay = await post(app, { ...body, approvalId: 'apr-ok' });
+    const replay = await post(app, {
+      ...body,
+      approvals: [
+        { approvalId: 'apr-ok', operationId: 'apr-ok' },
+        { approvalId: 'apr-ok-2', operationId: 'apr-ok-2' },
+      ],
+    });
     expect(replay.statusCode).toBe(200);
     expect(replay.json().duplicate).toBe(true);
     expect(published).toHaveLength(1);
@@ -377,7 +433,10 @@ describe('MKT-0128 funding publish consumes a four-eyes approval', () => {
       rate: '0.0001',
       periodId: 'm1:p2',
       markPrice: '50000',
-      approvalId: 'apr-ok',
+      approvals: [
+        { approvalId: 'apr-ok', operationId: 'apr-ok' },
+        { approvalId: 'apr-ok-2', operationId: 'apr-ok-2' },
+      ],
     });
     expect(reused.statusCode).toBe(403);
     expect(published).toHaveLength(1);

@@ -5,6 +5,7 @@ import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
 import { parseDisplayCurrencyList } from './preferences/account-display.js';
+import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
@@ -258,6 +259,21 @@ const schema = serviceEnvSchema
        * nothing is listed: an account can only keep "no choice" (USD is shown) and the
        * display page says the list is not set. Malformed → fail boot.
        */
+      /**
+       * W-balances-04. Owner-published membership tiers (JSON list of { id, name, price, assetId,
+       * periodDays, perks }). Blank / unset → "Membership is not offered". Never defaulted.
+       */
+      IDENTITY_MEMBERSHIP_TIERS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseMembershipTiers(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
       /**
        * W-security-accounts-03. Owner-set wait, in seconds, from a self-freeze to when the owner may lift it.
        * Blank / unset → the lift refuses (`identity.self_freeze_lift_wait_unset`). Zero is a published "no wait".
