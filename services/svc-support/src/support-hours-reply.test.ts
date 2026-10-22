@@ -60,7 +60,7 @@ describe('out-of-hours reply', () => {
     expect(comments).toHaveLength(1);
     expect(comments[0]).toMatchObject({ authorId: OUT_OF_HOURS_AUTHOR, authorRole: 'operator', body: 'We are closed.' });
     expect(supportCommentSchema.safeParse(comments[0]).success).toBe(true);
-    expect(await replies.claim(t.id, new Date().toISOString())).toBe(false);
+    expect(await replies.claim(t.id)).toBe(false);
   });
 
   it('nothing is sent while open, with blank text, or with blank hours', async () => {
