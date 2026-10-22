@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   -- deposit exists and is credited before it writes the intent.
   "deposit_id" uuid NOT NULL,
   "tier" text NOT NULL,
+  -- Intent number for this deposit. A definite failure (or a cancel) is final for its intent and key; sweeping again
+  -- writes intent n+1 under its own business key `sweep:<deposit_id>:<tier>:<n>` (intent 1 keeps `sweep:<deposit_id>:<tier>`).
+  "intent_no" integer NOT NULL DEFAULT 1,
   "network_id" text NOT NULL,
   "asset_id" text NOT NULL,
   "from_address" text NOT NULL,
@@ -52,11 +55,17 @@ CREATE TABLE IF NOT EXISTS "pay"."custody_sweeps" (
   "last_executed_by" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT "custody_sweeps_key_ck" CHECK ("idempotency_key" = 'sweep:' || "deposit_id"::text || ':' || "tier"),
+  CONSTRAINT "custody_sweeps_key_ck" CHECK ("idempotency_key" = 'sweep:' || "deposit_id"::text || ':' || "tier"
+    || CASE WHEN "intent_no" = 1 THEN '' ELSE ':' || "intent_no"::text END),
+  CONSTRAINT "custody_sweeps_intent_ck" CHECK ("intent_no" >= 1),
   CONSTRAINT "custody_sweeps_tier_ck" CHECK ("tier" IN ('treasury')),
-  CONSTRAINT "custody_sweeps_status_ck" CHECK ("status" IN ('pending', 'broadcasting', 'unknown', 'failed', 'broadcast')),
+  CONSTRAINT "custody_sweeps_status_ck" CHECK ("status" IN ('pending', 'broadcasting', 'unknown', 'failed', 'canceled', 'broadcast')),
   CONSTRAINT "custody_sweeps_tx_ck" CHECK (("status" = 'broadcast') = ("tx_hash" IS NOT NULL)),
   CONSTRAINT "custody_sweeps_amount_ck" CHECK ("amount" > 0)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "custody_sweeps_key_uq" ON "pay"."custody_sweeps" ("idempotency_key");
+CREATE UNIQUE INDEX IF NOT EXISTS "custody_sweeps_intent_uq" ON "pay"."custody_sweeps" ("deposit_id", "tier", "intent_no");
+-- At most one live intent per deposit and tier: a new intent is written only after the last one is failed or canceled.
+CREATE UNIQUE INDEX IF NOT EXISTS "custody_sweeps_live_uq" ON "pay"."custody_sweeps" ("deposit_id", "tier")
+  WHERE "status" NOT IN ('failed', 'canceled');
 CREATE INDEX IF NOT EXISTS "custody_sweeps_pair_idx" ON "pay"."custody_sweeps" ("network_id", "asset_id", "created_at" DESC);

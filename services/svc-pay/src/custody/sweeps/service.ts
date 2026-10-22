@@ -20,10 +20,18 @@ import type { SweepDueView, SweepPolicySetInput, SweepPolicyView, SweepView } fr
  * refuses every sweep and every due check. Each trigger needs its own figure (amount, count, minutes) and
  * nothing is defaulted.
  *
- * SAGA. `create` writes the intent row under the business key `sweep:<depositId>:treasury` before the rail is asked;
- * a second create returns the same row. `execute` asks the broadcaster with that same key every time. A definite
- * failure is `failed` and may be retried; a broadcaster that throws leaves the row `unknown` (never voided here), and the
- * retry asks again with the original key, which the rail must answer with its first outcome. `broadcast` is final here.
+ * SAGA. `create` writes the intent row under a business key before the rail is asked: `sweep:<depositId>:treasury`
+ * for intent 1, `sweep:<depositId>:treasury:<n>` for intent n. While an intent is live, a second create returns it.
+ * `execute` asks the broadcaster with that intent's key. The rail answers a key with its first outcome, so:
+ * - a definite failure is FINAL for that intent and key (`failed`); sweeping again is a new `create`, which writes intent
+ *   n+1 under its own key and the current treasury address;
+ * - a broadcaster that throws leaves the row `unknown` (never voided here), and the retry asks again with the original
+ *   key and address, so the rail can return the first outcome;
+ * - `broadcast` is final.
+ * At claim time the deposit must still be `credited` and, for an intent not yet sent (`pending`), the current policy's
+ * treasury address must still be the row's. Otherwise the pending intent is `canceled` and the call refuses
+ * (`custody_sweep.deposit_not_credited` / `custody_sweep.policy_changed`); an `unknown` intent whose deposit is no
+ * longer credited refuses and is left for the operator.
  * Without a broadcaster in this process, `execute` refuses `rail.crypto` and the row stays as it was.
  */
 export type SweepBroadcastResult =
@@ -53,7 +61,8 @@ export interface SweepPolicyFields {
   readonly treasuryAddress: string;
   readonly reason: string;
 }
-export const sweepKey = (depositId: string) => `sweep:${depositId}:${TIER}`;
+export const sweepKey = (depositId: string, intentNo = 1) =>
+  intentNo === 1 ? `sweep:${depositId}:${TIER}` : `sweep:${depositId}:${TIER}:${intentNo}`;
 
 interface PolicyRow {
   network_id: string;
@@ -82,6 +91,7 @@ interface SweepRow {
   amount: string;
   status: SweepView['status'];
   tx_hash: string | null;
+  intent_no: number;
   attempts: number;
   last_error: string | null;
   created_by: string;
@@ -117,6 +127,7 @@ const sweepView = (r: SweepRow): SweepView => ({
   amount: decimal(r.amount),
   status: r.status,
   txHash: r.tx_hash,
+  intentNo: r.intent_no,
   attempts: r.attempts,
   lastError: r.last_error,
   createdBy: r.created_by,
@@ -300,8 +311,9 @@ export class CustodySweepService {
     >`
       SELECT id, network_id, asset_id, address, amount, status FROM pay.custody_deposits WHERE id = ${depositId}`;
     if (!dep) throw new CustodySweepError('custody_sweep.deposit_not_found', `no deposit ${depositId}`);
-    const existing = await this.byKey(sweepKey(dep.id));
-    if (existing) return sweepView(existing);
+    const [latest] = await this.deps.sql<SweepRow[]>`
+      SELECT * FROM pay.custody_sweeps WHERE deposit_id = ${dep.id} AND tier = ${TIER} ORDER BY intent_no DESC LIMIT 1`;
+    if (latest && latest.status !== 'failed' && latest.status !== 'canceled') return sweepView(latest);
     if (dep.status !== 'credited') {
       throw new CustodySweepError(
         'custody_sweep.deposit_not_credited',
@@ -309,12 +321,17 @@ export class CustodySweepService {
       );
     }
     const policy = await this.policy(dep.network_id, dep.asset_id);
+    const intentNo = latest ? latest.intent_no + 1 : 1;
+    // Two concurrent creates: the live-intent unique index lets one insert win; the other reads it back.
     await this.deps.sql`
-      INSERT INTO pay.custody_sweeps (idempotency_key, deposit_id, tier, network_id, asset_id, from_address, to_address, amount, created_by)
-      VALUES (${sweepKey(dep.id)}, ${dep.id}, ${TIER}, ${dep.network_id}, ${dep.asset_id}, ${dep.address}, ${policy.treasury_address},
-              ${dep.amount}, ${actor})
-      ON CONFLICT (idempotency_key) DO NOTHING`;
-    return sweepView((await this.byKey(sweepKey(dep.id)))!);
+      INSERT INTO pay.custody_sweeps
+        (idempotency_key, deposit_id, tier, intent_no, network_id, asset_id, from_address, to_address, amount, created_by)
+      VALUES (${sweepKey(dep.id, intentNo)}, ${dep.id}, ${TIER}, ${intentNo}, ${dep.network_id}, ${dep.asset_id}, ${dep.address},
+              ${policy.treasury_address}, ${dep.amount}, ${actor})
+      ON CONFLICT DO NOTHING`;
+    const [now] = await this.deps.sql<SweepRow[]>`
+      SELECT * FROM pay.custody_sweeps WHERE deposit_id = ${dep.id} AND tier = ${TIER} ORDER BY intent_no DESC LIMIT 1`;
+    return sweepView(now!);
   }
 
   async list(input: { networkId?: string; assetId?: string; limit: number }): Promise<SweepView[]> {
@@ -331,6 +348,12 @@ export class CustodySweepService {
     const [row] = await this.deps.sql<SweepRow[]>`SELECT * FROM pay.custody_sweeps WHERE id = ${sweepId}`;
     if (!row) throw new CustodySweepError('custody_sweep.sweep_not_found', `no sweep ${sweepId}`);
     if (row.status === 'broadcast') return sweepView(row);
+    if (row.status === 'failed' || row.status === 'canceled') {
+      throw new CustodySweepError(
+        'custody_sweep.sweep_final',
+        `this sweep intent is ${row.status}; its key is not sent again. Create the sweep again for a new intent`,
+      );
+    }
     const broadcaster = this.deps.broadcaster;
     if (!broadcaster)
       throw new CustodySweepError('rail.crypto', 'Sweeping to treasury needs rail.crypto. It is switched off in this build.');
@@ -346,18 +369,26 @@ export class CustodySweepService {
         throw new CustodySweepError('custody_sweep.in_flight', 'this sweep is being sent; its outcome is read back with the same key');
       }
     }
+    await this.refuseIfStale(row);
     // Conditional claim to a transitional status: of two concurrent calls only one moves the row and asks the rail.
     // A row stuck in `broadcasting` past the owner-set stale time (a crash after the claim) is taken over and re-sent
     // under its original key, which the rail treats as the same send.
     const [claimed] = await this.deps.sql<SweepRow[]>`
       UPDATE pay.custody_sweeps SET status = 'broadcasting', attempts = attempts + 1, last_executed_by = ${actor}, updated_at = now()
        WHERE id = ${sweepId}
-         AND (status IN ('pending', 'failed', 'unknown')
+         AND (status IN ('pending', 'unknown')
               OR (status = 'broadcasting' AND ${ttl}::int IS NOT NULL AND updated_at < now() - make_interval(secs => ${ttl}::int)))
+         -- Re-checked inside the claim: the deposit is still credited, and an unsent intent still matches the treasury.
+         AND EXISTS (SELECT 1 FROM pay.custody_deposits d WHERE d.id = custody_sweeps.deposit_id AND d.status = 'credited')
+         AND (status <> 'pending' OR to_address = (
+               SELECT p.treasury_address FROM pay.custody_sweep_policy_events p
+                WHERE p.network_id = custody_sweeps.network_id AND p.asset_id = custody_sweeps.asset_id
+                ORDER BY p.seq DESC LIMIT 1))
        RETURNING *`;
     if (!claimed) {
       const now = await this.byId(sweepId);
       if (now.status === 'broadcast') return sweepView(now);
+      await this.refuseIfStale(now);
       throw new CustodySweepError('custody_sweep.in_flight', 'this sweep is being sent; its outcome is read back with the same key');
     }
     let result: SweepBroadcastResult;
@@ -388,9 +419,33 @@ export class CustodySweepService {
     return sweepView(done ?? (await this.byId(sweepId)));
   }
 
-  private async byKey(key: string): Promise<SweepRow | undefined> {
-    const [row] = await this.deps.sql<SweepRow[]>`SELECT * FROM pay.custody_sweeps WHERE idempotency_key = ${key}`;
-    return row;
+  /**
+   * Refuse a send whose deposit is no longer credited, or (for an unsent intent) whose treasury address is no longer the
+   * policy's. A `pending` intent is canceled first, so a new create writes a fresh intent to the current treasury.
+   */
+  private async refuseIfStale(row: SweepRow): Promise<void> {
+    const [dep] = await this.deps.sql<Array<{ status: string }>>`
+      SELECT status FROM pay.custody_deposits WHERE id = ${row.deposit_id}`;
+    const depositStatus = dep?.status ?? 'missing';
+    let code: 'custody_sweep.deposit_not_credited' | 'custody_sweep.policy_changed' | null = null;
+    let message = '';
+    if (depositStatus !== 'credited') {
+      code = 'custody_sweep.deposit_not_credited';
+      message = `deposit ${row.deposit_id} is ${depositStatus}; it is not swept`;
+    } else if (row.status === 'pending') {
+      const policy = await this.policy(row.network_id, row.asset_id);
+      if (policy.treasury_address !== row.to_address) {
+        code = 'custody_sweep.policy_changed';
+        message = 'the treasury address changed after this sweep was created; create the sweep again to send to the current one';
+      }
+    }
+    if (!code) return;
+    if (row.status === 'pending') {
+      await this.deps.sql`
+        UPDATE pay.custody_sweeps SET status = 'canceled', last_error = ${code}, updated_at = now()
+         WHERE id = ${row.id} AND status = 'pending'`;
+    }
+    throw new CustodySweepError(code, message);
   }
 
   private async byId(id: string): Promise<SweepRow> {

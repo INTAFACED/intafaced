@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** Sweeps to treasury (W-custody-ops-05). Amounts are decimal strings; nothing here is a customer balance. */
 export const SWEEP_TRIGGERS = ['immediate', 'amount', 'count', 'schedule'] as const;
-export const SWEEP_STATUSES = ['pending', 'broadcasting', 'unknown', 'failed', 'broadcast'] as const;
+export const SWEEP_STATUSES = ['pending', 'broadcasting', 'unknown', 'failed', 'canceled', 'broadcast'] as const;
 
 const id = z.string().trim().min(1).max(64);
 const pair = { networkId: id, assetId: id };
@@ -80,6 +80,7 @@ export const sweepViewSchema = z.object({
   amount: z.string(),
   status: z.enum(SWEEP_STATUSES),
   txHash: z.string().nullable(),
+  intentNo: z.number().int(),
   attempts: z.number().int(),
   lastError: z.string().nullable(),
   createdBy: z.string(),

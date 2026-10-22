@@ -7,6 +7,8 @@ export type CustodySweepErrorCode =
   | 'custody_sweep.deposit_not_credited'
   | 'custody_sweep.sweep_not_found'
   | 'custody_sweep.in_flight'
+  | 'custody_sweep.sweep_final'
+  | 'custody_sweep.policy_changed'
   | 'custody_sweep.stale_ttl_unset'
   | 'rail.crypto';
 
@@ -17,6 +19,8 @@ const KIND: Record<CustodySweepErrorCode, TRPCError['code']> = {
   'custody_sweep.deposit_not_credited': 'PRECONDITION_FAILED',
   'custody_sweep.sweep_not_found': 'NOT_FOUND',
   'custody_sweep.in_flight': 'CONFLICT',
+  'custody_sweep.sweep_final': 'CONFLICT',
+  'custody_sweep.policy_changed': 'CONFLICT',
   'custody_sweep.stale_ttl_unset': 'PRECONDITION_FAILED',
   'rail.crypto': 'SERVICE_UNAVAILABLE',
 };

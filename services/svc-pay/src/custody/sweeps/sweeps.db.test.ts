@@ -311,7 +311,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     expect((await sweeps().list({}))[0]).toMatchObject({ status: 'pending', attempts: 0 });
   });
 
-  it('a failed send leaves balances alone and the retry reuses the same key; broadcast is final', async () => {
+  it('a definite failure is final for its key; sweeping again is a new intent under its own key', async () => {
     await setPolicy(policyBody());
     const depositId = await deposit('credited');
     const before = await db.sql`SELECT * FROM pay.custody_deposits ORDER BY id`;
@@ -321,19 +321,79 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       status: 'failed',
       lastError: 'TEST insufficient gas',
       attempts: 1,
+      intentNo: 1,
       lastExecutedBy: 'founder-a',
     });
+    // The failed key is never sent again.
     next = async () => ({ state: 'broadcast', txHash: '0xTESTTX' });
-    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({
-      status: 'broadcast',
-      txHash: '0xTESTTX',
-      attempts: 2,
-      lastError: null,
-    });
-    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({ status: 'broadcast', attempts: 2 });
-    expect(sent.map((x) => x.idempotencyKey)).toEqual([`sweep:${depositId}:treasury`, `sweep:${depositId}:treasury`]);
+    expect((await refused(sweeps().execute({ sweepId: s.id }))).message).toMatch(/is failed; its key is not sent again/);
+    expect(sent).toHaveLength(1);
+    // A new create writes intent 2 under its own business key; a repeat create returns it.
+    const second = await sweeps().create({ depositId });
+    expect(second).toMatchObject({ intentNo: 2, status: 'pending', idempotencyKey: `sweep:${depositId}:treasury:2` });
+    expect((await sweeps().create({ depositId })).id).toBe(second.id);
+    expect(await sweeps().execute({ sweepId: second.id })).toMatchObject({ status: 'broadcast', txHash: '0xTESTTX', attempts: 1 });
+    expect(await sweeps().execute({ sweepId: second.id })).toMatchObject({ status: 'broadcast', attempts: 1 });
+    expect(sent.map((x) => x.idempotencyKey)).toEqual([`sweep:${depositId}:treasury`, `sweep:${depositId}:treasury:2`]);
+    // Once broadcast, create returns the broadcast intent; no third intent.
+    expect((await sweeps().create({ depositId })).id).toBe(second.id);
     // ENGINE D-5: a sweep never touches the customer's deposit record (and posts nothing to the ledger).
     expect(await db.sql`SELECT * FROM pay.custody_deposits ORDER BY id`).toEqual(before);
+  });
+
+  it('a deposit reversed after its sweep was created is not swept: pending is canceled, unknown refuses', async () => {
+    await setPolicy(policyBody());
+    const depositId = await deposit('credited');
+    const s = await sweeps().create({ depositId });
+    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', credited_at = NULL WHERE id = ${depositId}`;
+    expect((await refused(sweeps().execute({ sweepId: s.id }))).message).toMatch(/is reversed; it is not swept/);
+    expect(sent).toHaveLength(0);
+    expect((await sweeps().list({ limit: 10 }))[0]).toMatchObject({ status: 'canceled', lastError: 'custody_sweep.deposit_not_credited' });
+    // A reversed deposit gets no new intent either.
+    expect((await refused(sweeps().create({ depositId }))).message).toMatch(/only a credited deposit is swept/);
+
+    const other = await deposit('credited');
+    const u = await sweeps().create({ depositId: other });
+    next = async () => {
+      throw new Error('TEST rpc timeout');
+    };
+    expect(await sweeps().execute({ sweepId: u.id })).toMatchObject({ status: 'unknown' });
+    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', credited_at = NULL WHERE id = ${other}`;
+    expect((await refused(sweeps().execute({ sweepId: u.id }))).message).toMatch(/is reversed; it is not swept/);
+    // Left `unknown` for the operator: the first send may have gone out.
+    const [row] = await db.sql`SELECT status FROM pay.custody_sweeps WHERE id = ${u.id}`;
+    expect(row).toMatchObject({ status: 'unknown' });
+    expect(sent).toHaveLength(1);
+  });
+
+  it('a treasury change after create: a pending intent is canceled and a new create goes to the new address', async () => {
+    await setPolicy(policyBody());
+    const depositId = await deposit('credited');
+    const s = await sweeps().create({ depositId });
+    await setPolicy(policyBody({ treasuryAddress: '0xTESTtreasuryROTATED' }));
+    expect((await refused(sweeps().execute({ sweepId: s.id }))).message).toMatch(/treasury address changed/);
+    expect(sent).toHaveLength(0);
+    const fresh = await sweeps().create({ depositId });
+    expect(fresh).toMatchObject({ intentNo: 2, toAddress: '0xTESTtreasuryROTATED' });
+    expect(await sweeps().execute({ sweepId: fresh.id })).toMatchObject({ status: 'broadcast' });
+    expect(sent.map((x) => x.toAddress)).toEqual(['0xTESTtreasuryROTATED']);
+  });
+
+  it('a treasury change after an unknown send: the retry keeps the original key and address', async () => {
+    await setPolicy(policyBody());
+    const depositId = await deposit('credited');
+    const s = await sweeps().create({ depositId });
+    next = async () => {
+      throw new Error('TEST rpc timeout');
+    };
+    await sweeps().execute({ sweepId: s.id });
+    await setPolicy(policyBody({ treasuryAddress: '0xTESTtreasuryROTATED' }));
+    next = async () => ({ state: 'broadcast', txHash: '0xTESTFIRST' });
+    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({ status: 'broadcast', toAddress: TREASURY });
+    expect(sent.map((x) => [x.idempotencyKey, x.toAddress])).toEqual([
+      [`sweep:${depositId}:treasury`, TREASURY],
+      [`sweep:${depositId}:treasury`, TREASURY],
+    ]);
   });
 
   it('an unknown outcome keeps the intent row and the retry asks again with the original key', async () => {
