@@ -249,6 +249,11 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
   await expect(dialog).toContainText('63,999.90 USDT');
   await expect(dialog).toContainText(`${expected.holdAmount} USDT`);
   await expect(dialog).toContainText(`${expected.estimatedFee} BTC (up to 0.10%)`);
+  // The order's fee role, and the client id a retry sends again (J-cex-spot-01 step 6).
+  // A resting GTC limit is only a taker if it fills at once: the server's taker rate is the worst case.
+  await expect(dialog).toContainText('Taker if it fills at once; any part that rests on the book pays the maker rate');
+  await expect(dialog).toContainText('A retry sends this same ID, so it can’t become a second order.');
+  const shownId = await dialog.getByText('Client order ID').locator('..').locator('.if-num').innerText();
   await shotBoth(page, 'desk-review-limit');
   expect(m.requests('POST', 'orders')).toHaveLength(0); // nothing sent until the click
 
@@ -273,6 +278,7 @@ test('limit buy: preview, review, placed, in Open orders, cancelled; one request
     postOnly: false,
   });
   expect(sent.clientOrderId).toMatch(/^desk:/);
+  expect(sent.clientOrderId.endsWith(`:${shownId}`)).toBe(true); // the reference the review showed is the order sent
   // The marker that guards against a lost answer is gone once the outcome is known.
   expect(await page.evaluate(() => localStorage.getItem('trade-pending:00000000-0000-4000-8000-000000000001'))).toBeNull();
 
