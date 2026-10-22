@@ -98,32 +98,29 @@ const WANT_ROWS = 10;
 /** ...and looks back at most this many extra pages by itself; after that the person presses "Load more". */
 const AUTO_PAGES = 4;
 
-const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Ledger'> = {
+const TAB_LABEL: Record<Tab, 'All' | 'Deposits' | 'Transfers' | 'Trades' | 'Orders' | 'Fees' | 'Entries'> = {
   trades: 'Trades',
   orders: 'Orders',
   all: 'All',
   deposits: 'Deposits',
   transfers: 'Transfers',
   fees: 'Fees',
-  ledger: 'Ledger',
+  ledger: 'Entries',
 };
-const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No ledger lines yet'> = {
+const TAB_EMPTY: Record<Exclude<LedgerTab, 'all'>, 'No deposits yet' | 'No transfers yet' | 'No fees yet' | 'No entries yet'> = {
   deposits: 'No deposits yet',
   transfers: 'No transfers yet',
   fees: 'No fees yet',
-  ledger: 'No ledger lines yet',
+  ledger: 'No entries yet',
 };
 const TAB_LATEST: Record<
   Exclude<LedgerTab, 'all'>,
-  | 'No deposits in the latest items'
-  | 'No transfers in the latest items'
-  | 'No fees in the latest items'
-  | 'No ledger lines in the latest items'
+  'No deposits in the latest items' | 'No transfers in the latest items' | 'No fees in the latest items' | 'No entries in the latest items'
 > = {
   deposits: 'No deposits in the latest items',
   transfers: 'No transfers in the latest items',
   fees: 'No fees in the latest items',
-  ledger: 'No ledger lines in the latest items',
+  ledger: 'No entries in the latest items',
 };
 
 /** The words a row shows as its title, so a search finds what the person reads. */
@@ -662,11 +659,16 @@ export default function Activity({ search }: { search: string }) {
   const tab = tabFromSearch(search);
   // `?asset=BTC` narrows every tab that lists money lines or fills; Orders lists orders, so it ignores it.
   const asset = tab === 'orders' ? null : assetFromSearch(search);
+  // On a phone the tab row scrolls on its own; keep the open tab in view, also when a link opens a far one.
+  const tabList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    tabList.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
   return (
     <div className="if-money if-money--activity" data-density={layoutMode === 'pro' ? 'pro' : undefined}>
       <h1 className="money-title">{t('Activity')}</h1>
       <Tabs value={tab} onValueChange={(next) => navigate(tabHref(next as Tab, assetFromSearch(search)))}>
-        <TabsList divider aria-label={t('Activity filters')} className="money-tabs">
+        <TabsList ref={tabList} divider aria-label={t('Activity filters')} className="money-tabs">
           {TABS.map((id) => (
             <TabsTab key={id} value={id}>
               {t(TAB_LABEL[id])}

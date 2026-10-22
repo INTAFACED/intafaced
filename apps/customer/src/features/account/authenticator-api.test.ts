@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { disabledAnswer, isProof, isSixDigits, replacedAnswer, replaceStarted, stepUpBeginInput, totpStatus } from './authenticator';
+import { disabledAnswer, isProof, isSixDigits, replacedAnswer, replaceStarted, stepUpBeginInput, totpStatus } from './authenticator-api';
 
 describe('authenticator answers and step-up request', () => {
   it('names the door the service guards, with the request id as its only field and its target', () => {

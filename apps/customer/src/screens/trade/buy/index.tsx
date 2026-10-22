@@ -3,6 +3,7 @@ import './buy.css';
 import { BuyCard, ORDERS_HREF } from './BuyCard';
 import { buyCopy } from './copy';
 import { YourOrders } from './YourOrders';
+import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 import type { ScreenProps } from '../../../app/screen-types';
 
 /** `?asset=BTC` picks the coin; `?side=sell` opens on Sell. Anything else is ignored. */
@@ -28,6 +29,7 @@ export default function TradeBuyScreen({ search }: ScreenProps) {
           {t('Order history')}
         </a>
       </nav>
+      <EmailProofNotice />
       <div className="buy-grid">
         <header className="buy-hero">
           <h1>{selling ? t('Sell crypto in a few steps') : t('Buy crypto in a few steps')}</h1>

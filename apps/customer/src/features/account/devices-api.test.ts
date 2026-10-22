@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byFamily, deviceName, type Device } from './devices';
+import { byFamily, deviceName, type Device } from './devices-api';
 
 const row = (over: Partial<Device>): Device => ({
   id: '00000000-0000-4000-8000-000000000001',

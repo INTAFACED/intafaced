@@ -12,9 +12,10 @@ import { confirmWithStepUp, type StepUpMethod } from './security-step-up';
 /**
  * Passkey names and types in Security (slice I-signin-sessions-09): label, kind, added and last-used time, the owner's
  * per-account limit (or "no limit set"), and rename. Rename confirms with a fresh 6-digit code or a passkey first. Every
- * attempt asks for its own confirmation, so a refused rename never reuses a spent one.
+ * attempt asks for its own confirmation, so a refused rename never reuses a spent one. `revision` goes up when Security
+ * adds or removes a passkey, and these names load again.
  */
-export function PasskeyNames() {
+export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
   const { t, languageFor } = copy.useCopy();
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
@@ -36,7 +37,8 @@ export function PasskeyNames() {
       userId
         ? api.query('identity', 'listPasskeys', { limit: 200 }, passkeyList, { signal })
         : Promise.resolve({ ok: true as const, data: null }),
-    `passkey-names:${userId}`,
+    // A passkey added or removed in Security's own list reloads these names.
+    `passkey-names:${userId}:${revision}`,
   );
 
   async function save(credentialId: string, method: 'code' | 'passkey', event: FormEvent<HTMLFormElement> | HTMLFormElement) {

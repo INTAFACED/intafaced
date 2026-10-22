@@ -29,6 +29,7 @@ import {
 import { findMarket, type DeskMarket } from './market';
 import { useNow } from './hooks';
 import type { Reference, Side } from './order-math';
+import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -96,6 +97,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         picker={picker}
         status={status}
       />
+      <EmailProofNotice />
       <div className="dk-grid">
         <aside className="dk-panel dk-left" aria-label={t('Markets')}>
           <div className="dk-fill">

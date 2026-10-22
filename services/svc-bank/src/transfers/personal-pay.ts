@@ -31,6 +31,13 @@ const REFERENCE_MAX = 64;
 /** A reserved send the client never retried. Older than this, and with no ledger posting, it stops counting toward the daily cap. */
 const STALE_RESERVATION_MS = 15 * 60 * 1000;
 
+function termsUnset(assetId: string): BankError {
+  return new BankError(
+    `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
+    'bank.personal_transfer_terms_unset',
+  );
+}
+
 export type RequestStatus = 'open' | 'paid' | 'declined' | 'cancelled' | 'expired';
 
 export interface PersonalTransferView {
@@ -59,6 +66,24 @@ export interface TransferQuote {
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
   readonly withinPerTransfer: boolean;
   readonly withinDaily: boolean;
+}
+
+/**
+ * One published personal-send fee row (PP-money-balance-04). `free` is true only for a published zero:
+ * zero is not blank, and an asset with no terms row is absent, never listed as free.
+ */
+export interface FeeScheduleEntry {
+  readonly assetId: string;
+  readonly fee: string;
+  readonly free: boolean;
+  readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
+  readonly publishedAt: string;
+}
+
+/** The published schedule. `published: false` (no rows) means the page says no schedule is published. */
+export interface FeeSchedule {
+  readonly published: boolean;
+  readonly entries: FeeScheduleEntry[];
 }
 
 export interface PersonalRequestView {
@@ -323,13 +348,11 @@ export class PersonalPayService {
   async quote(actorUserId: string, assetId: string, amount: Amount, at?: Date): Promise<TransferQuote> {
     const now = this.now(at);
     const terms = await this.terms(assetId);
-    if (!terms) {
-      throw new BankError(
-        `No per-transfer limit, daily limit, or fee is published for ${assetId} (bank.personal_transfer_terms_unset)`,
-        'bank.personal_transfer_terms_unset',
-      );
-    }
-    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now));
+    if (!terms) throw termsUnset(assetId);
+    // A reservation older than the stale cutoff is released by the next send before it checks the limits, so the
+    // quote does not count it either: the screen must not refuse what the send would accept.
+    const reservedSince = new Date(now.getTime() - STALE_RESERVATION_MS);
+    const spent = await this.spentToday(this.sql, actorUserId, assetId, utcDayStart(now), reservedSince);
     const fee = parseAmount(terms.fee);
     // A compliance-approved grant replaces the published limit of its kind for this customer (BK-acct-04).
     const grants = await grantedLimits(this.sql, actorUserId, assetId);
@@ -346,6 +369,26 @@ export class PersonalPayService {
       withinPerTransfer: amount <= per,
       withinDaily: spent + amount <= daily,
     };
+  }
+
+  /** The published personal-send fee schedule. Reads the operator terms only; never seeds or invents a fee. */
+  async feeSchedule(): Promise<FeeSchedule> {
+    const rows = await this.sql<Array<{ asset_id: string; fee: string; published_at: Date }>>`
+      SELECT asset_id, fee::text, published_at
+        FROM bank.personal_transfer_terms
+       ORDER BY asset_id
+    `;
+    const entries = rows.map((row) => {
+      const fee = parseAmount(row.fee);
+      return {
+        assetId: row.asset_id,
+        fee: formatAmount(fee),
+        free: fee === 0n,
+        feeBlocker: fee > 0n ? ('bank.personal_transfer_fee_unwired' as const) : null,
+        publishedAt: row.published_at.toISOString(),
+      };
+    });
+    return { published: entries.length > 0, entries };
   }
 
   async factsFor(userId: string, txIds: readonly string[]): Promise<ReadonlyMap<string, TransferFact>> {
@@ -678,7 +721,8 @@ export class PersonalPayService {
         FROM bank.personal_transfer_terms WHERE asset_id = ${assetId}
     `;
     const terms = rows[0];
-    if (!terms) return;
+    // Blank is not unlimited: with no published limits for the asset, nothing is reserved or posted.
+    if (!terms) throw termsUnset(assetId);
     const fee = parseAmount(terms.fee);
     if (fee > 0n) {
       throw new BankError(
@@ -712,12 +756,19 @@ export class PersonalPayService {
     return rows[0] ?? null;
   }
 
-  private async spentToday(tx: Sql | TransactionSql, userId: string, assetId: string, start: Date): Promise<Amount> {
+  /** Posted today plus reserved today; `reservedSince` leaves out reservations older than it (a quote's view of stale ones). */
+  private async spentToday(
+    tx: Sql | TransactionSql,
+    userId: string,
+    assetId: string,
+    start: Date,
+    reservedSince: Date = start,
+  ): Promise<Amount> {
     const rows = await tx<Array<{ spent: string }>>`
       SELECT COALESCE(SUM(amount), 0)::text AS spent
         FROM bank.personal_transfers
        WHERE from_user_id = ${userId} AND asset_id = ${assetId} AND created_at >= ${start}
-         AND status IN ('reserved', 'posted')
+         AND (status = 'posted' OR (status = 'reserved' AND created_at >= ${reservedSince}))
     `;
     return parseAmount(rows[0]?.spent ?? '0');
   }

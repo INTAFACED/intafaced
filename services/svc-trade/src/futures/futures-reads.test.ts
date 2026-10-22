@@ -16,6 +16,7 @@ import { PositionService } from './position-service.js';
 import { parseConfiguredMaxLeverage } from './initial-margin.js';
 import { formatAccountRef, profitSourceFromConfig, recipeProfitFundingAccount } from './profit-source.js';
 import { memoryMarkBook } from './mark-source.js';
+import { StubEmailProof } from '../spot/testing.js';
 
 interface FuturesTestSeed {
   SeedRefusal: new (message: string) => Error;
@@ -162,6 +163,7 @@ describe('open with a blank leverage cap', () => {
     }) as unknown as ConstructorParameters<typeof PositionService>[0];
     const ledger = new MemoryLedger();
     const positions = new PositionService(sql, ledger, {
+      emailProof: new StubEmailProof(),
       marks: memoryMarkBook().source(),
       profitSource: profitSourceFromConfig(formatAccountRef(recipeProfitFundingAccount('USDT'))),
       now: () => new Date('2026-08-06T12:00:00.000Z'),

@@ -1238,6 +1238,20 @@ describe('recipes — the money paths', () => {
     expect(ledger.totalsByAsset().USDT).toBe('0');
   });
 
+  it('p2p escrowRelease refuses a blank feeBps instead of defaulting to 0', () => {
+    const input = { tradeId: 't-blank-fee', sellerId: USER_A, buyerId: USER_B, assetId: 'USDT', amount: amt('500') };
+    expect(() => recipes.escrowRelease(input as Parameters<typeof recipes.escrowRelease>[0])).toThrow(/feeBps is required/);
+    expect(() => recipes.escrowRelease({ ...input, feeBps: undefined } as unknown as Parameters<typeof recipes.escrowRelease>[0])).toThrow(
+      /feeBps is required/,
+    );
+    expect(() => recipes.escrowRelease({ ...input, feeBps: null } as unknown as Parameters<typeof recipes.escrowRelease>[0])).toThrow(
+      /feeBps is required/,
+    );
+    const zero = recipes.escrowRelease({ ...input, feeBps: 0 });
+    expect(zero.meta).toMatchObject({ feeBps: 0 });
+    expect(zero.entries).toHaveLength(2);
+  });
+
   it('p2p escrowRelease refuses feeBps 10000 (buyer would receive nothing)', () => {
     expect(() =>
       recipes.escrowRelease({
@@ -1295,7 +1309,9 @@ describe('recipes — the money paths', () => {
     expect(await balanceOf(USER_A, 'USDT', 'escrow', 'trade:b')).toBe('50');
 
     await expect(
-      ledger.post(recipes.escrowRelease({ tradeId: 'a', sellerId: USER_A, buyerId: USER_B, assetId: 'USDT', amount: amt('150') })),
+      ledger.post(
+        recipes.escrowRelease({ tradeId: 'a', sellerId: USER_A, buyerId: USER_B, assetId: 'USDT', amount: amt('150'), feeBps: 0 }),
+      ),
     ).rejects.toThrow();
 
     expect(await balanceOf(USER_A, 'USDT', 'escrow', 'trade:b')).toBe('50');

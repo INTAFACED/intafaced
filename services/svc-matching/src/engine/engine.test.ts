@@ -405,7 +405,7 @@ describe('events', () => {
     expect(result.cancellations[0]!.reason).toBe('self_trade_prevention');
     const cancelled = bus.emitted('orderCancelled');
     expect(cancelled).toHaveLength(1);
-    expect(cancelled[0]!.payload).toMatchObject({ orderId: own, marketId: MARKET, remainingQty: '1' });
+    expect(cancelled[0]!.payload).toMatchObject({ orderId: own, marketId: MARKET, remainingQty: '1', reason: 'self_trade_prevention' });
     expect(engine.book(MARKET).toState().bids[0]?.orders[0]?.orderId).toBe(stranger);
     expect(result.surveillanceCases).toEqual([{ accountId: 'same', marketId: MARKET, reason: 'self_trade', status: 'open' }]);
     expect(engine.openSurveillanceCases()).toEqual(result.surveillanceCases);

@@ -345,6 +345,14 @@
   .money-num__value {
     display: none;
   }
+  /* A quiet dotted rule says the figure opens its entries; it turns solid on hover. */
+  .money-num__entries {
+    text-decoration: underline dotted var(--if-fg-3);
+    text-underline-offset: 3px;
+  }
+  .money-num__entries:hover {
+    text-decoration: underline solid;
+  }
   .money-row {
     transition: background var(--if-t-fast) var(--if-ease);
   }
@@ -522,8 +530,18 @@
   .money-title {
     font: 700 28px/34px var(--if-font-ui);
   }
+  /* Seven tabs are wider than a phone: the row scrolls on its own and the page never does. */
   .money-tabs {
     margin-top: 16px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .money-tabs [data-slot='tabs-tab'] {
+    flex-shrink: 0;
+  }
+  /* Inside the scrolling row an outside ring would be cut off, so it sits just inside the tab. */
+  .money-tabs [data-slot='tabs-tab']:focus-visible {
+    outline-offset: -2px;
   }
   .money-filter {
     display: flex;

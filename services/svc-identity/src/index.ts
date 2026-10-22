@@ -49,9 +49,10 @@ import { createFounderControlsRouter } from './controls/founder-controls-router.
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { createMembershipRouter } from './membership/membership-router.js';
 import { OAuthService } from './oauth/oauth.js';
 import { createOAuthRouter } from './oauth/oauth-router.js';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, isExplicitDevOrTest } from '@intafaced/config';
 import { createIdentityRequestContext, configuredIdentityOperationOwners } from './controls/founder-context.js';
 import { AuthKeyRing, parseAuthKeys } from './auth/auth-key-ring.js';
 import { createAuthKeysRouter } from './auth-keys-router.js';
@@ -64,6 +65,7 @@ import { createOrgRouter } from './org-router.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
+import { createFactorStatusRouter } from './factor-status-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -346,6 +348,16 @@ auth.useEmailConfirmation({
   rateMax: env.IDENTITY_EMAIL_CONFIRM_RATE_MAX,
   rateWindowSeconds: env.IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS,
 });
+// Sign-up sends its code through the same outbox and relay. Any blank number refuses every sign-up the same way.
+auth.useSignUpPolicy({
+  minAgeYears: env.IDENTITY_SIGNUP_MIN_AGE_YEARS,
+  codeTtlSeconds: env.IDENTITY_SIGNUP_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_SIGNUP_RESEND_SECONDS,
+  requestMax: env.IDENTITY_SIGNUP_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
+  closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -479,6 +491,8 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
+    // The code-less register door is for the dev and test stacks' own tools only.
+    directRegister: isExplicitDevOrTest(process.env.APP_ENV),
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
@@ -522,6 +536,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),
@@ -551,6 +566,7 @@ export const appRouter = mergeRouters(
     securityStepUp,
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
+  createFactorStatusRouter(sql),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
@@ -777,6 +793,22 @@ app.get<{ Params: { userId: string } }>('/internal/account/:userId', async (req,
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return state;
+});
+
+/**
+ * Whether a user's current email is proved (RC-identity-01), `emailProofSchema`. svc-trade reads it per order and
+ * refuses a new custodial order while it is `missing`. Service credentials only; no address in the answer.
+ * Unknown user → 404, which the caller refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const proof = await auth.emailProof(req.params.userId);
+  if (!proof) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return proof;
 });
 
 /**

@@ -42,6 +42,8 @@ export interface SpotOrderPreviewRefusal {
     | 'stopPrice'
     | 'exit';
   message: string;
+  /** Exact decimal strings the refusal names (a price band's edges, an open-order cap and count). Absent otherwise. */
+  data?: Record<string, string>;
 }
 
 /** The fee a linked exit leg would post if it filled: the take-profit rests (maker), the stop-loss takes. */
@@ -107,6 +109,21 @@ export interface SpotOrderPreviewRestDeps {
   bestAsk?(marketId: string): Promise<Amount | null>;
   /** Best bid for market-sell protection. Absent/null → `trade.no_reference_price`. */
   bestBid?(marketId: string): Promise<Amount | null>;
+  /**
+   * Matching's operator halt of this market, or of the whole venue (its public board). A halted book refuses every
+   * new submit with `market_halted`, so the preview says so before Confirm. Absent or a failed read adds nothing:
+   * place stays the authority and refuses on its own.
+   */
+  matchingHalt?(marketId: string): Promise<{ readonly market: boolean; readonly venue: boolean }>;
+  /**
+   * The operator limits place enforces (`assertOperatorRiskOnPlace`), bound to this service's store and book. A
+   * TradeError becomes a refusal row with its data. Absent in tests means no operator limits.
+   */
+  operatorRisk?(
+    market: Market,
+    userId: string,
+    input: { readonly side: OrderSide; readonly price: Amount | null; readonly qty: Amount; readonly rests: boolean },
+  ): Promise<void>;
   /** True when the stop-trigger store is wired, the same condition under which placement accepts `stop_limit`. */
   stopLimitEnabled?: boolean;
   spotEnabled: boolean;
@@ -177,7 +194,7 @@ function parsePositive(value: string): Amount | null {
 
 function pushError(refusals: SpotOrderPreviewRefusal[], error: unknown, field: SpotOrderPreviewRefusal['field']): void {
   if (error instanceof TradeError) {
-    refusals.push({ code: error.code, field, message: error.message });
+    refusals.push({ code: error.code, field, message: error.message, ...(error.data ? { data: { ...error.data } } : {}) });
     return;
   }
   throw error;
@@ -336,6 +353,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       pushError(refusals, error, 'symbol');
     }
 
+    const halt = deps.matchingHalt ? await deps.matchingHalt(market.id).catch(() => null) : null;
+    if (halt?.venue) {
+      refusals.push({ code: 'trade.venue_halted', field: 'symbol', message: 'an operator has halted new orders on every market' });
+    } else if (halt?.market) {
+      refusals.push({ code: 'trade.market_halted', field: 'symbol', message: `an operator has halted new orders on ${market.symbol}` });
+    }
+
     const action: MarketAction = tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE';
     if (!deps.marketLifecycle) {
       refusals.push({
@@ -420,6 +444,21 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     } else if (priceWire !== null) {
       refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a market order must not carry a price' });
+    }
+
+    // The operator's limits for this market (fat finger, price band, open-order cap), the same gate place runs, so a
+    // price outside the band or a full cap is said before Confirm. A limit order is judged only once its price reads.
+    if (deps.operatorRisk && !market.paper && orderType !== null && (orderType !== 'limit' || limitPrice !== null)) {
+      try {
+        await deps.operatorRisk(market, principal.userId, {
+          side,
+          price: orderType === 'limit' ? limitPrice : null,
+          qty,
+          rests: orderType === 'limit' && tif !== 'IOC' && tif !== 'FOK',
+        });
+      } catch (error) {
+        pushError(refusals, error, error instanceof TradeError && error.code === 'trade.operator_throttle' ? 'symbol' : 'price');
+      }
     }
 
     let protectionPrice: Amount | null = null;

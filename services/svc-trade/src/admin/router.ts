@@ -141,6 +141,8 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
             expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
             reason,
             approvalId: z.string().trim().min(1).max(128),
+            // The approval's own operation id (identity mints it at propose); its consume refuses any other.
+            operationId: z.string().trim().min(1).max(128),
           }),
         )
         .mutation(({ ctx, input }) => ready().riskSet(ctx.principal, input).catch(fail)),

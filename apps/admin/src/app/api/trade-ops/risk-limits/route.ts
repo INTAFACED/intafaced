@@ -3,6 +3,7 @@ import { proposeRiskSet, readRisk, readRiskHistory, writeRisk } from '@/lib/trad
 import type { RiskCurrent, RiskVersionRow } from '@/lib/trade-ops/desk-parse';
 import type { TradeCtx } from '@/lib/trade-ops/edge';
 import { ok, refused, type Outcome } from '@/lib/trade-ops/outcome';
+import { readMatchingApproval } from '@/lib/trade-ops/matching-edge';
 import { checkRiskSet, ENGINE_CHECKS, type OperatorLimitField } from '@/lib/trade-ops/risk-limits-model';
 import { riskSetPayloadHash } from '@/lib/trade-ops/risk-set-hash';
 
@@ -67,7 +68,19 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   if (action === 'propose') return proposeRiskSet(ctx, check.body);
   if (typeof body.approvalId !== 'string' || !TOKEN.test(body.approvalId.trim()))
     return refused('trade_ops.approval_id_invalid', 'Enter the id of an APPROVED request.', 400);
-  return writeRisk(ctx, { ...check.body, approvalId: body.approvalId.trim() });
+  const approvalId = body.approvalId.trim();
+  // The write is bound to the approval's own operation id, which identity minted when the change was proposed.
+  const approval = await readMatchingApproval(ctx, approvalId);
+  if (approval.kind !== 'ok') return approval;
+  if (approval.data.status !== 'APPROVED')
+    return refused(
+      approval.data.status === 'PENDING' ? 'action_approval.pending' : 'action_approval.not_approved',
+      approval.data.status === 'PENDING'
+        ? 'This request is still waiting for a second founder. Nothing was written.'
+        : `This request is ${approval.data.status}, not APPROVED. Nothing was written.`,
+      409,
+    );
+  return writeRisk(ctx, { ...check.body, approvalId, operationId: approval.data.operationId });
 }
 
 export const POST = (req: Request) => tradeOpsRoute(req, handler);

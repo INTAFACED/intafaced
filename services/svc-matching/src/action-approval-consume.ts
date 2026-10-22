@@ -50,6 +50,15 @@ export interface ActionApprovalConsumer {
   consume(input: ActionApprovalConsumeInput): Promise<ActionApproval>;
 }
 
+/**
+ * The evidence a door gives for an emergency action (engine/rulebook-refuse.ts): the two-person approval it consumed
+ * for exactly this action and target. That record names who asked, who approved and what (svc-identity); nothing is
+ * made up here.
+ */
+export function approvalEvidenceRef(approvalId: string): string {
+  return `action-approval:${approvalId}`;
+}
+
 export function matchingActionPayloadHash(actionType: string, fields: Record<string, string>): string {
   const payload = JSON.stringify({ actionType, ...fields });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;

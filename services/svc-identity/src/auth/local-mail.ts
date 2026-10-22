@@ -54,12 +54,19 @@ export function localMailLine(message: {
   if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=no-account\n`;
   }
+  if (purpose === 'signup-existing') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
+  }
+  if (purpose === 'signup-code') {
+    // A six-digit code the person types, not a link.
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
+  }
   if (purpose === 'handle-recovery') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
   }
   const link =
     purpose === 'email-confirm'
-      ? `confirmEmail?token=${encodeURIComponent(message.code)}`
+      ? `confirm-email?token=${encodeURIComponent(message.code)}`
       : purpose === 'email-change'
         ? `changeEmail?code=${encodeURIComponent(message.code)}`
         : `completePasswordReset?code=${encodeURIComponent(message.code)}`;

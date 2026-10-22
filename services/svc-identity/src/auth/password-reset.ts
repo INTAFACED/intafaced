@@ -54,7 +54,7 @@ export interface PasswordResetMail {
   }): Promise<void>;
 }
 
-/** What a mail is for. The last four are the recovery flows; their `code` is empty when they carry none. */
+/** What a mail is for. The recovery and sign-up notices carry no code; their `code` is empty. */
 export type MailPurpose =
   | 'password-reset'
   | 'email-confirm'
@@ -62,7 +62,9 @@ export type MailPurpose =
   | 'email-change-notice'
   | 'reset-no-account'
   | 'handle-recovery'
-  | 'handle-recovery-no-account';
+  | 'handle-recovery-no-account'
+  | 'signup-code'
+  | 'signup-existing';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

@@ -280,7 +280,7 @@ export class TransferService {
       async () => {
         const destUserId = input.toUserId.trim();
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
-        const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
+        const dest = destUserId ? await this.spaces.primaryForCredit(destUserId, from.assetId) : null;
         if (!dest) {
           // One code and one message for "no such account", frozen and closed:
           // the caller must not be able to tell them apart.
@@ -312,7 +312,7 @@ export class TransferService {
   }): Promise<ScheduleRecord> {
     const destUserId = input.toUserId.trim();
     const from = await this.spaces.get(input.fromSpaceId);
-    const dest = destUserId ? await this.spaces.findPrimary(destUserId, from.assetId) : null;
+    const dest = destUserId ? await this.spaces.primaryForCredit(destUserId, from.assetId) : null;
     if (!dest) {
       // Same one code as frozen and closed, so a far-future schedule is not a
       // free way to learn that an id is frozen.

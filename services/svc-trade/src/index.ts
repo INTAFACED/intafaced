@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -17,6 +18,7 @@ import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
+import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents } from './events.js';
@@ -85,6 +87,8 @@ import {
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
 import { derivativesAccessGate } from './futures/derivatives-access.js';
 import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
+import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
+import { presentPairRisk } from './spot/pair-rules.js';
 import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
@@ -98,6 +102,7 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { writeOperatorAudit } from './admin/common.js';
 import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
@@ -127,6 +132,7 @@ import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
+import { loadOtcMakerDirectory } from './otc/maker-directory.js';
 import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
@@ -189,6 +195,7 @@ const tradingControls = new TradingControls(
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const emailProof = createEmailProofClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -235,6 +242,11 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
+  botVerification: loadBotVerificationPolicy({
+    TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
+    TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
+  }),
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
@@ -245,6 +257,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   seedPlaceEnabled: env.TRADE_MM_SEED_ENABLED,
   feeSchedule,
   subAccounts,
+  emailProof,
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
@@ -288,6 +301,7 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
+  emailProof,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
@@ -302,6 +316,9 @@ const otc = new OtcDeskService(ledger, otcStakes, {
     }
   })(),
   store: new SqlOtcQuoteStore(sql),
+  makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
+    process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),
+  ),
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
@@ -491,6 +508,7 @@ const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
+  emailProof,
   marks: futuresJobs.marks,
   profitSource,
   bus,
@@ -721,6 +739,14 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  pairRiskForMarkets: async (markets) => {
+    const risks = await currentRiskForMarkets(
+      sql,
+      markets.map((m) => m.id),
+    );
+    return new Map(markets.map((m) => [m.id, presentPairRisk(m, risks.get(m.id) ?? null, env.TRADE_MARKET_SLIPPAGE_CAP_BPS)]));
+  },
+  onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;
@@ -800,6 +826,10 @@ registerSpotOrderPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
   stopLimitEnabled: true,
+  matchingHalt: async (marketId) => {
+    const board = await matching.listMarkets();
+    return { market: board.halted?.includes(marketId) === true, venue: board.venueHalted === true };
+  },
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];
@@ -810,6 +840,13 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   },
+  operatorRisk: (market, userId, input) =>
+    assertOperatorRiskOnPlace(sql, market, userId, input, async () => {
+      const depth = await matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      const ask = depth.asks[0];
+      return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
+    }),
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
@@ -827,6 +864,7 @@ registerInternalFundingRate(app, {
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
   approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+  writeAudit: (row) => writeOperatorAudit(sql, row),
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
