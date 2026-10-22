@@ -8,7 +8,16 @@
  */
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { OrgError, requireActorId, requireMemberId, requireOrgId, requireOrgRole, type OrgRole } from './org-service.js';
+import {
+  lockOrgAdmins,
+  OrgError,
+  requireActorId,
+  requireAnotherAdmin,
+  requireMemberId,
+  requireOrgId,
+  requireOrgRole,
+  type OrgRole,
+} from './org-service.js';
 
 export type OrgSummary = { readonly id: string; readonly name: string; readonly role: OrgRole; readonly createdAt: string };
 export type OrgDetail = {
@@ -18,16 +27,6 @@ export type OrgDetail = {
   readonly createdAt: string;
   readonly members: Array<{ readonly userId: string; readonly handle: string; readonly role: OrgRole; readonly since: string }>;
 };
-
-export class OrgAdminError extends Error {
-  constructor(
-    message: string,
-    readonly code: 'org.last_admin',
-  ) {
-    super(message);
-    this.name = 'OrgAdminError';
-  }
-}
 
 function requireName(value: string | null | undefined): string {
   const name = typeof value === 'string' ? value.trim() : '';
@@ -96,9 +95,7 @@ export async function removeOrgMember(
     if (!target) throw new OrgError('Member not found', 'org.member_not_found');
     if (requireOrgRole(target.role) === 'admin') {
       // Lock every admin seat so a concurrent removal or role change cannot leave the organisation with none.
-      const admins = await tx<Array<{ user_id: string }>>`
-        SELECT user_id FROM organization_members WHERE org_id = ${org} AND role = 'admin' ORDER BY user_id FOR UPDATE`;
-      if (admins.length <= 1) throw new OrgAdminError('An organization must keep at least one admin', 'org.last_admin');
+      requireAnotherAdmin(await lockOrgAdmins(tx, org), member);
     }
     await tx`DELETE FROM organization_members WHERE org_id = ${org} AND user_id = ${member}`;
     await tx`

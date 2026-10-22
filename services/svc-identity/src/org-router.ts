@@ -8,15 +8,12 @@ import {
   UNPUBLISHED_DMA_HIERARCHY_LAW,
   type DmaHierarchyLaw,
 } from './orgs/dma-hierarchy.js';
-import { getOrg, listOrgs, OrgAdminError, removeOrgMember, renameOrg } from './orgs/org-admin.js';
+import { getOrg, listOrgs, removeOrgMember, renameOrg } from './orgs/org-admin.js';
 
 const orgRoleSchema = z.enum(['admin', 'trader', 'auditor', 'risk-manager']);
 const dmaProductSchema = z.enum(['dma-broker', 'desk', 'shift']);
 
 function toOrgTrpc(err: unknown): never {
-  if (err instanceof OrgAdminError) {
-    throw new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
-  }
   if (err instanceof DmaHierarchyRefuseError) {
     if (err.code === 'identity.dma.kind_required' || err.code === 'identity.dma.kind_invalid' || err.code === 'identity.dma.law_invalid') {
       throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -28,6 +25,10 @@ function toOrgTrpc(err: unknown): never {
     });
   }
   if (err instanceof OrgError) {
+    // One class, one status: org.last_admin is a CONFLICT for both removal and demotion.
+    if (err.code === 'org.last_admin') {
+      throw new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+    }
     if (err.code === 'org.not_found' || err.code === 'org.member_not_found' || err.code === 'org.actor_not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }

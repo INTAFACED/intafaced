@@ -243,8 +243,9 @@ export async function lockOrgAdmins(tx: Sql, orgId: string): Promise<string[]> {
 }
 
 /**
- * THE last-admin rule, in one place: refuse `org.last_admin` when `leavingUserId` is the only
- * admin in `lockedAdminIds` (from `lockOrgAdmins`). Demotion and member removal both use it.
+ * THE last-admin rule, in one place: refuse `org.last_admin` (an `OrgError`) when `leavingUserId`
+ * is the only admin in `lockedAdminIds` (from `lockOrgAdmins`). `grantOrgRole` (demotion) and
+ * `removeOrgMember` (org-admin.ts) both use it, so there is one error class for `org.last_admin`.
  */
 export function requireAnotherAdmin(lockedAdminIds: readonly string[], leavingUserId: string): void {
   if (lockedAdminIds.includes(leavingUserId) && lockedAdminIds.length <= 1) {
@@ -253,8 +254,9 @@ export function requireAnotherAdmin(lockedAdminIds: readonly string[], leavingUs
 }
 
 /**
- * Change an existing member's role. Granting admin needs a second distinct admin.
- * Demoting the organization's last admin refuses with `org.last_admin`.
+ * Change an existing member's role. Granting admin needs a second distinct admin, re-checked under the lock.
+ * Demoting the organization's last admin refuses with `org.last_admin`. A real change writes one
+ * `role_changed` history row in the same transaction.
  */
 export async function grantOrgRole(
   sql: Sql,
@@ -291,6 +293,10 @@ export async function grantOrgRole(
   return transaction(sql, async (tx) => {
     const admins = await lockOrgAdmins(tx, org);
     if (!admins.includes(actor)) throw new OrgError('Only an admin can grant a role', 'org.not_admin');
+    // The second approver is re-checked under the lock: an approver demoted meanwhile cannot co-sign.
+    if (grant === 'admin' && !admins.includes((secondApproverId ?? '').trim())) {
+      throw new OrgError('Second approver must be an admin of this organization', 'org.second_approver_not_admin');
+    }
     const [target] = await tx<Array<{ role: string }>>`
       SELECT role FROM organization_members WHERE org_id = ${org} AND user_id = ${member} FOR UPDATE`;
     if (!target) throw new OrgError('Member not found', 'org.member_not_found');
@@ -298,6 +304,13 @@ export async function grantOrgRole(
     await tx`
       UPDATE organization_members SET role = ${grant} WHERE org_id = ${org} AND user_id = ${member}
     `;
+    if (target.role !== grant) {
+      // Same transaction as the change (0066 allows kind 'role_changed').
+      await tx`
+        INSERT INTO organization_history (org_id, actor_id, kind, subject_id, before, after)
+        VALUES (${org}, ${actor}, 'role_changed', ${member}, ${target.role}, ${grant})
+      `;
+    }
     return { orgId: org, userId: member, role: grant };
   });
 }
