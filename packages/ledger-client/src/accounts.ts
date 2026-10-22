@@ -173,6 +173,30 @@ export function subAccountCollateral(subAccountId: string, assetId: string, purp
   };
 }
 
+/**
+ * Sub-account stake FOR ONE CLAIM. Same pairing rule as `userStake` (L1/L3-5).
+ *
+ * A business space is a sub-account (D-149), so a business-owned earn pot is a
+ * `subaccount` stake, never a `user` one keyed by the business id.
+ */
+export function subAccountStake(subAccountId: string, assetId: string, purpose: string): AccountRef {
+  if (!purpose?.trim()) {
+    throw new Error('subAccountStake requires a purpose (L1/L3-5) — e.g. `bank:earn:<id>`');
+  }
+  return {
+    ownerType: 'subaccount',
+    ownerId: subAccountId,
+    assetId,
+    kind: 'stake',
+    purpose: purpose.trim(),
+  };
+}
+
+/** Bank earn pot for one position row held by a named sub-account (business space). */
+export function subAccountEarnStakeAccount(subAccountId: string, assetId: string, positionId: string): AccountRef {
+  return subAccountStake(subAccountId, assetId, `bank:earn:${positionId}`);
+}
+
 /** Margin collateral securing ONE futures position on a named sub-account. */
 export function subAccountPositionCollateral(subAccountId: string, assetId: string, positionId: string): AccountRef {
   return subAccountCollateral(subAccountId, assetId, `position:${positionId}`);
