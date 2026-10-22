@@ -71,6 +71,8 @@ describe('algo.createTwap creation gate (isolated PostgreSQL)', () => {
     return new TradeService(db.sql, ledger, matching, perks, new MemoryEventBus('svc-trade'), {
       accountAdmission: controls,
       marketLifecycle: READY_MARKET_LIFECYCLE,
+      // CB-bots-10: the bot verification gate now fails closed when omitted; this suite tests other gates.
+      botVerification: { mode: 'off' },
       feeSchedule: options.feeSchedule === undefined ? PUBLISHED_TEST_FEE_SCHEDULE : options.feeSchedule,
       marketSlippageCapBps: 100,
       algoMarkPolicy: options.algoMarkPolicy,

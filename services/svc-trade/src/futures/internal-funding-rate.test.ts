@@ -34,30 +34,37 @@ function markOf(payload: Record<string, unknown>): string | null {
 
 let approvalSeq = 0;
 
-/** One bound four-eyes row, then one post that spends it. Replays of the same period send no new approval. */
+/** Two bound four-eyes rows (two approvers), then one post that spends both. Replays of the same period send no new approval. */
 async function withBoundApproval(app: FastifyInstance, approvals: MemoryApprovalBook, payload: Record<string, unknown>) {
   const marketId = String(payload.marketId);
   const rate = String(payload.rate);
   const periodId = periodOf(payload);
   const markPrice = markOf(payload);
-  const approvalId = `apr-funding-${++approvalSeq}`;
-  approvals.put({
-    approvalId,
-    actionType: 'trade.funding_rate.publish',
-    targetService: 'svc-trade',
-    targetId: marketId,
-    expectedVersion: periodId,
-    payloadHash: payloadHash({
+  const approvalIds = [`apr-funding-${++approvalSeq}`, `apr-funding-${++approvalSeq}`];
+  for (const [i, approvalId] of approvalIds.entries()) {
+    approvals.put({
+      approvalId,
       actionType: 'trade.funding_rate.publish',
-      marketId,
-      periodId,
-      rate,
-      markPrice,
-    }),
-    requesterId: 'requester-1',
-    approverId: 'approver-2',
+      targetService: 'svc-trade',
+      targetId: marketId,
+      expectedVersion: periodId,
+      payloadHash: payloadHash({
+        actionType: 'trade.funding_rate.publish',
+        marketId,
+        periodId,
+        rate,
+        markPrice,
+      }),
+      requesterId: 'requester-1',
+      approverId: `approver-${i + 2}`,
+      operationId: `op-${approvalId}`,
+    });
+  }
+  const second = await app.inject({
+    method: 'POST',
+    url: PATH,
+    ...signed({ ...payload, approvals: approvalIds.map((approvalId) => ({ approvalId, operationId: `op-${approvalId}` })) }),
   });
-  const second = await app.inject({ method: 'POST', url: PATH, ...signed({ ...payload, approvalId }) });
   return { second };
 }
 
