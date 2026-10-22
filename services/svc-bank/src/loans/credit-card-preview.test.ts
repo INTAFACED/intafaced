@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import type { Principal } from '@intafaced/auth';
-import { PREVIEW_LABEL, previewRefusalSchema, type Context } from '@intafaced/contracts';
+import { PREVIEW_LABEL, previewRefusalOf, previewRefusalSchema, type Context } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import {
@@ -135,6 +135,30 @@ describe('credit card preview', () => {
         label: PREVIEW_LABEL,
       });
     }
+  });
+
+  it('formats each refused mutation so previewRefusalOf finds the refusal for data.preview', async () => {
+    const calls: Array<[Promise<unknown>, string]> = [
+      [writer().application({ variant: 'credit_card' }), 'apply'],
+      [writer().limit({ change: 'request' }), 'change_limit'],
+      [writer().repay({ option: 'choose_date' }), 'set_payment_date'],
+      [writer().rules({ restriction: 'crypto' }), 'set_usage_rule'],
+      [writer().dispute({ statementLine: 'TEST-LINE-A' }), 'open_dispute'],
+    ];
+    for (const [call, action] of calls) {
+      const err = (await call.catch((e: unknown) => e)) as { cause?: unknown };
+      expect(previewRefusalOf(err.cause)).toEqual({
+        kind: 'preview',
+        code: 'preview.engine_not_built',
+        engine: 'bank.credit_card',
+        action,
+        label: PREVIEW_LABEL,
+      });
+    }
+    const validation = await writer()
+      .repay({ option: 'pay_later' as never })
+      .catch((e: unknown) => e);
+    expect(previewRefusalOf((validation as { cause?: unknown }).cause)).toBeUndefined();
   });
 
   it('refuses unknown values and extra fields at validation', async () => {
