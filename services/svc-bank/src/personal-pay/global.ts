@@ -264,12 +264,16 @@ export class GlobalSendService {
     payeeControlsJson?: string,
     /** Owner-published exchange payment allowance (`BANK_EXCHANGE_ALLOWANCE_JSON`). Blank refuses every send. */
     exchangeAllowanceJson?: string,
+    /** Owner-published OUR flat fees per corridor currency (`BANK_GLOBAL_OUR_FEES_JSON`). Blank refuses every OUR quote. */
+    ourFeesJson?: string,
   ) {
+    this.ourFees = parseOurFees(ourFeesJson);
     this.fieldRules = parseSendFieldRules(fieldRulesJson);
     this.payeeControls = parsePayeeControls(payeeControlsJson);
     this.exchangeAllowance = parseExchangeAllowance(exchangeAllowanceJson);
   }
 
+  private readonly ourFees: ReadonlyMap<string, { fee: string; feeAsset: string }> | null;
   private readonly fieldRules: SendFieldRules | null;
   private readonly payeeControls: PayeeControls | null;
   private readonly exchangeAllowance: ExchangeAllowance | null;
@@ -413,13 +417,37 @@ export class GlobalSendService {
     return { removed: true };
   }
 
-  async quote(input: { asset: string; amount: string; toCurrency: string; now?: Date }): Promise<FxQuote> {
+  async quote(input: {
+    asset: string;
+    amount: string;
+    toCurrency: string;
+    chargeBearer?: 'SHA' | 'OUR';
+    now?: Date;
+  }): Promise<FxQuote & { chargeBearer?: 'SHA' | 'OUR'; ourFee?: string; ourFeeAsset?: string }> {
     if (this.ports.fx.status() !== 'live') throw personalPayError('bank.global_fx_unset');
     const asset = requireText(input.asset, 16).toUpperCase();
     const toCurrency = requireText(input.toCurrency, 8).toUpperCase();
     const money = canonical(input.amount);
+    // BK-xfer-03: OUR needs the owner's flat fee for this currency. Checked before the provider is asked.
+    const our = input.chargeBearer === 'OUR' ? this.ourFeeFor(toCurrency) : null;
     const quoted = await this.checkedQuote({ asset, amount: money.text, toCurrency }, input.now ?? new Date());
-    return quoted;
+    if (input.chargeBearer === undefined) return quoted;
+    if (our) return { ...quoted, chargeBearer: 'OUR', ourFee: our.fee, ourFeeAsset: our.feeAsset };
+    return { ...quoted, chargeBearer: 'SHA' };
+  }
+
+  /**
+   * BK-xfer-03: a bank-side firm-rate conversion is HELD until LG-fx-bank-grant-01 (ledger-owner grant).
+   * It always refuses. It never quotes or posts a rate.
+   */
+  async firmRateConvert(_input: { userId: string; fromAsset: string; toAsset: string; amount: string }): Promise<never> {
+    throw personalPayError('bank.fx_firm_rate_held');
+  }
+
+  private ourFeeFor(currency: string): { fee: string; feeAsset: string } {
+    const row = this.ourFees?.get(currency);
+    if (!row) throw personalPayError('bank.our_fee_unset', currency);
+    return row;
   }
 
   async send(input: {
@@ -842,4 +870,27 @@ export class GlobalSendService {
     if (!row) throw personalPayError('bank.global_not_found');
     return row;
   }
+}
+
+/** Parses `BANK_GLOBAL_OUR_FEES_JSON`: `[{ "currency": "EUR", "fee": "25.00", "feeAsset": "USD" }]`. Any bad shape means unset. */
+export function parseOurFees(json: string | undefined): ReadonlyMap<string, { fee: string; feeAsset: string }> | null {
+  if (!json || !json.trim()) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw)) return null;
+  const out = new Map<string, { fee: string; feeAsset: string }>();
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') return null;
+    const { currency, fee, feeAsset } = item as Record<string, unknown>;
+    if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) return null;
+    if (typeof fee !== 'string' || !/^\d+(\.\d{1,18})?$/.test(fee)) return null;
+    if (typeof feeAsset !== 'string' || !/^[A-Z0-9]{1,16}$/.test(feeAsset)) return null;
+    if (out.has(currency)) return null;
+    out.set(currency, { fee, feeAsset });
+  }
+  return out;
 }

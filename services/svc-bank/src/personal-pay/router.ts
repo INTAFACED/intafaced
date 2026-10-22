@@ -381,7 +381,16 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .mutation(({ ctx, input }) => guard(() => bank.globalSend.removeRecipient({ userId: ctx.principal.userId, ...input }))),
     }),
     quote: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ asset: z.string().min(1).max(16), amount: amountString, toCurrency: z.string().min(3).max(8) }).strict())
+      .input(
+        z
+          .object({
+            asset: z.string().min(1).max(16),
+            amount: amountString,
+            toCurrency: z.string().min(3).max(8),
+            chargeBearer: z.enum(['SHA', 'OUR']).optional(),
+          })
+          .strict(),
+      )
       .output(
         z.object({
           rate: amountString,
@@ -390,6 +399,9 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
           receiveAmount: amountString,
           validUntil: z.string(),
           eta: z.string(),
+          chargeBearer: z.enum(['SHA', 'OUR']).optional(),
+          ourFee: amountString.optional(),
+          ourFeeAsset: z.string().optional(),
         }),
       )
       .query(({ input }) => guard(() => bank.globalSend.quote(input))),

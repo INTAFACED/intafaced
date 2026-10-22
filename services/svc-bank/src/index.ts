@@ -225,6 +225,7 @@ const bank = createBankServices(sql, ledger, history, {
   /** Payee block list of a global send, and the file types and size a proof upload may have: the owner's, blank refuses. */
   payeeControls: env.BANK_PAYEE_CONTROLS_JSON,
   exchangeAllowance: env.BANK_EXCHANGE_ALLOWANCE_JSON,
+  ourFees: env.BANK_GLOBAL_OUR_FEES_JSON,
   proofLimits: env.BANK_PROOF_LIMITS_JSON,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {

@@ -170,6 +170,8 @@ export interface BankServiceOptions {
   payeeControls?: string | undefined;
   /** Owner-published exchange payment allowance (JSON). Blank refuses every global send. */
   exchangeAllowance?: string | undefined;
+  /** BK-xfer-03: `BANK_GLOBAL_OUR_FEES_JSON`. Blank refuses OUR. */
+  ourFees?: string | undefined;
   /** Owner-published proof-upload limits (JSON). Blank refuses an upload. */
   proofLimits?: string | undefined;
 }
@@ -228,6 +230,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.sendFieldRules,
     options.payeeControls,
     options.exchangeAllowance,
+    options.ourFees,
   );
   const globalHolds = new GlobalHoldService(sql, globalSend, options.proofLimits);
 

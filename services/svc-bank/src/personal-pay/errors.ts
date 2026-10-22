@@ -173,6 +173,19 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         'SERVICE_UNAVAILABLE',
         PSP_BLOCKER,
       );
+    case 'bank.our_fee_unset':
+      return new PersonalPayError(
+        `The owner has not published an OUR flat fee${detail ? ` for ${detail}` : ''}. OUR is refused; no fee is invented.`,
+        code,
+        'PRECONDITION_FAILED',
+      );
+    case 'bank.fx_firm_rate_held':
+      return new PersonalPayError(
+        'A bank-side firm-rate conversion is held until LG-fx-bank-grant-01. No rate was quoted and nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+        'LG-fx-bank-grant-01',
+      );
     case 'bank.global_quote_expired':
       return new PersonalPayError('The provider quote is no longer valid. Nothing was posted.', code, 'PRECONDITION_FAILED', PSP_BLOCKER);
     case 'bank.global_payout_unset':

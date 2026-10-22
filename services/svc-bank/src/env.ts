@@ -295,6 +295,12 @@ const schema = serviceEnvSchema
       BANK_EXCHANGE_ALLOWANCE_JSON: z.string().optional(),
 
       /**
+       * BK-xfer-03: owner-published OUR flat fees as JSON: `[{ "currency": "EUR", "fee": "25.00", "feeAsset": "USD" }]`.
+       * No default. Blank, unset, not in that shape, or a currency with no row means an OUR quote refuses `bank.our_fee_unset`.
+       */
+      BANK_GLOBAL_OUR_FEES_JSON: z.string().optional(),
+
+      /**
        * Emergency stop for the auto-invest runner (threshold sweeps / DCA).
        * Same posture as SCHEDULED_TRANSFERS_ENABLED: a bad pass must not keep
        * moving value after an operator hit stop.
