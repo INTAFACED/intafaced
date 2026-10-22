@@ -72,6 +72,8 @@ export type BankErrorCode =
   | 'pay.dispute_line_facts_unset'
   /** The dispute-case service is not wired on this process. */
   | 'pay.dispute_unwired'
+  | 'pay.dispute_statement_invalid'
+  | 'bank.activity_line_required'
   | 'bank.not_owner'
   // ── Loans (§8.1) ───────────────────────────────────────────────────────
   | 'bank.loan_product_not_found'

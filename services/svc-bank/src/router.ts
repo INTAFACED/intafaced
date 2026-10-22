@@ -392,6 +392,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.position_locked':
       case 'bank.position_pending':
       case 'pay.dispute_ineligible':
+      case 'pay.dispute_statement_invalid':
+      case 'bank.activity_line_required':
       case 'pay.dispute_reasons_unset':
       case 'pay.dispute_line_facts_unset':
       case 'pay.dispute_transition_refused':

@@ -277,20 +277,15 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
         .mutation(async ({ ctx, input }) => {
           try {
             if (input.activityId.startsWith('order:')) {
-              throw new TRPCError({
-                code: 'BAD_REQUEST',
-                message: 'A dispute is opened on one activity line (bank.activity_line_required)',
-              });
+              // DR3: typed, so data.cause.code is set (BAD_REQUEST via the bank STATUS default).
+              throw new BankError('A dispute is opened on one activity line', 'bank.activity_line_required');
             }
             if (!bank.disputeCases) throw new BankError('Dispute cases are not wired', 'pay.dispute_unwired');
             const { item } = await bank.activity.get(ctx.principal.userId, input.activityId);
             // Linked lines must be the caller's own (review minor 3): activity.get refuses another user's line.
             for (const linked of input.linkedActivityIds) await bank.activity.get(ctx.principal.userId, linked);
             if (!plainWords.safeParse(input.statement).success) {
-              throw new TRPCError({
-                code: 'BAD_REQUEST',
-                message: 'The statement has a control character (pay.dispute_statement_invalid)',
-              });
+              throw new BankError('The statement has a control character', 'pay.dispute_statement_invalid');
             }
             return await bank.disputeCases.open(ctx.principal.userId, item, {
               reasonCode: input.reasonCode,

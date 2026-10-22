@@ -80,10 +80,12 @@ describe('activity.dispute.openCase route mapping (DR6)', () => {
     await expect(api.activity.dispute.openCase({ ...input, activityId: 'order:abc' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message: expect.stringContaining('bank.activity_line_required'),
+      cause: { code: 'bank.activity_line_required' },
     });
     await expect(api.activity.dispute.openCase({ ...input, statement: 'bad\u0007bell' } as never)).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message: expect.stringContaining('pay.dispute_statement_invalid'),
+      cause: { code: 'pay.dispute_statement_invalid' },
     });
     expect(opened).toBe(0);
   });
