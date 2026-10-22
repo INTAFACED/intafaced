@@ -42,18 +42,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { localStackState, assertActiveLocalStack } from './local-test-state.mjs';
+import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
 const HOST = '127.0.0.1';
-const PSQL = process.env.LOCAL_STACK_PG_BIN
-  ? path.join(process.env.LOCAL_STACK_PG_BIN, 'psql')
-  : fs.existsSync('/opt/homebrew/bin/psql')
-    ? '/opt/homebrew/bin/psql'
-    : '/usr/lib/postgresql/16/bin/psql';
+const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
 const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 

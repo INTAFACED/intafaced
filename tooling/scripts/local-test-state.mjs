@@ -3,6 +3,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
+/** The Postgres client and server binaries the local test stack uses: LOCAL_STACK_PG_BIN, else Homebrew, else Debian's 16. */
+export function localPgBin(env = process.env) {
+  if (env.LOCAL_STACK_PG_BIN) return env.LOCAL_STACK_PG_BIN;
+  return fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin';
+}
+
 /** One state root for the stack and every helper. Never silently fall back after a typo. */
 export function localStackState(home = os.homedir(), env = process.env) {
   if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');

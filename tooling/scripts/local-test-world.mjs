@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertActiveLocalStack, localStackState } from './local-test-state.mjs';
+import { assertActiveLocalStack, localPgBin, localStackState } from './local-test-state.mjs';
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
@@ -41,7 +41,7 @@ const MARKER_KIND = 'intafaced-local-test-stack';
 const LOCAL_HOST = '127.0.0.1';
 const EDGE = `http://${LOCAL_HOST}:14500`;
 const CUSTOMER_ORIGIN = `http://${LOCAL_HOST}:3210`;
-const PSQL = '/opt/homebrew/bin/psql';
+const PSQL = path.join(localPgBin(), 'psql');
 const DB_NAME = 'intafaced_local_test';
 const POLL_MS = 5000;
 
@@ -254,6 +254,7 @@ function psql(secrets, role, sql) {
       env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin', PGPASSWORD: secrets.pgService },
     },
   );
+  if (r.error) throw new Error(`psql could not start (${PSQL}): ${r.error.message}`);
   if (r.status !== 0) throw new Error(`psql failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
   return r.stdout
     .trim()

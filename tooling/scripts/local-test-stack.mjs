@@ -53,6 +53,7 @@ import {
 } from './local-test-founders.mjs';
 import {
   localStackState,
+  localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
   readProcessIdentity,
@@ -144,8 +145,7 @@ const NATS_PRIOR =
   ) ?? '/tmp/intafaced-product-vitality-2026-10-10/account-test';
 const NATS_ZIP = 'nats-server-v2.10.24-darwin-arm64.zip';
 
-const PG_BIN =
-  process.env.LOCAL_STACK_PG_BIN ?? (fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin');
+const PG_BIN = localPgBin();
 const PNPM_PATH = [path.dirname(process.execPath), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':');
 
 // ── Small helpers ───────────────────────────────────────────────────────────
