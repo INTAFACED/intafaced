@@ -58,6 +58,8 @@ import { createAuthKeysRouter } from './auth-keys-router.js';
 import { OperationIdentityDecisions } from './controls/operation-identity-decisions.js';
 import { createOperationIdentityRouter } from './controls/operation-identity-router.js';
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
+import { AgreementService } from './agreements/agreement-service.js';
+import { createAgreementRouter } from './agreements/agreement-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
 import { createOrgRouter } from './org-router.js';
@@ -522,6 +524,7 @@ export const appRouter = mergeRouters(
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
+  createAgreementRouter(new AgreementService(sql, actionApprovals)),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createOrgRouter(sql, dmaHierarchyLaw),
   createEnrollPasskeyRouter(

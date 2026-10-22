@@ -70,3 +70,4 @@ export * from './support-contact.js';
 export * from './support-bulk.js';
 export * from './support-merge.js';
 export * from './bank-card-funds.js';
+export * from './agreements.js';

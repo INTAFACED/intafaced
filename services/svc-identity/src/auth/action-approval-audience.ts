@@ -60,6 +60,8 @@ export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 
 export const FOUNDER_ACTION_TYPES: readonly string[] = [
   'identity.change_fee_tier',
   'identity.change_limit',
+  // Legal agreement versions are founder-ops (RC-identity-12).
+  'identity.agreement_publish',
   'affiliates.payout',
   'identity.auth_key_rotate',
   'identity.auth_key_remove_old',
