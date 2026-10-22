@@ -38,7 +38,7 @@ One service per PR. If describing it needs the word "and", it is two PRs. A slic
 
 Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
-Review: the author checks their own change and runs `/code-review` on it, answering each finding in the PR body, and an independent reviewer in a different session checks the exact head. Every PR gets an independent review of the exact head commit. When you review, look in this order:
+Review: the author checks their own change and runs an automated code review on it (for example `/code-review`), answering each finding in the PR body, and an independent reviewer in a different session checks the exact head. Every PR gets an independent review of the exact head commit. When you review, look in this order:
 
 1. Does it touch money? Read every line, and check the tests cover the failure branches.
 2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.

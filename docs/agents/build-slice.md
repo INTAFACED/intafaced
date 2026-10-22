@@ -19,7 +19,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 4. **Ownership.** Every new endpoint checks that the caller owns what it reads or changes, and asks for step-up on sensitive actions. This was the most common real bug in past reviews.
 5. **Front end.** Use the shell, tokens, shared components and the one refusal catalogue; never re-invent them.
 6. **Honest states.** Typed refusals from the first commit; a missing rail or vendor refuses with the allowlisted notice while the rest of the slice is built in full; no fake numbers (illustrative figures say TEST). A new owner setting that refuses when blank also gets a labelled TEST value in `tooling/profiles/test-owner-values.json` (its `service` key), then run `node tooling/scripts/owner-settings.mjs`, so the slice's journey step can pass on the test stack. Production stays blank until the owner sets it.
-7. **Proof.** A test that fails without the slice, plus the slice's part of its journey test, plus the step seen working in the running app: `pnpm local:stack`, then drive it in a browser (Playwright on the machine's Chromium) and write what you saw in the PR body. The journeys are the definition of done: `/mnt/project-files/operation-zero/modules/<module>/acceptance/journeys.md` names the steps your slice serves (`docs/roadmap/journeys.json` lists them).
+7. **Proof.** A test that fails without the slice, plus the slice's part of its journey test, plus the step seen working in the running app: `pnpm local:stack`, then drive it in a browser (Playwright on the machine's Chromium) and write what you saw in the PR body. If the stack cannot start, say exactly why. The journeys are the definition of done: `/mnt/project-files/operation-zero/modules/<module>/acceptance/journeys.md` names the steps your slice serves (`docs/roadmap/journeys.json` lists them).
 8. **Reuse.** Search shared packages (`rg`) before writing a helper.
 9. **Scope.** Build the slice as specced. "REPLACE" means that edge only; no drive-by rewrites, no extras.
 
@@ -27,7 +27,7 @@ Fast on what is cheap to change later, right first time on what is expensive. Ch
 
 - One PR per slice: its contracts or events, one service and that service's screen together. Title: `<service>: <slice id> <what a user gets>`, for example `svc-trade: SP-order-entry-02 market order by value`. Two slices of the same journey may share a PR when they touch the same files.
 - Prefer new files over edits to shared ones, and register them through the area's own routes or router file, so a shared root file changes by one import line. Threads that share a service then rarely conflict.
-- Before push: affected tests, typecheck, `pnpm exec prettier --check` on changed files, the running-app proof (bar 7), and `/code-review` on the diff. Fix its findings or say in the PR body why not.
+- Before push: affected tests, typecheck, `pnpm exec prettier --check` on changed files, the running-app proof (bar 7), and an automated code review of the diff (for example `/code-review`). Fix its findings or say in the PR body why not.
 - Open as ready, turn auto-merge on (AGENTS.md "Check, then merge" item 8), subscribe to the PR, ask for the independent review (below), end the turn. No check-ins, no polling.
 - The slice counts as built when its journey steps pass on the real stack built from main, not when the PR merges. A slice you could only part-build stays open: say which rows are left in the PR body.
 
