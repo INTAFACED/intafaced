@@ -766,7 +766,7 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
     case 'academy.slug_reserved':
-      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
   }
 }
 

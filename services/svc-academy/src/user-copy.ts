@@ -27,6 +27,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'academy.not_host': 'error.forbidden',
   'academy.host_rights_required': 'error.forbidden',
   'academy.invite_required': 'error.forbidden',
+  'academy.slug_reserved': 'error.academySlugReserved',
 };
 
 export function userCopy(key: string, params: Readonly<Record<string, string | number | bigint>> = {}): string {

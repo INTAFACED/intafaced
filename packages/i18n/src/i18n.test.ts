@@ -82,7 +82,8 @@ describe('catalog — the key set is closed and complete', () => {
     // Posting-freeze set and cleared notices (RC-ops-console-09) add four title/body keys.
     // A named price alert and its own message (C-alerts-scan-01) add two pass-through keys.
     // The rating request inbox notice (SP-csat-01) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(250);
+    // The academy reserved-slug refusal (AC-articles-02) adds one error key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(251);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

@@ -228,6 +228,7 @@ export const en = {
   'error.notFound': 'We could not find that.',
   'error.unauthorized': 'Sign in to continue.',
   'error.forbidden': 'You do not have access to this.',
+  'error.academySlugReserved': 'That name is reserved for an academy tab. Choose another one.',
   'error.rateLimited': 'Too many requests. Wait a moment.',
   'error.validation.required': 'This field is required.',
   'error.validation.invalidAmount': 'Enter a valid amount.',
