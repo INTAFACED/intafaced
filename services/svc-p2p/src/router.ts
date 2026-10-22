@@ -36,6 +36,7 @@ import {
   type OfferLimitPolicy,
 } from './merchant-limits.js';
 import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
+import { EXPORT_FORMATS } from './export-receipt.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
@@ -410,6 +411,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_list_limit_unset':
       case 'p2p.late_settlements_list_limit_unset':
       case 'p2p.trade_list_limit_unset':
+      case 'p2p.config_unset':
+      case 'p2p.export_format_unbuilt':
       case 'p2p.ops_offers_limit_unset':
       case 'p2p.ops_trades_limit_unset':
       case 'p2p.ops_count_invalid':
@@ -452,9 +455,14 @@ function toTrpcError(err: unknown): TRPCError {
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'p2p.receipt_quota_reached':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.export_range_too_large':
+      case 'p2p.export_too_many_rows':
+      case 'p2p.receipt_not_available':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
@@ -1115,13 +1123,52 @@ export function createP2pRouter(
           }),
         ),
 
-      /** The caller's own trades in a time range, as CSV. No other person's rows. */
+      /**
+       * P-trade-orders-14: export under owner range and row caps
+       * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
+       * `p2p.config_unset`), one audit row per export, totals as decimal
+       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       */
       export: merchantApiProcedure('p2p:read')
-        .input(z.object({ from: z.string().min(1), to: z.string().min(1) }))
-        .output(z.object({ csv: z.string(), rows: z.number().int().nonnegative() }))
+        .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))
+        .output(
+          z.object({
+            csv: z.string(),
+            rows: z.number().int().nonnegative(),
+            format: z.literal('csv'),
+            totals: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
+          }),
+        )
         .query(async ({ ctx, input }) =>
-          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to })),
+          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to, format: input.format })),
         ),
+
+      /** P-trade-orders-14: receipt for one released trade, as data, under owner quotas. */
+      receipt: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().uuid() }))
+        .output(
+          z.object({
+            receipt: z.object({
+              tradeId: z.string().uuid(),
+              offerId: z.string().uuid(),
+              role: z.enum(['buyer', 'seller']),
+              asset: z.string(),
+              amount: amountString,
+              fiatCurrency: z.string(),
+              fiatAmount: amountString,
+              price: amountString,
+              feeBps: z.number().int().nonnegative(),
+              method: z.string(),
+              createdAt: z.string(),
+              escrowedAt: z.string().nullable(),
+              fiatSentAt: z.string().nullable(),
+              resolvedAt: z.string().nullable(),
+            }),
+            dailyRemaining: z.number().int().nonnegative(),
+            tradeRemaining: z.number().int().nonnegative(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => guard(async () => p2p.tradeReceipt({ userId: ctx.principal.userId, tradeId: input.tradeId }))),
 
       /**
        * WHERE TO SEND THE MONEY. The only path to a seller's account details.
