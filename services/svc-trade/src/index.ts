@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -98,6 +99,7 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { writeOperatorAudit } from './admin/common.js';
 import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
@@ -236,6 +238,11 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
+  botVerification: loadBotVerificationPolicy({
+    TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
+    TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
+  }),
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
@@ -831,6 +838,7 @@ registerInternalFundingRate(app, {
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
   approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+  writeAudit: (row) => writeOperatorAudit(sql, row),
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

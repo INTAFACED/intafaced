@@ -1,0 +1,322 @@
+import { randomBytes } from 'node:crypto';
+import { test, expect } from '@playwright/test';
+import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
+
+// J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
+// order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
+// customer's own API after each move.
+const J = 'J-cex-spot-01';
+const DESK = '/trade/spot/BTC-USDT';
+const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
+
+test.describe.configure({ mode: 'default' });
+
+async function signIn(page, who) {
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+}
+
+function account() {
+  const who = run.read().account;
+  if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
+  return who;
+}
+
+async function desk(page) {
+  await signIn(page, account());
+  await page.goto(DESK);
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+}
+
+/** The review sheet the desk shows before an order is sent ("Review your buy" / "Review your sell"). */
+const reviewSheet = (page) => page.locator('[role=dialog], [role=alertdialog]').filter({ hasText: /Review your (buy|sell)/ });
+
+const held = (balances, asset) => toUnits(balances[asset]?.used ?? '0');
+const free = (balances, asset) => toUnits(balances[asset]?.free ?? '0');
+
+async function openOrders(who) {
+  const { status, body } = await (await api(who)).get('/api/v1/orders/open?symbol=BTC%2FUSDT&limit=100');
+  expect(status).toBe(200);
+  return Array.isArray(body) ? body : (body.orders ?? body.items ?? []);
+}
+
+/** One cent above the best bid: the order rests (it does not cross the ask) and is first in line for a crossing sell. */
+async function topBid() {
+  const { bid, ask } = await bestPrices();
+  const price = toUnits(bid) + toUnits('0.01');
+  if (price >= toUnits(ask)) throw new Error(`the book has no room between bid ${bid} and ask ${ask}`);
+  return fromUnits(price);
+}
+
+/** One percent under the best bid, to the cent: a limit sell there still fills at the bids' own prices when the
+ * market maker requotes between the read and the order, which a sell at the old best bid would not. */
+async function underBid() {
+  const { bid } = await bestPrices();
+  const cent = toUnits('0.01');
+  return fromUnits(((toUnits(bid) * 99n) / 100n / cent) * cent);
+}
+
+/** Run `act` and wait for the desk's own order preview to answer, so Review is pressed on a checked order. */
+async function previewed(page, act) {
+  const answer = page.waitForResponse((r) => r.url().includes('/api/v1/orders/preview') && r.request().method() === 'POST');
+  await act();
+  expect((await answer).status()).toBe(200);
+}
+
+/** Fill the limit form on the buy (0) or sell (1) side, press Buy/Sell, return the review dialog. */
+async function reviewLimit(page, side, price, amount) {
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  const at = side === 'buy' ? 0 : 1;
+  await page.getByRole('textbox', { name: 'Price' }).nth(at).fill(price);
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).nth(at).fill(amount));
+  await page.getByRole('button', { name: side === 'buy' ? 'Buy BTC' : 'Sell BTC' }).click();
+  const review = reviewSheet(page);
+  await expect(review).toBeVisible();
+  return review;
+}
+
+/** Confirm a review; a requote asks again, so confirm until the dialog closes (at most three times). */
+async function confirm(page, side) {
+  for (let i = 0; i < 3; i++) {
+    const button = page.getByRole('button', { name: side === 'buy' ? 'Confirm buy' : 'Confirm sell' });
+    if (!(await button.count())) break;
+    await button.click();
+    await page.waitForTimeout(1500);
+  }
+  await expect(reviewSheet(page)).toHaveCount(0);
+}
+
+test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
+  const handle = `jt${Date.now().toString(36)}`;
+  // A fresh TEST password per run, kept only in the run file (mode 600).
+  const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+  await page.goto('/register');
+  await page.fill('input[name=handle]', handle);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page).not.toHaveURL(/\/register/);
+  run.reset({ account: who });
+  // Signed in, and the way to Verify is shown.
+  await expect(page.getByText('Verify your identity first')).toBeVisible();
+  await expect(
+    page
+      .getByRole('link', { name: 'Verify now' })
+      .or(page.getByRole('button', { name: 'Verify now' }))
+      .first(),
+  ).toBeVisible();
+});
+
+test(`${J} #2 tries a TEST limit buy before verifying and is refused in plain words`, async ({ page }) => {
+  await desk(page);
+  await page.getByRole('textbox', { name: 'Price' }).first().fill('60000.00');
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+  await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeDisabled();
+  const reason = page.locator('#dk-reason-buy');
+  await expect(reason).toContainText('Verify your identity first');
+  await expect(reason).toContainText('Verify now');
+  await expect(reason).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code like trade.kyc_required
+  expect(await openOrders(account())).toHaveLength(0);
+  const balances = await (await api(account())).balances();
+  expect(held(balances, 'USDT')).toBe(0n);
+});
+
+test(`${J} #3 submits verification, two operators approve it, signs in again and the desk accepts orders`, async ({ page }) => {
+  const who = account();
+  await signIn(page, who);
+  await page.goto('/verification');
+  await page.getByLabel('Level to request').selectOption({ label: 'Full' });
+  await page.getByLabel('Country code').fill('DE');
+  await page.getByRole('button', { name: 'Review request' }).click();
+  await page.getByRole('button', { name: 'Submit this request' }).click();
+  await expect(page.getByText('Your reviewed request')).toBeVisible();
+  // The two TEST operators of the stack approve it through identity's own two-person door.
+  tool('local-test-gates.mjs', 'verify');
+  const status = tool('local-test-gates.mjs', 'status');
+  const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
+  expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
+  await page.context().clearCookies();
+  await desk(page);
+  await page.getByRole('textbox', { name: 'Price' }).first().fill('60000.00');
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');
+  await expect(page.locator('#dk-reason-buy')).not.toContainText('Verify your identity first');
+});
+
+test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, async ({ page }) => {
+  const who = account();
+  const first = fund(who.email, 'USDT', '1000');
+  expect(first.tx).toBeTruthy();
+  const replay = fund(who.email, 'USDT', '1000', first.ref);
+  expect(replay.tx).toBe(first.tx);
+  const balances = await (await api(who)).balances();
+  expect(balances.USDT).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
+  await desk(page);
+  await expect(page.getByText('Available').first().locator('..')).toContainText('1,000');
+});
+
+test(`${J} #5 opens the spot desk: ticker, book, chart, tape, fees, trading mode and positions`, async ({ page }) => {
+  await desk(page);
+  await expect(page.getByText('BTC/USDT').first()).toBeVisible();
+  await expect(page.locator('[role=tab]', { hasText: 'Order book' })).toBeVisible();
+  // A fresh stack draws its first candle after the TEST market maker's first crossing trade (about a minute).
+  await expect(page.locator('canvas').first()).toBeVisible({ timeout: 90_000 });
+  await expect(page.locator('[role=tab]', { hasText: 'Last trades' })).toBeVisible();
+  await expect(page.getByText(/Listed: maker [\d.]+% · taker [\d.]+%/).first()).toBeVisible();
+  await expect(page.getByText(/trading mode/i).first()).toBeVisible();
+  await page.locator('[role=tab]', { hasText: /^Positions$/ }).click();
+  await expect(page.getByText('Not applicable: cash spot holds balances, not positions')).toBeVisible();
+});
+
+test(`${J} #6 reviews a TEST limit buy: hold in USDT, maker role and rate, time in force, client id`, async ({ page }) => {
+  await desk(page);
+  const price = await topBid();
+  const review = await reviewLimit(page, 'buy', price, '0.01');
+  await expect(review).toContainText(/USDT/);
+  await expect(review).toContainText(/maker/i);
+  await expect(review).toContainText(/0\.08%/);
+  await expect(review).toContainText(/Good till cancelled/i);
+  await expect(review).toContainText(/client (order )?id/i);
+});
+
+test(`${J} #7 confirms: the order is Open and the USDT hold equals the review`, async ({ page }) => {
+  const who = account();
+  await desk(page);
+  // The book has moved since the review in step 6, so the price is taken again now.
+  const price = await topBid();
+  const amount = '0.01';
+  await reviewLimit(page, 'buy', price, amount);
+  await confirm(page, 'buy');
+  await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
+  await expect(page.locator('tr', { hasText: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }) })).toBeVisible();
+  const orders = await openOrders(who);
+  expect(orders).toHaveLength(1);
+  run.write({ limitBuy: { price, amount, id: orders[0].id } });
+  const balances = await (await api(who)).balances();
+  expect(held(balances, 'USDT')).toBe(times(price, amount));
+});
+
+test(`${J} #8 another TEST trader's crossing sell fills it: fill row with price, amount, fee and maker role`, async ({ page }) => {
+  const who = account();
+  const { price, amount, id } = run.read().limitBuy ?? {};
+  expect(id).toBeTruthy();
+  const other = await api(otherTrader());
+  // The house market maker may cross it first when it requotes; either way the order fills as maker.
+  if ((await openOrders(who)).some((o) => o.id === id)) {
+    // An IOC sell takes the best bids first: if the market maker has bid above this order since, sell through those
+    // too, so the sell reaches this order at its price.
+    const { body } = await bestPrices();
+    const ahead = body.bids.filter(([p]) => toUnits(p) > toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+    const sell = await other.post('/api/v1/orders', {
+      symbol: 'BTC/USDT',
+      type: 'limit',
+      side: 'sell',
+      amount: fromUnits(ahead + toUnits(amount)),
+      price,
+      timeInForce: 'IOC',
+      clientOrderId: `${J}-8-${id}`,
+    });
+    expect(sell.status).toBeLessThan(300);
+  }
+  await expect.poll(async () => (await openOrders(who)).length, { timeout: 20_000 }).toBe(0);
+  const after = await (await api(who)).balances();
+  const cost = times(price, amount);
+  // Funded 1000, nothing else has moved yet: the buyer paid exactly price x amount and holds nothing.
+  expect(toUnits('1000') - toUnits(after.USDT.total)).toBe(cost);
+  expect(toUnits(after.BTC?.total ?? '0')).toBeGreaterThan(0n);
+  expect(held(after, 'USDT')).toBe(0n);
+  await desk(page);
+  await page.locator('[role=tab]', { hasText: 'Trade history' }).click();
+  const row = page.locator('tr', { hasText: /Maker/ }).first();
+  await expect(row).toContainText(Number(price).toLocaleString('en-US', { minimumFractionDigits: 2 }));
+  await expect(row).toContainText(/0\.08%|fee/i);
+});
+
+test(`${J} #9 places a market buy: it fills inside its protection price and leaves no hold`, async ({ page }) => {
+  const who = account();
+  const before = await (await api(who)).balances();
+  await desk(page);
+  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
+  await previewed(page, () => page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001'));
+  await page.getByRole('button', { name: 'Buy BTC' }).click();
+  const review = reviewSheet(page);
+  await expect(review).toContainText(/Price protection/);
+  await confirm(page, 'buy');
+  await expect
+    .poll(async () => toUnits((await (await api(who)).balances()).BTC?.total ?? '0') - toUnits(before.BTC?.total ?? '0'), {
+      timeout: 20_000,
+    })
+    .toBeGreaterThan(0n);
+  const after = await (await api(who)).balances();
+  expect(held(after, 'USDT')).toBe(0n);
+});
+
+test(`${J} #10 rests a limit buy away from the market, cancels it, cancels it again`, async ({ page }) => {
+  const who = account();
+  await desk(page);
+  const { bid } = await bestPrices();
+  const away = fromUnits(((toUnits(bid) * 9n) / 10n / toUnits('1')) * toUnits('1')); // 90% of the bid, whole USDT;
+  await reviewLimit(page, 'buy', away, '0.001');
+  await confirm(page, 'buy');
+  const [order] = await openOrders(who);
+  expect(order).toBeTruthy();
+  await page.locator('[role=tab]', { hasText: 'Open orders' }).click();
+  const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US', { minimumFractionDigits: 2 }) });
+  await row.getByRole('button', { name: 'Cancel' }).click();
+  const sure = page.getByRole('button', { name: /cancel order|yes|confirm/i });
+  if (await sure.count()) await sure.first().click();
+  await expect(row).toHaveCount(0);
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+  // The repeat is refused with the order's terminal state, and moves nothing.
+  const again = await (await api(who)).delete(`/api/v1/orders/${order.id}?symbol=BTC%2FUSDT`);
+  expect(again.status).toBe(409);
+  expect(JSON.stringify(again.body)).toMatch(/is cancelled/);
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+});
+
+test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the realised result`, async ({ page }) => {
+  const who = account();
+  await signIn(page, who);
+  await page.goto('/money/pnl');
+  const main = page.locator('main').first();
+  await expect(main).toContainText('BTC');
+  await expect(main).toContainText(/open/i);
+  await page.goto(DESK);
+  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
+  await page
+    .getByRole('textbox', { name: 'Price' })
+    .nth(1)
+    .fill(await underBid());
+  // The sell side's Max: every whole step of the BTC held.
+  await previewed(page, () => page.getByRole('button', { name: 'Max' }).last().click());
+  await page.getByRole('button', { name: 'Sell BTC' }).click();
+  await expect(reviewSheet(page)).toBeVisible();
+  await confirm(page, 'sell');
+  // What is left is below the market's amount step (0.00001 BTC).
+  await expect
+    .poll(async () => toUnits((await (await api(who)).balances()).BTC?.total ?? '0'), { timeout: 20_000 })
+    .toBeLessThan(toUnits('0.00001'));
+  await page.goto('/money/pnl');
+  await expect(main).toContainText(/Realised/);
+  await expect(main).toContainText(/[+−-]\$[\d,]+\.\d{2}/);
+  await expect(main).toContainText(/not tax advice/i);
+});
+
+test(`${J} #12 opens Withdraw for TEST 10 USDT and is refused up front with the named blocker; nothing is held`, async ({ page }) => {
+  const who = account();
+  const before = await (await api(who)).balances();
+  await signIn(page, who);
+  await page.goto('/uc/withdraw');
+  const main = page.locator('main').first();
+  // The rail is named before any step-up: no payout rail is connected, so the form refuses up front.
+  await expect(main).toContainText('New withdrawal unavailable');
+  await expect(main).toContainText(/Sending money out of INTAFACED .* isn.t connected/);
+  await page.getByLabel('Amount').fill('10');
+  await expect(page.getByRole('button', { name: 'Review withdrawal' })).toBeDisabled();
+  await expect(main).toContainText('No withdrawals yet');
+  const after = await (await api(who)).balances();
+  expect(held(after, 'USDT')).toBe(held(before, 'USDT'));
+  expect(free(after, 'USDT')).toBe(free(before, 'USDT'));
+});

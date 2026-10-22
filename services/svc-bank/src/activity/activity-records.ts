@@ -1,3 +1,4 @@
+import { SavedFilterService } from './saved-filters.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
@@ -29,7 +30,12 @@ function isUnique(err: unknown): boolean {
 }
 
 export class ActivityRecordService {
-  constructor(private readonly sql: Sql) {}
+  /** Saved `activity.list` filters (BK-acct-07). Same connection; no money. */
+  readonly savedFilters: SavedFilterService;
+
+  constructor(private readonly sql: Sql) {
+    this.savedFilters = new SavedFilterService(sql);
+  }
 
   async forItems(userId: string, items: readonly ActivityRecordRef[]): Promise<ReadonlyMap<string, ActivityAnnotation>> {
     const out = new Map<string, ActivityAnnotation>();

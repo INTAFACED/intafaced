@@ -563,6 +563,10 @@ export type TradeErrorCode =
   /** Mark policy key blank at creation. Names `AlgoMarkPolicy.maxAgeSeconds`. */
   | 'trade.algo_mark_policy_unset'
   | 'trade.algo_insufficient_balance'
+  /** CB-bots-10: the owner has not set the verification level bots need. Every bot create refuses. */
+  | 'trade.bots_verification_level_not_set'
+  /** CB-bots-10: the caller's verification tier is below the owner's level for bots. `data.required` names it. */
+  | 'trade.bots_verification_insufficient'
   /** Ledger balance read failed at creation. Never treated as enough funds. */
   | 'trade.algo_balance_unreadable'
   | 'trade.algo_child_refused'

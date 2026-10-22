@@ -15,6 +15,14 @@ import {
 } from './serving.js';
 import { userCopy } from './user-copy.js';
 import { withReadSpan } from './tracing.js';
+import {
+  INDEXER_EXPLORER_LIST_LIMIT_UNSET,
+  INDEXER_EXPLORER_UNWIRED,
+  PROTOCOL_NOT_FOUND,
+  listPage,
+  toRow,
+  type ExplorerBlocksSource,
+} from './explorer/blocks.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -176,6 +184,8 @@ export interface IndexerRouterDeps {
    * (`APP_ENV=prod`). Fixture ABI then refuses data paths.
    */
   readonly claimLiveClob?: boolean;
+  /** D-explorer-01 block facts + owner list limit. Absent => `indexer.explorer_unwired`. */
+  readonly explorer?: ExplorerBlocksSource;
 }
 
 /**
@@ -218,10 +228,87 @@ function assertServing(indexer: Indexer, chainSource: string, venue?: string | n
   }
 }
 
+const explorerBlockRowSchema = z.object({
+  chainId: z.number().int(),
+  height: z.number().int(),
+  hash: z.string(),
+  gasUsed: z.string(),
+  gasLimit: z.string(),
+  baseFeePerGas: z.string().nullable(),
+  utilisation: z.string().nullable(),
+  miner: z.string(),
+  txCount: z.number().int(),
+  size: z.number().int(),
+  timestamp: z.number().int(),
+  orphaned: z.object({ reason: z.string() }).nullable(),
+});
+
+function explorerOrRefuse(deps: IndexerRouterDeps): ExplorerBlocksSource {
+  assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
+  if (!deps.explorer) {
+    throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+  }
+  return deps.explorer;
+}
+
 export function createIndexerRouter(deps: IndexerRouterDeps) {
   const { store, indexer } = deps;
 
   return router({
+    explorer: router({
+      blocks: router({
+        /** Descending from the head; owner-bounded window; orphans kept with reason. */
+        list: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.object({
+              chainId: z.number().int(),
+              cursor: z.number().int().min(0).optional(),
+              limit: z.number().int().min(1).optional(),
+            }),
+          )
+          .output(z.object({ rows: z.array(explorerBlockRowSchema), nextCursor: z.number().int().nullable(), asOf: z.string() }))
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              const owner = explorer.listLimit;
+              if (!owner.ok) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: userCopy(INDEXER_EXPLORER_LIST_LIMIT_UNSET) });
+              }
+              // Owner limit bounds the window: a larger caller limit is clamped, not refused.
+              const limit = Math.min(input.limit ?? owner.limit, owner.limit);
+              const paged =
+                input.chainId === deps.chainId ? await listPage(explorer, { cursor: input.cursor, limit }) : { rows: [], nextCursor: null };
+              const page = { rows: paged.rows.map(toRow), nextCursor: paged.nextCursor };
+              return { ...page, asOf: new Date().toISOString() };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /** By height (canonical first) or hash. Unknown => NOT_FOUND, never null. */
+        get: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(
+            z.union([
+              z.object({ chainId: z.number().int(), height: z.number().int().min(0) }),
+              z.object({ chainId: z.number().int(), hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }),
+            ]),
+          )
+          .output(explorerBlockRowSchema)
+          .query(async ({ input }) => {
+            try {
+              const explorer = explorerOrRefuse(deps);
+              const match =
+                input.chainId !== deps.chainId
+                  ? null
+                  : await explorer.block('hash' in input ? { hash: input.hash.toLowerCase() } : { height: input.height });
+              if (!match) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
+              return toRow(match);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+    }),
+
     health: publicProcedure.output(indexerHealthHonestySchema).query(() =>
       indexerHealthHonesty({
         ingestEnabled: deps.ingestEnabled(),
