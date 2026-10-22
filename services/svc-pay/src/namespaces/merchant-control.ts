@@ -35,6 +35,7 @@ import {
 import { guarded } from './control-errors.js';
 import { notBuilt } from './errors.js';
 import { merchantReserveViewSchema } from '../merchant-pay-dev-out/reserve-read.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * `merchantControl.*` — the merchant-facing control room.
@@ -64,7 +65,7 @@ async function assertLimitAsk(control: ControlService, principal: Principal, mer
 }
 
 export function createMerchantControlRouter(control?: ControlService) {
-  const read = scopedProcedure('pay:read', { module: 'pay' });
+  const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const payout = scopedProcedure('pay:payout', { module: 'pay' });
 

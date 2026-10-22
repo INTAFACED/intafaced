@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import {
   router,
-  scopedProcedure,
   TRPCError,
   payHaltStatusInputSchema,
   payHaltStatusSchema,
@@ -20,6 +19,7 @@ import { allowMerchantRead } from '../merchant-read-access.js';
 import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { assertMerchantOwnership, type MerchantOwnerLookup } from '../merchant-ownership.js';
 import { founderProcedure, type FounderContext } from './founder-procedure.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * `payHalts.*` (W5).
@@ -74,7 +74,7 @@ function mapError(error: unknown): never {
 }
 
 export function createPayHaltsRouter(founderAuthority: FounderAuthority, deps?: PayHaltsDeps) {
-  const read = scopedProcedure('pay:read', { module: 'pay' });
+  const read = ownMerchantRead();
   const founder = founderProcedure(founderAuthority);
   return router({
     payHalts: router({

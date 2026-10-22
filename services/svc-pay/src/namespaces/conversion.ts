@@ -15,6 +15,7 @@ import { mapConversionError } from '../conversion/errors.js';
 import type { ConversionService } from '../conversion/service.js';
 import { toTrpcError } from './control-errors.js';
 import { notBuilt } from './errors.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * `conversion.*` — USD to USDT, sandbox only.
@@ -23,7 +24,7 @@ import { notBuilt } from './errors.js';
  * With no service wired, every procedure stays `pay.not_built`.
  */
 export function createConversionRouter(conversion?: ConversionService) {
-  const read = scopedProcedure('pay:read', { module: 'pay' });
+  const read = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const execute = scopedProcedure('pay:payout', { module: 'pay' });
   if (!conversion) {
