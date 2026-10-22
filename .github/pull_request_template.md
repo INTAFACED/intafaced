@@ -5,7 +5,8 @@ Title: <type>(<scope>): <what changed>
    AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol) needs a ci: or gate: title.
 
 Keep it small. One service per PR. If describing it needs the word "and", it is
-two PRs.
+two PRs. A slice is the exception: its contracts or events, one service and that
+service's screen land as one PR.
 -->
 
 ## What changed
@@ -27,7 +28,7 @@ two PRs.
 ## Checks
 
 - [ ] Ran on my machine before pushing: affected tests, typecheck, `pnpm exec prettier --check` on changed files
-- [ ] Small and focused: one service
+- [ ] Small and focused: one service (a slice may also carry its contracts or events and its screen)
 - [ ] No balance held outside the ledger; value moves only through `packages/ledger-client`
 - [ ] Cross-service calls go through `packages/contracts` or `packages/events`
 - [ ] Migrations have a `.down.sql` reversal

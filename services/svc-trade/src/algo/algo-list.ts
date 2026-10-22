@@ -16,8 +16,15 @@ export const TRADE_ALGO_LIST_CURSOR_INVALID = 'trade.algo_list_cursor_invalid' a
 
 const STATUSES: readonly AlgoStatus[] = ['active', 'paused', 'cancelled', 'completed', 'halted'];
 
+/** Kinds a caller may filter "My bots" by. `grid` and `dca` have no engine yet, so they list empty. */
+export const ALGO_LIST_KINDS = ['twap', 'vwap', 'pov', 'grid', 'dca'] as const;
+export type AlgoListKind = (typeof ALGO_LIST_KINDS)[number];
+export const TRADE_ALGO_LIST_KIND_INVALID = 'trade.algo_list_kind_invalid' as const;
+
 export interface AlgoListQuery {
   readonly status?: string | null;
+  /** Bot kind filter for "My bots" (CB-bots-01). Grid and DCA list empty until their engines ship. */
+  readonly kind?: string | null;
   readonly from?: string | null;
   readonly limit?: number | null;
   readonly cursor?: string | null;
@@ -140,9 +147,16 @@ export async function listAlgoParents(
     }
     status = query.status as AlgoStatus;
   }
+  let kind: AlgoListKind | null = null;
+  if (query.kind != null && query.kind.trim() !== '') {
+    if (!(ALGO_LIST_KINDS as readonly string[]).includes(query.kind)) {
+      throw new DeskError(`algo list kind "${query.kind}" is not a bot kind`, TRADE_ALGO_LIST_KIND_INVALID);
+    }
+    kind = query.kind as AlgoListKind;
+  }
   const cursor = query.cursor == null || query.cursor.trim() === '' ? null : decodeAlgoCursor(query.cursor);
   const cursorAt = cursor ? new Date(cursor.createdAt) : null;
-  const rows = await selectParents(sql, principal.userId, from, status, cursorAt, cursor?.id ?? null, limit + 1);
+  const rows = await selectParents(sql, principal.userId, from, status, kind, cursorAt, cursor?.id ?? null, limit + 1);
   const filled = new Map<string, string>();
   for (const row of rows.slice(0, limit)) {
     const qty = await sumFillQtyForOrders(sql, childOrderIds(row.children));
@@ -170,6 +184,7 @@ async function selectParents(
   userId: string,
   from: Date,
   status: AlgoStatus | null,
+  kind: AlgoListKind | null,
   cursorAt: Date | null,
   cursorId: string | null,
   limit: number,
@@ -179,7 +194,7 @@ async function selectParents(
       SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
-        AND created_at >= ${from}
+        AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
         AND status = ${status}
         AND (created_at < ${cursorAt} OR (created_at = ${cursorAt} AND id < ${cursorId}))
       ORDER BY created_at DESC, id DESC
@@ -190,7 +205,7 @@ async function selectParents(
     return sql<ParentListRow[]>`
       SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
-      WHERE user_id = ${userId} AND created_at >= ${from} AND status = ${status}
+      WHERE user_id = ${userId} AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind}) AND status = ${status}
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit}
     `;
@@ -200,7 +215,7 @@ async function selectParents(
       SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
       FROM algo_parents
       WHERE user_id = ${userId}
-        AND created_at >= ${from}
+        AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
         AND (created_at < ${cursorAt} OR (created_at = ${cursorAt} AND id < ${cursorId}))
       ORDER BY created_at DESC, id DESC
       LIMIT ${limit}
@@ -209,7 +224,7 @@ async function selectParents(
   return sql<ParentListRow[]>`
     SELECT id, kind, symbol, side, total_qty::text AS total_qty, status, created_at, next_due_at, children
     FROM algo_parents
-    WHERE user_id = ${userId} AND created_at >= ${from}
+    WHERE user_id = ${userId} AND created_at >= ${from} AND (${kind}::text IS NULL OR kind::text = ${kind})
     ORDER BY created_at DESC, id DESC
     LIMIT ${limit}
   `;

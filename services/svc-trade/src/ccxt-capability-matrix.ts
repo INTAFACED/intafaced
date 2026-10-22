@@ -376,6 +376,17 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     notes: 'Serves this matrix + refuseArms JSON — claim ≡ wire for integrators',
   },
 
+  {
+    name: 'fetchFuturesOrderTypes',
+    method: 'GET',
+    path: '/api/v1/futures/order-types',
+    auth: 'public',
+    scope: null,
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: 'Per listed futures market: order types, time in force and flags with available or refused plus the typed code (D-orders-01)',
+  },
+
   // ── Public (REST_ROUTES) ──────────────────────────────────────────────────
   route('fetchMarkets', 'supported', [], 'List listings; paper + schedule flags on wire'),
   route('fetchTicker', 'supported', [], 'BBO + last from book/tape; matching 404 is trade.no_book; never invents 24h stats'),

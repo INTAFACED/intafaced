@@ -34,11 +34,11 @@ Remove only your own worktree, never with `--force`. Never delete a branch. Neve
 
 ## 3 · Pull requests
 
-One service per PR. If describing it needs the word "and", it is two PRs. A cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first.
+One service per PR. If describing it needs the word "and", it is two PRs. A slice is the exception: its contracts or events, one service and that service's screen land as one PR (owner decision 2026-10-22). Any other cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first.
 
 Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
-Review: the author checks their own change, and an independent reviewer checks the exact head. Every PR gets an independent review of the exact head commit. When you review, look in this order:
+Review: the author checks their own change and runs an automated code review on it (for example `/code-review`), answering each finding in the PR body, and, for a money, security or gate-file change, an independent reviewer in a different session checks the exact head commit (AGENTS.md, "Check, then merge" item 2). When you review, look in this order:
 
 1. Does it touch money? Read every line, and check the tests cover the failure branches.
 2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.
