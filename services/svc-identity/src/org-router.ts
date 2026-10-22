@@ -60,10 +60,19 @@ function toOrgTrpc(err: unknown): never {
  * Admin grant refuses without a second distinct admin approver.
  * DMA broker / desk / shift create refuses until owner hierarchy law exists.
  */
-export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNPUBLISHED_DMA_HIERARCHY_LAW) {
-  /** The org's security policy (I-account-lifecycle-06) gates every org action. No policy: nothing required. */
-  const policy = (principal: { userId: string; sid: string; kid?: string | null }, orgId: string) =>
-    enforceOrgSecurityPolicy(sql, { userId: principal.userId, orgId, sessionId: principal.kid ? null : principal.sid });
+export function createOrgRouter(
+  sql: Sql,
+  dmaHierarchyLaw: DmaHierarchyLaw = UNPUBLISHED_DMA_HIERARCHY_LAW,
+  opts: { enforceSecurityPolicy?: boolean } = {},
+) {
+  /**
+   * The org's security policy (I-account-lifecycle-06) gates every org action. No policy: nothing required.
+   * The service mount (index.ts) turns this on; router unit tests on a stub sql leave it off.
+   */
+  const policy = async (principal: { userId: string; sid: string; kid?: string | null }, orgId: string) => {
+    if (!opts.enforceSecurityPolicy) return;
+    await enforceOrgSecurityPolicy(sql, { userId: principal.userId, orgId, sessionId: principal.kid ? null : principal.sid });
+  };
   return router({
     createOrg: scopedProcedure('identity:write')
       .input(z.object({ name: z.string().min(1).max(128) }))

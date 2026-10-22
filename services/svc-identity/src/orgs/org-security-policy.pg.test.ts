@@ -77,7 +77,11 @@ if (!(await postgresAvailable(DATABASE_URL))) {
   const stepUps = new CustomerStepUpService(db.sql, new SqlCustomerStepUpStore(db.sql), auth);
   let idleMax: number | undefined;
   const service = new OrgSecurityPolicyService({ sql: db.sql, approvals, idleMaxSeconds: () => idleMax });
-  const api = mergeRouters(createOrgRouter(db.sql), createOrgSecurityPolicyRouter(service), createStepUpRouter(stepUps));
+  const api = mergeRouters(
+    createOrgRouter(db.sql, undefined, { enforceSecurityPolicy: true }),
+    createOrgSecurityPolicyRouter(service),
+    createStepUpRouter(stepUps),
+  );
 
   let n = 0;
   const unique = () => `op${process.pid}x${++n}`;

@@ -530,7 +530,7 @@ export const appRouter = mergeRouters(
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
-  createOrgRouter(sql, dmaHierarchyLaw),
+  createOrgRouter(sql, dmaHierarchyLaw, { enforceSecurityPolicy: true }),
   createOrgSecurityPolicyRouter(
     new OrgSecurityPolicyService({ sql, approvals: actionApprovals, idleMaxSeconds: () => env.SESSION_IDLE_SECONDS }),
   ),
