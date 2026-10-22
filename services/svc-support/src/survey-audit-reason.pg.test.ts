@@ -14,6 +14,7 @@ const database = `svc_support_survey_audit_${process.pid}_${Math.random().toStri
 if (!database.endsWith('_test') || !/^[a-z0-9_]+$/.test(database)) throw new Error(`refusing ${database}`);
 
 const AT = '2026-10-22T04:00:00.000Z';
+const APPROVAL = { approvedBy: 'founder', approvalId: 'apr-test' };
 const config = {
   scale: { min: 1, max: 5, labels: [] },
   followUp: null,
@@ -46,13 +47,22 @@ afterAll(async () => {
 describe('survey audit reason (PG)', () => {
   it('logs the reason and actor for create and change, and refuses edits to the log', async () => {
     const book: SurveyBook = new SqlSurveyBook(sql, undefined, 3);
-    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, reason: 'launch csat', by: 'lead-a', at: AT });
+    const first = await book.configure({
+      surveyId: null,
+      expectedRevision: 0,
+      config,
+      reason: 'launch csat',
+      by: 'lead-a',
+      approval: APPROVAL,
+      at: AT,
+    });
     await book.configure({
       surveyId: first.surveyId,
       expectedRevision: 1,
       config: { ...config, sendAfterMinutes: 30 },
       reason: 'faster send',
       by: 'lead-b',
+      approval: APPROVAL,
       at: AT,
     });
     const rows = await sql<{ revision_after: number; set_by: string; reason: string }[]>`

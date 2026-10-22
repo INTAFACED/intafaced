@@ -63,7 +63,7 @@ export function surveyProcedures(
         const actorId = ctx.principal!.userId;
         const actor = (await support.listStaff()).find((member) => member.userId === actorId);
         if (actor?.role !== 'lead') throw new TRPCError({ code: 'FORBIDDEN', message: userCopy('support.not_lead') });
-        let approvedBy: string;
+        let approval: { approvedBy: string; approvalId: string };
         try {
           const ids = readApprovalIds(input);
           const payloadHash = surveyConfigurePayloadHash(input);
@@ -90,7 +90,7 @@ export function surveyProcedures(
               'action_approval.consume_failed',
             );
           }
-          approvedBy = consumed.approverId;
+          approval = { approvedBy: consumed.approverId, approvalId: ids.approvalId };
         } catch (err) {
           if (err instanceof ActionApprovalConsumeError) {
             throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
@@ -98,7 +98,7 @@ export function surveyProcedures(
           throw err;
         }
         try {
-          const survey = await book.configure({ ...input, by: actorId, approvedBy, at: new Date().toISOString() });
+          const survey = await book.configure({ ...input, by: actorId, approval, at: new Date().toISOString() });
           return { ...survey, emailDelivery: SUPPORT_SURVEY_EMAIL_DELIVERY };
         } catch (err) {
           // User copy on `message`; the machine code rides on `cause.code`.

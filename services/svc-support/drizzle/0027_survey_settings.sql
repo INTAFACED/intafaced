@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS "support"."survey_log" (
   "config" jsonb NOT NULL,
   "set_by" text NOT NULL,
   "reason" text NOT NULL CHECK (char_length("reason") BETWEEN 1 AND 500),
-  -- Identity action approval consumed for this configure (the router always supplies both; the approver is never set_by).
-  "approved_by" text CHECK ("approved_by" IS NULL OR "approved_by" <> "set_by"),
-  "approval_id" text,
+  -- Identity action approval consumed for this configure: always present, and the approver is never set_by.
+  "approved_by" text NOT NULL CHECK (char_length("approved_by") >= 1 AND "approved_by" <> "set_by"),
+  "approval_id" text NOT NULL CHECK (char_length("approval_id") >= 1),
   "set_at" timestamptz NOT NULL
 );
 

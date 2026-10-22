@@ -101,7 +101,7 @@ describe('configureSurvey founder approval (PG)', () => {
     expect(rows.map((r) => ({ ...r }))).toEqual([
       { revision_after: 1, set_by: LEAD, reason: 'Launch CSAT', approved_by: FOUNDER, approval_id: ok.approvalId },
     ]);
-    await expect(sql`INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, approved_by, set_at)
-      VALUES ('k-self', ${s.surveyId}, 9, '{}', ${LEAD}, 'r', ${LEAD}, ${AT})`).rejects.toThrow(/check/i);
+    await expect(sql`INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, approved_by, approval_id, set_at)
+      VALUES ('k-self', ${s.surveyId}, 9, '{}', ${LEAD}, 'r', ${LEAD}, 'apr-x', ${AT})`).rejects.toThrow(/check/i);
   });
 });

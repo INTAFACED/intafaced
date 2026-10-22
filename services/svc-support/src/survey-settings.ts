@@ -61,8 +61,8 @@ export function checkSurveyCap(cap: number | null, existing: number): void {
 export interface SurveyConfigure extends SupportSurveyConfigureInput {
   readonly by: string;
   readonly at: string;
-  /** The founder who approved this configure (consumed identity action approval). */
-  readonly approvedBy?: string | null;
+  /** The consumed identity action approval: the founder who approved and the approval id. Required on every write. */
+  readonly approval: { readonly approvedBy: string; readonly approvalId: string };
 }
 
 /** One audit row per configure: who, why, and who approved. */
@@ -72,8 +72,8 @@ export interface SurveyLogEntry {
   readonly revisionAfter: number;
   readonly setBy: string;
   readonly reason: string;
-  readonly approvedBy: string | null;
-  readonly approvalId: string | null;
+  readonly approvedBy: string;
+  readonly approvalId: string;
 }
 
 export interface SurveyBook {
@@ -139,8 +139,8 @@ export class MemorySurveyBook implements SurveyBook {
       revisionAfter: next.revision,
       setBy: input.by,
       reason: input.reason,
-      approvedBy: input.approvedBy ?? null,
-      approvalId: input.approvalId ?? null,
+      approvedBy: input.approval.approvedBy,
+      approvalId: input.approval.approvalId,
     });
     return next;
   }
@@ -216,7 +216,7 @@ export class SqlSurveyBook implements SurveyBook {
       await tx`
         INSERT INTO support.survey_log (key, survey_id, revision_after, config, set_by, reason, approved_by, approval_id, set_at)
         VALUES (${surveyKey(surveyId, revision)}, ${surveyId}, ${revision}, ${tx.json(input.config as never)}, ${input.by}, ${input.reason},
-          ${input.approvedBy ?? null}, ${input.approvalId ?? null}, ${input.at})`;
+          ${input.approval.approvedBy}, ${input.approval.approvalId}, ${input.at})`;
       return { surveyId, revision, active: true, config: input.config, updatedAt: new Date(input.at).toISOString() };
     }) as Promise<SupportSurvey>;
   }

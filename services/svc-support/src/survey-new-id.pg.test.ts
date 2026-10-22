@@ -14,6 +14,7 @@ const database = `svc_support_survey_newid_${process.pid}_${Math.random().toStri
 if (!database.endsWith('_test') || !/^[a-z0-9_]+$/.test(database)) throw new Error(`refusing ${database}`);
 
 const AT = '2026-10-22T04:00:00.000Z';
+const APPROVAL = { approvedBy: 'founder', approvalId: 'apr-test' };
 const config = {
   scale: { min: 1, max: 5, labels: [] },
   followUp: null,
@@ -51,7 +52,7 @@ const books: [string, string, () => SurveyBook][] = [
 describe.each(books)('survey create under a client id (%s)', (_kind, newSurveyId, make) => {
   it('uses the id, replays the same config without a second survey, and refuses a different config', async () => {
     const book = make();
-    const create = { surveyId: null, newSurveyId, expectedRevision: 0, config, reason: 'r', by: 'lead', at: AT };
+    const create = { surveyId: null, newSurveyId, expectedRevision: 0, config, reason: 'r', by: 'lead', approval: APPROVAL, at: AT };
     const first = await book.configure(create);
     expect(first).toMatchObject({ surveyId: newSurveyId, revision: 1, active: true, config });
 
