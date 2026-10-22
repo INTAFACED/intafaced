@@ -8,6 +8,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import type { Principal } from '@intafaced/auth';
 import { describe, expect, it, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import { P2pService, P2pError } from './p2p-service.js';
+import { rateOf } from './user-center.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { createP2pRouter } from './router.js';
@@ -204,7 +205,7 @@ describe('svc-p2p user center (P-ads-merchant-20)', () => {
     expect(buyer.ordersTotal).toBe(stats.ordersTotal);
   });
 
-  it('zero history is honest zeros and null averages', async () => {
+  it('zero history is honest zeros, null rates and null averages', async () => {
     const stats = await createP2pRouter(p2p, instruments)
       .createCaller(sign(['p2p:read'], OTHER))
       .merchants.stats();
@@ -213,8 +214,8 @@ describe('svc-p2p user center (P-ads-merchant-20)', () => {
       completed: 0,
       cancelled: 0,
       disputed: 0,
-      completionRate: 0,
-      cancelRate: 0,
+      completionRate: null,
+      cancelRate: null,
       avgReleaseSecs: null,
       avgPaySecs: null,
       volume: [],
@@ -316,5 +317,17 @@ describe('svc-p2p user center (P-ads-merchant-20)', () => {
     await expect(router.createCaller(sign(['p2p:read'], OTHER)).reputation.get({ userId: MAKER })).resolves.toMatchObject({
       tradesTotal: 0,
     });
+  });
+});
+
+describe('rateOf', () => {
+  it('is null with no denominator, never a false 0%', () => {
+    expect(rateOf(0, 0)).toBeNull();
+    expect(rateOf(3, 0)).toBeNull();
+  });
+  it('a real zero stays 0 and other rates round to four decimals', () => {
+    expect(rateOf(0, 4)).toBe(0);
+    expect(rateOf(1, 3)).toBe(0.3333);
+    expect(rateOf(4, 4)).toBe(1);
   });
 });

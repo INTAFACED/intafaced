@@ -27,10 +27,10 @@ export interface OwnStats {
   readonly completed: number;
   readonly cancelled: number;
   readonly disputed: number;
-  /** completed / ordersTotal to four decimals; 0 with no history. */
-  readonly completionRate: number;
-  /** escrowed cancellations / ordersTotal to four decimals; 0 with no history. */
-  readonly cancelRate: number;
+  /** completed / ordersTotal to four decimals; null with no history (blank is not zero). */
+  readonly completionRate: number | null;
+  /** escrowed cancellations / ordersTotal to four decimals; null with no history. */
+  readonly cancelRate: number | null;
   /** Seller side: escrow lock to release. Null with no sample. */
   readonly avgReleaseSecs: number | null;
   /** Buyer side: escrow lock to "marked paid". Null with no sample. */
@@ -38,8 +38,9 @@ export interface OwnStats {
   readonly volume: VolumeRow[];
 }
 
-export function rateOf(part: number, whole: number): number {
-  if (whole <= 0) return 0;
+/** Null when there is no denominator: a new user has no rate, not a 0% rate. */
+export function rateOf(part: number, whole: number): number | null {
+  if (whole <= 0) return null;
   return Math.round((part / whole) * 10_000) / 10_000;
 }
 
