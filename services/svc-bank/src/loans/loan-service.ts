@@ -417,6 +417,51 @@ export class LoanService {
     return toProduct(rows[0]!);
   }
 
+  /**
+   * Operator product creation (BK-loan-02). The caller names the product id, so
+   * a retried request is the same product: a replay with the same terms returns
+   * the stored row, and the same id with any other term refuses
+   * `bank.loan_product_conflict`. Terms are checked before the insert and an
+   * incoherent set refuses `bank.loan_params_invalid`.
+   */
+  async createProductOnce(input: {
+    productId: string;
+    name: string;
+    debtAssetId: string;
+    collateralAssetId: string;
+    quoteAssetId: string;
+    aprBps: number;
+    maxLtvBps: number;
+    minPrincipal: Amount;
+    policy: LiquidationPolicy;
+  }): Promise<{ product: LoanProductRecord; replayed: boolean }> {
+    assertLoanParams(input);
+    const rows = await this.sql<Array<Record<string, unknown>>>`
+      INSERT INTO bank.loan_products (
+        id, name, debt_asset_id, collateral_asset_id, quote_asset_id, apr_bps, max_ltv_bps,
+        margin_call_ltv_bps, liquidation_ltv_bps, insolvency_ltv_bps, target_ltv_bps,
+        penalty_bps, max_tranche_bps, grace_seconds, min_principal
+      ) VALUES (
+        ${input.productId}, ${input.name}, ${input.debtAssetId}, ${input.collateralAssetId}, ${input.quoteAssetId},
+        ${input.aprBps}, ${input.maxLtvBps}, ${input.policy.marginCallLtvBps}, ${input.policy.liquidationLtvBps},
+        ${input.policy.insolvencyLtvBps}, ${input.policy.targetLtvBps}, ${input.policy.penaltyBps},
+        ${input.policy.maxTrancheBps}, ${input.policy.graceSeconds},
+        ${formatAmount(input.minPrincipal)}::numeric
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *
+    `;
+    if (rows.length > 0) return { product: toProduct(rows[0]!), replayed: false };
+    const stored = await this.product(input.productId);
+    if (!sameProductTerms(stored, input)) {
+      throw new BankError(
+        `Loan product ${input.productId} already exists with different terms; use a new product id`,
+        'bank.loan_product_conflict',
+      );
+    }
+    return { product: stored, replayed: true };
+  }
+
   async listProducts(assetId?: string, limit?: number): Promise<LoanProductRecord[]> {
     const page = assertLoanProductsListLimit(limit);
     const rows = assetId
@@ -3246,6 +3291,54 @@ export class LoanService {
 }
 
 // ── Row mapping ──────────────────────────────────────────────────────────────
+
+/** Every term checked before a product row is written; the operator gets a 400, not a constraint name. */
+export function assertLoanParams(input: {
+  name: string;
+  debtAssetId: string;
+  collateralAssetId: string;
+  quoteAssetId: string;
+  aprBps: number;
+  maxLtvBps: number;
+  minPrincipal: Amount;
+  policy: LiquidationPolicy;
+}): void {
+  const refuse = (why: string): never => {
+    throw new BankError(`Loan product terms are invalid: ${why}`, 'bank.loan_params_invalid');
+  };
+  if (input.name.trim().length === 0) refuse('name is blank');
+  if (input.debtAssetId === input.collateralAssetId) refuse('debt and collateral are the same asset');
+  if (input.aprBps < 0 || input.aprBps > 10_000) refuse('aprBps must be within 0..10000');
+  if (input.maxLtvBps <= 0) refuse('maxLtvBps must be positive');
+  if (input.policy.targetLtvBps <= 0) refuse('targetLtvBps must be positive');
+  if (input.policy.penaltyBps < 0 || input.policy.penaltyBps >= 10_000) refuse('penaltyBps must be within 0..9999');
+  if (input.policy.insolvencyLtvBps > 10_000) refuse('insolvencyLtvBps cannot exceed 10000');
+  if (input.minPrincipal < 0n) refuse('minPrincipal cannot be negative');
+  try {
+    assertPolicyCoherent(input.policy, input.maxLtvBps);
+  } catch (err) {
+    refuse(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function sameProductTerms(stored: LoanProductRecord, input: Omit<LoanProductRecord, 'id' | 'status'> & { productId: string }): boolean {
+  return (
+    stored.name === input.name &&
+    stored.debtAssetId === input.debtAssetId &&
+    stored.collateralAssetId === input.collateralAssetId &&
+    stored.quoteAssetId === input.quoteAssetId &&
+    stored.aprBps === input.aprBps &&
+    stored.maxLtvBps === input.maxLtvBps &&
+    stored.minPrincipal === input.minPrincipal &&
+    stored.policy.marginCallLtvBps === input.policy.marginCallLtvBps &&
+    stored.policy.liquidationLtvBps === input.policy.liquidationLtvBps &&
+    stored.policy.insolvencyLtvBps === input.policy.insolvencyLtvBps &&
+    stored.policy.targetLtvBps === input.policy.targetLtvBps &&
+    stored.policy.penaltyBps === input.policy.penaltyBps &&
+    stored.policy.maxTrancheBps === input.policy.maxTrancheBps &&
+    stored.policy.graceSeconds === input.policy.graceSeconds
+  );
+}
 
 function toProduct(row: Record<string, unknown>): LoanProductRecord {
   return {

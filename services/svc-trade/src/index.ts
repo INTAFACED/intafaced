@@ -127,6 +127,7 @@ import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
 import { loadOtcMakerDirectory } from './otc/maker-directory.js';
+import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
@@ -291,6 +292,15 @@ const otc = new OtcDeskService(ledger, otcStakes, {
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
+  convertBounds: (() => {
+    try {
+      return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
+    } catch (err) {
+      // A malformed setting must not stop all trading: log it and leave both flows refusing.
+      process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
+      return undefined;
+    }
+  })(),
   store: new SqlOtcQuoteStore(sql),
   makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
     process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),

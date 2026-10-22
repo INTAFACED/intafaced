@@ -32,6 +32,13 @@ import {
   type OtcSide,
 } from './rfq.js';
 import { planOtcSettle, postOtcSettle } from './settle.js';
+import {
+  assertOtcConvertBounds,
+  describeOtcConvertBounds,
+  NO_OTC_CONVERT_BOUNDS,
+  type OtcConvertBounds,
+  type OtcConvertFlow,
+} from './otc-convert-bounds.js';
 import { assertOtcStakeGate, otcStakeGate } from './stake-gate.js';
 import type { OtcStakeSource } from './stake-source.js';
 import { MemoryOtcQuoteStore, type OtcQuoteStore } from './quote-store.js';
@@ -50,6 +57,8 @@ export interface OtcDeskServiceOptions {
   liveObservationFeed?: boolean;
   /** Boot wiring honesty — separates flag-off from flag-on-but-unwired. */
   midFeedWiring?: OtcMidFeedWiringStatus;
+  /** Owner amount bounds for one-click buy and convert at OTC pricing (CB-otc-12). Absent → both refuse. */
+  convertBounds?: OtcConvertBounds;
   /** Durable quote table. Tests inject MemoryOtcQuoteStore; boot uses SQL. */
   store?: OtcQuoteStore;
   /** Owner provider directory (CB-otc-01). Absent → "No providers set" and requests refuse. */
@@ -60,6 +69,7 @@ export interface OtcDeskServiceOptions {
 export class OtcDeskService {
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly store: OtcQuoteStore;
+  private readonly convertBounds: OtcConvertBounds;
   private readonly law: OtcDeskLaw;
   private readonly platformCounterpartyId: string;
   private readonly midSource: OtcMidSource;
@@ -81,6 +91,7 @@ export class OtcDeskService {
     this.midFeedWiring = options.midFeedWiring ?? null;
     this.store = options.store ?? new MemoryOtcQuoteStore();
     this.makerDirectory = options.makerDirectory ?? UNPUBLISHED_OTC_MAKER_DIRECTORY;
+    this.convertBounds = options.convertBounds ?? NO_OTC_CONVERT_BOUNDS;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -112,6 +123,33 @@ export class OtcDeskService {
         midFeed: this.midFeedWiring?.residual ?? (this.liveObservationFeed ? null : OTC_MID_FEED_RESIDUAL),
       },
     };
+  }
+
+  /** Owner bounds for the two OTC-priced flows; null per flow when not set. */
+  convertBoundsStatus() {
+    return describeOtcConvertBounds(this.convertBounds);
+  }
+
+  /**
+   * One-click large buy / convert at OTC pricing (CB-otc-12): the owner bounds
+   * gate first, then the ordinary desk quote (same stake gate, mid, spread,
+   * expiry). Accept and settle are the existing `trade.otc.accept` / `settle`.
+   */
+  async convertQuote(
+    principal: Principal,
+    input: { flow: OtcConvertFlow; side: OtcSide; baseAsset: string; quoteAsset: string; qty: string },
+  ) {
+    if (input.flow === 'oneClickBuy' && input.side !== 'buy') {
+      throw new OtcError('One-click buy only buys; use convert to sell', 'trade.convert_flow_side_refused');
+    }
+    assertOtcConvertBounds(this.convertBounds, input.flow, parseRequiredOtcSize(input.qty));
+    const quote = await this.quote(principal, {
+      side: input.side,
+      baseAsset: input.baseAsset,
+      quoteAsset: input.quoteAsset,
+      qty: input.qty,
+    });
+    return { flow: input.flow, ...quote };
   }
 
   async quote(
