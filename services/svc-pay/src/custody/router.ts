@@ -51,6 +51,8 @@ export interface CustodyRouterDeps {
   readonly utxoNode?: UtxoNode;
   /** The sweep broadcaster (W-custody-ops-05). Omitted: `sweeps.execute` refuses `rail.crypto` and the intent row stays. */
   readonly sweepBroadcaster?: SweepBroadcaster;
+  /** Owner-set stale time for a stalled sweep send (PAY_CUSTODY_SWEEP_STALE_SECONDS). null/absent = not set. */
+  readonly sweepStaleAfterSeconds?: number | null;
   /** The chain reader for block height and hash (W-custody-ops-11). Omitted: `tx.get` shows `unwired`. */
   readonly chainReader?: TxChainReader;
   /** W-custody-ops-12 ports. Omitted: boost/replace/drop refuse `rail.crypto`, and cancel and reverse say they are not connected. */
@@ -83,7 +85,11 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
  */
 export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
-  const sweepService = new CustodySweepService({ sql: deps.sql, broadcaster: deps.sweepBroadcaster });
+  const sweepService = new CustodySweepService({
+    sql: deps.sql,
+    broadcaster: deps.sweepBroadcaster,
+    staleAfterSeconds: deps.sweepStaleAfterSeconds ?? null,
+  });
   const service = new CustodyService({ sql: deps.sql });
   const feeRouters = createCustodyFeesRouters(founder, new CustodyFeesService({ sql: deps.sql, estimator: deps.feeEstimator }), actorOf);
   const utxoRouters = createCustodyUtxoRouters(

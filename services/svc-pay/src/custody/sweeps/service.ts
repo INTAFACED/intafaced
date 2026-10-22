@@ -4,6 +4,7 @@ import { transaction } from '@intafaced/db';
 import { CustodyTaskExecutionError } from '../approvals/errors.js';
 import type { TaskExecutor } from '../approvals/service.js';
 import { CustodySweepError } from './errors.js';
+import { SWEEP_TRIGGERS } from './schemas.js';
 import type { SweepDueView, SweepPolicySetInput, SweepPolicyView, SweepView } from './schemas.js';
 
 /**
@@ -133,6 +134,11 @@ export class CustodySweepService {
     private readonly deps: {
       readonly sql: Sql;
       readonly broadcaster?: SweepBroadcaster;
+      /**
+       * Owner-set seconds after which a row left `broadcasting` (a crash after the claim) may be claimed again and
+       * re-sent under its original key. null = not set: such a row refuses `custody_sweep.stale_ttl_unset`.
+       */
+      readonly staleAfterSeconds?: number | null;
     },
   ) {}
 
@@ -147,6 +153,8 @@ export class CustodySweepService {
     ) {
       invalid('networkId, assetId and reason are required');
     }
+    if (!input.networkId.trim() || !input.assetId.trim()) invalid('networkId and assetId are required');
+    if (!(SWEEP_TRIGGERS as readonly string[]).includes(input.trigger)) invalid(`trigger must be one of ${SWEEP_TRIGGERS.join(', ')}`);
     if (address === '' || /\s/.test(address)) invalid('treasuryAddress is required and has no spaces');
     let amount: string | null = null;
     const others = { amount: input.thresholdAmount, count: input.thresholdCount, schedule: input.scheduleMinutes };
@@ -321,13 +329,26 @@ export class CustodySweepService {
     const broadcaster = this.deps.broadcaster;
     if (!broadcaster)
       throw new CustodySweepError('rail.crypto', 'Sweeping to treasury needs rail.crypto. It is switched off in this build.');
+    const ttl = this.deps.staleAfterSeconds ?? null;
     if (row.status === 'broadcasting') {
-      throw new CustodySweepError('custody_sweep.in_flight', 'this sweep is being sent; its outcome is read back with the same key');
+      if (ttl === null) {
+        throw new CustodySweepError(
+          'custody_sweep.stale_ttl_unset',
+          'this sweep is marked as being sent; taking over a stalled send needs the owner-set stale time, which is not set',
+        );
+      }
+      if (Date.now() - row.updated_at.getTime() < ttl * 1000) {
+        throw new CustodySweepError('custody_sweep.in_flight', 'this sweep is being sent; its outcome is read back with the same key');
+      }
     }
     // Conditional claim to a transitional status: of two concurrent calls only one moves the row and asks the rail.
+    // A row stuck in `broadcasting` past the owner-set stale time (a crash after the claim) is taken over and re-sent
+    // under its original key, which the rail treats as the same send.
     const [claimed] = await this.deps.sql<SweepRow[]>`
       UPDATE pay.custody_sweeps SET status = 'broadcasting', attempts = attempts + 1, last_executed_by = ${actor}, updated_at = now()
-       WHERE id = ${sweepId} AND status IN ('pending', 'failed', 'unknown')
+       WHERE id = ${sweepId}
+         AND (status IN ('pending', 'failed', 'unknown')
+              OR (status = 'broadcasting' AND ${ttl}::int IS NOT NULL AND updated_at < now() - make_interval(secs => ${ttl}::int)))
        RETURNING *`;
     if (!claimed) {
       const now = await this.byId(sweepId);
@@ -371,4 +392,12 @@ export class CustodySweepService {
     const [row] = await this.deps.sql<SweepRow[]>`SELECT * FROM pay.custody_sweeps WHERE id = ${id}`;
     return row!;
   }
+}
+
+/** Reads PAY_CUSTODY_SWEEP_STALE_SECONDS. Blank = not set (null, a stalled send refuses); not a positive integer = boot error. */
+export function loadSweepStaleAfterSeconds(env: Readonly<Record<string, string | undefined>>): number | null {
+  const raw = (env.PAY_CUSTODY_SWEEP_STALE_SECONDS ?? '').trim();
+  if (raw === '') return null;
+  if (!/^[1-9][0-9]{0,6}$/.test(raw)) throw new Error('PAY_CUSTODY_SWEEP_STALE_SECONDS must be a positive whole number of seconds');
+  return Number(raw);
 }

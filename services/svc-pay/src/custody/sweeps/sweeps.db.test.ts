@@ -8,7 +8,7 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MerchantControlError } from '../../merchant-account-controls.js';
 import { createPayNamespaces } from '../../namespaces/index.js';
-import type { SweepBroadcaster, SweepBroadcastResult } from './service.js';
+import { CustodySweepService, type SweepBroadcaster, type SweepBroadcastResult } from './service.js';
 
 /**
  * Sweeps to treasury (W-custody-ops-05) through the real founderAdmin router against a real Postgres. Addresses, amounts
@@ -54,6 +54,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
   let api: any;
   let apiNoRail: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   let founder = 'founder-a';
+  let apiNoTtl: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   const sweeps = () => api.founderAdmin.custody.sweeps;
 
   beforeAll(async () => {
@@ -81,7 +82,11 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       expiresAt: new Date(Date.now() + 3_600_000),
     };
     const ctx = { principal, service: null, region: 'DE', requestId: 'r' };
-    api = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster } }).createCaller(ctx);
+    api = createPayNamespaces({
+      founderAuthority,
+      custody: { sql: db.sql, sweepBroadcaster: broadcaster, sweepStaleAfterSeconds: 60 },
+    }).createCaller(ctx);
+    apiNoTtl = createPayNamespaces({ founderAuthority, custody: { sql: db.sql, sweepBroadcaster: broadcaster } }).createCaller(ctx);
     apiNoRail = createPayNamespaces({ founderAuthority, custody: { sql: db.sql } }).createCaller(ctx);
   }, 120_000);
 
@@ -182,14 +187,66 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     await config().approve({ taskId: task.id, payloadHash: task.payloadHash });
     founder = 'founder-a';
     expect(await sweeps().policy.get(pair)).toMatchObject({ setBy: 'founder-a', approvedBy: ['founder-b'], approvalTaskId: task.id });
-    // A policy task of an unknown kind fails and stores nothing.
+    // A policy task of an unknown kind fails with custody_policy.kind_unknown and stores nothing.
     const bad = await config().propose({ scope: 'policy', title: 'TEST', payload: { kind: 'nope' }, clientRef: `sweep-${randomUUID()}` });
     founder = 'founder-b';
-    await config()
-      .approve({ taskId: bad.id, payloadHash: bad.payloadHash })
-      .catch(() => undefined);
+    await expect(config().approve({ taskId: bad.id, payloadHash: bad.payloadHash })).rejects.toThrow(/no applier for policy kind/);
     founder = 'founder-a';
+    const [failed] = await db.sql`SELECT status, failure_code FROM pay.custody_tasks WHERE id = ${bad.id}`;
+    expect(failed).toMatchObject({ status: 'failed', failure_code: 'custody_policy.kind_unknown' });
     expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(1);
+  });
+
+  it('an applier payload that fails the checks fails the task with custody_sweep.policy_invalid', async () => {
+    for (const payload of [
+      { kind: 'sweep_policy', ...policyBody(), networkId: '  ' },
+      { kind: 'sweep_policy', ...policyBody(), trigger: 'whenever' },
+    ]) {
+      const task = await config().propose({ scope: 'policy', title: 'TEST', payload, clientRef: `sweep-${randomUUID()}` });
+      founder = 'founder-b';
+      await expect(config().approve({ taskId: task.id, payloadHash: task.payloadHash })).rejects.toThrow(/required|trigger must be one of/);
+      founder = 'founder-a';
+      const [row] = await db.sql`SELECT status, failure_code FROM pay.custody_tasks WHERE id = ${task.id}`;
+      expect(row).toMatchObject({ status: 'failed', failure_code: 'custody_sweep.policy_invalid' });
+    }
+    expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
+  });
+
+  it('the applier refuses approvers_missing when the task carries no recorded approval', async () => {
+    const svc = new CustodySweepService({ sql: db.sql });
+    const payload = { kind: 'sweep_policy', ...policyBody() };
+    await expect(
+      svc.policyApplier({
+        taskId: randomUUID(),
+        idempotencyKey: 'custody-task:TEST',
+        kind: 'config',
+        scope: 'policy',
+        payload,
+        payloadHash: 'TEST',
+        initiator: 'founder-a',
+      } as never),
+    ).rejects.toMatchObject({ code: 'custody_sweep.approvers_missing' });
+    expect(await db.sql`SELECT 1 FROM pay.custody_sweep_policy_events`).toHaveLength(0);
+  });
+
+  it('a send stalled in broadcasting (crash after the claim): refused in flight until the stale time, then taken over under the same key', async () => {
+    await setPolicy(policyBody());
+    const s = await sweeps().create({ depositId: await deposit('credited') });
+    // Crash simulation: the claim committed, the process died before the rail answered.
+    await db.sql`UPDATE pay.custody_sweeps SET status = 'broadcasting', attempts = 1, updated_at = now() WHERE id = ${s.id}`;
+    expect((await refused(sweeps().execute({ sweepId: s.id }))).message).toMatch(/custody_sweep\.in_flight/);
+    expect((await refused(apiNoTtl.founderAdmin.custody.sweeps.execute({ sweepId: s.id }))).message).toMatch(
+      /custody_sweep\.stale_ttl_unset/,
+    );
+    expect(sent).toHaveLength(0);
+    await db.sql`UPDATE pay.custody_sweeps SET updated_at = now() - interval '61 seconds' WHERE id = ${s.id}`;
+    // Not set: still refused, never defaulted.
+    expect((await refused(apiNoTtl.founderAdmin.custody.sweeps.execute({ sweepId: s.id }))).message).toMatch(
+      /custody_sweep\.stale_ttl_unset/,
+    );
+    expect(await sweeps().execute({ sweepId: s.id })).toMatchObject({ status: 'broadcast', attempts: 2 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.idempotencyKey).toBe(`sweep:${s.depositId}:treasury`);
   });
 
   it('two concurrent executes: exactly one asks the rail; the other is refused in flight', async () => {

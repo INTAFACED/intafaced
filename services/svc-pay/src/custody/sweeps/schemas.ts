@@ -23,8 +23,8 @@ export const sweepPolicySetInputSchema = z
 /** The payload to propose as a custody `config` task with scope `policy`. */
 export const sweepPolicyPayloadViewSchema = z.object({
   kind: z.literal('sweep_policy'),
-  networkId: z.string(),
-  assetId: z.string(),
+  networkId: z.string().trim().min(1),
+  assetId: z.string().trim().min(1),
   trigger: z.enum(SWEEP_TRIGGERS),
   thresholdAmount: z.string().nullable(),
   thresholdCount: z.number().int().nullable(),
