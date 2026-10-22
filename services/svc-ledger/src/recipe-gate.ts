@@ -731,6 +731,18 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.subAccountTransfer({ transferId: 'st1', fromSubAccountId: S1, toSubAccountId: S2, assetId: 'USDT', amount: AMT }),
     },
     {
+      name: 'payReceivedHold',
+      post: recipes.payReceivedHold({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'payReceivedRelease',
+      post: recipes.payReceivedRelease({ holdId: 'rh1', userId: U, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
+    },
+    {
+      name: 'payReceivedReturn',
+      post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
+    },
+    {
       name: 'marketPurchase',
       post: recipes.marketPurchase({
         purchaseId: 'mp1',
