@@ -9,11 +9,11 @@
  * exception), and party delivery. Lead D77: there is NO direct svc-p2p to
  * svc-notify call here; delivery waits for the event outbox or a lead ruling.
  *
- * The database claim must be one atomic statement; `CLAIM_SQL_SHAPE` documents
+ * The database claim must be one atomic statement; `CLAIM_UPSERT_SQL_SHAPE` documents
  * it, and `decideClaim` is the same rule for tests and for reading a row.
  */
 
-import { assertStage, type DisputeStage } from './dispute-stage.js';
+import { assertStage, MAX_DISPUTE_SECONDS, type DisputeStage } from './dispute-stage.js';
 
 export type CaseworkCode =
   'p2p.case_claimed' | 'p2p.request_expired' | 'p2p.not_the_addressee' | 'p2p.config_unset' | 'p2p.invalid_stage' | 'p2p.dispute_resolved';
@@ -44,6 +44,8 @@ function requireSeconds(v: number | null | undefined, what: string): number {
   if (typeof v !== 'number' || !Number.isSafeInteger(v) || v <= 0) {
     throw new CaseworkError(`${what} is not set.`, 'p2p.config_unset');
   }
+  // Engineering input guard shared with the stage timers (dispute-stage.ts MAX_DISPUTE_SECONDS).
+  if (v > MAX_DISPUTE_SECONDS) throw new CaseworkError(`${what} is out of range.`, 'p2p.config_unset');
   return v;
 }
 
@@ -142,18 +144,14 @@ export function decideClaim(a: Assignment, agentId: string, leaseSeconds: number
  * claim works without a pre-existing row and 0 rows unambiguously means held
  * (`p2p.case_claimed`). The database clock (`now()`) is the only authority;
  * `decideClaim`'s caller-supplied `now` is for tests and display only.
- * UNPROVEN until the Postgres concurrency test runs.
+ * `$lease` is bound as integer seconds via `make_interval(secs => …)` (a bare
+ * integer cannot be added to a timestamptz). Atomicity: dispute-casework.pg.test.ts.
  */
 export const CLAIM_UPSERT_SQL_SHAPE =
-  'INSERT INTO p2p.p2p_dispute_assignments (dispute_id, agent_id, lease_until) VALUES ($id, $agent, now() + $lease) ' +
+  'INSERT INTO p2p.p2p_dispute_assignments (dispute_id, agent_id, lease_until) VALUES ($id, $agent, now() + make_interval(secs => $lease)) ' +
   'ON CONFLICT (dispute_id) DO UPDATE SET agent_id = EXCLUDED.agent_id, lease_until = EXCLUDED.lease_until ' +
   'WHERE p2p_dispute_assignments.agent_id IS NULL OR p2p_dispute_assignments.lease_until <= now() ' +
   'OR p2p_dispute_assignments.agent_id = EXCLUDED.agent_id RETURNING agent_id';
-
-/** Superseded by CLAIM_UPSERT_SQL_SHAPE (UPDATE-only needs an existing row). The single atomic statement the claim must use once the table exists (no read-then-write). */
-export const CLAIM_SQL_SHAPE =
-  'UPDATE p2p.p2p_dispute_assignments SET agent_id = $agent, lease_until = $until ' +
-  'WHERE dispute_id = $id AND (agent_id IS NULL OR lease_until <= now() OR agent_id = $agent) RETURNING agent_id';
 
 export type SlaBadge = 'no_target' | 'on_track' | 'due_soon' | 'overdue';
 

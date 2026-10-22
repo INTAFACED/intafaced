@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   answerInfoRequest,
   CaseworkError,
-  CLAIM_SQL_SHAPE,
   currentAgent,
   decideClaim,
   expireInfoRequest,
@@ -75,10 +74,9 @@ describe('P-disputes-security-05 claim with lease', () => {
     expect(decideClaim(a, 'a2', 300, at(300)).agentId).toBe('a2');
   });
 
-  it('blank lease refuses; the SQL claim is one conditional UPDATE', () => {
+  it('blank lease refuses', () => {
     expect(code(() => decideClaim(free, 'a1', null, T0))).toBe('p2p.config_unset');
     expect(code(() => decideClaim(free, '', 300, T0))).toBe('p2p.case_claimed');
-    expect(CLAIM_SQL_SHAPE).toMatch(/^UPDATE .* WHERE .*agent_id IS NULL OR lease_until <= now\(\).* RETURNING/);
   });
 
   it('blank SLA target → no colouring; set target → on_track, due_soon, overdue', () => {
