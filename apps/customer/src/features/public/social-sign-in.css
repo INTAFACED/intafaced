@@ -1,0 +1,13 @@
+.public-auth-social {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.public-auth-social > p {
+  margin: 0;
+}
+
+.public-auth-social > .button {
+  width: 100%;
+}

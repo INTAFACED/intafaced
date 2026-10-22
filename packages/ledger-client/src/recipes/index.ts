@@ -18,6 +18,7 @@ import { orderHoldAmend } from './order-hold-amend.js';
 import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
+import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
@@ -767,10 +768,16 @@ export function escrowLock(input: EscrowInput): PostRequest {
  * stays `p2p.escrow.release:<tradeId>` so svc-p2p can adopt attribution without
  * a key migration.
  */
-export function escrowRelease(input: EscrowInput & { feeBps?: number; ruling?: EscrowDisputeRuling }): PostRequest {
+export function escrowRelease(input: EscrowInput & { feeBps: number; ruling?: EscrowDisputeRuling }): PostRequest {
   requirePositive('escrow amount', input.amount);
   assertEscrowDisputeRuling(input.ruling, 'escrowRelease');
-  const feeBps = input.feeBps ?? 0;
+  // A blank fee is not a zero fee: the caller passes the trade's own feeBps
+  // (0 explicitly when the trade carries none). Defaulting to 0 would pay the
+  // buyer the house's fee on any caller that forgot it.
+  const feeBps = input.feeBps;
+  if (feeBps === undefined || feeBps === null) {
+    throw new InvalidEntryError('escrow feeBps is required; pass 0 explicitly for a fee-free release');
+  }
   // Same class as tradeFill: an unbound feeBps at 10000 gives the buyer nothing;
   // above that the buyer leg goes negative and is refused four layers down with a
   // message that says nothing about fees (STOP §4.2b #2). Refuse here, clearly.
@@ -1265,6 +1272,7 @@ export * from './chargeback.js';
 export * from './order-hold-amend.js';
 export * from './futures-order-margin.js';
 export * from './pay-received-hold.js';
+export * from './bank-transfer-reversal.js';
 export {
   marketPurchase,
   marketListingFee,
@@ -1360,6 +1368,7 @@ export const recipes = {
   payReceivedHold,
   payReceivedRelease,
   payReceivedReturn,
+  bankTransferReversal,
   // §8.7 market — purchase (live) + listing/premium fees (§13 unwired; D26-P1-M2).
   // Flagged shared-package. No existing recipe body was rewritten for the fee legs.
   marketPurchase,

@@ -153,6 +153,12 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): held funds to the payer on a ruling. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  bankTransferReversal: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

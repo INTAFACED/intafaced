@@ -36,6 +36,9 @@ import {
   type OfferLimitPolicy,
 } from './merchant-limits.js';
 import { isActiveMerchant, programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
+import { COMPLETION_DEFINITION } from './completion-rate.js';
+import { DISPLAY_STATUSES, ORDER_TABS, displayStatus, tabOf } from './order-list.js';
+import { EXPORT_FORMATS } from './export-receipt.js';
 import type { MerchantEvent, MerchantRecord, MerchantService } from './merchant-service.js';
 import { BlockRfqError, type BlockRfqService } from './block-rfq.js';
 import { refuseLiveOffersUntilOwnerKms } from './instrument-kms.js';
@@ -244,6 +247,19 @@ const disputeOutput = z.object({
   lastSeenByModeratorAt: z.string().nullable(),
 });
 
+const appealOutput = z.object({
+  id: z.string().uuid(),
+  userId: z.string(),
+  tradeId: z.string().uuid(),
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submittedAt: z.string(),
+  reviewDueAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+});
+
 const ownStatsOutput = z.object({
   ordersTotal: z.number().int().nonnegative(),
   completed: z.number().int().nonnegative(),
@@ -282,6 +298,16 @@ const reputationOutput = z.object({
   }),
   /** Released trades this person was a party to in the last 30 days. Counted here, not invented. */
   trades30d: z.number().int().nonnegative(),
+  /** P-trade-orders-21: decimal-string percents ("95.24"); null when nothing is counted. Definition in `completionDefinition`. */
+  completionRate30d: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionRateTotal: z
+    .string()
+    .regex(/^\d{1,3}\.\d{2}$/)
+    .nullable(),
+  completionDefinition: z.object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() }),
   /** Buyer side: average seconds from escrow lock to "marked paid". Null with no sample, never 0-as-fast. */
   avgPaySecs: z.number().int().nonnegative().nullable(),
   /** Order reviews arrive with P-ads-merchant-21. Until then there is no rating, and none is invented. */
@@ -410,6 +436,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_list_limit_unset':
       case 'p2p.late_settlements_list_limit_unset':
       case 'p2p.trade_list_limit_unset':
+      case 'p2p.config_unset':
+      case 'p2p.export_format_unbuilt':
       case 'p2p.ops_offers_limit_unset':
       case 'p2p.ops_trades_limit_unset':
       case 'p2p.ops_count_invalid':
@@ -451,10 +479,20 @@ function toTrpcError(err: unknown): TRPCError {
       // out of a database it could honestly report on, wrote nothing, and the
       // caller can simply ask again — which is what a conflict is.
       case 'p2p.erase_raced':
+      case 'p2p.appeal_used':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'p2p.receipt_quota_reached':
+        return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
+      case 'p2p.reason_required':
+      case 'p2p.appeal_not_eligible':
+      case 'p2p.cursor_invalid':
+      case 'p2p.filter_invalid':
+      case 'p2p.export_range_too_large':
+      case 'p2p.export_too_many_rows':
+      case 'p2p.receipt_not_available':
       case 'p2p.ops_cursor_invalid':
       case 'p2p.chat_text_required':
       case 'p2p.export_range_invalid':
@@ -1073,6 +1111,50 @@ export function createP2pRouter(
         .query(async ({ ctx, input }) => guard(async () => (await p2p.listTrades(ctx.principal.userId, input?.limit)).map(toTradeOut))),
 
       /**
+       * P-trade-orders-13: the order list. Keyset paging newest first,
+       * filters {tab, asset, side, from, to, orderId prefix}, true per-tab
+       * counts from a count query, and a server-derived `displayStatus` so
+       * labels are never guessed on the client. Read-only.
+       */
+      page: merchantApiProcedure('p2p:read')
+        .input(
+          z.object({
+            /** Optional so omit reaches the named `p2p.trade_list_limit_unset` refusal. */
+            limit: z.number().int().min(1).max(200).optional(),
+            cursor: z.string().max(512).optional(),
+            tab: z.string().max(32).optional(),
+            asset: z.string().max(32).optional(),
+            side: z.string().max(8).optional(),
+            from: z.string().max(40).optional(),
+            to: z.string().max(40).optional(),
+            orderId: z.string().max(64).optional(),
+          }),
+        )
+        .output(
+          z.object({
+            trades: z.array(tradeOutput.extend({ tab: z.enum(ORDER_TABS), displayStatus: z.enum(DISPLAY_STATUSES) })),
+            nextCursor: z.string().nullable(),
+            counts: z.object({
+              in_progress: z.number().int().nonnegative(),
+              in_dispute: z.number().int().nonnegative(),
+              completed: z.number().int().nonnegative(),
+              cancelled: z.number().int().nonnegative(),
+            }),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const { limit, cursor, ...filter } = input;
+            const out = await p2p.pageTrades({ userId: ctx.principal.userId, limit, cursor, filter });
+            return {
+              trades: out.trades.map((t) => ({ ...toTradeOut(t), tab: tabOf(t.status), displayStatus: displayStatus(t) })),
+              nextCursor: out.nextCursor,
+              counts: out.counts,
+            };
+          }),
+        ),
+
+      /**
        * What a take would lock, before it locks anything. Exact decimals from
        * the offer and the published fee. No row is written.
        */
@@ -1115,13 +1197,52 @@ export function createP2pRouter(
           }),
         ),
 
-      /** The caller's own trades in a time range, as CSV. No other person's rows. */
+      /**
+       * P-trade-orders-14: export under owner range and row caps
+       * (`P2P_EXPORT_MAX_RANGE_DAYS`, `P2P_EXPORT_MAX_ROWS`; blank refuses
+       * `p2p.config_unset`), one audit row per export, totals as decimal
+       * strings. CSV only; xlsx/pdf refuse `p2p.export_format_unbuilt`.
+       */
       export: merchantApiProcedure('p2p:read')
-        .input(z.object({ from: z.string().min(1), to: z.string().min(1) }))
-        .output(z.object({ csv: z.string(), rows: z.number().int().nonnegative() }))
+        .input(z.object({ from: z.string().min(1), to: z.string().min(1), format: z.enum(EXPORT_FORMATS).optional() }))
+        .output(
+          z.object({
+            csv: z.string(),
+            rows: z.number().int().nonnegative(),
+            format: z.literal('csv'),
+            totals: z.array(z.object({ asset: z.string(), fiatCurrency: z.string(), amount: amountString, fiatAmount: amountString })),
+          }),
+        )
         .query(async ({ ctx, input }) =>
-          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to })),
+          guard(async () => p2p.exportTrades({ userId: ctx.principal.userId, from: input.from, to: input.to, format: input.format })),
         ),
+
+      /** P-trade-orders-14: receipt for one released trade, as data, under owner quotas. */
+      receipt: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().uuid() }))
+        .output(
+          z.object({
+            receipt: z.object({
+              tradeId: z.string().uuid(),
+              offerId: z.string().uuid(),
+              role: z.enum(['buyer', 'seller']),
+              asset: z.string(),
+              amount: amountString,
+              fiatCurrency: z.string(),
+              fiatAmount: amountString,
+              price: amountString,
+              feeBps: z.number().int().nonnegative(),
+              method: z.string(),
+              createdAt: z.string(),
+              escrowedAt: z.string().nullable(),
+              fiatSentAt: z.string().nullable(),
+              resolvedAt: z.string().nullable(),
+            }),
+            dailyRemaining: z.number().int().nonnegative(),
+            tradeRemaining: z.number().int().nonnegative(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) => guard(async () => p2p.tradeReceipt({ userId: ctx.principal.userId, tradeId: input.tradeId }))),
 
       /**
        * WHERE TO SEND THE MONEY. The only path to a seller's account details.
@@ -2391,6 +2512,18 @@ export function createP2pRouter(
     }),
 
     reputation: router({
+      /** P-trade-orders-21: the caller's one-time completion appeal; null while still available. */
+      myAppeal: merchantApiProcedure('p2p:read')
+        .output(appealOutput.nullable())
+        .query(async ({ ctx }) => guard(async () => p2p.myCompletionAppeal(requireUser(ctx)))),
+
+      appeal: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().uuid(), reason: z.string().max(2000) }))
+        .output(appealOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => p2p.submitCompletionAppeal({ userId: requireUser(ctx), tradeId: input.tradeId, reason: input.reason })),
+        ),
+
       /**
        * §6.2 → §4.1. The numbers a counterparty sees before they trade with
        * you, and the same numbers that feed the XP graph raising limits
@@ -2407,7 +2540,13 @@ export function createP2pRouter(
             await p2p.assertNotBlocked(requireUser(ctx), input.userId);
             const r = await p2p.reputationOf(input.userId);
             const record = merchants ? await merchants.get(input.userId) : null;
-            const reputationDoor = reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants)));
+            const rates = await p2p.completionRatesOf(input.userId);
+            const reputationDoor = {
+              ...reputationOnPublicDoor(r, programmeVouch(record?.status, Boolean(merchants))),
+              completionRate30d: rates.completionRate30d,
+              completionRateTotal: rates.completionRateTotal,
+              completionDefinition: COMPLETION_DEFINITION,
+            };
             const trades30d = await p2p.tradesInWindow(input.userId);
             const { avgPaySecs } = await p2p.payTimingOf(input.userId);
             const door = { ...reputationDoor, avgPaySecs, rating: null, verification: null as { level: string } | null };

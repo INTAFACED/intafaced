@@ -467,7 +467,15 @@ export const orderCancelled = defineEvent(
   'order',
   'cancelled',
   1,
-  z.object({ orderId: engineOrderIdSchema, marketId: z.string(), remainingQty: amountSchema, sequence: z.number().int() }),
+  z.object({
+    orderId: engineOrderIdSchema,
+    marketId: z.string(),
+    remainingQty: amountSchema,
+    sequence: z.number().int(),
+    // Why it left: the engine's cancel reason (`expired` for a GTD/GTT at its expiry). Absent from older producers;
+    // a consumer reads absent as a plain cancel.
+    reason: z.string().min(1).optional(),
+  }),
   'Order left the book — svc-trade releases the ledger hold.',
 );
 
@@ -833,32 +841,39 @@ export const p2pTradeDisputed = defineEvent(
   'p2p',
   'trade',
   'disputed',
-  1,
+  2,
   z.object({
     tradeId: z.string().uuid(),
     disputeId: z.string().uuid(),
     openedBy: userIdSchema,
+    /**
+     * Version 2 (P-trade-orders-23): both parties ride on the payload so svc-notify can tell the
+     * counterparty, not only the opener. Optional until svc-p2p fills them (its own PR); a consumer
+     * that needs them skips a payload without them rather than guessing a recipient.
+     */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     reason: z.string(),
     moderatorDeadline: z.string().datetime({ offset: true }),
   }),
-  'A trade is contested. Escrow stays locked until a moderator rules or the backstop fires.',
+  'A trade is contested. Escrow stays locked until a moderator rules.',
 );
 
 export const p2pDisputeResolved = defineEvent(
   'p2p',
   'dispute',
   'resolved',
-  1,
+  2,
   z.object({
     disputeId: z.string().uuid(),
     tradeId: z.string().uuid(),
+    /** Version 2 (P-trade-orders-23): both parties get the ruling. Optional until svc-p2p fills them. */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     /**
-     * NOT a user id. The dispute backstop rules as a named system principal
-     * (`system:p2p-backstop`) precisely so an automatic resolution is never
-     * anonymous in the audit trail. Constraining this to a UUID would make the
-     * backstop unable to publish — and since the decision commits before the
-     * ledger post, a failed publish rolls the whole resolution back and leaves
-     * escrow locked. Which is exactly what happened when this was `userIdSchema`.
+     * Who ruled. Kept a non-empty string rather than a user id so a ruling by a named
+     * principal stays publishable; the former `system:p2p-backstop` timer is gone
+     * (svc-p2p `state.ts` header), so in practice this is the moderator's id.
      */
     moderatorId: z.string().min(1),
     resolution: z.enum(['release', 'refund']),
@@ -873,13 +888,81 @@ export const p2pTradeExpired = defineEvent(
   'p2p',
   'trade',
   'expired',
-  1,
+  2,
   z.object({
     tradeId: z.string().uuid(),
+    /** Version 2 (P-trade-orders-23): both parties get the expiry notice. Optional until svc-p2p fills them. */
+    buyerId: userIdSchema.optional(),
+    sellerId: userIdSchema.optional(),
     from: z.string(),
     outcome: z.enum(['released', 'refunded', 'voided', 'disputed']),
   }),
   'A deadline passed and the timeout path acted. Every live state has a clock, and every clock acts.',
+);
+
+/**
+ * P-trade-orders-23. The spec names these `p2p.trade.fiat_sent` and `p2p.chat.message`; the subject
+ * law is <service>.<entity>.<verb> with a closed verb list, so they are spelled with the verb last
+ * (`sent`, added to VERBS with `escalated`). No message text rides on the bus: the chat body stays in
+ * svc-p2p, and a notice only says a message is waiting.
+ */
+export const p2pTradeFiatSent = defineEvent(
+  'p2p',
+  'trade_fiat',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().uuid(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    markedAt: z.string().datetime({ offset: true }),
+  }),
+  'The buyer marked the fiat payment as sent. The seller must check and release; consumers dedupe by event id.',
+);
+
+export const p2pChatMessageSent = defineEvent(
+  'p2p',
+  'chat_message',
+  'sent',
+  1,
+  z.object({
+    tradeId: z.string().uuid(),
+    messageId: z.string().uuid(),
+    senderId: userIdSchema,
+    recipientId: userIdSchema,
+    sentAt: z.string().datetime({ offset: true }),
+  }),
+  'A trade chat message was sent. Carries no message text; the recipient reads it in the order chat.',
+);
+
+/** Shared with P-order-02. Appeal-status notices go to both parties. */
+export const p2pDisputeEscalated = defineEvent(
+  'p2p',
+  'dispute',
+  'escalated',
+  1,
+  z.object({
+    disputeId: z.string().uuid(),
+    tradeId: z.string().uuid(),
+    buyerId: userIdSchema,
+    sellerId: userIdSchema,
+    escalatedBy: z.string().min(1),
+    escalatedAt: z.string().datetime({ offset: true }),
+  }),
+  'A dispute was escalated to the next review level. Escrow stays locked; both parties are told.',
+);
+
+export const p2pQuoteExpired = defineEvent(
+  'p2p',
+  'quote',
+  'expired',
+  1,
+  z.object({
+    quoteId: z.string().uuid(),
+    userId: userIdSchema,
+    expiredAt: z.string().datetime({ offset: true }),
+  }),
+  'A P2P quote passed its firm window unaccepted. Nothing is bound; the requester is told to re-quote.',
 );
 
 export const projectionUpdated = defineEvent(
@@ -1279,6 +1362,10 @@ export const EVENT_CATALOG = {
   p2pTradeDisputed,
   p2pDisputeResolved,
   p2pTradeExpired,
+  p2pTradeFiatSent,
+  p2pChatMessageSent,
+  p2pDisputeEscalated,
+  p2pQuoteExpired,
   projectionUpdated,
 } as const;
 
@@ -1890,6 +1977,62 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'p2pTradeFiatSent',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pTradeFiatSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the buyer-paid notice to the seller in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pChatMessageSent',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pChatMessageSent',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the chat-waiting notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pDisputeEscalated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pDisputeEscalated',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the appeal-status notice to both parties in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+  },
+  {
+    event: 'p2pQuoteExpired',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
+  },
+  {
+    event: 'p2pQuoteExpired',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the re-quote notice in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
   },
   {
     event: 'payCustodyAuditCreated',

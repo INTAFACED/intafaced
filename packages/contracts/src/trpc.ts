@@ -3,6 +3,7 @@ import type { Principal, Scope } from '@intafaced/auth';
 import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth';
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
+import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
 /**
@@ -95,16 +96,33 @@ function causeCode(cause: unknown): string | undefined {
   return undefined;
 }
 
+/** The refusals that carry the seconds to wait. No other error changes shape. */
+const RETRY_AFTER_CODES = new Set(['auth.too_many_attempts', 'auth.email_confirm_rate_limited']);
+
 /**
- * `retryAfterSeconds` of an `auth.too_many_attempts` refusal, so a client can show
- * "try again in N minutes". Only for that one code; no other error changes shape.
+ * `retryAfterSeconds` of an `auth.too_many_attempts` or `auth.email_confirm_rate_limited` refusal, so a client can
+ * show "try again in N minutes".
  */
 export function retryAfterSecondsOf(cause: unknown): number | undefined {
-  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.too_many_attempts') return undefined;
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string' || !RETRY_AFTER_CODES.has(cause.code)) {
+    return undefined;
+  }
   const details = 'details' in cause ? cause.details : undefined;
   if (!details || typeof details !== 'object' || !('retryAfterSeconds' in details)) return undefined;
   const seconds = details.retryAfterSeconds;
   return typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined;
+}
+
+/**
+ * `accountState` of an `auth.account_frozen` refusal: `frozen` (staff can lift it) or `closed` (final). svc-identity
+ * sets it on sign-in only after the password verified. Any other value, or any other code, is dropped.
+ */
+export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.account_frozen') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('accountState' in details)) return undefined;
+  const state = details.accountState;
+  return state === 'frozen' || state === 'closed' ? state : undefined;
 }
 
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
@@ -119,6 +137,18 @@ const ALGO_DECIMAL = /^(0|[1-9]\d*)(\.\d+)?$/;
  * Any other key, or a value that is not that shape, is dropped so a sentence
  * cannot ride out on this field.
  */
+/**
+ * Only on `preview.engine_not_built`. The cause may arrive wrapped by tRPC,
+ * so the five fields are picked and re-checked against the schema; anything
+ * else on the cause is dropped.
+ */
+export function previewRefusalOf(cause: unknown): PreviewRefusal | undefined {
+  if (!cause || typeof cause !== 'object') return undefined;
+  const c = cause as Record<string, unknown>;
+  const picked = { kind: c.kind, code: c.code, engine: c.engine, action: c.action, label: c.label };
+  return isPreviewRefusal(picked) ? picked : undefined;
+}
+
 export function algoRefusalDetails(cause: unknown): Record<string, string> | undefined {
   if (!cause || typeof cause !== 'object' || !('code' in cause) || !('data' in cause)) return undefined;
   const code = (cause as { code?: unknown }).code;
@@ -217,7 +247,9 @@ const t = initTRPC.context<Context>().create({
     const blockers = errorBlockersOf(cause);
     const algo = algoRefusalDetails(cause);
     const allowance = withdrawalAllowanceOf(cause);
+    const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
+    const accountState = accountStateOf(cause);
     return {
       ...shape,
       data: {
@@ -236,12 +268,16 @@ const t = initTRPC.context<Context>().create({
         // Only on a stale profile.compare-and-set, so the client can show the row
         // that won. No other error grows a profile field.
         ...(conflictProfile(cause) ? { profile: conflictProfile(cause) } : {}),
-        // Only on `auth.too_many_attempts`.
+        // Only on `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
+        // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
+        ...(accountState ? { accountState } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.
         ...(allowance ? { allowance } : {}),
+        // Only on `preview.engine_not_built`: kind, code, engine, action, label.
+        ...(preview ? { preview } : {}),
         // Only on `bank.insufficient_funds`.
         ...(spend ? { spend } : {}),
       },

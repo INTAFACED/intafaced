@@ -9,7 +9,15 @@ export function localPgBin(env = process.env) {
   return fs.existsSync('/opt/homebrew/bin/pg_ctl') ? '/opt/homebrew/bin' : '/usr/lib/postgresql/16/bin';
 }
 
-/** One state root for the stack and every helper. Never silently fall back after a typo. */
+/** As root (a cloud container's default user) the database runs as this OS user: initdb and postgres refuse root. */
+export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
+  return uid === 0 ? env.LOCAL_STACK_PG_USER || 'postgres' : null;
+}
+
+/**
+ * One state root for the stack and every helper. Never silently fall back after a typo. As root, set it outside root's
+ * home (for example /var/lib/intafaced/local-test-stack): the database's OS user (localPgOsUser) cannot enter /root.
+ */
 export function localStackState(home = os.homedir(), env = process.env) {
   if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');
   const state = env.LOCAL_STACK_STATE;
@@ -141,4 +149,35 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
     } else if (line.startsWith('n') && listeners.has(pid)) listeners.get(pid).add(line.slice(1));
   }
   return assertStackOwnership({ stateDir, marker, records, postgres, processes, listeners, services });
+}
+
+/** Same file the local stack's identity process writes. */
+export function localEmailOutboxPath(env = process.env, home = os.homedir()) {
+  return path.join(localStackState(home, env), 'email-outbox.log');
+}
+
+/**
+ * Newest LOCAL-TEST confirm link for this address, or null.
+ * Line shape: `LOCAL-TEST purpose=email-confirm email=<email> expires=<iso> link=confirm-email?token=<encoded>` (the customer page; older lines used `confirmEmail`).
+ */
+export function readLatestEmailConfirmToken(text, email) {
+  const want = String(email ?? '')
+    .trim()
+    .toLowerCase();
+  let token = null;
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.includes('LOCAL-TEST') || !line.includes('purpose=email-confirm')) continue;
+    const emailMatch = /(?:^|\s)email=(\S+)/.exec(line);
+    const linkMatch = /(?:^|\s)link=(\S+)/.exec(line);
+    if (!emailMatch || !linkMatch) continue;
+    if (emailMatch[1].toLowerCase() !== want) continue;
+    const q = /[?&]token=([^&\s]+)/.exec(linkMatch[1]);
+    if (!q?.[1]) continue;
+    try {
+      token = decodeURIComponent(q[1]);
+    } catch {
+      token = null;
+    }
+  }
+  return token;
 }

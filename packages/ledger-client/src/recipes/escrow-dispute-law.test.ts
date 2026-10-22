@@ -125,6 +125,7 @@ describe('escrow dispute law (ADR D-S-08) — recipe layer', () => {
       buyerId: BUYER,
       assetId: 'USDT',
       amount: amt('100'),
+      feeBps: 0,
     };
 
     for (const rulingBy of ['system:p2p-backstop', 'timeout', 'automation:p2p', '', 'NOT-A-UUID']) {

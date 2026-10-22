@@ -25,6 +25,7 @@ import {
 } from './deps';
 import type { DeskMarket } from './market';
 import { placesOf } from './text';
+import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
 
 type Mode = 'candles' | 'line';
@@ -171,32 +172,7 @@ export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }
       <TabsPanel value="info" className="dk-chart-body">
         <div className="dk-info">
           <h2>{t('Market rules')}</h2>
-          <dl>
-            <div>
-              <dt>{t('Price step')}</dt>
-              <dd className="if-num">
-                {fmtPrice(market.tickSize, market.tickSize)} {market.quote}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Amount step')}</dt>
-              <dd className="if-num">
-                {fmtAmount(market.lotSize, { places: placesOf(market.lotSize) })} {market.base}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Smallest amount')}</dt>
-              <dd className="if-num">
-                {fmtAmount(market.minAmount, { places: placesOf(market.lotSize) })} {market.base}
-              </dd>
-            </div>
-            <div>
-              <dt>{t('Smallest order value')}</dt>
-              <dd className="if-num">
-                {fmtAmount(market.minCost, { places: 8 })} {market.quote}
-              </dd>
-            </div>
-          </dl>
+          <MarketRulesList market={market} />
           <p>{t('Fee rule')}</p>
         </div>
       </TabsPanel>
