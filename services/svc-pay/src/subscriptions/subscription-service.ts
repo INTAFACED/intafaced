@@ -759,7 +759,9 @@ export class SubscriptionService {
    * returns the record unchanged (setting it twice gives the same answer).
    * A cancelled or completed subscription refuses `pay.subscription_inactive`.
    * Moving a card subscription refuses an inactive or KYB-blocked merchant
-   * (`pay.merchant_inactive` / the KYB gate code) before any write.
+   * (`pay.merchant_inactive` / the KYB gate code) before any write. Setting the
+   * method a subscription already has is a no-op and returns before that check:
+   * nothing is written, and the charge cycle gates every new invoice itself.
    */
   async setCollectionMethod(subscriptionId: string, method: CollectionMethod): Promise<SubscriptionRecord> {
     assertCollectionMethodAvailable(method);
@@ -768,8 +770,8 @@ export class SubscriptionService {
       throw new PayError(`Subscription ${subscriptionId} is ${existing.status}`, 'pay.subscription_inactive');
     }
     if (collectionMethodOf(existing.path) === method) return existing;
-    // Moving onto crypto_invoice opens money on the next cycle (openInvoice has no merchant check):
-    // the same status + KYB cut-off as creating a mandate or subscription.
+    // Moving onto crypto_invoice opens money on the next cycle: the same status + KYB cut-off as
+    // creating a mandate or subscription. The cycle re-checks before opening each invoice.
     this.assertMerchantMayOpenMoney(await this.requireMerchant(existing.merchantId));
     const at = this.now();
     const rows = await this.sql<SubRow[]>`
@@ -1352,6 +1354,15 @@ export class SubscriptionService {
           // never opens a second invoice.
           let paymentId = priorPaymentId;
           if (!paymentId) paymentId = await this.createdPaymentId(tx, sub.id, occurrence);
+          /*
+           * A NEW invoice is new money: refuse it for a merchant that is no
+           * longer active or is KYB-blocked (same cut-off as the mandate and
+           * subscription doors) BEFORE the pre-charge notice. The wired opener
+           * (createPayment) refuses too, but only after the customer was told
+           * of an invoice that never opens. The refusal is a named rejected
+           * cycle; linking an invoice already opened is not gated.
+           */
+          if (!paymentId) this.assertMerchantMayOpenMoney(await this.requireMerchant(sub.merchantId, tx));
           /*
            * SPEC §4 pre-charge notify — record the attempt BEFORE money work,
            * including invoice reuse. Unwired is skipped_unwired, never silent

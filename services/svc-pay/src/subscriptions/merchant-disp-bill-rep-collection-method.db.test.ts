@@ -112,6 +112,17 @@ describe('M-bill-01 setCollectionMethod (Postgres)', () => {
     }
   });
 
+  it('a KYB-rejected merchant cannot move a card subscription onto crypto invoice; the path stays card', async () => {
+    const sub = await subscription('card');
+    await sql`UPDATE pay.merchants SET kyb_status = 'rejected' WHERE id = ${merchantId}`;
+    try {
+      expect(await codeOf(subs.setCollectionMethod(sub.id, 'send_invoice'))).toBe('pay.kyb_required');
+      expect((await subs.getSubscription(sub.id)).path).toBe('card');
+    } finally {
+      await sql`UPDATE pay.merchants SET kyb_status = 'none' WHERE id = ${merchantId}`;
+    }
+  });
+
   it('a cancelled subscription refuses with its state; an unknown id is not found', async () => {
     const sub = await subscription('card');
     await subs.cancelSubscription(sub.id);
