@@ -4,7 +4,9 @@ import {
   LIQUIDATION_FEE_FRACTION_INVALID,
   LIQUIDATION_FEE_LEDGER_JOB_PENDING,
   LIQUIDATION_FEE_UNSET,
+  LIQUIDATION_FEE_FRACTION_ENV,
   liquidationFeeKey,
+  loadLiquidationFeeFraction,
   parseLiquidationFeeFraction,
   planLiquidationFee,
   presentLiquidationFeePlan,
@@ -72,5 +74,24 @@ describe('liquidation fee (D-margin-07)', () => {
   it('fraction below one ulp of notional rounds the fee down, never up', () => {
     const plan = planLiquidationFee({ rungId: 'r', fraction: 1n, notionalClosed: 1n, leftoverCollateral: a('1') });
     expect(plan.fee).toBe(0n);
+  });
+});
+
+describe('loadLiquidationFeeFraction (boot config)', () => {
+  it('unset or blank → null (fee unset)', () => {
+    expect(loadLiquidationFeeFraction({})).toBeNull();
+    expect(loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: '  ' })).toBeNull();
+  });
+
+  it('valid TEST value parses to the scaled fraction; boundaries 0 and 1 accepted', () => {
+    expect(loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: '0.005' })).toBe(parseAmount('0.005'));
+    expect(loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: '0' })).toBe(0n);
+    expect(loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: '1' })).toBe(parseAmount('1'));
+  });
+
+  it('invalid config fails boot with the typed code, never read as no fee', () => {
+    for (const raw of ['abc', '-0.1', '1.000000000000000001', '0.5%']) {
+      expect(() => loadLiquidationFeeFraction({ [LIQUIDATION_FEE_FRACTION_ENV]: raw }), raw).toThrow(LIQUIDATION_FEE_FRACTION_INVALID);
+    }
   });
 });

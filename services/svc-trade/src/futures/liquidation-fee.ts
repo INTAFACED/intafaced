@@ -107,3 +107,16 @@ export function presentLiquidationFeePlan(plan: LiquidationFeePlan): {
     explanation: LIQUIDATION_FEE_EXPLANATION,
   };
 }
+
+export const LIQUIDATION_FEE_FRACTION_ENV = 'TRADE_FUTURES_LIQUIDATION_FEE_FRACTION' as const;
+
+/**
+ * Boot loader for the owner fee fraction. Unset or blank is `null` (fee unset: nothing is charged and the
+ * rung records `fee_unset`). A malformed value fails boot with the typed code: a mistyped owner number is
+ * never read as "no fee" and never clamped.
+ */
+export function loadLiquidationFeeFraction(env: Readonly<Record<string, string | undefined>>): Amount | null {
+  const parsed = parseLiquidationFeeFraction(env[LIQUIDATION_FEE_FRACTION_ENV]);
+  if (!parsed.ok) throw new Error(`${parsed.code}: ${LIQUIDATION_FEE_FRACTION_ENV} ${parsed.message}`);
+  return parsed.fraction;
+}
