@@ -420,6 +420,75 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86_400).optional()),
       /**
+       * Owner-published minimum age to open an account (I-kyc-compliance-06). NO DEFAULT: blank / unset refuses
+       * every sign-up (`identity.age_rule_unset`). Never invent 18.
+       */
+      IDENTITY_SIGNUP_MIN_AGE_YEARS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(25).optional()),
+      /**
+       * Owner-published lifetime of a sign-up code, in seconds. NO DEFAULT: blank / unset refuses every sign-up
+       * (`identity.signup_unwired`), as do the four sign-up numbers below. One day is the ceiling.
+       */
+      IDENTITY_SIGNUP_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong codes allowed per sign-up before it locks. NO DEFAULT (`identity.signup_unwired`).
+       * The ceiling is 5.
+       */
+      IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Owner-published seconds before another sign-up code may be sent. NO DEFAULT (`identity.signup_unwired`).
+       */
+      IDENTITY_SIGNUP_RESEND_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published sign-ups and resends per address per window. NO DEFAULT (`identity.signup_unwired`).
+       * The ceiling is technical, not a default budget.
+       */
+      IDENTITY_SIGNUP_REQUEST_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      /**
+       * The window for IDENTITY_SIGNUP_REQUEST_MAX, in seconds. NO DEFAULT (`identity.signup_unwired`).
+       */
+      IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * The owner's per-country off switch for sign-up: comma-separated ISO country codes. Blank closes none,
+       * because sign-up is open everywhere the sanctions screening allows (owner decision 2026-10-22). A code
+       * that is not two letters refuses boot.
+       */
+      IDENTITY_SIGNUP_CLOSED_COUNTRIES: z.preprocess(
+        (v) =>
+          typeof v === 'string'
+            ? v
+                .split(',')
+                .map((c) => c.trim().toUpperCase())
+                .filter(Boolean)
+            : v === undefined || v === null
+              ? []
+              : v,
+        z.array(z.string().regex(/^[A-Z]{2}$/)),
+      ),
+      /**
        * Optional pin for `waitlist.enabled` / `referral.queue` (packages/config
        * `envVarNameFor`). Unset or blank (compose `${VAR:-}`) follows the drop
        * clock — drop 0 opens both. Explicit `off` refuse-closes capture.
