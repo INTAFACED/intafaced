@@ -118,6 +118,21 @@ export async function loadPage(ctx: FounderCallContext, deskId: OpsDeskId, readI
   return loadRead(ctx, { ...spec, input: { ...spec.input, cursor } });
 }
 
+/** Any set of reads, in parallel, one call per distinct procedure and input; keyed by read id. */
+export async function loadReads(
+  ctx: FounderCallContext,
+  specs: readonly ReadSpec[],
+  now: Date = new Date(),
+): Promise<Record<string, ReadOutcome>> {
+  const groups = new Map<string, ReadSpec[]>();
+  for (const spec of specs) {
+    const key = JSON.stringify([spec.module, spec.procedure, inputFor(spec, now) ?? null, spec.sendEmptyInput === true]);
+    groups.set(key, [...(groups.get(key) ?? []), spec]);
+  }
+  const outcomes = (await Promise.all([...groups.values()].map((group) => loadGroup(ctx, group, now)))).flat();
+  return Object.fromEntries(outcomes.map((o) => [o.id, o]));
+}
+
 /** `sections`, when given, reads only those sections of the desk (the mining desk is the More modules desk's mining section). */
 export async function loadDesk(
   ctx: FounderCallContext,
@@ -126,11 +141,6 @@ export async function loadDesk(
   sections?: readonly string[],
 ): Promise<DeskView> {
   const desk = DESKS[deskId];
-  const groups = new Map<string, ReadSpec[]>();
-  for (const spec of allReads(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk)) {
-    const key = JSON.stringify([spec.module, spec.procedure, inputFor(spec, now) ?? null, spec.sendEmptyInput === true]);
-    groups.set(key, [...(groups.get(key) ?? []), spec]);
-  }
-  const outcomes = (await Promise.all([...groups.values()].map((specs) => loadGroup(ctx, specs, now)))).flat();
-  return { deskId, asOf: now.toISOString(), reads: Object.fromEntries(outcomes.map((o) => [o.id, o])) };
+  const reads = allReads(sections ? { ...desk, sections: desk.sections.filter((s) => sections.includes(s.id)) } : desk);
+  return { deskId, asOf: now.toISOString(), reads: await loadReads(ctx, reads, now) };
 }
