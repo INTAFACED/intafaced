@@ -977,12 +977,14 @@ export function createSupportRouter(
             availability: z.enum(['online', 'busy', 'offline']),
             availabilitySetAt: z.string().nullable(),
             lastHeartbeatAt: z.string().nullable(),
+            /** Desk groups (teams) this member belongs to, sorted by name. */
+            groups: z.array(z.object({ id: z.string(), name: z.string() })),
           }),
         ),
       )
       .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return support.listStaff();
+        return support.listStaffDirectory();
       }),
 
     /** Says whether automatic offline is an owner value or still blank. */

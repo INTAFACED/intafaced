@@ -33,6 +33,9 @@ import { CustodyTxService, type TxChainReader } from './tx/service.js';
 import { createCustodyFeesRouters } from './fees/router.js';
 import { createCustodyPolicyRouters } from './policy/router.js';
 import { CustodyPolicyService } from './policy/service.js';
+import { createCustodySweepRouters } from './sweeps/router.js';
+import { CustodySweepService, SWEEP_POLICY_KIND, type SweepBroadcaster } from './sweeps/service.js';
+import { policyScopeApplier } from './approvals/policy-scope.js';
 import { CustodyFeesService, type FeeEstimator } from './fees/service.js';
 import { CustodyService } from './service.js';
 import { createCustodyUtxoRouters } from './utxo/router.js';
@@ -48,6 +51,10 @@ export interface CustodyRouterDeps {
   readonly feeEstimator?: FeeEstimator;
   /** The UTXO node (W-custody-ops-13). Omitted: `utxo.list`, `utxo.due` and `utxo.consolidate` refuse `rail.crypto`. */
   readonly utxoNode?: UtxoNode;
+  /** The sweep broadcaster (W-custody-ops-05). Omitted: `sweeps.execute` refuses `rail.crypto` and the intent row stays. */
+  readonly sweepBroadcaster?: SweepBroadcaster;
+  /** Owner-set stale time for a stalled sweep send (PAY_CUSTODY_SWEEP_STALE_SECONDS). null/absent = not set. */
+  readonly sweepStaleAfterSeconds?: number | null;
   /** The chain reader for block height and hash (W-custody-ops-11). Omitted: `tx.get` shows `unwired`. */
   readonly chainReader?: TxChainReader;
   /** W-custody-ops-12 ports. Omitted: boost/replace/drop refuse `rail.crypto`, and cancel and reverse say they are not connected. */
@@ -81,6 +88,11 @@ async function wrap<T>(fn: () => Promise<T>): Promise<T> {
 export function createCustodyRouter(deps: CustodyRouterDeps) {
   const founder = founderProcedure(deps.founderAuthority);
   const policyService = new CustodyPolicyService({ sql: deps.sql });
+  const sweepService = new CustodySweepService({
+    sql: deps.sql,
+    broadcaster: deps.sweepBroadcaster,
+    staleAfterSeconds: deps.sweepStaleAfterSeconds ?? null,
+  });
   const service = new CustodyService({ sql: deps.sql });
   const feeRouters = createCustodyFeesRouters(founder, new CustodyFeesService({ sql: deps.sql, estimator: deps.feeEstimator }), actorOf);
   const utxoRouters = createCustodyUtxoRouters(
@@ -89,6 +101,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     actorOf,
   );
   const policyRouters = createCustodyPolicyRouters(founder, policyService, actorOf);
+  const sweepRouters = createCustodySweepRouters(founder, sweepService, actorOf);
   const txRouters = createCustodyTxRouters(founder, new CustodyTxService({ sql: deps.sql, chain: deps.chainReader }), actorOf);
   const stuckRouters = createCustodyStuckRouters(
     founder,
@@ -106,8 +119,16 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     new CustodyApprovalService({
       sql: deps.sql,
       transactionExecutor: deps.transactionExecutor,
-      // The policy applier comes last so a mount cannot replace it.
-      configAppliers: { ...deps.configAppliers, policy: policyService.publishApplier },
+      configAppliers: {
+        ...deps.configAppliers,
+        // Last, so a mount cannot replace it. A `policy` task with no `payload.kind` is a transaction policy publish
+        // (W-custody-ops-07, payload `{ version, rulesHash }`, checked by its own applier); any named kind routes by
+        // `payload.kind`, and an unknown kind fails the task.
+        policy: async (task) => {
+          if (task.payload.kind === undefined) return policyService.publishApplier(task);
+          return policyScopeApplier({ [SWEEP_POLICY_KIND]: sweepService.policyApplier })(task);
+        },
+      },
     }),
     actorOf,
   );
@@ -115,6 +136,7 @@ export function createCustodyRouter(deps: CustodyRouterDeps) {
     ...approvalRouters,
     ...feeRouters,
     ...policyRouters,
+    ...sweepRouters,
     ...utxoRouters,
     ...txRouters,
     ...stuckRouters,

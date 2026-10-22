@@ -13,6 +13,8 @@ import {
   protocolOpsLabelsOutputSchema,
   protocolOpsMetricsInputSchema,
   protocolOpsMetricsOutputSchema,
+  protocolBadgeClaimOutputSchema,
+  protocolBadgeEligibilityOutputSchema,
   publicJurisdictionProcedure,
   publicProcedure,
   router,
@@ -60,6 +62,22 @@ import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
 import { labelsOutput, serviceLabelEntries } from './ops/labels.js';
 import { buildMetrics } from './ops/metrics.js';
+import {
+  badgeClaimKey,
+  badgeEligibility,
+  BadgeRefusedError,
+  claimBadge,
+  BADGE_WINDOW_UNSET,
+  RAIL_CRYPTO,
+  resolveStuckBadgeMint,
+  BADGE_STUCK_APPROVAL_REFUSED,
+  BADGE_STUCK_APPROVAL_UNWIRED,
+  BADGE_STUCK_NOT_STALE,
+  type BadgeApprovalConsumer,
+  type BadgeMinter,
+  type BadgeStore,
+  type BadgeWindow,
+} from './nft/founding-badge.js';
 
 /**
  * svc-protocol's API.
@@ -222,6 +240,17 @@ function toTrpcError(err: unknown): TRPCError {
    * message discarded.
    */
   if (err instanceof TRPCError) return err;
+  if (err instanceof BadgeRefusedError) {
+    const code =
+      err.code === BADGE_STUCK_APPROVAL_REFUSED
+        ? 'FORBIDDEN'
+        : err.code === BADGE_STUCK_NOT_STALE
+          ? 'CONFLICT'
+          : err.code === BADGE_STUCK_APPROVAL_UNWIRED
+            ? 'PRECONDITION_FAILED'
+            : 'BAD_REQUEST';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   /**
    * The chain being absent is not this service failing.
    *
@@ -315,6 +344,22 @@ export interface ProtocolRouterDeps {
   opsWindowSeconds?: () => number | undefined;
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
+  /**
+   * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
+   * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
+   * `mainnet()` is true only for a production network (claims refuse `audit.external`).
+   */
+  badge?: {
+    store: BadgeStore;
+    minter: BadgeMinter;
+    window: () => BadgeWindow | null;
+    mainnet: () => boolean;
+    now?: () => Date;
+    /** Identity four-eyes approval for the operator stuck-mint clear; null/absent = `badge.stuck_approval_unwired`. */
+    approvals?: BadgeApprovalConsumer | null;
+    /** Owner-set stale age (seconds) for the stuck-mint clear; undefined = `badge.stuck_age_unset`. */
+    stuckMintAgeSeconds?: () => number | undefined;
+  };
 }
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
@@ -861,6 +906,103 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           throw toTrpcError(err);
         }
       }),
+
+    // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
+    // Account = signed principal; address = that account's own registered smart account. Never a body field.
+    badge: router({
+      eligibility: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+        .output(protocolBadgeEligibilityOutputSchema)
+        .query(async ({ ctx }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(BADGE_WINDOW_UNSET, 'founding badge is not wired on this service');
+            return await badgeEligibility(
+              { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
+              ctx.principal.userId,
+              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      // `protocol:read` like claimAccount: no platform scope authorises on this plane (no protocol:write by design).
+      // What authorises the claim is the owner key's signature over `badgeClaimMessage`, verified in `claimBadge`.
+      claim: scopedProcedure('protocol:read', { module: 'protocol', plane: 'protocol' })
+        .input(z.object({ signature: hexSchema.optional() }).optional())
+        .output(protocolBadgeClaimOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(RAIL_CRYPTO, `no signer configured for chain ${chain.config.chainId}`);
+            const [own] = await registry.accountsOf(ctx.principal.userId, 1);
+            const r = await claimBadge(
+              { store: b.store, minter: b.minter, window: b.window(), now: b.now ?? (() => new Date()) },
+              ctx.principal.userId,
+              own ? { address: own.address, owner: own.owner } : null,
+              { chainId: chain.config.chainId, mainnet: b.mainnet() },
+              input?.signature ?? null,
+            );
+            return {
+              key: r.key,
+              chainId: r.chainId,
+              to: r.to,
+              txHash: r.txHash,
+              label: r.label,
+              audited: r.audited,
+              mintingSince: r.txHash ? null : (r.mintingSince?.toISOString() ?? null),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      // Operator-only: clear a mint slot stuck after a crash mid-mint. `admin:write` on the protocol plane, plus a
+      // four-eyes svc-identity approval bound to the exact payload; the audit row is written with the clear.
+      resolveStuckMint: scopedProcedure('admin:write', { module: 'protocol', plane: 'protocol' })
+        .input(
+          z
+            .object({
+              accountId: z.string().uuid(),
+              evidence: z.discriminatedUnion('kind', [
+                z.object({ kind: z.literal('minted'), txHash: hexSchema }).strict(),
+                z.object({ kind: z.literal('not_minted'), attestedBy: z.string().max(128), checkedAt: z.string().datetime() }).strict(),
+              ]),
+              reason: z.string().max(500),
+              approvalId: z.string().max(128),
+              operationId: z.string().max(128),
+            })
+            .strict(),
+        )
+        .output(z.object({ cleared: z.boolean(), key: z.string(), txHash: hexSchema.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const b = deps.badge;
+            if (!b) throw new BadgeRefusedError(BADGE_STUCK_APPROVAL_UNWIRED, 'founding badge is not wired on this service');
+            const evidence =
+              input.evidence.kind === 'minted'
+                ? { kind: 'minted' as const, txHash: input.evidence.txHash as `0x${string}` }
+                : { kind: 'not_minted' as const, attestedBy: input.evidence.attestedBy, checkedAt: new Date(input.evidence.checkedAt) };
+            const r = await resolveStuckBadgeMint(
+              {
+                store: b.store,
+                approvals: b.approvals ?? null,
+                staleAfterSeconds: b.stuckMintAgeSeconds?.(),
+                now: b.now ?? (() => new Date()),
+              },
+              {
+                accountId: input.accountId,
+                evidence,
+                reason: input.reason,
+                actorId: ctx.principal.userId,
+                approvalId: input.approvalId,
+                operationId: input.operationId,
+              },
+            );
+            return { cleared: r !== null, key: badgeClaimKey(input.accountId), txHash: r?.txHash ?? null };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
 
     // ── Registry (a read model, not custody) ──────────────────────────────
 

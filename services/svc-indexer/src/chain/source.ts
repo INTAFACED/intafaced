@@ -110,6 +110,21 @@ export interface ChainBlock {
   /** Unix seconds, from the block itself. Not when we observed it. */
   readonly timestamp: number;
   readonly events: readonly ChainEvent[];
+  /**
+   * D-explorer-01 header facts. Absent when the source does not read them
+   * (memory/null sources); never a partially filled object.
+   */
+  readonly header?: ChainBlockHeader;
+}
+
+export interface ChainBlockHeader {
+  readonly gasUsed: bigint;
+  readonly gasLimit: bigint;
+  /** null when the network does not report it (pre-EIP-1559) — never zero. */
+  readonly baseFeePerGas: bigint | null;
+  readonly miner: string;
+  readonly txCount: number;
+  readonly size: number;
 }
 
 export interface ChainSource {

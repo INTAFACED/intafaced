@@ -49,6 +49,7 @@ import { createFounderControlsRouter } from './controls/founder-controls-router.
 import { createOperatorOpsRouter } from './ops/ops-router.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
+import { createMembershipRouter } from './membership/membership-router.js';
 import { OAuthService } from './oauth/oauth.js';
 import { createOAuthRouter } from './oauth/oauth-router.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -65,6 +66,8 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
+import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
 import { requireEnrolledSecondFactor } from './auth/passkey-manage.js';
@@ -94,6 +97,7 @@ import { ProfileService } from './profile/profile-service.js';
 import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -450,6 +454,7 @@ const tradeClosureCheck = httpClosureChecker({
   ...(outS2s ? { s2s: { ...outS2s, audience: 'svc-trade' } } : {}),
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
+const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -495,6 +500,7 @@ export const appRouter = mergeRouters(
     closure,
     subAccountDelete,
     subAccountFeatures,
+    subAccountEdit,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -516,6 +522,7 @@ export const appRouter = mergeRouters(
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
   ),
@@ -545,6 +552,7 @@ export const appRouter = mergeRouters(
     securityStepUp,
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
+  createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.

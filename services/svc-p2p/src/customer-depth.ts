@@ -413,8 +413,11 @@ export async function listContacts(sql: Sql, ownerId: string): Promise<{ followi
 }
 
 export function csvCell(value: string): string {
-  if (/[",\n\r]/.test(value) || /^[=+\-@]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  // Formula injection: a cell a spreadsheet would evaluate (= + - @ tab CR)
+  // is prefixed with ' so it opens as text, then quoted like any other.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(safe) || safe !== value) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 }
 
 export function tradesCsv(

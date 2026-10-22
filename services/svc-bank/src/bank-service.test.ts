@@ -2941,6 +2941,8 @@ describe('svc-bank money PG-hard', () => {
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
         'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',
         'personal_transfer_terms.fee': 'a published POLICY fee, not a collected balance',
+        'limit_increase_requests.requested': 'the limit a customer ASKED for; a request, never a balance',
+        'limit_increase_requests.granted': 'a POLICY ceiling compliance granted one customer; no money path writes it',
         'personal_requests.amount': 'the amount asked for, an instruction until paid',
         'earn_pools.min_deposit': 'a POLICY floor on a single deposit',
         'earn_positions.principal': 'the deposit RECORD; interest is paid to available, never added here',

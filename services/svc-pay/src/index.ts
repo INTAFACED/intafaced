@@ -1,3 +1,4 @@
+import { loadSweepStaleAfterSeconds } from './custody/sweeps/service.js';
 import { randomUUID } from 'node:crypto';
 import { MerchantAccountControls } from './merchant-account-controls.js';
 import { drainPendingPayoutIdentityIntents } from './payout-admission.js';
@@ -613,7 +614,12 @@ export const appRouter = mergeRouters(
     sql,
     depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
-    custody: { sql, withdrawalCanceller: userMoney, droppedReverser: custodyDroppedReverser },
+    custody: {
+      sql,
+      sweepStaleAfterSeconds: loadSweepStaleAfterSeconds(process.env),
+      withdrawalCanceller: userMoney,
+      droppedReverser: custodyDroppedReverser,
+    },
     purchaseHolds: { sql },
     withdrawalQuotes: { sql },
     travelRule: { sql, cipher: travelRuleCipher },
@@ -622,6 +628,7 @@ export const appRouter = mergeRouters(
     allowlist: { service: allowlist },
     starterFee: merchantStarterFee,
     ledger,
+    disputeFundsLedger: ledger,
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     teamEmailInvite,

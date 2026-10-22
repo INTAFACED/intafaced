@@ -11,7 +11,7 @@
  * fallback. Either path returns null rather than inventing.
  */
 import type { Sql } from 'postgres';
-import { formatAmount, type LedgerClient } from '@intafaced/ledger-client';
+import { formatAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import type { EventBus } from '@intafaced/events';
 import type { MatchingClient } from '../spot/matching-client.js';
 import { createJobHost, type JobHost } from './job-host.js';
@@ -71,6 +71,8 @@ export interface FuturesJobsConfig {
   enabled: boolean;
   /** Liquidation scan interval. Default 15s when enabled. */
   liqIntervalMs: number;
+  /** D-margin-07: owner liquidation fee fraction (scaled) or null when unset. Recorded on rungs, never charged. */
+  liquidationFeeFraction?: Amount | null;
   /**
    * Funding tick interval per market. Null = do not schedule funding
    * (D2: never invent an 8h period).
@@ -432,6 +434,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       acceptedMarks,
       ladder,
       ledger: deps.ledger,
+      ...(deps.config.liquidationFeeFraction !== undefined ? { liquidationFeeFraction: deps.config.liquidationFeeFraction } : {}),
       now: deps.now,
       notifyMarginCall,
       // No owner publication of the liquidation age or deviation limit.
