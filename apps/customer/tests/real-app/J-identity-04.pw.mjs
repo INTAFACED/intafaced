@@ -121,3 +121,47 @@ test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and l
   await expect(names.locator('.security__row', { hasText: 'Work laptop' })).toContainText('This device');
   await expect(names.locator('.security__row', { hasText: 'Unnamed passkey' })).toContainText('Security key');
 });
+
+test(`${J} #1 Security opens on a checklist: each method, its status and why an open one matters; money out and security changes are always "Required"`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
+  const who = person('cl');
+  await virtualAuthenticator(page);
+  await signUpInBrowser(page, who);
+
+  await page.goto('/uc/safe');
+  const checklist = page.locator('.security__checklist');
+  const item = (name) => checklist.locator('.security__row').filter({ has: page.getByText(name, { exact: true }) });
+  await expect(item('A second step at sign-in')).toContainText('Not yet');
+  await expect(item('A second step at sign-in')).toContainText('anyone who learns it can sign in');
+  await expect(item('A passkey')).toContainText('Not yet');
+  await expect(item('An authenticator app')).toContainText('Not yet');
+  await expect(item('Recovery codes saved')).toContainText('Not yet');
+  // No owner policy is set on this stack: the floor actions still carry "Required", and nothing else does.
+  await expect(checklist.getByText('Required', { exact: true })).toHaveCount(2);
+  await expect(item('Moving money out')).toContainText('Required');
+  await expect(item('Changing how you sign in or secure your account')).toContainText('Required');
+  await expect(checklist).toContainText('The owner has not set further actions');
+
+  // Turning on an authenticator ticks it, the second step and its recovery codes, on the same page.
+  const { secret, step } = await addAuthenticator(page, totp);
+  await expect(item('An authenticator app')).toContainText('Done');
+  await expect(item('A second step at sign-in')).toContainText('Done');
+  await expect(item('Recovery codes saved')).toContainText('Done');
+  await expect(item('A passkey')).toContainText('Not yet');
+
+  // A passkey after "Confirm it is you" with the code ticks the last one.
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await page.locator('.failure').getByRole('button', { name: 'Confirm it is you' }).click();
+  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+  const { code } = await nextCode(totp, secret, step);
+  await sheet.getByLabel('Authenticator code or recovery code').fill(code);
+  await sheet.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(sheet).toBeHidden();
+  await expect(item('A passkey')).toContainText('Done');
+  await expect(item('A passkey')).toContainText('1 on this account');
+  await expect(checklist.getByText('Not yet', { exact: true })).toHaveCount(0);
+});

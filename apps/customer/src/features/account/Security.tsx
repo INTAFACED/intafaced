@@ -10,6 +10,7 @@ import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
+import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
@@ -89,6 +90,9 @@ export function Security() {
   const [stepUp, setStepUp] = useState<Response | null>(null);
   /** Counts passkeys added or removed here, so the passkey names below load again. */
   const [passkeyRevision, setPasskeyRevision] = useState(0);
+  /** Counts sign-in methods changed on this page, so the checklist loads again. */
+  const [methodsRevision, setMethodsRevision] = useState(0);
+  const methodsChanged = () => setMethodsRevision((value) => value + 1);
   const setupFocus = useRef<{
     intent: Original;
     origin: Element | null;
@@ -110,6 +114,7 @@ export function Security() {
   const passkeysChanged = () => {
     reload();
     setPasskeyRevision((value) => value + 1);
+    methodsChanged();
   };
   useEffect(() => {
     mounted.current = true;
@@ -326,6 +331,8 @@ export function Security() {
     );
     if (!same(intent)) {
       settleOriginalRefusal(registration, answer);
+      // The passkey is stored even if this page moved on; the lists and the checklist still follow it.
+      if (answer.ok && mounted.current) passkeysChanged();
       return;
     }
     known(intent, registration, answer, answer.ok ? 'registered' : undefined);
@@ -362,6 +369,7 @@ export function Security() {
     );
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
+      if (answer.ok && mounted.current) passkeysChanged();
       return;
     }
     known(intent, record, answer, answer.ok ? (answer.data.removed ? 'removed' : 'notRemoved') : undefined);
@@ -423,6 +431,7 @@ export function Security() {
       );
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);
+        if (answer.ok && mounted.current) methodsChanged();
         return;
       }
       known(intent, record, answer, answer.ok ? 'confirmationAccepted' : undefined);
@@ -430,6 +439,7 @@ export function Security() {
       if (answer.ok) {
         setShowKey(false);
         setSetup({ ...prepared, confirmed: true });
+        methodsChanged();
       }
     });
   }
@@ -528,6 +538,7 @@ export function Security() {
     <div lang={languageFor('title')} className="security">
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
         <VerifyEmail />
+        <SecurityChecklist revision={methodsRevision} />
         {uncertainty.map((record) => {
           const preparation = record.kind === 'options' || record.kind === 'setup';
           const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;
@@ -746,7 +757,7 @@ export function Security() {
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
-          <Authenticator />
+          <Authenticator onChanged={methodsChanged} />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <FreezeAccount />
           <CloseAccount />
