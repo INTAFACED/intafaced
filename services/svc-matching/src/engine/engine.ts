@@ -554,12 +554,15 @@ export class MatchingEngine {
   }
 
   /**
-   * Depth for a market, or null if it has never traded.
+   * Depth for a market that holds a book. An opened market with no book yet (never traded, not delisted or expired)
+   * is a live, empty ladder, so its first order can be checked and placed. Any other market is null.
    * `limit` is required. Unset refuses (never invent 50). Owner-explicit 50 is a published window.
    */
   depth(marketId: MarketId, limit?: number | null): ReturnType<OrderBook['depth']> | null {
     const n = publishedEngineL2Limit(limit);
-    return this.existingBook(marketId)?.depth(n) ?? null;
+    const book = this.existingBook(marketId);
+    if (book) return book.depth(n);
+    return this.isListed(marketId) ? { bids: [], asks: [], sequence: 0 } : null;
   }
 
   restingOrders(marketId?: MarketId): readonly EngineLiveOrder[] {

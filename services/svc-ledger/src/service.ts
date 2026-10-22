@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess } from './ledger/operator-owner-balances.js';
+import { toWriteBlockError } from './ledger/write-block.js';
 import {
   LedgerError,
   type AccountRef,
@@ -77,7 +78,12 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         entryCount: request.entries.length,
       },
       async (span) => {
-        const tx = await this.engine.post(request);
+        let tx: LedgerTx;
+        try {
+          tx = await this.engine.post(request);
+        } catch (err) {
+          throw toWriteBlockError(err);
+        }
         span.setAttribute('intafaced.tx_id', tx.id);
 
         // Publish AFTER commit, from the outbox row written in that same

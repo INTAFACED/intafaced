@@ -44,7 +44,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1481 slices left in 21 modules. 278 need no other slice. 47 sit in a dependency loop that the lane untangles first. 351 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 674 M, 104 S.
+1485 slices left in 21 modules. 279 need no other slice. 47 sit in a dependency loop that the lane untangles first. 353 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 678 M, 104 S.
 
 ### Journey map
 
@@ -78,13 +78,13 @@ Done is defined by 462 journeys (3111 steps) in `modules/<module>/acceptance/jou
 
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
-| merchant       | 209    | 35           | 9                             | 105   |
+| merchant       | 210    | 35           | 9                             | 105   |
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
+| ops-console    | 112    | 22           | 41                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| ops-console    | 111    | 21           | 41                            | 66    |
-| bank           | 96     | 40           | 5                             | 57    |
+| bank           | 97     | 40           | 6                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
-| wallet         | 75     | 25           | 25                            | 26    |
+| wallet         | 76     | 25           | 26                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
 | derivatives    | 59     | 10           | 19                            | 28    |
@@ -106,8 +106,8 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 230    | 36           | 11                    | 36                    | 14            |
-| svc-bank                      | 193    | 53           | 35                    | 38                    | 17            |
+| svc-pay merchant              | 231    | 36           | 11                    | 36                    | 15            |
+| svc-bank                      | 194    | 53           | 35                    | 38                    | 18            |
 | svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
 | svc-identity                  | 136    | 29           | 68                    | 40                    | 10            |
 | svc-protocol                  | 75     | 4            | 1                     | 20                    | 3             |
@@ -115,10 +115,10 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 2             |
 | svc-trade futures             | 48     | 8            | 0                     | 9                     | 0             |
+| svc-ops                       | 40     | 10           | 4                     | 0                     | 6             |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
-| svc-ops                       | 39     | 9            | 4                     | 0                     | 5             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
-| svc-pay wallet                | 31     | 9            | 14                    | 10                    | 2             |
+| svc-pay wallet                | 32     | 9            | 14                    | 10                    | 3             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
 | ledger                        | 24     | 9            | 7                     | 2                     | 2             |
 | svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |

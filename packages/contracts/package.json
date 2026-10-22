@@ -77,6 +77,10 @@
     "./custody-approval-tasks": {
       "types": "./dist/custody-approval-tasks.d.ts",
       "default": "./dist/custody-approval-tasks.js"
+    },
+    "./datafeed": {
+      "types": "./dist/datafeed.d.ts",
+      "default": "./dist/datafeed.js"
     }
   },
   "scripts": {

@@ -743,6 +743,19 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
     {
+      name: 'bankTransferReversal',
+      post: recipes.bankTransferReversal({
+        originalKeySpace: 'p2p',
+        transferId: 'tr1',
+        occurrence: 0,
+        consentId: 'c1',
+        originalFrom: fromAvail,
+        originalTo: toAvail,
+        originalAmount: AMT,
+        amount: AMT,
+      }),
+    },
+    {
       name: 'marketPurchase',
       post: recipes.marketPurchase({
         purchaseId: 'mp1',
