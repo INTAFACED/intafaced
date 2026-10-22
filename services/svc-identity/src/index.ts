@@ -18,6 +18,7 @@ import { kycRouterBootOptions } from './kyc/boot-vault.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
+import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
 import { subscribeBlueprintProfileEvents, subscribeXpEvents } from './events.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -174,6 +175,14 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+});
+
+registerAffiliateProducerPayout(app, {
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  freeze,
+  accruals,
+  accrualTierLaw,
+  ledger,
 });
 
 /**
