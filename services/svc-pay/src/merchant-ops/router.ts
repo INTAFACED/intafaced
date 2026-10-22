@@ -22,6 +22,7 @@ import { NOTIFICATION_KINDS, NotificationService } from './notifications.js';
 import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
+import { readDisputeFunds, type DisputeFundsLedger } from './merchant-disp-bill-rep-dispute-funds.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
@@ -55,6 +56,8 @@ export interface MerchantOpsDeps {
   readonly webhooksAllowLocalHttp?: boolean;
   /** Retry window. Unset: retry refuses. No production default. */
   readonly webhookRetry?: WebhookRetryLimit;
+  /** Chargeback transactions by key, for the read-only dispute funds card. Absent: that read refuses. */
+  readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
   readonly teamEmailInvite?: TeamEmailInviteLimit;
   /**
@@ -133,6 +136,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           )
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.list(await callerOf(ctx), input))),
         summary: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().disputes.summary(await callerOf(ctx)))),
+        /** M-disp-01: where the money is. Reads the chargeback posts by their dispute keys; posts nothing. */
+        funds: read
+          .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
+          .query(({ ctx, input }) =>
+            wrapOps(async () =>
+              readDisputeFunds(await callerOf(ctx), deps.disputes ?? defaultDisputeCaseStore, deps.disputeFundsLedger, input.disputeId),
+            ),
+          ),
         get: read
           .input(z.object({ disputeId: z.string().trim().min(1).max(200) }))
           .query(({ ctx, input }) => wrapOps(async () => need().disputes.get(await callerOf(ctx), input.disputeId))),
