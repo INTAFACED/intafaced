@@ -36,7 +36,7 @@ function bind(book: MemoryApprovalBook, approvalId: string, requesterId: string,
 }
 
 function ids(...approvalIds: string[]) {
-  return { approvalIds, operationIds: approvalIds.map((id) => `op-${id}`) };
+  return { approvals: approvalIds.map((approvalId) => ({ approvalId, operationId: `op-${approvalId}` })) };
 }
 
 async function setup(maxAbsRate: string | null = '1', writeAudit?: (row: AuditWrite) => Promise<unknown>) {
@@ -92,6 +92,32 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
       { ...BODY, ...ids('apr-b', '') },
       { ...BODY, ...ids('apr-b', 'x', 'y') },
       { ...BODY, approvalIds: 'apr-b' },
+      // The old parallel-array form is refused: index pairing could silently mispair.
+      { ...BODY, approvalIds: ['apr-b', 'apr-c'], operationIds: ['op-apr-b', 'op-apr-c'] },
+      { ...BODY, approvals: ['apr-b', 'apr-c'] },
+      { ...BODY, approvals: [{ approvalId: 'apr-b' }, { approvalId: 'apr-c', operationId: 'op-apr-c' }] },
+      {
+        ...BODY,
+        approvals: [
+          { approvalId: 'apr-b', operationId: '' },
+          { approvalId: 'apr-c', operationId: 'op-apr-c' },
+        ],
+      },
+      {
+        ...BODY,
+        approvals: [
+          { approvalId: 'apr-b', operationId: 'op-apr-b', extra: 1 },
+          { approvalId: 'apr-c', operationId: 'op-apr-c' },
+        ],
+      },
+      {
+        ...BODY,
+        approvals: [
+          ['apr-b', 'op-apr-b'],
+          ['apr-c', 'op-apr-c'],
+        ],
+      },
+      { ...BODY, approvals: [null, { approvalId: 'apr-c', operationId: 'op-apr-c' }] },
       BODY,
     ]) {
       const res = await t.post(body);
@@ -173,11 +199,68 @@ describe('funding publish needs two distinct approvals (RC-derivatives-01)', () 
     const t = await setup();
     bind(t.book, 'apr-b', 'operator-a', 'operator-b');
     bind(t.book, 'apr-c', 'operator-a', 'operator-c');
-    const res = await t.post({ ...BODY, approvalIds: ['apr-b', 'apr-c'], operationIds: ['op-apr-b', 'op-apr-b'] });
+    const res = await t.post({
+      ...BODY,
+      approvals: [
+        { approvalId: 'apr-b', operationId: 'op-apr-b' },
+        { approvalId: 'apr-c', operationId: 'op-apr-x' },
+      ],
+    });
     expect(res.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_mismatch' });
     expect(t.published).toEqual([]);
     expect(t.audits).toEqual([]);
     await t.app.close();
+  });
+
+  it('swapped operationIds (each paired with the other row) are a mismatch and store nothing', async () => {
+    const t = await setup();
+    bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+    const res = await t.post({
+      ...BODY,
+      approvals: [
+        { approvalId: 'apr-b', operationId: 'op-apr-c' },
+        { approvalId: 'apr-c', operationId: 'op-apr-b' },
+      ],
+    });
+    expect(res.json()).toMatchObject({ error: 'trade.funding_rate_publish_invalid', approvalCode: 'approval_mismatch' });
+    expect(t.published).toEqual([]);
+    expect(t.audits).toEqual([]);
+    await t.app.close();
+  });
+
+  it('pairs in either slot order publish; each slot keeps its own operationId', async () => {
+    const t = await setup();
+    bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+    bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+    const res = await t.post({ ...BODY, ...ids('apr-c', 'apr-b') });
+    expect(res.statusCode).toBe(200);
+    expect(t.published).toHaveLength(1);
+    await t.app.close();
+  });
+
+  it('duplicate approvalId or duplicate operationId across slots → not_distinct before any consume', async () => {
+    for (const approvals of [
+      [
+        { approvalId: 'apr-b', operationId: 'op-apr-b' },
+        { approvalId: 'apr-b', operationId: 'op-apr-c' },
+      ],
+      [
+        { approvalId: 'apr-b', operationId: 'op-apr-b' },
+        { approvalId: 'apr-c', operationId: 'op-apr-b' },
+      ],
+    ]) {
+      const t = await setup();
+      bind(t.book, 'apr-b', 'operator-a', 'operator-b');
+      bind(t.book, 'apr-c', 'operator-a', 'operator-c');
+      const res = await t.post({ ...BODY, approvals });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().error).toBe(FUNDING_PUBLISH_APPROVERS_NOT_DISTINCT);
+      expect(t.published).toEqual([]);
+      // Nothing was consumed: the proper pair still publishes.
+      expect((await t.post({ ...BODY, ...ids('apr-b', 'apr-c') })).statusCode).toBe(200);
+      await t.app.close();
+    }
   });
 
   it('a not-distinct pair leaves BOTH approvals consumed', async () => {

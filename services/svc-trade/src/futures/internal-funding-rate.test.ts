@@ -63,7 +63,7 @@ async function withBoundApproval(app: FastifyInstance, approvals: MemoryApproval
   const second = await app.inject({
     method: 'POST',
     url: PATH,
-    ...signed({ ...payload, approvalIds, operationIds: approvalIds.map((id) => `op-${id}`) }),
+    ...signed({ ...payload, approvals: approvalIds.map((approvalId) => ({ approvalId, operationId: `op-${approvalId}` })) }),
   });
   return { second };
 }
