@@ -13,17 +13,24 @@ import type { ActivityItem } from '../activity/activity-service.js';
  * line refuses `pending`; a fully refunded line refuses `already_refunded`; a card line routes to the issuer and no
  * case is created. The case row is written before any notification; no money moves.
  */
+/** A fact about one line: known yes, known no, or unknown. Unknown always refuses (fail closed). */
+export type LineFact = 'yes' | 'no' | 'unknown';
+
 export interface DisputeLineFacts {
-  /** True when the card rail owns this line's dispute (chargeback through the issuer). */
-  isCardLine(item: ActivityItem): boolean | Promise<boolean>;
-  /** True when this line has already been refunded in full. */
-  isFullyRefunded(item: ActivityItem): boolean | Promise<boolean>;
+  /** Whether the card rail owns this line's dispute (chargeback through the issuer). */
+  isCardLine(item: ActivityItem): LineFact | Promise<LineFact>;
+  /** Whether this line has already been refunded in full. */
+  isFullyRefunded(item: ActivityItem): LineFact | Promise<LineFact>;
 }
 
-/** Today's feed: no line carries a card rail and no refund link, so both are false until those slices land. */
-export const noDisputeLineFacts: DisputeLineFacts = {
-  isCardLine: () => false,
-  isFullyRefunded: () => false,
+/**
+ * Nothing wires these facts yet (no card rail or refund link on the feed), so both are `unknown` and every open
+ * refuses `pay.dispute_line_facts_unset`. A permissive `false` would silently fail open the day card lines or refund
+ * links land (review MAJOR 2).
+ */
+export const unknownDisputeLineFacts: DisputeLineFacts = {
+  isCardLine: () => 'unknown',
+  isFullyRefunded: () => 'unknown',
 };
 
 export function disputeCaseKey(userId: string, activityId: string): string {
@@ -59,7 +66,7 @@ interface CaseRow {
 export class DisputeCases {
   constructor(
     private readonly sql: Sql,
-    private readonly facts: DisputeLineFacts = noDisputeLineFacts,
+    private readonly facts: DisputeLineFacts = unknownDisputeLineFacts,
   ) {}
 
   async open(
@@ -67,7 +74,11 @@ export class DisputeCases {
     item: ActivityItem,
     input: { reasonCode: string; statement: string; linkedActivityIds: string[] },
   ): Promise<PayDisputeOpenResult> {
-    if (await this.facts.isCardLine(item)) return { routedTo: 'card_issuer', activityId: item.id };
+    const card = await this.facts.isCardLine(item);
+    if (card === 'unknown') {
+      throw new BankError('Whether this line is a card line is not known yet; a dispute cannot be routed', 'pay.dispute_line_facts_unset');
+    }
+    if (card === 'yes') return { routedTo: 'card_issuer', activityId: item.id };
 
     const key = disputeCaseKey(userId, item.id);
     const existing = await this.sql<CaseRow[]>`
@@ -77,7 +88,11 @@ export class DisputeCases {
     if (existing[0]) return this.replay(existing[0], input);
 
     if (item.kind === 'order_hold') throw new BankError('A pending charge cannot be disputed yet (pending)', 'pay.dispute_ineligible');
-    if (await this.facts.isFullyRefunded(item)) {
+    const refunded = await this.facts.isFullyRefunded(item);
+    if (refunded === 'unknown') {
+      throw new BankError('Whether this line was refunded is not known yet; a dispute cannot be opened', 'pay.dispute_line_facts_unset');
+    }
+    if (refunded === 'yes') {
       throw new BankError('This line was already refunded in full (already_refunded)', 'pay.dispute_ineligible');
     }
 
@@ -104,8 +119,9 @@ export class DisputeCases {
     return this.replay(raced[0]!, input);
   }
 
-  private replay(row: CaseRow, input: { reasonCode: string; statement: string }): PayDisputeOpenResult {
-    if (row.reason_code !== input.reasonCode || row.statement !== input.statement) {
+  private replay(row: CaseRow, input: { reasonCode: string; statement: string; linkedActivityIds: string[] }): PayDisputeOpenResult {
+    const sameLinks = JSON.stringify([...row.linked_activity_ids].sort()) === JSON.stringify([...input.linkedActivityIds].sort());
+    if (row.reason_code !== input.reasonCode || row.statement !== input.statement || !sameLinks) {
       throw new BankError('This line already has a dispute case with a different reason or statement', 'pay.dispute_conflict');
     }
     return this.result(row);

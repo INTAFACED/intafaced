@@ -68,6 +68,10 @@ export type BankErrorCode =
   | 'pay.dispute_reason_unknown'
   | 'pay.dispute_transition_refused'
   | 'pay.dispute_conflict'
+  /** Card-line or refund facts are not wired: unknown refuses (fail closed). */
+  | 'pay.dispute_line_facts_unset'
+  /** The dispute-case service is not wired on this process. */
+  | 'pay.dispute_unwired'
   | 'bank.not_owner'
   // ── Loans (§8.1) ───────────────────────────────────────────────────────
   | 'bank.loan_product_not_found'

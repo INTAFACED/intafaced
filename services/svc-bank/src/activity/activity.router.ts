@@ -280,8 +280,13 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
                 message: 'A dispute is opened on one activity line (bank.activity_line_required)',
               });
             }
-            if (!bank.disputeCases) throw new BankError('Dispute cases are not wired', 'pay.dispute_reasons_unset');
+            if (!bank.disputeCases) throw new BankError('Dispute cases are not wired', 'pay.dispute_unwired');
             const { item } = await bank.activity.get(ctx.principal.userId, input.activityId);
+            // Linked lines must be the caller's own (review minor 3): activity.get refuses another user's line.
+            for (const linked of input.linkedActivityIds) await bank.activity.get(ctx.principal.userId, linked);
+            if (!plainWords.safeParse(input.statement).success) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: 'The statement has a control character' });
+            }
             return await bank.disputeCases.open(ctx.principal.userId, item, {
               reasonCode: input.reasonCode,
               statement: input.statement,

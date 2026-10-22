@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ActivityItem } from '../activity/activity-service.js';
-import { DisputeCases, disputeCaseId, disputeCaseKey, transitionDispute } from './case.js';
+import { DisputeCases, disputeCaseId, disputeCaseKey, transitionDispute, type DisputeLineFacts } from './case.js';
+
+const known: DisputeLineFacts = { isCardLine: () => 'no', isFullyRefunded: () => 'no' };
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -37,6 +39,11 @@ describe('dispute case (pure)', () => {
     expect(() => transitionDispute('submitted', 'resolved_buyer')).toThrow(/cannot go/);
     expect(transitionDispute('submitted', 'under_review')).toBe('under_review');
     expect(() => transitionDispute('cancelled', 'submitted')).toThrow(/cannot go/);
+    try {
+      transitionDispute('submitted', 'resolved_seller');
+    } catch (err) {
+      expect(err).toMatchObject({ code: 'pay.dispute_transition_refused' });
+    }
   });
 
   it('the case id is derived from the server key, stable and a uuid', () => {
@@ -73,7 +80,7 @@ describe('dispute cases (Postgres)', () => {
   const publish = () => sql`INSERT INTO bank.dispute_reasons (code, label) VALUES ('not_received', 'Not received')`;
 
   it('reason table missing -> refused with blocker; unknown code refuses', async () => {
-    const cases = new DisputeCases(sql);
+    const cases = new DisputeCases(sql, known);
     await expect(cases.open(USER, line('tx-1:0'), input)).rejects.toMatchObject({ code: 'pay.dispute_reasons_unset' });
     await publish();
     await expect(cases.open(USER, line('tx-1:0'), { ...input, reasonCode: 'other' })).rejects.toMatchObject({
@@ -84,7 +91,7 @@ describe('dispute cases (Postgres)', () => {
 
   it('open twice -> same case id; a different statement on the same line conflicts', async () => {
     await publish();
-    const cases = new DisputeCases(sql);
+    const cases = new DisputeCases(sql, known);
     const a = await cases.open(USER, line('tx-1:0'), input);
     const b = await cases.open(USER, line('tx-1:0'), input);
     expect(b).toEqual(a);
@@ -97,16 +104,34 @@ describe('dispute cases (Postgres)', () => {
 
   it('pending charge -> refused pending; fully refunded -> already_refunded', async () => {
     await publish();
-    await expect(new DisputeCases(sql).open(USER, line('h:0', 'order_hold'), input)).rejects.toThrow(/pending/);
-    const refunded = new DisputeCases(sql, { isCardLine: () => false, isFullyRefunded: () => true });
+    await expect(new DisputeCases(sql, known).open(USER, line('h:0', 'order_hold'), input)).rejects.toThrow(/pending/);
+    const refunded = new DisputeCases(sql, { isCardLine: () => 'no', isFullyRefunded: () => 'yes' });
     await expect(refunded.open(USER, line('tx-2:0'), input)).rejects.toThrow(/already_refunded/);
     expect(await sql`SELECT 1 FROM bank.dispute_cases`).toHaveLength(0);
   });
 
   it('card line -> issuer routing, no case', async () => {
     await publish();
-    const card = new DisputeCases(sql, { isCardLine: () => true, isFullyRefunded: () => false });
+    const card = new DisputeCases(sql, { isCardLine: () => 'yes', isFullyRefunded: () => 'no' });
     expect(await card.open(USER, line('tx-3:0'), input)).toEqual({ routedTo: 'card_issuer', activityId: 'tx-3:0' });
     expect(await sql`SELECT 1 FROM bank.dispute_cases`).toHaveLength(0);
+  });
+
+  it('facts fail closed: the production default (unknown) refuses, and an unknown refund fact refuses too', async () => {
+    await publish();
+    await expect(new DisputeCases(sql).open(USER, line('tx-4:0'), input)).rejects.toMatchObject({ code: 'pay.dispute_line_facts_unset' });
+    const refundUnknown = new DisputeCases(sql, { isCardLine: () => 'no', isFullyRefunded: () => 'unknown' });
+    await expect(refundUnknown.open(USER, line('tx-4:0'), input)).rejects.toMatchObject({ code: 'pay.dispute_line_facts_unset' });
+    expect(await sql`SELECT 1 FROM bank.dispute_cases`).toHaveLength(0);
+  });
+
+  it('a re-open with different linked lines conflicts', async () => {
+    await publish();
+    const cases = new DisputeCases(sql, known);
+    await cases.open(USER, line('tx-5:0'), { ...input, linkedActivityIds: ['tx-6:0'] });
+    await expect(cases.open(USER, line('tx-5:0'), { ...input, linkedActivityIds: ['tx-7:0'] })).rejects.toMatchObject({
+      code: 'pay.dispute_conflict',
+    });
+    expect(await cases.open(USER, line('tx-5:0'), { ...input, linkedActivityIds: ['tx-6:0'] })).toMatchObject({ routedTo: 'case' });
   });
 });
