@@ -425,7 +425,6 @@ export interface PayServiceOptions {
   readonly payoutDestinations?: MerchantPayoutDestinations;
 }
 
-
 /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
 export interface CheckoutRail {
   readonly railId: string;

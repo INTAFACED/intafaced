@@ -1,0 +1,273 @@
+diff --git a/services/svc-pay/src/index.ts b/services/svc-pay/src/index.ts
+--- a/services/svc-pay/src/index.ts
++++ b/services/svc-pay/src/index.ts
+@@ -161,7 +161,9 @@
+  */
+ const merchantWebhooks = new MerchantWebhookService(new PostgresMerchantWebhookStore(sql));
+ 
++const payoutDestinations = new MerchantPayoutDestinationStore(sql);
+ const pay = new PayService(sql, ledger, rails, {
++  payoutDestinations,
+   defaultFeeBps: env.PAY_DEFAULT_FEE_BPS,
+   valueMovement: railPosture.policy,
+   // NOT `railPosture.policy`. `PAY_ALLOW_SANDBOX_RAILS` relaxes the payout gate
+@@ -310,7 +312,7 @@
+  */
+ export const appRouter = mergeRouters(
+   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
+-  createPayRouter(pay, rails, userMoney, subMerchants, new MerchantPayoutDestinationStore(sql)),
++  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations),
+   createMerchantStateRouter(merchantState),
+   createKybPspRouter(kyb, pspMode),
+   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
+
+diff --git a/services/svc-pay/src/router.ts b/services/svc-pay/src/router.ts
+--- a/services/svc-pay/src/router.ts
++++ b/services/svc-pay/src/router.ts
+@@ -1499,6 +1499,7 @@
+       case 'pay.routing_input_missing':
+         return 'BAD_REQUEST' as const;
+       case 'pay.routing_no_rail':
++      case 'pay.payout_destination_missing':
+         return 'PRECONDITION_FAILED' as const;
+       case 'pay.invalid_transition':
+       case 'pay.capture_exceeds_authorized':
+
+diff --git a/services/svc-pay/src/payment-service.ts b/services/svc-pay/src/payment-service.ts
+--- a/services/svc-pay/src/payment-service.ts
++++ b/services/svc-pay/src/payment-service.ts
+@@ -25,6 +25,11 @@
+ import { RoutingInputError } from './routing-inputs.js';
+ import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
+ import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
++import {
++  assertOnlyPayoutDestinations,
++  PayoutDestinationMissingError,
++  type MerchantPayoutDestinations,
++} from './merchant-payout-destination.js';
+ import { settlementLedgerPlan } from './settlement-ledger.js';
+ import { withMoneySpan, withRailSpan } from './tracing.js';
+ import { defaultDisputeCaseStore } from './fraud/dispute-case.js';
+@@ -188,6 +193,8 @@
+    */
+   | 'pay.destination_kind_mismatch'
+   | 'pay.invalid_destination_ref'
++  /** Crypto payout has no stored EVM dest — refused BEFORE withdrawHold. */
++  | 'pay.payout_destination_missing'
+   | 'pay.subscription_not_found'
+   | 'pay.mandate_not_found'
+   | 'pay.subscription_reconsent_required'
+@@ -410,6 +417,12 @@
+    * Default noop. Failures must not unwind settlement.
+    */
+   readonly affiliateAccrue?: AffiliateAccruePort;
++
++  /**
++   * Persisted merchant payout destinations. Crypto-native payout requires a
++   * stored EVM dest before withdrawHold. Default refuses closed (no invented ref).
++   */
++  readonly payoutDestinations?: MerchantPayoutDestinations;
+ }
+ 
+ /** One entry in `checkoutRails`: which adapter, and what `payments.method` it writes. */
+@@ -548,6 +561,7 @@
+       }) => void | Promise<void>)
+     | undefined;
+   private readonly affiliateAccrue: AffiliateAccruePort;
++  private readonly payoutDestinations: MerchantPayoutDestinations;
+ 
+   constructor(
+     private readonly sql: Sql,
+@@ -568,6 +582,7 @@
+     this.now = options.now ?? (() => new Date());
+     this.afterPaymentEvent = options.afterPaymentEvent;
+     this.affiliateAccrue = options.affiliateAccrue ?? new NoopAffiliateAccrue();
++    this.payoutDestinations = options.payoutDestinations ?? assertOnlyPayoutDestinations();
+   }
+ 
+   /**
+@@ -2502,7 +2517,7 @@
+   async payoutSettlement(input: {
+     settlementId: string;
+     railId: string;
+-    destination: { kind: string; ref: string };
++    destination?: { kind: string; ref: string };
+   }): Promise<SettlementRecord> {
+     return withMoneySpan(
+       'pay.payoutSettlement',
+@@ -2526,17 +2541,10 @@
+ 
+         const merchant = await this.getMerchant(settlement.merchantId);
+ 
+-        // Destination kind must match the rail BEFORE any hold posts. Crypto
+-        // used to accept kind:'bank' + an IBAN and hand it to chain.send —
+-        // MemoryChain would "succeed"; live EVM would fail after the hold.
+-        try {
+-          assertPayoutDestinationKind(adapter.id, input.destination);
+-        } catch (err) {
+-          if (err instanceof DestinationKindError) {
+-            throw new PayError(err.message, err.code);
+-          }
+-          throw err;
+-        }
++        // Crypto-native pays the stored EVM dest. Refuse if none stored —
++        // BEFORE withdrawHold. Caller dest is persisted first, then required.
++        // Other rails still take the caller dest. Does not live-wire bank-payout.
++        const destination = await this.resolvePayoutDestination(adapter.id, merchant.id, input.destination);
+ 
+         // The attempt number is part of the hold's business key. A refused
+         // payout releases the hold, so the next attempt must not reuse the key
+@@ -2550,7 +2558,7 @@
+           assetId: settlement.assetId,
+           amount: settlement.net,
+           railId: adapter.id,
+-          destinationKind: input.destination.kind,
++          destinationKind: destination.kind,
+         });
+ 
+         // G4: suspension must not open a NEW drain. But if withdrawHold already
+@@ -2578,7 +2586,7 @@
+             amount: settlement.net,
+             assetId: settlement.assetId,
+             window: settlement.window,
+-            destination: input.destination,
++            destination,
+           }),
+         );
+ 
+@@ -2607,6 +2615,58 @@
+     );
+   }
+ 
++  /**
++   * Crypto-native: persist offered dest (if any), then require the stored EVM
++   * dest. Refuse closed if none stored. Other rails: caller dest + kind gate.
++   * Does not invent a PSP. Does not live-wire bank-payout.
++   */
++  private async resolvePayoutDestination(
++    railId: string,
++    merchantId: string,
++    offered?: { kind: string; ref: string },
++  ): Promise<{ kind: string; ref: string }> {
++    if (railId === 'crypto-native') {
++      try {
++        if (offered) {
++          await this.payoutDestinations.persist({
++            merchantId,
++            railId,
++            kind: offered.kind,
++            ref: offered.ref,
++          });
++        }
++        const stored = await this.payoutDestinations.require({ merchantId, railId });
++        assertPayoutDestinationKind(railId, stored);
++        return stored;
++      } catch (err) {
++        if (err instanceof PayoutDestinationMissingError) {
++          throw new PayError(err.message, 'pay.payout_destination_missing', { merchantId, railId });
++        }
++        if (err instanceof DestinationKindError) {
++          throw new PayError(err.message, err.code);
++        }
++        throw err;
++      }
++    }
++
++    if (!offered) {
++      throw new PayError(
++        `Merchant ${merchantId} has no payout destination for rail ${railId}`,
++        'pay.payout_destination_missing',
++        { merchantId, railId },
++      );
++    }
++    try {
++      assertPayoutDestinationKind(railId, offered);
++    } catch (err) {
++      if (err instanceof DestinationKindError) {
++        throw new PayError(err.message, err.code);
++      }
++      throw err;
++    }
++    return offered;
++  }
++
+   async getSettlement(settlementId: string): Promise<SettlementRecord> {
+     const rows = await this.sql<SettlementRow[]>`
+       SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
+
+diff --git a/services/svc-pay/src/payment-service.test.ts b/services/svc-pay/src/payment-service.test.ts
+--- a/services/svc-pay/src/payment-service.test.ts
++++ b/services/svc-pay/src/payment-service.test.ts
+@@ -17,6 +17,7 @@
+   type PostRequest,
+ } from '@intafaced/ledger-client';
+ import { PayService, PayError, type PaymentView } from './payment-service.js';
++import { memoryPayoutDestinations } from './merchant-payout-destination.js';
+ import { RailRegistry } from './rails/registry.js';
+ import { CardSandboxAdapter, SANDBOX_DECLINE_TOKEN } from './rails/card-sandbox.js';
+ import { CryptoNativeAdapter } from './rails/crypto-native.js';
+@@ -114,6 +115,7 @@
+   let crypto: CryptoNativeAdapter;
+   let rails: RailRegistry;
+   let pay: PayService;
++  let dests: ReturnType<typeof memoryPayoutDestinations>;
+ 
+   beforeEach(async () => {
+     // A BARE TRUNCATE, deliberately not wrapped in the migration advisory lock.
+@@ -131,7 +133,8 @@
+     card = new CardSandboxAdapter({ secret: SECRET });
+     crypto = new CryptoNativeAdapter({ chain, secret: SECRET, minConfirmations: 6 });
+     rails = new RailRegistry([card, crypto, new BankPayoutAbsentAdapter()]);
+-    pay = new PayService(sql, ledger, rails, { checkoutRiskBand: 'low' });
++    dests = memoryPayoutDestinations();
++    pay = new PayService(sql, ledger, rails, { checkoutRiskBand: 'low', payoutDestinations: dests });
+   });
+ 
+   afterAll(async () => {
+@@ -1633,6 +1636,46 @@
+       expect(chain.outboundTransfers()).toHaveLength(0);
+       expect(ledger.reconcile()).toEqual({ ok: true });
+     });
++
++    it('refuses crypto payout when no EVM dest is stored — nothing held', async () => {
++      const m = await merchant(0);
++      const payment = await cryptoPayment(m.id, '9');
++      await pay.capture(payment.id);
++      const settlement = await settle(m.id, 'w-payout-no-dest');
++      const journalBefore = ledger.journal().map((tx) => tx.idempotencyKey);
++
++      await expect(
++        pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' }),
++      ).rejects.toMatchObject({ code: 'pay.payout_destination_missing' });
++
++      expect(ledger.journal().map((tx) => tx.idempotencyKey)).toEqual(journalBefore);
++      expect(await availableOf(MERCHANT_USER)).toBe('9');
++      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
++      expect((await pay.getSettlement(settlement.id)).status).toBe('posted');
++      expect(chain.totalSent('USDT')).toBe('0');
++      expect(ledger.reconcile()).toEqual({ ok: true });
++    });
++
++    it('pays crypto to the stored EVM dest through ledger-client', async () => {
++      const m = await merchant(0);
++      const payment = await cryptoPayment(m.id, '11');
++      await pay.capture(payment.id);
++      const settlement = await settle(m.id, 'w-payout-stored');
++      await dests.persist({
++        merchantId: m.id,
++        railId: 'crypto-native',
++        kind: 'crypto',
++        ref: '0x000000000000000000000000000000000000dEaD',
++      });
++
++      const paid = await pay.payoutSettlement({ settlementId: settlement.id, railId: 'crypto-native' });
++      expect(paid.status).toBe('paid_out');
++      expect(chain.totalSent('USDT')).toBe('11');
++      expect(chain.outboundTransfers()[0]?.to).toBe('0x000000000000000000000000000000000000dEaD');
++      expect(await availableOf(MERCHANT_USER)).toBe('0');
++      expect(await heldTotalOf(MERCHANT_USER)).toBe('0');
++      expect(ledger.reconcile()).toEqual({ ok: true });
++    });
+   });
+ 
+   // ── Doctrine and invariants ───────────────────────────────────────────────
