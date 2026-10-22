@@ -767,6 +767,11 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.slug_reserved':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.prerequisite_cycle':
+    case 'academy.window_invalid':
+    case 'academy.reason_required':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
@@ -2083,6 +2088,22 @@ export function createAcademyRouter(
       ),
 
     /**
+     * Whether this learner may work the item: locked, unlocked, started or
+     * completed. No stored rule means unlocked (or started, once they opened it).
+     */
+    itemRelease: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }))
+      .output(
+        z.object({
+          itemSlug: z.string(),
+          state: z.enum(['locked', 'unlocked', 'started', 'completed']),
+          missing: z.array(z.string()),
+          lock: z.enum(['prerequisite', 'window']).nullable(),
+        }),
+      )
+      .query(({ input, ctx }) => guard(() => academy.itemRelease({ userId: ctx.principal!.userId, itemSlug: input.itemSlug }))),
+
+    /**
      * Grant the caller's own certification, publish the XP it is worth, and
      * report real identity perks (or refuse when invent/unreadable).
      *
@@ -2428,6 +2449,72 @@ export function createAcademyRouter(
       ),
 
     admin: router({
+      setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
+        .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
+        .output(z.object({ itemSlug: z.string(), prerequisites: z.array(z.string()) }))
+        .mutation(({ input }) => guard(() => academy.setItemPrerequisites(input))),
+
+      setItemWindow: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            itemSlug: z.string().min(1).max(120),
+            availableFrom: z.string().datetime({ offset: true }).nullable(),
+            availableUntil: z.string().datetime({ offset: true }).nullable(),
+            dueAt: z.string().datetime({ offset: true }).nullable(),
+          }),
+        )
+        .output(
+          z.object({
+            itemSlug: z.string(),
+            availableFrom: z.date().nullable(),
+            availableUntil: z.date().nullable(),
+            dueAt: z.date().nullable(),
+          }),
+        )
+        .mutation(({ input }) =>
+          guard(() =>
+            academy.setItemWindow({
+              itemSlug: input.itemSlug,
+              availableFrom: input.availableFrom === null ? null : new Date(input.availableFrom),
+              availableUntil: input.availableUntil === null ? null : new Date(input.availableUntil),
+              dueAt: input.dueAt === null ? null : new Date(input.dueAt),
+            }),
+          ),
+        ),
+
+      grantItemExtension: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z.object({
+            userId: z.string().uuid(),
+            itemSlug: z.string().min(1).max(120),
+            reason: z.string().max(500),
+            extendedUntil: z.string().datetime({ offset: true }),
+            clientRequestId: z.string().min(1).max(200),
+          }),
+        )
+        .output(
+          z.object({
+            userId: z.string().uuid(),
+            itemSlug: z.string(),
+            revision: z.number().int().positive(),
+            reason: z.string(),
+            extendedUntil: z.date(),
+            clientRequestId: z.string(),
+          }),
+        )
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.grantItemExtension({
+              userId: input.userId,
+              itemSlug: input.itemSlug,
+              reason: input.reason,
+              extendedUntil: new Date(input.extendedUntil),
+              clientRequestId: input.clientRequestId,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
+
       /**
        * AC-order-02 — owner settings register: every class-a owner value with
        * its state (set / not set) and the refusal shown while blank. State only:

@@ -38,6 +38,7 @@ import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/
 import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } from './assessment/catalog.js';
 import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
+import { ReleaseAccess } from './release/access.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -242,6 +243,7 @@ export interface AcademyServiceOptions {
 export class AcademyService {
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
+  private readonly release: ReleaseAccess;
 
   constructor(
     private readonly sql: Sql,
@@ -257,6 +259,7 @@ export class AcademyService {
     private readonly certXp: CertXpPublisher = new NullCertXpPublisher(),
   ) {
     this.customer = new AcademyCustomerStore(sql);
+    this.release = new ReleaseAccess(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1715,6 +1718,30 @@ export class AcademyService {
     return this.customer.completionsByItem(input);
   }
 
+  setItemPrerequisites(input: { itemSlug: string; prerequisites: readonly string[] }) {
+    return this.release.setItemPrerequisites(input);
+  }
+
+  setItemWindow(input: { itemSlug: string; availableFrom: Date | null; availableUntil: Date | null; dueAt: Date | null }) {
+    return this.release.setItemWindow(input);
+  }
+
+  grantItemExtension(input: {
+    userId: string;
+    itemSlug: string;
+    reason: string;
+    extendedUntil: Date;
+    clientRequestId: string;
+    operatorId: string;
+    now?: Date;
+  }) {
+    return this.release.grantItemExtension(input);
+  }
+
+  itemRelease(input: { userId: string; itemSlug: string; now?: Date }) {
+    return this.release.itemRelease(input);
+  }
+
   async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {
@@ -1738,6 +1765,7 @@ export class AcademyService {
       this.mapCertErr(err);
     }
     if (decision.alreadyComplete) return decision.record;
+    await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
     const rows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
       INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
       VALUES (${input.userId}, ${slug}, now())
