@@ -88,16 +88,21 @@ export function otherTrader() {
   return accounts.taker;
 }
 
-/** Best bid and ask on the real book, as decimal strings. */
-export async function bestPrices(symbol = 'BTC/USDT') {
-  const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(symbol)}?limit=5`, {
-    headers: { origin: ORIGIN },
-  }).then(json);
-  if (status !== 200) throw new Error(`depth read refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
-  const bid = body.bids?.[0]?.[0];
-  const ask = body.asks?.[0]?.[0];
-  if (!bid || !ask) throw new Error(`the ${symbol} book has no bid or no ask: ${JSON.stringify(body).slice(0, 300)}`);
-  return { bid, ask, body };
+/** Best bid and ask on the real book, as decimal strings, with up to `depth` levels a side in `body`. The journey's own
+ * fills can take one side for a moment, so this waits for the market maker's next quote before it refuses. */
+export async function bestPrices(symbol = 'BTC/USDT', depth = 50, waitMs = 15_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const { status, body } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(symbol)}?limit=${depth}`, {
+      headers: { origin: ORIGIN },
+    }).then(json);
+    if (status !== 200) throw new Error(`depth read refused: ${status} ${JSON.stringify(body).slice(0, 300)}`);
+    const bid = body.bids?.[0]?.[0];
+    const ask = body.asks?.[0]?.[0];
+    if (bid && ask) return { bid, ask, body };
+    if (Date.now() >= until) throw new Error(`the ${symbol} book has no bid or no ask: ${JSON.stringify(body).slice(0, 300)}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
 }
 
 /** Decimal strings as scaled bigints, 18 places (the ledger answers USDT with more than 8; no floats near money). */

@@ -51,6 +51,14 @@ async function topBid() {
   return fromUnits(price);
 }
 
+/** One percent under the best bid, to the cent: a limit sell there still fills at the bids' own prices when the
+ * market maker requotes between the read and the order, which a sell at the old best bid would not. */
+async function underBid() {
+  const { bid } = await bestPrices();
+  const cent = toUnits('0.01');
+  return fromUnits(((toUnits(bid) * 99n) / 100n / cent) * cent);
+}
+
 /** Run `act` and wait for the desk's own order preview to answer, so Review is pressed on a checked order. */
 async function previewed(page, act) {
   const answer = page.waitForResponse((r) => r.url().includes('/api/v1/orders/preview') && r.request().method() === 'POST');
@@ -273,10 +281,12 @@ test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the 
   const main = page.locator('main').first();
   await expect(main).toContainText('BTC');
   await expect(main).toContainText(/open/i);
-  const { bid } = await bestPrices();
   await page.goto(DESK);
   await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page.getByRole('textbox', { name: 'Price' }).nth(1).fill(bid);
+  await page
+    .getByRole('textbox', { name: 'Price' })
+    .nth(1)
+    .fill(await underBid());
   // The sell side's Max: every whole step of the BTC held.
   await previewed(page, () => page.getByRole('button', { name: 'Max' }).last().click());
   await page.getByRole('button', { name: 'Sell BTC' }).click();
