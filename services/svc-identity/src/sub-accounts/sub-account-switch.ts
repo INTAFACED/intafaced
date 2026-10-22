@@ -5,7 +5,7 @@
  *   parent only, step-up `identity.step_up.sub_account_signin` bound to (sub-account, enabled, request id). The same
  *   value again answers `changed:false` and spends nothing; each change writes an audit row in the same transaction.
  * - `switchTo`: the main session gets a short-lived access token scoped to one of its sub-accounts (`sub_account`
- *   claim). It keeps the main session. A revoked or frozen sub-account, or a frozen main account, refuses. The owner's
+ *   claim), on its own switch session row; revoking or freezing the sub-account revokes that row. It keeps the main session. A revoked or frozen sub-account, or a frozen main account, refuses. The owner's
  *   minimum interval between switches is `SUBACCOUNT_SWITCH_MIN_SECONDS` (unset = none stated, so no wait).
  */
 import { customerStepUpPayloadHash } from '@intafaced/contracts';
@@ -44,7 +44,7 @@ export type SwitchTokenIssuer = (input: {
   sessionId: string;
   subAccountId: string;
   mfa: boolean;
-}) => Promise<{ accessToken: string; expiresAt: Date }>;
+}) => Promise<{ accessToken: string; expiresAt: Date; switchSessionId: string }>;
 
 export type SubAccountSwitchDeps = {
   sql: Sql;
@@ -82,7 +82,7 @@ export class SubAccountSwitchService {
   async switchTo(input: Actor & { subAccountId: string }): Promise<{ subAccountId: string; accessToken: string; expiresAt: string }> {
     this.assertSession(input);
     const now = (this.deps.now ?? (() => new Date()))();
-    await transaction(this.deps.sql, async (tx) => {
+    const switchId = await transaction(this.deps.sql, async (tx) => {
       // Serialise one user's switches so the interval check and the record agree.
       await tx`SELECT pg_advisory_xact_lock(hashtext(${'identity.sub_account_switch:' + input.userId}))`;
       const row = await this.owned(tx, input.userId, input.subAccountId, false);
@@ -94,9 +94,10 @@ export class SubAccountSwitchService {
           SELECT at FROM sub_account_switches WHERE user_id = ${input.userId} ORDER BY at DESC LIMIT 1`;
         if (last && now.getTime() - last.at.getTime() < min * 1000) throw new SubAccountSwitchError('identity.sub_account_switch_too_soon');
       }
-      await tx`
+      const [rec] = await tx<Array<{ id: string }>>`
         INSERT INTO sub_account_switches (user_id, sub_account_id, session_id, at)
-        VALUES (${input.userId}, ${input.subAccountId}, ${input.sessionId}, ${now})`;
+        VALUES (${input.userId}, ${input.subAccountId}, ${input.sessionId}, ${now}) RETURNING id`;
+      return rec!.id;
     });
     // The issuer re-checks the main session and account status; a frozen main account refuses there.
     const issued = await this.deps.issue({
@@ -104,6 +105,18 @@ export class SubAccountSwitchService {
       sessionId: input.sessionId,
       subAccountId: input.subAccountId,
       mfa: input.mfa,
+    });
+    // Bind the switch session to the record under the sub-account's row lock, so a revoke or freeze racing this switch
+    // either sees the binding (its trigger kills the session) or ran first (we see it here and kill the session).
+    await transaction(this.deps.sql, async (tx) => {
+      const [row] = await tx<Row[]>`SELECT revoked, frozen, signin_enabled FROM sub_accounts WHERE id = ${input.subAccountId} FOR UPDATE`;
+      if (!row || row.revoked || row.frozen === 1) {
+        await tx`UPDATE sessions SET revoked = true WHERE id = ${issued.switchSessionId}`;
+        throw new SubAccountSwitchError(
+          row?.frozen === 1 && !row.revoked ? 'identity.sub_account_switch_frozen' : 'identity.sub_account_revoked',
+        );
+      }
+      await tx`UPDATE sub_account_switches SET switch_session_id = ${issued.switchSessionId} WHERE id = ${switchId}`;
     });
     return { subAccountId: input.subAccountId, accessToken: issued.accessToken, expiresAt: issued.expiresAt.toISOString() };
   }

@@ -2390,15 +2390,17 @@ export class AuthService {
 
   /**
    * Short-lived access token scoped to one of the caller's sub-accounts (`sub_account` claim), for
-   * `subAccounts.switchTo`. The main session stays; no refresh token is issued. A revoked session or a
-   * non-active main account refuses. Ownership, revocation and freeze are checked by the caller.
+   * `subAccounts.switchTo`. The main session stays live and untouched. The token runs on its own session row
+   * (device `sub-account switch`, expiring with the token, its refresh hash random and never handed out), so revoking
+   * that row (the sub_accounts trigger does it on revoke or freeze) kills the token at the edge's session check.
+   * A revoked main session or a non-active main account refuses. Ownership, revocation and freeze are checked by the caller.
    */
   async issueSubAccountSwitchToken(input: {
     userId: string;
     sessionId: string;
     subAccountId: string;
     mfa: boolean;
-  }): Promise<{ accessToken: string; expiresAt: Date }> {
+  }): Promise<{ accessToken: string; expiresAt: Date; switchSessionId: string }> {
     const sessions = await this.sql<Array<{ status: string }>>`
       SELECT u.status FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ${input.sessionId} AND s.user_id = ${input.userId} AND s.revoked = false AND s.expires_at > now()`;
@@ -2406,11 +2408,17 @@ export class AuthService {
     if (sessions[0].status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
     const scopes = await this.scopesForNewAccessToken(input.userId);
     const tier = await this.kycTier(input.userId);
+    const ttl = Math.min(this.tokens.accessTtlSeconds, SUB_ACCOUNT_SWITCH_TTL_SECONDS);
+    const [row] = await this.sql<Array<{ id: string }>>`
+      INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at)
+      VALUES (${input.userId}, ${hashToken(`sub-account-switch:${randomUUID()}:${randomUUID()}`)}, 'sub-account switch',
+              ${currentRequestIp()}, ${currentUserAgent()}, ${input.mfa}, now() + make_interval(secs => ${ttl}))
+      RETURNING id`;
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: input.mfa, subAccountId: input.subAccountId },
-      { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, SUB_ACCOUNT_SWITCH_TTL_SECONDS) },
+      { userId: input.userId, sessionId: row!.id, scopes, tier, mfa: input.mfa, subAccountId: input.subAccountId },
+      { ...this.tokens, accessTtlSeconds: ttl },
     );
-    return { accessToken: token, expiresAt };
+    return { accessToken: token, expiresAt, switchSessionId: row!.id };
   }
 
   /**
