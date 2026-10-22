@@ -63,6 +63,15 @@ describe('survey doors (SP-csat-02)', () => {
     await expect((await as(AGENT)).configureSurvey(input)).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it('a second survey under a blank cap is PRECONDITION_FAILED support.survey_cap_unset', async () => {
+    const lead = await (await desk())(LEAD);
+    await lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never });
+    await expect(lead.configureSurvey({ surveyId: null, expectedRevision: 0, config: config as never })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: 'support.survey_cap_unset',
+    });
+  });
+
   it('stale revision is CONFLICT, unknown survey NOT_FOUND, bad scale BAD_REQUEST', async () => {
     const as = await desk();
     const lead = await as(LEAD);

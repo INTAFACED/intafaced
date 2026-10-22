@@ -3,8 +3,20 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SUPPORT_SURVEY_CAP_UNSET, supportSurveyListSchema, type SupportSurveyConfig } from '@intafaced/contracts';
-import { MemorySurveyBook, SqlSurveyBook, SurveyNotFoundError, SurveyStaleError, type SurveyBook } from './survey-settings.js';
+import {
+  SUPPORT_SURVEY_CAP_REACHED,
+  SUPPORT_SURVEY_CAP_UNSET,
+  supportSurveyListSchema,
+  type SupportSurveyConfig,
+} from '@intafaced/contracts';
+import {
+  MemorySurveyBook,
+  SqlSurveyBook,
+  SurveyCapError,
+  SurveyNotFoundError,
+  SurveyStaleError,
+  type SurveyBook,
+} from './survey-settings.js';
 
 /** SP-csat-02 — survey configuration books, memory and Postgres, against the same failure branches. */
 
@@ -48,17 +60,16 @@ afterAll(async () => {
   await admin.end({ timeout: 5 });
 });
 
-const books: [string, (prefix: string) => SurveyBook][] = [
-  ['memory', (p) => new MemorySurveyBook(ids(p))],
-  ['postgres', (p) => new SqlSurveyBook(sql, ids(p))],
+const books: [string, (prefix: string, cap?: number | null) => SurveyBook][] = [
+  ['memory', (p, cap = 3) => new MemorySurveyBook(ids(p), cap)],
+  ['postgres', (p, cap = 3) => new SqlSurveyBook(sql, ids(p), cap)],
 ];
 
 describe.each(books)('survey book (%s)', (kind, make) => {
   const prefix = kind === 'memory' ? 'aaaaaaaa-aaaa-4aaa-8aaa-' : 'bbbbbbbb-bbbb-4bbb-8bbb-';
   it('lists the cap unset with its code, configures, keeps one survey active, replays and refuses stale/unknown', async () => {
     const book = make(prefix);
-    const empty = await book.list();
-    expect(empty.cap).toEqual({ status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET });
+    expect((await book.list()).cap).toEqual({ status: 'set', cap: 3 });
 
     const first = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
     expect(first).toMatchObject({ revision: 1, active: true, config });
@@ -88,6 +99,33 @@ describe.each(books)('survey book (%s)', (kind, make) => {
     expect(supportSurveyListSchema.parse(list)).toEqual(list);
     expect(list.surveys.filter((s) => s.active).map((s) => s.surveyId)).toEqual([other.surveyId]);
     expect(list.surveys).toHaveLength(2);
+  });
+});
+
+describe.each(books)('survey cap (%s)', (kind, make) => {
+  const p = kind === 'memory' ? 'cccccccc-cccc-4ccc-8ccc-' : 'dddddddd-dddd-4ddd-8ddd-';
+  it('a blank cap lists unset and refuses a second survey with support.survey_cap_unset; editing stays allowed', async () => {
+    if (kind === 'postgres') await sql`TRUNCATE support.surveys`;
+    const book = make(p, null);
+    expect((await book.list()).cap).toEqual({ status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET });
+    const first = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
+    await expect(book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT })).rejects.toMatchObject({
+      code: SUPPORT_SURVEY_CAP_UNSET,
+    });
+    expect(await book.configure({ surveyId: first.surveyId, expectedRevision: 1, config, by: 'lead', at: AT })).toMatchObject({
+      revision: 2,
+    });
+  });
+  it('under the cap succeeds; at the cap a new survey refuses with support.survey_cap_reached', async () => {
+    if (kind === 'postgres') await sql`TRUNCATE support.surveys`;
+    const book = make(p.replace(/^./, 'e'), 2);
+    await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
+    const second = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT });
+    expect(second.active).toBe(true);
+    const err = await book.configure({ surveyId: null, expectedRevision: 0, config, by: 'lead', at: AT }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SurveyCapError);
+    expect((err as SurveyCapError).code).toBe(SUPPORT_SURVEY_CAP_REACHED);
+    expect((await book.list()).surveys).toHaveLength(2);
   });
 });
 

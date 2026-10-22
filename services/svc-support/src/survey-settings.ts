@@ -2,11 +2,13 @@
  * SP-csat-02: satisfaction survey configuration. Configure names the revision it read: a new survey is revision 0, a
  * stale revision is refused, and the same config replayed under the same revision returns the stored survey. The
  * configured survey becomes the one active survey; any other is deactivated. The survey cap is a blank owner value:
- * `list` reports it `unset` with `support.survey_cap_unset`; enforcing "cap reached" is left for later.
+ * `list` reports it `unset` with `support.survey_cap_unset`, and a new survey past the first refuses with that code; a set cap
+ * refuses a new survey at the cap with `support.survey_cap_reached`. Editing an existing survey is never capped.
  */
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import {
+  SUPPORT_SURVEY_CAP_REACHED,
   SUPPORT_SURVEY_CAP_UNSET,
   type SupportSurvey,
   type SupportSurveyConfig,
@@ -25,6 +27,21 @@ export class SurveyNotFoundError extends Error {
     super('support.survey_not_found');
     this.name = 'SurveyNotFoundError';
   }
+}
+
+/** A new survey is refused: the cap is blank (and one survey already exists) or the cap is reached. */
+export class SurveyCapError extends Error {
+  constructor(readonly code: typeof SUPPORT_SURVEY_CAP_UNSET | typeof SUPPORT_SURVEY_CAP_REACHED) {
+    super(code);
+    this.name = 'SurveyCapError';
+  }
+}
+
+/** The owner cap on how many surveys exist. Blank (null) allows only the first survey ("a blank cap: a second survey refuses"). */
+export function checkSurveyCap(cap: number | null, existing: number): void {
+  if (cap === null) {
+    if (existing >= 1) throw new SurveyCapError(SUPPORT_SURVEY_CAP_UNSET);
+  } else if (existing >= cap) throw new SurveyCapError(SUPPORT_SURVEY_CAP_REACHED);
 }
 
 export interface SurveyConfigure extends SupportSurveyConfigureInput {
@@ -50,16 +67,20 @@ const canonical = (v: unknown): unknown =>
         )
       : v;
 const same = (a: SupportSurveyConfig, b: SupportSurveyConfig) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-const capUnset = { status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET } as const;
+const capOf = (cap: number | null) =>
+  cap === null ? ({ status: 'unset', code: SUPPORT_SURVEY_CAP_UNSET } as const) : ({ status: 'set', cap } as const);
 
 export class MemorySurveyBook implements SurveyBook {
   private readonly surveys = new Map<string, SupportSurvey>();
   /** key -> config written under it, so a lost reply replays. */
   private readonly byKey = new Map<string, SupportSurveyConfig>();
-  constructor(private readonly newId: () => string = randomUUID) {}
+  constructor(
+    private readonly newId: () => string = randomUUID,
+    private readonly cap: number | null = null,
+  ) {}
 
   async list(): Promise<SupportSurveyList> {
-    return { cap: capUnset, surveys: [...this.surveys.values()].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
+    return { cap: capOf(this.cap), surveys: [...this.surveys.values()].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt)) };
   }
 
   async configure(input: SurveyConfigure): Promise<SupportSurvey> {
@@ -70,6 +91,7 @@ export class MemorySurveyBook implements SurveyBook {
       if (prior && same(this.byKey.get(surveyKey(prior.surveyId, input.expectedRevision + 1)) ?? ({} as never), input.config)) return prior;
       throw new SurveyStaleError();
     }
+    if (!prior) checkSurveyCap(this.cap, this.surveys.size);
     const surveyId = prior?.surveyId ?? this.newId();
     const next: SupportSurvey = { surveyId, revision: currentRevision + 1, active: true, config: input.config, updatedAt: input.at };
     for (const [id, s] of this.surveys) if (id !== surveyId && s.active) this.surveys.set(id, { ...s, active: false });
@@ -92,13 +114,14 @@ export class SqlSurveyBook implements SurveyBook {
   constructor(
     private readonly sql: Sql,
     private readonly newId: () => string = randomUUID,
+    private readonly cap: number | null = null,
   ) {}
 
   async list(): Promise<SupportSurveyList> {
     const rows = await this.sql<
       Row[]
     >`SELECT survey_id, revision, active, config, updated_at FROM support.surveys ORDER BY updated_at, survey_id`;
-    return { cap: capUnset, surveys: rows.map(fromRow) };
+    return { cap: capOf(this.cap), surveys: rows.map(fromRow) };
   }
 
   async configure(input: SurveyConfigure): Promise<SupportSurvey> {
@@ -121,6 +144,10 @@ export class SqlSurveyBook implements SurveyBook {
           if (logged && same(logged.config, input.config)) return prior;
         }
         throw new SurveyStaleError();
+      }
+      if (!prior) {
+        const [row] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM support.surveys`;
+        checkSurveyCap(this.cap, row?.n ?? 0);
       }
       const surveyId = prior?.surveyId ?? this.newId();
       const revision = currentRevision + 1;
