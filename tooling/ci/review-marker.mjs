@@ -51,12 +51,13 @@ export function hasCommentSignoff({ comments, sha, reviewers, requireDistinctFro
 }
 
 /**
- * Security code by path: the services AGENTS.md names, ledger-client and auth, the workflows, what changes the
+ * Security code by path: the services AGENTS.md names, ledger-client and auth, config (freeze authority, sanctions
+ * screening, the money kill switch, production posture) and db (columns, migrations), the workflows, what changes the
  * dependency tree or the registry, the images and compose files, the shared compiler settings and the infra config.
  */
 export const SECURITY_PATHS = [
   /^services\/svc-(edge|ops|protocol|fix)\//,
-  /^packages\/(ledger-client|auth)\//,
+  /^packages\/(ledger-client|auth|config|db)\//,
   /^\.github\//,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
@@ -92,7 +93,7 @@ export function dependsOnLedgerClient(manifest) {
  * package.json objects read for it; a root with none counts as money (fail closed), and so does an empty file list.
  */
 export function reviewReason(files, manifests) {
-  if (files.length === 0) return 'no changed files could be read';
+  if (files.length === 0) return 'no changed files could be read for this head';
   const security = files.find((f) => SECURITY_PATHS.some((re) => re.test(f)));
   if (security) return `security: ${security}`;
   const gate = gateFilesTouched(files);
@@ -178,6 +179,8 @@ function selfTest() {
     [['apps/admin/src/a.tsx'], true], // depends on the head or on the default branch
     [['services/svc-edge/src/a.ts'], true],
     [['packages/ledger-client/src/a.ts'], true],
+    [['packages/config/src/freeze-authority.ts'], true],
+    [['packages/db/src/migrate.ts'], true],
     [['.github/CODEOWNERS'], true],
     [['pnpm-lock.yaml'], true],
     [['tooling/ci/dependency-audit.mjs'], true],
@@ -227,13 +230,19 @@ async function api(path, token, { missingOk = false } = {}) {
   return res.json();
 }
 
-/** Every path the pull request touches, both sides of a rename. More than GitHub lists returns [] (fail closed). */
-async function readChangedFiles(repo, number, token) {
+/**
+ * Every path the pull request touches, both sides of a rename. More than GitHub lists returns [] (fail closed). The
+ * files endpoint shows the pull request's current head, so the list counts only when that head is HEAD_SHA before and
+ * after the read; otherwise [] (fail closed), and the newer head gets its own seal run.
+ */
+async function readChangedFiles(repo, number, sha, token) {
+  const headIs = async () => (await api(`/repos/${repo}/pulls/${number}`, token)).head?.sha === sha;
+  if (!(await headIs())) return [];
   const files = [];
   for (let page = 1; page <= 30; page++) {
     const batch = await api(`/repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`, token);
     for (const f of batch) files.push(f.filename, ...(f.previous_filename ? [f.previous_filename] : []));
-    if (batch.length < 100) return files;
+    if (batch.length < 100) return (await headIs()) ? files : [];
   }
   return [];
 }
@@ -284,7 +293,7 @@ async function main() {
   let reason = 'not a pull request';
   if (PR_NUMBER) {
     const { default_branch: base } = await api(`/repos/${REPO}`, GH_TOKEN);
-    const files = await readChangedFiles(REPO, PR_NUMBER, GH_TOKEN);
+    const files = await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
     reason = reviewReason(files, await readManifests(REPO, files, [base, HEAD_SHA], GH_TOKEN));
     if (reason === null) {
       console.log('independent review not required: no money, security or gate file changed (owner decision 2026-10-22)');
