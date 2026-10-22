@@ -23,6 +23,7 @@ import { OperatorNotes } from './notes.js';
 import { cursorInput, limitInput } from './pagination.js';
 import { PayoutList } from './payouts.js';
 import { isInteractivePrincipal, resolveMerchantCaller, TEAM_ROLES } from './roles.js';
+import { MerchantSecurity } from './security.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
@@ -75,6 +76,7 @@ function makeParts(deps: MerchantOpsDeps) {
     ? {
         sql,
         team: new TeamService(sql, deps.teamEmailInvite),
+        security: new MerchantSecurity(sql),
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
         invoices: new InvoiceService(sql, deps.invoiceLinks),
         customers: new CustomerDirectory(sql),
@@ -259,6 +261,14 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
           .input(merchantCustomerSeriesInputSchema)
           .output(merchantCustomerSeriesSchema)
           .query(({ ctx, input }) => wrapOps(async () => need().customers.series(await callerOf(ctx), input))),
+      }),
+
+      /** Team-wide sign-in rule (M-plat-org-06). Members read it; only the owner changes it. svc-identity enforces it. */
+      security: router({
+        get: read.input(z.object({}).strict()).query(({ ctx }) => wrapOps(async () => need().security.get(await callerOf(ctx)))),
+        setRequireMfa: write
+          .input(z.object({ requireMfa: z.boolean(), expectedRevision: z.number().int().min(0) }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().security.setRequireMfa(await callerOf(ctx), input))),
       }),
 
       team: router({

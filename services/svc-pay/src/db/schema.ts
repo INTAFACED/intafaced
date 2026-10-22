@@ -129,6 +129,11 @@ export const merchants = pay.table(
      */
     displayName: text('display_name'),
     legalName: text('legal_name'),
+    /** Team-wide two-step rule (0121). NULL = the owner has not chosen; reads refuse `pay.merchant_mfa_rule_unset`. */
+    requireMfa: boolean('require_mfa'),
+    requireMfaRevision: integer('require_mfa_revision').notNull().default(0),
+    requireMfaChangedBy: uuid('require_mfa_changed_by'),
+    requireMfaChangedAt: tstz('require_mfa_changed_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
