@@ -60,24 +60,13 @@ function toOrgTrpc(err: unknown): never {
  * Admin grant refuses without a second distinct admin approver.
  * DMA broker / desk / shift create refuses until owner hierarchy law exists.
  */
-/** Sql handles whose org router enforces the org security policy (I-account-lifecycle-06). */
-const policyEnforcedSql = new WeakSet<object>();
-
-/**
- * Turns on the org security policy gate for every org router built on this sql handle.
- * index.ts calls this for the service's sql. Off by default so router unit tests on a stub sql
- * keep working; org-security-policy.pg.test.ts pins that the service mount calls it.
- */
-export function enforceOrgSecurityPolicyOn(sql: Sql): void {
-  policyEnforcedSql.add(sql as unknown as object);
-}
-
 export function createOrgRouter(sql: Sql, dmaHierarchyLaw: DmaHierarchyLaw = UNPUBLISHED_DMA_HIERARCHY_LAW) {
-  /** The org's security policy gates every org action once enabled for this sql. No policy: nothing required. */
-  const policy = async (principal: { userId: string; sid: string; kid?: string | null }, orgId: string) => {
-    if (!policyEnforcedSql.has(sql as unknown as object)) return;
-    await enforceOrgSecurityPolicy(sql, { userId: principal.userId, orgId, sessionId: principal.kid ? null : principal.sid });
-  };
+  /**
+   * The org's security policy (I-account-lifecycle-06) gates every org action on every mount; there is no
+   * opt-out. No policy row: nothing required. A failed policy read refuses the action (fail closed).
+   */
+  const policy = (principal: { userId: string; sid: string; kid?: string | null }, orgId: string) =>
+    enforceOrgSecurityPolicy(sql, { userId: principal.userId, orgId, sessionId: principal.kid ? null : principal.sid });
   return router({
     createOrg: scopedProcedure('identity:write')
       .input(z.object({ name: z.string().min(1).max(128) }))

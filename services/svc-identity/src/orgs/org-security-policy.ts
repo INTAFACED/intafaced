@@ -228,8 +228,15 @@ export async function enforceOrgSecurityPolicy(
   sql: Sql,
   input: { userId: string; orgId: string; sessionId: string | null },
 ): Promise<void> {
-  const policy = await readPolicy(sql, input.orgId);
-  if (!policy) return;
+  // Read through the org itself: a real org with no policy row yields NULL policy columns, which means
+  // nothing is required. Any query error propagates, so the gate fails closed.
+  const [policy] = await sql<
+    Array<{ member_second_factor?: PolicyRow['member_second_factor'] | null; idle_sign_out_seconds?: number | null }>
+  >`
+    SELECT p.member_second_factor, p.idle_sign_out_seconds
+      FROM organizations o LEFT JOIN org_security_policies p ON p.org_id = o.id
+     WHERE o.id = ${input.orgId}`;
+  if (!policy?.member_second_factor) return;
   // A non-member gets the org action's own refusal, never a policy answer about an org they are not in.
   const member = await sql`
     SELECT 1 FROM organizations o WHERE o.id = ${input.orgId}
@@ -243,7 +250,7 @@ export async function enforceOrgSecurityPolicy(
     const meets = policy.member_second_factor === 'passkey_only' ? passkey : passkey || totp;
     if (!meets) throw new OrgSecurityPolicyError('identity.org_policy_2fa', ORG_POLICY_ENROL_LINK);
   }
-  if (policy.idle_sign_out_seconds === null || input.sessionId === null) return;
+  if (policy.idle_sign_out_seconds === null || policy.idle_sign_out_seconds === undefined || input.sessionId === null) return;
   const idle = policy.idle_sign_out_seconds;
   await transaction(sql, async (tx) => {
     const [row] = await tx<Array<{ idle: boolean; ended: boolean }>>`

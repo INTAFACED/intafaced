@@ -61,7 +61,7 @@ import { createOperationIdentityRouter } from './controls/operation-identity-rou
 import { createLimitFeeTierRouter } from './limit-fee-tier-router.js';
 import { SavedRecipientService } from './saved-recipients.js';
 import { createSavedRecipientsRouter } from './saved-recipients.router.js';
-import { createOrgRouter, enforceOrgSecurityPolicyOn } from './org-router.js';
+import { createOrgRouter } from './org-router.js';
 import { createOrgSecurityPolicyRouter } from './org-security-policy-router.js';
 import { OrgSecurityPolicyService } from './orgs/org-security-policy.js';
 import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
@@ -487,9 +487,6 @@ account.email.useOnConfirmed((userId) => auth.claimConfirmedEmailInvites(userId)
 installPrivilegedDualControl(auth, actionApprovals);
 installFreezeDualControl(freeze, actionApprovals);
 installLimitFeeTierDualControl(rank, sql, actionApprovals);
-
-// I-account-lifecycle-06: the org router built on this sql enforces each org's security policy.
-enforceOrgSecurityPolicyOn(sql);
 
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {

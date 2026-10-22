@@ -14,7 +14,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { createStepUpRouter } from '../step-up-router.js';
-import { createOrgRouter, enforceOrgSecurityPolicyOn } from '../org-router.js';
+import { createOrgRouter } from '../org-router.js';
 import { createOrgSecurityPolicyRouter } from '../org-security-policy-router.js';
 import { ActionApprovalService } from '../auth/action-approval-service.js';
 import { SqlActionApprovalStore } from '../auth/action-approval-store.js';
@@ -77,7 +77,6 @@ if (!(await postgresAvailable(DATABASE_URL))) {
   const stepUps = new CustomerStepUpService(db.sql, new SqlCustomerStepUpStore(db.sql), auth);
   let idleMax: number | undefined;
   const service = new OrgSecurityPolicyService({ sql: db.sql, approvals, idleMaxSeconds: () => idleMax });
-  enforceOrgSecurityPolicyOn(db.sql);
   const api = mergeRouters(createOrgRouter(db.sql), createOrgSecurityPolicyRouter(service), createStepUpRouter(stepUps));
 
   let n = 0;
@@ -315,11 +314,13 @@ if (!(await postgresAvailable(DATABASE_URL))) {
     expect((await refusal(stranger.orgSecurityPolicy.get({ orgId }))).code).toBe('org.membership_denied');
   });
 
-  it('the service mount turns the policy gate on: index.ts enables it on its sql before building appRouter', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'index.ts'), 'utf8');
-    const enable = src.indexOf('enforceOrgSecurityPolicyOn(sql);');
-    expect(enable).toBeGreaterThan(-1);
-    expect(enable).toBeLessThan(src.indexOf('export const appRouter = mergeRouters('));
-    expect(src).toMatch(/createOrgRouter\(sql,\s*dmaHierarchyLaw\)/);
+  it('every mount enforces: a fresh org router on the same database refuses with no setup call', async () => {
+    const { owner, secret, orgId } = await ownerOrg();
+    await setPolicy(owner, secret, orgId, 'passkey_only', null);
+    const member = await register();
+    await addMember(orgId, member.userId);
+    const principal = await verifyAccessToken(member.accessToken, tokenConfig);
+    const fresh = createOrgRouter(db.sql).createCaller({ principal, service: null, region: 'DE', requestId: 'req-fresh' } as Context);
+    expect((await refusal(fresh.assertOrgActor({ orgId }))).code).toBe('identity.org_policy_2fa');
   });
 }
