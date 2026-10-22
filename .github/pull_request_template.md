@@ -23,6 +23,16 @@ service's screen land as one PR.
 <!-- Tests added, what you ran, what you saw. "CI is green" is not an answer on
      a money path. Name any check you could not run. -->
 
+## Risk
+
+<!-- What could break, for whom, and how you would notice. "None" is an answer
+     only for docs. -->
+
+## How to revert
+
+<!-- Usually "revert this squash commit". Say so when it is not enough: a
+     migration, an event already published, state written elsewhere. -->
+
 ---
 
 ## Checks
