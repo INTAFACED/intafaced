@@ -84,7 +84,7 @@ export interface SignalIntakeResult {
 
 export class SignalBodyError extends Error {
   constructor(
-    readonly kind: 'too_large' | 'invalid' | 'rate_limited' | 'place_unwired',
+    readonly kind: 'too_large' | 'invalid' | 'rate_limited' | 'place_unwired' | 'future_dated',
     message: string,
   ) {
     super(message);
@@ -143,6 +143,10 @@ export class SignalWebhookService {
   }
 
   async create(userId: string, input: TradeSignalWebhookCreateInput): Promise<TradeSignalWebhookCreateOutput> {
+    // Until a reviewed placement port is wired, no customer may configure a webhook whose every alert would be refused.
+    if (!this.deps.place) {
+      throw new SignalBodyError('place_unwired', 'signal webhooks cannot be created until order placement is wired [signal.place_unwired]');
+    }
     const market = await this.deps.loadMarket(input.symbol);
     if (!market) throw new SignalBodyError('invalid', `market ${input.symbol} not found`);
     if (market.paper !== (input.mode === 'demo')) {
@@ -190,6 +194,10 @@ export class SignalWebhookService {
     const received = this.now();
     const age = received.getTime() - new Date(body.sentAt).getTime();
     if (age > limits.latencyMaxMs) throw new TradeSignalError('trade.signal_stale', 'signal is older than the latency max');
+    // A sentAt further in the future than the latency window is refused, so freshness cannot be dodged by future-dating.
+    if (age < -limits.latencyMaxMs) {
+      throw new SignalBodyError('future_dated', 'signal sentAt is beyond the latency window in the future [signal.future_dated]');
+    }
 
     const alertKey = signalAlertKey(hook.id, body.alertId);
     const existing = await this.loadAlert(alertKey);
@@ -197,18 +205,22 @@ export class SignalWebhookService {
 
     if (!this.deps.place) throw new SignalBodyError('place_unwired', 'signal order placement is not wired on this service');
 
+    // Rate limit and intent insert are one transaction under a row lock on the webhook, so concurrent alerts for the same
+    // webhook are counted one at a time and cannot exceed the limit.
     const since = new Date(received.getTime() - limits.rateLimit.windowSeconds * 1000);
-    const [{ n } = { n: 0 }] = await this.deps.sql<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM trade.signal_alerts WHERE webhook_id = ${hook.id} AND received_at > ${since}`;
-    if (n >= limits.rateLimit.count) throw new SignalBodyError('rate_limited', 'signal rate limit reached for this webhook');
-
     const clientOrderId = signalClientOrderId(alertKey);
-    const inserted = await this.deps.sql<AlertRow[]>`
-      INSERT INTO trade.signal_alerts (id, alert_key, webhook_id, user_id, alert_id, sent_at, received_at, client_order_id, outcome)
-      VALUES (${randomUUID()}, ${alertKey}, ${hook.id}, ${hook.user_id}, ${body.alertId}, ${new Date(body.sentAt)}, ${received},
-        ${clientOrderId}, 'pending')
-      ON CONFLICT (alert_key) DO NOTHING
-      RETURNING alert_key, outcome, order_id, reason, client_order_id, user_id`;
+    const inserted = await this.deps.sql.begin(async (tx) => {
+      await tx`SELECT id FROM trade.signal_webhooks WHERE id = ${hook.id} FOR UPDATE`;
+      const [{ n } = { n: 0 }] = await tx<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM trade.signal_alerts WHERE webhook_id = ${hook.id} AND received_at > ${since}`;
+      if (n >= limits.rateLimit.count) throw new SignalBodyError('rate_limited', 'signal rate limit reached for this webhook');
+      return await tx<AlertRow[]>`
+        INSERT INTO trade.signal_alerts (id, alert_key, webhook_id, user_id, alert_id, sent_at, received_at, client_order_id, outcome)
+        VALUES (${randomUUID()}, ${alertKey}, ${hook.id}, ${hook.user_id}, ${body.alertId}, ${new Date(body.sentAt)}, ${received},
+          ${clientOrderId}, 'pending')
+        ON CONFLICT (alert_key) DO NOTHING
+        RETURNING alert_key, outcome, order_id, reason, client_order_id, user_id`;
+    });
     if (inserted.length === 0) {
       const raced = await this.loadAlert(alertKey);
       return this.replay(raced!, hook, body);

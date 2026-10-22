@@ -1,7 +1,8 @@
 /**
  * tRPC doors for trade signal webhooks (CB-bots-api-signal-01 PR 2), mounted as `signals` on the root router:
  * `signals.webhook.create` / `signals.webhook.list` (customer, `trade:write` / `trade:read`) and `signals.intake`
- * (svc-edge only, `serviceProcedureFor(TRADE_SIGNAL_INTAKE_CALLERS)`). Unwired, every door refuses SERVICE_UNAVAILABLE.
+ * (svc-edge only, `serviceProcedureFor(TRADE_SIGNAL_INTAKE_CALLERS)`). With no service, every door refuses SERVICE_UNAVAILABLE;
+ * with a service but no placement port, `create` and `intake` refuse SERVICE_UNAVAILABLE (`signal.place_unwired`).
  */
 import { z } from 'zod';
 import {
