@@ -39,6 +39,8 @@ export const BADGE_STUCK_NOT_STALE = 'badge.stuck_not_stale' as const;
 export const BADGE_STUCK_APPROVAL_UNWIRED = 'badge.stuck_approval_unwired' as const;
 /** Identity refused the approval, or it is not a distinct-person (four-eyes) approval of this exact clear. */
 export const BADGE_STUCK_APPROVAL_REFUSED = 'badge.stuck_approval_refused' as const;
+/** A stored claim row could not be read (e.g. an unparseable mint-slot time); nothing is minted or cleared. */
+export const BADGE_RECORD_UNREADABLE = 'badge.record_unreadable' as const;
 
 export type BadgeRefusalCode =
   | typeof BADGE_WINDOW_UNSET
@@ -50,7 +52,8 @@ export type BadgeRefusalCode =
   | typeof BADGE_STUCK_AGE_UNSET
   | typeof BADGE_STUCK_NOT_STALE
   | typeof BADGE_STUCK_APPROVAL_UNWIRED
-  | typeof BADGE_STUCK_APPROVAL_REFUSED;
+  | typeof BADGE_STUCK_APPROVAL_REFUSED
+  | typeof BADGE_RECORD_UNREADABLE;
 
 export class BadgeRefusedError extends Error {
   constructor(

@@ -72,6 +72,7 @@ import {
   resolveStuckBadgeMint,
   BADGE_STUCK_APPROVAL_REFUSED,
   BADGE_STUCK_APPROVAL_UNWIRED,
+  BADGE_RECORD_UNREADABLE,
   BADGE_STUCK_NOT_STALE,
   type BadgeApprovalConsumer,
   type BadgeMinter,
@@ -246,7 +247,7 @@ function toTrpcError(err: unknown): TRPCError {
         ? 'FORBIDDEN'
         : err.code === BADGE_STUCK_NOT_STALE
           ? 'CONFLICT'
-          : err.code === BADGE_STUCK_APPROVAL_UNWIRED
+          : err.code === BADGE_STUCK_APPROVAL_UNWIRED || err.code === BADGE_RECORD_UNREADABLE
             ? 'PRECONDITION_FAILED'
             : 'BAD_REQUEST';
     return new TRPCError({ code, message: err.message, cause: err });
