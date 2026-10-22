@@ -521,6 +521,12 @@ export function createIdentityRouter(
      */
     registrationOpen?: boolean;
     /**
+     * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
+     * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
+     * `identity.register_replaced`: people sign up through `auth.signUpStart` and the mailed code.
+     */
+    directRegister?: boolean;
+    /**
      * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
      * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
      * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
@@ -896,6 +902,13 @@ export function createIdentityRouter(
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
+          if (options.directRegister !== true) {
+            throw new TRPCError({
+              code: 'FORBIDDEN',
+              message: 'Sign up with auth.signUpStart and the mailed code [identity.register_replaced]',
+              cause: { code: 'identity.register_replaced' },
+            });
+          }
           try {
             const { referrerId, ...registerInput } = input;
             const session = await auth.register({ ...registerInput, ip: requestIpAls.getStore() });
@@ -973,13 +986,13 @@ export function createIdentityRouter(
           try {
             const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore() });
             if (done.referrerId) {
-              // Attribution never blocks the account (the account is already made); a refusal is logged.
-              await requireReferral()
-                .attribute({ userId: done.session.userId, referrerId: done.referrerId })
-                .catch((err: unknown) => {
-                  const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : 'unknown';
-                  process.stderr.write(`${JSON.stringify({ level: 'warn', code, msg: 'identity.signup_referral_refused' })}\n`);
-                });
+              // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
+              try {
+                await requireReferral().attribute({ userId: done.session.userId, referrerId: done.referrerId });
+              } catch (err) {
+                const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : 'unknown';
+                process.stderr.write(`${JSON.stringify({ level: 'warn', code, msg: 'identity.signup_referral_refused' })}\n`);
+              }
             }
             return { ...sessionWire(ctx, done.session), accountType: done.accountType };
           } catch (err) {

@@ -303,6 +303,7 @@ export async function startSignUp(deps: SignUpDeps, input: SignUpStart): Promise
 
 type OpenSignUp = {
   id: string;
+  created_at: Date;
   subject_hash: string;
   code_hash: string;
   status: string;
@@ -313,13 +314,21 @@ type OpenSignUp = {
   last_sent_at: Date | null;
 };
 
-async function readFlow(sql: Sql, flowId: string): Promise<OpenSignUp | undefined> {
+/** One sign-up flow and its draft. `lock` holds the flow row until the caller's transaction ends. */
+async function readFlow(sql: Sql, flowId: string, lock = false): Promise<OpenSignUp | undefined> {
   if (!/^[0-9a-f-]{36}$/i.test(flowId)) return undefined;
-  const rows = await sql<OpenSignUp[]>`
-    SELECT f.id, f.subject_hash, f.code_hash, f.status, f.attempts, f.expires_at, f.consumed_at, d.email, d.last_sent_at
-    FROM auth_flows f LEFT JOIN signup_drafts d ON d.flow_id = f.id
-    WHERE f.id = ${flowId} AND f.kind = 'signup'
-  `;
+  const rows = lock
+    ? await sql<OpenSignUp[]>`
+        SELECT f.id, f.created_at, f.subject_hash, f.code_hash, f.status, f.attempts, f.expires_at, f.consumed_at, d.email, d.last_sent_at
+        FROM auth_flows f LEFT JOIN signup_drafts d ON d.flow_id = f.id
+        WHERE f.id = ${flowId} AND f.kind = 'signup'
+        FOR UPDATE OF f
+      `
+    : await sql<OpenSignUp[]>`
+        SELECT f.id, f.created_at, f.subject_hash, f.code_hash, f.status, f.attempts, f.expires_at, f.consumed_at, d.email, d.last_sent_at
+        FROM auth_flows f LEFT JOIN signup_drafts d ON d.flow_id = f.id
+        WHERE f.id = ${flowId} AND f.kind = 'signup'
+      `;
   return rows[0];
 }
 
@@ -331,11 +340,11 @@ export async function resendSignUp(deps: SignUpDeps, input: { flowId: string }):
   const now = deps.now();
   const since = new Date(now.getTime() - budget.requestWindowSeconds * 1000);
   const code = newCode();
-  const expiresAt = new Date(now.getTime() + budget.ttlSeconds * 1000);
   await transaction(
     deps.sql,
     async (tx) => {
-      const flow = await readFlow(tx, input.flowId);
+      // Locked, so two resends at once cannot both pass the interval and leave the first mail's code dead.
+      const flow = await readFlow(tx, input.flowId, true);
       if (!flow || flow.consumed_at || new Date(flow.expires_at) <= now) throw new SignUpError(EXPIRED, 'identity.signup_expired');
       if (flow.status === 'locked') {
         throw new SignUpError('Too many wrong codes. Start again later.', 'auth.too_many_attempts', {
@@ -348,15 +357,20 @@ export async function resendSignUp(deps: SignUpDeps, input: { flowId: string }):
         throw new SignUpError('A code was sent a moment ago.', 'identity.resend_too_soon', { retryAfterSeconds: secondsUntil(due, now) });
       }
       await tx`SELECT pg_advisory_xact_lock(hashtext(${flow.subject_hash}))`;
-      const recent = await tx<Array<{ n: number }>>`
-        SELECT count(*)::int AS n FROM mail_outbox m JOIN auth_flows f ON f.id = m.flow_id
+      const recent = await tx<Array<{ n: number; oldest: Date | null }>>`
+        SELECT count(*)::int AS n, min(m.created_at) AS oldest FROM mail_outbox m JOIN auth_flows f ON f.id = m.flow_id
         WHERE f.subject_hash = ${flow.subject_hash} AND f.kind = 'signup' AND m.created_at > ${since}
       `;
       if ((recent[0]?.n ?? 0) >= budget.requestMax) {
+        const oldest = recent[0]!.oldest ? new Date(recent[0]!.oldest) : now;
         throw new SignUpError('Too many codes for this address. Try again later.', 'auth.too_many_attempts', {
-          retryAfterSeconds: budget.requestWindowSeconds,
+          retryAfterSeconds: secondsUntil(new Date(oldest.getTime() + budget.requestWindowSeconds * 1000), now),
         });
       }
+      // A resend renews the code's lifetime, never past one day from the sign-up's start, so a draft cannot be kept alive.
+      const expiresAt = new Date(
+        Math.min(now.getTime() + budget.ttlSeconds * 1000, new Date(flow.created_at).getTime() + MAX_TTL_SECONDS * 1000),
+      );
       const known = flow.status === 'suppressed';
       await tx`
         UPDATE auth_flows
@@ -448,6 +462,7 @@ export async function confirmSignUp(
       };
       const userId = await create(tx, draft);
       await tx`UPDATE users SET email_verified_at = ${now} WHERE id = ${userId}`;
+      await tx`UPDATE profiles SET account_type = ${draft.accountType} WHERE user_id = ${userId}`;
       await tx`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now}, user_id = ${userId} WHERE id = ${flow.id}`;
       await tx`DELETE FROM signup_drafts WHERE flow_id = ${flow.id}`;
       return { userId, draft };

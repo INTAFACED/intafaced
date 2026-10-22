@@ -314,6 +314,46 @@ if (!available) {
       expect(capped).toMatchObject({ code: 'auth.too_many_attempts', retryAfterSeconds: 3600 });
     });
 
+    it('keeps a business choice on the profile and tells the app to open business verification', async () => {
+      const answer = await anon().auth.signUpStart(form({ accountType: 'business' }));
+      const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
+      expect(session.accountType).toBe('business');
+      expect(await db.sql`SELECT account_type FROM profiles WHERE user_id = ${session.userId}`).toEqual([{ account_type: 'business' }]);
+    });
+
+    it('closes the code-less register door unless the stack is a dev or test stack', async () => {
+      const input = { handle: unique(), email: `${unique()}@example.com`, password: PASSWORD };
+      expect(await refusal(anon().auth.register(input))).toMatchObject({ trpc: 'FORBIDDEN', code: 'identity.register_replaced' });
+      expect(await count('users')).toBe(0);
+      const testStack = createIdentityRouter(auth, rank, {
+        registrationOpen: true,
+        directRegister: true,
+        actionApprovals: stubActionApprovals(),
+      });
+      await expect(testStack.createCaller(anonContext).auth.register(input)).resolves.toMatchObject({ userId: expect.any(String) });
+    });
+
+    it('never renews a code past one day from the start of the sign-up', async () => {
+      auth.useSignUpPolicy({ ...POLICY, requestMax: 1_000 });
+      const answer = await anon().auth.signUpStart(form());
+      // A resend every 9 minutes keeps the 10-minute code alive, but only until one day after the start.
+      for (let i = 0; i < 170; i++) {
+        nowMs += 9 * 60_000;
+        if (
+          (await anon()
+            .auth.signUpResend({ flowId: answer.flowId })
+            .catch(() => 'refused')) === 'refused'
+        )
+          break;
+      }
+      const [flow] = await db.sql<Array<{ expires_at: Date }>>`SELECT expires_at FROM auth_flows WHERE id = ${answer.flowId}`;
+      expect(new Date(flow!.expires_at).getTime()).toBe(T0 + 86_400_000);
+      expect(nowMs).toBeGreaterThanOrEqual(T0 + 86_400_000);
+      expect((await refusal(anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent.at(-1)!.code }))).code).toBe(
+        'identity.signup_expired',
+      );
+    });
+
     it('says a taken handle out loud (handles are public) and refuses a closed registration with its own code', async () => {
       const first = form();
       const answer = await anon().auth.signUpStart(first);

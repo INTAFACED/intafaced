@@ -1,4 +1,5 @@
 -- Reverses 0066_signup_flows.sql. Open sign-ups are dropped; accounts already made stay.
+ALTER TABLE "identity"."profiles" DROP COLUMN IF EXISTS "account_type";
 DROP TABLE IF EXISTS "identity"."signup_drafts";
 DELETE FROM "identity"."mail_outbox" WHERE "purpose" IN ('signup-code', 'signup-existing');
 DELETE FROM "identity"."auth_flows" WHERE "kind" = 'signup';
