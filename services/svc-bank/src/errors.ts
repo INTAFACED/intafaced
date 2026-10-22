@@ -593,6 +593,8 @@ export type BankErrorCode =
   | 'bank.card_programme_span_unset'
   /** Card programme span is longer than 92 days. */
   | 'bank.card_programme_span_too_long'
+  /** A card funding model other than jit was asked for; only jit runs until BK-cops-05 (BK-cops-04). */
+  | 'bank.funding_model_not_wired'
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
   /** Transfer health window was omitted or outside 1..720 hours. */
