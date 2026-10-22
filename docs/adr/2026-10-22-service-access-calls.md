@@ -1,6 +1,6 @@
 # ADR: who may call whom, for the service-access calls left open on 2026-10-22
 
-**Status:** accepted 2026-10-22. Decided by an agent on security and least-privilege grounds under the project's rule that technical calls do not wait on the owner. One call (svc-dex sign-in, section 3.2) carries a recommendation and waits on the owner's word, because it was put to the owner earlier.
+**Status:** accepted 2026-10-22. Decided by an agent on security and least-privilege grounds under the project's rule that technical calls do not wait on the owner. The svc-dex sign-in call (section 3.2) was put to the owner, who chose the recommended option on 2026-10-22.
 **Date:** 2026-10-22
 **Area:** service-to-service identity (`packages/contracts/src/service-keys.ts`), the ledger post allowlist and door lists (`services/svc-ledger/src/caller-allowlist.ts`, `door-callers.ts`), the Edge route table and admin routes (`services/svc-edge/src/routes.ts`, `admin-api.ts`), and the cross-service reads named below.
 **Answers:** the "HELD-S2S" items in the 2026-10-22 slice packs: S2S roles for svc-protocol and svc-dex, a ledger grant for svc-academy, svc-p2p's reference price, svc-support's guest email, the svc-bank holdings join, svc-ops staff holds, a `feeCharge` grant for svc-bank, an Edge route for `ledger.transactionGet` (#5786) and an Edge row for `GET /api/v1/announcements`; also the related holds on RC-bank-03 (card tier read), RC-merchant-03 Lane A totals and BK-cops-03 (account freeze read).
@@ -49,13 +49,13 @@ None of the four calls the packs hold behind "a role for svc-protocol" needs one
 
 So the comment at `service-keys.ts:14` stays true, and no code change is needed for svc-protocol now.
 
-### 3.2 svc-dex: no S2S key; wallet order sessions live in svc-identity (recommended, waits on the owner)
+### 3.2 svc-dex: no S2S key; wallet order sessions live in svc-identity (owner's choice, 2026-10-22)
 
 The D-limit-dca-01 pack has svc-dex issue and check wallet sign-in nonces by calling svc-identity. That needs svc-dex to authenticate to identity, which needs either the shared secret (a Protocol Plane bug could then post to the ledger under another name, the thing `env.ts:8-18` exists to stop) or a key, which reaches identity's blanket doors and works only once the platform runs keys.
 
 Recommended instead: **put the wallet-signed order session in svc-identity**, which already issues and revokes sessions (`auth_flows`, refresh revocation). The browser asks identity for a challenge, signs it, and identity checks it (EOA recovery, or ERC-1271 `isValidSignature` through the same chain read svc-protocol's `claimAccount` uses) and issues a short-lived, revocable session. Edge forwards that principal to svc-dex as it does for every route. svc-dex then calls no one and holds no credential. The `dex.auth.*` codes stay as the contract's names and are served by identity's procedures.
 
-If the owner prefers the pack's shape, the fallback is a key-only svc-dex identity under the standing rule's precondition (blanket doors refuse it first), callers lists on exactly identity's nonce issue/take and session revoke procedures, and sign-in refusing `dex.auth.unavailable` while the platform runs without keys, which includes today's local stack.
+The owner chose this on 2026-10-22, so the D-limit-dca-01 pack's dex-to-identity nonce call is dropped. The option not taken was a key-only svc-dex identity under the standing rule's precondition (blanket doors refuse it first), callers lists on exactly identity's nonce issue/take and session revoke procedures, and sign-in refusing `dex.auth.unavailable` while the platform runs without keys, which includes today's local stack.
 
 ### 3.3 svc-academy ledger grant (yes, two recipes)
 
