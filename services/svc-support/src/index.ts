@@ -6,6 +6,7 @@ import { createAccountStateClient } from './account-state.js';
 import { createTicketOrderClient, DarkTicketOrderSource } from './ticket-order.js';
 import { createSupportHttpApp } from './http-app.js';
 import { SqlContactBook } from './contact-channels.js';
+import { SqlHoursBook, SqlOutOfHoursReplyBook } from './support-hours.js';
 import { SqlAttachmentSettingsBook } from './attachment-settings.js';
 import { SqlGroupBook } from './desk-groups.js';
 import { SqlPropertiesBook } from './desk-properties.js';
@@ -86,6 +87,10 @@ await sql`SELECT 1 FROM support.rating_requests LIMIT 1`.catch(() => {
   throw new Error('support.rating_requests is missing — apply migration 0021 before starting svc-support');
 });
 
+await sql`SELECT 1 FROM support.business_hours LIMIT 1`.catch(() => {
+  throw new Error('support.business_hours is missing — apply migration 0029 before starting svc-support');
+});
+
 /**
  * `ownedStreams: ['support']` — this process creates `INTAFACED_SUPPORT`. The one subject
  * on it says a request was resolved, so svc-notify can ask the customer to rate it. The bus
@@ -149,6 +154,8 @@ const support = new SupportService(
   ratingRequests,
   attachmentSettings,
   env.SUPPORT_BULK_CAP ?? null,
+  new SqlHoursBook(sql),
+  new SqlOutOfHoursReplyBook(sql),
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(support, loop, env.INTERNAL_SERVICE_SECRET, support, new SqlContactBook(sql), attachmentSettings);

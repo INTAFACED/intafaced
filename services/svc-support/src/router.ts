@@ -34,6 +34,7 @@ import {
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
+import { hoursProcedures } from './hours-router.js';
 import type { AttachmentMeta } from './store.js';
 import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
@@ -171,6 +172,7 @@ export function createSupportRouter(
 ) {
   return router({
     ...contactProcedures(contact, support),
+    ...hoursProcedures(support),
     ...attachmentProcedures(attachmentSettings, support),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),

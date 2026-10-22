@@ -1,4 +1,17 @@
 import { randomUUID } from 'node:crypto';
+import type { SupportHours, SupportHoursSetInput } from '@intafaced/contracts';
+import {
+  MemoryHoursBook,
+  MemoryOutOfHoursReplyBook,
+  isOpen,
+  outOfHoursReplyFor,
+  type HoursBook,
+  type OutOfHoursReplyBook,
+} from './support-hours.js';
+
+/** Who the out-of-hours reply is written as. Not a person: the desk itself. */
+export const OUT_OF_HOURS_AUTHOR = 'system:support-hours';
+type HoursChangeInput = SupportHoursSetInput;
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
@@ -293,7 +306,50 @@ export class SupportService implements SupportContract {
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
     /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
     private readonly bulkCap: number | null = null,
+    /** Owner-set business hours (SP-sla-02). Blank until set: no out-of-hours reply is sent. */
+    private readonly hours: HoursBook = new MemoryHoursBook(),
+    /** One out-of-hours reply per request. */
+    private readonly outOfHoursReplies: OutOfHoursReplyBook = new MemoryOutOfHoursReplyBook(),
   ) {}
+
+  /**
+   * The out-of-hours reply (SP-sla-02): when the desk is closed at the moment the request was opened and the owner set
+   * the text, the request gets that text once, as a desk message. Blank hours or blank text send nothing. A failure here
+   * never fails the request that was just opened.
+   */
+  private async replyOutOfHours(ticket: SupportTicket): Promise<void> {
+    try {
+      const hours = await this.hours.get();
+      const text = outOfHoursReplyFor(hours, new Date(ticket.createdAt));
+      if (text === null) return;
+      if (!(await this.outOfHoursReplies.claim(ticket.id, this.now().toISOString()))) return;
+      await this.store.addComment({ ticketId: ticket.id, authorId: OUT_OF_HOURS_AUTHOR, authorRole: 'operator', body: text });
+    } catch {
+      // The request stands; the reply is best effort and never claimed sent unless the message row was written.
+    }
+  }
+
+  /** Business hours as set by the owner; blank until set. */
+  async getHours(): Promise<SupportHours> {
+    return this.hours.get();
+  }
+
+  /** Is the desk open now? Refuses `support.hours_unset` while the hours are blank. */
+  async hoursNow(): Promise<{ open: boolean; at: string }> {
+    const at = this.now();
+    return { open: isOpen(await this.hours.get(), at), at: at.toISOString() };
+  }
+
+  async setHours(input: { actorId: string } & HoursChangeInput): Promise<SupportHours> {
+    await this.requireLead(input.actorId);
+    return this.hours.set({
+      value: { timeZone: input.timeZone, intervals: input.intervals, holidays: input.holidays, outOfHoursReply: input.outOfHoursReply },
+      expectedRevision: input.expectedRevision,
+      by: input.actorId,
+      reason: input.reason,
+      at: this.now().toISOString(),
+    });
+  }
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
   private async deskScope(viewerId: string): Promise<{ viewer: DeskViewer; grouped: Map<string, string> } | null> {
@@ -455,6 +511,7 @@ export class SupportService implements SupportContract {
         await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
       }
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
+      await this.replyOutOfHours(ticket);
       return ticket;
     });
   }
